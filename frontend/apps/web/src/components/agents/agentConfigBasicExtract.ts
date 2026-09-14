@@ -121,7 +121,7 @@ const subagentEntry = z.strictObject({
   description: z.string().optional(),
   model: subagentModelEntry.optional(),
   instruction: z.strictObject({ append: z.string().optional() }).optional(),
-  max_concurrent: positiveCount,
+  max_instances: positiveCount,
   archive_after_idle_minutes: positiveCount,
 })
 export type SubagentEntry = z.infer<typeof subagentEntry>
@@ -136,6 +136,7 @@ const basicDocument = z.looseObject({
   mcp: z.record(z.string(), mcpEntry).optional(),
   subagents: z.record(z.string(), subagentEntry).optional(),
   max_subagents: positiveCount,
+  max_depth: positiveCount,
 })
 
 export function extractBasicConfig(document: Document): BasicConfig | null {
@@ -163,6 +164,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     skillIds: doc.skills ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
     maxSubagents: countDraft(doc.max_subagents),
+    maxDepth: countDraft(doc.max_depth),
   }
 }
 
@@ -174,7 +176,7 @@ function subagentDraft(key: string, entry: z.infer<typeof subagentEntry>): Basic
     profileName: entry.profile ?? '',
     description: entry.description ?? '',
     instructionAppend: normalizeMultiline(entry.instruction?.append ?? ''),
-    maxConcurrent: countDraft(entry.max_concurrent),
+    maxInstances: countDraft(entry.max_instances),
     archiveAfterIdleMinutes: countDraft(entry.archive_after_idle_minutes),
     modelOverride: entry.model,
   }

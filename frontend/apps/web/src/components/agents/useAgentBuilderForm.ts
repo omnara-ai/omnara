@@ -71,6 +71,7 @@ export interface BasicConfig {
   skillIds: string[]
   subagents: BasicSubagent[]
   maxSubagents: string
+  maxDepth: string
 }
 
 export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
@@ -102,6 +103,7 @@ export const emptyBasicConfig: BasicConfig = {
   skillIds: [],
   subagents: [],
   maxSubagents: '',
+  maxDepth: '',
 }
 
 export interface BasicConfigSession {
@@ -155,6 +157,7 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     mcpServers: draft.mcpServers,
     subagents: draft.subagents,
     maxSubagents: draft.maxSubagents,
+    maxDepth: draft.maxDepth,
     setInstruction: (instruction: string) => {
       patch({ instruction })
     },
@@ -182,10 +185,13 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ mcpServers })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
-      patch(subagents.length === 0 ? { subagents, maxSubagents: '' } : { subagents })
+      patch(subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents })
     },
     setMaxSubagents: (maxSubagents: string) => {
       patch({ maxSubagents })
+    },
+    setMaxDepth: (maxDepth: string) => {
+      patch({ maxDepth })
     },
     reportModelUnavailable: setModelUnavailable,
     reportUnavailableSourceIds: setUnavailableSourceIds,
@@ -201,7 +207,7 @@ export function basicConfigValid(draft: BasicConfig) {
     draft.machineSources.every(machineSourceValid) &&
     mcpServerNamesUnique(draft.mcpServers) &&
     draft.mcpServers.every(mcpServerValid) &&
-    subagentsValid(draft.subagents, draft.maxSubagents)
+    subagentsValid(draft.subagents, draft.maxSubagents, draft.maxDepth)
   )
 }
 
@@ -380,6 +386,10 @@ function applyToDocument(
   if (config.maxSubagents !== (baseline?.maxSubagents ?? '')) {
     if (config.maxSubagents === '') del(['max_subagents'])
     else set(['max_subagents'], Number(config.maxSubagents))
+  }
+  if (config.maxDepth !== (baseline?.maxDepth ?? '')) {
+    if (config.maxDepth === '') del(['max_depth'])
+    else set(['max_depth'], Number(config.maxDepth))
   }
   applyNamedEntries(
     'mcp',

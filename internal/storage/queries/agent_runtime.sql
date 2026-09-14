@@ -162,7 +162,7 @@ JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = sqlc.arg(project_id)
-  AND agent.state = 'active'
+  AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
@@ -236,7 +236,7 @@ JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = sqlc.arg(project_id)
-  AND agent.state = 'active'
+  AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))

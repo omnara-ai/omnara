@@ -181,7 +181,7 @@ FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
 WHERE call.project_id = sqlc.arg(project_id)
-  AND call.agent_id = sqlc.arg(agent_id)
+  AND call.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
   AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
   AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
   AND (

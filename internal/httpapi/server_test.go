@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -824,7 +825,7 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 
 func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 30, 0, 0, time.UTC)
-	modelOutput, err := publicEventResponseFromReadRecord(executionstore.AgentEventReadRecord{
+	modelOutput, err := publicevents.EventFromReadRecord(executionstore.AgentEventReadRecord{
 		ID:                 testHTTPID(21),
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
@@ -871,7 +872,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 	if string(modelOutputEvent.ProviderMetadata) != `{"openrouter":{"provider":"Moonshot AI"}}` {
 		t.Fatalf("model output provider metadata = %s", modelOutputEvent.ProviderMetadata)
 	}
-	withoutEvidence, err := publicEventResponseFromReadRecord(executionstore.AgentEventReadRecord{
+	withoutEvidence, err := publicevents.EventFromReadRecord(executionstore.AgentEventReadRecord{
 		ID:                 testHTTPID(23),
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
@@ -891,7 +892,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 	assertNoJSONField(t, withoutEvidence, "usage")
 	assertNoJSONField(t, withoutEvidence, "provider_metadata")
 
-	agentInput, err := publicEventResponseFromReadRecord(executionstore.AgentEventReadRecord{
+	agentInput, err := publicevents.EventFromReadRecord(executionstore.AgentEventReadRecord{
 		ID:                 testHTTPID(22),
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
@@ -924,7 +925,7 @@ func TestPublicModelOutputEventAcceptsEveryDurableStopReason(t *testing.T) {
 	}
 	for _, reason := range reasons {
 		t.Run(string(reason), func(t *testing.T) {
-			response, err := publicEventResponseFromReadRecord(executionstore.AgentEventReadRecord{
+			response, err := publicevents.EventFromReadRecord(executionstore.AgentEventReadRecord{
 				ID:                 testHTTPID(26),
 				OrgID:              httpTestOrgID,
 				ProjectID:          httpTestProjectID,
@@ -1018,7 +1019,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			nonContentInputResponse.InputIdempotencyKey,
 		)
 	}
-	eventResponses, err := publicEventResponsesFromReadRecords([]executionstore.AgentEventReadRecord{
+	eventResponses, err := publicevents.EventsFromReadRecords([]executionstore.AgentEventReadRecord{
 		{
 			ID:            testHTTPID(16),
 			OrgID:         httpTestOrgID,
@@ -1188,7 +1189,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 
 func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 	publicArtifactID := testPublicID(t, publicid.KindArtifact, httpTestArtifactID)
-	blocks, err := publicToolResultContentBlocks(json.RawMessage(
+	blocks, err := publicevents.ToolResultContentBlocks(json.RawMessage(
 		`[{"type":"media_ref","artifact_id":"` + httpTestArtifactID.String() +
 			`","exclude_from_model_context":true,"metadata":{"source":"test"}}]`,
 	))
@@ -1212,7 +1213,7 @@ func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 
 func TestPublicContentBlocksRewritesToolCallReferenceIDs(t *testing.T) {
 	publicToolCallID := testPublicID(t, publicid.KindToolCall, httpTestToolCallID)
-	blocks, err := publicModelOutputContentBlocks(json.RawMessage(
+	blocks, err := publicevents.ModelOutputContentBlocks(json.RawMessage(
 		`[{"type":"tool_call","tool_call_id":"` + httpTestToolCallID.String() +
 			`","tool_type":"built_in","name":"lookup_customer","input":{}}]`,
 	))
@@ -1229,7 +1230,7 @@ func TestPublicContentBlocksRewritesToolCallReferenceIDs(t *testing.T) {
 }
 
 func TestPublicContentBlocksPreservesStructuredDataByFieldName(t *testing.T) {
-	blocks, err := publicToolResultContentBlocks(json.RawMessage(
+	blocks, err := publicevents.ToolResultContentBlocks(json.RawMessage(
 		`[{"type":"structured_data","value":{"process_id":"domain-process","operation_key":"domain-operation"}}]`,
 	))
 	if err != nil {
@@ -1249,7 +1250,7 @@ func TestPublicContentBlocksPreserveEveryStructuredJSONType(t *testing.T) {
 	raw := json.RawMessage(
 		`[{"type":"structured_data","value":{"answer":9007199254740993}},{"type":"structured_data","value":["first",2,false,null]},{"type":"structured_data","value":"plain string"},{"type":"structured_data","value":17.5},{"type":"structured_data","value":true},{"type":"structured_data","value":null}]`,
 	)
-	blocks, err := publicToolResultContentBlocks(raw)
+	blocks, err := publicevents.ToolResultContentBlocks(raw)
 	if err != nil {
 		t.Fatalf("project public content blocks: %v", err)
 	}
@@ -1267,7 +1268,7 @@ func TestPublicToolCallInputPreservesLargeJSONIntegers(t *testing.T) {
 		`[{"type":"tool_call","tool_call_id":"` + httpTestToolCallID.String() +
 			`","tool_type":"built_in","name":"lookup_customer","input":{"account_id":9007199254740993}}]`,
 	)
-	blocks, err := publicModelOutputContentBlocks(raw)
+	blocks, err := publicevents.ModelOutputContentBlocks(raw)
 	if err != nil {
 		t.Fatalf("project public content blocks: %v", err)
 	}
@@ -1289,7 +1290,7 @@ func TestPublicContentBlocksRejectMisplacedFields(t *testing.T) {
 		{
 			name: "agent input provider replay",
 			project: func(raw json.RawMessage) error {
-				_, err := publicAgentInputContentBlocks(raw)
+				_, err := publicevents.AgentInputContentBlocks(raw)
 				return err
 			},
 			raw: json.RawMessage(
@@ -1299,7 +1300,7 @@ func TestPublicContentBlocksRejectMisplacedFields(t *testing.T) {
 		{
 			name: "model output tool field on text",
 			project: func(raw json.RawMessage) error {
-				_, err := publicModelOutputContentBlocks(raw)
+				_, err := publicevents.ModelOutputContentBlocks(raw)
 				return err
 			},
 			raw: json.RawMessage(
@@ -1309,7 +1310,7 @@ func TestPublicContentBlocksRejectMisplacedFields(t *testing.T) {
 		{
 			name: "model output nonobject tool input",
 			project: func(raw json.RawMessage) error {
-				_, err := publicModelOutputContentBlocks(raw)
+				_, err := publicevents.ModelOutputContentBlocks(raw)
 				return err
 			},
 			raw: json.RawMessage(
@@ -1320,7 +1321,7 @@ func TestPublicContentBlocksRejectMisplacedFields(t *testing.T) {
 		{
 			name: "tool result provider item",
 			project: func(raw json.RawMessage) error {
-				_, err := publicToolResultContentBlocks(raw)
+				_, err := publicevents.ToolResultContentBlocks(raw)
 				return err
 			},
 			raw: json.RawMessage(

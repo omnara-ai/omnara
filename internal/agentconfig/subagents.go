@@ -11,7 +11,26 @@ import (
 const (
 	SubagentTypeProfile = "profile"
 	SubagentTypeSelf    = "self"
+
+	MaxSubagentDepth     = 8
+	DefaultSubagentDepth = 1
 )
+
+type SubagentDepth struct {
+	MaxDepth *int
+	Depth    int
+}
+
+func (depth SubagentDepth) Limit() int {
+	if depth.MaxDepth != nil {
+		return min(*depth.MaxDepth, MaxSubagentDepth)
+	}
+	return DefaultSubagentDepth
+}
+
+func (depth SubagentDepth) CanSpawn() bool {
+	return depth.Depth < depth.Limit()
+}
 
 type AgentConfigSubagentSource struct {
 	Type                    string                                `json:"type"`
@@ -19,7 +38,7 @@ type AgentConfigSubagentSource struct {
 	Description             string                                `json:"description,omitempty"`
 	Model                   *AgentConfigSubagentModelSource       `json:"model,omitempty"`
 	Instruction             *AgentConfigSubagentInstructionSource `json:"instruction,omitempty"`
-	MaxConcurrent           *int                                  `json:"max_concurrent,omitempty"`
+	MaxInstances            *int                                  `json:"max_instances,omitempty"`
 	ArchiveAfterIdleMinutes *int                                  `json:"archive_after_idle_minutes,omitempty"`
 }
 
@@ -42,7 +61,7 @@ type SubagentCompiled struct {
 	Description             string                 `json:"description,omitempty"`
 	Model                   *SubagentModelCompiled `json:"model,omitempty"`
 	InstructionAppend       string                 `json:"instruction_append,omitempty"`
-	MaxConcurrent           *int                   `json:"max_concurrent,omitempty"`
+	MaxInstances            *int                   `json:"max_instances,omitempty"`
 	ArchiveAfterIdleMinutes *int                   `json:"archive_after_idle_minutes,omitempty"`
 }
 
@@ -88,21 +107,19 @@ type SubagentModelResolver func(
 func SubagentCompiledFrom(
 	base Compiled,
 	subagent SubagentCompiled,
+	depth SubagentDepth,
 	resolveModel SubagentModelResolver,
 ) (Compiled, error) {
 	child := base
 	child.Tools = copyTools(base.Tools)
+	child.MaxDepth = depth.MaxDepth
 	if subagent.InstructionAppend != "" {
 		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + subagent.InstructionAppend
 	}
-	if subagent.Type == SubagentTypeSelf {
+	if !depth.CanSpawn() {
 		child.Subagents = nil
 		child.MaxSubagents = nil
-		for name := range child.Tools {
-			if toolcatalog.IsSubagentToolName(name) {
-				delete(child.Tools, name)
-			}
-		}
+		delete(child.Tools, toolcatalog.ToolNameSpawnAgent)
 		if len(child.Tools) == 0 {
 			child.Tools = nil
 		}
@@ -163,7 +180,7 @@ func compileSubagents(
 		out := SubagentCompiled{
 			Type:                    entry.Type,
 			Description:             strings.TrimSpace(entry.Description),
-			MaxConcurrent:           entry.MaxConcurrent,
+			MaxInstances:            entry.MaxInstances,
 			ArchiveAfterIdleMinutes: entry.ArchiveAfterIdleMinutes,
 		}
 		if entry.Instruction != nil {
@@ -221,13 +238,12 @@ func compileSubagents(
 }
 
 func validateSubagentToolConfiguration(source AgentConfigSource) error {
-	for name := range source.Tools {
-		if !toolcatalog.IsSubagentToolName(name) {
-			continue
-		}
-		if len(source.Subagents) == 0 {
-			return issuef(jsonPointer("tools", name), "%q requires at least one entry under subagents", name)
-		}
+	if _, ok := source.Tools[toolcatalog.ToolNameSpawnAgent]; ok && len(source.Subagents) == 0 {
+		return issuef(
+			jsonPointer("tools", toolcatalog.ToolNameSpawnAgent),
+			"%q requires at least one entry under subagents",
+			toolcatalog.ToolNameSpawnAgent,
+		)
 	}
 	if source.MaxSubagents != nil && len(source.Subagents) == 0 {
 		return issuef(jsonPointer("max_subagents"), "requires at least one entry under subagents")

@@ -1390,7 +1390,7 @@ FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
 WHERE call.project_id = $1
-  AND call.agent_id = $2
+  AND call.agent_id = ANY($2::uuid[])
   AND ($3::text = '' OR call.state = $3)
   AND ($4::text = '' OR call.type = $4)
   AND (
@@ -1406,7 +1406,7 @@ LIMIT $7::bigint
 
 type ListToolCallsForAgentParams struct {
 	ProjectID       uuid.UUID
-	AgentID         uuid.UUID
+	AgentIds        []uuid.UUID
 	State           string
 	Type            string
 	CursorCreatedAt *time.Time
@@ -1436,7 +1436,7 @@ type ListToolCallsForAgentRow struct {
 func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsForAgentParams) ([]ListToolCallsForAgentRow, error) {
 	rows, err := q.db.Query(ctx, listToolCallsForAgent,
 		arg.ProjectID,
-		arg.AgentID,
+		arg.AgentIds,
 		arg.State,
 		arg.Type,
 		arg.CursorCreatedAt,

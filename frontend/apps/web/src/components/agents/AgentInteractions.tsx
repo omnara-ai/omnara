@@ -235,16 +235,14 @@ export function AgentInteractions({
   orgID,
   projectID,
   agentID,
-  agentActive,
   canOperate,
 }: {
   orgID: string
   projectID: string
   agentID: string
-  agentActive: boolean
   canOperate: boolean
 }) {
-  const interactionsQuery = useAgentInteractions(orgID, projectID, agentID, agentActive)
+  const interactionsQuery = useAgentInteractions(orgID, projectID, agentID)
   const resolveInteraction = useResolveAgentInteraction(orgID, projectID, agentID)
   const interactions = interactionsQuery.data?.data ?? []
   const loadError =

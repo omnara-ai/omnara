@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -47,4 +48,8 @@ func stringFromSQLCText(value *string) string {
 
 func resourceLimitExceeded(resource string, limit int64) error {
 	return fmt.Errorf("%s limit of %d reached: %w", resource, limit, storeerr.ErrConflict)
+}
+
+func NewWithTx(tx pgx.Tx) *Store {
+	return &Store{q: dbsqlc.New(tx)}
 }

@@ -103,6 +103,7 @@ export function agentTemplateBasicConfig(
     skillIds: [],
     subagents: [],
     maxSubagents: '',
+    maxDepth: '',
     ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
   }
 }

@@ -345,7 +345,17 @@ func (s *Store) ListTurnEventsForRead(
 	if err := s.requireAgentTurnInProject(ctx, projectID, agentID, turnID); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListTurnEventsForRead(
+	return listTurnEventsForReadTx(ctx, s.q, projectID, agentID, turnID, beforeSequence, limit)
+}
+
+func listTurnEventsForReadTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID, turnID ID,
+	beforeSequence int64,
+	limit int32,
+) ([]AgentEventReadRecord, error) {
+	rows, err := qtx.ListTurnEventsForRead(
 		ctx,
 		dbsqlc.ListTurnEventsForReadParams{
 			ProjectID:      projectID,
@@ -384,7 +394,17 @@ func (s *Store) ListAgentTurnsForRead(
 	if err := s.requireAgentInProject(ctx, projectID, agentID); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListAgentTurnsForRead(
+	return listAgentTurnsForReadTx(ctx, s.q, projectID, agentID, beforeTurnSequence, limit)
+}
+
+func listAgentTurnsForReadTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID ID,
+	beforeTurnSequence int64,
+	limit int32,
+) ([]AgentTurnReadRecord, error) {
+	rows, err := qtx.ListAgentTurnsForRead(
 		ctx,
 		dbsqlc.ListAgentTurnsForReadParams{
 			ProjectID:          projectID,
@@ -416,7 +436,7 @@ func (s *Store) ListAgentTurnsForRead(
 	if len(turnIDs) == 0 {
 		return out, nil
 	}
-	boundaryRows, err := s.q.ListTurnBoundaryEventsForRead(
+	boundaryRows, err := qtx.ListTurnBoundaryEventsForRead(
 		ctx,
 		dbsqlc.ListTurnBoundaryEventsForReadParams{
 			ProjectID: projectID,

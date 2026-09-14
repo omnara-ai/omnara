@@ -357,7 +357,7 @@
         "instruction": {
           "$ref": "#/$defs/AgentConfigSubagentInstructionSource"
         },
-        "max_concurrent": {
+        "max_instances": {
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
@@ -516,6 +516,11 @@
           "type": "null"
         }
       ]
+    },
+    "max_depth": {
+      "maximum": 8,
+      "minimum": 1,
+      "type": "integer"
     },
     "max_subagents": {
       "maximum": 2147483647,

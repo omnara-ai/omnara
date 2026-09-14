@@ -36,12 +36,55 @@ SELECT agent.id,
            WHERE wake.agent_id = agent.id
          )
          OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
+         OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
        )::boolean AS is_running
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
 ORDER BY agent.created_at, agent.id;
+
+-- name: ListAgentActivityForAgents :many
+SELECT agent.id,
+       agent.state,
+       coalesce((
+         SELECT event.created_at
+         FROM agent_events event
+         WHERE event.agent_id = agent.id
+         ORDER BY event.sequence DESC
+         LIMIT 1
+       ), agent.created_at) AS last_activity_at,
+       EXISTS (
+         SELECT 1
+         FROM agent_interactions interaction
+         WHERE interaction.agent_id = agent.id
+           AND interaction.interaction_kind = 'question'
+           AND interaction.state = 'open'
+       ) AS has_open_question,
+       EXISTS (
+         SELECT 1
+         FROM agent_interactions interaction
+         WHERE interaction.agent_id = agent.id
+           AND interaction.interaction_kind = 'permission'
+           AND interaction.state = 'open'
+       ) AS has_open_permission,
+       (
+         EXISTS (
+           SELECT 1
+           FROM agent_runtime_locks runtime_lock
+           WHERE runtime_lock.agent_id = agent.id
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM agent_wakeups wake
+           WHERE wake.agent_id = agent.id
+         )
+         OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
+         OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
+       )::boolean AS is_running
+FROM agents agent
+WHERE agent.project_id = sqlc.arg(project_id)
+  AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[]);
 
 -- name: CountActiveChildAgentsForLaunch :one
 SELECT count(*)::integer AS total,
@@ -179,12 +222,7 @@ WHERE NOT EXISTS (
         FROM agent_wakeups wake
         WHERE wake.agent_id = subtree.id
       )
-      OR EXISTS (
-        SELECT 1
-        FROM tool_calls call
-        WHERE call.agent_id = subtree.id
-          AND call.state IN ('running', 'waiting', 'awaiting_permission')
-      )
+      OR agent_has_incomplete_tool_batch(subtree.project_id, subtree.id)
     )
 )
 ORDER BY candidate.created_at, candidate.id
@@ -232,11 +270,6 @@ SELECT EXISTS (
           FROM agent_wakeups wake
           WHERE wake.agent_id = subtree.id
         )
-        OR EXISTS (
-          SELECT 1
-          FROM tool_calls call
-          WHERE call.agent_id = subtree.id
-            AND call.state IN ('running', 'waiting', 'awaiting_permission')
-        )
+        OR agent_has_incomplete_tool_batch(subtree.project_id, subtree.id)
     )
 )::boolean AS idle;

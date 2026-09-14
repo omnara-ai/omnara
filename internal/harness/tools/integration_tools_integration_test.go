@@ -1757,7 +1757,23 @@ func newIntegrationToolFixtureWithMCP(
 	withMCP bool,
 	storeOptions ...storage.Option,
 ) integrationToolFixture {
+	return newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{withMCP: withMCP}, storeOptions...)
+}
+
+type toolFixtureOptions struct {
+	withMCP       bool
+	withSubagents bool
+}
+
+func newIntegrationToolFixtureWithOptions(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	fixtureOptions toolFixtureOptions,
+	storeOptions ...storage.Option,
+) integrationToolFixture {
 	t.Helper()
+	withMCP := fixtureOptions.withMCP
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 	options := []storage.Option{
 		storage.WithSecretKeyWrapper(integrationToolKeyWrapper(t)),
@@ -1804,7 +1820,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	ensureIntegrationToolsProjectAdmin(t, ctx, store, user.ID, now)
 
-	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, withMCP)
+	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, fixtureOptions)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -2059,9 +2075,10 @@ func createIntegrationToolProfile(
 	store *storage.Store,
 	userID storage.ID,
 	label string,
-	withMCP bool,
+	fixtureOptions toolFixtureOptions,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
+	withMCP := fixtureOptions.withMCP
 	sourceYAML := `instruction: Reply to users.
 model:
   provider_config: openai-prod
@@ -2081,6 +2098,14 @@ tools:
     permission:
       mode: always_allow
       parameters: {}
+`
+	}
+	if fixtureOptions.withSubagents {
+		sourceYAML += `subagents:
+  fork:
+    type: self
+    instruction:
+      append: You are a fork.
 `
 	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)

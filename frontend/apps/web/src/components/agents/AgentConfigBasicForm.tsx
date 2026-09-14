@@ -78,8 +78,10 @@ export function AgentConfigBasicForm({
             projectId={projectId}
             subagents={form.subagents}
             maxSubagents={form.maxSubagents}
+            maxDepth={form.maxDepth}
             onSubagentsChange={form.setSubagents}
             onMaxSubagentsChange={form.setMaxSubagents}
+            onMaxDepthChange={form.setMaxDepth}
           />
           <AgentConfigMcpServersField
             orgId={orgId}

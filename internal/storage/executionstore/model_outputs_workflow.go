@@ -570,12 +570,8 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		); err != nil {
 			return events.Event{}, err
 		}
-		if turnText, ended := modelOutputEndsTurn(input.ProviderResponse); ended {
-			message := subagentMessage{
-				Kind:           SubagentMessageKindResult,
-				Text:           turnText,
-				IdempotencyKey: "model_output:" + modelOutput.ID.String(),
-			}
+		if message, ended := subagentTurnEndMessage(input.ProviderResponse); ended {
+			message.IdempotencyKey = "model_output:" + modelOutput.ID.String()
 			if err := handleSubagentTurnEndedTx(
 				ctx, txNotifications, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID, message,
 			); err != nil {
@@ -690,9 +686,24 @@ func completeSuccessfulNormalModelCallTx(
 	return nil
 }
 
-func modelOutputEndsTurn(envelope modelenvelope.ResponseEnvelope) (string, bool) {
+// subagentTurnEndMessage decides whether a model output ends a subagent's
+// turn from the parent's point of view. Tool calls keep the turn open, and so
+// does max_tokens, because the scheduler continues that output automatically;
+// only end_turn delivers the answer, while refusal and content_filter tell the
+// parent the subagent stopped without one.
+func subagentTurnEndMessage(envelope modelenvelope.ResponseEnvelope) (subagentMessage, bool) {
 	if envelope.HasToolCalls() {
-		return "", false
+		return subagentMessage{}, false
 	}
-	return strings.TrimSpace(envelope.Text()), true
+	text := strings.TrimSpace(envelope.Text())
+	switch envelope.Normalized.StopReason {
+	case modelenvelope.StopReasonEndTurn:
+		return subagentMessage{Kind: SubagentMessageKindResult, Text: text}, true
+	case modelenvelope.StopReasonRefusal:
+		return subagentMessage{Kind: SubagentMessageKindRefused, Text: text}, true
+	case modelenvelope.StopReasonContentFilter:
+		return subagentMessage{Kind: SubagentMessageKindContentFiltered, Text: text}, true
+	default:
+		return subagentMessage{}, false
+	}
 }

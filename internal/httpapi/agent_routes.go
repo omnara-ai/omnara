@@ -653,11 +653,20 @@ func (s strictOpenAPIServer) listAgents(
 	if params.IncludeSubagents != nil {
 		filters.IncludeSubagents = *params.IncludeSubagents
 	}
+	if params.IncludeArchived != nil {
+		filters.IncludeArchived = *params.IncludeArchived
+	}
+	extra := struct {
+		AgentProfileID   *storage.ID
+		ParentAgentID    *storage.ID
+		IncludeSubagents bool
+		IncludeArchived  bool
+	}{filters.AgentProfileID, filters.ParentAgentID, filters.IncludeSubagents, filters.IncludeArchived}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",
 		Scope: project.OrgID.String() + "/" + project.ID.String(), IDKind: publicid.KindAgent,
-		AllowedSorts: defaultResourceSorts,
+		AllowedSorts: defaultResourceSorts, Extra: extra,
 	})
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
@@ -678,7 +687,7 @@ func (s strictOpenAPIServer) listAgents(
 	}
 	nextCursor, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "agents",
-		project.OrgID.String()+"/"+project.ID.String(), publicid.KindAgent, nil,
+		project.OrgID.String()+"/"+project.ID.String(), publicid.KindAgent, extra,
 	)
 	if err != nil {
 		return nil, err
@@ -981,24 +990,6 @@ func (s *Server) currentAgentResponse(
 	if err != nil {
 		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
 	}
-	subagents, err := s.store.Execution().ListSubagents(ctx, record.ProjectID, record.ID)
-	if err != nil {
-		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
-	}
-	subagentSummaries := make([]openapi.SubagentSummary, 0, len(subagents))
-	for _, subagent := range subagents {
-		subagentID, err := publicID(publicid.KindAgent, subagent.AgentID)
-		if err != nil {
-			return openapi.GetAgentResponse{}, err
-		}
-		subagentSummaries = append(subagentSummaries, openapi.SubagentSummary{
-			Id:             subagentID,
-			Name:           subagent.Name,
-			Key:            subagent.Key,
-			State:          openapi.SubagentSummaryState(subagent.State),
-			LastActivityAt: subagent.LastActivityAt,
-		})
-	}
 	mcpConnections := make([]openapi.AgentMCPConnection, 0, len(connections))
 	for _, connection := range connections {
 		mcpConnections = append(mcpConnections, openapi.AgentMCPConnection{
@@ -1015,7 +1006,6 @@ func (s *Server) currentAgentResponse(
 		Agent:          agent,
 		MachineIds:     machineIDs,
 		McpConnections: mcpConnections,
-		Subagents:      &subagentSummaries,
 	}, nil
 }
 

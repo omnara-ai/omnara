@@ -66,7 +66,7 @@ func options(
 			}
 			return agentconfig.ResolvedModelSelection{}, err
 		}
-		return resolveGrantedModel(ctx, store, orgID, projectID, providerConfig, configuredModelName)
+		return resolveGrantedModel(ctx, store.Models(), orgID, projectID, providerConfig, configuredModelName)
 	}
 	opts.ResolveMachineName = func(machineName string) (string, error) {
 		machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, projectID, machineName)
@@ -125,14 +125,28 @@ func options(
 	return opts
 }
 
+type ModelReads interface {
+	GetConfiguredModel(ctx context.Context, orgID, id storage.ID) (modelstore.ConfiguredModelRecord, error)
+	GetConfiguredModelByName(
+		ctx context.Context, orgID, providerConfigID storage.ID, name string,
+	) (modelstore.ConfiguredModelRecord, error)
+	GetModelProviderConfig(ctx context.Context, orgID, id storage.ID) (modelstore.ModelProviderConfigRecord, error)
+	GetModelProviderConfigByName(
+		ctx context.Context, orgID storage.ID, name string,
+	) (modelstore.ModelProviderConfigRecord, error)
+	GetActiveProjectModelGrantForConfiguredModel(
+		ctx context.Context, orgID, projectID, configuredModelID storage.ID,
+	) (modelstore.ProjectModelGrantRecord, error)
+}
+
 func resolveGrantedModel(
 	ctx context.Context,
-	store *storage.Store,
+	models ModelReads,
 	orgID, projectID storage.ID,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	configuredModelName string,
 ) (agentconfig.ResolvedModelSelection, error) {
-	configuredModel, err := store.Models().GetConfiguredModelByName(
+	configuredModel, err := models.GetConfiguredModelByName(
 		ctx,
 		orgID,
 		providerConfig.ID,
@@ -152,7 +166,7 @@ func resolveGrantedModel(
 		}
 		return agentconfig.ResolvedModelSelection{}, err
 	}
-	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+	grant, err := models.GetActiveProjectModelGrantForConfiguredModel(
 		ctx,
 		orgID,
 		projectID,
@@ -187,9 +201,13 @@ func resolveGrantedModel(
 	}, nil
 }
 
-func subagentModelResolver(
+// SubagentModelResolver resolves a subagent's model override against the
+// organization's configured models and the project's grants through the
+// given reads, so callers inside a transaction can keep resolution on their
+// own connection.
+func SubagentModelResolver(
 	ctx context.Context,
-	store *storage.Store,
+	models ModelReads,
 	orgID, projectID storage.ID,
 ) agentconfig.SubagentModelResolver {
 	return func(
@@ -200,13 +218,13 @@ func subagentModelResolver(
 		if err != nil {
 			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("parse base configured model id: %w", err)
 		}
-		baseModel, err := store.Models().GetConfiguredModel(ctx, orgID, baseModelID)
+		baseModel, err := models.GetConfiguredModel(ctx, orgID, baseModelID)
 		if err != nil {
 			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base configured model: %w", err)
 		}
 		var providerConfig modelstore.ModelProviderConfigRecord
 		if override.ProviderConfig != "" {
-			providerConfig, err = store.Models().GetModelProviderConfigByName(ctx, orgID, override.ProviderConfig)
+			providerConfig, err = models.GetModelProviderConfigByName(ctx, orgID, override.ProviderConfig)
 			if err != nil {
 				if storeerr.IsNotFound(err) {
 					return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
@@ -219,7 +237,7 @@ func subagentModelResolver(
 				return agentconfig.ResolvedModelSelection{}, err
 			}
 		} else {
-			providerConfig, err = store.Models().GetModelProviderConfig(ctx, orgID, baseModel.ModelProviderConfigID)
+			providerConfig, err = models.GetModelProviderConfig(ctx, orgID, baseModel.ModelProviderConfigID)
 			if err != nil {
 				return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base model provider config: %w", err)
 			}
@@ -228,26 +246,21 @@ func subagentModelResolver(
 		if configuredModelName == "" {
 			configuredModelName = baseModel.Name
 		}
-		return resolveGrantedModel(ctx, store, orgID, projectID, providerConfig, configuredModelName)
+		return resolveGrantedModel(ctx, models, orgID, projectID, providerConfig, configuredModelName)
 	}
 }
 
 func DeriveSubagentConfig(
-	ctx context.Context,
-	store *storage.Store,
-	orgID, projectID storage.ID,
 	base executionstore.AgentConfigRecord,
 	subagent agentconfig.SubagentCompiled,
+	depth agentconfig.SubagentDepth,
+	resolveModel agentconfig.SubagentModelResolver,
 ) (Body, error) {
 	var baseCompiled agentconfig.Compiled
 	if err := json.Unmarshal(base.CompiledDefinition, &baseCompiled); err != nil {
 		return Body{}, fmt.Errorf("decode base compiled agent config: %w", err)
 	}
-	child, err := agentconfig.SubagentCompiledFrom(
-		baseCompiled,
-		subagent,
-		subagentModelResolver(ctx, store, orgID, projectID),
-	)
+	child, err := agentconfig.SubagentCompiledFrom(baseCompiled, subagent, depth, resolveModel)
 	if err != nil {
 		return Body{}, err
 	}
@@ -259,15 +272,38 @@ func DeriveSubagentConfig(
 	if err != nil || configuredModelID == storage.NilID {
 		return Body{}, fmt.Errorf("subagent model must resolve to a configured project-granted model")
 	}
+	source, sourceFormat, err := deriveSubagentSource(base, subagent, depth)
+	if err != nil {
+		return Body{}, err
+	}
 	return Body{
 		Definition:         json.RawMessage(encoded.CanonicalJSON),
-		Source:             base.Source,
-		SourceFormat:       base.SourceFormat,
+		Source:             source,
+		SourceFormat:       sourceFormat,
 		ConfiguredModelID:  configuredModelID,
 		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     encoded.Hash,
 	}, nil
+}
+
+func deriveSubagentSource(
+	base executionstore.AgentConfigRecord,
+	subagent agentconfig.SubagentCompiled,
+	depth agentconfig.SubagentDepth,
+) (string, string, error) {
+	if base.Source == "" {
+		return "", "", nil
+	}
+	parsed, err := agentconfig.ParseSource(agentconfig.SourceFormat(base.SourceFormat), []byte(base.Source))
+	if err != nil {
+		return "", "", fmt.Errorf("parse base agent config source: %w", err)
+	}
+	source, err := agentconfig.EncodeSourceYAML(agentconfig.SubagentSourceFrom(parsed, subagent, depth))
+	if err != nil {
+		return "", "", err
+	}
+	return source, string(agentconfig.SourceFormatYAML), nil
 }
 
 func Compile(

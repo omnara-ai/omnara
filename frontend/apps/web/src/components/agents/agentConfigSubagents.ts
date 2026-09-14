@@ -15,7 +15,7 @@ export interface BasicSubagent {
   profileName: string
   description: string
   instructionAppend: string
-  maxConcurrent: string
+  maxInstances: string
   archiveAfterIdleMinutes: string
   modelOverride?: SubagentModelEntry
 }
@@ -28,7 +28,7 @@ export function newSubagent(): BasicSubagent {
     profileName: '',
     description: '',
     instructionAppend: '',
-    maxConcurrent: '',
+    maxInstances: '',
     archiveAfterIdleMinutes: '',
   }
 }
@@ -56,7 +56,7 @@ function subagentValid(subagent: BasicSubagent) {
   return (
     subagentKeyError(subagent.key) === undefined &&
     (subagent.type === 'self' || resourceNameValid(subagent.profileName)) &&
-    optionalPositiveInt32Valid(subagent.maxConcurrent) &&
+    optionalPositiveInt32Valid(subagent.maxInstances) &&
     optionalPositiveInt32Valid(subagent.archiveAfterIdleMinutes)
   )
 }
@@ -66,12 +66,22 @@ function subagentKeysUnique(subagents: BasicSubagent[]) {
   return new Set(keys).size === keys.length
 }
 
-export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string) {
+export const maxSubagentDepth = 8
+
+export function maxDepthValid(maxDepth: string) {
+  return (
+    maxDepth === '' ||
+    (optionalPositiveInt32Valid(maxDepth) && Number(maxDepth) <= maxSubagentDepth)
+  )
+}
+
+export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string, maxDepth: string) {
   return (
     subagentKeysUnique(subagents) &&
     subagents.every(subagentValid) &&
     optionalPositiveInt32Valid(maxSubagents) &&
-    (maxSubagents === '' || subagents.length > 0)
+    maxDepthValid(maxDepth) &&
+    ((maxSubagents === '' && maxDepth === '') || subagents.length > 0)
   )
 }
 
@@ -82,7 +92,7 @@ export function subagentWire(subagent: BasicSubagent): SubagentEntry {
   if (subagent.modelOverride !== undefined) wire.model = subagent.modelOverride
   const append = normalizeMultiline(subagent.instructionAppend)
   if (append !== '') wire.instruction = { append }
-  if (subagent.maxConcurrent !== '') wire.max_concurrent = Number(subagent.maxConcurrent)
+  if (subagent.maxInstances !== '') wire.max_instances = Number(subagent.maxInstances)
   if (subagent.archiveAfterIdleMinutes !== '') {
     wire.archive_after_idle_minutes = Number(subagent.archiveAfterIdleMinutes)
   }

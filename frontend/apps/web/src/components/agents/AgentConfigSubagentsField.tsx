@@ -48,15 +48,19 @@ export function AgentConfigSubagentsField({
   projectId,
   subagents,
   maxSubagents,
+  maxDepth,
   onSubagentsChange,
   onMaxSubagentsChange,
+  onMaxDepthChange,
 }: {
   orgId: string
   projectId: string
   subagents: BasicSubagent[]
   maxSubagents: string
+  maxDepth: string
   onSubagentsChange: (subagents: BasicSubagent[]) => void
   onMaxSubagentsChange: (value: string) => void
+  onMaxDepthChange: (value: string) => void
 }) {
   const keyCounts = new Map<string, number>()
   for (const subagent of subagents) {
@@ -103,18 +107,32 @@ export function AgentConfigSubagentsField({
               }}
             />
           ))}
-          <Field className="max-w-xs">
-            <FieldLabel htmlFor="agent-config-max-subagents">Max active subagents</FieldLabel>
-            <Input
-              id="agent-config-max-subagents"
-              inputMode="numeric"
-              value={maxSubagents}
-              placeholder="Unlimited"
-              onChange={(event) => {
-                onMaxSubagentsChange(event.target.value.trim())
-              }}
-            />
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="agent-config-max-subagents">Max active subagents</FieldLabel>
+              <Input
+                id="agent-config-max-subagents"
+                inputMode="numeric"
+                value={maxSubagents}
+                placeholder="Unlimited"
+                onChange={(event) => {
+                  onMaxSubagentsChange(event.target.value.trim())
+                }}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="agent-config-max-depth">Max depth</FieldLabel>
+              <Input
+                id="agent-config-max-depth"
+                inputMode="numeric"
+                value={maxDepth}
+                placeholder="1"
+                onChange={(event) => {
+                  onMaxDepthChange(event.target.value.trim())
+                }}
+              />
+            </Field>
+          </div>
         </div>
       ) : null}
     </AgentConfigSectionCard>
@@ -225,14 +243,14 @@ function SubagentRow({
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field>
-          <FieldLabel htmlFor={fieldId('max-concurrent')}>Max concurrent</FieldLabel>
+          <FieldLabel htmlFor={fieldId('max-instances')}>Max instances</FieldLabel>
           <Input
-            id={fieldId('max-concurrent')}
+            id={fieldId('max-instances')}
             inputMode="numeric"
-            value={subagent.maxConcurrent}
+            value={subagent.maxInstances}
             placeholder="Unlimited"
             onChange={(event) => {
-              onChange({ maxConcurrent: event.target.value.trim() })
+              onChange({ maxInstances: event.target.value.trim() })
             }}
           />
         </Field>

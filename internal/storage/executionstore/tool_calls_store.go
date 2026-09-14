@@ -75,7 +75,7 @@ type RequeueRuntimeToolCallInput struct {
 
 type ListToolCallsInput struct {
 	ProjectID ID
-	AgentID   ID
+	AgentIDs  []ID
 	State     ToolCallState
 	Type      string
 	Limit     int

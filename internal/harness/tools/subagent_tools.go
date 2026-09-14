@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -25,34 +26,25 @@ type spawnAgentRequest struct {
 }
 
 type readAgentRequest struct {
-	AgentRef       string `json:"agent_ref"`
-	AfterSequence  *int64 `json:"after_sequence,omitempty"`
-	BeforeSequence *int64 `json:"before_sequence,omitempty"`
-	Limit          *int   `json:"limit,omitempty"`
-}
-
-type subagentEventSummary struct {
-	Sequence   int64  `json:"sequence"`
-	Kind       string `json:"kind"`
-	CreatedAt  string `json:"created_at"`
-	Text       string `json:"text,omitempty"`
-	StopReason string `json:"stop_reason,omitempty"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
-	Outcome    string `json:"outcome,omitempty"`
+	AgentID            string `json:"agent_id"`
+	TurnID             string `json:"turn_id,omitempty"`
+	BeforeTurnSequence *int64 `json:"before_turn_sequence,omitempty"`
+	BeforeSequence     *int64 `json:"before_sequence,omitempty"`
+	Limit              *int32 `json:"limit,omitempty"`
 }
 
 type sendAgentMessageRequest struct {
-	AgentRef string `json:"agent_ref"`
-	Message  string `json:"message"`
+	AgentID string `json:"agent_id"`
+	Message string `json:"message"`
 }
 
 type stopAgentRequest struct {
-	AgentRef string `json:"agent_ref"`
+	AgentID string `json:"agent_id"`
+	Archive bool   `json:"archive,omitempty"`
 }
 
 type subagentSummary struct {
 	AgentID        string `json:"agent_id"`
-	AgentRef       string `json:"agent_ref"`
 	Name           string `json:"name,omitempty"`
 	Key            string `json:"key"`
 	State          string `json:"state"`
@@ -88,9 +80,9 @@ func resolveSendAgentMessageRequest(raw json.RawMessage) (sendAgentMessageReques
 	if err != nil {
 		return sendAgentMessageRequest{}, err
 	}
-	input.AgentRef = strings.TrimSpace(input.AgentRef)
-	if input.AgentRef == "" {
-		return sendAgentMessageRequest{}, errors.New("send_agent_message agent_ref is required")
+	input.AgentID = strings.TrimSpace(input.AgentID)
+	if input.AgentID == "" {
+		return sendAgentMessageRequest{}, errors.New("send_agent_message agent_id is required")
 	}
 	if strings.TrimSpace(input.Message) == "" {
 		return sendAgentMessageRequest{}, errors.New("send_agent_message message is required")
@@ -103,9 +95,9 @@ func resolveStopAgentRequest(raw json.RawMessage) (stopAgentRequest, error) {
 	if err := decodeStrictToolRequest("stop_agent", raw, &input); err != nil {
 		return stopAgentRequest{}, err
 	}
-	input.AgentRef = strings.TrimSpace(input.AgentRef)
-	if input.AgentRef == "" {
-		return stopAgentRequest{}, errors.New("stop_agent agent_ref is required")
+	input.AgentID = strings.TrimSpace(input.AgentID)
+	if input.AgentID == "" {
+		return stopAgentRequest{}, errors.New("stop_agent agent_id is required")
 	}
 	return input, nil
 }
@@ -120,18 +112,29 @@ func resolveReadAgentRequest(raw json.RawMessage) (readAgentRequest, error) {
 	if err := decodeStrictToolRequest("read_agent", raw, &input); err != nil {
 		return readAgentRequest{}, err
 	}
-	input.AgentRef = strings.TrimSpace(input.AgentRef)
-	if input.AgentRef == "" {
-		return readAgentRequest{}, errors.New("read_agent agent_ref is required")
+	input.AgentID = strings.TrimSpace(input.AgentID)
+	input.TurnID = strings.TrimSpace(input.TurnID)
+	if input.AgentID == "" {
+		return readAgentRequest{}, errors.New("read_agent agent_id is required")
 	}
-	if input.AfterSequence != nil && *input.AfterSequence < 0 {
-		return readAgentRequest{}, errors.New("read_agent after_sequence must be at least 0")
+	if input.TurnID == "" && input.BeforeSequence != nil {
+		return readAgentRequest{}, errors.New("read_agent before_sequence requires turn_id")
 	}
-	if input.BeforeSequence != nil && *input.BeforeSequence < 0 {
-		return readAgentRequest{}, errors.New("read_agent before_sequence must be at least 0")
+	if input.TurnID != "" && input.BeforeTurnSequence != nil {
+		return readAgentRequest{}, errors.New("read_agent before_turn_sequence applies only without turn_id")
 	}
-	if input.Limit != nil && (*input.Limit < 1 || *input.Limit > 100) {
-		return readAgentRequest{}, errors.New("read_agent limit must be between 1 and 100")
+	if _, err := publicevents.SequenceBoundary(input.BeforeTurnSequence, "before_turn_sequence"); err != nil {
+		return readAgentRequest{}, fmt.Errorf("read_agent %w", err)
+	}
+	if _, err := publicevents.SequenceBoundary(input.BeforeSequence, "before_sequence"); err != nil {
+		return readAgentRequest{}, fmt.Errorf("read_agent %w", err)
+	}
+	maxLimit := executionstore.MaxAgentTurnsReadPageLimit
+	if input.TurnID != "" {
+		maxLimit = executionstore.MaxAgentEventsReadPageLimit
+	}
+	if _, err := publicevents.TimelineLimit(input.Limit, 1, maxLimit); err != nil {
+		return readAgentRequest{}, fmt.Errorf("read_agent %w", err)
 	}
 	return input, nil
 }
@@ -189,7 +192,6 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 	}
 	return subagentSummary{
 		AgentID:        agentPublicID,
-		AgentRef:       status.AgentRef,
 		Name:           status.Name,
 		Key:            status.Key,
 		State:          status.State,
@@ -202,11 +204,7 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 	if err != nil {
 		return nil, err
 	}
-	executor := call.Executor
-	if executor.Store == nil {
-		return nil, errors.New("tool executor store is required")
-	}
-	contract, err := executor.runtimeContractForTurn(ctx, call.Turn)
+	contract, parentConfig, err := call.Reader.RuntimeContract(ctx, call.Turn.ModelCallContextID)
 	if err != nil {
 		return nil, err
 	}
@@ -218,11 +216,16 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 			strings.Join(contract.SubagentKeys(), ", "),
 		))
 	}
-	parent, err := executor.Store.Execution().GetAgentInProject(ctx, call.Turn.ProjectID, call.Turn.AgentID)
+	parent, err := call.Reader.Agent(ctx)
 	if err != nil {
 		return nil, err
 	}
-	launchConfig, err := executor.subagentLaunchConfig(ctx, call.Turn, parent, subagent)
+	parentDepth, err := call.Reader.AgentDepth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	depth := agentconfig.SubagentDepth{MaxDepth: contract.MaxDepth, Depth: parentDepth + 1}
+	launchConfig, err := subagentLaunchConfigForSpawn(ctx, call.Reader, parent, parentConfig, subagent, depth)
 	if err != nil {
 		return failSubagentTransaction("spawn_agent_failed", err)
 	}
@@ -238,8 +241,7 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 		executionstore.LaunchAgentInput{
 			ProjectID:     parent.ProjectID,
 			ProfileID:     launchConfig.profileID,
-			AgentConfigID: launchConfig.configID,
-			DerivedConfig: launchConfig.derived,
+			DerivedConfig: &launchConfig.derived,
 			LaunchedBy: identitystore.PrincipalRecord{
 				Type: identitystore.PrincipalTypeSystem,
 				ID:   parent.ID,
@@ -250,11 +252,11 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 			IdempotencyKey:          "spawn:" + call.ToolCallID.String(),
 			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
 			Subagent: &executionstore.SubagentLaunch{
-				ParentAgentID:       parent.ID,
-				Key:                 input.Agent,
-				MaxConcurrent:       subagent.MaxConcurrent,
-				MaxSubagents:        contract.MaxSubagents,
-				ShareParentMachines: subagent.Type == agentconfig.SubagentTypeSelf,
+				ParentAgentID: parent.ID,
+				Key:           input.Agent,
+				MaxInstances:  subagent.MaxInstances,
+				MaxSubagents:  contract.MaxSubagents,
+				MaxDepth:      depth.Limit(),
 			},
 		},
 		func(launch executionstore.LaunchAgentResult) (executionstore.ToolCallCompletionInput, error) {
@@ -285,11 +287,10 @@ func spawnAgentResultContent(child executionstore.AgentRecord, key string) (tool
 		return toolResultContent{}, fmt.Errorf("encode subagent id: %w", err)
 	}
 	return structuredToolResultContent(map[string]any{
-		"agent_id":  childPublicID,
-		"agent_ref": executionstore.SubagentRef(child.ID),
-		"name":      child.Name,
-		"key":       key,
-		"state":     executionstore.SubagentStateRunning,
+		"agent_id": childPublicID,
+		"name":     child.Name,
+		"key":      key,
+		"state":    executionstore.SubagentStateRunning,
 		"message": "Subagent started. Its final answer will arrive as a message from it; " +
 			"use read_agent to check its progress.",
 	})
@@ -297,7 +298,10 @@ func spawnAgentResultContent(child executionstore.AgentRecord, key string) (tool
 
 func provisionSubagentMachinesInBackground(ctx context.Context, call backgroundToolContext) error {
 	launch, ok := call.CommandResult.(executionstore.LaunchAgentResult)
-	if !ok || len(launch.ProvisionMachineIDs) == 0 || call.Executor.MachinePoolManager == nil {
+	if !ok {
+		return fmt.Errorf("spawn_agent command result is %T, want LaunchAgentResult", call.CommandResult)
+	}
+	if len(launch.ProvisionMachineIDs) == 0 || call.Executor.MachinePoolManager == nil {
 		return nil
 	}
 	call.Executor.MachinePoolManager.StartLaunchProvisioning(
@@ -307,74 +311,57 @@ func provisionSubagentMachinesInBackground(ctx context.Context, call backgroundT
 }
 
 type subagentLaunchConfig struct {
-	configID  storage.ID
 	profileID storage.ID
-	derived   *executionstore.CreateAgentConfigInput
+	derived   executionstore.CreateAgentConfigInput
 }
 
-// subagentLaunchConfig picks the config a spawned subagent launches from. A
-// profile subagent with no overrides launches the profile's current config
-// and stays linked to the profile; any other subagent launches an unlinked
-// config derived from its base's compiled definition with the key's
-// overrides applied, created inside the launch transaction.
-func (e Executor) subagentLaunchConfig(
+// subagentLaunchConfigForSpawn builds the config a spawned subagent launches
+// from: the base (the parent's own config for self, the profile's current
+// config for profile) with the key's overrides and the tree's depth limit
+// applied, created inside the launch transaction. Every read stays on the tool
+// call transaction. The child is attributed to the profile it was launched
+// from: the configured profile, or for self subagents the parent's profile.
+func subagentLaunchConfigForSpawn(
 	ctx context.Context,
-	turn Turn,
+	reader *executionstore.ToolCallReader,
 	parent executionstore.AgentRecord,
+	parentConfig executionstore.AgentConfigRecord,
 	subagent agentconfig.SubagentCompiled,
+	depth agentconfig.SubagentDepth,
 ) (subagentLaunchConfig, error) {
 	var baseConfig executionstore.AgentConfigRecord
+	var profileID storage.ID
 	switch subagent.Type {
 	case agentconfig.SubagentTypeSelf:
-		contextRow, found, err := e.Store.Execution().GetModelCallContext(
-			ctx, turn.ProjectID, turn.AgentID, turn.ModelCallContextID,
-		)
-		if err != nil {
-			return subagentLaunchConfig{}, err
-		}
-		if !found {
-			return subagentLaunchConfig{}, fmt.Errorf("model call context %s not found", turn.ModelCallContextID)
-		}
-		config, found, err := e.Store.Execution().GetAgentConfig(ctx, turn.ProjectID, contextRow.AgentConfigID)
-		if err != nil {
-			return subagentLaunchConfig{}, err
-		}
-		if !found {
-			return subagentLaunchConfig{}, fmt.Errorf("agent config %s not found", contextRow.AgentConfigID)
-		}
-		baseConfig = config
+		profileID = parent.AgentProfileID
+		baseConfig = parentConfig
 	case agentconfig.SubagentTypeProfile:
-		profileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
+		configuredProfileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
 		if err != nil {
 			return subagentLaunchConfig{}, fmt.Errorf("decode subagent profile id: %w", err)
 		}
-		profile, err := e.Store.Execution().GetAgentProfile(ctx, turn.ProjectID, profileID)
+		profile, err := reader.GetAgentProfile(ctx, configuredProfileID)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
 				return subagentLaunchConfig{}, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
 			}
 			return subagentLaunchConfig{}, err
 		}
-		if subagent.Model == nil && subagent.InstructionAppend == "" {
-			return subagentLaunchConfig{configID: profile.CurrentConfig.ID, profileID: profile.ID}, nil
-		}
 		baseConfig = profile.CurrentConfig
+		profileID = profile.ID
 	default:
 		return subagentLaunchConfig{}, fmt.Errorf("unsupported subagent type %q", subagent.Type)
 	}
 	body, err := agentconfigcompile.DeriveSubagentConfig(
-		ctx,
-		e.Store,
-		parent.OrgID,
-		parent.ProjectID,
 		baseConfig,
 		subagent,
+		depth,
+		agentconfigcompile.SubagentModelResolver(ctx, reader.Models(), parent.OrgID, parent.ProjectID),
 	)
 	if err != nil {
 		return subagentLaunchConfig{}, fmt.Errorf("derive subagent config: %w", err)
 	}
-	derived := body.CreateInput(parent.ProjectID)
-	return subagentLaunchConfig{derived: &derived}, nil
+	return subagentLaunchConfig{derived: body.CreateInput(parent.ProjectID), profileID: profileID}, nil
 }
 
 func readAgent(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
@@ -382,19 +369,22 @@ func readAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, err
 	}
-	limit := int32(20)
-	if input.Limit != nil {
-		limit = int32(*input.Limit)
+	if input.TurnID == "" {
+		return readAgentTurns(ctx, call, input)
 	}
-	afterSequence := int64(0)
-	if input.AfterSequence != nil {
-		afterSequence = *input.AfterSequence
-	}
-	beforeSequence := int64(-1)
-	if input.BeforeSequence != nil && input.AfterSequence == nil {
-		beforeSequence = *input.BeforeSequence
-	}
-	status, events, err := call.Reader.ReadSubagentEvents(ctx, input.AgentRef, afterSequence, beforeSequence, limit)
+	return readAgentTurnEvents(ctx, call, input)
+}
+
+func readAgentTurns(
+	ctx context.Context,
+	call transactionalToolContext,
+	input readAgentRequest,
+) (transactionalPhaseResult, error) {
+	beforeTurnSequence, _ := publicevents.SequenceBoundary(input.BeforeTurnSequence, "before_turn_sequence")
+	limit, _ := publicevents.TimelineLimit(
+		input.Limit, readAgentDefaultTurnLimit, executionstore.MaxAgentTurnsReadPageLimit,
+	)
+	status, turns, err := call.Reader.ReadSubagentTurns(ctx, input.AgentID, beforeTurnSequence, limit+1)
 	if err != nil {
 		return failSubagentTransactionForStorageError("read_agent_failed", err)
 	}
@@ -402,13 +392,19 @@ func readAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, err
 	}
-	entries := make([]subagentEventSummary, 0, len(events))
-	for _, event := range events {
-		entries = append(entries, subagentEventSummaryFromRecord(event))
+	var nextBeforeTurnSequence *int64
+	if len(turns) > int(limit) {
+		turns = turns[:limit]
+		nextBeforeTurnSequence = &turns[len(turns)-1].TurnSequence
+	}
+	response, err := publicevents.TurnsFromReadRecords(turns)
+	if err != nil {
+		return nil, err
 	}
 	content, err := structuredToolResultContent(map[string]any{
-		"agent":  summary,
-		"events": entries,
+		"agent":                     summary,
+		"turns":                     response,
+		"next_before_turn_sequence": nextBeforeTurnSequence,
 	})
 	if err != nil {
 		return nil, err
@@ -416,63 +412,55 @@ func readAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	return completeInTransaction(content), nil
 }
 
-func subagentEventSummaryFromRecord(event executionstore.AgentEventReadRecord) subagentEventSummary {
-	entry := subagentEventSummary{
-		Sequence:   event.Sequence,
-		Kind:       event.EventKind,
-		CreatedAt:  event.CreatedAt.UTC().Format(time.RFC3339),
-		Text:       agentEventText(event.ContentBlocks),
-		StopReason: string(event.ModelStopReason),
-		Outcome:    string(event.ToolOutcome),
+func readAgentTurnEvents(
+	ctx context.Context,
+	call transactionalToolContext,
+	input readAgentRequest,
+) (transactionalPhaseResult, error) {
+	turnID, err := publicid.Decode(publicid.KindAgentTurn, input.TurnID)
+	if err != nil {
+		return failSubagentTransaction("read_agent_failed", fmt.Errorf("turn_id: %w", err))
 	}
-	if event.ToolCallID != storage.NilID {
-		if toolCallID, err := publicid.Encode(publicid.KindToolCall, event.ToolCallID); err == nil {
-			entry.ToolCallID = toolCallID
-		}
+	beforeSequence, _ := publicevents.SequenceBoundary(input.BeforeSequence, "before_sequence")
+	limit, _ := publicevents.TimelineLimit(
+		input.Limit, readAgentDefaultEventLimit, executionstore.MaxAgentEventsReadPageLimit,
+	)
+	status, events, err := call.Reader.ReadSubagentTurnEvents(ctx, input.AgentID, turnID, beforeSequence, limit+1)
+	if err != nil {
+		return failSubagentTransactionForStorageError("read_agent_failed", err)
 	}
-	if event.CheckpointSummary != "" && entry.Text == "" {
-		entry.Text = event.CheckpointSummary
+	summary, err := subagentSummaryFromStatus(status)
+	if err != nil {
+		return nil, err
 	}
-	return entry
+	events, nextBeforeSequence := publicevents.TrimEventsBeforePage(events, limit)
+	response, err := publicevents.EventsFromReadRecords(events)
+	if err != nil {
+		return nil, err
+	}
+	content, err := structuredToolResultContent(map[string]any{
+		"agent":                summary,
+		"turn_id":              input.TurnID,
+		"events":               response,
+		"next_before_sequence": nextBeforeSequence,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return completeInTransaction(content), nil
 }
 
-func agentEventText(contentBlocks json.RawMessage) string {
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(contentBlocks, &blocks); err != nil {
-		return ""
-	}
-	var out strings.Builder
-	for _, block := range blocks {
-		var piece string
-		switch block.Type {
-		case "text", "error":
-			piece = block.Text
-		case "tool_call":
-			piece = "[tool_call " + block.Name + "]"
-		default:
-			continue
-		}
-		if piece == "" {
-			continue
-		}
-		if out.Len() > 0 {
-			out.WriteString("\n")
-		}
-		out.WriteString(piece)
-	}
-	return out.String()
-}
+const (
+	readAgentDefaultTurnLimit  int32 = 10
+	readAgentDefaultEventLimit int32 = 20
+)
 
 func sendAgentMessage(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
 	input, err := resolveSendAgentMessageRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
-	target, err := call.Reader.ResolveSubagentReference(ctx, input.AgentRef)
+	target, err := call.Reader.ResolveSubagent(ctx, input.AgentID)
 	if err != nil {
 		return failSubagentTransactionForStorageError("send_agent_message_failed", err)
 	}
@@ -484,8 +472,9 @@ func sendAgentMessage(ctx context.Context, call transactionalToolContext) (trans
 		"agent_id":  targetPublicID,
 		"name":      target.Name,
 		"delivered": true,
-		"message": "Message delivered. It interrupts the subagent's current work and cancels any open " +
-			"question or permission request. The reply arrives later as a message from it.",
+		"message": "Message delivered. The subagent reads it after its current model call and tool batch " +
+			"finish; any open question or permission request is canceled. The reply arrives later as a " +
+			"message from it.",
 	})
 	if err != nil {
 		return nil, err
@@ -511,7 +500,7 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, err
 	}
-	target, err := call.Reader.ResolveSubagentReference(ctx, input.AgentRef)
+	target, err := call.Reader.ResolveSubagent(ctx, input.AgentID)
 	if err != nil {
 		return failSubagentTransactionForStorageError("stop_agent_failed", err)
 	}
@@ -519,11 +508,17 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, fmt.Errorf("encode subagent id: %w", err)
 	}
-	content, err := structuredToolResultContent(map[string]any{
+	result := map[string]any{
 		"agent_id": targetPublicID,
 		"name":     target.Name,
-		"state":    executionstore.SubagentStateArchived,
-	})
+		"archived": input.Archive,
+	}
+	if input.Archive {
+		result["state"] = executionstore.SubagentStateArchived
+	} else {
+		result["message"] = "Current work canceled. The subagent keeps its context; send_agent_message resumes it."
+	}
+	content, err := structuredToolResultContent(result)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +526,10 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, err
 	}
-	command := executionstore.StopSubagentForToolCall(target.AgentID, completion)
+	command := executionstore.StopSubagentForToolCall(
+		executionstore.StopSubagentInput{TargetAgentID: target.AgentID, Archive: input.Archive},
+		completion,
+	)
 	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		return failSubagentTransactionForStorageError("stop_agent_failed", err)
 	}), nil
@@ -541,7 +539,10 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 // matching the immediate deletion the API archive path starts.
 func stopAgentInBackground(ctx context.Context, call backgroundToolContext) error {
 	machines, ok := call.CommandResult.([]executionstore.MachineRecord)
-	if !ok || len(machines) == 0 || call.Executor.MachinePoolManager == nil {
+	if !ok {
+		return fmt.Errorf("stop_agent command result is %T, want released machines", call.CommandResult)
+	}
+	if len(machines) == 0 || call.Executor.MachinePoolManager == nil {
 		return nil
 	}
 	attemptCtx, cancel := context.WithTimeout(ctx, machinepool.DefaultImmediateDeletionTimeout)

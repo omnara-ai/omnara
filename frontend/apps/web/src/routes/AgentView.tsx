@@ -57,13 +57,16 @@ export function AgentView() {
   const archived = agent.state === 'archived'
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
-  const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
+  const interactions = useAgentInteractions(activeOrg.id, projectId, agentId)
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(hasPendingMcpBuilderOAuthOutcome)
   const configDirty = useRef(false)
-  const canSendNow = canOperate && interactions.data?.data.length === 0
+  const canSendNow =
+    canOperate &&
+    interactions.data != null &&
+    !interactions.data.data.some((interaction) => interaction.agent_id === agentId)
 
   function closeConfig() {
     configDirty.current = false
@@ -179,7 +182,6 @@ export function AgentView() {
         agent={agent}
         machineIds={data.machine_ids}
         mcpConnections={data.mcp_connections}
-        subagents={data.subagents ?? []}
         profile={profile}
         canManage={project?.access.can_manage ?? false}
       />
@@ -221,7 +223,6 @@ function AgentDock({
           orgID={orgID}
           projectID={projectID}
           agentID={agentID}
-          agentActive={chat.isWorking}
           canOperate={canOperate}
         />
       )}

@@ -50,7 +50,8 @@ func (s *Store) IntegrationArchiveAgentOnce(
 	orgID, projectID, agentID ID,
 	actor *ActorParams,
 ) (AgentRecord, []MachineRecord, error) {
-	return s.archiveAgentOnce(ctx, orgID, projectID, agentID, actor)
+	_ = orgID
+	return s.archiveAgentOnce(ctx, projectID, agentID, actor)
 }
 
 func (s *Store) IntegrationDeleteMachineOnce(

@@ -1,5 +1,5 @@
-import { useMachine, useServerInfo } from '@omnara/react'
-import type { Agent, AgentMcpConnection, AgentProfile, SubagentSummary } from '@omnara/sdk'
+import { useAgents, useMachine, useServerInfo } from '@omnara/react'
+import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -50,7 +50,6 @@ export function AgentSidebar({
   agent,
   machineIds,
   mcpConnections,
-  subagents,
   profile,
   canManage,
 }: {
@@ -59,7 +58,6 @@ export function AgentSidebar({
   agent: Agent
   machineIds: string[]
   mcpConnections: AgentMcpConnection[]
-  subagents: SubagentSummary[]
   profile?: AgentProfile
   canManage: boolean
 }) {
@@ -110,7 +108,7 @@ export function AgentSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
           <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
-          <AgentSubagentsGroup projectId={projectId} subagents={subagents} />
+          <AgentSubagentsGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentMcpGroup connections={mcpConnections} />
           <AgentCronGroup
             orgId={orgId}
@@ -157,17 +155,26 @@ function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: 
 }
 
 function AgentSubagentsGroup({
+  orgId,
   projectId,
-  subagents,
+  agentId,
 }: {
+  orgId: string
   projectId: string
-  subagents: SubagentSummary[]
+  agentId: string
 }) {
+  const query = useAgents(orgId, projectId, {
+    filters: { parent_agent_id: agentId, include_archived: true },
+    sort: 'created_at',
+  })
+  const subagents = query.data?.pages.flatMap((page) => page.data) ?? []
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="px-0 text-sm">Subagents</SidebarGroupLabel>
       <SidebarGroupContent>
-        {subagents.length === 0 ? (
+        {query.isPending ? (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">Loading…</p>
+        ) : subagents.length === 0 ? (
           <p className="text-muted-foreground truncate py-1.5 text-sm">No subagents.</p>
         ) : (
           <SidebarMenu>
@@ -182,17 +189,30 @@ function AgentSubagentsGroup({
                     params={{ projectId, agentId: subagent.id }}
                     className="truncate hover:underline"
                   >
-                    {subagent.name || subagent.key}
+                    {subagent.name || subagent.subagent_key}
                   </Link>
                   <span className="text-muted-foreground truncate font-mono text-xs">
-                    {subagent.key}
+                    {subagent.subagent_key}
                   </span>
                 </span>
                 <Badge variant="outline" className="capitalize">
-                  {subagent.state.replaceAll('_', ' ')}
+                  {(subagent.activity?.state ?? subagent.state).replaceAll('_', ' ')}
                 </Badge>
               </SidebarMenuItem>
             ))}
+            {query.hasNextPage && (
+              <SidebarMenuItem className="py-1.5 text-sm">
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0"
+                  disabled={query.isFetchingNextPage}
+                  onClick={() => void query.fetchNextPage()}
+                >
+                  Show more
+                </Button>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         )}
       </SidebarGroupContent>

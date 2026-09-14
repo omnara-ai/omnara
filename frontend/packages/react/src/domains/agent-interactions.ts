@@ -11,7 +11,6 @@ import { useOmnaraClient } from '../omnara-client'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
 const openInteractionsQuery = { state: 'open', limit: 100, include_subagents: true } as const
-const activeAgentRefetchIntervalMs = 1000
 
 /** The query key for an agent's open interactions, shared by everything that
  * reads or invalidates them (the hook, the resolve mutation, and the chat
@@ -24,25 +23,19 @@ export function openAgentInteractionsQueryKey(
 }
 
 /**
- * Open interactions for an agent. Interaction rows may be created after the
- * corresponding tool-call event, so active agents are polled in addition to
- * the immediate refreshes triggered by chat events.
+ * Open interactions for an agent and its subagents. The chat session refreshes
+ * this query from stream frames: the agent's own tool-call events and updates,
+ * and subagent_interaction frames for its subagents.
  */
-export function useAgentInteractions(
-  orgID: string,
-  projectID: string,
-  agentID: string,
-  agentActive: boolean,
-) {
+export function useAgentInteractions(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
-  return useQuery({
-    ...listAgentInteractionsOptions({
+  return useQuery(
+    listAgentInteractionsOptions({
       path: { orgID, projectID, agentID },
       query: openInteractionsQuery,
       client,
     }),
-    refetchInterval: agentActive ? activeAgentRefetchIntervalMs : false,
-  })
+  )
 }
 
 export function useResolveAgentInteraction(orgID: string, projectID: string, agentID: string) {

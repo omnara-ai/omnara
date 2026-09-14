@@ -431,14 +431,14 @@ JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = $8
-  AND agent.state = 'active'
-  AND ($9::text = '' OR agent.name ILIKE $9::text ESCAPE '\')
-  AND (COALESCE(cardinality($10::text[]), 0) = 0 OR install.provider = ANY($10::text[]))
-  AND (COALESCE(cardinality($11::text[]), 0) = 0 OR target.provider_ref_kind = ANY($11::text[]))
-  AND ($12::boolean IS NULL OR (target.id IS NOT NULL) = $12::boolean)
-  AND ($13::uuid IS NULL OR agent.agent_profile_id = $13::uuid)
-  AND ($14::uuid IS NULL OR agent.parent_agent_id = $14::uuid)
-  AND ($15::boolean OR $14::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND ($9::boolean OR agent.state = 'active')
+  AND ($10::text = '' OR agent.name ILIKE $10::text ESCAPE '\')
+  AND (COALESCE(cardinality($11::text[]), 0) = 0 OR install.provider = ANY($11::text[]))
+  AND (COALESCE(cardinality($12::text[]), 0) = 0 OR target.provider_ref_kind = ANY($12::text[]))
+  AND ($13::boolean IS NULL OR (target.id IS NOT NULL) = $13::boolean)
+  AND ($14::uuid IS NULL OR agent.agent_profile_id = $14::uuid)
+  AND ($15::uuid IS NULL OR agent.parent_agent_id = $15::uuid)
+  AND ($16::boolean OR $15::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_id, idempotency_key,
@@ -472,6 +472,7 @@ type ListAgentsForProjectParams struct {
 	RowLimit               int64
 	SortField              string
 	ProjectID              uuid.UUID
+	IncludeArchived        bool
 	NamePattern            string
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
@@ -518,6 +519,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.RowLimit,
 		arg.SortField,
 		arg.ProjectID,
+		arg.IncludeArchived,
 		arg.NamePattern,
 		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
@@ -612,24 +614,25 @@ JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = $1
-  AND agent.state = 'active'
-  AND ($2::text = '' OR agent.name ILIKE $2::text ESCAPE '\')
-  AND (COALESCE(cardinality($3::text[]), 0) = 0 OR install.provider = ANY($3::text[]))
-  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR target.provider_ref_kind = ANY($4::text[]))
-  AND ($5::boolean IS NULL OR (target.id IS NOT NULL) = $5::boolean)
-  AND ($6::uuid IS NULL OR agent.agent_profile_id = $6::uuid)
-  AND ($7::uuid IS NULL OR agent.parent_agent_id = $7::uuid)
-  AND ($8::boolean OR $7::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND ($2::boolean OR agent.state = 'active')
+  AND ($3::text = '' OR agent.name ILIKE $3::text ESCAPE '\')
+  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR install.provider = ANY($4::text[]))
+  AND (COALESCE(cardinality($5::text[]), 0) = 0 OR target.provider_ref_kind = ANY($5::text[]))
+  AND ($6::boolean IS NULL OR (target.id IS NOT NULL) = $6::boolean)
+  AND ($7::uuid IS NULL OR agent.agent_profile_id = $7::uuid)
+  AND ($8::uuid IS NULL OR agent.parent_agent_id = $8::uuid)
+  AND ($9::boolean OR $8::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
   AND (
-    $9::boolean = false
-    OR (agent.created_at, agent.id) < ($10::timestamptz, $11::uuid)
+    $10::boolean = false
+    OR (agent.created_at, agent.id) < ($11::timestamptz, $12::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $12::bigint
+LIMIT $13::bigint
 `
 
 type ListAgentsForProjectByCreatedAtDescParams struct {
 	ProjectID              uuid.UUID
+	IncludeArchived        bool
 	NamePattern            string
 	IntegrationProviders   []string
 	IntegrationTargetKinds []string
@@ -671,6 +674,7 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg ListAgentsForProjectByCreatedAtDescParams) ([]ListAgentsForProjectByCreatedAtDescRow, error) {
 	rows, err := q.db.Query(ctx, listAgentsForProjectByCreatedAtDesc,
 		arg.ProjectID,
+		arg.IncludeArchived,
 		arg.NamePattern,
 		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -91,7 +92,7 @@ func (s strictOpenAPIServer) cancelAgent(
 	if len(records) != 1 {
 		return nil, errors.New("cancel event not readable")
 	}
-	eventResponse, err := publicEventResponseFromReadRecord(records[0])
+	eventResponse, err := publicevents.EventFromReadRecord(records[0])
 	if err != nil {
 		return nil, err
 	}
@@ -436,14 +437,14 @@ func (s strictOpenAPIServer) listEvents(
 	project identitystore.ProjectRecord,
 	agent executionstore.AgentRecord,
 ) (openapi.ListEventsResponseObject, error) {
-	limit, err := timelineLimit(request.Params.Limit, defaultEventPageLimit, maxEventPageLimit)
+	limit, err := publicevents.TimelineLimit(request.Params.Limit, defaultEventPageLimit, maxEventPageLimit)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	if request.Params.BeforeSequence != nil {
 		return s.listEventsBefore(ctx, request, project, agent, limit)
 	}
-	afterSequence, err := sequenceBoundary(request.Params.AfterSequence, "after_sequence")
+	afterSequence, err := publicevents.SequenceBoundary(request.Params.AfterSequence, "after_sequence")
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -459,7 +460,7 @@ func (s strictOpenAPIServer) listEvents(
 	if len(events) > 0 {
 		nextAfterSequence = events[len(events)-1].Sequence
 	}
-	response, err := publicEventResponsesFromReadRecords(events)
+	response, err := publicevents.EventsFromReadRecords(events)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +481,7 @@ func (s strictOpenAPIServer) listEventsBefore(
 	agent executionstore.AgentRecord,
 	limit int32,
 ) (openapi.ListEventsResponseObject, error) {
-	beforeSequence, err := sequenceBoundary(request.Params.BeforeSequence, "before_sequence")
+	beforeSequence, err := publicevents.SequenceBoundary(request.Params.BeforeSequence, "before_sequence")
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -494,12 +495,12 @@ func (s strictOpenAPIServer) listEventsBefore(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	events, nextBeforeSequence := trimEventsBeforePage(events, limit)
+	events, nextBeforeSequence := publicevents.TrimEventsBeforePage(events, limit)
 	nextAfterSequence := beforeSequence
 	if len(events) > 0 {
 		nextAfterSequence = events[len(events)-1].Sequence
 	}
-	response, err := publicEventResponsesFromReadRecords(events)
+	response, err := publicevents.EventsFromReadRecords(events)
 	if err != nil {
 		return nil, err
 	}
@@ -528,11 +529,11 @@ func (s strictOpenAPIServer) listTurns(
 	project identitystore.ProjectRecord,
 	agent executionstore.AgentRecord,
 ) (openapi.ListTurnsResponseObject, error) {
-	beforeTurnSequence, err := sequenceBoundary(request.Params.BeforeTurnSequence, "before_turn_sequence")
+	beforeTurnSequence, err := publicevents.SequenceBoundary(request.Params.BeforeTurnSequence, "before_turn_sequence")
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	limit, err := timelineLimit(request.Params.Limit, defaultTurnPageLimit, maxTurnPageLimit)
+	limit, err := publicevents.TimelineLimit(request.Params.Limit, defaultTurnPageLimit, maxTurnPageLimit)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -548,7 +549,7 @@ func (s strictOpenAPIServer) listTurns(
 	if hasMore && len(turns) > 0 {
 		nextBeforeTurnSequence = int64Ptr(turns[len(turns)-1].TurnSequence)
 	}
-	response, err := publicTurnResponsesFromReadRecords(turns)
+	response, err := publicevents.TurnsFromReadRecords(turns)
 	if err != nil {
 		return nil, err
 	}
@@ -579,11 +580,11 @@ func (s strictOpenAPIServer) listTurnEvents(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	beforeSequence, err := sequenceBoundary(request.Params.BeforeSequence, "before_sequence")
+	beforeSequence, err := publicevents.SequenceBoundary(request.Params.BeforeSequence, "before_sequence")
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	limit, err := timelineLimit(request.Params.Limit, defaultEventPageLimit, maxEventPageLimit)
+	limit, err := publicevents.TimelineLimit(request.Params.Limit, defaultEventPageLimit, maxEventPageLimit)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -598,8 +599,8 @@ func (s strictOpenAPIServer) listTurnEvents(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	events, nextBeforeSequence := trimEventsBeforePage(events, limit)
-	response, err := publicEventResponsesFromReadRecords(events)
+	events, nextBeforeSequence := publicevents.TrimEventsBeforePage(events, limit)
+	response, err := publicevents.EventsFromReadRecords(events)
 	if err != nil {
 		return nil, err
 	}
@@ -650,23 +651,27 @@ func (s strictOpenAPIServer) streamEvents(
 		after = *request.Params.LastEventID
 	}
 	streamDeltas := request.Params.StreamDeltas != nil && *request.Params.StreamDeltas
+	includeSubagents := request.Params.IncludeSubagentInteractions != nil &&
+		*request.Params.IncludeSubagentInteractions
 	return streamEventsLiveResponse{
-		server:       s.server,
-		request:      r,
-		project:      project,
-		agent:        agent,
-		after:        after,
-		streamDeltas: streamDeltas,
+		server:           s.server,
+		request:          r,
+		project:          project,
+		agent:            agent,
+		after:            after,
+		streamDeltas:     streamDeltas,
+		includeSubagents: includeSubagents,
 	}, nil
 }
 
 type streamEventsLiveResponse struct {
-	server       *Server
-	request      *http.Request
-	project      identitystore.ProjectRecord
-	agent        executionstore.AgentRecord
-	after        int64
-	streamDeltas bool
+	server           *Server
+	request          *http.Request
+	project          identitystore.ProjectRecord
+	agent            executionstore.AgentRecord
+	after            int64
+	streamDeltas     bool
+	includeSubagents bool
 }
 
 func (response streamEventsLiveResponse) VisitStreamEventsResponse(w http.ResponseWriter) error {
@@ -686,6 +691,7 @@ func (response streamEventsLiveResponse) VisitStreamEventsResponse(w http.Respon
 		response.agent,
 		response.after,
 		response.streamDeltas,
+		response.includeSubagents,
 	)
 	return nil
 }
@@ -697,6 +703,7 @@ func (s *Server) streamAgentEvents(
 	agent executionstore.AgentRecord,
 	after int64,
 	streamDeltasEnabled bool,
+	includeSubagents bool,
 ) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -794,6 +801,18 @@ func (s *Server) streamAgentEvents(
 		stopCloseWatch()
 		cancelStream()
 	}()
+	var subagents *subagentStreamSubscriptions
+	subagentUpdates := make(chan notifications.ToolCallUpdatedCommitted)
+	if includeSubagents {
+		subagents = newSubagentStreamSubscriptions(s, project.ID, agent.ID)
+		defer subagents.close()
+		if err := subagents.refresh(streamCtx); err != nil {
+			s.log.Warn("subagent stream subscribe failed", "agent_id", agent.ID, "error", err)
+			apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+			return
+		}
+		subagentUpdates = subagents.updates
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
@@ -828,7 +847,7 @@ func (s *Server) streamAgentEvents(
 			return
 		}
 		for _, record := range records {
-			response, err := publicEventResponseFromReadRecord(record)
+			response, err := publicevents.EventFromReadRecord(record)
 			if err != nil {
 				if !writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError)) {
 					return
@@ -866,6 +885,14 @@ func (s *Server) streamAgentEvents(
 		if len(records) == 100 {
 			continue
 		}
+		if subagents != nil && len(records) > 0 {
+			if err := subagents.refresh(streamCtx); err != nil {
+				if streamCtx.Err() != nil {
+					return
+				}
+				s.log.Warn("subagent stream refresh failed", "agent_id", agent.ID, "error", err)
+			}
+		}
 	waitForDurableWakeup:
 		for {
 			// Prefer a buffered durable wakeup; at most one racing best-effort
@@ -882,6 +909,12 @@ func (s *Server) streamAgentEvents(
 				break waitForDurableWakeup
 			case update := <-toolCallUpdates:
 				if !writeToolCallUpdateFrame(w, update) {
+					flusher.Flush()
+					return
+				}
+				flusher.Flush()
+			case update := <-subagentUpdates:
+				if !subagents.writeFrames(streamCtx, w, project, update) {
 					flusher.Flush()
 					return
 				}
@@ -936,39 +969,8 @@ func writeModelOutputDeltaFrame(
 	return writeSSEFrame(w, "model_output_delta", "", string(payload))
 }
 
-func sequenceBoundary(value *int64, name string) (int64, error) {
-	if value == nil {
-		return 0, nil
-	}
-	if *value < 0 {
-		return 0, errors.New(name + " must be a non-negative integer")
-	}
-	return *value, nil
-}
-
-func timelineLimit(value *int32, defaultValue, maxValue int32) (int32, error) {
-	if value == nil {
-		return defaultValue, nil
-	}
-	if *value < 1 || *value > maxValue {
-		return 0, fmt.Errorf("limit must be an integer between 1 and %d", maxValue)
-	}
-	return *value, nil
-}
-
 func int64Ptr(value int64) *int64 {
 	return &value
-}
-
-func trimEventsBeforePage(
-	events []executionstore.AgentEventReadRecord,
-	limit int32,
-) ([]executionstore.AgentEventReadRecord, *int64) {
-	if len(events) <= int(limit) {
-		return events, nil
-	}
-	nextBeforeSequence := events[1].Sequence
-	return events[1:], &nextBeforeSequence
 }
 
 func writeSSEJSONFrame(w http.ResponseWriter, eventName, id string, value any) bool {

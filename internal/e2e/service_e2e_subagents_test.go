@@ -68,10 +68,10 @@ func newSubagentServiceE2EModelServer(
 	return server, &parentRequests, &childRequests
 }
 
-var subagentRefPattern = regexp.MustCompile(`"agent_ref":"(agtr-[a-z2-7]+)"`)
+var subagentIDPattern = regexp.MustCompile(`"agent_id":"(agt_[a-z2-7]+)"`)
 
-func subagentRefFromSpawnResult(output string) string {
-	match := subagentRefPattern.FindStringSubmatch(output)
+func subagentIDFromSpawnResult(output string) string {
+	match := subagentIDPattern.FindStringSubmatch(output)
 	if match == nil {
 		return ""
 	}
@@ -129,6 +129,7 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 	fail := failSubagentServiceE2ERequest(t)
 	var parentIdentity atomic.Value
 	const childTask = "Summarize why the build failed."
+	const childPartialText = "SUBAGENT_PARTIAL: the build failed because"
 	const childText = "SUBAGENT_RESULT: the build failed because a test timed out"
 	const delegatedText = "parent delegated the summary and is waiting to hear back"
 	const parentText = "parent relayed the helper's summary"
@@ -154,31 +155,42 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 					fail(w, http.StatusBadRequest, "third parent request lacks the subagent result message: %s", requestText)
 					return
 				}
+				if strings.Contains(requestText, childPartialText) {
+					fail(w, http.StatusBadRequest, "parent received the truncated max_tokens output as a result: %s", requestText)
+					return
+				}
 				writeOpenAIMessage(w, fail, "resp_parent_final", parentText)
 			default:
 				fail(w, http.StatusTeapot, "unexpected parent request %d: %s", request, mustJSONString(body))
 			}
 		},
 		func(w http.ResponseWriter, r *http.Request, body map[string]any, request int64) {
-			if request != 1 {
-				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, mustJSONString(body))
-				return
-			}
-			identity, ok := parentIdentity.Load().([2]string)
-			if !ok || !blockUntilAssistantText(r.Context(), env, identity[0], identity[1], delegatedText) {
-				fail(w, http.StatusConflict, "child model call ran before the parent finished delegating")
-				return
-			}
 			requestText := mustJSONString(body)
-			if !strings.Contains(requestText, childTask) || !strings.Contains(requestText, "You are the helper subagent.") {
-				fail(w, http.StatusBadRequest, "child request lacks its task or appended instruction: %s", requestText)
-				return
+			switch request {
+			case 1:
+				identity, ok := parentIdentity.Load().([2]string)
+				if !ok || !blockUntilAssistantText(r.Context(), env, identity[0], identity[1], delegatedText) {
+					fail(w, http.StatusConflict, "child model call ran before the parent finished delegating")
+					return
+				}
+				if !strings.Contains(requestText, childTask) || !strings.Contains(requestText, "You are the helper subagent.") {
+					fail(w, http.StatusBadRequest, "child request lacks its task or appended instruction: %s", requestText)
+					return
+				}
+				if requestContainsTool(body, "read_agent") {
+					fail(w, http.StatusBadRequest, "self subagent must not expose subagent tools: %s", requestText)
+					return
+				}
+				writeOpenAITruncatedMessage(w, fail, "resp_child_partial", childPartialText)
+			case 2:
+				if !strings.Contains(requestText, childPartialText) {
+					fail(w, http.StatusBadRequest, "child continuation lacks the truncated output: %s", requestText)
+					return
+				}
+				writeOpenAIMessage(w, fail, "resp_child_final", childText)
+			default:
+				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, requestText)
 			}
-			if requestContainsTool(body, "read_agent") {
-				fail(w, http.StatusBadRequest, "self subagent must not expose subagent tools: %s", requestText)
-				return
-			}
-			writeOpenAIMessage(w, fail, "resp_child_final", childText)
 		},
 	)
 	defer openai.Close()
@@ -202,8 +214,8 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 	if got := parentRequests.Load(); got != 3 {
 		t.Fatalf("parent made %d model requests, want 3", got)
 	}
-	if got := childRequests.Load(); got != 1 {
-		t.Fatalf("child made %d model requests, want 1", got)
+	if got := childRequests.Load(); got != 2 {
+		t.Fatalf("child made %d model requests, want 2 (max_tokens continuation, then end_turn)", got)
 	}
 
 	var childName, childKey, childState string
@@ -259,9 +271,9 @@ func TestServiceE2EDeterministicSubagentStopAbortsChild(t *testing.T) {
 					"name":  "slow",
 				})
 			case 2:
-				agentRef := subagentRefFromSpawnResult(toolResultOutputForCall(body, "call_spawn"))
-				if agentRef == "" {
-					fail(w, http.StatusBadRequest, "spawn result lacks an agent_ref: %s", mustJSONString(body))
+				childID := subagentIDFromSpawnResult(toolResultOutputForCall(body, "call_spawn"))
+				if childID == "" {
+					fail(w, http.StatusBadRequest, "spawn result lacks an agent_id: %s", mustJSONString(body))
 					return
 				}
 				select {
@@ -271,7 +283,8 @@ func TestServiceE2EDeterministicSubagentStopAbortsChild(t *testing.T) {
 					return
 				}
 				writeOpenAIFunctionCall(w, fail, "resp_parent_stop", "call_stop", "stop_agent", map[string]any{
-					"agent_ref": agentRef,
+					"agent_id": childID,
+					"archive":  true,
 				})
 			case 3:
 				if !requestContainsToolResult(body, "call_stop", "") {
@@ -382,8 +395,10 @@ func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
 				fail(w, http.StatusConflict, "child model call ran before the parent finished delegating")
 				return
 			}
-			if !strings.Contains(mustJSONString(body), "You are the helper profile.") {
-				fail(w, http.StatusBadRequest, "child did not run the helper profile config: %s", mustJSONString(body))
+			bodyText := mustJSONString(body)
+			if !strings.Contains(bodyText, "You are the helper profile.") ||
+				!strings.Contains(bodyText, "Report back in one sentence.") {
+				fail(w, http.StatusBadRequest, "child did not run the helper profile config: %s", bodyText)
 				return
 			}
 			writeOpenAIMessage(w, fail, "resp_child_final", childText)
@@ -433,6 +448,8 @@ func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
 		"  worker:",
 		"    type: profile",
 		"    profile: helper-profile",
+		"    instruction:",
+		"      append: Report back in one sentence.",
 		"",
 	}, "\n"))
 	project.createInput(t, ctx, agentID, "delegate to the helper profile")
@@ -467,7 +484,21 @@ func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
 		t.Fatalf("profile subagent agent_profile_id = %q, want the helper profile", childProfileID)
 	}
 	helperConfigID := testutil.RequireType[string](t, helperConfig["id"])
-	if childConfigID != mustDecodeServiceE2EPublicID(t, publicid.KindAgentConfig, helperConfigID) {
-		t.Fatalf("profile subagent config = %q, want the helper profile's current config", childConfigID)
+	if childConfigID == mustDecodeServiceE2EPublicID(t, publicid.KindAgentConfig, helperConfigID) {
+		t.Fatalf("profile subagent config = %q, want a config derived from the helper profile", childConfigID)
+	}
+	var childSource, childSourceFormat string
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT source, source_format FROM agent_configs WHERE id = $1`,
+		childConfigID,
+	).Scan(&childSource, &childSourceFormat); err != nil {
+		t.Fatalf("load derived subagent config source: %v", err)
+	}
+	if childSourceFormat != "yaml" || !strings.Contains(childSource, "Report back in one sentence.") {
+		t.Fatalf(
+			"derived subagent config source (%s) = %q, want yaml with the appended instruction",
+			childSourceFormat, childSource,
+		)
 	}
 }

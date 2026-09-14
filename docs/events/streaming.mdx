@@ -69,6 +69,8 @@ The response is a standard `text/event-stream`. The SSE `event` name tells you w
 | `context_checkpoint` | A summary of earlier context | Yes |
 | `tool_call_update` | A tool call ID and a reported lifecycle state | No |
 | `model_output_delta` | A live preview while the model responds | No |
+| `subagent_interaction` | A subagent's question or permission request, on creation and each state change; only with `include_subagent_interactions=true` | No |
+| `subagent_tool_call` | A subagent's custom tool call, on each lifecycle state change; only with `include_subagent_interactions=true` | No |
 | `error` | A stream-closing error; retry only `service_unavailable` | No |
 
 Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) arrive every 10 seconds while the stream is idle; they only keep the connection open and can be ignored. While a connection remains open, the server keeps it caught up from its last delivered saved sequence. After a disconnect, reconnecting with `Last-Event-ID` catches up every saved event after that cursor. A simplified exchange looks like:
@@ -85,6 +87,8 @@ data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_ou
 ```
 
 `tool_call_update` frames are included for every tool type and contain only `tool_call_id` and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
+
+A parent's stream does not carry its subagents' timelines. Pass `include_subagent_interactions=true` to also receive `subagent_interaction` frames, each a full [interaction](/events/interactions) with the subagent's `agent_id`, `agent_name`, and `subagent_key`, and `subagent_tool_call` frames, each a full custom tool call with its `agent_id`, from every subagent below the agent at any depth. Like `tool_call_update`, they are best-effort and not replayed, so after connecting query `GET /interactions?include_subagents=true` and `GET /tool-calls?include_subagents=true` for current state.
 
 After an `error` frame, the server closes that HTTP response. A raw client should reconnect when the stable `code` is `service_unavailable`; other currently documented error codes are terminal and should be surfaced to the caller. Do not decide from the human-readable `error` text.
 

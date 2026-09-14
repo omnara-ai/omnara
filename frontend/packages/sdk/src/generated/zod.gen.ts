@@ -976,14 +976,11 @@ export const zCreateAgentRequest = z.object({
     message: z.string().optional()
 });
 
-export const zSubagentSummary = z.object({
-    id: zAgentId,
-    name: zAgentName,
-    key: z.string(),
+export const zAgentActivity = z.object({
     state: z.enum([
         'running',
         'idle',
-        'waiting_on_human',
+        'waiting_on_interaction',
         'archived'
     ]),
     last_activity_at: zTimestamp
@@ -1014,6 +1011,7 @@ export const zAgent = z.object({
     model: zAgentModel.optional(),
     parent_agent_id: zAgentId.optional(),
     subagent_key: z.string().optional(),
+    activity: zAgentActivity.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     archived_at: zTimestamp.optional()
@@ -1041,8 +1039,7 @@ export const zCurrentAgentResponse = z.object({
 export const zGetAgentResponse = z.object({
     agent: zAgent,
     machine_ids: z.array(zMachineId),
-    mcp_connections: z.array(zAgentMcpConnection),
-    subagents: z.array(zSubagentSummary).optional()
+    mcp_connections: z.array(zAgentMcpConnection)
 });
 
 export const zListAgentsResponse = z.object({
@@ -1340,6 +1337,7 @@ export const zToolCallOutcome = z.enum([
  */
 export const zToolCall = z.object({
     id: zToolCallId,
+    agent_id: zAgentId,
     turn_id: zAgentTurnId,
     provider_call_id: z.string(),
     name: z.string(),
@@ -1557,16 +1555,6 @@ export const zModelOutputDelta = z.object({
     event: zModelOutputStreamDelta
 });
 
-/**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
- */
-export const zAgentEventStreamData = z.union([
-    zAgentEvent,
-    zToolCallUpdate,
-    zModelOutputDelta,
-    zError
-]);
-
 export const zListAgentEventsResponse = z.object({
     data: z.array(zAgentEvent),
     next_after_sequence: zAgentSequenceCursor,
@@ -1682,6 +1670,18 @@ export const zAgentInteraction = z.object({
     created_at: zTimestamp,
     resolved_at: zTimestamp.optional()
 });
+
+/**
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, a subagent interaction or custom tool call when `include_subagent_interactions` is set, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
+ */
+export const zAgentEventStreamData = z.union([
+    zAgentEvent,
+    zToolCallUpdate,
+    zModelOutputDelta,
+    zAgentInteraction,
+    zToolCall,
+    zError
+]);
 
 /**
  * omnara for project members, an integration provider such as slack, or external for API-managed actors.
@@ -3616,13 +3616,14 @@ export const zListAgentsQuery = z.object({
     agent_profile_id: zAgentProfileId.optional(),
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
+    include_archived: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
 
 /**
- * Active agents in the project, newest first.
+ * Agents in the project, newest first.
  */
 export const zListAgentsResponse2 = zListAgentsResponse;
 
@@ -3707,6 +3708,7 @@ export const zListToolCallsPath = z.object({
 export const zListToolCallsQuery = z.object({
     state: zToolCallState.optional(),
     type: zToolCallType.optional(),
+    include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
@@ -3792,11 +3794,12 @@ export const zStreamEventsPath = z.object({
 
 export const zStreamEventsQuery = z.object({
     after_sequence: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
-    stream_deltas: z.boolean().optional()
+    stream_deltas: z.boolean().optional(),
+    include_subagent_interactions: z.boolean().optional()
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, subagent frames requested with `include_subagent_interactions` use `subagent_interaction` and `subagent_tool_call`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 

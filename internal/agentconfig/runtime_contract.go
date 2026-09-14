@@ -25,7 +25,12 @@ type RuntimeContract struct {
 	Skills          []SkillCompiled
 	Subagents       map[string]SubagentCompiled
 	MaxSubagents    *int
+	MaxDepth        *int
 	configuredTools map[string]struct{}
+}
+
+func (contract RuntimeContract) SubagentDepthLimit() int {
+	return SubagentDepth{MaxDepth: contract.MaxDepth}.Limit()
 }
 
 func (contract RuntimeContract) SubagentKeys() []string {
@@ -136,6 +141,7 @@ func RuntimeContractFromCompiled(
 		Skills:          compiled.Skills,
 		Subagents:       compiled.Subagents,
 		MaxSubagents:    compiled.MaxSubagents,
+		MaxDepth:        compiled.MaxDepth,
 		configuredTools: configuredTools,
 	}
 	if len(compiled.Skills) > 0 {

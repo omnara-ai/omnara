@@ -6,6 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -34,9 +35,17 @@ func (s strictOpenAPIServer) ListToolCalls(
 	if request.Params.Type != nil {
 		toolType = string(*request.Params.Type)
 	}
+	agentIDs := []storage.ID{scope.agent.ID}
+	if request.Params.IncludeSubagents != nil && *request.Params.IncludeSubagents {
+		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, scope.project.ID, scope.agent.ID)
+		if err != nil {
+			return nil, apierror.ProjectScoped(err)
+		}
+		agentIDs = append(agentIDs, descendants...)
+	}
 	page, err := s.server.store.Execution().ListToolCalls(ctx, executionstore.ListToolCallsInput{
 		ProjectID: scope.project.ID,
-		AgentID:   scope.agent.ID,
+		AgentIDs:  agentIDs,
 		State:     state,
 		Type:      toolType,
 		Limit:     limit,

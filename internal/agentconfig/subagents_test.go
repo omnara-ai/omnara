@@ -42,7 +42,7 @@ subagents:
       name: gpt-mini
     instruction:
       append: Report as bullets.
-    max_concurrent: 2
+    max_instances: 2
     archive_after_idle_minutes: 30
   fork:
     type: self
@@ -63,7 +63,7 @@ max_subagents: 5
 		researcher.InstructionAppend != "Report as bullets." {
 		t.Fatalf("researcher overrides = %+v", researcher)
 	}
-	if researcher.MaxConcurrent == nil || *researcher.MaxConcurrent != 2 ||
+	if researcher.MaxInstances == nil || *researcher.MaxInstances != 2 ||
 		researcher.ArchiveAfterIdleMinutes == nil || *researcher.ArchiveAfterIdleMinutes != 30 {
 		t.Fatalf("researcher limits = %+v", researcher)
 	}
@@ -202,7 +202,7 @@ max_subagents: 2
 	base := result.Compiled
 	var resolvedBase string
 	var resolvedOverride SubagentModelCompiled
-	child, err := SubagentCompiledFrom(base, base.Subagents["fork"], func(
+	child, err := SubagentCompiledFrom(base, base.Subagents["fork"], SubagentDepth{Depth: 1}, func(
 		baseConfiguredModelID string,
 		override SubagentModelCompiled,
 	) (ResolvedModelSelection, error) {
@@ -234,12 +234,83 @@ max_subagents: 2
 	if !strings.HasSuffix(child.Instruction, "\n\nBe brief.") {
 		t.Fatalf("instruction = %q", child.Instruction)
 	}
-	profileChild, err := SubagentCompiledFrom(base, SubagentCompiled{Type: SubagentTypeProfile}, nil)
+	maxDepth := 2
+	deeper, err := SubagentCompiledFrom(
+		base, SubagentCompiled{Type: SubagentTypeProfile}, SubagentDepth{MaxDepth: &maxDepth, Depth: 1}, nil,
+	)
 	if err != nil {
-		t.Fatalf("derive profile child: %v", err)
+		t.Fatalf("derive child below the depth limit: %v", err)
 	}
-	if profileChild.Subagents == nil || profileChild.Model != base.Model {
-		t.Fatalf("profile children keep their own subagents block and model: %+v", profileChild)
+	if deeper.Subagents == nil || deeper.MaxDepth == nil || *deeper.MaxDepth != 2 || deeper.Model != base.Model {
+		t.Fatalf("children below the depth limit keep subagents and carry max_depth: %+v", deeper)
+	}
+	if _, ok := deeper.Tools["spawn_agent"]; !ok {
+		t.Fatal("child below the depth limit lost spawn_agent tool")
+	}
+	leaf, err := SubagentCompiledFrom(
+		base, SubagentCompiled{Type: SubagentTypeProfile}, SubagentDepth{MaxDepth: &maxDepth, Depth: 2}, nil,
+	)
+	if err != nil {
+		t.Fatalf("derive child at the depth limit: %v", err)
+	}
+	if leaf.Subagents != nil || leaf.MaxDepth == nil || *leaf.MaxDepth != 2 {
+		t.Fatalf("children at the depth limit drop subagents but keep max_depth: %+v", leaf)
+	}
+}
+
+func TestCompileAllowsSubagentReadToolsWithoutSubagents(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+tools:
+  read_agent: {}
+  list_agents: {}
+`)), subagentCompileOptions())
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	if err != nil {
+		t.Fatalf("runtime contract: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range contract.Tools {
+		names[tool.Name] = true
+	}
+	if !names[toolcatalog.ToolNameReadAgent] || !names[toolcatalog.ToolNameListAgents] {
+		t.Fatalf("contract tools = %v, want read_agent and list_agents", names)
+	}
+	if names[toolcatalog.ToolNameSpawnAgent] || names[toolcatalog.ToolNameSendAgentMessage] {
+		t.Fatalf("contract tools = %v, want no implicit subagent tools without subagents", names)
+	}
+}
+
+func TestCompileMaxDepth(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+subagents:
+  fork:
+    type: self
+max_depth: 3
+`)), subagentCompileOptions())
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if result.Compiled.MaxDepth == nil || *result.Compiled.MaxDepth != 3 {
+		t.Fatalf("max_depth = %v", result.Compiled.MaxDepth)
+	}
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	if err != nil {
+		t.Fatalf("runtime contract: %v", err)
+	}
+	if contract.SubagentDepthLimit() != 3 {
+		t.Fatalf("depth limit = %d", contract.SubagentDepthLimit())
+	}
+	_, err = Compile(SourceFormatYAML, []byte(validAgentSource(`
+subagents:
+  fork:
+    type: self
+max_depth: 9
+`)), subagentCompileOptions())
+	if err == nil || !strings.Contains(err.Error(), "max_depth") {
+		t.Fatalf("max_depth above the cap: err = %v", err)
 	}
 }
 
@@ -257,7 +328,7 @@ subagents:
 		t.Fatalf("compile: %v", err)
 	}
 	supportsTools := false
-	_, err = SubagentCompiledFrom(result.Compiled, result.Compiled.Subagents["fork"], func(
+	_, err = SubagentCompiledFrom(result.Compiled, result.Compiled.Subagents["fork"], SubagentDepth{Depth: 1}, func(
 		string, SubagentModelCompiled,
 	) (ResolvedModelSelection, error) {
 		return ResolvedModelSelection{

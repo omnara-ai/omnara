@@ -2584,9 +2584,21 @@ func writeOpenAIFunctionCalls(
 }
 
 func writeOpenAIMessage(w http.ResponseWriter, fail fakeModelFailureFunc, responseID, text string) {
-	body, err := json.Marshal(map[string]any{
+	writeOpenAIMessageWithStatus(w, fail, responseID, text, "completed", "")
+}
+
+func writeOpenAITruncatedMessage(w http.ResponseWriter, fail fakeModelFailureFunc, responseID, text string) {
+	writeOpenAIMessageWithStatus(w, fail, responseID, text, "incomplete", "max_output_tokens")
+}
+
+func writeOpenAIMessageWithStatus(
+	w http.ResponseWriter,
+	fail fakeModelFailureFunc,
+	responseID, text, status, incompleteReason string,
+) {
+	response := map[string]any{
 		"id":     responseID,
-		"status": "completed",
+		"status": status,
 		"output": []map[string]any{{
 			"id":   responseID + "_message",
 			"type": "message",
@@ -2596,7 +2608,11 @@ func writeOpenAIMessage(w http.ResponseWriter, fail fakeModelFailureFunc, respon
 			}},
 		}},
 		"usage": map[string]any{"input_tokens": 10, "output_tokens": 5},
-	})
+	}
+	if incompleteReason != "" {
+		response["incomplete_details"] = map[string]any{"reason": incompleteReason}
+	}
+	body, err := json.Marshal(response)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "marshal OpenAI message response: %v", err)
 		return

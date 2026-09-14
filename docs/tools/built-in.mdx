@@ -192,23 +192,23 @@ These tools are added automatically when the config declares [`subagents`](/agen
 
 ### `spawn_agent`
 
-Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` is an optional display label. Returns immediately with the subagent's `agent_id` and `agent_ref`, the short form the other subagent tools take. The subagent's final answer arrives later as a message from it.
+Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` is an optional display label. Returns immediately with the subagent's `agent_id`, which the other subagent tools take. The subagent's final answer arrives later as a message from it.
 
 ### `read_agent`
 
-Reads a page of a subagent's timeline by `agent_ref`: inputs, model outputs, and tool results with their text. `after_sequence` pages forward from the start, oldest first; `before_sequence` pages backward, newest first, with 0 meaning the latest events. `limit` defaults to 20.
+Reads a subagent's timeline by `agent_id` in the same shape as the [turns API](/api-reference/endpoints/events/list-turns). Without `turn_id` it returns the newest turns first, each with its opening events and latest event; `before_turn_sequence` pages older turns and `limit` defaults to 10. With `turn_id` it returns that turn's events, newest first; `before_sequence` pages older events and `limit` defaults to 20. Each result carries `next_before_turn_sequence` or `next_before_sequence` for the next page.
 
 ### `send_agent_message`
 
-Delivers `message` to the subagent identified by `agent_ref` as a steering input: it interrupts the subagent's current work and cancels any open question or permission request. Parents cannot answer a subagent's questions; those wait for a human. The reply arrives as a message from the subagent.
+Delivers `message` to the subagent identified by `agent_id` as a steering input. The subagent reads it once its current model call and tool batch finish, so running work is not stopped, but any open question or permission request is canceled. Parents cannot answer a subagent's questions; those wait for a human. The reply arrives as a message from the subagent.
 
 ### `stop_agent`
 
-Cancels and archives the subagent identified by `agent_ref`.
+Cancels the current work of the subagent identified by `agent_id` and leaves it idle, so `send_agent_message` can resume it later. With `archive: true` it also archives the subagent and its descendants, after which it can no longer be messaged.
 
 ### `list_agents`
 
-Lists the agent's subagents with their `agent_ref`, name, key, state, and last activity.
+Lists the agent's subagents with their `agent_id`, name, key, state, and last activity.
 
 ## Skills
 

@@ -103,7 +103,7 @@ const fullConfig: BasicConfig = {
       profileName: 'research-agent',
       description: 'Investigate.',
       instructionAppend: 'Report as bullets.',
-      maxConcurrent: '2',
+      maxInstances: '2',
       archiveAfterIdleMinutes: '30',
     },
     {
@@ -113,11 +113,12 @@ const fullConfig: BasicConfig = {
       profileName: '',
       description: '',
       instructionAppend: '',
-      maxConcurrent: '',
+      maxInstances: '',
       archiveAfterIdleMinutes: '',
     },
   ],
   maxSubagents: '4',
+  maxDepth: '2',
 }
 
 const minimalYaml = `instruction: Do the thing.
@@ -214,18 +215,20 @@ describe('createBasicConfigSession initialDraft', () => {
         profileName: 'research-agent',
         description: 'Investigate.',
         instructionAppend: 'Report as bullets.',
-        maxConcurrent: '2',
+        maxInstances: '2',
         archiveAfterIdleMinutes: '30',
       },
       { key: 'fork', type: 'self', profileName: '' },
     ])
     expect(config.maxSubagents).toBe('4')
+    expect(config.maxDepth).toBe('2')
     expect(parse(source)).toMatchObject({
       subagents: {
-        researcher: { type: 'profile', profile: 'research-agent', max_concurrent: 2 },
+        researcher: { type: 'profile', profile: 'research-agent', max_instances: 2 },
         fork: { type: 'self' },
       },
       max_subagents: 4,
+      max_depth: 2,
     })
   })
 
@@ -529,6 +532,7 @@ describe('createBasicConfigSession apply', () => {
       skillIds: [],
       subagents: [],
       maxSubagents: '',
+      maxDepth: '',
     }
     expect(applyToSource('', emptyConfig)).toBe('')
   })

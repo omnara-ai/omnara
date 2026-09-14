@@ -33,6 +33,7 @@ type AgentConfigSource struct {
 	Skills         []string                             `json:"skills,omitempty"`
 	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
 	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
+	MaxDepth       *int                                 `json:"max_depth,omitempty"`
 }
 
 type AgentConfigModelSource struct {
@@ -356,6 +357,10 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			"max_subagents",
 			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
 		),
+		kjsonschema.Prop(
+			"max_depth",
+			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(MaxSubagentDepth))),
+		),
 		kjsonschema.Required("instruction", "model"),
 		kjsonschema.AdditionalProps(false),
 		kjsonschema.Defs(map[string]*kjsonschema.Schema{
@@ -367,7 +372,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigSubagentModelSource")),
 					kjsonschema.Prop("instruction", kjsonschema.Ref("#/$defs/AgentConfigSubagentInstructionSource")),
 					kjsonschema.Prop(
-						"max_concurrent",
+						"max_instances",
 						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
 					),
 					kjsonschema.Prop(

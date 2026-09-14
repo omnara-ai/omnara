@@ -3191,6 +3191,11 @@ paths:
             only agents without a parent are returned unless parent_agent_id is set.
           schema:
             type: boolean
+        - name: include_archived
+          in: query
+          description: Include archived agents. Defaults to false.
+          schema:
+            type: boolean
         - name: sort
           in: query
           schema:
@@ -3199,7 +3204,7 @@ paths:
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Active agents in the project, newest first.
+          description: Agents in the project, newest first.
           content:
             application/json:
               schema:
@@ -3481,6 +3486,14 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ToolCallType'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also return tool calls from this agent's subagents at every depth.
+            Each row's agent_id says which agent made the call.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -3832,6 +3845,20 @@ paths:
             truth. Default false.
           schema:
             type: boolean
+        - name: include_subagent_interactions
+          in: query
+          required: false
+          description: >-
+            Also deliver best-effort frames for this agent's subagents at every
+            depth: `subagent_interaction` carries an AgentInteraction whenever a
+            subagent's question or permission request is created, resolved, or
+            canceled, and `subagent_tool_call` carries a ToolCall whenever a
+            subagent's custom tool call changes lifecycle state. Both carry the
+            subagent's `agent_id`. Like `tool_call_update`, they are not
+            replayed on reconnect, so query the list endpoints after
+            connecting. Default false.
+          schema:
+            type: boolean
         - name: Last-Event-ID
           in: header
           required: false
@@ -3847,9 +3874,11 @@ paths:
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
             Best-effort tool lifecycle updates use `tool_call_update`, model
-            previews use `model_output_delta`, and stream-closing errors use
-            `error`; none carries an SSE `id`, so reconnects resume from the
-            last durable event. The response closes after every `error` frame.
+            previews use `model_output_delta`, subagent frames requested with
+            `include_subagent_interactions` use `subagent_interaction` and
+            `subagent_tool_call`, and stream-closing errors use `error`; none
+            carries an SSE `id`, so reconnects resume from the last durable
+            event. The response closes after every `error` frame.
             Raw clients reconnect when the error's stable code is
             `service_unavailable` and treat other current codes as terminal.
             Heartbeats are SSE comments and carry no JSON payload.
@@ -8876,27 +8905,29 @@ components:
         subagent_key:
           description: The `subagents` key this agent was spawned from.
           type: string
+        activity:
+          description: Current activity, present on list responses.
+          $ref: '#/components/schemas/AgentActivity'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         archived_at:
           $ref: '#/components/schemas/Timestamp'
-    SubagentSummary:
+    AgentActivity:
       type: object
       additionalProperties: false
-      required: [id, name, key, state, last_activity_at]
+      required: [state, last_activity_at]
       properties:
-        id:
-          $ref: '#/components/schemas/AgentID'
-        name:
-          $ref: '#/components/schemas/AgentName'
-        key:
-          type: string
         state:
+          description: >-
+            running while the agent has work in progress, waiting_on_interaction
+            while it has an open question or permission request, idle otherwise,
+            and archived once the agent is archived.
           type: string
-          enum: [running, idle, waiting_on_human, archived]
+          enum: [running, idle, waiting_on_interaction, archived]
         last_activity_at:
+          description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'
     AgentModel:
       type: object
@@ -8967,11 +8998,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AgentMCPConnection'
-        subagents:
-          description: Direct subagents of this agent, in creation order.
-          type: array
-          items:
-            $ref: '#/components/schemas/SubagentSummary'
     ListAgentsResponse:
       type: object
       additionalProperties: false
@@ -9473,10 +9499,12 @@ components:
       description: A model-emitted tool call together with its current lifecycle state.
       type: object
       additionalProperties: false
-      required: [id, turn_id, provider_call_id, name, input, type, state, created_at]
+      required: [id, agent_id, turn_id, provider_call_id, name, input, type, state, created_at]
       properties:
         id:
           $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         provider_call_id:
@@ -9946,14 +9974,17 @@ components:
     AgentEventStreamData:
       description: >-
         One JSON payload from the event stream: an authoritative durable event,
-        a best-effort tool-call update, a best-effort model-output preview, or
-        a stream-closing error. The wire response ends after an error payload;
-        `service_unavailable` is retryable and other current codes are
-        terminal.
+        a best-effort tool-call update, a best-effort model-output preview, a
+        subagent interaction or custom tool call when
+        `include_subagent_interactions` is set, or a stream-closing error. The
+        wire response ends after an error payload; `service_unavailable` is
+        retryable and other current codes are terminal.
       oneOf:
         - $ref: '#/components/schemas/AgentEvent'
         - $ref: '#/components/schemas/ToolCallUpdate'
         - $ref: '#/components/schemas/ModelOutputDelta'
+        - $ref: '#/components/schemas/AgentInteraction'
+        - $ref: '#/components/schemas/ToolCall'
         - $ref: '#/components/schemas/Error'
     ListAgentEventsResponse:
       type: object

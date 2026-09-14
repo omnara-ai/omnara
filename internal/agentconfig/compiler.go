@@ -31,6 +31,7 @@ type Compiled struct {
 	Skills         []SkillCompiled              `json:"skills,omitempty"`
 	Subagents      map[string]SubagentCompiled  `json:"subagents,omitempty"`
 	MaxSubagents   *int                         `json:"max_subagents,omitempty"`
+	MaxDepth       *int                         `json:"max_depth,omitempty"`
 }
 
 // SkillCompiled pins a skill's identity into the agent contract. Only the
@@ -275,6 +276,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		compiled.Subagents = subagents
 		compiled.MaxSubagents = source.MaxSubagents
 	}
+	compiled.MaxDepth = source.MaxDepth
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
 		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", compiledModel.sourceName)
 	}

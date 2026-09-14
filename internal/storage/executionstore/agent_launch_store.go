@@ -156,7 +156,7 @@ func (s *Store) launchAgentTx(
 		}
 		configID = created.ID
 	}
-	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, configID)
+	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, configID, input.DerivedConfig != nil)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -176,18 +176,20 @@ func (s *Store) launchAgentTx(
 		IdempotencyKey:          input.IdempotencyKey,
 		ArchiveAfterIdleMinutes: input.ArchiveAfterIdleMinutes,
 	}
-	var agent AgentRecord
-	var inserted bool
-	if input.Subagent == nil {
-		agent, inserted, err = insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
-		if err != nil {
+	if input.Subagent != nil {
+		if err := admitSubagentLaunchTx(ctx, tx, qtx, input.ProjectID, *input.Subagent); err != nil {
 			return LaunchAgentResult{}, err
 		}
-		if !inserted {
-			return LaunchAgentResult{Agent: agent}, nil
-		}
-	} else if input.Subagent.ShareParentMachines {
+		insertInput.ParentAgentID = input.Subagent.ParentAgentID
+		insertInput.SubagentKey = input.Subagent.Key
 		machineSources = nil
+	}
+	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if !inserted {
+		return LaunchAgentResult{Agent: agent}, nil
 	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,
@@ -201,18 +203,11 @@ func (s *Store) launchAgentTx(
 	}
 	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
 	if input.Subagent != nil {
-		sharedBindings, err = admitSubagentLaunchTx(ctx, tx, qtx, project.OrgID, input.ProjectID, *input.Subagent)
+		sharedBindings, err = lockParentMachineBindingsForSharingTx(
+			ctx, tx, qtx, project.OrgID, input.ProjectID, input.Subagent.ParentAgentID,
+		)
 		if err != nil {
 			return LaunchAgentResult{}, err
-		}
-		insertInput.ParentAgentID = input.Subagent.ParentAgentID
-		insertInput.SubagentKey = input.Subagent.Key
-		agent, inserted, err = insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
-		if err != nil {
-			return LaunchAgentResult{}, err
-		}
-		if !inserted {
-			return LaunchAgentResult{Agent: agent}, nil
 		}
 	}
 	result := LaunchAgentResult{
@@ -315,7 +310,7 @@ func (s *Store) launchAgentTx(
 			result.ProvisionMachineIDs = append(result.ProvisionMachineIDs, binding.MachineID)
 		}
 	}
-	if input.Subagent != nil && input.Subagent.ShareParentMachines {
+	if input.Subagent != nil {
 		shared, err := shareParentMachineBindingsTx(ctx, qtx, input.ProjectID, agent.ID, sharedBindings)
 		if err != nil {
 			return LaunchAgentResult{}, err
@@ -382,13 +377,14 @@ func launchConfigTx(
 	projectID ID,
 	profile *AgentProfileRecord,
 	configID ID,
+	derived bool,
 ) (AgentConfigRecord, agentconfig.RuntimeContract, error) {
 	if configID == NilID {
 		return AgentConfigRecord{}, agentconfig.RuntimeContract{}, errors.New(
 			"agent config is required",
 		)
 	}
-	if profile != nil && configID != profile.CurrentConfigID {
+	if profile != nil && !derived && configID != profile.CurrentConfigID {
 		matched, err := qtx.AgentProfileVersionExistsForConfig(
 			ctx,
 			dbsqlc.AgentProfileVersionExistsForConfigParams{
