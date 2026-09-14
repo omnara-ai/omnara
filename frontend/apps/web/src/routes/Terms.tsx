@@ -19,12 +19,14 @@ function Paragraph({ children }: { children: ReactNode }) {
   return <p className="text-muted-foreground text-sm leading-relaxed">{children}</p>
 }
 
-function List({ items }: { items: ReactNode[] }) {
+// Items are static legal text and unique within each list, so the text itself is a stable key.
+function List({ items, children }: { items: string[]; children?: ReactNode }) {
   return (
     <ul className="text-muted-foreground flex list-disc flex-col gap-1.5 pl-5 text-sm leading-relaxed">
-      {items.map((item, index) => (
-        <li key={index}>{item}</li>
+      {items.map((item) => (
+        <li key={item}>{item}</li>
       ))}
+      {children}
     </ul>
   )
 }
@@ -223,22 +225,21 @@ export function Terms() {
               items={[
                 'We are not liable for indirect, incidental, special, punitive, or consequential damages, or for lost profits, revenue, or data',
                 'Our total liability for all claims arising out of or relating to the Service shall not exceed the amount you paid us for the Service in the twelve months before the claim',
-                <>
-                  We are not responsible for losses resulting from:
-                  <ul className="mt-1.5 flex list-[circle] flex-col gap-1 pl-5">
-                    <li>Your use of or inability to use the Service</li>
-                    <li>Unauthorized access to your account, tokens, or data</li>
-                    <li>
-                      Data breaches, hacks, or security incidents beyond our reasonable control
-                    </li>
-                    <li>Loss, corruption, or disclosure of your data</li>
-                    <li>AI-generated content, recommendations, or actions taken by agents</li>
-                    <li>Actions taken on your machines or third-party systems by agents you run</li>
-                    <li>Third-party services or content</li>
-                  </ul>
-                </>,
               ]}
-            />
+            >
+              <li>
+                We are not responsible for losses resulting from:
+                <ul className="mt-1.5 flex list-[circle] flex-col gap-1 pl-5">
+                  <li>Your use of or inability to use the Service</li>
+                  <li>Unauthorized access to your account, tokens, or data</li>
+                  <li>Data breaches, hacks, or security incidents beyond our reasonable control</li>
+                  <li>Loss, corruption, or disclosure of your data</li>
+                  <li>AI-generated content, recommendations, or actions taken by agents</li>
+                  <li>Actions taken on your machines or third-party systems by agents you run</li>
+                  <li>Third-party services or content</li>
+                </ul>
+              </li>
+            </List>
           </Section>
 
           <Section title="12. Indemnification">
