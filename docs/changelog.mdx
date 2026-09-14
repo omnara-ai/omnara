@@ -6,6 +6,41 @@ mode: "center"
 ---
 
 <Update
+  label="September 14, 2026"
+  description="Use Omnara from your coding agent"
+  rss={{
+    title: "Use Omnara from your coding agent",
+    description: "Omnara is now an MCP server. Also new: Modal sandboxes, Amazon Bedrock with AWS credentials, editable secrets, and reliability improvements."
+  }}
+>
+
+## Use Omnara from your coding agent
+
+Omnara is now an MCP server, Modal joins the sandbox providers, and Amazon Bedrock works with AWS credentials.
+
+### Connect Claude Code, Cursor, and other MCP clients
+
+Add `https://app.omnara.com/mcp` to your MCP client and sign in through the browser — no tokens to paste. Your coding agent can then launch Omnara agents, send them messages, follow their progress, and manage profiles, secrets, and machines, with the same permissions you have in the dashboard. Omnara is also listed in the official MCP Registry as `com.omnara/omnara`. See [Connecting MCP clients](/api/authentication#connecting-mcp-clients).
+
+### Modal sandboxes
+
+Bring your Modal account as a sandbox provider alongside Blaxel, Unikraft Cloud, and Daytona. Create a pool with your Modal token and choose the image, region, and resource limits. See [Machine pools](/machines/pools).
+
+### Amazon Bedrock with AWS credentials
+
+Bedrock model providers can authenticate with AWS credentials instead of an API key, including assuming a role. They use the same AWS credential secrets as SigV4 MCP servers. See [Model providers](/organization/model-providers).
+
+### Edit secrets in place
+
+Rename a secret or replace its value from the dashboard. Agent configs that reference it keep working. See [Secrets](/organization/secrets).
+
+### Reliability
+
+Agents that reach a model's output limit now continue their answer instead of stopping short. You can set idle and total timeouts for provider requests. Commands waiting on a machine that looks online but isn't responding are released after five minutes so the agent can move on.
+
+</Update>
+
+<Update
   label="September 9, 2026"
   description="Introducing Omnara"
   rss={{
