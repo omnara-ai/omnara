@@ -8,5 +8,9 @@ allowBuilds:
 minimumReleaseAge: 14400
 
 overrides:
+  # Keep the legacy brace-expansion branch on a patched release.
+  brace-expansion@<1.1.18: 1.1.18
+  # @hey-api/json-schema-ref-parser pins the vulnerable js-yaml 4.2.0 release.
+  js-yaml@>=4.0.0 <4.3.2: 4.3.2
   react: 19.3.0-canary-eb8feb71-20260814
   react-dom: 19.3.0-canary-eb8feb71-20260814
