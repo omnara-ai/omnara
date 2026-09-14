@@ -5,8 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  brace-expansion@<1.1.18: 1.1.18
-  js-yaml@>=4.0.0 <4.3.2: 4.3.2
+  '@hey-api/json-schema-ref-parser@1.4.4>js-yaml': 4.3.2
   react: 19.3.0-canary-eb8feb71-20260814
   react-dom: 19.3.0-canary-eb8feb71-20260814
 
