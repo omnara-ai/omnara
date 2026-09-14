@@ -8,6 +8,33 @@ import (
 	"time"
 )
 
+func TestSafeReturnTo(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  string
+	}{
+		{value: "/", want: "/"},
+		{value: "/device?user_code=ABCD#confirm", want: "/device?user_code=ABCD#confirm"},
+		{value: "/projects/a%20b", want: "/projects/a%20b"},
+		{value: "", want: "/"},
+		{value: "login", want: "/"},
+		{value: "https://evil.example", want: "/"},
+		{value: "//evil.example", want: "/"},
+		{value: "///evil.example", want: "/"},
+		{value: `/\evil.example`, want: "/"},
+		{value: "/\t/evil.example", want: "/"},
+		{value: "/\n/evil.example", want: "/"},
+		{value: "/\r/evil.example", want: "/"},
+		{value: "/%zz", want: "/"},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			if got := SafeReturnTo(test.value); got != test.want {
+				t.Fatalf("SafeReturnTo(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+}
+
 func TestBrowserSessionCookieRejectsNonHostFallbackForHTTPS(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://omnara.test/api/v1/orgs", nil)
 	req.AddCookie(&http.Cookie{Name: BrowserSessionCookieName, Value: "session-token"})

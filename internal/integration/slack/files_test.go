@@ -538,6 +538,10 @@ func TestDownloadFileRejectsUnsafeURL(t *testing.T) {
 	tests := []string{
 		"http://files.slack.com/files-pri/T123-F123/file.png",
 		"https://example.com/file.png",
+		"https://files.slack.com.evil.example/file.png",
+		"https://files.slack.com@127.0.0.1/file.png",
+		"https://127.0.0.1/file.png",
+		"https://169.254.169.254/latest/meta-data/",
 	}
 	for _, fileURL := range tests {
 		t.Run(fileURL, func(t *testing.T) {

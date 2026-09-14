@@ -33,9 +33,8 @@ func MarshalWithAPIVariantOptions(
 	if extra == nil {
 		return nil, fmt.Errorf("%s", apiVariantOptionsObjectMergeError)
 	}
-	merged := make(map[string]json.RawMessage, len(extra)+len(base))
-	for key, value := range base {
-		merged[key] = value
+	if base == nil {
+		base = make(map[string]json.RawMessage, len(extra))
 	}
 	owned := make(map[string]bool, len(adapterOwnedFields))
 	for _, key := range adapterOwnedFields {
@@ -45,9 +44,9 @@ func MarshalWithAPIVariantOptions(
 		if owned[key] {
 			continue
 		}
-		merged[key] = value
+		base[key] = value
 	}
-	return json.Marshal(merged)
+	return json.Marshal(base)
 }
 
 func Sets(apiVariantOptions json.RawMessage, keys ...string) bool {

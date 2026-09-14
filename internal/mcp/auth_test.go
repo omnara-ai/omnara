@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"golang.org/x/oauth2"
 )
 
@@ -339,6 +340,37 @@ func TestOAuthTokenExchangeRejectsPublicHTTP(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "must use HTTPS") {
 		t.Fatalf("RefreshOAuthToken error = %v, want secure token endpoint error", err)
+	}
+}
+
+func TestOAuthTokenRequestsBlockPrivateDestinations(t *testing.T) {
+	for _, endpoint := range []string{
+		"https://127.0.0.1:1/token",
+		"https://10.0.0.1/token",
+		"https://169.254.169.254/latest/meta-data/",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			_, err := mcp.ExchangeOAuthCode(context.Background(), mcp.OAuthCodeExchangeInput{
+				TokenEndpoint: endpoint,
+				ClientID:      "client-123",
+				RedirectURI:   "https://app.example.com/callback",
+				Code:          "code-123",
+				CodeVerifier:  "verifier-123",
+				Resource:      "https://mcp.example.com",
+			})
+			if !errors.Is(err, ssrf.ErrBlockedAddress) {
+				t.Fatalf("exchange error = %v, want ErrBlockedAddress", err)
+			}
+			_, err = mcp.RefreshOAuthToken(context.Background(), mcp.OAuthRefreshInput{
+				TokenEndpoint: endpoint,
+				ClientID:      "client-123",
+				RefreshToken:  "refresh-old",
+				Resource:      "https://mcp.example.com",
+			})
+			if !errors.Is(err, ssrf.ErrBlockedAddress) {
+				t.Fatalf("refresh error = %v, want ErrBlockedAddress", err)
+			}
+		})
 	}
 }
 

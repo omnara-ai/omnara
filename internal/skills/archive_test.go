@@ -357,6 +357,48 @@ func TestExtractIntoTarGz(t *testing.T) {
 	}
 }
 
+func TestExtractRejectsEscapingDestinationSymlinks(t *testing.T) {
+	for _, format := range []ArchiveFormat{FormatZip, FormatTarGz} {
+		for _, entry := range []string{"escape", "escape/secret.txt"} {
+			t.Run(string(format)+"/"+entry, func(t *testing.T) {
+				dst := t.TempDir()
+				outside := t.TempDir()
+				secret := filepath.Join(outside, "secret.txt")
+				if err := os.WriteFile(secret, []byte("untouched"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				linkTarget := outside
+				if entry == "escape" {
+					linkTarget = secret
+				}
+				// Model another process adding a link after ExtractInto creates dst.
+				if err := os.Symlink(linkTarget, filepath.Join(dst, "escape")); err != nil {
+					t.Fatal(err)
+				}
+				destination, err := os.OpenRoot(dst)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = destination.Close() }()
+				files := map[string]string{"pdf-tools/" + entry: "overwritten"}
+				switch format {
+				case FormatZip:
+					err = extractZip(buildZip(t, files), destination)
+				case FormatTarGz:
+					err = extractTarGz(buildTarGz(t, files), destination)
+				}
+				if err == nil {
+					t.Fatal("extraction followed a symlink outside the destination")
+				}
+				body, err := os.ReadFile(secret)
+				if err != nil || string(body) != "untouched" {
+					t.Fatalf("outside file = %q, err = %v", body, err)
+				}
+			})
+		}
+	}
+}
+
 func TestVerifyDigestMismatch(t *testing.T) {
 	if err := VerifyDigest([]byte("hello"), "sha256:0000"); err == nil {
 		t.Fatalf("expected digest mismatch")

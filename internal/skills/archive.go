@@ -181,15 +181,18 @@ func ExtractInto(format ArchiveFormat, raw []byte, dst string) error {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return fmt.Errorf("create skill destination: %w", err)
 	}
-	absDst, err := filepath.Abs(dst)
+	// Keep writes beneath the opened directory even if a path component is
+	// replaced by a symlink while extraction is in progress.
+	destination, err := os.OpenRoot(dst)
 	if err != nil {
-		return fmt.Errorf("resolve skill destination: %w", err)
+		return fmt.Errorf("open skill destination: %w", err)
 	}
+	defer func() { _ = destination.Close() }()
 	switch format {
 	case FormatZip:
-		return extractZip(raw, absDst)
+		return extractZip(raw, destination)
 	case FormatTarGz:
-		return extractTarGz(raw, absDst)
+		return extractTarGz(raw, destination)
 	default:
 		return fmt.Errorf("unsupported skill archive format %q", format)
 	}
@@ -675,7 +678,7 @@ type extractPlan struct {
 	open  func() (io.ReadCloser, error)
 }
 
-func extractZip(raw []byte, absDst string) error {
+func extractZip(raw []byte, destination *os.Root) error {
 	reader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
 		return fmt.Errorf("read zip archive: %w", err)
@@ -710,10 +713,10 @@ func extractZip(raw []byte, absDst string) error {
 			open:  func() (io.ReadCloser, error) { return f.Open() },
 		})
 	}
-	return materializePlans(absDst, root, plans, budget)
+	return materializePlans(destination, root, plans, budget)
 }
 
-func extractTarGz(raw []byte, absDst string) error {
+func extractTarGz(raw []byte, destination *os.Root) error {
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("open gzip stream: %w", err)
@@ -721,9 +724,6 @@ func extractTarGz(raw []byte, absDst string) error {
 	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	root := ""
-	if err := os.MkdirAll(absDst, 0o755); err != nil {
-		return fmt.Errorf("ensure skill destination: %w", err)
-	}
 	budget := newExtractionBudget()
 	for {
 		header, err := tr.Next()
@@ -757,22 +757,22 @@ func extractTarGz(raw []byte, absDst string) error {
 		if rel == "" {
 			continue
 		}
-		target, err := skillEntryTarget(absDst, rel)
+		target, err := filepath.Localize(rel)
 		if err != nil {
-			return err
+			return fmt.Errorf("invalid skill entry path %q: %w", rel, err)
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := destination.MkdirAll(target, 0o755); err != nil {
 				return fmt.Errorf("create skill dir %q: %w", rel, err)
 			}
 		case tar.TypeSymlink, tar.TypeLink:
 			return fmt.Errorf("skill archive contains a symlink at %q", cleaned)
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := destination.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("create skill parent dir for %q: %w", rel, err)
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			out, err := destination.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 			if err != nil {
 				return fmt.Errorf("create skill file %q: %w", rel, err)
 			}
@@ -790,31 +790,31 @@ func extractTarGz(raw []byte, absDst string) error {
 	return nil
 }
 
-func materializePlans(absDst, root string, plans []extractPlan, budget *extractionBudget) error {
+func materializePlans(destination *os.Root, root string, plans []extractPlan, budget *extractionBudget) error {
 	for _, item := range plans {
 		rel := strings.TrimPrefix(item.path, root)
 		rel = strings.TrimPrefix(rel, "/")
 		if rel == "" {
 			continue
 		}
-		target, err := skillEntryTarget(absDst, rel)
+		target, err := filepath.Localize(rel)
 		if err != nil {
-			return err
+			return fmt.Errorf("invalid skill entry path %q: %w", rel, err)
 		}
 		if item.isDir {
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := destination.MkdirAll(target, 0o755); err != nil {
 				return fmt.Errorf("create skill dir %q: %w", rel, err)
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := destination.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("create skill parent dir for %q: %w", rel, err)
 		}
 		body, err := item.open()
 		if err != nil {
 			return fmt.Errorf("open skill entry %q: %w", rel, err)
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		out, err := destination.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
 			_ = body.Close()
 			return fmt.Errorf("create skill file %q: %w", rel, err)
@@ -830,16 +830,4 @@ func materializePlans(absDst, root string, plans []extractPlan, budget *extracti
 		}
 	}
 	return nil
-}
-
-func skillEntryTarget(absDst, rel string) (string, error) {
-	target := filepath.Join(absDst, filepath.FromSlash(rel))
-	absTarget, err := filepath.Abs(target)
-	if err != nil {
-		return "", fmt.Errorf("resolve skill entry target: %w", err)
-	}
-	if absTarget != absDst && !strings.HasPrefix(absTarget, absDst+string(os.PathSeparator)) {
-		return "", fmt.Errorf("skill archive entry %q escapes destination", rel)
-	}
-	return absTarget, nil
 }

@@ -542,6 +542,19 @@ func TestMultipartAlternativeMessageRejectsSubjectNewline(t *testing.T) {
 	}
 }
 
+func TestSMTPSenderRejectsRecipientHeaderInjection(t *testing.T) {
+	sender := SMTPSender{Addr: "127.0.0.1:1", From: "noreply@example.com"}
+	for _, recipient := range []string{
+		"user@example.com\r\nBcc: attacker@example.com",
+		"User <user@example.com>\nBcc: attacker@example.com",
+	} {
+		err := sender.SendInvite(context.Background(), recipient, "Acme")
+		if err == nil || !strings.Contains(err.Error(), "parse email recipient") {
+			t.Fatalf("recipient %q error = %v, want rejection before SMTP dial", recipient, err)
+		}
+	}
+}
+
 func TestSMTPSenderRequiresSTARTTLSWhenConfigured(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

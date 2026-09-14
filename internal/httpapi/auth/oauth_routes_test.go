@@ -53,6 +53,7 @@ func TestRedirectAuthOutcome(t *testing.T) {
 			want:     "/login?auth_error=access_denied",
 		},
 		{name: "unsafe return target", returnTo: "//evil.example", want: "/"},
+		{name: "browser normalized return target", returnTo: "/\t/evil.example", want: "/"},
 	}
 
 	for _, tc := range cases {

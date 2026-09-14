@@ -227,8 +227,12 @@ func RandomURLToken(size int) (string, error) {
 }
 
 func SafeReturnTo(value string) string {
-	if value == "" || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.Contains(value, "\\") {
+	// Parse before redirecting so control characters cannot become a different
+	// URL when the browser normalizes them.
+	target, err := url.Parse(value)
+	if err != nil || target.Scheme != "" || target.Host != "" ||
+		!strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.Contains(value, "\\") {
 		return "/"
 	}
-	return value
+	return target.String()
 }

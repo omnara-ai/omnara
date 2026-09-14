@@ -36,6 +36,16 @@ func TestMarshalWithAPIVariantOptionsTreatsNullAsNoop(t *testing.T) {
 	}
 }
 
+func TestMarshalWithAPIVariantOptionsAcceptsNullPayload(t *testing.T) {
+	body, err := MarshalWithAPIVariantOptions(json.RawMessage(`{"temperature":0.2}`), nil)
+	if err != nil {
+		t.Fatalf("marshal with null payload: %v", err)
+	}
+	if string(body) != `{"temperature":0.2}` {
+		t.Fatalf("body = %s, want options", body)
+	}
+}
+
 func TestMarshalWithAPIVariantOptionsLetsUnownedOptionsOverrideBase(t *testing.T) {
 	body, err := MarshalWithAPIVariantOptions(
 		json.RawMessage(`{"store":true,"temperature":0.2}`),
