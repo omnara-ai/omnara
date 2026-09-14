@@ -103,6 +103,13 @@ export function SignUp() {
             </Button>
           </FieldGroup>
         </form>
+        <p className="text-muted-foreground text-center text-xs">
+          By creating an account, you agree to our{' '}
+          <Link to="/terms" className="text-foreground underline-offset-4 hover:underline">
+            Terms of Service
+          </Link>
+          .
+        </p>
         <p className="text-muted-foreground text-center text-sm">
           Already have an account?{' '}
           <Link

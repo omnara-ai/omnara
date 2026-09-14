@@ -238,9 +238,16 @@ const forgotPasswordRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ForgotPassword'), 'ForgotPassword'),
 })
 
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/terms',
+  component: lazyRouteComponent(() => import('@/routes/Terms'), 'Terms'),
+})
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   signupRoute,
+  termsRoute,
   verifyEmailRoute,
   resetPasswordRoute,
   forgotPasswordRoute,
