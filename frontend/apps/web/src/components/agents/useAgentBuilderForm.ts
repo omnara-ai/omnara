@@ -22,7 +22,6 @@ import {
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
-import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
 import {
   emptyProviderOptions,
   envOverlayFromRows,
@@ -165,15 +164,7 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ providerConfig: model.providerConfig, modelName: model.modelName })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
-      setDraft((prev) => ({
-        ...prev,
-        machineSources,
-        tools: addMachineToolsForNewSourceSelection(
-          prev.machineSources,
-          machineSources,
-          prev.tools,
-        ),
-      }))
+      patch({ machineSources })
     },
     setTools: (tools: BasicTool[]) => {
       patch({ tools })

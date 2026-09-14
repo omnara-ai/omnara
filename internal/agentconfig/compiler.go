@@ -324,12 +324,39 @@ func requiresModelToolSupport(compiled Compiled) bool {
 	if len(compiled.MCP) > 0 || len(compiled.Subagents) > 0 {
 		return true
 	}
-	return implicitlyEnablesSkillTool(compiled)
+	for _, name := range implicitBuiltInToolNames(compiled) {
+		if _, configured := compiled.Tools[name]; !configured {
+			return true
+		}
+	}
+	return false
 }
 
-func implicitlyEnablesSkillTool(compiled Compiled) bool {
-	_, skillConfigured := compiled.Tools[toolcatalog.ToolNameSkill]
-	return len(compiled.Skills) > 0 && !skillConfigured
+func implicitBuiltInToolNames(compiled Compiled) []string {
+	var names []string
+	if len(compiled.MachineSources) > 0 {
+		names = append(names,
+			toolcatalog.ToolNameRunCommand,
+			toolcatalog.ToolNameWriteProcess,
+			toolcatalog.ToolNameReadProcess,
+			toolcatalog.ToolNameStopProcess,
+			toolcatalog.ToolNameListProcesses,
+			toolcatalog.ToolNameListMachines,
+			toolcatalog.ToolNameInspectMachine,
+			toolcatalog.ToolNameUploadFile,
+			toolcatalog.ToolNameDownloadFile,
+		)
+		for _, source := range compiled.MachineSources {
+			if source.MachinePoolID != "" {
+				names = append(names, toolcatalog.ToolNameCreateMachine, toolcatalog.ToolNameDeleteMachine)
+				break
+			}
+		}
+	}
+	if len(compiled.Skills) > 0 {
+		names = append(names, toolcatalog.ToolNameSkill)
+	}
+	return names
 }
 
 // compileSkills validates and pins the attached skill set. Skills do not
