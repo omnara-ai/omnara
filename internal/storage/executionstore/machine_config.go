@@ -13,6 +13,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -248,9 +249,9 @@ func (s *Store) ResolvePoolMachineTx(
 
 func (s *Store) ResolveMachineProviderAuthToken(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	managementKind management.Kind,
-	providerAuthSecretID ID,
+	providerAuthSecretID uuid.UUID,
 	providerAuthEnvVar string,
 ) (string, error) {
 	credential, err := s.ResolveMachineProviderCredential(
@@ -265,19 +266,19 @@ func (s *Store) ResolveMachineProviderAuthToken(
 
 type MachineProviderCredential struct {
 	Token     string
-	VersionID ID
+	VersionID uuid.UUID
 }
 
 func (s *Store) ResolveMachineProviderCredential(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	managementKind management.Kind,
-	providerAuthSecretID ID,
+	providerAuthSecretID uuid.UUID,
 	providerAuthEnvVar string,
 ) (MachineProviderCredential, error) {
 	switch managementKind {
 	case management.Tenant:
-		if isNilID(providerAuthSecretID) {
+		if providerAuthSecretID == uuid.Nil {
 			return MachineProviderCredential{}, errors.New("provider_auth_secret_id is required")
 		}
 		credential, err := s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
@@ -317,7 +318,7 @@ func (s *Store) validatePoolDefaultsTx(
 	input CreateMachinePoolInput,
 	defaults machinePoolDefaults,
 ) error {
-	if _, err := resolveMachineEnvironmentTx(ctx, qtx, input.OrgID, NilID, defaults.Environment); err != nil {
+	if _, err := resolveMachineEnvironmentTx(ctx, qtx, input.OrgID, uuid.Nil, defaults.Environment); err != nil {
 		return fmt.Errorf("machine pool default_machine fields %w", err)
 	}
 	return storeerr.InvalidRequest(s.machinePoolProviders.ValidatePool(
@@ -367,7 +368,7 @@ func resolveMachineEnvironment(
 func resolveMachineEnvironmentTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	base MachineEnvironment,
 	overlays ...MachineEnvironmentOverlay,
 ) (MachineEnvironment, error) {
@@ -690,10 +691,10 @@ func hasMachineProvisioningOverlay(machine agentconfig.RuntimeMachine) bool {
 func validateMachineEnvironmentSecretsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	environment MachineEnvironment,
 ) error {
-	validatedSecretIDs := make(map[ID]struct{}, len(environment.SecretEnv))
+	validatedSecretIDs := make(map[uuid.UUID]struct{}, len(environment.SecretEnv))
 	for envName, secretRef := range environment.SecretEnv {
 		secretID, err := publicid.Decode(publicid.KindSecret, secretRef)
 		if err != nil {
@@ -703,7 +704,7 @@ func validateMachineEnvironmentSecretsTx(
 			continue
 		}
 		var secret secretops.Facts
-		if isNilID(projectID) {
+		if projectID == uuid.Nil {
 			record, err := qtx.GetSecret(ctx, dbsqlc.GetSecretParams{OrgID: orgID, ID: secretID})
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -763,7 +764,7 @@ func environmentByteSize(env map[string]string) int {
 
 func (s *Store) ResolveEnvironmentSecrets(
 	ctx context.Context,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	envJSON, secretEnvJSON json.RawMessage,
 ) (map[string]string, error) {
 	environment, err := MachineEnvironmentFromColumns(envJSON, secretEnvJSON)
@@ -775,7 +776,7 @@ func (s *Store) ResolveEnvironmentSecrets(
 
 func (s *Store) resolveEnvironmentSecrets(
 	ctx context.Context,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	environment MachineEnvironment,
 ) (map[string]string, error) {
 	env := maps.Clone(environment.Env)
@@ -787,7 +788,7 @@ func (s *Store) resolveEnvironmentSecrets(
 	if resolvedBytes > MaxResolvedEnvironmentBytes {
 		return nil, fmt.Errorf("%w: resolved environment exceeds size limit", storeerr.ErrPermanentEnvironment)
 	}
-	resolvedSecrets := make(map[ID]string, len(secretEnv))
+	resolvedSecrets := make(map[uuid.UUID]string, len(secretEnv))
 	for envName, secretRef := range secretEnv {
 		secretID, err := publicid.Decode(publicid.KindSecret, secretRef)
 		if err != nil {
@@ -823,9 +824,9 @@ func (s *Store) resolveEnvironmentSecrets(
 
 func (s *Store) readEnvironmentSecretPayload(
 	ctx context.Context,
-	orgID, projectID, secretID ID,
+	orgID, projectID, secretID uuid.UUID,
 ) (secretstore.SecretPayloadRecord, error) {
-	if isNilID(projectID) {
+	if projectID == uuid.Nil {
 		return s.secrets.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
 			OrgID:          orgID,
 			SecretID:       secretID,

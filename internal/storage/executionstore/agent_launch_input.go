@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -41,7 +42,7 @@ func insertLaunchInitialContentInputTx(
 		agent.ProjectID,
 		agent.ID,
 		launchActor,
-		NilID,
+		uuid.Nil,
 	)
 	if err != nil {
 		return AgentInputRecord{}, nil, err
@@ -76,13 +77,13 @@ func launchChildIdempotencyKey(parent, child string) string {
 	return "launch:" + parent + ":" + child
 }
 
-func machineSourceSlotChildIdempotencyKey(agentID ID, index, slotIndex int, child string) string {
+func machineSourceSlotChildIdempotencyKey(agentID uuid.UUID, index, slotIndex int, child string) string {
 	return agentChildIdempotencyKey(
 		agentID,
 		fmt.Sprintf("machine-source:%d:slot:%d:%s", index, slotIndex, child),
 	)
 }
 
-func agentChildIdempotencyKey(agentID ID, child string) string {
+func agentChildIdempotencyKey(agentID uuid.UUID, child string) string {
 	return "agent:" + agentID.String() + ":" + child
 }

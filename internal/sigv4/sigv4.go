@@ -16,9 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/google/uuid"
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 const maxCredentialCacheEntries = 1_024
@@ -29,12 +29,12 @@ type CredentialCache struct {
 }
 
 type credentialCacheKey struct {
-	secretID storage.ID
+	secretID uuid.UUID
 	region   string
 }
 
 type credentialCacheEntry struct {
-	versionID storage.ID
+	versionID uuid.UUID
 	provider  *aws.CredentialsCache
 }
 
@@ -47,8 +47,8 @@ func NewCredentialCache() (*CredentialCache, error) {
 }
 
 func (c *CredentialCache) provider(
-	secretID storage.ID,
-	versionID storage.ID,
+	secretID uuid.UUID,
+	versionID uuid.UUID,
 	region string,
 	payload secrets.Payload,
 ) (aws.CredentialsProvider, error) {
@@ -150,8 +150,8 @@ func (s *Signer) sign(ctx context.Context, request *http.Request, payloadHash st
 
 func ResolveCredentialProvider(
 	cache *CredentialCache,
-	secretID storage.ID,
-	versionID storage.ID,
+	secretID uuid.UUID,
+	versionID uuid.UUID,
 	region string,
 	payload secrets.Payload,
 ) (aws.CredentialsProvider, error) {

@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
@@ -61,13 +61,13 @@ type RuntimeReconciliationStats struct {
 type runtimeReconciliationState struct {
 	mu                  sync.Mutex
 	cooldowns           map[executionstore.ProviderRuntimeScopeKey]time.Time
-	confirmationCursors map[executionstore.ProviderRuntimeScopeKey]storage.ID
+	confirmationCursors map[executionstore.ProviderRuntimeScopeKey]uuid.UUID
 }
 
 func newRuntimeReconciliationState() *runtimeReconciliationState {
 	return &runtimeReconciliationState{
 		cooldowns:           make(map[executionstore.ProviderRuntimeScopeKey]time.Time),
-		confirmationCursors: make(map[executionstore.ProviderRuntimeScopeKey]storage.ID),
+		confirmationCursors: make(map[executionstore.ProviderRuntimeScopeKey]uuid.UUID),
 	}
 }
 
@@ -130,7 +130,7 @@ func (s *runtimeReconciliationState) confirmationStart(
 	s.mu.Lock()
 	cursor := s.confirmationCursors[scopeKey]
 	s.mu.Unlock()
-	if cursor == storage.NilID {
+	if cursor == uuid.Nil {
 		return 0
 	}
 	for index, candidate := range candidates {
@@ -143,7 +143,7 @@ func (s *runtimeReconciliationState) confirmationStart(
 
 func (s *runtimeReconciliationState) recordConfirmationCursor(
 	scopeKey executionstore.ProviderRuntimeScopeKey,
-	machineID storage.ID,
+	machineID uuid.UUID,
 ) {
 	s.mu.Lock()
 	s.confirmationCursors[scopeKey] = machineID
@@ -271,7 +271,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 
 func (m Manager) discoverProviderRuntimeScope(
 	ctx context.Context,
-	installationID storage.ID,
+	installationID uuid.UUID,
 	candidates []executionstore.ProviderRuntimeCandidate,
 ) (RuntimeReconciliationStats, []runtimeExactObservationTask, error) {
 	var stats RuntimeReconciliationStats
@@ -367,7 +367,7 @@ func interleaveExactRuntimeObservationTasks(
 
 func (m Manager) reconcileExactRuntimeObservation(
 	ctx context.Context,
-	installationID storage.ID,
+	installationID uuid.UUID,
 	task runtimeExactObservationTask,
 ) (RuntimeReconciliationStats, error) {
 	var stats RuntimeReconciliationStats
@@ -680,7 +680,7 @@ func buildRuntimeConfirmationStripe(
 
 func (m Manager) confirmProviderRuntimeCandidate(
 	ctx context.Context,
-	installationID storage.ID,
+	installationID uuid.UUID,
 	config RuntimeReconciliationConfig,
 	scope *runtimeConfirmationScope,
 	candidateIndex int,
@@ -835,7 +835,7 @@ func (m Manager) recordProviderRuntimeFailure(
 }
 
 func runtimeTarget(
-	installationID storage.ID,
+	installationID uuid.UUID,
 	candidate executionstore.ProviderRuntimeCandidate,
 ) providers.RuntimeTarget {
 	return providers.RuntimeTarget{
@@ -849,13 +849,13 @@ func runtimeTarget(
 func validRuntimeObservations(
 	candidates []executionstore.ProviderRuntimeCandidate,
 	observations []providers.RuntimeObservation,
-) map[storage.ID]providers.RuntimeObservation {
-	requested := make(map[storage.ID]executionstore.ProviderRuntimeCandidate, len(candidates))
+) map[uuid.UUID]providers.RuntimeObservation {
+	requested := make(map[uuid.UUID]executionstore.ProviderRuntimeCandidate, len(candidates))
 	for _, candidate := range candidates {
 		requested[candidate.MachineID] = candidate
 	}
-	valid := make(map[storage.ID]providers.RuntimeObservation, len(observations))
-	duplicates := make(map[storage.ID]struct{})
+	valid := make(map[uuid.UUID]providers.RuntimeObservation, len(observations))
+	duplicates := make(map[uuid.UUID]struct{})
 	for _, observation := range observations {
 		candidate, ok := requested[observation.MachineID]
 		if !ok || !observation.State.Valid() ||

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -12,13 +13,13 @@ import (
 )
 
 func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInput) (bool, error) {
-	if input.Principal.Type == "" || isNilID(input.Principal.ID) {
+	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return false, errors.New("org id is required")
 	}
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return false, errors.New("project id is required")
 	}
 	if input.Action == "" {
@@ -27,7 +28,7 @@ func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInpu
 	if !IsAccountPrincipal(input.Principal) {
 		return false, nil
 	}
-	if !isNilID(input.Principal.OrgID) && input.Principal.OrgID != input.OrgID {
+	if input.Principal.OrgID != uuid.Nil && input.Principal.OrgID != input.OrgID {
 		return false, nil
 	}
 	userID, orgAPIKeyID := AccountPrincipalIDs(input.Principal)
@@ -55,10 +56,10 @@ func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInpu
 }
 
 func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool, error) {
-	if input.Principal.Type == "" || isNilID(input.Principal.ID) {
+	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return false, errors.New("org id is required")
 	}
 	if input.Action == "" {
@@ -67,7 +68,7 @@ func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool
 	if !IsAccountPrincipal(input.Principal) {
 		return false, nil
 	}
-	if !isNilID(input.Principal.OrgID) && input.Principal.OrgID != input.OrgID {
+	if input.Principal.OrgID != uuid.Nil && input.Principal.OrgID != input.OrgID {
 		return false, nil
 	}
 	userID, orgAPIKeyID := AccountPrincipalIDs(input.Principal)
@@ -91,8 +92,8 @@ func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool
 	return authz.OrgRoleAllows(role, input.Action), nil
 }
 
-func (s *Store) HasOrgMembership(ctx context.Context, principal PrincipalRecord, orgID ID) (bool, error) {
-	if isNilID(orgID) || !IsAccountPrincipal(principal) {
+func (s *Store) HasOrgMembership(ctx context.Context, principal PrincipalRecord, orgID uuid.UUID) (bool, error) {
+	if orgID == uuid.Nil || !IsAccountPrincipal(principal) {
 		return false, nil
 	}
 	userID, orgAPIKeyID := AccountPrincipalIDs(principal)
@@ -114,14 +115,14 @@ func (s *Store) HasOrgMembership(ctx context.Context, principal PrincipalRecord,
 }
 
 type orgMembershipRow struct {
-	ID   ID
+	ID   uuid.UUID
 	Role string
 }
 
 func getOrgMembershipForPrincipalTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID ID,
+	orgID uuid.UUID,
 	principal PrincipalRecord,
 ) (orgMembershipRow, error) {
 	switch principal.Type {
@@ -154,7 +155,7 @@ type PrincipalRoles struct {
 }
 
 func (s *Store) ListPrincipalRoles(ctx context.Context, principal PrincipalRecord) (PrincipalRoles, error) {
-	if principal.Type == "" || isNilID(principal.ID) {
+	if principal.Type == "" || principal.ID == uuid.Nil {
 		return PrincipalRoles{}, storeerr.ErrUnauthorized
 	}
 	userID, orgAPIKeyID := AccountPrincipalIDs(principal)

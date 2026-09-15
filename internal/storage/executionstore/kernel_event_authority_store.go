@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -14,50 +15,51 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type TypedAgentEventRecord struct {
 	Event               events.Event
-	TurnID              ID
+	TurnID              uuid.UUID
 	IsOpeningEvent      bool
-	AgentInputID        ID
-	ModelOutputID       ID
-	ToolCallResultID    ID
-	ContextCheckpointID ID
+	AgentInputID        uuid.UUID
+	ModelOutputID       uuid.UUID
+	ToolCallResultID    uuid.UUID
+	ContextCheckpointID uuid.UUID
 }
 
 type CreateContentBlockInput struct {
-	ProjectID               ID
-	AgentID                 ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
 	OwnerKind               ContentBlockOwnerKind
-	OwnerAgentInputID       ID
-	OwnerModelOutputID      ID
-	OwnerToolCallResultID   ID
+	OwnerAgentInputID       uuid.UUID
+	OwnerModelOutputID      uuid.UUID
+	OwnerToolCallResultID   uuid.UUID
 	Ordinal                 int32
 	BlockKind               ContentBlockKind
 	TextContent             string
 	StructuredData          json.RawMessage
-	ArtifactID              ID
-	ToolCallID              ID
+	ArtifactID              uuid.UUID
+	ToolCallID              uuid.UUID
 	ExcludeFromModelContext bool
 	Metadata                resourcemeta.Metadata
 }
 
 type ContentBlockRecord struct {
-	ID                    ID
-	ProjectID             ID
-	AgentID               ID
+	ID                    uuid.UUID
+	ProjectID             uuid.UUID
+	AgentID               uuid.UUID
 	OwnerKind             ContentBlockOwnerKind
-	OwnerAgentInputID     ID
-	OwnerModelOutputID    ID
-	OwnerToolCallResultID ID
+	OwnerAgentInputID     uuid.UUID
+	OwnerModelOutputID    uuid.UUID
+	OwnerToolCallResultID uuid.UUID
 	Ordinal               int32
 	BlockKind             ContentBlockKind
 	TextContent           string
 	StructuredData        json.RawMessage
-	ArtifactID            ID
-	ToolCallID            ID
+	ArtifactID            uuid.UUID
+	ToolCallID            uuid.UUID
 	CreatedAt             time.Time
 }
 
@@ -69,17 +71,17 @@ type admittedToolCallResult struct {
 }
 
 type AppendTypedAgentEventInput struct {
-	ID                  ID
-	ProjectID           ID
-	AgentID             ID
-	TurnID              ID
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
 	IsOpeningEvent      bool
 	Kind                events.Kind
 	IdempotencyKey      string
-	AgentInputID        ID
-	ModelOutputID       ID
-	ToolCallResultID    ID
-	ContextCheckpointID ID
+	AgentInputID        uuid.UUID
+	ModelOutputID       uuid.UUID
+	ToolCallResultID    uuid.UUID
+	ContextCheckpointID uuid.UUID
 }
 
 type sqlExecutor interface {
@@ -91,7 +93,7 @@ func createContentBlockTx(
 	db sqlExecutor,
 	input CreateContentBlockInput,
 ) (ContentBlockRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil ||
 		input.OwnerKind == "" ||
 		input.BlockKind == "" {
 		return ContentBlockRecord{}, errors.New(
@@ -123,15 +125,15 @@ func createContentBlockTx(
 		ProjectID:               input.ProjectID,
 		AgentID:                 input.AgentID,
 		OwnerKind:               string(input.OwnerKind),
-		OwnerAgentInputID:       sqlcIDFromNil(input.OwnerAgentInputID),
-		OwnerModelOutputID:      sqlcIDFromNil(input.OwnerModelOutputID),
-		OwnerToolCallResultID:   sqlcIDFromNil(input.OwnerToolCallResultID),
+		OwnerAgentInputID:       storeutil.IDFromNil(input.OwnerAgentInputID),
+		OwnerModelOutputID:      storeutil.IDFromNil(input.OwnerModelOutputID),
+		OwnerToolCallResultID:   storeutil.IDFromNil(input.OwnerToolCallResultID),
 		Ordinal:                 input.Ordinal,
 		BlockKind:               string(input.BlockKind),
 		TextContent:             textContent,
 		StructuredData:          sqlcRawMessageFromEmpty(input.StructuredData),
-		ArtifactID:              sqlcIDFromNil(input.ArtifactID),
-		ToolCallID:              sqlcIDFromNil(input.ToolCallID),
+		ArtifactID:              storeutil.IDFromNil(input.ArtifactID),
+		ToolCallID:              storeutil.IDFromNil(input.ToolCallID),
 		ExcludeFromModelContext: input.ExcludeFromModelContext,
 		Metadata:                metadata,
 	})
@@ -147,7 +149,7 @@ func appendTypedAgentEventTx(
 	tx pgx.Tx,
 	input AppendTypedAgentEventInput,
 ) (TypedAgentEventRecord, error) {
-	if isNilID(input.TurnID) {
+	if input.TurnID == uuid.Nil {
 		return TypedAgentEventRecord{}, errors.New("turn id is required")
 	}
 	if err := validateTypedEventPointers(input); err != nil {
@@ -180,17 +182,17 @@ func appendTypedAgentEventTx(
 		}
 	}
 	row, err := qtx.InsertTypedAgentEvent(ctx, dbsqlc.InsertTypedAgentEventParams{
-		ID:                  sqlcIDFromNil(input.ID),
+		ID:                  storeutil.IDFromNil(input.ID),
 		ProjectID:           input.ProjectID,
 		AgentID:             input.AgentID,
 		TurnID:              input.TurnID,
 		Sequence:            allocation.NextEventSequence,
 		EventKind:           string(input.Kind),
-		IdempotencyKey:      sqlcTextFromEmpty(input.IdempotencyKey),
-		AgentInputID:        sqlcIDFromNil(input.AgentInputID),
-		ModelOutputID:       sqlcIDFromNil(input.ModelOutputID),
-		ToolCallResultID:    sqlcIDFromNil(input.ToolCallResultID),
-		ContextCheckpointID: sqlcIDFromNil(input.ContextCheckpointID),
+		IdempotencyKey:      storeutil.TextFromEmpty(input.IdempotencyKey),
+		AgentInputID:        storeutil.IDFromNil(input.AgentInputID),
+		ModelOutputID:       storeutil.IDFromNil(input.ModelOutputID),
+		ToolCallResultID:    storeutil.IDFromNil(input.ToolCallResultID),
+		ContextCheckpointID: storeutil.IDFromNil(input.ContextCheckpointID),
 		IsOpeningEvent:      input.IsOpeningEvent,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -212,7 +214,7 @@ func appendTypedAgentEventTx(
 func loadTypedEventByIdempotencyMaybeTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	key string,
 ) (TypedAgentEventRecord, bool, error) {
 	row, err := dbsqlc.New(tx).
@@ -237,14 +239,14 @@ func loadTypedEventByIdempotencyMaybeTx(
 func loadTypedEventByModelOutputMaybeTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, modelOutputID ID,
+	projectID, agentID, modelOutputID uuid.UUID,
 ) (TypedAgentEventRecord, bool, error) {
 	row, err := dbsqlc.New(tx).GetTypedAgentEventByModelOutput(
 		ctx,
 		dbsqlc.GetTypedAgentEventByModelOutputParams{
 			ProjectID:     projectID,
 			AgentID:       agentID,
-			ModelOutputID: sqlcIDFromNil(modelOutputID),
+			ModelOutputID: storeutil.IDFromNil(modelOutputID),
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -258,21 +260,21 @@ func loadTypedEventByModelOutputMaybeTx(
 }
 
 type CreateToolCallResultAuthorityInput struct {
-	ProjectID          ID
-	AgentID            ID
-	TurnID             ID
-	ToolCallID         ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	ToolCallID         uuid.UUID
 	Outcome            ToolResultOutcome
 	ResultContentParts json.RawMessage
 	IdempotencyKey     string
 }
 
 type ToolCallResultAuthorityRecord struct {
-	ID          ID
-	ProjectID   ID
-	AgentID     ID
-	TurnID      ID
-	ToolCallID  ID
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	AgentID     uuid.UUID
+	TurnID      uuid.UUID
+	ToolCallID  uuid.UUID
 	Outcome     ToolResultOutcome
 	CompletedAt time.Time
 }
@@ -282,7 +284,7 @@ func createToolCallResultAuthorityTx(
 	db sqlExecutor,
 	input CreateToolCallResultAuthorityInput,
 ) (ToolCallResultAuthorityRecord, bool, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ToolCallID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil {
 		return ToolCallResultAuthorityRecord{}, false, errors.New(
 			"project, agent, and tool call are required",
 		)
@@ -400,14 +402,14 @@ func admitToolCallResultTx(
 func toolCallResultContentBlocksTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, resultID ID,
+	projectID, agentID, resultID uuid.UUID,
 ) (json.RawMessage, error) {
 	rows, err := qtx.ListToolCallResultContentBlocks(
 		ctx,
 		dbsqlc.ListToolCallResultContentBlocksParams{
 			ProjectID:        projectID,
 			AgentID:          agentID,
-			ToolCallResultID: sqlcIDFromNil(resultID),
+			ToolCallResultID: storeutil.IDFromNil(resultID),
 		},
 	)
 	if err != nil {
@@ -461,7 +463,7 @@ func toolCallResultContentBlocksTx(
 func getToolCallResultAuthorityByToolCallTx(
 	ctx context.Context,
 	db sqlExecutor,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 ) (ToolCallResultAuthorityRecord, bool, error) {
 	row, err := dbsqlc.New(db).
 		GetToolCallResultByToolCall(ctx, dbsqlc.GetToolCallResultByToolCallParams{
@@ -482,7 +484,7 @@ func getToolCallResultAuthorityByToolCallTx(
 }
 
 func validateModelOutputAuthorityInput(input CreateModelOutputAuthorityInput) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ModelCallContextID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ModelCallContextID == uuid.Nil ||
 		input.StopReason == "" {
 		return errors.New(
 			"project, agent, model context, and stop reason are required",
@@ -515,16 +517,16 @@ func sameToolCallResultIntent(
 
 func validateTypedEventPointers(input AppendTypedAgentEventInput) error {
 	count := 0
-	if !isNilID(input.AgentInputID) {
+	if input.AgentInputID != uuid.Nil {
 		count++
 	}
-	if !isNilID(input.ModelOutputID) {
+	if input.ModelOutputID != uuid.Nil {
 		count++
 	}
-	if !isNilID(input.ToolCallResultID) {
+	if input.ToolCallResultID != uuid.Nil {
 		count++
 	}
-	if !isNilID(input.ContextCheckpointID) {
+	if input.ContextCheckpointID != uuid.Nil {
 		count++
 	}
 	if count != 1 {
@@ -532,19 +534,19 @@ func validateTypedEventPointers(input AppendTypedAgentEventInput) error {
 	}
 	switch input.Kind {
 	case events.KindAgentInput:
-		if isNilID(input.AgentInputID) {
+		if input.AgentInputID == uuid.Nil {
 			return errors.New("agent_input event requires agent_input_id")
 		}
 	case events.KindModelOutput:
-		if isNilID(input.ModelOutputID) {
+		if input.ModelOutputID == uuid.Nil {
 			return errors.New("model_output event requires model_output_id")
 		}
 	case events.KindToolResult:
-		if isNilID(input.ToolCallResultID) {
+		if input.ToolCallResultID == uuid.Nil {
 			return errors.New("tool_result event requires tool_call_result_id")
 		}
 	case events.KindContextCheckpoint:
-		if isNilID(input.ContextCheckpointID) {
+		if input.ContextCheckpointID == uuid.Nil {
 			return errors.New("context_checkpoint event requires context_checkpoint_id")
 		}
 	default:
@@ -641,15 +643,15 @@ func contentBlockFromInsertSQLC(row dbsqlc.InsertContentBlockRow) ContentBlockRe
 		ProjectID:             row.ProjectID,
 		AgentID:               row.AgentID,
 		OwnerKind:             ContentBlockOwnerKind(row.OwnerKind),
-		OwnerAgentInputID:     idFromSQLCPtr(row.OwnerAgentInputID),
-		OwnerModelOutputID:    idFromSQLCPtr(row.OwnerModelOutputID),
-		OwnerToolCallResultID: idFromSQLCPtr(row.OwnerToolCallResultID),
+		OwnerAgentInputID:     storeutil.IDFromPtr(row.OwnerAgentInputID),
+		OwnerModelOutputID:    storeutil.IDFromPtr(row.OwnerModelOutputID),
+		OwnerToolCallResultID: storeutil.IDFromPtr(row.OwnerToolCallResultID),
 		Ordinal:               row.Ordinal,
 		BlockKind:             ContentBlockKind(row.BlockKind),
 		TextContent:           row.TextContent,
 		StructuredData:        rawMessageFromSQLCPtr(row.StructuredData),
-		ArtifactID:            idFromSQLCPtr(row.ArtifactID),
-		ToolCallID:            idFromSQLCPtr(row.ToolCallID),
+		ArtifactID:            storeutil.IDFromPtr(row.ArtifactID),
+		ToolCallID:            storeutil.IDFromPtr(row.ToolCallID),
 		CreatedAt:             row.CreatedAt,
 	}
 }
@@ -674,10 +676,10 @@ func typedAgentEventFromInsertSQLC(
 		Event:               event,
 		TurnID:              row.TurnID,
 		IsOpeningEvent:      row.IsOpeningEvent,
-		AgentInputID:        idFromSQLCPtr(row.AgentInputID),
-		ModelOutputID:       idFromSQLCPtr(row.ModelOutputID),
-		ToolCallResultID:    idFromSQLCPtr(row.ToolCallResultID),
-		ContextCheckpointID: idFromSQLCPtr(row.ContextCheckpointID),
+		AgentInputID:        storeutil.IDFromPtr(row.AgentInputID),
+		ModelOutputID:       storeutil.IDFromPtr(row.ModelOutputID),
+		ToolCallResultID:    storeutil.IDFromPtr(row.ToolCallResultID),
+		ContextCheckpointID: storeutil.IDFromPtr(row.ContextCheckpointID),
 	}, nil
 }
 
@@ -701,10 +703,10 @@ func typedAgentEventFromIdempotencySQLC(
 		Event:               event,
 		TurnID:              row.TurnID,
 		IsOpeningEvent:      row.IsOpeningEvent,
-		AgentInputID:        idFromSQLCPtr(row.AgentInputID),
-		ModelOutputID:       idFromSQLCPtr(row.ModelOutputID),
-		ToolCallResultID:    idFromSQLCPtr(row.ToolCallResultID),
-		ContextCheckpointID: idFromSQLCPtr(row.ContextCheckpointID),
+		AgentInputID:        storeutil.IDFromPtr(row.AgentInputID),
+		ModelOutputID:       storeutil.IDFromPtr(row.ModelOutputID),
+		ToolCallResultID:    storeutil.IDFromPtr(row.ToolCallResultID),
+		ContextCheckpointID: storeutil.IDFromPtr(row.ContextCheckpointID),
 	}, nil
 }
 
@@ -728,9 +730,9 @@ func typedAgentEventFromModelOutputSQLC(
 		Event:               event,
 		TurnID:              row.TurnID,
 		IsOpeningEvent:      row.IsOpeningEvent,
-		AgentInputID:        idFromSQLCPtr(row.AgentInputID),
-		ModelOutputID:       idFromSQLCPtr(row.ModelOutputID),
-		ToolCallResultID:    idFromSQLCPtr(row.ToolCallResultID),
-		ContextCheckpointID: idFromSQLCPtr(row.ContextCheckpointID),
+		AgentInputID:        storeutil.IDFromPtr(row.AgentInputID),
+		ModelOutputID:       storeutil.IDFromPtr(row.ModelOutputID),
+		ToolCallResultID:    storeutil.IDFromPtr(row.ToolCallResultID),
+		ContextCheckpointID: storeutil.IDFromPtr(row.ContextCheckpointID),
 	}, nil
 }

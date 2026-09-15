@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -16,10 +17,10 @@ import (
 )
 
 type RecordModelOutputAndCompleteContextInput struct {
-	ProjectID          ID
-	AgentID            ID
-	RuntimeLockID      ID
-	ModelCallContextID ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
 	ProviderRequestID  string
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
@@ -28,16 +29,16 @@ type RecordModelOutputAndCompleteContextInput struct {
 }
 
 type ToolCallBindingInput struct {
-	ID             ID
+	ID             uuid.UUID
 	ProviderCallID string
 	Type           string
 }
 
 type RecordToolCallSourceAndCompleteContextInput struct {
-	ProjectID          ID
-	AgentID            ID
-	RuntimeLockID      ID
-	ModelCallContextID ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
 	ProviderRequestID  string
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
@@ -47,7 +48,7 @@ type RecordToolCallSourceAndCompleteContextInput struct {
 }
 
 type boundToolCall struct {
-	ID               ID
+	ID               uuid.UUID
 	ProviderCallID   string
 	Name             string
 	Input            []byte
@@ -144,8 +145,8 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	ctx context.Context,
 	input RecordToolCallSourceAndCompleteContextInput,
 ) (events.Event, []ToolCallRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil {
 		return events.Event{}, nil, errors.New(
 			"project, agent, runtime lock, and model context are required",
 		)
@@ -243,7 +244,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 			input.AgentID,
 			modelOutput.TurnID,
 			eventRecord.Event.ID,
-			NilID,
+			uuid.Nil,
 		); err != nil {
 			return events.Event{}, nil, err
 		}
@@ -290,7 +291,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	records := make([]ToolCallRecord, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		row, err := qtx.InsertToolCall(ctx, dbsqlc.InsertToolCallParams{
-			ToolCallID:         sqlcIDFromNil(call.ID),
+			ToolCallID:         storeutil.IDFromNil(call.ID),
 			ProjectID:          input.ProjectID,
 			AgentID:            input.AgentID,
 			SourceEventID:      eventRecord.Event.ID,
@@ -344,7 +345,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		return events.Event{}, nil, err
 	}
 	for _, record := range records {
-		if isNilID(contentBlockByProviderCallID[record.ProviderCallID]) {
+		if contentBlockByProviderCallID[record.ProviderCallID] == uuid.Nil {
 			return events.Event{}, nil, fmt.Errorf(
 				"tool call %q has no matching tool_call content block in envelope content",
 				record.ProviderCallID,
@@ -408,7 +409,7 @@ func sameBoundToolCallBatch(
 			record.Name != call.Name ||
 			!sameJSON(record.Input, call.Input) ||
 			record.Type != call.Type ||
-			(!isNilID(call.ID) && record.ID != call.ID) {
+			(call.ID != uuid.Nil && record.ID != call.ID) {
 			return false
 		}
 		if len(call.RejectionContent) > 0 &&
@@ -424,8 +425,8 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	ctx context.Context,
 	input RecordModelOutputAndCompleteContextInput,
 ) (events.Event, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil {
 		return events.Event{}, errors.New(
 			"project, agent, runtime lock, and model context are required",
 		)
@@ -628,7 +629,7 @@ func validateResponseEnvelopeForModelCallContext(
 
 func validateNormalModelCallCompletionState(
 	contextRow ModelCallContextRecord,
-	modelCallContextID, runtimeLockID ID,
+	modelCallContextID, runtimeLockID uuid.UUID,
 ) (bool, error) {
 	if contextRow.ID != modelCallContextID ||
 		contextRow.OperationKind != ModelCallOperationNormal {
@@ -659,7 +660,7 @@ func completeSuccessfulNormalModelCallTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	contextRow ModelCallContextRecord,
-	runtimeLockID ID,
+	runtimeLockID uuid.UUID,
 	providerRequestID string,
 	envelope modelenvelope.ResponseEnvelope,
 ) error {

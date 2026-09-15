@@ -3,10 +3,13 @@ package tools
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -14,9 +17,9 @@ func TestMachineToolInputValidation(t *testing.T) {
 	valid := []model.ToolCall{
 		{Name: "create_machine", Input: json.RawMessage(`{}`)},
 		{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":"Build Pool"}`)},
-		{Name: "delete_machine", Input: json.RawMessage(`{"machine_ref":"mchr-123"}`)},
+		{Name: "delete_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{}`)},
-		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_ref":"mchr-123"}`)},
+		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "list_machines", Input: json.RawMessage(`{}`)},
 	}
 	for _, call := range valid {
@@ -40,16 +43,16 @@ func TestMachineToolInputValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "delete requires ref",
+			name: "delete requires ID",
 			call: model.ToolCall{Name: "delete_machine", Input: json.RawMessage(`{}`)},
 		},
 		{
 			name: "inspect rejects null",
-			call: model.ToolCall{Name: "inspect_machine", Input: json.RawMessage(`{"machine_ref":null}`)},
+			call: model.ToolCall{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":null}`)},
 		},
 		{
 			name: "list rejects fields",
-			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"machine_ref":"mchr-123"}`)},
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		},
 	}
 	for _, tc := range invalid {
@@ -115,18 +118,20 @@ func TestSelectCreateMachinePool(t *testing.T) {
 }
 
 func TestSelectOnlyMachine(t *testing.T) {
-	first := executionstore.PoolMachineRecord{Binding: executionstore.AgentMachineBindingRecord{MachineRef: "mchr-first1"}}
+	first := executionstore.PoolMachineRecord{
+		Binding: executionstore.AgentMachineBindingRecord{MachineID: integrationToolTestID("machine-first")},
+	}
 	second := executionstore.PoolMachineRecord{
-		Binding: executionstore.AgentMachineBindingRecord{MachineRef: "mchr-secon2"},
+		Binding: executionstore.AgentMachineBindingRecord{MachineID: integrationToolTestID("machine-second")},
 	}
 	tests := []struct {
 		name     string
 		machines []executionstore.PoolMachineRecord
-		want     string
+		want     uuid.UUID
 		wantErr  error
 	}{
 		{name: "zero machines", wantErr: ErrNoMachine},
-		{name: "one machine", machines: []executionstore.PoolMachineRecord{first}, want: first.Binding.MachineRef},
+		{name: "one machine", machines: []executionstore.PoolMachineRecord{first}, want: first.Binding.MachineID},
 		{
 			name:     "multiple machines",
 			machines: []executionstore.PoolMachineRecord{first, second},
@@ -145,8 +150,8 @@ func TestSelectOnlyMachine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("select inspect machine: %v", err)
 			}
-			if got.Binding.MachineRef != tc.want {
-				t.Fatalf("selected machine_ref = %q, want %q", got.Binding.MachineRef, tc.want)
+			if got.Binding.MachineID != tc.want {
+				t.Fatalf("selected machine_id = %q, want %q", got.Binding.MachineID, tc.want)
 			}
 		})
 	}
@@ -156,18 +161,23 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 	machineCwd := "/pool"
 	record := executionstore.PoolMachineRecord{
 		Binding: executionstore.AgentMachineBindingRecord{
-			MachineRef:  "mchr-pool01",
+			MachineID:   integrationToolTestID("machine-pool"),
 			BindingKind: executionstore.MachineBindingKindPool,
 		},
 		Machine: executionstore.MachineRecord{
+			ID:          integrationToolTestID("machine-pool"),
 			SourceKind:  executionstore.MachineSourceKindPool,
 			DisplayName: "Build machine",
 			Cwd:         machineCwd,
 		},
 		MachinePoolName: "Build Pool",
 	}
-	got := machineObservation(record)
-	if got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
+	got, err := machineObservation(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MachineID != machinePublicIDForTest(t, record.Machine.ID) ||
+		got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
 		t.Fatalf("pool observation identity = %+v", got)
 	}
 	if got.MachinePoolName != "Build Pool" {
@@ -180,7 +190,7 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 
 func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 	record := executionstore.AgentMachineObservationRecord{
-		MachineRef:      "mchr-byo001",
+		MachineID:       integrationToolTestID("machine-byo"),
 		SourceKind:      executionstore.MachineSourceKindBYO,
 		BindingKind:     executionstore.MachineBindingKindExplicit,
 		BindingState:    executionstore.AgentMachineBindingStateAttached,
@@ -189,8 +199,12 @@ func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 		ConnectionState: executionstore.MachineConnectionStateOnline,
 		Executable:      true,
 	}
-	got := agentMachineObservation(record)
-	if got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
+	got, err := agentMachineObservation(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MachineID != machinePublicIDForTest(t, record.MachineID) ||
+		got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
 		t.Fatalf("BYO observation identity = %+v", got)
 	}
 	encoded, err := json.Marshal(got)
@@ -204,7 +218,7 @@ func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 
 func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) {
 	record := executionstore.AgentMachineObservationRecord{
-		MachineRef:             "mchr-byo001",
+		MachineID:              integrationToolTestID("machine-byo"),
 		SourceKind:             executionstore.MachineSourceKindBYO,
 		BindingKind:            executionstore.MachineBindingKindExplicit,
 		BindingState:           executionstore.AgentMachineBindingStateAttached,
@@ -220,7 +234,11 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 		LifecycleReasonMessage: "ready",
 		FailureReport:          json.RawMessage(`{"stage":"daemon_install"}`),
 	}
-	encoded, err := json.Marshal(agentMachineInspection(record))
+	inspection, err := agentMachineInspection(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(inspection)
 	if err != nil {
 		t.Fatalf("marshal ungranted machine observation: %v", err)
 	}
@@ -258,21 +276,66 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 func TestMachineInspectionIncludesFailureReport(t *testing.T) {
 	failure := json.RawMessage(`{"stage":"daemon_install","exit_status":7,"output_tail":"failed"}`)
 	record := executionstore.AgentMachineObservationRecord{
-		MachineRef:    "mchr-pool01",
+		MachineID:     integrationToolTestID("machine-pool"),
 		FailureReport: failure,
 	}
-	inspected, err := json.Marshal(agentMachineInspection(record))
+	inspection, err := agentMachineInspection(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := json.Marshal(inspection)
 	if err != nil {
 		t.Fatalf("marshal machine inspection: %v", err)
 	}
 	if !strings.Contains(string(inspected), `"failure_report":`+string(failure)) {
 		t.Fatalf("machine inspection = %s, want failure report", inspected)
 	}
-	listed, err := json.Marshal(agentMachineObservation(record))
+	observation, err := agentMachineObservation(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := json.Marshal(observation)
 	if err != nil {
 		t.Fatalf("marshal machine observation: %v", err)
 	}
 	if strings.Contains(string(listed), "failure_report") {
 		t.Fatalf("machine list observation = %s, want failure report omitted", listed)
+	}
+}
+
+func machinePublicIDForTest(t *testing.T, id uuid.UUID) string {
+	t.Helper()
+	value, err := publicid.Encode(publicid.KindMachine, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
+	id := integrationToolTestID("public-machine")
+	publicID := machinePublicIDForTest(t, id)
+	for _, tc := range []struct{ name, input string }{
+		{"run_command", `{"command":"pwd","%s":"%s"}`},
+		{"inspect_machine", `{"%s":"%s"}`},
+		{"delete_machine", `{"%s":"%s"}`},
+		{"upload_artifact", `{"path":"report.pdf","%s":"%s"}`},
+		{"download_artifact", `{"artifact_id":"art_aaaaaaaaaaaaaaaaaaaaaaaaae","path":"report.pdf","%s":"%s"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, value := range []string{
+				publicID, "mch_invalid", "", "agt_aaaaaaaaaaaaaaaaaaaaaaaaae",
+			} {
+				input := json.RawMessage(fmt.Sprintf(tc.input, "machine_id", value))
+				err := validateRegisteredToolInput(tc.name, input)
+				if (err == nil) != (value == publicID) {
+					t.Fatalf("machine_id %q: unexpected validation result: %v", value, err)
+				}
+			}
+			input := json.RawMessage(fmt.Sprintf(tc.input, "machine_ref", "mchr-abc234"))
+			if err := validateRegisteredToolInput(tc.name, input); err == nil {
+				t.Fatal("legacy machine_ref was accepted")
+			}
+		})
 	}
 }

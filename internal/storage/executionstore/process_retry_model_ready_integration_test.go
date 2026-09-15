@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -20,7 +21,7 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "concurrent_retry_claim")
-	openingInputIDs := make([]ID, 0, len(admitted.Inputs))
+	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
@@ -163,7 +164,7 @@ func TestRetryClaimRejectedAfterStopEvent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("record retryable failure: %v", err)
 	}
-	var turnID ID
+	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn_id
 FROM model_call_context_turns
@@ -396,7 +397,7 @@ func TestTerminalModelCallFailureSettlesBeforeNewModelReadyFrontier(t *testing.T
 					if err != nil {
 						t.Fatalf("record normal terminal failure before frontier: %v", err)
 					}
-					if result.ID == NilID {
+					if result.ID == uuid.Nil {
 						t.Fatalf("terminal result = %+v, want a durable error output", result)
 					}
 					assertTerminalFailureSettledBeforeModelReadyFrontier(
@@ -404,7 +405,7 @@ func TestTerminalModelCallFailureSettlesBeforeNewModelReadyFrontier(t *testing.T
 						ctx,
 						fixture,
 						claim.Context.ID,
-						NilID,
+						uuid.Nil,
 						claim.Context.ID,
 						steeringID,
 					)
@@ -451,7 +452,7 @@ func TestExhaustedRuntimeRecoverySettlesBeforeNewModelReadyFrontier(t *testing.T
 					name := "recovery_" + recovery + "_" + operation + "_" + frontier
 					var fixture processDaemonFixture
 					var work executionstore.ClaimedAgentWork
-					var parentContextID, compactionContextID, terminalContextID ID
+					var parentContextID, compactionContextID, terminalContextID uuid.UUID
 					if operation == string(executionstore.ModelCallOperationNormal) {
 						var claim executionstore.ModelCallClaim
 						fixture, work, claim = claimExhaustedNormalModelContext(t, ctx, name)

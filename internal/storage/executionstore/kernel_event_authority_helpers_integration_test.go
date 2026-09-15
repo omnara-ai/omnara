@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -17,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -24,7 +26,7 @@ func listTypedToolResultEventsForToolCall(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	agentID, toolCallID ID,
+	agentID, toolCallID uuid.UUID,
 ) []events.Event {
 	t.Helper()
 	rows, err := store.pool.Query(ctx, `
@@ -46,7 +48,7 @@ ORDER BY event.sequence`, testProjectID, agentID, toolCallID)
 	defer rows.Close()
 	out := []events.Event{}
 	for rows.Next() {
-		var id, rowAgentID ID
+		var id, rowAgentID uuid.UUID
 		var sequence int64
 		var kind, key string
 		var at time.Time
@@ -74,9 +76,14 @@ ORDER BY event.sequence`, testProjectID, agentID, toolCallID)
 	return out
 }
 
-func modelOutputIDForToolCall(t *testing.T, ctx context.Context, store *Store, agentID, toolCallID ID) ID {
+func modelOutputIDForToolCall(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	agentID, toolCallID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
-	var modelOutputID ID
+	var modelOutputID uuid.UUID
 	if err := store.pool.QueryRow(ctx, `
 SELECT model_output_id
 FROM tool_call_read_projection
@@ -91,12 +98,12 @@ func modelOutputContextForTurnTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	turnID ID,
+	turnID uuid.UUID,
 	testName string,
 	now time.Time,
-) ID {
+) uuid.UUID {
 	t.Helper()
-	var openingInputID ID
+	var openingInputID uuid.UUID
 	var inputSequence int64
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT event.agent_input_id, event.sequence
@@ -115,7 +122,7 @@ LIMIT 1
 	if err != nil {
 		t.Fatalf("load agent for model output: %v", err)
 	}
-	var toolCallID ID
+	var toolCallID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 		SELECT tool_call.id
 		FROM tool_call_read_projection tool_call
@@ -160,7 +167,7 @@ LIMIT 1
 		ProjectID:                testProjectID,
 		AgentID:                  fixture.AgentID,
 		RuntimeLockID:            fixture.Lock.ID,
-		OpeningInputIDs:          []ID{openingInputID},
+		OpeningInputIDs:          []uuid.UUID{openingInputID},
 		AgentConfigID:            agent.CurrentConfigID,
 		InputEventSequence:       inputSequence,
 		SourceModelCallContextID: work.ModelCallContextID,
@@ -176,7 +183,7 @@ func createModelOutputEventForTurnTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	turnID, contextID ID,
+	turnID, contextID uuid.UUID,
 	testName, stopReason, providerResponseID string,
 	now time.Time,
 ) (executionstore.ModelOutputAuthorityRecord, executionstore.TypedAgentEventRecord) {
@@ -248,7 +255,7 @@ func recordToolCallBatchForContextTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	contextID ID,
+	contextID uuid.UUID,
 	testName string,
 	calls []toolCallForContextTest,
 	now time.Time,
@@ -320,7 +327,7 @@ func recordToolCallBatchForContextTest(
 }
 
 type toolCallForContextTest struct {
-	ID             ID
+	ID             uuid.UUID
 	ProviderCallID string
 	Name           string
 	Input          json.RawMessage
@@ -331,7 +338,7 @@ func markToolCallReadyForTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 	now time.Time,
 ) {
 	t.Helper()
@@ -355,7 +362,7 @@ func createContextForAdmittedTurnTest(
 	now time.Time,
 ) executionstore.ModelCallContextRecord {
 	t.Helper()
-	inputIDs := make([]ID, 0, len(admitted.Inputs))
+	inputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		inputIDs = append(inputIDs, input.ID)
 	}
@@ -374,8 +381,8 @@ func claimNormalContextAtFrontierTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	openingInputIDs []ID,
-	agentConfigID ID,
+	openingInputIDs []uuid.UUID,
+	agentConfigID uuid.UUID,
 	inputEventSequence int64,
 	now time.Time,
 ) executionstore.ModelCallContextRecord {
@@ -413,7 +420,7 @@ func appendSyntheticLatestContentTurnForFrontierTest(
 	fixture processDaemonFixture,
 	testName string,
 	now time.Time,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	inputID := testID("input_" + testName)
 	turnID := testID("turn_" + testName)
@@ -482,7 +489,7 @@ func assertFrontierCountTest(
 	ctx context.Context,
 	store *Store,
 	label, query string,
-	agentID, id ID,
+	agentID, id uuid.UUID,
 	want int,
 ) {
 	t.Helper()
@@ -502,7 +509,7 @@ func newStartedNormalModelCallTestFixture(
 ) (processDaemonFixture, executionstore.AgentRecord, executionstore.ModelCallClaim) {
 	t.Helper()
 	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, testName)
-	openingInputIDs := make([]ID, 0, len(admitted.Inputs))
+	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
@@ -579,7 +586,7 @@ func completeToolCallForContinuationSeedTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	turnID, contextID ID,
+	turnID, contextID uuid.UUID,
 	testName string,
 	now time.Time,
 ) executionstore.ToolCallRecord {
@@ -631,7 +638,7 @@ func toolCallSourceSequenceForCheckpointTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 ) int64 {
 	t.Helper()
 	var sequence int64
@@ -783,7 +790,7 @@ func appendCancelStopEventForContinuationSeedTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	turnID ID,
+	turnID uuid.UUID,
 	now time.Time,
 ) events.Event {
 	t.Helper()
@@ -798,10 +805,10 @@ func appendCancelStopEventForContinuationSeedTest(
 	controlInput, err := qtx.InsertControlAgentInput(ctx, dbsqlc.InsertControlAgentInputParams{
 		ProjectID:           testProjectID,
 		AgentID:             fixture.AgentID,
-		ActorID:             sqlcIDFromNil(actorID),
+		ActorID:             storeutil.IDFromNil(actorID),
 		ControlType:         &controlType,
-		IdempotencyScope:    sqlcTextFromEmpty("agent_control"),
-		InputIdempotencyKey: sqlcTextFromEmpty("test-cancel-stop:" + turnID.String()),
+		IdempotencyScope:    storeutil.TextFromEmpty("agent_control"),
+		InputIdempotencyKey: storeutil.TextFromEmpty("test-cancel-stop:" + turnID.String()),
 		Metadata:            json.RawMessage(`{}`),
 	})
 	if err != nil {
@@ -824,7 +831,7 @@ func appendCancelStopEventForContinuationSeedTest(
 		t.Fatalf("append cancel stop event: %v", err)
 	}
 	if err := executionstore.IntegrationUpdateAgentTurnLatestEventQuery(
-		ctx, qtx, testProjectID, fixture.AgentID, turnID, eventRecord.Event.ID, NilID,
+		ctx, qtx, testProjectID, fixture.AgentID, turnID, eventRecord.Event.ID, uuid.Nil,
 	); err != nil {
 		t.Fatalf("update turn latest cancel event: %v", err)
 	}

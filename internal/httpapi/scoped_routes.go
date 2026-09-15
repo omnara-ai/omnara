@@ -3,19 +3,19 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
 type machineDaemonScope struct {
-	OrgID         storage.ID
-	MachineID     storage.ID
-	DaemonTokenID storage.ID
+	OrgID         uuid.UUID
+	MachineID     uuid.UUID
+	DaemonTokenID uuid.UUID
 }
 
 func (s *Server) orgScope(
@@ -27,7 +27,7 @@ func (s *Server) orgScope(
 		err := apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
 		return identitystore.OrgRecord{}, &err
 	}
-	orgID, err := parsePublicID(publicid.KindOrganization, orgIDRaw)
+	orgID, err := publicid.Decode(publicid.KindOrganization, orgIDRaw)
 	if err != nil {
 		err := apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 		return identitystore.OrgRecord{}, &err
@@ -119,8 +119,8 @@ func (s *Server) projectScope(
 
 func (s *Server) authorizeProject(
 	ctx context.Context,
-	orgID storage.ID,
-	projectID storage.ID,
+	orgID uuid.UUID,
+	projectID uuid.UUID,
 	action string,
 ) *apierror.ResponseError {
 	if s.store == nil {
@@ -170,7 +170,7 @@ func (s *Server) authorizeProject(
 	return nil
 }
 
-func (s *Server) authorizeOrgManage(ctx context.Context, orgID storage.ID) error {
+func (s *Server) authorizeOrgManage(ctx context.Context, orgID uuid.UUID) error {
 	principal, ok := principalFromContext(ctx)
 	if !ok || !identitystore.IsAccountPrincipal(principal) {
 		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")

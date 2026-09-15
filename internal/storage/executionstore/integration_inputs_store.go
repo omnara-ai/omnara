@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -15,8 +16,8 @@ import (
 func (s *Store) CreateIntegrationTargetContentInput(
 	ctx context.Context,
 	input CreateIntegrationTargetContentInput,
-) (AgentInputRecord, []ID, error) {
-	if isNilID(input.IntegrationInstallID) || isNilID(input.IntegrationTargetID) ||
+) (AgentInputRecord, []uuid.UUID, error) {
+	if input.IntegrationInstallID == uuid.Nil || input.IntegrationTargetID == uuid.Nil ||
 		input.ProviderUserID == "" || input.IdempotencyKey == "" {
 		return AgentInputRecord{}, nil, errors.New(
 			"integration install, integration target, provider user, and idempotency key are required",
@@ -198,7 +199,7 @@ func (s *Store) GetIntegrationTargetInputByIdempotency(
 	ctx context.Context,
 	input GetIntegrationTargetInputByIdempotencyInput,
 ) (AgentInputRecord, bool, error) {
-	if isNilID(input.IntegrationInstallID) || isNilID(input.IntegrationTargetID) ||
+	if input.IntegrationInstallID == uuid.Nil || input.IntegrationTargetID == uuid.Nil ||
 		input.IdempotencyKey == "" {
 		return AgentInputRecord{}, false, errors.New(
 			"integration install, integration target, and idempotency key are required",

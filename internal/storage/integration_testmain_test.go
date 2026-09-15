@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -42,12 +41,8 @@ func newIntegrationStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	return NewStore(pool, allOpts...)
 }
 
-func userPrincipal(id ID) identitystore.PrincipalRecord {
+func userPrincipal(id uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: id}
-}
-
-func isForeignKeyViolation(err error) bool {
-	return storeutil.IsForeignKeyViolation(err)
 }
 
 func normalizedJSON(value json.RawMessage) json.RawMessage {
@@ -103,10 +98,6 @@ func randomTokenPart(size int) (string, error) {
 	return tokenutil.RandomHex(size)
 }
 
-func newSecretUUID() (ID, error) {
-	return uuid.NewV7()
-}
-
-func artifactObjectKey(agentID, artifactID ID) string {
+func artifactObjectKey(agentID, artifactID uuid.UUID) string {
 	return "artifacts/" + agentID.String() + "/" + artifactID.String()
 }

@@ -6,19 +6,21 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type processActionCompletionInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ProcessID          ID
-	ID                 ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ProcessID          uuid.UUID
+	ID                 uuid.UUID
 	StateReasonCode    string
 	StateReasonMessage string
 	Result             json.RawMessage
@@ -123,7 +125,7 @@ func replayDaemonProcessActionReportTx(
 	publicationChecked := false
 	if reportMatchesAction &&
 		readObservationReplay &&
-		!isNilID(record.ToolCallID) {
+		record.ToolCallID != uuid.Nil {
 		publication, err := inspectPublishedProcessReadObservationTx(
 			ctx,
 			qtx,
@@ -141,7 +143,7 @@ func replayDaemonProcessActionReportTx(
 	}
 	if reportMatchesAction &&
 		!publicationChecked &&
-		!isNilID(record.ToolCallID) {
+		record.ToolCallID != uuid.Nil {
 		contentParts, err := ToolResultContentParts(result)
 		if err != nil {
 			return DaemonProcessActionReportApplication{}, false, err
@@ -162,7 +164,7 @@ func replayDaemonProcessActionReportTx(
 		published = publication.Published
 		publicationChecked = true
 	}
-	if !resultCommitted && !isNilID(record.ToolCallID) {
+	if !resultCommitted && record.ToolCallID != uuid.Nil {
 		if !publicationChecked {
 			var err error
 			published, err = publishedToolCallResultExistsTx(
@@ -218,7 +220,7 @@ func (s *Store) completeDaemonProcessAction(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonProcessActionReportApplication{}, err
 	}
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ProcessID) || isNilID(input.ID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ProcessID == uuid.Nil || input.ID == uuid.Nil {
 		return DaemonProcessActionReportApplication{}, errors.New("project, agent, process, and action are required")
 	}
 	txNotifications := s.newTxNotifications()
@@ -363,7 +365,7 @@ func completeDaemonProcessActionTx(
 		AgentID:            input.AgentID,
 		ProcessID:          input.ProcessID,
 		ID:                 input.ID,
-		StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
+		StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
 		StateReasonMessage: input.StateReasonMessage,
 	}
 	switch state {
@@ -377,7 +379,7 @@ func completeDaemonProcessActionTx(
 				AgentID:            input.AgentID,
 				ProcessID:          input.ProcessID,
 				ID:                 input.ID,
-				StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
+				StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
 				StateReasonMessage: input.StateReasonMessage,
 			},
 		)
@@ -389,7 +391,7 @@ func completeDaemonProcessActionTx(
 				AgentID:            input.AgentID,
 				ProcessID:          input.ProcessID,
 				ID:                 input.ID,
-				StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
+				StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
 				StateReasonMessage: input.StateReasonMessage,
 			},
 		)
@@ -438,8 +440,8 @@ func completeDaemonProcessActionTx(
 		return DaemonProcessActionReportApplication{}, fmt.Errorf("touch process activity: %w", err)
 	}
 	record := processActionRecordFromSQLC(row)
-	resultCommitted := isNilID(record.ToolCallID)
-	if !isNilID(record.ToolCallID) {
+	resultCommitted := record.ToolCallID == uuid.Nil
+	if record.ToolCallID != uuid.Nil {
 		outcome := ToolResultOutcomeSucceeded
 		errText := ""
 		if state != ProcessActionStateApplied {
@@ -522,10 +524,10 @@ func completeDaemonProcessActionTx(
 		}
 		if completedToolCall {
 			metadata, err := marshalJSON(struct {
-				Reason          string `json:"reason"`
-				ProcessID       ID     `json:"process_id"`
-				ProcessActionID ID     `json:"process_action_id"`
-				ToolCallID      ID     `json:"tool_call_id"`
+				Reason          string    `json:"reason"`
+				ProcessID       uuid.UUID `json:"process_id"`
+				ProcessActionID uuid.UUID `json:"process_action_id"`
+				ToolCallID      uuid.UUID `json:"tool_call_id"`
 			}{
 				Reason:          "process_action_result",
 				ProcessID:       input.ProcessID,
@@ -578,8 +580,8 @@ func completeDaemonProcessActionTx(
 }
 
 func processActionToolResult(
-	processID ID,
-	actionID ID,
+	processID uuid.UUID,
+	actionID uuid.UUID,
 	state ProcessActionState,
 	reasonCode string,
 	errText string,
@@ -603,7 +605,7 @@ func processActionToolResult(
 	return body, nil
 }
 
-func publicResourceID(kind publicid.Kind, id ID) string {
+func publicResourceID(kind publicid.Kind, id uuid.UUID) string {
 	encoded, err := publicid.Encode(kind, id)
 	if err != nil {
 		return ""

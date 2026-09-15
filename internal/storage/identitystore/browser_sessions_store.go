@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -15,15 +16,15 @@ import (
 )
 
 type CreateBrowserSessionInput struct {
-	UserID    ID
+	UserID    uuid.UUID
 	Token     string
 	CSRFToken string
 	TTL       time.Duration
 }
 
 type BrowserSessionRecord struct {
-	ID            ID
-	UserID        ID
+	ID            uuid.UUID
+	UserID        uuid.UUID
 	TokenHash     string
 	CSRFTokenHash string
 	CreatedAt     time.Time
@@ -38,7 +39,7 @@ func (s *Store) CreateBrowserSession(
 	ctx context.Context,
 	input CreateBrowserSessionInput,
 ) (BrowserSessionRecord, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return BrowserSessionRecord{}, errors.New("user id is required")
 	}
 	if input.Token == "" {

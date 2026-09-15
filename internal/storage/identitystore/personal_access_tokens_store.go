@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -62,7 +63,7 @@ func preparePersonalAccessTokenInput(input CreatePersonalAccessTokenInput) (prep
 		return preparedPersonalAccessToken{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return preparedPersonalAccessToken{}, errors.New("personal access token user id is required")
 	}
 	if input.ActorPrincipal.Type != "" && input.ActorPrincipal.ID != input.UserID {
@@ -149,7 +150,7 @@ func (s *Store) AuthenticatePersonalAccessToken(
 }
 
 type ListPersonalAccessTokensInput struct {
-	UserID ID
+	UserID uuid.UUID
 	Limit  int
 	After  listing.KeysetCursor
 }
@@ -164,7 +165,7 @@ func (s *Store) ListPersonalAccessTokensForUser(
 	ctx context.Context,
 	input ListPersonalAccessTokensInput,
 ) (ListPersonalAccessTokensResult, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return ListPersonalAccessTokensResult{}, errors.New("user id is required")
 	}
 	if input.Limit <= 0 {
@@ -202,12 +203,12 @@ func (s *Store) ListPersonalAccessTokensForUser(
 // existence is not leaked across users.
 func (s *Store) RevokePersonalAccessToken(
 	ctx context.Context,
-	userID, tokenID ID,
+	userID, tokenID uuid.UUID,
 ) (PersonalAccessTokenRecord, error) {
-	if isNilID(userID) {
+	if userID == uuid.Nil {
 		return PersonalAccessTokenRecord{}, errors.New("user id is required")
 	}
-	if isNilID(tokenID) {
+	if tokenID == uuid.Nil {
 		return PersonalAccessTokenRecord{}, errors.New("personal access token id is required")
 	}
 	row, err := s.q.RevokePersonalAccessToken(

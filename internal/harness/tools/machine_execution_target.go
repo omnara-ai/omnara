@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 var ErrNoActiveAgentMachineBinding = errors.New("no_active_agent_machine_binding")
 var ErrMachineSelectionRequired = errors.New("machine_selection_required")
-var ErrMachineRefUnavailable = errors.New("machine_ref_unavailable")
+var ErrMachineIDUnavailable = errors.New("machine_id_unavailable")
 
 func (e Executor) ResolveMachineExecutionTarget(
 	ctx context.Context,
 	turn Turn,
-	machineRef string,
+	machineID uuid.UUID,
 ) (executionstore.AgentMachineBindingRecord, error) {
 	if e.Store == nil {
 		return executionstore.AgentMachineBindingRecord{}, errors.New("tool executor store is required")
@@ -23,32 +24,32 @@ func (e Executor) ResolveMachineExecutionTarget(
 	if err != nil {
 		return executionstore.AgentMachineBindingRecord{}, err
 	}
-	return selectMachineExecutionTarget(bindings, machineRef)
+	return selectMachineExecutionTarget(bindings, machineID)
 }
 
 func resolveMachineExecutionTargetForToolCall(
 	ctx context.Context,
 	reader *executionstore.ToolCallReader,
-	machineRef string,
+	machineID uuid.UUID,
 ) (executionstore.AgentMachineBindingRecord, error) {
 	bindings, err := reader.ListExecutableAgentMachineBindings(ctx)
 	if err != nil {
 		return executionstore.AgentMachineBindingRecord{}, err
 	}
-	return selectMachineExecutionTarget(bindings, machineRef)
+	return selectMachineExecutionTarget(bindings, machineID)
 }
 
 func selectMachineExecutionTarget(
 	bindings []executionstore.AgentMachineBindingRecord,
-	machineRef string,
+	machineID uuid.UUID,
 ) (executionstore.AgentMachineBindingRecord, error) {
-	if machineRef != "" {
+	if machineID != uuid.Nil {
 		for _, binding := range bindings {
-			if binding.MachineRef == machineRef {
+			if binding.MachineID == machineID {
 				return binding, nil
 			}
 		}
-		return executionstore.AgentMachineBindingRecord{}, ErrMachineRefUnavailable
+		return executionstore.AgentMachineBindingRecord{}, ErrMachineIDUnavailable
 	}
 	switch len(bindings) {
 	case 0:

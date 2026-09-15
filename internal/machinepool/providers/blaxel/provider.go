@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -82,8 +82,8 @@ func (*provider) PrepareProvisioning(
 
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -306,8 +306,8 @@ func (p *provider) WakeMachine(
 
 func (p *provider) InspectMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
@@ -331,8 +331,8 @@ func (p *provider) InspectMachine(
 
 func (p *provider) DeleteMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {
@@ -369,7 +369,7 @@ func sandboxEnvsFromMap(env map[string]string) []sandboxEnv {
 func sandboxOwnedBy(
 	target sandbox,
 	name string,
-	installationID, machineID storage.ID,
+	installationID, machineID uuid.UUID,
 ) bool {
 	if target.Metadata.Name != name {
 		return false
@@ -386,7 +386,7 @@ func sandboxOwnedBy(
 }
 
 func sandboxOwnershipLabelValues(
-	installationID, machineID storage.ID,
+	installationID, machineID uuid.UUID,
 ) (string, string, error) {
 	installationPublicID, err := publicid.Encode(publicid.KindInstallation, installationID)
 	if err != nil {

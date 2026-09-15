@@ -11,19 +11,19 @@ import (
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func TestResolveUploadArtifactRequest(t *testing.T) {
 	resolved, err := resolveUploadArtifactRequest(json.RawMessage(
-		`{"path":"screenshots/latest.png","machine_ref":"  mchr_machine1  "}`,
+		`{"path":"screenshots/latest.png","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve upload_artifact: %v", err)
 	}
-	if resolved.Path != "screenshots/latest.png" || resolved.MachineRef != "mchr_machine1" {
+	if resolved.Path != "screenshots/latest.png" ||
+		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("resolved upload_artifact = %+v", resolved)
 	}
 
@@ -34,7 +34,7 @@ func TestResolveUploadArtifactRequest(t *testing.T) {
 	}{
 		{name: "empty path", raw: `{"path":""}`, want: "path is required"},
 		{name: "nul path", raw: "{\"path\":\"bad\\u0000path\"}", want: "path cannot contain NUL"},
-		{name: "null machine ref", raw: `{"path":"a","machine_ref":null}`, want: "machine_ref cannot be null"},
+		{name: "null machine ID", raw: `{"path":"a","machine_id":null}`, want: "machine_id cannot be null"},
 		{name: "unknown field", raw: `{"path":"a","artifact_id":"art_x"}`, want: "unknown field"},
 	}
 	for _, test := range tests {
@@ -84,21 +84,21 @@ func TestUploadArtifactApprovalPinsBindingAndPath(t *testing.T) {
 		InteractionKind: executionstore.AgentInteractionKindPermission,
 		Request:         requestJSON,
 	}
-	if !toolCallAuthorizationMatches(action, call, storage.NilID, selection, approvedInput) {
+	if !toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput) {
 		t.Fatal("approved upload authorization did not match")
 	}
 	otherPath, err := uploadArtifactAuthorizationInput(bindingID, "other.png")
 	if err != nil {
 		t.Fatalf("build other-path authorization: %v", err)
 	}
-	if toolCallAuthorizationMatches(action, call, storage.NilID, selection, otherPath) {
+	if toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherPath) {
 		t.Fatal("different path matched approved upload authorization")
 	}
 	otherBinding, err := uploadArtifactAuthorizationInput(uuid.New(), "shot.png")
 	if err != nil {
 		t.Fatalf("build other-binding authorization: %v", err)
 	}
-	if toolCallAuthorizationMatches(action, call, storage.NilID, selection, otherBinding) {
+	if toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherBinding) {
 		t.Fatal("different binding matched approved upload authorization")
 	}
 }
@@ -128,13 +128,13 @@ func TestResolveDownloadArtifactRequest(t *testing.T) {
 		t.Fatalf("encode artifact id: %v", err)
 	}
 	resolved, err := resolveDownloadArtifactRequest(json.RawMessage(
-		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_ref":"  mchr_machine1  "}`,
+		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve download_artifact: %v", err)
 	}
 	if resolved.ArtifactID != artifactID || resolved.Path != "downloads/report.pdf" ||
-		resolved.MachineRef != "mchr_machine1" {
+		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("resolved download_artifact = %+v", resolved)
 	}
 
@@ -151,9 +151,9 @@ func TestResolveDownloadArtifactRequest(t *testing.T) {
 			want: "path cannot contain NUL",
 		},
 		{
-			name: "null machine ref",
-			raw:  `{"artifact_id":"` + artifactID + `","path":"a","machine_ref":null}`,
-			want: "machine_ref cannot be null",
+			name: "null machine ID",
+			raw:  `{"artifact_id":"` + artifactID + `","path":"a","machine_id":null}`,
+			want: "machine_id cannot be null",
 		},
 		{name: "unknown field", raw: `{"artifact_id":"` + artifactID + `","path":"a","extra":true}`, want: "unknown field"},
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -16,14 +17,14 @@ import (
 const maxConnectBYOMachineProjectIDs = 100
 
 type ConnectBYOMachineInput struct {
-	OrgID       ID
+	OrgID       uuid.UUID
 	DisplayName string
 	Description string
 	Cwd         string
 	Env         json.RawMessage
 	SecretEnv   json.RawMessage
 	Metadata    resourcemeta.Metadata
-	ProjectIDs  []ID
+	ProjectIDs  []uuid.UUID
 	TokenName   string
 }
 
@@ -40,9 +41,9 @@ func (s *Store) ConnectBYOMachine(
 	if len(input.ProjectIDs) > maxConnectBYOMachineProjectIDs {
 		return ConnectBYOMachineResult{}, storeerr.InvalidRequest(errors.New("too many project IDs"))
 	}
-	projectSet := make(map[ID]struct{}, len(input.ProjectIDs))
+	projectSet := make(map[uuid.UUID]struct{}, len(input.ProjectIDs))
 	for _, projectID := range input.ProjectIDs {
-		if isNilID(projectID) {
+		if projectID == uuid.Nil {
 			return ConnectBYOMachineResult{}, storeerr.InvalidRequest(errors.New("project ID is required"))
 		}
 		if _, exists := projectSet[projectID]; exists {

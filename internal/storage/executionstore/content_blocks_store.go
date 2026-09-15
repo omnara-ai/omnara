@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -236,17 +237,17 @@ func rejectContentBlockFields(
 	return nil
 }
 
-func requiredArtifactID(raw json.RawMessage) (ID, error) {
+func requiredArtifactID(raw json.RawMessage) (uuid.UUID, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return NilID, errors.New("artifact_id is required")
+		return uuid.Nil, errors.New("artifact_id is required")
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return NilID, errors.New("artifact_id must be a string")
+		return uuid.Nil, errors.New("artifact_id must be a string")
 	}
-	id := parseUUIDText(value)
-	if isNilID(id) {
-		return NilID, errors.New("artifact_id must be a valid artifact ID")
+	id, err := uuid.Parse(value)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, errors.New("artifact_id must be a valid artifact ID")
 	}
 	return id, nil
 }
@@ -284,7 +285,7 @@ func marshalAgentInputContentBlock(
 			Metadata: metadata,
 		})
 	case ContentBlockKindArtifact:
-		if isNilID(block.ArtifactID) {
+		if block.ArtifactID == uuid.Nil {
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
@@ -346,7 +347,7 @@ func marshalToolResultContentBlock(
 			Metadata: metadata,
 		})
 	case ContentBlockKindArtifact:
-		if isNilID(block.ArtifactID) {
+		if block.ArtifactID == uuid.Nil {
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {

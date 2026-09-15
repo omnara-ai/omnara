@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ func TestMachineFailureRoute(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "machine-failure-report")
 	now := time.Now().UTC()
 
-	var machinePoolID storage.ID
+	var machinePoolID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO machine_pools(
 			org_id, name, management_kind, provider, default_machine_memory_mb,
@@ -39,7 +39,7 @@ func TestMachineFailureRoute(t *testing.T) {
 	`, project.OrgUUID, now).Scan(&machinePoolID); err != nil {
 		t.Fatalf("insert machine pool fixture: %v", err)
 	}
-	var machineID storage.ID
+	var machineID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO machines(
 			org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,

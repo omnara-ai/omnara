@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +15,7 @@ import (
 func TestStructuredQuestionAnsweredResultUsesPublicInteractionID(t *testing.T) {
 	t.Parallel()
 
-	interactionID := testID("019b18be-0000-7000-8000-000000000007")
+	interactionID := uuid.MustParse("019b18be-0000-7000-8000-000000000007")
 	publicInteractionID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
 	if err != nil {
 		t.Fatalf("encode interaction id: %v", err)
@@ -44,20 +44,12 @@ func TestStructuredQuestionAnsweredResultUsesPublicInteractionID(t *testing.T) {
 	}
 }
 
-func testID(raw string) storage.ID {
-	id, err := storage.ParseID(raw)
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
 func TestRunCommandRequestRejectsInvalidOptionalScalars(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`{"command":"pwd","cwd":null}`),
-		json.RawMessage(`{"command":"pwd","machine_ref":null}`),
+		json.RawMessage(`{"command":"pwd","machine_id":null}`),
 		json.RawMessage(`{"command":"pwd","wait_ms":null}`),
 		json.RawMessage(`{"command":"pwd","io_mode":null}`),
 		json.RawMessage(`{"command":"pwd","tty":true}`),

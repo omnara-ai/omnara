@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -165,7 +166,7 @@ func TestWebE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create third web e2e invitation organization: %v", err)
 	}
-	for _, invitationOrgID := range []storage.ID{
+	for _, invitationOrgID := range []uuid.UUID{
 		switchOrg.Org.ID,
 		secondInvitationOrg.Org.ID,
 		thirdInvitationOrg.Org.ID,
@@ -207,9 +208,9 @@ func createWebE2EUser(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	email, orgRole, projectRole string,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	start, err := store.Identity().StartPasswordSignup(
 		ctx,

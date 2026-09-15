@@ -4,14 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type toolCallContentBlockArgs struct {
-	ToolCallID ID
+	ToolCallID uuid.UUID
 }
 
 func createModelOutputContentBlocksTx(
@@ -19,10 +21,10 @@ func createModelOutputContentBlocksTx(
 	tx pgx.Tx,
 	contextRow ModelCallContextRecord,
 	envelope modelenvelope.ResponseEnvelope,
-	modelOutputID ID,
+	modelOutputID uuid.UUID,
 	toolCalls map[string]toolCallContentBlockArgs,
-) (map[string]ID, error) {
-	contentBlockByProviderCallID := make(map[string]ID, len(toolCalls))
+) (map[string]uuid.UUID, error) {
+	contentBlockByProviderCallID := make(map[string]uuid.UUID, len(toolCalls))
 	if len(envelope.Normalized.Content) == 0 {
 		return contentBlockByProviderCallID, nil
 	}
@@ -54,7 +56,7 @@ func createModelOutputContentBlocksTx(
 			}
 		case modelenvelope.ResponsePartTypeToolCall:
 			args, ok := toolCalls[part.ProviderCallID]
-			if !ok || isNilID(args.ToolCallID) {
+			if !ok || args.ToolCallID == uuid.Nil {
 				return nil, fmt.Errorf(
 					"model output content tool_call part %d (provider_call_id=%q) has no recorded tool call",
 					index,
@@ -84,13 +86,13 @@ func createModelOutputContentBlocksTx(
 func modelOutputHasContentBlocksTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, modelOutputID ID,
+	projectID, agentID, modelOutputID uuid.UUID,
 ) (bool, error) {
 	rows, err := dbsqlc.New(tx).
 		ListContentBlocksForModelOutput(ctx, dbsqlc.ListContentBlocksForModelOutputParams{
 			ProjectID:     projectID,
 			AgentID:       agentID,
-			ModelOutputID: sqlcIDFromNil(modelOutputID),
+			ModelOutputID: storeutil.IDFromNil(modelOutputID),
 		})
 	if err != nil {
 		return false, fmt.Errorf("list model output content blocks: %w", err)
@@ -101,14 +103,14 @@ func modelOutputHasContentBlocksTx(
 func validateModelOutputContentReplayTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, modelOutputID ID,
+	projectID, agentID, modelOutputID uuid.UUID,
 	envelope modelenvelope.ResponseEnvelope,
 ) error {
 	rows, err := dbsqlc.New(tx).
 		ListContentBlocksForModelOutput(ctx, dbsqlc.ListContentBlocksForModelOutputParams{
 			ProjectID:     projectID,
 			AgentID:       agentID,
-			ModelOutputID: sqlcIDFromNil(modelOutputID),
+			ModelOutputID: storeutil.IDFromNil(modelOutputID),
 		})
 	if err != nil {
 		return fmt.Errorf("list model output content blocks for replay: %w", err)
@@ -129,7 +131,7 @@ func validateModelOutputContentReplayTx(
 				dbsqlc.GetToolCallProviderCallIDParams{
 					ProjectID: projectID,
 					AgentID:   agentID,
-					ID:        idFromSQLCPtr(row.ToolCallID),
+					ID:        storeutil.IDFromPtr(row.ToolCallID),
 				},
 			)
 			if err != nil {
@@ -137,7 +139,7 @@ func validateModelOutputContentReplayTx(
 			}
 		}
 		if row.Ordinal != part.Ordinal || ContentBlockKind(row.BlockKind) != part.Kind ||
-			row.TextContent != part.Text || idFromSQLCPtr(row.ArtifactID) != NilID ||
+			row.TextContent != part.Text || storeutil.IDFromPtr(row.ArtifactID) != uuid.Nil ||
 			providerCallID != part.ProviderCallID {
 			return storeerr.ErrIdempotencyConflict
 		}

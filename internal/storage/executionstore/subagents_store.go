@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -38,7 +39,7 @@ const (
 )
 
 type SubagentLaunch struct {
-	ParentAgentID ID
+	ParentAgentID uuid.UUID
 	Key           string
 	MaxInstances  *int
 	MaxSubagents  *int
@@ -46,7 +47,7 @@ type SubagentLaunch struct {
 }
 
 type SubagentStatus struct {
-	AgentID           ID
+	AgentID           uuid.UUID
 	Name              string
 	Key               string
 	State             string
@@ -60,11 +61,11 @@ type SubagentStatus struct {
 type subagentMessage struct {
 	Kind           string
 	Text           string
-	InteractionID  ID
+	InteractionID  uuid.UUID
 	IdempotencyKey string
 }
 
-func SubagentActorParams(orgID ID, agent AgentRecord) (*ActorParams, error) {
+func SubagentActorParams(orgID uuid.UUID, agent AgentRecord) (*ActorParams, error) {
 	tenantID, err := publicid.Encode(publicid.KindOrganization, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("encode subagent actor tenant: %w", err)
@@ -91,7 +92,7 @@ func subagentDisplayName(agent AgentRecord) string {
 }
 
 func lockSubagentParentSourcesTx(ctx context.Context, tx pgx.Tx, launch SubagentLaunch) error {
-	if isNilID(launch.ParentAgentID) || launch.Key == "" {
+	if launch.ParentAgentID == uuid.Nil || launch.Key == "" {
 		return errors.New("subagent launch requires a parent agent and key")
 	}
 	if launch.MaxDepth < 1 || launch.MaxDepth > agentconfig.MaxSubagentDepth {
@@ -100,8 +101,8 @@ func lockSubagentParentSourcesTx(ctx context.Context, tx pgx.Tx, launch Subagent
 	return lifecyclelock.AgentSources(ctx, tx, launch.ParentAgentID)
 }
 
-func (s *Store) AgentDepth(ctx context.Context, projectID, agentID ID) (int, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+func (s *Store) AgentDepth(ctx context.Context, projectID, agentID uuid.UUID) (int, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return 0, errors.New("project id and agent id are required")
 	}
 	depth, err := s.q.CountAgentAncestors(ctx, dbsqlc.CountAgentAncestorsParams{ProjectID: projectID, AgentID: agentID})
@@ -119,7 +120,7 @@ func lockParentMachineBindingsForSharingTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID, parentAgentID ID,
+	orgID, projectID, parentAgentID uuid.UUID,
 ) ([]dbsqlc.ListParentMachineBindingsForSharingRow, error) {
 	sharedBindings, err := qtx.ListParentMachineBindingsForSharing(
 		ctx,
@@ -142,7 +143,7 @@ func admitSubagentLaunchTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	launch SubagentLaunch,
 ) error {
 	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
@@ -196,23 +197,18 @@ func admitSubagentLaunchTx(
 func shareParentMachineBindingsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, childAgentID ID,
+	projectID, childAgentID uuid.UUID,
 	rows []dbsqlc.ListParentMachineBindingsForSharingRow,
 ) ([]AgentMachineBindingRecord, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	machineRefs, err := newMachineRefs(len(rows))
-	if err != nil {
-		return nil, err
-	}
 	bindings := make([]AgentMachineBindingRecord, 0, len(rows))
-	for index, row := range rows {
+	for _, row := range rows {
 		binding, err := insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput{
 			ProjectID:             projectID,
 			AgentID:               childAgentID,
 			ProjectMachineGrantID: row.ProjectMachineGrantID,
-			MachineRef:            machineRefs[index],
 			BindingKind:           MachineBindingKindExplicit,
 			Description:           row.Description,
 			Cwd:                   row.Cwd,
@@ -259,7 +255,7 @@ func agentActivityState(archived, hasOpenQuestion, hasOpenPermission, isRunning 
 func listChildAgentsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, parentAgentID ID,
+	projectID, parentAgentID uuid.UUID,
 	includeArchived bool,
 ) ([]SubagentStatus, error) {
 	rows, err := qtx.ListChildAgents(ctx, dbsqlc.ListChildAgentsParams{
@@ -292,7 +288,7 @@ func (r *ToolCallReader) ResolveSubagent(ctx context.Context, agentPublicID stri
 func resolveSubagentTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, parentAgentID ID,
+	projectID, parentAgentID uuid.UUID,
 	agentPublicID string,
 ) (SubagentStatus, error) {
 	agentID, err := publicid.Decode(publicid.KindAgent, strings.TrimSpace(agentPublicID))
@@ -331,7 +327,7 @@ func renderQuestionForParent(form interactionform.Form) string {
 	return builder.String()
 }
 
-func lockAgentWithParentTx(ctx context.Context, tx pgx.Tx, qtx *dbsqlc.Queries, projectID, agentID ID) error {
+func lockAgentWithParentTx(ctx context.Context, tx pgx.Tx, qtx *dbsqlc.Queries, projectID, agentID uuid.UUID) error {
 	refs, err := agentWithParentLockRefsTx(ctx, qtx, projectID, agentID)
 	if err != nil {
 		return err
@@ -343,7 +339,7 @@ func tryLockAgentWithParentTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) (bool, error) {
 	refs, err := agentWithParentLockRefsTx(ctx, qtx, projectID, agentID)
 	if err != nil {
@@ -355,7 +351,7 @@ func tryLockAgentWithParentTx(
 func agentWithParentLockRefsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]lifecyclelock.AgentRef, error) {
 	parentID, err := qtx.GetAgentParentID(ctx, dbsqlc.GetAgentParentIDParams{ProjectID: projectID, ID: agentID})
 	if err != nil {
@@ -400,7 +396,7 @@ func notifyParentAgentTx(
 		"name":     child.Name,
 		"key":      child.SubagentKey,
 	}
-	if !isNilID(message.InteractionID) {
+	if message.InteractionID != uuid.Nil {
 		interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, message.InteractionID)
 		if err != nil {
 			return fmt.Errorf("encode interaction id: %w", err)
@@ -469,7 +465,7 @@ func handleSubagentTurnEndedTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	message subagentMessage,
 ) error {
 	parentID, err := qtx.GetAgentParentID(ctx, dbsqlc.GetAgentParentIDParams{ProjectID: projectID, ID: agentID})
@@ -513,7 +509,7 @@ func handleSubagentQuestionTx(
 	if err != nil {
 		return err
 	}
-	if isNilID(child.ParentAgentID) {
+	if child.ParentAgentID == uuid.Nil {
 		return nil
 	}
 	form, err := interaction.Form()
@@ -529,8 +525,8 @@ func handleSubagentQuestionTx(
 }
 
 type ListAgentInteractionsInput struct {
-	ProjectID ID
-	AgentIDs  []ID
+	ProjectID uuid.UUID
+	AgentIDs  []uuid.UUID
 	State     AgentInteractionState
 	Limit     int
 	After     listing.KeysetCursor
@@ -551,7 +547,7 @@ func (s *Store) ListAgentInteractions(
 	ctx context.Context,
 	input ListAgentInteractionsInput,
 ) (ListAgentInteractionsResult, error) {
-	if isNilID(input.ProjectID) || len(input.AgentIDs) == 0 {
+	if input.ProjectID == uuid.Nil || len(input.AgentIDs) == 0 {
 		return ListAgentInteractionsResult{}, errors.New("project and at least one agent are required")
 	}
 	if input.Limit <= 0 {
@@ -605,7 +601,7 @@ func (s *Store) ListAgentInteractions(
 }
 
 type SendSubagentMessageInput struct {
-	TargetAgentID ID
+	TargetAgentID uuid.UUID
 	Message       string
 }
 
@@ -714,7 +710,7 @@ func LaunchSubagentForToolCall(
 }
 
 type StopSubagentInput struct {
-	TargetAgentID ID
+	TargetAgentID uuid.UUID
 	Archive       bool
 }
 
@@ -767,7 +763,7 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 	if err != nil {
 		return err
 	}
-	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, child.ID, actor, NilID)
+	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, child.ID, actor, uuid.Nil)
 	if err != nil {
 		return err
 	}
@@ -782,8 +778,8 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 }
 
 type idleArchiveCandidate struct {
-	ProjectID ID
-	ID        ID
+	ProjectID uuid.UUID
+	ID        uuid.UUID
 }
 
 func (s *Store) ArchiveIdleAgents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
@@ -896,7 +892,7 @@ func (r *ToolCallReader) ReadSubagentTurns(
 func (r *ToolCallReader) ReadSubagentTurnEvents(
 	ctx context.Context,
 	agentPublicID string,
-	turnID ID,
+	turnID uuid.UUID,
 	beforeSequence int64,
 	limit int32,
 ) (SubagentStatus, []AgentEventReadRecord, error) {
@@ -921,15 +917,15 @@ func (r *ToolCallReader) ReadSubagentTurnEvents(
 	return status, events, nil
 }
 
-func (s *Store) ListSubagents(ctx context.Context, projectID, parentAgentID ID) ([]SubagentStatus, error) {
-	if isNilID(projectID) || isNilID(parentAgentID) {
+func (s *Store) ListSubagents(ctx context.Context, projectID, parentAgentID uuid.UUID) ([]SubagentStatus, error) {
+	if projectID == uuid.Nil || parentAgentID == uuid.Nil {
 		return nil, errors.New("project and parent agent are required")
 	}
 	return listChildAgentsTx(ctx, s.q, projectID, parentAgentID, true)
 }
 
-func (s *Store) ListAgentDescendantIDs(ctx context.Context, projectID, agentID ID) ([]ID, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+func (s *Store) ListAgentDescendantIDs(ctx context.Context, projectID, agentID uuid.UUID) ([]uuid.UUID, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	rows, err := s.q.ListAgentDescendantIDs(

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -29,7 +29,7 @@ func (s strictOpenAPIServer) ListAgentInteractions(
 func (s strictOpenAPIServer) listAgentInteractions(
 	ctx context.Context,
 	params openapi.ListAgentInteractionsParams,
-	orgID, projectID, agentID storage.ID,
+	orgID, projectID, agentID uuid.UUID,
 ) (openapi.ListAgentInteractionsResponseObject, error) {
 	limit, after, err := parseOpenAPIPageParams(params.Limit, params.Cursor, publicid.KindAgentInteraction)
 	if err != nil {
@@ -39,7 +39,7 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	if params.State != nil {
 		state = executionstore.AgentInteractionState(*params.State)
 	}
-	agentIDs := []storage.ID{agentID}
+	agentIDs := []uuid.UUID{agentID}
 	if params.IncludeSubagents != nil && *params.IncludeSubagents {
 		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, projectID, agentID)
 		if err != nil {
@@ -126,7 +126,7 @@ func (s strictOpenAPIServer) resolveAgentInteraction(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	resolvedBy, err := requestActorParams(project, principal, body.Actor)
@@ -186,7 +186,7 @@ func marshalJSON(value any) (json.RawMessage, error) {
 }
 
 func agentInteractionResponseFromRecord(
-	orgIDValue storage.ID,
+	orgIDValue uuid.UUID,
 	record executionstore.AgentInteractionRecord,
 ) (openapi.AgentInteraction, error) {
 	id, err := publicID(publicid.KindAgentInteraction, record.ID)
@@ -240,7 +240,7 @@ func agentInteractionResponseFromRecord(
 		value := openAPIInteractionResolution(resolution)
 		response.Resolution = &value
 	}
-	if record.ResolvedByInputID != storage.NilID {
+	if record.ResolvedByInputID != uuid.Nil {
 		resolvedByInputID, err := publicID(publicid.KindAgentInput, record.ResolvedByInputID)
 		if err != nil {
 			return openapi.AgentInteraction{}, err

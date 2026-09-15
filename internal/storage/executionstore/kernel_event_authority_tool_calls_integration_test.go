@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -181,7 +183,7 @@ func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,
-		WithPostCommitPublisher(publisher),
+		storage.WithPostCommitPublisher(publisher),
 	)
 
 	_, toolCalls := recordToolCallBatchForContextTest(
@@ -587,7 +589,7 @@ func TestKernelToolCallBlockLinkageConstraints(t *testing.T) {
 		t,
 		ctx,
 		fixture,
-		[]ID{openingInputID},
+		[]uuid.UUID{openingInputID},
 		agent.CurrentConfigID,
 		resultWatermark,
 		now.Add(time.Second),
@@ -625,7 +627,7 @@ func TestKernelToolCallBlockLinkageConstraints(t *testing.T) {
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("mismatched tool call block model output error = %v, want constraint violation", err)
 	}
-	var blockID, linkedToolCallID ID
+	var blockID, linkedToolCallID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT block.id, block.tool_call_id
 FROM content_blocks AS block
@@ -764,7 +766,7 @@ func TestKernelAppendCompletedToolResultWritesTypedAuthority(t *testing.T) {
 	if len(appended) != 1 || appended[0].Kind != events.KindToolResult {
 		t.Fatalf("events = %+v, want one tool_result from completion transaction", appended)
 	}
-	var resultID ID
+	var resultID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(
 		ctx,
 		`SELECT event.tool_call_result_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`,
@@ -774,7 +776,7 @@ func TestKernelAppendCompletedToolResultWritesTypedAuthority(t *testing.T) {
 	).Scan(&resultID); err != nil {
 		t.Fatalf("load typed event result pointer: %v", err)
 	}
-	if isNilID(resultID) {
+	if resultID == uuid.Nil {
 		t.Fatalf("tool_result event has nil tool_call_result_id")
 	}
 	result, found, err := fixture.Store.Execution().GetToolCallResultAuthorityByToolCall(

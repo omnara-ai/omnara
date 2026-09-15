@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -153,7 +154,7 @@ func TestGetUserAndPrimaryVerifiedUserEmail(t *testing.T) {
 	if email != "" {
 		t.Fatalf("expected empty email when primary is unverified, got %q", email)
 	}
-	emails, err := store.Identity().PrimaryVerifiedUserEmails(ctx, []ID{withEmail.ID, noEmail.ID, splitUser.ID})
+	emails, err := store.Identity().PrimaryVerifiedUserEmails(ctx, []uuid.UUID{withEmail.ID, noEmail.ID, splitUser.ID})
 	if err != nil {
 		t.Fatalf("primary emails batch: %v", err)
 	}
@@ -166,7 +167,7 @@ func TestGetUserAndPrimaryVerifiedUserEmail(t *testing.T) {
 	if _, ok := emails[splitUser.ID]; ok {
 		t.Fatalf("primary emails batch should omit user without verified primary, got %+v", emails)
 	}
-	if _, err := store.Identity().PrimaryVerifiedUserEmails(ctx, []ID{withEmail.ID, NilID}); err == nil {
+	if _, err := store.Identity().PrimaryVerifiedUserEmails(ctx, []uuid.UUID{withEmail.ID, uuid.Nil}); err == nil {
 		t.Fatal("expected primary emails batch to reject nil user id")
 	}
 

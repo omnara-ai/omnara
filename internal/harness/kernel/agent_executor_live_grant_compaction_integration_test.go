@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
@@ -33,7 +33,7 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 		},
 	)
 
-	var configID storage.ID
+	var configID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT current_config_id
 		FROM agents
@@ -154,7 +154,7 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 		t.Fatalf("initial live policy resolution = %+v", retryResolver.resolutions)
 	}
 
-	var contextID storage.ID
+	var contextID uuid.UUID
 	var retryAt time.Time
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT context.id,
@@ -229,7 +229,7 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 		}
 	}
 
-	var secondContextID storage.ID
+	var secondContextID uuid.UUID
 	var secondState executionstore.ModelCallState
 	var secondRecoveryKind executionstore.ModelCallRecoveryKind
 	var secondErrorCode string
@@ -310,7 +310,7 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 		t.Fatalf("final request did not replace raw history with checkpoint summary: %s", finalRequest)
 	}
 
-	var finalContextID storage.ID
+	var finalContextID uuid.UUID
 	var finalState executionstore.ModelCallState
 	var finalAttemptNumber int32
 	if err := fixture.Pool.QueryRow(ctx, `

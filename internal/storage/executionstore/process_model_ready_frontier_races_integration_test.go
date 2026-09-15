@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -100,7 +101,7 @@ func TestSteeringStartsNewFrontierAfterAmbiguousNormalSendWithCapacity(t *testin
 		t.Fatalf("claim steering after ambiguous normal send: %v", err)
 	}
 	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkStart ||
-		work.Model.AdmittedInputTurn.Turn.ID == NilID ||
+		work.Model.AdmittedInputTurn.Turn.ID == uuid.Nil ||
 		len(work.Model.InputIDs) == 0 ||
 		work.Model.InputIDs[len(work.Model.InputIDs)-1] != steering.ID {
 		t.Fatalf("steering work = %+v found=%v, want fresh admitted turn", work, found)
@@ -159,7 +160,7 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 		t.Fatalf("claim steering after ambiguous compaction send: %v", err)
 	}
 	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkStart ||
-		work.Model.AdmittedInputTurn.Turn.ID == NilID ||
+		work.Model.AdmittedInputTurn.Turn.ID == uuid.Nil ||
 		len(work.Model.InputIDs) == 0 ||
 		work.Model.InputIDs[len(work.Model.InputIDs)-1] != steering.ID {
 		t.Fatalf("steering work = %+v found=%v, want fresh admitted turn", work, found)
@@ -212,7 +213,7 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("publish complete compaction with waiting steering: %v", err)
 	}
-	if checkpoint.ID == NilID || checkpoint.CheckpointEventID == NilID {
+	if checkpoint.ID == uuid.Nil || checkpoint.CheckpointEventID == uuid.Nil {
 		t.Fatalf("published checkpoint = %+v, want durable checkpoint and event", checkpoint)
 	}
 	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextSucceeded)
@@ -241,7 +242,7 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 		t.Fatalf("claim steering after accepted checkpoint: %v", err)
 	}
 	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkStart ||
-		work.Model.AdmittedInputTurn.Turn.ID == NilID ||
+		work.Model.AdmittedInputTurn.Turn.ID == uuid.Nil ||
 		len(work.Model.InputIDs) == 0 ||
 		work.Model.InputIDs[len(work.Model.InputIDs)-1] != steering.ID {
 		t.Fatalf("post-checkpoint steering work = %+v found=%v", work, found)
@@ -295,7 +296,7 @@ func mustLoadModelCallContextForFrontierRace(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	modelCallContextID ID,
+	modelCallContextID uuid.UUID,
 ) executionstore.ModelCallContextRecord {
 	t.Helper()
 	modelContext, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -314,7 +315,7 @@ func assertAgentInputWaitingForFrontierRace(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	inputID ID,
+	inputID uuid.UUID,
 ) {
 	t.Helper()
 	var waiting int
@@ -338,7 +339,7 @@ func assertFrontierRaceContextState(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	contextID ID,
+	contextID uuid.UUID,
 	want executionstore.ModelCallState,
 ) {
 	t.Helper()

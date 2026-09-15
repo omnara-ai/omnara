@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -75,8 +76,8 @@ func (s *Store) createModelProviderConfigTx(
 	qtx *dbsqlc.Queries,
 	input CreateModelProviderConfigInput,
 ) (ModelProviderConfigRecord, error) {
-	if isNilID(input.OrgID) || input.Name == "" || input.APIFormat == "" || input.BaseURL == "" ||
-		isNilID(input.CredentialSecretID) {
+	if input.OrgID == uuid.Nil || input.Name == "" || input.APIFormat == "" || input.BaseURL == "" ||
+		input.CredentialSecretID == uuid.Nil {
 		return ModelProviderConfigRecord{}, errors.New("org, name, API format, base url, and credential secret are required")
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("model provider config name", input.Name)
@@ -164,7 +165,7 @@ func (s *Store) createModelProviderConfigTx(
 	return modelProviderConfigRecordFromSQLC(row), nil
 }
 
-func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id ID) (ModelProviderConfigRecord, error) {
+func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id uuid.UUID) (ModelProviderConfigRecord, error) {
 	row, err := s.q.GetModelProviderConfig(ctx, dbsqlc.GetModelProviderConfigParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("get model provider config: %w", err)
@@ -174,7 +175,7 @@ func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id ID) (Model
 
 func (s *Store) GetModelProviderConfigByName(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	name string,
 ) (ModelProviderConfigRecord, error) {
 	normalizedName, err := resourcename.CanonicalizeRequired("model provider config name", name)
@@ -192,7 +193,7 @@ func (s *Store) GetModelProviderConfigByName(
 }
 
 type ListModelProviderConfigsInput struct {
-	OrgID ID
+	OrgID uuid.UUID
 	Limit int
 	List  listing.Options
 }
@@ -207,7 +208,7 @@ func (s *Store) ListModelProviderConfigs(
 	ctx context.Context,
 	input ListModelProviderConfigsInput,
 ) (ListModelProviderConfigsResult, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ListModelProviderConfigsResult{}, errors.New("org id is required")
 	}
 	if input.Limit <= 0 {
@@ -247,7 +248,7 @@ func (s *Store) ListModelProviderConfigs(
 func validateModelProviderCredentialTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, credentialSecretID ID,
+	orgID, credentialSecretID uuid.UUID,
 	managementKind management.Kind,
 	authKind string,
 ) error {
@@ -294,7 +295,7 @@ func (s *Store) PatchModelProviderConfig(
 	ctx context.Context,
 	input PatchModelProviderConfigInput,
 ) (ModelProviderConfigRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ID) {
+	if input.OrgID == uuid.Nil || input.ID == uuid.Nil {
 		return ModelProviderConfigRecord{}, errors.New("org and provider config are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -345,7 +346,7 @@ func updateModelProviderConfigTx(
 	update, err := normalizeModelProviderConfigUpdate(
 		ctx,
 		input,
-		func(ctx context.Context, orgID, credentialSecretID ID, authKind string) error {
+		func(ctx context.Context, orgID, credentialSecretID uuid.UUID, authKind string) error {
 			return validateModelProviderCredentialTx(
 				ctx,
 				tx,
@@ -389,11 +390,11 @@ func updateModelProviderConfigTx(
 func normalizeModelProviderConfigUpdate(
 	ctx context.Context,
 	input modelProviderConfigUpdate,
-	validateCredential func(context.Context, ID, ID, string) error,
+	validateCredential func(context.Context, uuid.UUID, uuid.UUID, string) error,
 ) (modelProviderConfigUpdate, error) {
-	if isNilID(input.OrgID) || isNilID(input.ID) || input.BaseURL == "" || input.EndpointPath == "" ||
+	if input.OrgID == uuid.Nil || input.ID == uuid.Nil || input.BaseURL == "" || input.EndpointPath == "" ||
 		input.AuthKind == "" ||
-		isNilID(input.CredentialSecretID) {
+		input.CredentialSecretID == uuid.Nil {
 		return modelProviderConfigUpdate{}, errors.New(
 			"org, provider config, base url, endpoint path, auth kind, and credential secret are required",
 		)
@@ -483,7 +484,7 @@ func applyModelProviderConfigPatch(
 
 func (s *Store) DeleteModelProviderConfig(
 	ctx context.Context,
-	orgID, id ID,
+	orgID, id uuid.UUID,
 ) (ModelProviderConfigRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -547,7 +548,7 @@ func modelProviderConfigRecordFromSQLC(row dbsqlc.ModelProviderConfig) ModelProv
 		IdleTimeoutMS:      int(row.IdleTimeoutMs),
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
-		CredentialSecretID: idFromSQLCPtr(row.CredentialSecretID),
+		CredentialSecretID: storeutil.IDFromPtr(row.CredentialSecretID),
 		DeletedAt:          row.DeletedAt,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
@@ -568,7 +569,7 @@ func modelProviderConfigRecordFromListSQLC(row dbsqlc.ListModelProviderConfigsRo
 		IdleTimeoutMS:      int(row.IdleTimeoutMs),
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
-		CredentialSecretID: idFromSQLCPtr(row.CredentialSecretID),
+		CredentialSecretID: storeutil.IDFromPtr(row.CredentialSecretID),
 		DeletedAt:          row.DeletedAt,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,

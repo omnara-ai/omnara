@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -14,55 +14,55 @@ import (
 )
 
 type ExecutionStore interface {
-	IsOutputLimitBoundary(ctx context.Context, projectID, agentID storage.ID, sequence int64) (bool, error)
+	IsOutputLimitBoundary(ctx context.Context, projectID, agentID uuid.UUID, sequence int64) (bool, error)
 	CaptureAgentConfigForModelContext(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 	) (executionstore.AgentConfigSnapshotRecord, error)
 	ListContextEvents(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		afterSequence int64,
 		watermark int64,
 		limit int32,
 	) ([]executionstore.ContextEventRecord, error)
 	ListCompletedToolCallsAtWatermark(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		afterSequence int64,
 		watermark int64,
 	) ([]executionstore.ToolCallRecord, error)
 	ListMachinePoolSources(
 		ctx context.Context,
-		projectID, agentID, agentConfigID storage.ID,
+		projectID, agentID, agentConfigID uuid.UUID,
 	) ([]executionstore.MachinePoolSourceRecord, error)
 	GetLatestApplicableContextCheckpoint(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		maxEventSequence int64,
 	) (executionstore.ContextCheckpointRecord, bool, error)
 	ListAgentMCPConnections(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 	) ([]executionstore.MCPConnectionRecord, error)
 }
 
 type ArtifactStore interface {
 	ListAgentArtifactsByIDs(
 		ctx context.Context,
-		projectID, agentID storage.ID,
-		ids []storage.ID,
+		projectID, agentID uuid.UUID,
+		ids []uuid.UUID,
 	) ([]artifactstore.ArtifactRecord, error)
 	GetArtifactBlob(
 		ctx context.Context,
-		projectID, agentID, id storage.ID,
+		projectID, agentID, id uuid.UUID,
 	) ([]byte, artifactstore.ArtifactRecord, error)
 }
 
 type IntegrationStore interface {
 	ListIntegrationTargets(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 	) ([]integrationstore.IntegrationTargetSummary, error)
 }
 
@@ -93,14 +93,14 @@ func NewStore(
 type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
-		projectID storage.ID,
+		projectID uuid.UUID,
 		publicSkillID string,
 	) (skillstore.SkillRecord, error)
 }
 
 type TranscriptWindowInput struct {
-	ProjectID     storage.ID
-	AgentID       storage.ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
 	Watermark     int64
 	AfterSequence int64
 }
@@ -144,11 +144,11 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 			return nil, err
 		}
 		modelCallContextID := ""
-		if event.ModelCallContextID != storage.NilID {
+		if event.ModelCallContextID != uuid.Nil {
 			modelCallContextID = event.ModelCallContextID.String()
 		}
 		modelProviderConfigID := ""
-		if event.ModelProviderConfigID != storage.NilID {
+		if event.ModelProviderConfigID != uuid.Nil {
 			modelProviderConfigID = event.ModelProviderConfigID.String()
 		}
 		message := Message{

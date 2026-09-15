@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelretry"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -358,9 +358,9 @@ func validateSummaryReduction(priorSummary, sourceText, summary string) error {
 	})
 }
 
-func validateResolvedRevision(resolved model.ResolvedClient, revisionID storage.ID) error {
-	resolvedRevisionID, err := storage.ParseID(resolved.ConfiguredModelRevisionID)
-	if err != nil || resolvedRevisionID == storage.NilID {
+func validateResolvedRevision(resolved model.ResolvedClient, revisionID uuid.UUID) error {
+	resolvedRevisionID, err := uuid.Parse(resolved.ConfiguredModelRevisionID)
+	if err != nil || resolvedRevisionID == uuid.Nil {
 		return model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
 			Source:  "model_resolver",

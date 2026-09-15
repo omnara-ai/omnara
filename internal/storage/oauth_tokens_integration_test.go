@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -94,7 +95,7 @@ func (f oauthGrantFixture) issueTokens(
 	return tokens
 }
 
-func lockUserForOAuthContention(t *testing.T, ctx context.Context, tx pgx.Tx, userID ID) {
+func lockUserForOAuthContention(t *testing.T, ctx context.Context, tx pgx.Tx, userID uuid.UUID) {
 	t.Helper()
 	if _, err := dbsqlc.New(tx).LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: userID}); err != nil {
 		t.Fatalf("lock user for contention: %v", err)

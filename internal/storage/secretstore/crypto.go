@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 
@@ -14,7 +15,7 @@ import (
 
 func (s *Store) encryptSecretPayload(
 	ctx context.Context,
-	orgID, secretID, versionID ID,
+	orgID, secretID, versionID uuid.UUID,
 	versionNumber int32,
 	kind secrets.Kind,
 	payload secrets.Payload,

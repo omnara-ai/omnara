@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func (s *Store) MaxEventSequence(ctx context.Context, projectID, agentID ID) (int64, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+func (s *Store) MaxEventSequence(ctx context.Context, projectID, agentID uuid.UUID) (int64, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return 0, errors.New("project id and agent id are required")
 	}
 	sequence, err := s.q.MaxEventSequence(
@@ -25,9 +26,9 @@ func (s *Store) MaxEventSequence(ctx context.Context, projectID, agentID ID) (in
 }
 
 type CompactionSourceEventRecord struct {
-	ID             ID              `json:"id"`
+	ID             uuid.UUID       `json:"id"`
 	Sequence       int64           `json:"sequence"`
-	TurnID         ID              `json:"turn_id"`
+	TurnID         uuid.UUID       `json:"turn_id"`
 	IsOpeningEvent bool            `json:"is_opening_event"`
 	Kind           string          `json:"event_kind"`
 	InputKind      string          `json:"input_kind,omitempty"`
@@ -46,11 +47,11 @@ type CompactionAtomicGroupRecord struct {
 
 func (s *Store) ListCompactionSourceEvents(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	afterSequence int64,
 	limit int32,
 ) ([]CompactionSourceEventRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	if limit <= 0 || limit > 500 {
@@ -89,11 +90,11 @@ func (s *Store) ListCompactionSourceEvents(
 
 func (s *Store) ListCompactionAtomicGroups(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	lastCheckpointEnd int64,
 	inputEventSequence int64,
 ) ([]CompactionAtomicGroupRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	if inputEventSequence <= 0 {

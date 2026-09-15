@@ -1567,7 +1567,6 @@ export type AgentMachineBinding = {
     project_id: ProjectId;
     agent_id: AgentId;
     machine_id: MachineId;
-    machine_ref: string;
     binding_kind: AgentMachineBindingKind;
     state: AgentMachineBindingState;
     description: string;

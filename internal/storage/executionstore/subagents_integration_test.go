@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -23,7 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
-func systemPrincipalForTest(id ID) identitystore.PrincipalRecord {
+func systemPrincipalForTest(id uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: id}
 }
 
@@ -52,7 +53,7 @@ func spawnSubagentForTest(
 	ctx context.Context,
 	store *Store,
 	parent executionstore.AgentRecord,
-	configID ID,
+	configID uuid.UUID,
 	name, idempotencyKey string,
 	maxInstances *int,
 	options ...func(*executionstore.LaunchAgentInput),
@@ -118,7 +119,7 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	if child.Agent.ParentAgentID != parent.ID || child.Agent.SubagentKey != "fork" {
 		t.Fatalf("child linkage = parent %s key %q", child.Agent.ParentAgentID, child.Agent.SubagentKey)
 	}
-	if child.AgentInput.ID == NilID {
+	if child.AgentInput.ID == uuid.Nil {
 		t.Fatal("child launch did not queue the task input")
 	}
 
@@ -242,7 +243,7 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	child, err := spawnSubagentForTest(
-		t, ctx, store, parent, NilID, "worker", "subagent-derived-child", nil,
+		t, ctx, store, parent, uuid.Nil, "worker", "subagent-derived-child", nil,
 		func(input *executionstore.LaunchAgentInput) {
 			input.ProfileID = parent.AgentProfileID
 			input.DerivedConfig = &derived
@@ -254,7 +255,7 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	if child.Agent.AgentProfileID != profile.ID {
 		t.Fatalf("child profile = %s, want %s", child.Agent.AgentProfileID, profile.ID)
 	}
-	if child.Agent.CurrentConfigID == profile.CurrentConfigID || child.Agent.CurrentConfigID == NilID {
+	if child.Agent.CurrentConfigID == profile.CurrentConfigID || child.Agent.CurrentConfigID == uuid.Nil {
 		t.Fatalf(
 			"child config = %s, want a new config distinct from %s",
 			child.Agent.CurrentConfigID, profile.CurrentConfigID,
@@ -280,7 +281,7 @@ func TestLaunchSubagentSharesParentMachinesForAnyBaseConfig(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-machines@example.com", "Subagent Machines")
 	machine, err := store.Execution().CreateDaemonMachine(ctx, executionstore.CreateDaemonMachineInput{
 		OrgID:          testOrgID,
@@ -533,7 +534,7 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn leaf subagent: %v", err)
 	}
-	for _, agentID := range []ID{middle.Agent.ID, leaf.Agent.ID} {
+	for _, agentID := range []uuid.UUID{middle.Agent.ID, leaf.Agent.ID} {
 		if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, agentID); err != nil {
 			t.Fatalf("clear wakeup: %v", err)
 		}
@@ -591,7 +592,7 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if archived != 1 {
 		t.Fatalf("archived %d subagents, want 1", archived)
 	}
-	for _, agentID := range []ID{middle.Agent.ID, leaf.Agent.ID} {
+	for _, agentID := range []uuid.UUID{middle.Agent.ID, leaf.Agent.ID} {
 		record, err := store.Execution().GetAgentInProject(ctx, testProjectID, agentID)
 		if err != nil {
 			t.Fatalf("load agent: %v", err)
@@ -609,7 +610,7 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	}
 }
 
-func containsAgentID(agents []executionstore.AgentRecord, id ID) bool {
+func containsAgentID(agents []executionstore.AgentRecord, id uuid.UUID) bool {
 	for _, agent := range agents {
 		if agent.ID == id {
 			return true
@@ -840,7 +841,7 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	}
 	tree, err := store.Execution().ListAgentInteractions(ctx, executionstore.ListAgentInteractionsInput{
 		ProjectID: testProjectID,
-		AgentIDs:  append([]ID{parent.ID}, descendants...),
+		AgentIDs:  append([]uuid.UUID{parent.ID}, descendants...),
 		State:     executionstore.AgentInteractionStateOpen,
 		Limit:     10,
 	})

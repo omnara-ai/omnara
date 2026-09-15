@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 const (
@@ -44,8 +43,8 @@ type daemonSocketHub struct {
 	done                  <-chan struct{}
 	cancel                context.CancelFunc
 	mu                    sync.RWMutex
-	byMachine             map[storage.ID]*daemonSocket
-	byRuntime             map[storage.ID]*daemonSocket
+	byMachine             map[uuid.UUID]*daemonSocket
+	byRuntime             map[uuid.UUID]*daemonSocket
 	subs                  []notifications.Subscription
 
 	pendingSkillMu      sync.Mutex
@@ -57,7 +56,7 @@ type replyChannelPublisher interface {
 }
 
 type skillReportKey struct {
-	machineID storage.ID
+	machineID uuid.UUID
 	requestID string
 }
 
@@ -99,8 +98,8 @@ func newDaemonSocketHub(
 		fallbackDrainJitter:   fallbackDrainJitter,
 		done:                  ctx.Done(),
 		cancel:                cancel,
-		byMachine:             map[storage.ID]*daemonSocket{},
-		byRuntime:             map[storage.ID]*daemonSocket{},
+		byMachine:             map[uuid.UUID]*daemonSocket{},
+		byRuntime:             map[uuid.UUID]*daemonSocket{},
 		pendingSkillReports:   map[skillReportKey]skillReportPending{},
 	}
 	wakeupSub, err := wakeupSubscriber.SubscribeDaemonReplicaWakeups(ctx, replicaID, h.handleWakeup)
@@ -119,7 +118,7 @@ func newDaemonSocketHub(
 	return h, nil
 }
 
-func (h *daemonSocketHub) recordPendingSkillReply(machineID storage.ID, requestID, replyChannel string) {
+func (h *daemonSocketHub) recordPendingSkillReply(machineID uuid.UUID, requestID, replyChannel string) {
 	if h == nil || requestID == "" || replyChannel == "" {
 		return
 	}
@@ -131,7 +130,7 @@ func (h *daemonSocketHub) recordPendingSkillReply(machineID storage.ID, requestI
 	h.pendingSkillMu.Unlock()
 }
 
-func (h *daemonSocketHub) takePendingSkillReply(machineID storage.ID, requestID string) (string, bool) {
+func (h *daemonSocketHub) takePendingSkillReply(machineID uuid.UUID, requestID string) (string, bool) {
 	if h == nil || requestID == "" {
 		return "", false
 	}

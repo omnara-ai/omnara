@@ -1071,7 +1071,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	secondBinding := testutil.RequireType[map[string]any](t, bindings[1])
 	if secondBinding["state"] != "attached" || secondBinding["cwd"] != "/workspace" ||
 		secondBinding["id"] == binding["id"] ||
-		secondBinding["machine_ref"] == binding["machine_ref"] {
+		secondBinding["machine_id"] == binding["machine_id"] {
 		t.Fatalf("unexpected second launch binding: first=%+v second=%+v", binding, secondBinding)
 	}
 	machineID := mustPublicHTTPID(t, publicid.KindMachine, testutil.RequireType[string](t, binding["machine_id"]))

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -51,7 +51,7 @@ func validateResolvedModelContext(
 			Message: "The configured model resolver returned no client.",
 		}
 	}
-	revisionID, err := storage.ParseID(resolved.ConfiguredModelRevisionID)
+	revisionID, err := uuid.Parse(resolved.ConfiguredModelRevisionID)
 	if err != nil || revisionID != contextRow.ConfiguredModelRevisionID {
 		return model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
@@ -65,7 +65,7 @@ func validateResolvedModelContext(
 
 func (e AgentExecutor) modelContextToolRuntime(
 	ctx context.Context,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	contextRow executionstore.ModelCallContextRecord,
 	now time.Time,
 ) ([]modelcontext.ToolSpec, error) {

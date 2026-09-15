@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -45,7 +45,7 @@ func (s strictOpenAPIServer) cancelAgent(
 	agent executionstore.AgentRecord,
 ) (openapi.CancelAgentResponseObject, error) {
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	var actorParams *openapi.ExternalActorParams
@@ -69,14 +69,14 @@ func (s strictOpenAPIServer) cancelAgent(
 		Event:                  nullableFromPtr[openapi.AgentEvent](nil),
 		RuntimeCancelRequested: cancelResult.RuntimeCancelRequested,
 	}
-	if cancelResult.ActorID != storage.NilID {
+	if cancelResult.ActorID != uuid.Nil {
 		actorID, err := publicID(publicid.KindActor, cancelResult.ActorID)
 		if err != nil {
 			return nil, err
 		}
 		response.ActorId = &actorID
 	}
-	if cancelResult.Event.ID == storage.NilID {
+	if cancelResult.Event.ID == uuid.Nil {
 		return openapi.CancelAgent200JSONResponse(response), nil
 	}
 	records, err := s.server.store.Execution().ListAgentEventsForRead(
@@ -118,7 +118,7 @@ func (s strictOpenAPIServer) archiveAgent(
 	agent executionstore.AgentRecord,
 ) (openapi.ArchiveAgentResponseObject, error) {
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	archived, machines, err := s.server.store.Execution().ArchiveAgent(ctx, project.ID, agent.ID, principal)
@@ -235,7 +235,7 @@ func (s strictOpenAPIServer) moveQueuedBacklogInput(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	anchorID := storage.NilID
+	anchorID := uuid.Nil
 	if request.Body.AnchorInputId != nil && *request.Body.AnchorInputId != "" {
 		var ok bool
 		anchorID, ok = parseOpenAPIPublicID(publicid.KindAgentInput, *request.Body.AnchorInputId)
@@ -351,7 +351,7 @@ func (s strictOpenAPIServer) createAgentInput(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	actor, err := requestActorParams(project, principal, request.Body.Actor)
@@ -848,7 +848,7 @@ func (s *Server) streamAgentEvents(
 				return
 			}
 			if record.EventKind == "model_output" &&
-				record.ModelCallContextID != storage.NilID {
+				record.ModelCallContextID != uuid.Nil {
 				contextID, err := publicID(
 					publicid.KindModelCallContext,
 					record.ModelCallContextID,

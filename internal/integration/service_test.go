@@ -16,8 +16,8 @@ type integrationServiceExecutionStub struct{}
 
 func (integrationServiceExecutionStub) GetAgentProfile(
 	context.Context,
-	executionstore.ID,
-	executionstore.ID,
+	uuid.UUID,
+	uuid.UUID,
 ) (executionstore.AgentProfileRecord, error) {
 	return executionstore.AgentProfileRecord{}, errors.New("unexpected GetAgentProfile call")
 }
@@ -36,8 +36,8 @@ type integrationServiceLaunchFailureStub struct {
 
 func (s integrationServiceLaunchFailureStub) GetAgentProfile(
 	context.Context,
-	executionstore.ID,
-	executionstore.ID,
+	uuid.UUID,
+	uuid.UUID,
 ) (executionstore.AgentProfileRecord, error) {
 	return s.profile, nil
 }
@@ -58,15 +58,15 @@ type integrationServiceStoreStub struct {
 
 func (s *integrationServiceStoreStub) GetIntegrationInstallByID(
 	context.Context,
-	integrationstore.ID,
+	uuid.UUID,
 ) (integrationstore.IntegrationInstallRecord, error) {
 	return s.install, nil
 }
 
 func (s *integrationServiceStoreStub) GetIntegrationTargetByProviderRef(
 	context.Context,
-	integrationstore.ID,
-	integrationstore.ID,
+	uuid.UUID,
+	uuid.UUID,
 	string,
 ) (integrationstore.IntegrationTargetRecord, error) {
 	return integrationstore.IntegrationTargetRecord{}, s.lookupErr

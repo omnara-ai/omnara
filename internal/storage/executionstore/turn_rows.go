@@ -1,6 +1,9 @@
 package executionstore
 
-import "github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+import (
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+)
 
 func agentTurnRecordFromInsertSQLC(row dbsqlc.InsertAgentTurnRow) AgentTurnRecord {
 	return agentTurnRecordFromFields(
@@ -25,9 +28,9 @@ func agentTurnRecordFromCurrentContinuableSQLC(row dbsqlc.CurrentContinuableAgen
 }
 
 func agentTurnRecordFromFields(
-	id, projectID, agentID ID,
+	id, projectID, agentID uuid.UUID,
 	sequence int64,
-	latestEventID, latestSemanticEventID ID,
+	latestEventID, latestSemanticEventID uuid.UUID,
 ) AgentTurnRecord {
 	return AgentTurnRecord{
 		ID:                    id,

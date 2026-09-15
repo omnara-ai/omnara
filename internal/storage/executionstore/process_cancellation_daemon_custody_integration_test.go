@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -17,7 +19,7 @@ func TestCancelAgentTerminatesAcceptedProcessBeforeRunCommandResolves(t *testing
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_accepted_unresolved_process")
 	publisher := &recordingPostCommitPublisher{}
-	fixture.Store = newIntegrationStore(fixture.Store.pool, WithPostCommitPublisher(publisher))
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "cancel_accepted_unresolved_process", "run_command")
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
@@ -40,7 +42,7 @@ func TestCancelAgentTerminatesAcceptedProcessBeforeRunCommandResolves(t *testing
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
@@ -116,7 +118,7 @@ func TestCancelAgentPreservesProcessAfterRunCommandReturnsHandle(t *testing.T) {
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_preserves_resolved_process")
 	publisher := &recordingPostCommitPublisher{}
-	fixture.Store = newIntegrationStore(fixture.Store.pool, WithPostCommitPublisher(publisher))
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	toolCallID := createToolCallForProcessTest(
 		t,
 		ctx,

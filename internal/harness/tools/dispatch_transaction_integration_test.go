@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -160,14 +161,14 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 				"stop-"+test.processState,
 				fixture.Now.Add(10*time.Second),
 			)
-			var agentMachineBindingID storage.ID
+			var agentMachineBindingID uuid.UUID
 			if err := fixture.Pool.QueryRow(
 				ctx,
 				`INSERT INTO agent_machine_bindings(
-				   org_id, project_id, agent_id, machine_id, machine_ref,
+				   org_id, project_id, agent_id, machine_id,
 				   binding_kind, state, created_at, updated_at
 				 )
-				 VALUES ($1, $2, $3, $4, 'mchr-stp001', 'explicit', 'attached', $5, $5)
+				 VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)
 				 RETURNING id`,
 				toolsTestOrgID,
 				toolsTestProjectID,
@@ -457,7 +458,7 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 				if !released {
 					return errors.New("background started before durable handoff committed")
 				}
-				if call.Turn.RuntimeLockID == storage.NilID {
+				if call.Turn.RuntimeLockID == uuid.Nil {
 					return errors.New("background lost dispatch context")
 				}
 				close(backgroundStarted)
@@ -1091,7 +1092,7 @@ func dispatchTestAsyncHandler(
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	handler toolHandler,
 ) {
 	t.Helper()

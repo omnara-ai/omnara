@@ -3,6 +3,8 @@ package integrationstore
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const IntegrationProviderSlack = "slack"
@@ -15,11 +17,11 @@ const (
 )
 
 type UpsertIntegrationInstallInput struct {
-	OrgID                    ID
-	ProjectID                ID
-	AgentProfileID           ID
-	AgentID                  ID
-	InstalledByUserID        ID
+	OrgID                    uuid.UUID
+	ProjectID                uuid.UUID
+	AgentProfileID           uuid.UUID
+	AgentID                  uuid.UUID
+	InstalledByUserID        uuid.UUID
 	Provider                 string
 	IntegrationKind          string
 	ConnectionMode           string
@@ -27,20 +29,20 @@ type UpsertIntegrationInstallInput struct {
 	ProviderTenantID         string
 	ProviderAccountRef       string
 	ProviderAgentDisplayName string
-	CredentialSecretID       ID
+	CredentialSecretID       uuid.UUID
 	ProviderConfig           json.RawMessage
 	ProviderIdentity         json.RawMessage
 	ProviderMetadata         json.RawMessage
-	OAuthFlowID              ID
+	OAuthFlowID              uuid.UUID
 }
 
 type IntegrationInstallRecord struct {
-	ID                       ID                      `json:"id"`
-	OrgID                    ID                      `json:"org_id"`
-	ProjectID                ID                      `json:"project_id"`
-	AgentProfileID           ID                      `json:"agent_profile_id,omitempty"`
-	AgentID                  ID                      `json:"agent_id,omitempty"`
-	InstalledByUserID        ID                      `json:"installed_by_user_id"`
+	ID                       uuid.UUID               `json:"id"`
+	OrgID                    uuid.UUID               `json:"org_id"`
+	ProjectID                uuid.UUID               `json:"project_id"`
+	AgentProfileID           uuid.UUID               `json:"agent_profile_id,omitempty"`
+	AgentID                  uuid.UUID               `json:"agent_id,omitempty"`
+	InstalledByUserID        uuid.UUID               `json:"installed_by_user_id"`
 	Provider                 string                  `json:"provider"`
 	IntegrationKind          string                  `json:"integration_kind"`
 	ConnectionMode           string                  `json:"connection_mode"`
@@ -48,31 +50,31 @@ type IntegrationInstallRecord struct {
 	ProviderTenantID         string                  `json:"provider_tenant_id,omitempty"`
 	ProviderAccountRef       string                  `json:"provider_account_ref"`
 	ProviderAgentDisplayName string                  `json:"provider_agent_display_name"`
-	CredentialSecretID       ID                      `json:"credential_secret_id,omitempty"`
+	CredentialSecretID       uuid.UUID               `json:"credential_secret_id,omitempty"`
 	ProviderConfig           json.RawMessage         `json:"provider_config"`
 	ProviderIdentity         json.RawMessage         `json:"provider_identity"`
 	ProviderMetadata         json.RawMessage         `json:"provider_metadata"`
-	LastOAuthFlowID          ID                      `json:"last_oauth_flow_id,omitempty"`
+	LastOAuthFlowID          uuid.UUID               `json:"last_oauth_flow_id,omitempty"`
 	CreatedAt                time.Time               `json:"created_at"`
 	UpdatedAt                time.Time               `json:"updated_at"`
 	Created                  bool                    `json:"-"`
 }
 
 type CreateIntegrationTargetInput struct {
-	ProjectID            ID
-	AgentID              ID
-	IntegrationInstallID ID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	IntegrationInstallID uuid.UUID
 	ProviderRef          string
 	ProviderRefKind      string
 	DisplayName          string
 }
 
 type IntegrationTargetRecord struct {
-	ID                   ID              `json:"id"`
-	OrgID                ID              `json:"org_id"`
-	ProjectID            ID              `json:"project_id"`
-	AgentID              ID              `json:"agent_id"`
-	IntegrationInstallID ID              `json:"integration_install_id"`
+	ID                   uuid.UUID       `json:"id"`
+	OrgID                uuid.UUID       `json:"org_id"`
+	ProjectID            uuid.UUID       `json:"project_id"`
+	AgentID              uuid.UUID       `json:"agent_id"`
+	IntegrationInstallID uuid.UUID       `json:"integration_install_id"`
 	TargetRef            string          `json:"target_ref"`
 	ProviderRef          string          `json:"provider_ref"`
 	ProviderRefKind      string          `json:"provider_ref_kind"`
@@ -84,8 +86,8 @@ type IntegrationTargetRecord struct {
 }
 
 type IntegrationTargetSummary struct {
-	ID                   ID                      `json:"id"`
-	IntegrationInstallID ID                      `json:"integration_install_id"`
+	ID                   uuid.UUID               `json:"id"`
+	IntegrationInstallID uuid.UUID               `json:"integration_install_id"`
 	TargetRef            string                  `json:"target_ref"`
 	Provider             string                  `json:"provider"`
 	InstallState         IntegrationInstallState `json:"install_state"`

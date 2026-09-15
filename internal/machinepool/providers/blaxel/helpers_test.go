@@ -5,19 +5,18 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const testStartupScriptEnvVar = "OMNARA_STARTUP_SCRIPT_PAYLOAD"
 
-func testInstallationID() storage.ID {
+func testInstallationID() uuid.UUID {
 	return uuid.MustParse("00000000-0000-0000-0000-000000000002")
 }
 
 func mustSandboxOwnershipLabels(
 	t testing.TB,
-	installationID, machineID storage.ID,
+	installationID, machineID uuid.UUID,
 ) map[string]string {
 	t.Helper()
 	installationOwner, machineOwner, err := sandboxOwnershipLabelValues(

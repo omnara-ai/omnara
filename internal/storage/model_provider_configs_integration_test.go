@@ -1878,7 +1878,7 @@ func TestListProjectModelGrantsSearchSortAndEmbeddedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create alpha model: %v", err)
 	}
-	for i, modelID := range []ID{betaModel.ID, alphaModel.ID} {
+	for i, modelID := range []uuid.UUID{betaModel.ID, alphaModel.ID} {
 		if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
 			OrgID:             testOrgID,
 			ProjectID:         testProjectID,

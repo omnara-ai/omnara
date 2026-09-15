@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -36,7 +37,7 @@ func cronTriggerRecordFromSQLC(row dbsqlc.GetCronTriggerRow) (CronTriggerRecord,
 
 func cronTriggerRecordFromWriteSQLC(
 	row dbsqlc.InsertCronTriggerRow,
-	orgID ID,
+	orgID uuid.UUID,
 ) (CronTriggerRecord, error) {
 	return cronTriggerRecordFromSQLC(dbsqlc.GetCronTriggerRow{
 		ID:              row.ID,

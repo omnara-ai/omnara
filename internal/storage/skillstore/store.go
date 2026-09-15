@@ -110,21 +110,3 @@ func invalidSkillRequest(format string, args ...any) error {
 func invalidSkillName(format string, args ...any) error {
 	return storeerr.Tag(storeerr.ErrInvalidSkillName, invalidSkillRequest(format, args...))
 }
-
-func isNilUUID(value uuid.UUID) bool {
-	return value == uuid.Nil
-}
-
-func sqlcUUIDFromNil(value uuid.UUID) *uuid.UUID {
-	if isNilUUID(value) {
-		return nil
-	}
-	return &value
-}
-
-func uuidFromSQLCPtr(value *uuid.UUID) uuid.UUID {
-	if value == nil {
-		return uuid.Nil
-	}
-	return *value
-}

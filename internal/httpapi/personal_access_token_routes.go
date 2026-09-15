@@ -3,10 +3,10 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -38,8 +38,8 @@ func (s strictOpenAPIServer) CreatePersonalAccessToken(
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
 	if request.Body == nil {
@@ -72,7 +72,7 @@ func (s strictOpenAPIServer) ListPersonalAccessTokens(
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
 	limit, after, err := parseOpenAPIPageParams(
@@ -122,7 +122,7 @@ func (s strictOpenAPIServer) RevokePersonalAccessToken(
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
 	tokenID, ok := parseOpenAPIPublicID(publicid.KindPersonalAccessToken, request.TokenID)

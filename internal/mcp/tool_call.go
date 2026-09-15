@@ -6,16 +6,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 type ToolCallInput struct {
-	OrgID      storage.ID
-	ProjectID  storage.ID
-	AgentID    storage.ID
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
 	Conn       executionstore.MCPConnectionRecord
 	Server     agentconfig.RuntimeMCPServer
 	Name       string

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -19,7 +21,7 @@ func (s *Store) CreateAgentProfile(
 	ctx context.Context,
 	input CreateAgentProfileInput,
 ) (AgentProfileRecord, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("project id is required")
 	}
 	if input.Name == "" {
@@ -30,7 +32,7 @@ func (s *Store) CreateAgentProfile(
 		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	if isNilID(input.CurrentConfigID) {
+	if input.CurrentConfigID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("current config is required")
 	}
 	input.IdempotencyKey = agentProfileCreateIdempotencyKey(input.IdempotencyKey)
@@ -99,10 +101,10 @@ func (s *Store) CreateAgentProfile(
 }
 
 type RetargetAgentProfileInput struct {
-	ProjectID               ID
-	ProfileID               ID
-	ExpectedCurrentConfigID ID
-	ConfigID                ID
+	ProjectID               uuid.UUID
+	ProfileID               uuid.UUID
+	ExpectedCurrentConfigID uuid.UUID
+	ConfigID                uuid.UUID
 	Reason                  string
 	IdempotencyKey          string
 }
@@ -111,13 +113,13 @@ func (s *Store) RetargetAgentProfile(
 	ctx context.Context,
 	input RetargetAgentProfileInput,
 ) (AgentProfileRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.ProfileID) {
+	if input.ProjectID == uuid.Nil || input.ProfileID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("project and profile are required")
 	}
-	if isNilID(input.ExpectedCurrentConfigID) {
+	if input.ExpectedCurrentConfigID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("expected current config is required")
 	}
-	if isNilID(input.ConfigID) {
+	if input.ConfigID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("agent config is required")
 	}
 	if input.Reason == "" {
@@ -207,7 +209,7 @@ func (s *Store) RetargetAgentProfile(
 			ProjectID:               input.ProjectID,
 			ProfileID:               input.ProfileID,
 			Reason:                  input.Reason,
-			IdempotencyKey:          sqlcTextFromEmpty(input.IdempotencyKey),
+			IdempotencyKey:          storeutil.TextFromEmpty(input.IdempotencyKey),
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -228,8 +230,8 @@ func (s *Store) RetargetAgentProfile(
 }
 
 type RenameAgentProfileInput struct {
-	ProjectID ID
-	ProfileID ID
+	ProjectID uuid.UUID
+	ProfileID uuid.UUID
 	Name      string
 }
 
@@ -237,7 +239,7 @@ func (s *Store) RenameAgentProfile(
 	ctx context.Context,
 	input RenameAgentProfileInput,
 ) (AgentProfileRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.ProfileID) {
+	if input.ProjectID == uuid.Nil || input.ProfileID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("project and profile are required")
 	}
 	if input.Name == "" {
@@ -293,8 +295,8 @@ func (s *Store) RenameAgentProfile(
 	return record, nil
 }
 
-func (s *Store) GetAgentProfile(ctx context.Context, projectID, id ID) (AgentProfileRecord, error) {
-	if isNilID(projectID) {
+func (s *Store) GetAgentProfile(ctx context.Context, projectID, id uuid.UUID) (AgentProfileRecord, error) {
+	if projectID == uuid.Nil {
 		return AgentProfileRecord{}, errors.New("project id is required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -320,15 +322,15 @@ func (s *Store) GetAgentProfile(ctx context.Context, projectID, id ID) (AgentPro
 }
 
 type ListAgentProfilesForProjectInput struct {
-	ProjectID ID
+	ProjectID uuid.UUID
 	Filters   AgentProfileListFilters
 	List      listing.Options
 	Limit     int
 }
 
 type AgentProfileListFilters struct {
-	ModelProviderConfigID ID
-	ConfiguredModelID     ID
+	ModelProviderConfigID uuid.UUID
+	ConfiguredModelID     uuid.UUID
 	APIFormats            []string
 	APIVariants           []string
 }
@@ -344,7 +346,7 @@ func (s *Store) ListAgentProfilesForProject(
 	ctx context.Context,
 	input ListAgentProfilesForProjectInput,
 ) (ListAgentProfilesForProjectResult, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return ListAgentProfilesForProjectResult{}, errors.New("project id is required")
 	}
 	if input.Limit <= 0 {
@@ -362,8 +364,8 @@ func (s *Store) ListAgentProfilesForProject(
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
-		ModelProviderConfigID: sqlcIDFromNil(input.Filters.ModelProviderConfigID),
-		ConfiguredModelID:     sqlcIDFromNil(input.Filters.ConfiguredModelID),
+		ModelProviderConfigID: storeutil.IDFromNil(input.Filters.ModelProviderConfigID),
+		ConfiguredModelID:     storeutil.IDFromNil(input.Filters.ConfiguredModelID),
 		ApiFormats:            input.Filters.APIFormats, ApiVariants: input.Filters.APIVariants,
 	}
 	rows, err := s.q.ListAgentProfilesForProject(ctx, params)
@@ -388,7 +390,7 @@ func (s *Store) ListAgentProfilesForProject(
 }
 
 type ListRecentAgentProfilesForProjectsInput struct {
-	ProjectIDs []ID
+	ProjectIDs []uuid.UUID
 	Limit      int
 }
 
@@ -418,8 +420,8 @@ func (s *Store) ListRecentAgentProfilesForProjects(
 	return records, nil
 }
 
-func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error {
-	if isNilID(projectID) || isNilID(id) {
+func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID) error {
+	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and agent profile are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -467,19 +469,19 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error 
 }
 
 type CreateAgentProfileInput struct {
-	OrgID           ID
-	ProjectID       ID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
 	Name            string
-	CurrentConfigID ID
+	CurrentConfigID uuid.UUID
 	IdempotencyKey  string
 }
 
 type AgentProfileRecord struct {
-	ID                ID                `json:"id"`
-	OrgID             ID                `json:"org_id"`
-	ProjectID         ID                `json:"project_id"`
+	ID                uuid.UUID         `json:"id"`
+	OrgID             uuid.UUID         `json:"org_id"`
+	ProjectID         uuid.UUID         `json:"project_id"`
 	Name              string            `json:"name"`
-	CurrentConfigID   ID                `json:"current_config_id"`
+	CurrentConfigID   uuid.UUID         `json:"current_config_id"`
 	CurrentGeneration int               `json:"current_generation"`
 	IdempotencyKey    string            `json:"-"`
 	CurrentConfig     AgentConfigRecord `json:"current_config"`
@@ -499,7 +501,7 @@ func insertAgentProfileTx(
 			ProjectID:       input.ProjectID,
 			Name:            input.Name,
 			CurrentConfigID: input.CurrentConfigID,
-			IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
+			IdempotencyKey:  storeutil.TextFromEmpty(input.IdempotencyKey),
 		},
 	)
 	if err == nil {
@@ -559,7 +561,7 @@ func insertAgentProfileTx(
 func loadAgentProfileTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (AgentProfileRecord, error) {
 	row, err := qtx.GetAgentProfile(ctx, dbsqlc.GetAgentProfileParams{ProjectID: projectID, ID: id})
 	if err != nil {
@@ -571,7 +573,7 @@ func loadAgentProfileTx(
 func lockAgentProfileTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (AgentProfileRecord, error) {
 	_, err := qtx.LockAgentProfile(
 		ctx,
@@ -589,7 +591,7 @@ func lockAgentProfileTx(
 func loadAgentProfileByIdempotencyKeyTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	idempotencyKey string,
 ) (AgentProfileRecord, error) {
 	row, err := qtx.GetAgentProfileByIdempotencyKey(
@@ -612,7 +614,7 @@ func loadAgentProfileByIdempotencyKeyTx(
 func loadAgentProfileVersionByIdempotencyKeyMaybeTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, profileID ID,
+	projectID, profileID uuid.UUID,
 	idempotencyKey string,
 ) (dbsqlc.GetAgentProfileVersionByIdempotencyKeyRow, bool, error) {
 	row, err := qtx.GetAgentProfileVersionByIdempotencyKey(
@@ -635,7 +637,7 @@ func loadAgentProfileVersionByIdempotencyKeyMaybeTx(
 	return row, true, nil
 }
 
-func loadProjectTx(ctx context.Context, qtx *dbsqlc.Queries, id ID) (identitystore.ProjectRecord, error) {
+func loadProjectTx(ctx context.Context, qtx *dbsqlc.Queries, id uuid.UUID) (identitystore.ProjectRecord, error) {
 	row, err := qtx.GetProjectByID(ctx, dbsqlc.GetProjectByIDParams{ID: id})
 	if err != nil {
 		return identitystore.ProjectRecord{}, fmt.Errorf("load project: %w", err)

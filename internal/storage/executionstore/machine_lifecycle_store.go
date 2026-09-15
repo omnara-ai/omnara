@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -27,8 +28,8 @@ const (
 )
 
 type PoolMachineProvisionFailureInput struct {
-	OrgID                  ID
-	MachineID              ID
+	OrgID                  uuid.UUID
+	MachineID              uuid.UUID
 	ProvisionAttempt       int32
 	LifecycleReasonCode    string
 	LifecycleReasonMessage string
@@ -36,9 +37,9 @@ type PoolMachineProvisionFailureInput struct {
 }
 
 type AdmitPoolMachineProvisioningInput struct {
-	OrgID            ID
-	MachineID        ID
-	MachinePoolID    ID
+	OrgID            uuid.UUID
+	MachineID        uuid.UUID
+	MachinePoolID    uuid.UUID
 	ProvisionAttempt int32
 	Facts            MachineResourceFacts
 }
@@ -49,15 +50,15 @@ type PoolMachineProvisioningAdmission struct {
 }
 
 type RecordPoolMachineProvisioningResourceInput struct {
-	OrgID              ID
-	MachineID          ID
+	OrgID              uuid.UUID
+	MachineID          uuid.UUID
 	ProviderResourceID string
 	ProvisionAttempt   int32
 }
 
 type RecordPoolMachineDeletionResourceInput struct {
-	OrgID              ID
-	MachineID          ID
+	OrgID              uuid.UUID
+	MachineID          uuid.UUID
 	ProviderResourceID string
 	DeleteAttempt      int32
 }
@@ -68,16 +69,16 @@ type PoolMachineProviderResourceObservation struct {
 }
 
 type MachineDeletingInput struct {
-	OrgID                    ID
-	MachineID                ID
+	OrgID                    uuid.UUID
+	MachineID                uuid.UUID
 	LifecycleReasonCode      string
 	LifecycleReasonMessage   string
 	ExpectedLifecycleVersion int64
 }
 
 type MachineDeleteFailureInput struct {
-	OrgID                  ID
-	MachineID              ID
+	OrgID                  uuid.UUID
+	MachineID              uuid.UUID
 	LifecycleReasonCode    string
 	LifecycleReasonMessage string
 	RetryDelay             time.Duration
@@ -91,8 +92,8 @@ type PoolMachineCleanupCandidate struct {
 }
 
 type ExpiredIdlePoolMachine struct {
-	OrgID     ID
-	MachineID ID
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 }
 
 type PoolMachineDeletionClaim struct {
@@ -102,15 +103,15 @@ type PoolMachineDeletionClaim struct {
 
 type PoolMachineProvisioningClaim struct {
 	Machine                   MachineRecord
-	GrantProjectID            ID
+	GrantProjectID            uuid.UUID
 	BindingEnvironmentOverlay MachineEnvironmentOverlay
 }
 
 func (s *Store) ClaimPoolMachineForProvisioning(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 ) (PoolMachineProvisioningClaim, bool, error) {
-	if isNilID(orgID) || isNilID(machineID) {
+	if orgID == uuid.Nil || machineID == uuid.Nil {
 		return PoolMachineProvisioningClaim{}, false, errors.New("org and machine are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -155,7 +156,7 @@ func (s *Store) ClaimPoolMachineForProvisioning(
 	}
 	return PoolMachineProvisioningClaim{
 		Machine:                   machineRecordFromClaimPoolProvisioningSQLC(row),
-		GrantProjectID:            idFromSQLCPtr(row.GrantProjectID),
+		GrantProjectID:            storeutil.IDFromPtr(row.GrantProjectID),
 		BindingEnvironmentOverlay: bindingEnvironmentOverlay,
 	}, true, nil
 }
@@ -164,7 +165,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 	ctx context.Context,
 	input AdmitPoolMachineProvisioningInput,
 ) (PoolMachineProvisioningAdmission, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.MachinePoolID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil || input.MachinePoolID == uuid.Nil {
 		return PoolMachineProvisioningAdmission{}, errors.New(
 			"org, machine, and machine pool are required",
 		)
@@ -212,7 +213,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		dbsqlc.LockPoolMachineProvisioningResourcesParams{
 			OrgID:            input.OrgID,
 			ID:               input.MachineID,
-			MachinePoolID:    sqlcIDFromNil(input.MachinePoolID),
+			MachinePoolID:    storeutil.IDFromNil(input.MachinePoolID),
 			ProvisionAttempt: input.ProvisionAttempt,
 		},
 	)
@@ -288,7 +289,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		ctx,
 		dbsqlc.GetActivePoolMachineUsageParams{
 			OrgID:         input.OrgID,
-			MachinePoolID: sqlcIDFromNil(input.MachinePoolID),
+			MachinePoolID: storeutil.IDFromNil(input.MachinePoolID),
 		},
 	)
 	if err != nil {
@@ -318,7 +319,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		dbsqlc.GetActiveProjectMachinePoolUsageParams{
 			OrgID:         input.OrgID,
 			ProjectID:     projectID,
-			MachinePoolID: sqlcIDFromNil(input.MachinePoolID),
+			MachinePoolID: storeutil.IDFromNil(input.MachinePoolID),
 		},
 	)
 	if err != nil {
@@ -350,7 +351,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 			MemoryMb:         storeutil.Int32Ptr(input.Facts.MemoryMB),
 			OrgID:            input.OrgID,
 			ID:               input.MachineID,
-			MachinePoolID:    sqlcIDFromNil(input.MachinePoolID),
+			MachinePoolID:    storeutil.IDFromNil(input.MachinePoolID),
 			ProvisionAttempt: input.ProvisionAttempt,
 		},
 	)
@@ -386,7 +387,7 @@ func (s *Store) RecordPoolMachineProvisioningResource(
 	ctx context.Context,
 	input RecordPoolMachineProvisioningResourceInput,
 ) (PoolMachineProviderResourceObservation, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) ||
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil ||
 		strings.TrimSpace(input.ProviderResourceID) == "" {
 		return PoolMachineProviderResourceObservation{}, errors.New(
 			"org, machine, and provider resource id are required",
@@ -424,11 +425,11 @@ func (s *Store) RecordPoolMachineProvisioningResource(
 
 func (s *Store) CompletePoolMachineProvisioning(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	providerResourceID, sandboxURL string,
 	provisionAttempt int32,
 ) error {
-	if isNilID(orgID) || isNilID(machineID) || providerResourceID == "" {
+	if orgID == uuid.Nil || machineID == uuid.Nil || providerResourceID == "" {
 		return errors.New("org, machine, and provider resource id are required")
 	}
 	if provisionAttempt <= 0 {
@@ -454,8 +455,8 @@ func (s *Store) CompletePoolMachineProvisioning(
 		dbsqlc.CompletePoolMachineProvisioningParams{
 			OrgID:              orgID,
 			ID:                 machineID,
-			ProviderResourceID: sqlcTextFromEmpty(providerResourceID),
-			SandboxUrl:         sqlcTextFromEmpty(sandboxURL),
+			ProviderResourceID: storeutil.TextFromEmpty(providerResourceID),
+			SandboxUrl:         storeutil.TextFromEmpty(sandboxURL),
 			ProvisionAttempt:   provisionAttempt,
 		},
 	)
@@ -475,7 +476,7 @@ func (s *Store) MarkPoolMachineProvisionFailed(
 	ctx context.Context,
 	input PoolMachineProvisionFailureInput,
 ) error {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return errors.New("org and machine are required")
 	}
 	if input.ProvisionAttempt <= 0 {
@@ -505,7 +506,7 @@ func (s *Store) MarkPoolMachineProvisionFailed(
 			OrgID:                  input.OrgID,
 			ID:                     input.MachineID,
 			ProvisionAttempt:       input.ProvisionAttempt,
-			LifecycleReasonCode:    sqlcTextFromEmpty(input.LifecycleReasonCode),
+			LifecycleReasonCode:    storeutil.TextFromEmpty(input.LifecycleReasonCode),
 			LifecycleReasonMessage: input.LifecycleReasonMessage,
 			RetryDelayMilliseconds: input.RetryDelay.Milliseconds(),
 		},
@@ -523,7 +524,7 @@ func (s *Store) MarkPoolMachineProvisionFailed(
 }
 
 func (s *Store) MarkPoolMachineDeleting(ctx context.Context, input MachineDeletingInput) (MachineRecord, bool, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return MachineRecord{}, false, errors.New("org and machine are required")
 	}
 	if input.LifecycleReasonCode == "" || input.LifecycleReasonMessage == "" {
@@ -549,7 +550,7 @@ func (s *Store) MarkPoolMachineDeleting(ctx context.Context, input MachineDeleti
 	row, err := qtx.MarkPoolMachineDeleting(ctx, dbsqlc.MarkPoolMachineDeletingParams{
 		OrgID:                    input.OrgID,
 		ID:                       input.MachineID,
-		LifecycleReasonCode:      sqlcTextFromEmpty(input.LifecycleReasonCode),
+		LifecycleReasonCode:      storeutil.TextFromEmpty(input.LifecycleReasonCode),
 		LifecycleReasonMessage:   input.LifecycleReasonMessage,
 		ExpectedLifecycleVersion: input.ExpectedLifecycleVersion,
 	})
@@ -640,9 +641,9 @@ func (s *Store) ListExpiredIdlePoolMachines(
 
 func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 ) (PoolMachineDeletionClaim, bool, error) {
-	if isNilID(orgID) || isNilID(machineID) {
+	if orgID == uuid.Nil || machineID == uuid.Nil {
 		return PoolMachineDeletionClaim{}, false, errors.New("org and machine are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -694,7 +695,7 @@ func (s *Store) ClaimPoolMachineDeletion(
 	ctx context.Context,
 	input MachineDeletingInput,
 ) (PoolMachineDeletionClaim, bool, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return PoolMachineDeletionClaim{}, false, errors.New("org and machine are required")
 	}
 	if input.LifecycleReasonCode == "" || input.LifecycleReasonMessage == "" {
@@ -721,7 +722,7 @@ func (s *Store) ClaimPoolMachineDeletion(
 	row, err := qtx.ClaimPoolMachineDeletion(ctx, dbsqlc.ClaimPoolMachineDeletionParams{
 		OrgID:                             input.OrgID,
 		ID:                                input.MachineID,
-		LifecycleReasonCode:               sqlcTextFromEmpty(input.LifecycleReasonCode),
+		LifecycleReasonCode:               storeutil.TextFromEmpty(input.LifecycleReasonCode),
 		LifecycleReasonMessage:            input.LifecycleReasonMessage,
 		ExpectedLifecycleVersion:          input.ExpectedLifecycleVersion,
 		MaxProvisionAttempts:              DefaultPoolMachineProvisionFailureLimit,
@@ -775,7 +776,7 @@ func (s *Store) finalizePoolMachineDeletionClaimTx(
 			OrgID:     machine.OrgID,
 			MachineID: machine.ID,
 			ID:        runtime.ID,
-			Reason:    sqlcTextFromEmpty(machineDeletingReason),
+			Reason:    storeutil.TextFromEmpty(machineDeletingReason),
 			Message:   "",
 		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return PoolMachineDeletionClaim{}, fmt.Errorf("end runtime for deletion intent: %w", err)
@@ -833,7 +834,7 @@ func (s *Store) RecordPoolMachineDeletionResource(
 	ctx context.Context,
 	input RecordPoolMachineDeletionResourceInput,
 ) (PoolMachineProviderResourceObservation, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) ||
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil ||
 		strings.TrimSpace(input.ProviderResourceID) == "" {
 		return PoolMachineProviderResourceObservation{}, errors.New(
 			"org, machine, and provider resource id are required",
@@ -870,7 +871,7 @@ func (s *Store) RecordPoolMachineDeletionResource(
 }
 
 func (s *Store) MarkMachineDeleteFailed(ctx context.Context, input MachineDeleteFailureInput) error {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return errors.New("org and machine are required")
 	}
 	if input.DeleteAttempt <= 0 {
@@ -903,7 +904,7 @@ func (s *Store) MarkMachineDeleteFailed(ctx context.Context, input MachineDelete
 		dbsqlc.MarkMachineDeleteFailedParams{
 			OrgID:                  input.OrgID,
 			ID:                     input.MachineID,
-			LifecycleReasonCode:    sqlcTextFromEmpty(input.LifecycleReasonCode),
+			LifecycleReasonCode:    storeutil.TextFromEmpty(input.LifecycleReasonCode),
 			LifecycleReasonMessage: input.LifecycleReasonMessage,
 			RetryDelayMilliseconds: input.RetryDelay.Milliseconds(),
 			DeleteAttempt:          input.DeleteAttempt,
@@ -923,10 +924,10 @@ func (s *Store) MarkMachineDeleteFailed(ctx context.Context, input MachineDelete
 
 func (s *Store) CompletePoolMachineDeletion(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	deleteAttempt int32,
 ) error {
-	if isNilID(orgID) || isNilID(machineID) {
+	if orgID == uuid.Nil || machineID == uuid.Nil {
 		return errors.New("org and machine are required")
 	}
 	if deleteAttempt <= 0 {
@@ -988,7 +989,7 @@ func (s *Store) CompletePoolMachineDeletion(
 			OrgID:     orgID,
 			MachineID: machineID,
 			ID:        runtime.ID,
-			Reason:    sqlcTextFromEmpty("machine_deleted"),
+			Reason:    storeutil.TextFromEmpty("machine_deleted"),
 			Message:   "",
 		}); err != nil &&
 			!errors.Is(err, pgx.ErrNoRows) {

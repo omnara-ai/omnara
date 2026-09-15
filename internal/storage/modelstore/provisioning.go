@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -230,10 +231,10 @@ func configuredModelInputFromDefaultTemplate(model DefaultConfiguredModelTemplat
 func (s *Store) ProvisionDefaultTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, defaultProjectID, createdByUserID, credentialSecretID ID,
+	orgID, defaultProjectID, createdByUserID, credentialSecretID uuid.UUID,
 	template DefaultModelProviderTemplate,
 ) error {
-	if isNilID(orgID) || isNilID(defaultProjectID) || isNilID(createdByUserID) || isNilID(credentialSecretID) {
+	if orgID == uuid.Nil || defaultProjectID == uuid.Nil || createdByUserID == uuid.Nil || credentialSecretID == uuid.Nil {
 		return errors.New("org, default project, creator, and credential are required")
 	}
 	prepared, err := PrepareDefaultModelProviderTemplate(template)
@@ -289,7 +290,7 @@ func (s *Store) ProvisionDefaultTx(
 func grantDefaultConfiguredModelToProjectTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	apiFormat modelprotocol.APIFormat,
 	model ConfiguredModelRecord,
 ) error {

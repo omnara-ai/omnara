@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -387,7 +387,7 @@ func (h *Handler) completePasswordResetRoute(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) changePasswordRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -452,7 +452,7 @@ func (h *Handler) changePasswordRoute(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) revokeAllAuthTokensRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}

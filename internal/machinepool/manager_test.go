@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -362,8 +362,8 @@ type provisionRetryProvider struct {
 
 func (p provisionRetryProvider) ProvisionMachine(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
@@ -384,8 +384,8 @@ func (provisionRetryProvider) PrepareProvisioning(
 
 func (provisionRetryProvider) InspectMachine(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 	executionstore.MachineProvisioningConfig,
 	string,
 ) (string, bool, error) {
@@ -394,8 +394,8 @@ func (provisionRetryProvider) InspectMachine(
 
 func (provisionRetryProvider) DeleteMachine(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 	executionstore.MachineProvisioningConfig,
 	string,
 ) error {
@@ -409,8 +409,8 @@ func provisionWithRetryForTest(
 	return provisionMachineWithRetry(
 		ctx,
 		provisionRetryProvider{provision: provision},
-		storage.ID{},
-		storage.ID{},
+		uuid.UUID{},
+		uuid.UUID{},
 		executionstore.MachineProvisioningConfig{},
 		"",
 		nil,

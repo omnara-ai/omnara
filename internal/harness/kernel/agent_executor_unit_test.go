@@ -24,7 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func unitKernelID(seed string) storage.ID {
+func unitKernelID(seed string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-kernel-unit:"+seed))
 }
 
@@ -32,7 +32,7 @@ type kernelSkillStoreStub struct{}
 
 func (*kernelSkillStoreStub) GetSkillForDispatch(
 	context.Context,
-	storage.ID,
+	uuid.UUID,
 	string,
 ) (skillstore.SkillRecord, error) {
 	return skillstore.SkillRecord{}, nil
@@ -364,7 +364,7 @@ func TestToToolTurnAndExecutorNow(t *testing.T) {
 		ProjectID:            unitKernelID("project"),
 		AgentID:              unitKernelID("agent"),
 		TurnID:               unitKernelID("turn"),
-		InputIDs:             []storage.ID{unitKernelID("input")},
+		InputIDs:             []uuid.UUID{unitKernelID("input")},
 		OpeningEventSequence: 12,
 		RuntimeLockID:        unitKernelID("runtime-lock"),
 		Now:                  now,

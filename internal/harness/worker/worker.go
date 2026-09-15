@@ -18,7 +18,6 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -33,12 +32,12 @@ type Store interface {
 		context.Context,
 		executionstore.ClaimNextAgentWorkInput,
 	) (executionstore.ClaimedAgentWork, bool, error)
-	ReleaseAgentRuntimeLock(context.Context, storage.ID, storage.ID, storage.ID) error
+	ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 	RenewAgentRuntimeLock(
 		context.Context,
-		storage.ID,
-		storage.ID,
-		storage.ID,
+		uuid.UUID,
+		uuid.UUID,
+		uuid.UUID,
 		time.Duration,
 	) (executionstore.AgentRuntimeLockRenewal, error)
 }
@@ -47,13 +46,13 @@ type Worker struct {
 	store                    Store
 	executor                 AgentWorkExecutor
 	log                      *slog.Logger
-	workerProcessID          storage.ID
+	workerProcessID          uuid.UUID
 	controlSubscriber        notifications.WorkerControlSubscriber
 	runtimeLockLeaseDuration time.Duration
 	capacity                 int
 	asyncToolLimiter         *tools.AsyncExecutionLimiter
 	activeMu                 sync.Mutex
-	active                   map[storage.ID]*activeRuntime
+	active                   map[uuid.UUID]*activeRuntime
 	retained                 sync.WaitGroup
 }
 
@@ -66,7 +65,7 @@ type Options struct {
 }
 
 type activeRuntime struct {
-	agentID         storage.ID
+	agentID         uuid.UUID
 	cancel          context.CancelFunc
 	cancelRequested atomic.Bool
 	renewalFailed   atomic.Bool
@@ -103,7 +102,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		runtimeLockLeaseDuration: opts.RuntimeLockLeaseDuration,
 		capacity:                 opts.Capacity,
 		asyncToolLimiter:         tools.NewAsyncExecutionLimiter(opts.AsyncToolCapacity),
-		active:                   make(map[storage.ID]*activeRuntime),
+		active:                   make(map[uuid.UUID]*activeRuntime),
 	}
 }
 
@@ -226,7 +225,7 @@ func (w *Worker) executeClaimedWork(
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)
 	logent.RuntimeLock(ctx, runtime)
 	if claim.Kind == executionstore.AgentWorkModel &&
-		claim.Model.AdmittedInputTurn.Turn.ID != storage.NilID {
+		claim.Model.AdmittedInputTurn.Turn.ID != uuid.Nil {
 		logent.AdmittedAgentInputTurn(ctx, claim.Model.AdmittedInputTurn)
 	}
 	turnCtx, active, stopRenewal, err := w.startRuntimeRenewal(
@@ -293,7 +292,7 @@ func (w *Worker) executeClaimedWork(
 
 func (w *Worker) retainRuntimeUntilAsyncCompletion(
 	ctx context.Context,
-	projectID, agentID, runtimeLockID storage.ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	scope *tools.AsyncExecutionScope,
 	stopRenewal func(),
 ) {
@@ -377,7 +376,7 @@ func (w *Worker) handleWorkerControl(_ context.Context, message notifications.Wo
 }
 
 func (w *Worker) handleWorkerControlCancel(message notifications.WorkerControlCancel) {
-	if message.RuntimeLockID == storage.NilID {
+	if message.RuntimeLockID == uuid.Nil {
 		return
 	}
 	w.activeMu.Lock()
@@ -390,7 +389,7 @@ func (w *Worker) handleWorkerControlCancel(message notifications.WorkerControlCa
 }
 
 func (w *Worker) registerActiveRuntime(
-	agentID storage.ID,
+	agentID uuid.UUID,
 	runtime executionstore.AgentRuntimeLockRecord,
 	cancel context.CancelFunc,
 ) (*activeRuntime, func()) {
@@ -418,7 +417,7 @@ func (w *Worker) finalizeContext(parent context.Context) (context.Context, conte
 
 func (w *Worker) startRuntimeRenewal(
 	ctx context.Context,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	runtime executionstore.AgentRuntimeLockRecord,
 ) (context.Context, *activeRuntime, func(), error) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
@@ -503,7 +502,7 @@ func (w *Worker) startRuntimeRenewal(
 
 func (w *Worker) renewRuntimeUntil(
 	ctx context.Context,
-	projectID, agentID, runtimeID storage.ID,
+	projectID, agentID, runtimeID uuid.UUID,
 	cutoff time.Time,
 ) (time.Time, error) {
 	for attempt := 0; ; attempt++ {
@@ -552,7 +551,7 @@ func runtimeRenewalWait(cutoff time.Time, leaseDuration time.Duration) time.Dura
 
 func (w *Worker) renewRuntime(
 	ctx context.Context,
-	projectID, agentID, runtimeID storage.ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) (executionstore.AgentRuntimeLockRenewal, error) {
 	renewal, err := w.store.RenewAgentRuntimeLock(
 		ctx,
@@ -638,7 +637,7 @@ func (w *Worker) recoverPanic(message string, attributes ...any) {
 func (w *Worker) recoverRuntimeRenewalPanic(
 	active *activeRuntime,
 	cancelTurn context.CancelFunc,
-	agentID, runtimeID storage.ID,
+	agentID, runtimeID uuid.UUID,
 ) {
 	recovered := recover()
 	if recovered == nil {

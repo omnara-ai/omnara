@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 
@@ -28,16 +30,16 @@ const (
 )
 
 type SecretRecord struct {
-	ID                   ID              `json:"id"`
-	OrgID                ID              `json:"org_id"`
+	ID                   uuid.UUID       `json:"id"`
+	OrgID                uuid.UUID       `json:"org_id"`
 	ManagementKind       management.Kind `json:"management_kind"`
 	OwnerKind            string          `json:"owner_kind"`
-	OwnerProjectID       ID              `json:"owner_project_id,omitempty"`
-	OwnerUserID          ID              `json:"owner_user_id,omitempty"`
+	OwnerProjectID       uuid.UUID       `json:"owner_project_id,omitempty"`
+	OwnerUserID          uuid.UUID       `json:"owner_user_id,omitempty"`
 	Name                 string          `json:"name"`
 	Kind                 secrets.Kind    `json:"kind"`
 	Metadata             json.RawMessage `json:"metadata"`
-	CurrentVersionID     ID              `json:"current_version_id"`
+	CurrentVersionID     uuid.UUID       `json:"current_version_id"`
 	CurrentVersionNumber int32           `json:"current_version_number"`
 	PayloadKeys          []string        `json:"payload_keys"`
 	CreatedAt            time.Time       `json:"created_at"`
@@ -45,9 +47,9 @@ type SecretRecord struct {
 }
 
 type SecretVersionRecord struct {
-	ID                ID        `json:"id"`
-	OrgID             ID        `json:"org_id"`
-	SecretID          ID        `json:"secret_id"`
+	ID                uuid.UUID `json:"id"`
+	OrgID             uuid.UUID `json:"org_id"`
+	SecretID          uuid.UUID `json:"secret_id"`
 	VersionNumber     int32     `json:"version_number"`
 	PayloadKeys       []string  `json:"payload_keys"`
 	EncryptionScheme  string    `json:"-"`
@@ -61,10 +63,10 @@ type SecretVersionRecord struct {
 }
 
 type SecretGrantRecord struct {
-	ID              ID        `json:"id"`
-	OrgID           ID        `json:"org_id"`
-	SecretID        ID        `json:"secret_id"`
-	TargetProjectID ID        `json:"target_project_id"`
+	ID              uuid.UUID `json:"id"`
+	OrgID           uuid.UUID `json:"org_id"`
+	SecretID        uuid.UUID `json:"secret_id"`
+	TargetProjectID uuid.UUID `json:"target_project_id"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
@@ -75,14 +77,14 @@ type SecretGrantListRecord struct {
 
 type SecretOwner struct {
 	Kind      string
-	ProjectID ID
-	UserID    ID
+	ProjectID uuid.UUID
+	UserID    uuid.UUID
 }
 
 type SecretAvailability struct {
 	Source    string
-	ProjectID ID
-	GrantID   ID
+	ProjectID uuid.UUID
+	GrantID   uuid.UUID
 }
 
 type ProjectSecretAccessRecord struct {
@@ -91,31 +93,31 @@ type ProjectSecretAccessRecord struct {
 }
 
 type CreateSecretInput struct {
-	OrgID          ID
+	OrgID          uuid.UUID
 	ManagementKind management.Kind
 	OwnerKind      string
-	OwnerProjectID ID
-	OwnerUserID    ID
+	OwnerProjectID uuid.UUID
+	OwnerUserID    uuid.UUID
 	Name           string
 	Metadata       resourcemeta.Metadata
 	Material       secrets.Material
-	Actor          PrincipalRecord
-	MCPOAuthFlowID ID
+	Actor          identitystore.PrincipalRecord
+	MCPOAuthFlowID uuid.UUID
 }
 
 type SecretListFilters struct {
 	Metadata            map[string]string
 	OwnerKind           string
-	OwnerProjectID      ID
-	MCPOAuthFlowID      ID
+	OwnerProjectID      uuid.UUID
+	MCPOAuthFlowID      uuid.UUID
 	Availability        string
 	AvailabilitySources []string
 	Kinds               []string
 }
 
 type ListSecretsInput struct {
-	OrgID   ID
-	Actor   PrincipalRecord
+	OrgID   uuid.UUID
+	Actor   identitystore.PrincipalRecord
 	Filters SecretListFilters
 	Limit   int
 	List    listing.Options
@@ -134,8 +136,8 @@ type ListProjectSecretAccessesResult struct {
 }
 
 type ListProjectAvailableSecretsInput struct {
-	OrgID     ID
-	ProjectID ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
 	Filters   SecretListFilters
 	Limit     int
 	List      listing.Options
@@ -143,15 +145,15 @@ type ListProjectAvailableSecretsInput struct {
 
 type ListProjectAvailableSecretsForPrincipalInput struct {
 	ListProjectAvailableSecretsInput
-	Actor PrincipalRecord
+	Actor identitystore.PrincipalRecord
 }
 
 type ListSecretGrantsInput struct {
-	OrgID           ID
-	SecretID        ID
-	Actor           PrincipalRecord
+	OrgID           uuid.UUID
+	SecretID        uuid.UUID
+	Actor           identitystore.PrincipalRecord
 	Limit           int
-	TargetProjectID ID
+	TargetProjectID uuid.UUID
 	List            listing.Options
 }
 
@@ -162,40 +164,40 @@ type ListSecretGrantsResult struct {
 }
 
 type UpdateSecretMetadataInput struct {
-	OrgID    ID
-	SecretID ID
+	OrgID    uuid.UUID
+	SecretID uuid.UUID
 	Name     string
 	Metadata resourcemeta.Metadata
-	Actor    PrincipalRecord
+	Actor    identitystore.PrincipalRecord
 }
 
 type CreateSecretVersionInput struct {
-	OrgID          ID
-	SecretID       ID
+	OrgID          uuid.UUID
+	SecretID       uuid.UUID
 	Material       secrets.Material
-	Actor          PrincipalRecord
+	Actor          identitystore.PrincipalRecord
 	SecretMetadata resourcemeta.Metadata
-	MCPOAuthFlowID ID
+	MCPOAuthFlowID uuid.UUID
 }
 
 type DeleteSecretInput struct {
-	OrgID    ID
-	SecretID ID
-	Actor    PrincipalRecord
+	OrgID    uuid.UUID
+	SecretID uuid.UUID
+	Actor    identitystore.PrincipalRecord
 }
 
 type CreateSecretGrantInput struct {
-	OrgID           ID
-	SecretID        ID
-	TargetProjectID ID
-	Actor           PrincipalRecord
+	OrgID           uuid.UUID
+	SecretID        uuid.UUID
+	TargetProjectID uuid.UUID
+	Actor           identitystore.PrincipalRecord
 }
 
 type DeleteSecretGrantInput struct {
-	OrgID    ID
-	SecretID ID
-	GrantID  ID
-	Actor    PrincipalRecord
+	OrgID    uuid.UUID
+	SecretID uuid.UUID
+	GrantID  uuid.UUID
+	Actor    identitystore.PrincipalRecord
 }
 
 type RewrapSecretVersionsByKeyIDResult struct {
@@ -205,48 +207,48 @@ type RewrapSecretVersionsByKeyIDResult struct {
 }
 
 type AuthorizeSecretForProjectReferenceInput struct {
-	OrgID     ID
-	ProjectID ID
-	SecretID  ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	SecretID  uuid.UUID
 }
 
 type ReadProjectAvailableSecretPayloadInput struct {
-	OrgID     ID
-	ProjectID ID
-	SecretID  ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	SecretID  uuid.UUID
 	Kind      secrets.Kind
 }
 
 type ReadOrgOwnedSecretPayloadInput struct {
-	OrgID          ID
-	SecretID       ID
+	OrgID          uuid.UUID
+	SecretID       uuid.UUID
 	ManagementKind management.Kind
 	Kind           secrets.Kind
 }
 
 type RotateProjectAvailableOAuthSecretInput struct {
-	ProjectID ID
+	ProjectID uuid.UUID
 	Lease     OAuthRefreshLeaseRecord
 	Material  secrets.OAuthTokenSetMaterial
 }
 
 type SecretPayloadRecord struct {
 	Payload                   secrets.Payload
-	CurrentVersionID          ID
+	CurrentVersionID          uuid.UUID
 	OAuthAccessTokenExpires   bool
 	OAuthAccessTokenRemaining time.Duration
 }
 
 type AcquireProjectOAuthRefreshLeaseInput struct {
-	OrgID     ID
-	ProjectID ID
-	SecretID  ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	SecretID  uuid.UUID
 	TTL       time.Duration
 }
 
 type OAuthRefreshLeaseRecord struct {
-	OrgID                    ID
-	SecretID                 ID
-	OwnerToken               ID
-	ExpectedCurrentVersionID ID
+	OrgID                    uuid.UUID
+	SecretID                 uuid.UUID
+	OwnerToken               uuid.UUID
+	ExpectedCurrentVersionID uuid.UUID
 }

@@ -8,23 +8,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const uploadArtifactProcessTimeoutSeconds = 30
 
 type uploadArtifactRequest struct {
-	Path       string          `json:"path"`
-	MachineRef json.RawMessage `json:"machine_ref,omitempty"`
+	Path      string          `json:"path"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
 }
 
 type resolvedUploadArtifactRequest struct {
-	Path       string
-	MachineRef string
+	Path      string
+	MachineID uuid.UUID
 }
 
 type uploadArtifactAuthorization struct {
@@ -35,13 +35,13 @@ type uploadArtifactAuthorization struct {
 type downloadArtifactRequest struct {
 	ArtifactID string          `json:"artifact_id"`
 	Path       string          `json:"path"`
-	MachineRef json.RawMessage `json:"machine_ref,omitempty"`
+	MachineID  json.RawMessage `json:"machine_id,omitempty"`
 }
 
 type resolvedDownloadArtifactRequest struct {
 	ArtifactID string
 	Path       string
-	MachineRef string
+	MachineID  uuid.UUID
 }
 
 type downloadArtifactAuthorization struct {
@@ -66,22 +66,15 @@ func resolveUploadArtifactRequest(raw json.RawMessage) (resolvedUploadArtifactRe
 	if strings.Contains(input.Path, "\x00") {
 		return resolvedUploadArtifactRequest{}, errors.New("path cannot contain NUL")
 	}
-	machineRef := ""
-	if len(input.MachineRef) > 0 {
-		var rawMachineRef *string
-		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
-			return resolvedUploadArtifactRequest{}, fmt.Errorf("parse machine_ref: %w", err)
-		}
-		if rawMachineRef == nil {
-			return resolvedUploadArtifactRequest{}, errors.New("machine_ref cannot be null")
-		}
-		machineRef = strings.TrimSpace(*rawMachineRef)
+	machineID, err := resolveOptionalMachineID(input.MachineID)
+	if err != nil {
+		return resolvedUploadArtifactRequest{}, err
 	}
-	return resolvedUploadArtifactRequest{Path: input.Path, MachineRef: machineRef}, nil
+	return resolvedUploadArtifactRequest{Path: input.Path, MachineID: machineID}, nil
 }
 
 func uploadArtifactAuthorizationInput(
-	bindingID storage.ID,
+	bindingID uuid.UUID,
 	path string,
 ) (json.RawMessage, error) {
 	input, err := marshalJSON(uploadArtifactAuthorization{
@@ -114,26 +107,19 @@ func resolveDownloadArtifactRequest(raw json.RawMessage) (resolvedDownloadArtifa
 	if strings.Contains(input.Path, "\x00") {
 		return resolvedDownloadArtifactRequest{}, errors.New("path cannot contain NUL")
 	}
-	machineRef := ""
-	if len(input.MachineRef) > 0 {
-		var rawMachineRef *string
-		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
-			return resolvedDownloadArtifactRequest{}, fmt.Errorf("parse machine_ref: %w", err)
-		}
-		if rawMachineRef == nil {
-			return resolvedDownloadArtifactRequest{}, errors.New("machine_ref cannot be null")
-		}
-		machineRef = strings.TrimSpace(*rawMachineRef)
+	machineID, err := resolveOptionalMachineID(input.MachineID)
+	if err != nil {
+		return resolvedDownloadArtifactRequest{}, err
 	}
 	return resolvedDownloadArtifactRequest{
 		ArtifactID: artifactID,
 		Path:       input.Path,
-		MachineRef: machineRef,
+		MachineID:  machineID,
 	}, nil
 }
 
 func downloadArtifactAuthorizationInput(
-	bindingID storage.ID,
+	bindingID uuid.UUID,
 	artifactID string,
 	path string,
 ) (json.RawMessage, error) {
@@ -156,7 +142,7 @@ func runUploadArtifact(
 	if err != nil {
 		return nil, err
 	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineRef)
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}
@@ -204,7 +190,7 @@ func runDownloadArtifact(
 	if err != nil {
 		return nil, err
 	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineRef)
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}

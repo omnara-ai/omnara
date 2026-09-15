@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -15,7 +16,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 	tx pgx.Tx,
 	prepared *DefaultModelProviderTemplate,
 	rows []dbsqlc.ModelProviderConfig,
-	defaultProjectID ID,
+	defaultProjectID uuid.UUID,
 	apply bool,
 ) ([]string, []string, error) {
 	if prepared == nil {
@@ -115,7 +116,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 					if err != nil {
 						return nil, nil, fmt.Errorf("add default configured model %q: %w", modelTemplate.Name, err)
 					}
-					if !isNilID(defaultProjectID) {
+					if defaultProjectID != uuid.Nil {
 						if err := grantDefaultConfiguredModelToProjectTx(
 							ctx,
 							qtx,
@@ -218,7 +219,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 	return changes, warnings, nil
 }
 
-func configuredModelUpdateFromDefault(id ID, input CreateConfiguredModelInput) configuredModelUpdate {
+func configuredModelUpdateFromDefault(id uuid.UUID, input CreateConfiguredModelInput) configuredModelUpdate {
 	return configuredModelUpdate{
 		OrgID:                     input.OrgID,
 		ModelProviderConfigID:     input.ModelProviderConfigID,

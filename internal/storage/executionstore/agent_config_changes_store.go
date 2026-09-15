@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -18,11 +19,11 @@ import (
 )
 
 type ActivateAgentConfigInput struct {
-	ProjectID      ID
-	AgentID        ID
-	AgentConfigID  ID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	AgentConfigID  uuid.UUID
 	ActorType      string
-	ActorID        ID
+	ActorID        uuid.UUID
 	Reason         string
 	IdempotencyKey string
 }
@@ -34,10 +35,10 @@ type AgentConfigChangeRecord struct {
 
 type ChangeAgentConfigInput struct {
 	CreateAgentConfigInput
-	AgentID                 ID
-	ExpectedCurrentConfigID ID
+	AgentID                 uuid.UUID
+	ExpectedCurrentConfigID uuid.UUID
 	ActorType               string
-	ActorID                 ID
+	ActorID                 uuid.UUID
 	Reason                  string
 	IdempotencyKey          string
 }
@@ -49,7 +50,7 @@ type ChangeAgentConfigResult struct {
 }
 
 func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigInput) (ChangeAgentConfigResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return ChangeAgentConfigResult{}, errors.New("project and agent are required")
 	}
 	return storeutil.RetryTransaction(ctx, "change_agent_config", func() (ChangeAgentConfigResult, error) {
@@ -126,7 +127,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if !isNilID(input.ExpectedCurrentConfigID) &&
+	if input.ExpectedCurrentConfigID != uuid.Nil &&
 		agent.CurrentConfigID != input.ExpectedCurrentConfigID &&
 		agent.CurrentConfigID != config.ID {
 		return ChangeAgentConfigResult{}, fmt.Errorf(
@@ -266,7 +267,7 @@ func (s *Store) changeAgentConfigOnce(
 func validateLiveAgentConfigChangeTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, currentConfigID ID,
+	projectID, currentConfigID uuid.UUID,
 	next CreateAgentConfigInput,
 ) (agentconfig.RuntimeContract, agentconfig.RuntimeContract, error) {
 	next = withDefaultAgentConfigCompilation(next)
@@ -288,7 +289,7 @@ func validateLiveAgentConfigChangeTx(
 			err,
 		)
 	}
-	if isNilID(currentConfigID) {
+	if currentConfigID == uuid.Nil {
 		return agentconfig.RuntimeContract{}, nextContract, nil
 	}
 	current, err := loadAgentConfigTx(ctx, qtx, projectID, currentConfigID)
@@ -316,7 +317,7 @@ func activateNewAgentConfigTx(
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.AgentConfigID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.AgentConfigID == uuid.Nil {
 		return AgentConfigChangeRecord{}, errors.New("project, agent, and config are required")
 	}
 	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
@@ -327,7 +328,7 @@ func lockAgentForConfigActivationTx(
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.AgentConfigID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.AgentConfigID == uuid.Nil {
 		return errors.New("project, agent, and config are required")
 	}
 	if _, err := qtx.LockAgentInProject(
@@ -370,7 +371,7 @@ func activateLockedAuthorizedAgentConfigTx(
 	if input.ActorType == "" {
 		input.ActorType = identitystore.PrincipalTypeSystem
 	}
-	var actorID ID
+	var actorID uuid.UUID
 	actorPrincipal := identitystore.PrincipalRecord{Type: input.ActorType, ID: input.ActorID}
 	switch {
 	case input.ActorType == identitystore.PrincipalTypeSystem:
@@ -383,7 +384,7 @@ func activateLockedAuthorizedAgentConfigTx(
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}
-		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, actorParams, NilID)
+		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, actorParams, uuid.Nil)
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}
@@ -395,10 +396,10 @@ func activateLockedAuthorizedAgentConfigTx(
 		return AgentConfigChangeRecord{}, fmt.Errorf("marshal config change metadata: %w", err)
 	}
 	row, err := qtx.InsertConfigChangeAgentInput(ctx, dbsqlc.InsertConfigChangeAgentInputParams{
-		AgentConfigID:       sqlcIDFromNil(input.AgentConfigID),
-		ActorID:             sqlcIDFromNil(actorID),
-		IdempotencyScope:    sqlcTextFromEmpty("agent_config_change"),
-		InputIdempotencyKey: sqlcTextFromEmpty(input.IdempotencyKey),
+		AgentConfigID:       storeutil.IDFromNil(input.AgentConfigID),
+		ActorID:             storeutil.IDFromNil(actorID),
+		IdempotencyScope:    storeutil.TextFromEmpty("agent_config_change"),
+		InputIdempotencyKey: storeutil.TextFromEmpty(input.IdempotencyKey),
 		Metadata:            metadata,
 		ProjectID:           input.ProjectID,
 		AgentID:             input.AgentID,
@@ -477,11 +478,11 @@ func activateLockedAuthorizedAgentConfigTx(
 func validateProjectPrincipalActionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	principal identitystore.PrincipalRecord,
 	action string,
 ) error {
-	if isNilID(projectID) {
+	if projectID == uuid.Nil {
 		return errors.New("project id is required")
 	}
 	userID, orgAPIKeyID := identitystore.AccountPrincipalIDs(principal)
@@ -512,18 +513,18 @@ func agentInputRecordFromConfigChangeSQLC(row dbsqlc.InsertConfigChangeAgentInpu
 		AgentID:             row.AgentID,
 		State:               row.State,
 		InputRank:           row.InputRank,
-		ActorID:             idFromSQLCPtr(row.ActorID),
+		ActorID:             storeutil.IDFromPtr(row.ActorID),
 		InputKind:           row.InputKind,
 		IdempotencyScope:    row.IdempotencyScope,
 		InputIdempotencyKey: row.InputIdempotencyKey,
 		QueuedAt:            row.QueuedAt,
-		AdmittedEventID:     idFromSQLCPtr(row.AdmittedEventID),
+		AdmittedEventID:     storeutil.IDFromPtr(row.AdmittedEventID),
 		AdmittedAt:          row.AdmittedAt,
 		CanceledAt:          row.CanceledAt,
 		DeliveryMode:        AgentInputDeliveryMode(row.DeliveryMode),
 		ControlType:         row.ControlType,
-		TargetInteractionID: idFromSQLCPtr(row.TargetInteractionID),
-		AgentConfigID:       idFromSQLCPtr(row.AgentConfigID),
+		TargetInteractionID: storeutil.IDFromPtr(row.TargetInteractionID),
+		AgentConfigID:       storeutil.IDFromPtr(row.AgentConfigID),
 		ResolvedAt:          row.ResolvedAt,
 		RejectedReason:      row.RejectedReason,
 		Metadata:            row.Metadata,

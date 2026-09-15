@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -19,13 +20,13 @@ type Body struct {
 	Definition         json.RawMessage
 	Source             string
 	SourceFormat       string
-	ConfiguredModelID  storage.ID
+	ConfiguredModelID  uuid.UUID
 	CompiledDefinition json.RawMessage
 	CompilerVersion    string
 	DefinitionHash     string
 }
 
-func (body Body) CreateInput(projectID storage.ID) executionstore.CreateAgentConfigInput {
+func (body Body) CreateInput(projectID uuid.UUID) executionstore.CreateAgentConfigInput {
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
 		Definition:              body.Definition,
@@ -41,7 +42,7 @@ func (body Body) CreateInput(projectID storage.ID) executionstore.CreateAgentCon
 func options(
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	base agentconfig.CompileOptions,
 ) agentconfig.CompileOptions {
 	opts := base
@@ -126,23 +127,23 @@ func options(
 }
 
 type ModelReads interface {
-	GetConfiguredModel(ctx context.Context, orgID, id storage.ID) (modelstore.ConfiguredModelRecord, error)
+	GetConfiguredModel(ctx context.Context, orgID, id uuid.UUID) (modelstore.ConfiguredModelRecord, error)
 	GetConfiguredModelByName(
-		ctx context.Context, orgID, providerConfigID storage.ID, name string,
+		ctx context.Context, orgID, providerConfigID uuid.UUID, name string,
 	) (modelstore.ConfiguredModelRecord, error)
-	GetModelProviderConfig(ctx context.Context, orgID, id storage.ID) (modelstore.ModelProviderConfigRecord, error)
+	GetModelProviderConfig(ctx context.Context, orgID, id uuid.UUID) (modelstore.ModelProviderConfigRecord, error)
 	GetModelProviderConfigByName(
-		ctx context.Context, orgID storage.ID, name string,
+		ctx context.Context, orgID uuid.UUID, name string,
 	) (modelstore.ModelProviderConfigRecord, error)
 	GetActiveProjectModelGrantForConfiguredModel(
-		ctx context.Context, orgID, projectID, configuredModelID storage.ID,
+		ctx context.Context, orgID, projectID, configuredModelID uuid.UUID,
 	) (modelstore.ProjectModelGrantRecord, error)
 }
 
 func resolveGrantedModel(
 	ctx context.Context,
 	models ModelReads,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	configuredModelName string,
 ) (agentconfig.ResolvedModelSelection, error) {
@@ -208,13 +209,13 @@ func resolveGrantedModel(
 func SubagentModelResolver(
 	ctx context.Context,
 	models ModelReads,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 ) agentconfig.SubagentModelResolver {
 	return func(
 		baseConfiguredModelID string,
 		override agentconfig.SubagentModelCompiled,
 	) (agentconfig.ResolvedModelSelection, error) {
-		baseModelID, err := storage.ParseID(baseConfiguredModelID)
+		baseModelID, err := uuid.Parse(baseConfiguredModelID)
 		if err != nil {
 			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("parse base configured model id: %w", err)
 		}
@@ -268,8 +269,8 @@ func DeriveSubagentConfig(
 	if err != nil {
 		return Body{}, err
 	}
-	configuredModelID, err := storage.ParseID(child.Model.ConfiguredModelID)
-	if err != nil || configuredModelID == storage.NilID {
+	configuredModelID, err := uuid.Parse(child.Model.ConfiguredModelID)
+	if err != nil || configuredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf("subagent model must resolve to a configured project-granted model")
 	}
 	source, sourceFormat, err := deriveSubagentSource(base, subagent, depth)
@@ -309,7 +310,7 @@ func deriveSubagentSource(
 func Compile(
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	base agentconfig.CompileOptions,
 	sourceFormat agentconfig.SourceFormat,
 	source string,
@@ -321,8 +322,8 @@ func Compile(
 	if err != nil {
 		return Body{}, err
 	}
-	resolvedConfiguredModelID, err := storage.ParseID(result.Compiled.Model.ConfiguredModelID)
-	if err != nil || resolvedConfiguredModelID == storage.NilID {
+	resolvedConfiguredModelID, err := uuid.Parse(result.Compiled.Model.ConfiguredModelID)
+	if err != nil || resolvedConfiguredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf(
 			"model.provider_config and model.name must resolve to a configured project-granted model",
 		)

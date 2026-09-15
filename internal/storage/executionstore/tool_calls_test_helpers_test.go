@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -23,11 +24,11 @@ func createReadyToolCallsForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	agentID, userID, configID ID,
+	agentID, userID, configID uuid.UUID,
 	lock executionstore.AgentRuntimeLockRecord,
 	label string,
 	specs []toolCallSpecForTest,
-) map[string]ID {
+) map[string]uuid.UUID {
 	t.Helper()
 	input, _, _, err := store.Execution().CreateAgentContentInput(
 		ctx,
@@ -59,7 +60,7 @@ func createReadyToolCallsForTest(
 			ProjectID:          testProjectID,
 			AgentID:            agentID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      configID,
 			InputEventSequence: admitted.Events[0].Sequence,
 		},
@@ -97,7 +98,7 @@ func createReadyToolCallsForTest(
 	if len(records) != len(specs) {
 		t.Fatalf("recorded tool calls = %d, want %d", len(records), len(specs))
 	}
-	out := make(map[string]ID, len(records))
+	out := make(map[string]uuid.UUID, len(records))
 	for index, record := range records {
 		if !record.CreatedAt.Equal(event.At) {
 			t.Fatalf(

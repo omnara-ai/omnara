@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -15,9 +16,9 @@ import (
 )
 
 type CreateModelOutputAuthorityInput struct {
-	ProjectID               ID
-	AgentID                 ID
-	ModelCallContextID      ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	ModelCallContextID      uuid.UUID
 	ServedProviderModelSlug string
 	StopReason              modelenvelope.StopReason
 	ProviderReplay          json.RawMessage
@@ -25,11 +26,11 @@ type CreateModelOutputAuthorityInput struct {
 }
 
 type ModelOutputAuthorityRecord struct {
-	ID                      ID
-	ProjectID               ID
-	AgentID                 ID
-	TurnID                  ID
-	ModelCallContextID      ID
+	ID                      uuid.UUID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	TurnID                  uuid.UUID
+	ModelCallContextID      uuid.UUID
 	ServedProviderModelSlug string
 	StopReason              modelenvelope.StopReason
 	ProviderResponseID      string
@@ -40,9 +41,9 @@ type ModelOutputAuthorityRecord struct {
 
 func (s *Store) GetModelOutputForContext(
 	ctx context.Context,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 ) (ModelOutputAuthorityRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(modelCallContextID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || modelCallContextID == uuid.Nil {
 		return ModelOutputAuthorityRecord{}, false, errors.New("project, agent, and model context are required")
 	}
 	row, err := s.q.GetModelOutputByModelContext(ctx, dbsqlc.GetModelOutputByModelContextParams{

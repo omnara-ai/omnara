@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -18,7 +19,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/ssrf"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -50,7 +50,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	if r.Models == nil || r.Secrets == nil {
 		return model.ResolvedClient{}, errors.New("model provider resolver model and secret stores are required")
 	}
-	orgID, err := storage.ParseID(selection.OrgID)
+	orgID, err := uuid.Parse(selection.OrgID)
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -59,7 +59,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	projectID, err := storage.ParseID(selection.ProjectID)
+	projectID, err := uuid.Parse(selection.ProjectID)
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -68,7 +68,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	revisionID, err := storage.ParseID(selection.ConfiguredModelRevisionID)
+	revisionID, err := uuid.Parse(selection.ConfiguredModelRevisionID)
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,

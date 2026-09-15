@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -237,7 +239,7 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 			fixture.store,
 			fixture.transaction(fixture.deleteToolCallID),
 			executionstore.DeletePoolMachineForToolCall(
-				executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+				executionstore.DeletePoolMachineInput{MachineID: created.Machine.Binding.MachineID},
 				acceptedPoolMachineCompletionForTest,
 			),
 		)
@@ -279,7 +281,6 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               secondAgentID,
 			ProjectMachineGrantID: fixture.GrantID,
-			MachineRef:            testMachineRef("terminal-agent-order-second"),
 			BindingKind:           "explicit",
 			Cwd:                   "/work",
 		},
@@ -433,7 +434,7 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 		fixture.store,
 		fixture.transaction(fixture.deleteToolCallID),
 		executionstore.DeletePoolMachineForToolCall(
-			executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+			executionstore.DeletePoolMachineInput{MachineID: created.Machine.Binding.MachineID},
 			acceptedPoolMachineCompletionForTest,
 		),
 	)
@@ -633,7 +634,6 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               fixture.agent.ID,
 			ProjectMachineGrantID: grant.ID,
-			MachineRef:            "mchr-prjdel",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 		},
 	)
@@ -1036,7 +1036,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 		if outcome := integrationdb.Await(t, launchDone, "rejected launch"); !errors.Is(outcome.Err, storeerr.ErrNotFound) {
 			t.Fatalf("launch after revocation error = %v, want not found", outcome.Err)
 		}
-		assertExplicitGrantLifecycleOutcome(t, ctx, fixture, explicit, NilID, 0, 0)
+		assertExplicitGrantLifecycleOutcome(t, ctx, fixture, explicit, uuid.Nil, 0, 0)
 		var agentCount int
 		if err := fixture.pool.QueryRow(
 			ctx,
@@ -1224,7 +1224,7 @@ func assertExplicitGrantLifecycleOutcome(
 	ctx context.Context,
 	fixture machineLifecycleLockOrderFixture,
 	explicit explicitGrantLifecycleFixture,
-	agentID ID,
+	agentID uuid.UUID,
 	wantGrants, wantBindings int,
 ) {
 	t.Helper()
@@ -1261,10 +1261,10 @@ func assertAgentCurrentConfig(
 	t *testing.T,
 	ctx context.Context,
 	fixture machineLifecycleLockOrderFixture,
-	agentID, wantConfigID ID,
+	agentID, wantConfigID uuid.UUID,
 ) {
 	t.Helper()
-	var configID ID
+	var configID uuid.UUID
 	if err := fixture.pool.QueryRow(
 		ctx,
 		`SELECT current_config_id FROM agents WHERE project_id = $1 AND id = $2`,
@@ -1347,7 +1347,7 @@ func TestPoolMachineToolOperationsEnterProjectLifecycle(t *testing.T) {
 						fixture.store,
 						fixture.transaction(fixture.deleteToolCallID),
 						executionstore.DeletePoolMachineForToolCall(
-							executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+							executionstore.DeletePoolMachineInput{MachineID: created.Machine.Binding.MachineID},
 							acceptedPoolMachineCompletionForTest,
 						),
 					)
@@ -1689,7 +1689,7 @@ model:
 		t.Fatalf("archived config replay = %+v, want %+v", replayed.ConfigChange, accepted.ConfigChange)
 	}
 	var state string
-	var currentConfigID ID
+	var currentConfigID uuid.UUID
 	var rejectedInputs int
 	var hasWakeup bool
 	if err := fixture.pool.QueryRow(
@@ -1857,13 +1857,13 @@ type machineLifecycleLockOrderFixture struct {
 	pool             *pgxpool.Pool
 	store            *Store
 	now              time.Time
-	userID           ID
+	userID           uuid.UUID
 	machinePool      executionstore.MachinePoolRecord
 	poolGrant        executionstore.ProjectMachinePoolGrantRecord
 	agent            executionstore.AgentRecord
 	runtimeLock      executionstore.AgentRuntimeLockRecord
-	createToolCallID ID
-	deleteToolCallID ID
+	createToolCallID uuid.UUID
+	deleteToolCallID uuid.UUID
 }
 
 func newMachineLifecycleLockOrderFixture(
@@ -1874,7 +1874,7 @@ func newMachineLifecycleLockOrderFixture(
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -1971,7 +1971,7 @@ tools:
 	}
 }
 
-func (f machineLifecycleLockOrderFixture) transaction(toolCallID ID) executionstore.ExecuteToolCallInput {
+func (f machineLifecycleLockOrderFixture) transaction(toolCallID uuid.UUID) executionstore.ExecuteToolCallInput {
 	return executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       f.agent.ID,
@@ -2017,7 +2017,7 @@ func assertPoolMachineRevokedAfterConcurrentCreate(
 	t *testing.T,
 	ctx context.Context,
 	fixture machineLifecycleLockOrderFixture,
-	machineID ID,
+	machineID uuid.UUID,
 ) {
 	t.Helper()
 	if _, err := fixture.store.Execution().GetProjectMachinePoolGrant(

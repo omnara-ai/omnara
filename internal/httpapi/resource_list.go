@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"golang.org/x/text/unicode/norm"
 )
@@ -82,7 +82,7 @@ func parseResourceListQuery(input resourceListQueryInput) (listing.Options, erro
 		cursor.SortField != options.SortField || cursor.SortDesc != options.SortDesc {
 		return listing.Options{}, errMalformedCursor
 	}
-	rawID, err := parsePublicID(input.IDKind, cursor.ID)
+	rawID, err := publicid.Decode(input.IDKind, cursor.ID)
 	if err != nil {
 		return listing.Options{}, errMalformedCursor
 	}
@@ -100,7 +100,7 @@ func encodeResourceListNextCursor(
 	idKind publicid.Kind,
 	extra any,
 ) (*string, error) {
-	if !hasMore || !after.Set || after.ID == storage.NilID {
+	if !hasMore || !after.Set || after.ID == uuid.Nil {
 		return nil, nil //nolint:nilnil // A nil cursor is the successful end-of-list representation.
 	}
 	id, err := publicID(idKind, after.ID)

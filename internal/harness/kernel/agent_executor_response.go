@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -20,7 +20,7 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	providerRequestID string,
 	envelope modelenvelope.ResponseEnvelope,
 	specs []modelcontext.ToolSpec,
-	streamedToolCallIDs map[string]storage.ID,
+	streamedToolCallIDs map[string]uuid.UUID,
 ) (events.Event, error) {
 	toolCalls := model.ToolCallsFromEnvelope(envelope)
 	bindings := make([]executionstore.ToolCallBindingInput, 0, len(toolCalls))

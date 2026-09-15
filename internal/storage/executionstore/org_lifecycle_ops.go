@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -17,7 +18,7 @@ func (s *Store) ArchiveAgentTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	txNotifications *notifications.TxNotifications,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
 	return archiveAgentTreeTx(ctx, tx, s.q.WithTx(tx), txNotifications, projectID, agentID, actor, "")
@@ -26,7 +27,7 @@ func (s *Store) ArchiveAgentTx(
 func (s *Store) ProvisionOrganizationDefaultsTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	templates []DefaultMachinePoolTemplate,
 ) error {
 	qtx := s.q.WithTx(tx)

@@ -3,7 +3,9 @@ package executionstore
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
@@ -200,37 +202,37 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 }
 
 func agentRecordFromSQLC(
-	id ID,
-	orgID ID,
-	projectID ID,
+	id uuid.UUID,
+	orgID uuid.UUID,
+	projectID uuid.UUID,
 	state string,
 	name string,
-	agentProfileID *ID,
-	currentConfigID ID,
-	integrationTargetID *ID,
+	agentProfileID *uuid.UUID,
+	currentConfigID uuid.UUID,
+	integrationTargetID *uuid.UUID,
 	idempotencyKey string,
 	nextEventSequence int64,
 	createdAt time.Time,
 	updatedAt time.Time,
 	archivedAt *time.Time,
-	parentAgentID *ID,
+	parentAgentID *uuid.UUID,
 	subagentKey string,
 ) AgentRecord {
 	return AgentRecord{
 		ID:                  id,
 		OrgID:               orgID,
 		ProjectID:           projectID,
-		AgentProfileID:      idFromSQLCPtr(agentProfileID),
+		AgentProfileID:      storeutil.IDFromPtr(agentProfileID),
 		State:               AgentState(state),
 		Name:                name,
 		CurrentConfigID:     currentConfigID,
-		IntegrationTargetID: idFromSQLCPtr(integrationTargetID),
+		IntegrationTargetID: storeutil.IDFromPtr(integrationTargetID),
 		IdempotencyKey:      idempotencyKey,
 		NextEventSequence:   nextEventSequence,
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
 		ArchivedAt:          archivedAt,
-		ParentAgentID:       idFromSQLCPtr(parentAgentID),
+		ParentAgentID:       storeutil.IDFromPtr(parentAgentID),
 		SubagentKey:         subagentKey,
 	}
 }

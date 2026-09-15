@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -755,7 +756,7 @@ func assertSlackSetupSecretName(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	secretID storage.ID,
+	secretID uuid.UUID,
 	prefix string,
 ) {
 	t.Helper()
@@ -1179,7 +1180,7 @@ func createBrowserSessionForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	token, csrf string,
 ) {
 	t.Helper()

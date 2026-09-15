@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -13,10 +14,6 @@ import (
 type Service struct {
 	pool     *pgxpool.Pool
 	identity *identitystore.Store
-}
-
-func isNilID(id identitystore.ID) bool {
-	return id == identitystore.NilID
 }
 
 func New(
@@ -31,10 +28,10 @@ func New(
 
 func (s *Service) RevokeUserTokensForCompromiseWithPasswordIfPresent(
 	ctx context.Context,
-	userID identitystore.ID,
+	userID uuid.UUID,
 	currentPassword string,
 ) error {
-	if isNilID(userID) {
+	if userID == uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

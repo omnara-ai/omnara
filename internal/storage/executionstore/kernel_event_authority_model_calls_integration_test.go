@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -20,7 +21,7 @@ func TestModelCallRowConstraintsProtectImmutableEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "model_call_database_guards")
-	openingInputIDs := make([]ID, 0, len(admitted.Inputs))
+	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
@@ -259,14 +260,14 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			) {
 				t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
 			}
-			var modelOutputID ID
+			var modelOutputID uuid.UUID
 			if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event
 JOIN agents agent ON agent.id = event.agent_id
 WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).
 				Scan(&modelOutputID); err != nil {
 				t.Fatalf("load model output event pointer: %v", err)
 			}
-			if isNilID(modelOutputID) {
+			if modelOutputID == uuid.Nil {
 				t.Fatalf("model_output event missing model_output_id")
 			}
 			modelOutput, found, err := fixture.Store.Execution().GetModelOutputForContext(

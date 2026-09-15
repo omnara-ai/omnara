@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -17,12 +19,12 @@ type CancelAgentResult struct {
 	Event                  events.Event
 	RuntimeCancelRequested bool
 	Affected               bool
-	ActorID                ID
+	ActorID                uuid.UUID
 }
 
 type CancelAgentInput struct {
-	ProjectID ID
-	AgentID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
 	Actor     *ActorParams
 }
 
@@ -32,7 +34,7 @@ func (s *Store) CancelAgent(
 	ctx context.Context,
 	input CancelAgentInput,
 ) (CancelAgentResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return CancelAgentResult{}, errors.New("project and agent are required")
 	}
 	txNotifications := s.newTxNotifications()
@@ -45,7 +47,7 @@ func (s *Store) CancelAgent(
 	if err := lockAgentWithParentTx(ctx, tx, qtx, input.ProjectID, input.AgentID); err != nil {
 		return CancelAgentResult{}, err
 	}
-	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, NilID)
+	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, uuid.Nil)
 	if err != nil {
 		return CancelAgentResult{}, err
 	}
@@ -77,9 +79,9 @@ func (s *Store) CancelAgent(
 }
 
 type cancelAgentTxInput struct {
-	ProjectID                           ID
-	AgentID                             ID
-	ActorID                             ID
+	ProjectID                           uuid.UUID
+	AgentID                             uuid.UUID
+	ActorID                             uuid.UUID
 	ReasonCode                          string
 	ModelCallMessage                    string
 	CancelRuntimeWithoutContinuableTurn bool
@@ -99,7 +101,7 @@ func cancelAgentTx(
 	}
 
 	afterSequence := int64(0)
-	if !isNilID(latest.ID) {
+	if latest.ID != uuid.Nil {
 		afterSequence = latest.Sequence
 	}
 	var event events.Event
@@ -120,7 +122,7 @@ func cancelAgentTx(
 	runtimeCancelRequested := false
 	var runtimeToCancel AgentRuntimeLockRecord
 	recordRuntimeCancel := func(record AgentRuntimeLockRecord) {
-		if isNilID(record.ID) {
+		if record.ID == uuid.Nil {
 			return
 		}
 		runtimeCancelRequested = true
@@ -141,7 +143,7 @@ func cancelAgentTx(
 		recordRuntimeCancel(agentRuntimeLockRecordFromSQLC(row))
 		return nil
 	}
-	affectedTurnID := NilID
+	affectedTurnID := uuid.Nil
 	if currentTurnErr == nil {
 		affectedTurnID = currentTurn.ID
 	}
@@ -173,8 +175,8 @@ func cancelAgentTx(
 	); err != nil {
 		return CancelAgentResult{}, err
 	}
-	affected := !isNilID(affectedTurnID) || hasActiveContexts
-	cancelInputID := NilID
+	affected := affectedTurnID != uuid.Nil || hasActiveContexts
+	cancelInputID := uuid.Nil
 	if affected {
 		cancelSteeringParams := dbsqlc.CancelSteeringAgentInputsForAgentParams{
 			ProjectID: projectID,
@@ -188,10 +190,10 @@ func cancelAgentTx(
 		controlInput, insertErr := qtx.InsertControlAgentInput(ctx, dbsqlc.InsertControlAgentInputParams{
 			ProjectID:           projectID,
 			AgentID:             agentID,
-			ActorID:             sqlcIDFromNil(actorID),
+			ActorID:             storeutil.IDFromNil(actorID),
 			ControlType:         &controlType,
-			IdempotencyScope:    sqlcTextFromEmpty("agent_control"),
-			InputIdempotencyKey: sqlcTextFromEmpty(idempotencyKey),
+			IdempotencyScope:    storeutil.TextFromEmpty("agent_control"),
+			InputIdempotencyKey: storeutil.TextFromEmpty(idempotencyKey),
 			Metadata:            json.RawMessage(`{}`),
 		})
 		if insertErr != nil {
@@ -217,7 +219,7 @@ func cancelAgentTx(
 			agentID,
 			affectedTurnID,
 			eventRecord.Event.ID,
-			NilID,
+			uuid.Nil,
 		); err != nil {
 			return CancelAgentResult{}, err
 		}
@@ -242,7 +244,7 @@ func cancelAgentTx(
 				AgentID:           agentID,
 				TurnID:            currentTurn.ID,
 				Reason:            input.ReasonCode,
-				ResolvedByInputID: sqlcIDFromNil(cancelInputID),
+				ResolvedByInputID: storeutil.IDFromNil(cancelInputID),
 			},
 		)
 		if cancelErr != nil {
@@ -262,7 +264,7 @@ func cancelAgentTx(
 	}
 	for _, row := range interactionRows {
 		interaction := agentInteractionRecordFromSQLC(row)
-		if !isNilID(interaction.TurnID) {
+		if interaction.TurnID != uuid.Nil {
 			params := dbsqlc.MarkAgentWakeupParams{
 				ProjectID: interaction.ProjectID,
 				AgentID:   interaction.AgentID,
@@ -404,10 +406,10 @@ func cancelAgentTx(
 func terminalizeAgentModelCallsForLifecycleUnderAgentLockTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	reasonCode, contextMessage string,
 ) error {
-	if !isNilID(runtimeLockID) {
+	if runtimeLockID != uuid.Nil {
 		errorDetails, err := marshalJSON(map[string]any{
 			"code":            reasonCode,
 			"message":         contextMessage,

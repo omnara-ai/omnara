@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/mcp"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -20,7 +20,7 @@ const (
 
 func (e AgentExecutor) ensureMCPConnections(
 	ctx context.Context,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	input ModelWorkExecution,
 	contract agentconfig.RuntimeContract,
 	trigger mcp.ConnectionTrigger,
@@ -110,7 +110,7 @@ func (e AgentExecutor) ensureMCPConnections(
 					resultErr = err
 				}
 				logConn := result.Conn
-				if logConn.ID == storage.NilID {
+				if logConn.ID == uuid.Nil {
 					logConn = conn
 				}
 				logent.MCPInitialization(ctx, index, logConn, mcpInitResultFailed, cause)

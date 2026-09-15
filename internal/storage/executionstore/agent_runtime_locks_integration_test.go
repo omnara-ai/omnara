@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -22,7 +24,7 @@ import (
 type runtimeLockLeaseFixture struct {
 	Pool    *pgxpool.Pool
 	Store   *Store
-	AgentID ID
+	AgentID uuid.UUID
 }
 
 type postCommitPublisherFunc func()
@@ -50,7 +52,7 @@ func newRuntimeLockLeaseFixture(t *testing.T, ctx context.Context) runtimeLockLe
 func (f runtimeLockLeaseFixture) acquire(
 	t *testing.T,
 	ctx context.Context,
-	workerProcessID ID,
+	workerProcessID uuid.UUID,
 	leaseDuration time.Duration,
 ) executionstore.AgentRuntimeLockRecord {
 	t.Helper()
@@ -60,7 +62,7 @@ func (f runtimeLockLeaseFixture) acquire(
 func (f runtimeLockLeaseFixture) acquireForAgent(
 	t *testing.T,
 	ctx context.Context,
-	agentID, workerProcessID ID,
+	agentID, workerProcessID uuid.UUID,
 	leaseDuration time.Duration,
 ) executionstore.AgentRuntimeLockRecord {
 	t.Helper()
@@ -228,7 +230,7 @@ func TestAgentRuntimeLockReaperContinuesAfterCandidateFailure(t *testing.T) {
 		testID("runtime_lock_reap_later_worker"),
 		time.Minute,
 	)
-	for _, agentID := range []ID{fixture.AgentID, laterAgentID} {
+	for _, agentID := range []uuid.UUID{fixture.AgentID, laterAgentID} {
 		if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, agentID); err != nil {
 			t.Fatalf("clear agent wakeup before reap: %v", err)
 		}
@@ -284,7 +286,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_runtime_lock_reap_commit();
 	defer cancelReap()
 	fixture.Store = newIntegrationStore(
 		fixture.Pool,
-		WithPostCommitPublisher(postCommitPublisherFunc(cancelReap)),
+		storage.WithPostCommitPublisher(postCommitPublisherFunc(cancelReap)),
 	)
 	reaped, reapErr := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(reapCtx, 100)
 	if reapErr == nil || !strings.Contains(reapErr.Error(), "injected runtime lock reap commit failure") {

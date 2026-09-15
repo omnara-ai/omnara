@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -209,7 +210,7 @@ func projectMachinePoolGrantFromDelete(row dbsqlc.DeleteProjectMachinePoolGrantR
 }
 
 func projectMachinePoolGrantRecord(
-	id, orgID, projectID, machinePoolID ID,
+	id, orgID, projectID, machinePoolID uuid.UUID,
 	description string,
 	defaultMachineCPU, defaultMachineMemoryMB *int32,
 	defaultMachineEnvOverlay, defaultMachineSecretEnvOverlay, defaultMachineProviderOptionsOverlay json.RawMessage,

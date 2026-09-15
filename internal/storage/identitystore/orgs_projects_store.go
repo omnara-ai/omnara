@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -27,7 +28,7 @@ const (
 func checkOrgCreationCapacity(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	userID ID,
+	userID uuid.UUID,
 ) error {
 	ownedCount, err := q.CountOwnedOrgMembershipsForUser(
 		ctx,
@@ -54,7 +55,7 @@ func (s *Store) ProvisionOrganizationTx(
 	tx pgx.Tx,
 	input ProvisionOrganizationInput,
 ) (CreateOrgForUserRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.UserID) {
+	if input.OrgID == uuid.Nil || input.UserID == uuid.Nil {
 		return CreateOrgForUserRecord{}, errors.New("org id and user id are required")
 	}
 	if input.Name == "" {
@@ -178,9 +179,9 @@ func (s *Store) ProvisionOrganizationTx(
 	if err != nil {
 		return CreateOrgForUserRecord{}, fmt.Errorf("create default project: %w", err)
 	}
-	if created && !isNilID(membership.ID) {
+	if created && membership.ID != uuid.Nil {
 		defaultProjectID := projectRow.ID
-		if defaultProjectID == NilID {
+		if defaultProjectID == uuid.Nil {
 			defaultProjectID = project.ID
 		}
 		if _, err := qtx.AddProjectMembership(ctx, dbsqlc.AddProjectMembershipParams{
@@ -192,7 +193,7 @@ func (s *Store) ProvisionOrganizationTx(
 			return CreateOrgForUserRecord{}, fmt.Errorf("create default project admin membership: %w", err)
 		}
 	}
-	if project.ID == NilID {
+	if project.ID == uuid.Nil {
 		project = projectRecordFromSQLC(projectRow)
 	}
 	project.Created = created
@@ -208,10 +209,10 @@ func (s *Store) CreateProjectForPrincipal(
 	ctx context.Context,
 	input CreateProjectForPrincipalInput,
 ) (ProjectRecord, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ProjectRecord{}, errors.New("org id is required")
 	}
-	if isNilID(input.Creator.ID) {
+	if input.Creator.ID == uuid.Nil {
 		return ProjectRecord{}, errors.New("project creator is required")
 	}
 	if input.Name == "" {
@@ -323,7 +324,7 @@ func (s *Store) CreateProjectForPrincipal(
 }
 
 type ListVisibleProjectsForPrincipalInput struct {
-	OrgID     ID
+	OrgID     uuid.UUID
 	Principal PrincipalRecord
 	Limit     int
 	After     listing.KeysetCursor
@@ -339,7 +340,7 @@ func (s *Store) ListVisibleProjectsForPrincipal(
 	input ListVisibleProjectsForPrincipalInput,
 ) (ListVisibleProjectsForPrincipalResult, error) {
 	userID, orgAPIKeyID := AccountPrincipalIDs(input.Principal)
-	if isNilID(input.OrgID) || (userID == nil && orgAPIKeyID == nil) {
+	if input.OrgID == uuid.Nil || (userID == nil && orgAPIKeyID == nil) {
 		return ListVisibleProjectsForPrincipalResult{}, errors.New("org id and principal are required")
 	}
 	if input.Limit <= 0 {
@@ -362,7 +363,7 @@ func (s *Store) ListVisibleProjectsForPrincipal(
 		return ListVisibleProjectsForPrincipalResult{}, fmt.Errorf("list visible projects for principal: %w", err)
 	}
 	out := make([]VisibleProjectRecord, 0, len(rows))
-	index := make(map[ID]int)
+	index := make(map[uuid.UUID]int)
 	for _, row := range rows {
 		i, ok := index[row.ID]
 		if !ok {
@@ -381,8 +382,8 @@ func (s *Store) ListVisibleProjectsForPrincipal(
 	return result, nil
 }
 
-func (s *Store) GetOrg(ctx context.Context, orgID ID) (OrgRecord, error) {
-	if isNilID(orgID) {
+func (s *Store) GetOrg(ctx context.Context, orgID uuid.UUID) (OrgRecord, error) {
+	if orgID == uuid.Nil {
 		return OrgRecord{}, errors.New("org id is required")
 	}
 	row, err := s.q.GetOrg(ctx, dbsqlc.GetOrgParams{ID: orgID})
@@ -399,7 +400,7 @@ func (s *Store) GetOrgCreationReplay(
 	ctx context.Context,
 	input GetOrgCreationReplayInput,
 ) (CreateOrgForUserRecord, bool, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return CreateOrgForUserRecord{}, false, errors.New("user id is required")
 	}
 	if strings.TrimSpace(input.IdempotencyKey) == "" {
@@ -454,7 +455,7 @@ func (s *Store) GetOrgCreationReplay(
 	}, true, nil
 }
 
-func scopedOrgIdempotencyKey(userID ID, key string) string {
+func scopedOrgIdempotencyKey(userID uuid.UUID, key string) string {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return ""
@@ -462,11 +463,11 @@ func scopedOrgIdempotencyKey(userID ID, key string) string {
 	return "user:" + userID.String() + ":" + key
 }
 
-func (s *Store) GetProject(ctx context.Context, orgID, projectID ID) (ProjectRecord, error) {
-	if isNilID(orgID) {
+func (s *Store) GetProject(ctx context.Context, orgID, projectID uuid.UUID) (ProjectRecord, error) {
+	if orgID == uuid.Nil {
 		return ProjectRecord{}, errors.New("org id is required")
 	}
-	if isNilID(projectID) {
+	if projectID == uuid.Nil {
 		return ProjectRecord{}, errors.New("project id is required")
 	}
 	row, err := s.q.GetProject(ctx, dbsqlc.GetProjectParams{OrgID: orgID, ID: projectID})

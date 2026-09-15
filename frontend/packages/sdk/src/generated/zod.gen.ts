@@ -1111,7 +1111,6 @@ export const zAgentMachineBinding = z.object({
     project_id: zProjectId,
     agent_id: zAgentId,
     machine_id: zMachineId,
-    machine_ref: z.string(),
     binding_kind: zAgentMachineBindingKind,
     state: zAgentMachineBindingState,
     description: z.string(),

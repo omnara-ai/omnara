@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	agentevents "github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -376,7 +376,7 @@ func (r Runner) loadCompactionBoundaryWindow(
 func compactionSourceNeedsLaterModelWitness(
 	events []executionstore.CompactionSourceEventRecord,
 ) bool {
-	latestModelOutputByTurn := make(map[storage.ID]int64)
+	latestModelOutputByTurn := make(map[uuid.UUID]int64)
 	for _, event := range events {
 		if event.Kind == string(agentevents.KindModelOutput) {
 			latestModelOutputByTurn[event.TurnID] = event.Sequence

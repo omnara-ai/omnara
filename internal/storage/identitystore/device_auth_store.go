@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -110,7 +111,7 @@ func (s *Store) PendingDeviceAuthFlow(
 }
 
 func (s *Store) ApproveDeviceAuthFlow(ctx context.Context, input ApproveDeviceAuthFlowInput) error {
-	if input.UserCode == "" || isNilID(input.UserID) || isNilID(input.ApprovedBrowserSessionID) {
+	if input.UserCode == "" || input.UserID == uuid.Nil || input.ApprovedBrowserSessionID == uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

@@ -14,11 +14,10 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func testInstallationID() storage.ID {
+func testInstallationID() uuid.UUID {
 	return uuid.MustParse("00000000-0000-0000-0000-000000000002")
 }
 
@@ -42,7 +41,7 @@ func testProvider(t *testing.T, rpc *fakeControlPlane) *provider {
 	}
 }
 
-func testOwnershipTags(t *testing.T, machineID storage.ID) map[string]string {
+func testOwnershipTags(t *testing.T, machineID uuid.UUID) map[string]string {
 	t.Helper()
 	installationOwner, err := publicid.Encode(publicid.KindInstallation, testInstallationID())
 	if err != nil {
@@ -102,7 +101,7 @@ func fakeSandboxID(seed string) string {
 	return "sb-" + string(id[:22])
 }
 
-func testSandboxName(t *testing.T, machineID storage.ID) string {
+func testSandboxName(t *testing.T, machineID uuid.UUID) string {
 	t.Helper()
 	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
 	if err != nil {

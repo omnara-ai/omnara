@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -372,7 +373,7 @@ func spawnHTTPSubagentForTest(
 	ctx context.Context,
 	store *storage.Store,
 	parent executionstore.AgentRecord,
-	configID storage.ID,
+	configID uuid.UUID,
 	name, key string,
 ) executionstore.AgentRecord {
 	t.Helper()
@@ -507,7 +508,7 @@ func TestPublicCreateAgentInputPreservesOrExplicitlyCancelsOpenInteraction(t *te
 		project.AdminUserUUID,
 	)
 	if !found || interaction.State != executionstore.AgentInteractionStateCanceled ||
-		interaction.ResolvedByInputID == storage.NilID {
+		interaction.ResolvedByInputID == uuid.Nil {
 		t.Fatalf("canceled interaction found=%v interaction=%+v", found, interaction)
 	}
 	supersedingActorID, supersedingInputKind := interactionResolvingInput(
@@ -1638,7 +1639,7 @@ func TestPermissionApprovalUniquePerToolCall(t *testing.T) {
 	if !found {
 		t.Fatal("expected permission interaction")
 	}
-	var runtimeLockID storage.ID
+	var runtimeLockID uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT runtime_lock.id FROM agent_runtime_locks runtime_lock `+
@@ -1823,7 +1824,7 @@ func assertInteractionResponseAgentInput(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID storage.ID,
+	projectID, agentID, interactionID uuid.UUID,
 ) {
 	t.Helper()
 	var count int
@@ -1854,7 +1855,7 @@ func assertNoInteractionResponseAgentInput(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID storage.ID,
+	projectID, agentID, interactionID uuid.UUID,
 ) {
 	t.Helper()
 	var count int
@@ -1880,7 +1881,7 @@ func assertInteractionResponseLedgerEvent(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID storage.ID,
+	projectID, agentID, interactionID uuid.UUID,
 ) {
 	t.Helper()
 	var count int
@@ -1905,7 +1906,7 @@ func assertNoInteractionLedgerEvents(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID storage.ID,
+	projectID, agentID, interactionID uuid.UUID,
 ) {
 	t.Helper()
 	var count int
@@ -1933,9 +1934,9 @@ func createHTTPStructuredQuestionInteraction(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	store *storage.Store,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	now time.Time,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	return createHTTPInteractionAuthority(
 		t,
@@ -1958,12 +1959,12 @@ func copyHTTPInteractionForTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, sourceID storage.ID,
+	projectID, agentID, sourceID uuid.UUID,
 	kind string,
 	request json.RawMessage,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
-	var id storage.ID
+	var id uuid.UUID
 	if err := pool.QueryRow(ctx, `
 	INSERT INTO agent_interactions(
 	  agent_id,
@@ -2090,11 +2091,11 @@ func createHTTPInteractionAuthority(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	store *storage.Store,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	now time.Time,
 	kind, permissionToolName string,
 	request json.RawMessage,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	user := createHTTPInteractionUser(t, ctx, pool, store, orgID, projectID, "interaction-"+kind+"-"+permissionToolName)
 	launch := createHTTPRuntimeAgent(
@@ -2117,7 +2118,7 @@ func createHTTPInteractionUser(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	store *storage.Store,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	label string,
 ) identitystore.UserRecord {
 	t.Helper()
@@ -2151,11 +2152,11 @@ func createHTTPInteractionForAgent(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	agent executionstore.AgentRecord,
 	kind, permissionToolName string,
 	request json.RawMessage,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	agentID := agent.ID
 	toolName := "ask_question"
@@ -2291,10 +2292,10 @@ func interactionResolvingInput(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID storage.ID,
-) (storage.ID, string) {
+	projectID, agentID, interactionID uuid.UUID,
+) (uuid.UUID, string) {
 	t.Helper()
-	var actorID storage.ID
+	var actorID uuid.UUID
 	var inputKind string
 	if err := pool.QueryRow(ctx, `
 SELECT coalesce(input.actor_id, '00000000-0000-0000-0000-000000000000'::uuid), input.input_kind
@@ -2313,10 +2314,10 @@ func httpInteractionResolvingInputPublicID(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID storage.ID,
+	projectID, agentID, interactionID uuid.UUID,
 ) string {
 	t.Helper()
-	var inputID storage.ID
+	var inputID uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT resolved_by_input_id FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
@@ -2333,7 +2334,7 @@ func recordHTTPToolCallForAgent(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	agent executionstore.AgentRecord,
 	toolName, toolType string,
 	request json.RawMessage,
@@ -2391,7 +2392,7 @@ func recordHTTPToolCallForAgent(
 		projectID,
 		agentID,
 		runtime,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)
@@ -2437,7 +2438,7 @@ func recordHTTPToolCallForAgent(
 	if err != nil {
 		t.Fatalf("record interaction tool source: %v", err)
 	}
-	if source.ID == storage.NilID || len(calls) != 1 {
+	if source.ID == uuid.Nil || len(calls) != 1 {
 		t.Fatalf(
 			"unexpected interaction source/calls: event=%+v calls=%+v",
 			source,
@@ -2451,9 +2452,9 @@ func createHTTPCustomToolCallForAgent(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	agent executionstore.AgentRecord,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	toolCall, runtime := recordHTTPToolCallForAgent(
 		t, ctx, store, orgID, projectID, userID, agent, "lookup_customer", toolcatalog.ToolTypeCustom,

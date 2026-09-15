@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -193,7 +194,7 @@ func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {
 	const workers = 8
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
-	ids := make(chan ID, workers)
+	ids := make(chan uuid.UUID, workers)
 	for range workers {
 		wg.Add(1)
 		go func() {
@@ -212,9 +213,9 @@ func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {
 	for err := range errs {
 		t.Fatalf("concurrent create agent content input: %v", err)
 	}
-	var first ID
+	var first uuid.UUID
 	for id := range ids {
-		if first == NilID {
+		if first == uuid.Nil {
 			first = id
 			continue
 		}
@@ -222,7 +223,7 @@ func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {
 			t.Fatalf("concurrent idempotency returned different input ids: first=%s got=%s", first, id)
 		}
 	}
-	if first == NilID {
+	if first == uuid.Nil {
 		t.Fatal("no concurrent create returned an input id")
 	}
 	var inputs, blocks int
@@ -467,7 +468,7 @@ func TestCreateAgentContentInputAllowsUnattributedInput(t *testing.T) {
 	if !created {
 		t.Fatal("unattributed content input was not created")
 	}
-	if input.ActorID != NilID {
+	if input.ActorID != uuid.Nil {
 		t.Fatalf("unattributed content input producer actor = %v, want nil", input.ActorID)
 	}
 }

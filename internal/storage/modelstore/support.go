@@ -3,16 +3,11 @@ package modelstore
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
-
-type ID = uuid.UUID
-
-var NilID = uuid.Nil
 
 const (
 	resourceModelProviderConfigs = "model_provider_configs"
@@ -26,17 +21,6 @@ type Store struct {
 
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool, q: dbsqlc.New(pool)}
-}
-
-func isNilID(id ID) bool {
-	return id == uuid.Nil
-}
-
-func idFromSQLCPtr(value *ID) ID {
-	if value == nil {
-		return uuid.Nil
-	}
-	return *value
 }
 
 func stringFromSQLCText(value *string) string {

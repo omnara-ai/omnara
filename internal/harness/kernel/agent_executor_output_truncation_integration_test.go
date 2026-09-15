@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -462,7 +462,7 @@ func TestNewInputSupersedesOutputContinuation(t *testing.T) {
 	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 }
 
-func pendingModelWork(t *testing.T, ctx context.Context, fixture kernelFixture, agentID storage.ID) int {
+func pendingModelWork(t *testing.T, ctx context.Context, fixture kernelFixture, agentID uuid.UUID) int {
 	t.Helper()
 	var count int
 	require.NoError(t, fixture.Pool.QueryRow(ctx,

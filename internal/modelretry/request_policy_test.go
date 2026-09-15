@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 type providerReplayPolicyStoreStub struct {
@@ -16,9 +16,9 @@ type providerReplayPolicyStoreStub struct {
 
 func (s *providerReplayPolicyStoreStub) GetProviderReplaySuppressionCutoff(
 	context.Context,
-	storage.ID,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
+	uuid.UUID,
 ) (int64, error) {
 	return s.cutoff, s.err
 }
@@ -34,9 +34,9 @@ func TestRequestPolicyForModelCall(t *testing.T) {
 	got, err := RequestPolicyForModelCall(
 		context.Background(),
 		store,
-		storage.ID{1},
-		storage.ID{2},
-		storage.ID{3},
+		uuid.UUID{1},
+		uuid.UUID{2},
+		uuid.UUID{3},
 		base,
 	)
 	if err != nil {
@@ -56,9 +56,9 @@ func TestRequestPolicyForModelCallPreservesLaterCutoff(t *testing.T) {
 	got, err := RequestPolicyForModelCall(
 		context.Background(),
 		&providerReplayPolicyStoreStub{cutoff: 73},
-		storage.ID{1},
-		storage.ID{2},
-		storage.ID{3},
+		uuid.UUID{1},
+		uuid.UUID{2},
+		uuid.UUID{3},
 		base,
 	)
 	if err != nil {
@@ -76,9 +76,9 @@ func TestRequestPolicyForModelCallPropagatesLookupFailure(t *testing.T) {
 	_, err := RequestPolicyForModelCall(
 		context.Background(),
 		&providerReplayPolicyStoreStub{err: wantErr},
-		storage.ID{1},
-		storage.ID{2},
-		storage.ID{3},
+		uuid.UUID{1},
+		uuid.UUID{2},
+		uuid.UUID{3},
 		model.RequestPolicy{},
 	)
 	if !errors.Is(err, wantErr) {

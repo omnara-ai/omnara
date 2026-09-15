@@ -3,10 +3,10 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -15,7 +15,7 @@ func (s strictOpenAPIServer) DeleteCurrentUser(
 	_ openapi.DeleteCurrentUserRequestObject,
 ) (openapi.DeleteCurrentUserResponseObject, error) {
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	if err := s.server.store.Identity().DeleteUserAccount(ctx, principal.ID); err != nil {
@@ -32,7 +32,7 @@ func (s strictOpenAPIServer) GetCurrentUser(
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
 	user, err := s.server.store.Identity().GetUser(ctx, principal.ID)

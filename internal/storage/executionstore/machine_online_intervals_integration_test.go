@@ -12,6 +12,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
@@ -477,8 +478,8 @@ WHERE id = $1
 }
 
 type machineOnlineIntervalTestRecord struct {
-	ID              ID
-	DaemonRuntimeID ID
+	ID              uuid.UUID
+	DaemonRuntimeID uuid.UUID
 	StartedAt       time.Time
 	EndedAt         *time.Time
 	EndReason       string
@@ -488,7 +489,7 @@ func loadMachineOnlineIntervals(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	machineID ID,
+	machineID uuid.UUID,
 ) []machineOnlineIntervalTestRecord {
 	t.Helper()
 	rows, err := pool.Query(ctx, `

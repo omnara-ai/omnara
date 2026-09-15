@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -27,7 +28,7 @@ func ensureUserPrincipalStillActive(
 	if principal.Type == "" {
 		return nil
 	}
-	if principal.Type != PrincipalTypeUser || isNilID(principal.ID) || isNilID(principal.BrowserSessionID) {
+	if principal.Type != PrincipalTypeUser || principal.ID == uuid.Nil || principal.BrowserSessionID == uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
 	_, err := q.GetActiveBrowserSessionForUserByID(ctx, dbsqlc.GetActiveBrowserSessionForUserByIDParams{

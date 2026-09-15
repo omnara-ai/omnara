@@ -473,7 +473,7 @@ func TestMCPDispatchRunsAsynchronouslyUnderRuntimeOwnership(t *testing.T) {
 	toolCallID := fixture.toolCallID(t, ctx, call.ID)
 	var toolType string
 	var state string
-	var runtimeLockID storage.ID
+	var runtimeLockID uuid.UUID
 	if err := fixture.Pool.QueryRow(
 		ctx,
 		`
@@ -634,7 +634,7 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 	if !ok {
 		t.Fatalf("MCP media result artifact id = %v", parts[1]["artifact_id"])
 	}
-	artifactID, err := storage.ParseID(rawArtifactID)
+	artifactID, err := uuid.Parse(rawArtifactID)
 	if err != nil {
 		t.Fatalf("parse MCP result artifact id: %v", err)
 	}
@@ -798,7 +798,7 @@ func assertIntegrationToolCallState(
 	t *testing.T,
 	ctx context.Context,
 	fixture integrationToolFixture,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	want string,
 ) {
 	t.Helper()

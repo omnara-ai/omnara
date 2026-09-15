@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -25,6 +27,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 type rejectingMachinePoolProviders struct {
@@ -49,14 +52,14 @@ func requireCurrentAgentLaunchReplay(
 		!sameArchivedAt {
 		t.Fatalf("launch replay agent = %+v, want current agent %+v", replayed.Agent, current)
 	}
-	if replayed.AgentConfig.ID != NilID ||
-		replayed.ConfigChange.AgentInput.ID != NilID ||
-		replayed.ConfigChange.Event.ID != NilID ||
+	if replayed.AgentConfig.ID != uuid.Nil ||
+		replayed.ConfigChange.AgentInput.ID != uuid.Nil ||
+		replayed.ConfigChange.Event.ID != uuid.Nil ||
 		len(replayed.MCPServers) != 0 ||
 		len(replayed.MCPConnections) != 0 ||
 		len(replayed.MachineBindings) != 0 ||
 		len(replayed.ProvisionMachineIDs) != 0 ||
-		replayed.AgentInput.ID != NilID ||
+		replayed.AgentInput.ID != uuid.Nil ||
 		len(replayed.InputContentBlocks) != 0 {
 		t.Fatalf("launch replay included launch-only data: %+v", replayed)
 	}
@@ -155,7 +158,7 @@ func createDefaultMachinePoolForTest(
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
 		DefaultCwd:                    input.DefaultCwd,
 		ProviderConfig:                input.ProviderConfig,
-		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
+		ProviderAuthSecretID:          storeutil.IDFromNil(input.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		MaxTotalMachines:              input.MaxTotalMachines,
 		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
@@ -179,13 +182,13 @@ func getAgentMachineBindingForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID, agentID, bindingID ID,
+	projectID, agentID, bindingID uuid.UUID,
 ) executionstore.AgentMachineBindingRecord {
 	t.Helper()
-	var row dbsqlc.AgentMachineBinding
+	var row dbsqlc.GetAgentMachineBindingByMachineRow
 	err := store.pool.QueryRow(ctx, `
 		SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id,
-		       machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay,
+		       machine_id, binding_kind, state, description, cwd, env_overlay,
 		       secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 		FROM agent_machine_bindings
 		WHERE project_id = $1 AND agent_id = $2 AND id = $3
@@ -197,7 +200,6 @@ func getAgentMachineBindingForTest(
 		&row.CreateToolCallID,
 		&row.DeleteToolCallID,
 		&row.MachineID,
-		&row.MachineRef,
 		&row.BindingKind,
 		&row.State,
 		&row.Description,
@@ -217,10 +219,9 @@ func getAgentMachineBindingForTest(
 		OrgID:                  row.OrgID,
 		ProjectID:              row.ProjectID,
 		AgentID:                row.AgentID,
-		CreateToolCallID:       idFromSQLCPtrForTest(row.CreateToolCallID),
-		DeleteToolCallID:       idFromSQLCPtrForTest(row.DeleteToolCallID),
+		CreateToolCallID:       storeutil.IDFromPtr(row.CreateToolCallID),
+		DeleteToolCallID:       storeutil.IDFromPtr(row.DeleteToolCallID),
 		MachineID:              row.MachineID,
-		MachineRef:             row.MachineRef,
 		BindingKind:            executionstore.AgentMachineBindingKind(row.BindingKind),
 		State:                  executionstore.AgentMachineBindingState(row.State),
 		Description:            row.Description,
@@ -238,7 +239,7 @@ func launchPoolAgentForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	userID ID,
+	userID uuid.UUID,
 	machinePool executionstore.MachinePoolRecord,
 	profileKey, profileName, idempotencyKey string,
 ) executionstore.LaunchAgentResult {
@@ -281,7 +282,7 @@ func TestLaunchAgentValidatesProviderPoolConfigAtLaunch(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	providers := &rejectingMachinePoolProviders{}
-	store := newIntegrationStore(pool, WithMachinePoolProviders(providers))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(providers))
 	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -449,7 +450,7 @@ func TestLaunchAgentPersistsProviderIntentWithoutExternalResolution(t *testing.T
 	seedMigratedDB(t, ctx, pool)
 
 	providers := &externalMachinePoolProviders{}
-	store := newIntegrationStore(pool, WithMachinePoolProviders(providers))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(providers))
 	now := time.Date(2026, 6, 16, 10, 15, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -531,7 +532,7 @@ func TestLaunchAgentWithDefaultPool(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	defaultPool := createDefaultMachinePoolForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
 			OrgID:            testOrgID,
@@ -637,7 +638,7 @@ tools:
 	if poolGrantCount != 1 {
 		t.Fatalf("default pool project machine pool grants = %d, want 1", poolGrantCount)
 	}
-	var defaultPoolGrantID ID
+	var defaultPoolGrantID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT id FROM project_machine_pool_grants WHERE project_id = $1`, testProjectID).
 		Scan(&defaultPoolGrantID); err != nil {
 		t.Fatalf("load default project machine pool grant: %v", err)
@@ -722,7 +723,7 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 47, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "archive-agent@example.com", "Archive Agent User")
 	machinePool := createLaunchTestMachinePool(
@@ -814,7 +815,6 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               result.Agent.ID,
 			ProjectMachineGrantID: directGrant.ID,
-			MachineRef:            "mchr-arch01",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 		},
 	)
@@ -981,7 +981,7 @@ func TestChangeAgentConfigReconcilesPoolMachineSources(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 48, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "live-pool-sources@example.com", "Live Pool Sources")
 	machinePool := createLaunchTestMachinePool(
@@ -1323,7 +1323,7 @@ tools:
 	if len(removed.DeleteMachines) != 2 {
 		t.Fatalf("removed pool source deletions = %+v", removed.DeleteMachines)
 	}
-	removedIDs := map[ID]bool{}
+	removedIDs := map[uuid.UUID]bool{}
 	for _, machine := range removed.DeleteMachines {
 		removedIDs[machine.ID] = true
 	}
@@ -1398,7 +1398,7 @@ func TestDefaultPoolGrantAllowsSecretEnvBeforeProjectSecretGrant(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := createSecretTestUser(t, ctx, store, "default-pool-secret-env-admin", "admin")
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
@@ -1487,7 +1487,7 @@ func TestLaunchAgentCreatesMachineBindingsInputAndConfigChange(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "launch@example.com", "Launch User")
 	machine, err := store.Execution().CreateDaemonMachine(
 		ctx,
@@ -1571,7 +1571,7 @@ tools:
 		testProjectID,
 		user.ID,
 	)
-	if result.AgentInput.ID == NilID || result.AgentInput.ActorID != launchActorID ||
+	if result.AgentInput.ID == uuid.Nil || result.AgentInput.ActorID != launchActorID ||
 		string(result.InputContentBlocks) == "" {
 		t.Fatalf(
 			"expected initial content input, got input=%+v content=%s",
@@ -1774,10 +1774,10 @@ func TestLaunchAgentCreatesMultipleMachineBindings(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{Email: "launch-multi@example.com", DisplayName: "Launch Multi User"},
+		storagetest.CreateVerifiedUserInput{Email: "launch-multi@example.com", DisplayName: "Launch Multi User"},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -1870,9 +1870,9 @@ tools:
 		result.MachineBindings[1].Description != "Second machine" {
 		t.Fatalf("unexpected second binding: %+v", result.MachineBindings[1])
 	}
-	if result.MachineBindings[0].MachineRef == "" ||
-		result.MachineBindings[0].MachineRef == result.MachineBindings[1].MachineRef {
-		t.Fatalf("expected distinct machine refs, got %+v", result.MachineBindings)
+	if result.MachineBindings[0].MachineID == uuid.Nil ||
+		result.MachineBindings[0].MachineID == result.MachineBindings[1].MachineID {
+		t.Fatalf("expected distinct machine IDs, got %+v", result.MachineBindings)
 	}
 	replayed, err := store.Execution().LaunchAgent(
 		ctx,
@@ -1906,7 +1906,7 @@ tools:
 				OrgID:            testOrgID,
 				MachineID:        binding.MachineID,
 				DaemonTokenID:    token.Record.ID,
-				DaemonInstanceID: testID("daemon-launch-multi-" + binding.MachineRef),
+				DaemonInstanceID: testID("daemon-launch-multi-" + binding.MachineID.String()),
 				DaemonVersion:    "1.0.0",
 				LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
 			},
@@ -1918,8 +1918,8 @@ tools:
 	if err != nil {
 		t.Fatalf("list executable bindings: %v", err)
 	}
-	if len(executable) != 2 || executable[0].MachineRef != result.MachineBindings[0].MachineRef ||
-		executable[1].MachineRef != result.MachineBindings[1].MachineRef {
+	if len(executable) != 2 || executable[0].MachineID != result.MachineBindings[0].MachineID ||
+		executable[1].MachineID != result.MachineBindings[1].MachineID {
 		t.Fatalf("unexpected executable bindings: %+v", executable)
 	}
 }
@@ -1930,11 +1930,11 @@ func TestLaunchAgentExpandsPoolInitialMachinesInStableOrder(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 12, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-initial@example.com",
 			DisplayName: "Launch Pool Initial User",
 		},
@@ -2058,8 +2058,8 @@ tools:
 				binding,
 			)
 		}
-		if binding.MachineRef == "" || binding.MachineRef == result.MachineBindings[0].MachineRef {
-			t.Fatalf("unexpected pool machine ref at slot %d: %+v", slotIndex, binding)
+		if binding.MachineID == uuid.Nil || binding.MachineID == result.MachineBindings[0].MachineID {
+			t.Fatalf("unexpected pool machine ID at slot %d: %+v", slotIndex, binding)
 		}
 		if !sameJSON(binding.Metadata, json.RawMessage(`{}`)) {
 			t.Fatalf("pool binding metadata = %s, want empty object", binding.Metadata)
@@ -2099,11 +2099,11 @@ func TestLaunchAgentPoolGrantReplacementUsesNewResolvedConfig(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 12, 15, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-config-replace@example.com",
 			DisplayName: "Launch Pool Config Replace User",
 		},
@@ -2304,11 +2304,11 @@ func TestLaunchAgentMultiplePoolSourcesKeepSourceOrder(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 12, 30, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{Email: "launch-two-pools@example.com", DisplayName: "Launch Two Pools User"},
+		storagetest.CreateVerifiedUserInput{Email: "launch-two-pools@example.com", DisplayName: "Launch Two Pools User"},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -2398,14 +2398,14 @@ tools:
 	}
 	want := []struct {
 		cwd     string
-		grantID ID
+		grantID uuid.UUID
 	}{
 		{cwd: "/workspace/first-pool", grantID: firstGrant.ID},
 		{cwd: "/workspace/first-pool", grantID: firstGrant.ID},
 		{cwd: "/workspace/second-pool", grantID: secondGrant.ID},
 		{cwd: "/workspace/second-pool", grantID: secondGrant.ID},
 	}
-	seenRefs := map[string]bool{}
+	seenMachines := map[uuid.UUID]bool{}
 	for index, binding := range result.MachineBindings {
 		if binding.Cwd != want[index].cwd || binding.State != "attached" ||
 			result.ProvisionMachineIDs[index] != binding.MachineID {
@@ -2417,10 +2417,10 @@ tools:
 				want[index],
 			)
 		}
-		if binding.MachineRef == "" || seenRefs[binding.MachineRef] {
-			t.Fatalf("binding %d has missing or duplicate machine ref: %+v", index, result.MachineBindings)
+		if binding.MachineID == uuid.Nil || seenMachines[binding.MachineID] {
+			t.Fatalf("binding %d has missing or duplicate machine ID: %+v", index, result.MachineBindings)
 		}
-		seenRefs[binding.MachineRef] = true
+		seenMachines[binding.MachineID] = true
 		generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, binding.MachineID)
 		if generatedGrant.ProjectMachinePoolGrantID != want[index].grantID {
 			t.Fatalf(
@@ -2457,11 +2457,11 @@ func TestLaunchAgentZeroInitialPoolValidatesGrantWithoutCreatingMachines(t *test
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 13, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{Email: "launch-pool-zero@example.com", DisplayName: "Launch Pool Zero User"},
+		storagetest.CreateVerifiedUserInput{Email: "launch-pool-zero@example.com", DisplayName: "Launch Pool Zero User"},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -2623,11 +2623,11 @@ func TestLaunchAgentZeroInitialPoolSkipsCapacityCheck(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 14, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-zero-capacity@example.com",
 			DisplayName: "Launch Pool Zero Capacity User",
 		},
@@ -2717,11 +2717,11 @@ func TestLaunchAgentInitialPoolCapacityRollsBackAllRows(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 14, 30, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-initial-capacity@example.com",
 			DisplayName: "Launch Pool Initial Capacity User",
 		},
@@ -2831,10 +2831,10 @@ func TestLaunchAgentPoolCPUCapacityRollsBackAllRows(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-cpu-capacity@example.com",
 			DisplayName: "Launch Pool CPU Capacity User",
 		},
@@ -2984,10 +2984,10 @@ func TestLaunchAgentProjectPoolGrantCapacityIgnoresRevokedGrantDeletingUsage(t *
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-project-pool-capacity-replace@example.com",
 			DisplayName: "Launch Project Pool Capacity Replace User",
 		},
@@ -3130,10 +3130,10 @@ func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-per-machine-limits@example.com",
 			DisplayName: "Launch Pool Per Machine Limits User",
 		},
@@ -3291,11 +3291,11 @@ func TestConcurrentLaunchesRespectPoolCapacity(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 15, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-concurrent-capacity@example.com",
 			DisplayName: "Launch Pool Concurrent Capacity User",
 		},
@@ -3417,7 +3417,7 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 15, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -3733,11 +3733,11 @@ func TestPoolProvisionMaxAttemptsCleanupOnlyClaimsStaleProvisioning(t *testing.T
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 18, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-max-attempts@example.com",
 			DisplayName: "Launch Pool Max Attempts User",
 		},
@@ -3861,11 +3861,11 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 19, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-stale-attempt@example.com",
 			DisplayName: "Launch Pool Stale Attempt User",
 		},
@@ -4099,7 +4099,7 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 19, 15, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -4306,11 +4306,11 @@ func TestOfflinePoolMachineWithoutRuntimeHistoryMovesToCleanupQueueAfterBootstra
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 18, 30, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-bootstrap-timeout@example.com",
 			DisplayName: "Launch Pool Bootstrap Timeout User",
 		},
@@ -4455,11 +4455,11 @@ func TestOfflinePoolMachineWithRuntimeHistoryDoesNotBootstrapTimeoutCleanup(t *t
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 18, 45, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-bootstrap-history@example.com",
 			DisplayName: "Launch Pool Bootstrap History User",
 		},
@@ -4581,11 +4581,11 @@ func TestSystemBootstrapTokenRetryDoesNotRevokePriorToken(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 19, 30, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-token-retry@example.com",
 			DisplayName: "Launch Pool Token Retry User",
 		},
@@ -4768,11 +4768,11 @@ func TestLaunchAgentWithPoolGrantRejectsCapacityAndRollsBack(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 20, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "launch-pool-capacity@example.com",
 			DisplayName: "Launch Pool Capacity User",
 		},
@@ -4891,7 +4891,7 @@ func TestClaimNormalModelCallValidatesActiveAgentConfigAtWatermark(t *testing.T)
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -4988,7 +4988,7 @@ model:
 			ProjectID:          testProjectID,
 			AgentID:            launch.Agent.ID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      snapshot.AgentConfig.ID,
 			InputEventSequence: snapshot.InputEventSequence,
 		},
@@ -5015,7 +5015,7 @@ model:
 			ProjectID:          testProjectID,
 			AgentID:            launch.Agent.ID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      config.ID,
 			InputEventSequence: changed.ConfigChange.Event.Sequence,
 		},
@@ -5031,7 +5031,7 @@ model:
 			ProjectID:          testProjectID,
 			AgentID:            launch.Agent.ID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      changed.AgentConfig.ID,
 			InputEventSequence: changed.ConfigChange.Event.Sequence,
 		},
@@ -5046,7 +5046,7 @@ func TestModelCallRetryUsesCurrentConfiguredModelRevision(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -5124,7 +5124,7 @@ model:
 			ProjectID:          testProjectID,
 			AgentID:            launch.Agent.ID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      launch.AgentConfig.ID,
 			InputEventSequence: admitted.Events[0].Sequence,
 		},
@@ -5246,7 +5246,7 @@ model:
 		ProjectID:          testProjectID,
 		AgentID:            launch.Agent.ID,
 		RuntimeLockID:      nextLock.ID,
-		OpeningInputIDs:    []ID{nextInput.ID},
+		OpeningInputIDs:    []uuid.UUID{nextInput.ID},
 		AgentConfigID:      launch.AgentConfig.ID,
 		InputEventSequence: nextAdmitted.Events[0].Sequence,
 	})
@@ -5274,7 +5274,7 @@ func TestClaimNormalModelCallDoesNotPinProjectModelGrant(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -5361,7 +5361,7 @@ model:
 			ProjectID:          testProjectID,
 			AgentID:            launch.Agent.ID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      config.ID,
 			InputEventSequence: admitted.Events[0].Sequence,
 		},
@@ -5380,10 +5380,10 @@ func TestRetargetAgentProfileAndLaunchLineage(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{Email: "retarget@example.com", DisplayName: "Retarget User"},
+		storagetest.CreateVerifiedUserInput{Email: "retarget@example.com", DisplayName: "Retarget User"},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -5399,7 +5399,7 @@ model:
 		t.Fatalf("expected initial generation 1, got %d", profile.CurrentGeneration)
 	}
 
-	retargetInput := func(sourceYAML string, expectedCurrentConfigID ID) executionstore.RetargetAgentProfileInput {
+	retargetInput := func(sourceYAML string, expectedCurrentConfigID uuid.UUID) executionstore.RetargetAgentProfileInput {
 		config := mustCreateAgentConfigFromYAML(
 			t,
 			ctx,

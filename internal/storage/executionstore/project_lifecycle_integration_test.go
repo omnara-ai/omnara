@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -15,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
@@ -172,7 +174,7 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "grant-update-"+slug)
 			actor := scopeDeletionActor(t, fixture)
 
-			var modelGrantID, configuredModelID ID
+			var modelGrantID, configuredModelID uuid.UUID
 			if err := fixture.pool.QueryRow(
 				ctx,
 				`SELECT id, configured_model_id
@@ -628,7 +630,7 @@ func TestProjectMembershipAdmissionWaitingBehindDeletionRejectsInactiveProject(t
 	ctx := context.Background()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "membership-admission")
 
-	targetUser, err := fixture.store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{
+	targetUser, err := fixture.store.Identity().CreateVerifiedUser(ctx, storagetest.CreateVerifiedUserInput{
 		Email:       "project-membership-admission@example.com",
 		DisplayName: "Project Membership Admission",
 	})

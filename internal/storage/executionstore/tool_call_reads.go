@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -26,12 +27,12 @@ func (r *ToolCallReader) AgentDepth(ctx context.Context) (int, error) {
 	return int(depth), nil
 }
 
-func (r *ToolCallReader) GetAgentConfig(ctx context.Context, configID ID) (AgentConfigRecord, error) {
+func (r *ToolCallReader) GetAgentConfig(ctx context.Context, configID uuid.UUID) (AgentConfigRecord, error) {
 	t := r.transaction
 	return loadAgentConfigTx(ctx, t.q, t.input.ProjectID, configID)
 }
 
-func (r *ToolCallReader) GetAgentProfile(ctx context.Context, profileID ID) (AgentProfileRecord, error) {
+func (r *ToolCallReader) GetAgentProfile(ctx context.Context, profileID uuid.UUID) (AgentProfileRecord, error) {
 	t := r.transaction
 	profile, err := loadAgentProfileTx(ctx, t.q, t.input.ProjectID, profileID)
 	if err != nil {
@@ -49,7 +50,7 @@ func (r *ToolCallReader) GetAgentProfile(ctx context.Context, profileID ID) (Age
 // compiles its runtime contract without leaving the tool call transaction.
 func (r *ToolCallReader) RuntimeContract(
 	ctx context.Context,
-	modelCallContextID ID,
+	modelCallContextID uuid.UUID,
 ) (agentconfig.RuntimeContract, AgentConfigRecord, error) {
 	contextRow, found, err := r.GetModelCallContext(ctx, modelCallContextID)
 	if err != nil {

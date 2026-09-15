@@ -3,23 +3,23 @@ package modelretry
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 type ProviderReplayPolicyStore interface {
 	GetProviderReplaySuppressionCutoff(
 		context.Context,
-		storage.ID,
-		storage.ID,
-		storage.ID,
+		uuid.UUID,
+		uuid.UUID,
+		uuid.UUID,
 	) (int64, error)
 }
 
 func RequestPolicyForModelCall(
 	ctx context.Context,
 	store ProviderReplayPolicyStore,
-	projectID, agentID, modelCallContextID storage.ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 	base model.RequestPolicy,
 ) (model.RequestPolicy, error) {
 	cutoff, err := store.GetProviderReplaySuppressionCutoff(

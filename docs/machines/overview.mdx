@@ -51,12 +51,12 @@ A [machine grant](/machines/connect#grant-the-machine-to-a-project) lets a proje
 
 At launch, each BYO machine and each pool machine requested through `initial_num_machines` becomes an **agent machine binding**. Agents can create more pool machines later with [`create_machine`](/tools/built-in#create_machine).
 
-A binding stores the working directory and environment for that agent. It also gets a short `machine_ref`, such as `mchr-x7k2p3`, which tools use to select the machine:
+A binding stores the working directory and environment for that agent. Tools select the machine using its public `machine_id` (`mch_...`), the same ID used by the API. Agents sharing a machine use the same machine ID:
 
 ```json
 "machine_bindings": [
   {
-    "machine_ref": "mchr-x7k2p3",
+    "machine_id": "mch_aaaaaaaaaaaaaaaaaaaaaaaaae",
     "binding_kind": "pool",
     "state": "attached",
     "cwd": "/workspace",

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -97,7 +98,7 @@ func TestContextCheckpointControlEventPreservesLatestSemanticEvent(t *testing.T)
 	if err != nil {
 		t.Fatalf("publish checkpoint: %v", err)
 	}
-	var producerTurnID, semanticEventID ID
+	var producerTurnID, semanticEventID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT event.turn_id, event.id
 FROM agent_events event
@@ -112,7 +113,7 @@ WHERE agent.project_id = $1
 		t.Fatalf("load checkpoint producer turn: %v", err)
 	}
 
-	var latestEventID, latestSemanticEventID ID
+	var latestEventID, latestSemanticEventID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn.latest_event_id,
 	   turn.latest_semantic_event_id
@@ -154,7 +155,7 @@ WHERE agent.project_id = $1
 			break
 		}
 	}
-	if checkpointEvent.ID == NilID || checkpointEvent.ActorID != NilID {
+	if checkpointEvent.ID == uuid.Nil || checkpointEvent.ActorID != uuid.Nil {
 		t.Fatalf("checkpoint event = %+v, want a system event without an actor", checkpointEvent)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -20,9 +21,9 @@ import (
 type launchMachineSource struct {
 	Index              int
 	Contract           agentconfig.RuntimeMachine
-	MachineID          ID
-	MachinePoolID      ID
-	GrantID            ID
+	MachineID          uuid.UUID
+	MachinePoolID      uuid.UUID
+	GrantID            uuid.UUID
 	PoolGrantForLaunch dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	Provisioning       MachineProvisioningConfig
 	MachineCwd         string
@@ -71,11 +72,11 @@ func expandLaunchMachineBindingRequests(
 ) ([]launchMachineBindingRequest, error) {
 	var bindings []launchMachineBindingRequest
 	for _, source := range sources {
-		if source.MachineID != NilID {
+		if source.MachineID != uuid.Nil {
 			bindings = append(bindings, launchMachineBindingRequest{Source: source})
 			continue
 		}
-		if source.MachinePoolID == NilID {
+		if source.MachinePoolID == uuid.Nil {
 			return nil, fmt.Errorf("machine_sources[%d] has no machine source", source.Index)
 		}
 		for slotIndex := range source.Contract.InitialNumMachines {
@@ -92,7 +93,7 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
 ) error {
 	if err := s.resolveLaunchPoolMachineSourcesTx(ctx, tx, qtx, orgID, projectID, sources); err != nil {
@@ -108,13 +109,13 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
 ) error {
 	var poolIndexes []int
 	poolRefs := make([]lifecyclelock.PoolRef, 0, len(sources))
 	for index := range sources {
-		if sources[index].MachinePoolID != NilID {
+		if sources[index].MachinePoolID != uuid.Nil {
 			poolIndexes = append(poolIndexes, index)
 			poolRefs = append(poolRefs, lifecyclelock.PoolRef{
 				OrgID:  orgID,
@@ -170,13 +171,13 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 func lockLaunchMachineSourcesTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID ID,
+	orgID uuid.UUID,
 	sources []launchMachineSource,
-	additionalMachineIDs []ID,
+	additionalMachineIDs []uuid.UUID,
 ) error {
 	refs := make([]lifecyclelock.MachineRef, 0, len(sources)+len(additionalMachineIDs))
 	for _, source := range sources {
-		if source.MachineID != NilID {
+		if source.MachineID != uuid.Nil {
 			refs = append(refs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: source.MachineID})
 		}
 	}
@@ -192,12 +193,12 @@ func lockLaunchMachineSourcesTx(
 func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
 ) error {
-	machineIDs := make([]ID, 0, len(sources))
+	machineIDs := make([]uuid.UUID, 0, len(sources))
 	for _, source := range sources {
-		if source.MachineID != NilID {
+		if source.MachineID != uuid.Nil {
 			machineIDs = append(machineIDs, source.MachineID)
 		}
 	}
@@ -213,7 +214,7 @@ func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 		}
 	}
 	for index := range sources {
-		if sources[index].MachineID == NilID {
+		if sources[index].MachineID == uuid.Nil {
 			continue
 		}
 		grant, err := qtx.GetActiveProjectMachineGrantForMachine(
@@ -260,7 +261,7 @@ func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 func ensurePoolCapacityForConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	poolGrant dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow,
 	machineProvisioning MachineProvisioningConfig,
 	requestedMachines int,
@@ -340,17 +341,13 @@ func insertAgentMachineBindingTx(
 	qtx *dbsqlc.Queries,
 	input insertAgentMachineBindingInput,
 ) (AgentMachineBindingRecord, error) {
-	if input.MachineRef == "" {
-		return AgentMachineBindingRecord{}, errors.New("launch agent machine ref is required")
-	}
 	row, err := qtx.InsertAgentMachineBinding(
 		ctx,
 		dbsqlc.InsertAgentMachineBindingParams{
 			ProjectID:              input.ProjectID,
 			AgentID:                input.AgentID,
-			CreateToolCallID:       sqlcIDFromNil(input.CreateToolCallID),
+			CreateToolCallID:       storeutil.IDFromNil(input.CreateToolCallID),
 			ProjectMachineGrantID:  input.ProjectMachineGrantID,
-			MachineRef:             input.MachineRef,
 			BindingKind:            string(input.BindingKind),
 			Description:            input.Description,
 			Cwd:                    input.Cwd,
@@ -369,19 +366,18 @@ func insertAgentMachineBindingTx(
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf("upsert launch agent machine binding: %w", err)
 	}
-	return agentMachineBindingRecordFromSQLC(row), nil
+	return agentMachineBindingRecordFromSQLC(dbsqlc.GetAgentMachineBindingByMachineRow(row)), nil
 }
 
 func allocateNewPoolMachineForAgentTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID, agentID ID,
+	orgID, projectID, agentID uuid.UUID,
 	binding launchMachineBindingRequest,
-	machineRef string,
 ) (AgentMachineBindingRecord, error) {
 	source := binding.Source
 	poolGrant := source.PoolGrantForLaunch
-	if poolGrant.ID == NilID {
+	if poolGrant.ID == uuid.Nil {
 		return AgentMachineBindingRecord{}, errors.New("launch machine pool grant was not resolved")
 	}
 	provisioningColumns, err := machineProvisioningToColumns(source.Provisioning)
@@ -428,7 +424,7 @@ func allocateNewPoolMachineForAgentTx(
 		SourceKind:                string(ProjectMachineGrantSourceKindPool),
 		ProjectMachinePoolGrantID: &poolGrant.ID,
 		Description:               poolGrant.Description,
-		IdempotencyKey: sqlcTextFromEmpty(
+		IdempotencyKey: storeutil.TextFromEmpty(
 			machineSourceSlotChildIdempotencyKey(agentID, source.Index, binding.PoolSlotIndex, "machine-grant"),
 		),
 		Metadata: json.RawMessage(`{}`),
@@ -446,7 +442,6 @@ func allocateNewPoolMachineForAgentTx(
 		ProjectID:              projectID,
 		AgentID:                agentID,
 		ProjectMachineGrantID:  grantRow.ID,
-		MachineRef:             machineRef,
 		BindingKind:            MachineBindingKindPool,
 		Description:            source.Contract.Description,
 		Cwd:                    source.BindingConfig.Cwd,

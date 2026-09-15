@@ -3,10 +3,10 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -35,7 +35,7 @@ func (s strictOpenAPIServer) ListToolCalls(
 	if request.Params.Type != nil {
 		toolType = string(*request.Params.Type)
 	}
-	agentIDs := []storage.ID{scope.agent.ID}
+	agentIDs := []uuid.UUID{scope.agent.ID}
 	if request.Params.IncludeSubagents != nil && *request.Params.IncludeSubagents {
 		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, scope.project.ID, scope.agent.ID)
 		if err != nil {

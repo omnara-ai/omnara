@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -410,7 +411,7 @@ func containsPublicSecret(t *testing.T, secrets []any, id string) bool {
 	return false
 }
 
-func mustPublicUserID(t *testing.T, id storage.ID) string {
+func mustPublicUserID(t *testing.T, id uuid.UUID) string {
 	t.Helper()
 	value, err := publicid.Encode(publicid.KindUser, id)
 	require.NoError(t, err)
@@ -422,7 +423,7 @@ func createHTTPOrgMemberToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	store *storage.Store,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	seed string,
 ) (identitystore.UserRecord, string) {
 	t.Helper()
