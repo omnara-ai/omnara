@@ -93,7 +93,7 @@ Set `run_command` to `always_ask` to require approval before execution. The prom
 `machine_id` chooses which attached machine runs the command:
 
 - With one available machine, omit `machine_id`.
-- With several, copy the lowercase public `machine_id` (`mch_...`) exactly as returned by `list_machines`.
+- With several, pass the public `machine_id` (`mch_...`) returned by `list_machines`.
 - With none, attach a machine in the [config](/agents/configuration#machines) or use [`create_machine`](#create_machine).
 
 If Omnara cannot choose a machine, the tool returns an error to the agent so it can inspect its machines and retry.

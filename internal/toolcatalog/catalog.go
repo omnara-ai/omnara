@@ -85,11 +85,11 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	machineID := map[string]any{
 		"type":        "string",
-		"description": "Public machine_id (mch_...) returned by list_machines. Copy it exactly; omit it when the target is unambiguous.",
+		"description": "Public machine_id (mch_...) returned by list_machines. Omit it when the target is unambiguous.",
 	}
 	deleteMachineID := map[string]any{
 		"type":        "string",
-		"description": "Public machine_id (mch_...) of the pool-backed machine to delete. Copy it exactly from list_machines.",
+		"description": "Public machine_id (mch_...) of the pool-backed machine to delete. Use list_machines first if you need the ID.",
 	}
 	machinePoolName := map[string]any{
 		"type":        "string",
