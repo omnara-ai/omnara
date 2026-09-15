@@ -144,11 +144,11 @@ func TestDeleteSecretSerializesWithIntegrationInstallAssociation(t *testing.T) {
 INSERT INTO integration_installs(
   org_id, project_id, integration_app_id,
   installed_by_user_id, provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name,
-  credential_secret_id, provider_config, provider_identity, provider_metadata,
+  provider_tenant_id, provider_account_ref, display_name,
+  credential_secret_id, provider_config, provider_identity, metadata,
   created_at, updated_at
 ) VALUES (
-  $1, $2, $3, $4, 'discord', 'mention', 'gateway', 'active',
+  $1, $2, $3, $4, 'discord', 'managed', 'gateway', 'active',
   'credential-race-tenant', 'credential-race-account', 'Race bot', $5,
   '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
   statement_timestamp(), statement_timestamp()
@@ -258,11 +258,11 @@ INSERT INTO integration_apps(
 INSERT INTO integration_installs(
   org_id, project_id, integration_app_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name,
-  credential_secret_id, provider_config, provider_identity, provider_metadata,
+  provider_tenant_id, provider_account_ref, display_name,
+  credential_secret_id, provider_config, provider_identity, metadata,
   created_at, updated_at
 ) VALUES (
-  $1, $2, $3, $4, 'discord', 'all_messages', 'gateway', 'active',
+  $1, $2, $3, $4, 'discord', 'managed', 'gateway', 'active',
   'deleted-first-tenant', 'deleted-first-account', 'Deleted first bot', $5,
   '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
   statement_timestamp(), statement_timestamp()
