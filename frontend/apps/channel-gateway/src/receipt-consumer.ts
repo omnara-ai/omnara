@@ -220,10 +220,12 @@ async function withinDeadline<T>(
 ): Promise<T> {
   const controller = new AbortController()
   const abort = (): void => {
-    controller.abort()
+    // This boundary can win the race against a callback's classified rejection.
+    // Interrupted inbox work is replayable, just as after a lost receipt lease.
+    controller.abort(new ReceiptBehaviorError(true))
   }
   const remaining = deadlineMs - Date.now()
-  if (parent?.aborted || remaining <= 0) controller.abort()
+  if (parent?.aborted || remaining <= 0) abort()
   parent?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(abort, Math.max(1, remaining))
   try {
@@ -239,7 +241,7 @@ async function withinDeadline<T>(
     )
     const result = await raceWithAbort(work, controller.signal)
     controller.signal.throwIfAborted()
-    if (Date.now() >= deadlineMs) throw new Error('channel receipt deadline exceeded')
+    if (Date.now() >= deadlineMs) throw new ReceiptBehaviorError(true)
     return result
   } finally {
     clearTimeout(timer)

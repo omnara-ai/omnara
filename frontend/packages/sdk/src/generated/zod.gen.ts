@@ -521,6 +521,7 @@ export const zChannelConnectorRecipient = z.object({
 
 export const zLookupChannelConnectorRecipientsResponse = z.object({
     channel_id: zIntegrationTargetId.optional(),
+    parent_channel_id: zIntegrationTargetId.optional(),
     has_receive_binding_history: z.boolean(),
     workflow_started: z.boolean(),
     recipients: z.array(zChannelConnectorRecipient),

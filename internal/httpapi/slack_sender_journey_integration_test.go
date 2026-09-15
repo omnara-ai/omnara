@@ -27,6 +27,19 @@ import (
 )
 
 func TestSlackGatewayAgentStartedThreadJourney(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		receive bool
+	}{{"receive_and_send", true}, {"send_only_then_mention", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			testSlackGatewayAgentStartedThread(t, tc.receive)
+		})
+	}
+}
+
+func testSlackGatewayAgentStartedThread(t *testing.T, receive bool) {
+	t.Helper()
 	if os.Getenv("OMNARA_TEST_SLACK_GATEWAY_RUNNER") == "" {
 		t.Skip("OMNARA_TEST_SLACK_GATEWAY_RUNNER is required for the cross-service gateway journey")
 	}
@@ -63,16 +76,18 @@ func TestSlackGatewayAgentStartedThreadJourney(t *testing.T) {
 	core.Config.Handler = f.Handler
 	core.Start()
 	defer core.Close()
-	// Replies are authorized by the sender's child grant even with no behavior
-	// configured to launch agents for new Slack mentions.
-	routes, err := f.Project.Store.Integrations().ListActiveIntegrationRoutes(ctx, f.Project.ProjectUUID, f.Install.ID)
-	require.NoError(t, err)
-	for _, route := range routes {
-		require.NoError(t, f.Project.Store.Integrations().DeleteIntegrationRoute(
-			ctx, f.Project.ProjectUUID, f.Install.ID, route.ID))
+	if receive {
+		// A receiving sender needs no launch routes. The send-only case keeps
+		// the mention route so a separate agent can join the same thread.
+		routes, err := f.Project.Store.Integrations().ListActiveIntegrationRoutes(ctx, f.Project.ProjectUUID, f.Install.ID)
+		require.NoError(t, err)
+		for _, route := range routes {
+			require.NoError(t, f.Project.Store.Integrations().DeleteIntegrationRoute(
+				ctx, f.Project.ProjectUUID, f.Install.ID, route.ID))
+		}
 	}
 	parent := createSlackJourneyParent(t, f, capability)
-	owner, prepared, payload := prepareSlackJourneySend(t, f.Project, parent)
+	owner, prepared, payload := prepareSlackJourneySend(t, f.Project, parent, receive)
 	requestID := testPublicID(t, publicid.KindToolCall, owner.ToolCallID)
 	scope := channelconnector.OperationScope{
 		ProjectID:            f.Project.ProjectID,
@@ -100,21 +115,57 @@ func TestSlackGatewayAgentStartedThreadJourney(t *testing.T) {
 	access, err := f.Project.Store.Integrations().GetAgentChannelAccess(
 		ctx, f.Project.ProjectUUID, owner.AgentID, child.ID)
 	require.NoError(t, err)
-	require.True(t, access.ReceiveAllowed)
+	require.Equal(t, receive, access.ReceiveAllowed)
 	require.False(t, access.Capabilities.Read)
 	delete(configuration, "send")
 	callback := map[string]any{}
 	require.NoError(t, json.Unmarshal([]byte(slackReceiptBody("A123", "T123", "U_BOT", "sender-reply")), &callback))
-	callback["event"] = map[string]any{
+	event := map[string]any{
 		"type": "message", "user": "U123", "text": "tell me more", "channel": "C123", "channel_type": "channel",
 		"thread_ts": "555.000001", "ts": "555.000002", "event_ts": "555.000002", "team": "T123",
 	}
+	if !receive {
+		event["type"] = "app_mention"
+		event["text"] = "<@U_BOT> help me here"
+	}
+	callback["event"] = event
 	for _, eventID := range []string{"sender-reply", "sender-reply-copy"} {
 		callback["event_id"] = eventID
 		body := workflowHTTPJSON(t, callback)
 		requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "",
 			http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
 		require.Equal(t, 1, runSlackSenderJourney(t, configuration).Processed)
+	}
+	if !receive {
+		var receiverID uuid.UUID
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT agent_id FROM integration_workflows WHERE integration_install_id=$1`,
+			f.Install.ID).Scan(&receiverID))
+		require.NotEqual(t, owner.AgentID, receiverID, "a send-only grant does not select the receiving agent")
+		var inputs int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND agent_id=$2 AND integration_target_id=$3`,
+			f.Project.ProjectUUID, owner.AgentID, child.ID).Scan(&inputs))
+		require.Zero(t, inputs, "the original sender remains send-only")
+		callback["event_id"] = "new-receiver-followup"
+		callback["event"] = map[string]any{
+			"type": "message", "user": "U123", "text": "continue", "channel": "C123", "channel_type": "channel",
+			"thread_ts": "555.000001", "ts": "555.000003", "event_ts": "555.000003", "team": "T123",
+		}
+		body := workflowHTTPJSON(t, callback)
+		requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "",
+			http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
+		require.Equal(t, 1, runSlackSenderJourney(t, configuration).Processed)
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND agent_id=$2 AND integration_target_id=$3`,
+			f.Project.ProjectUUID, receiverID, child.ID).Scan(&inputs))
+		require.Equal(t, 2, inputs, "the mention is deduplicated and the unmentioned reply continues the new agent")
+		preserved, err := f.Project.Store.Integrations().GetIntegrationTargetByProviderRef(ctx,
+			f.Project.ProjectUUID, f.Install.ID, child.ProviderRef)
+		require.NoError(t, err)
+		require.Equal(t, child.ID, preserved.ID)
+		require.Equal(t, parent.ID, preserved.ParentChannelID)
+		return
 	}
 	var inputs, workflows int
 	require.NoError(t, pool.QueryRow(ctx,
@@ -204,7 +255,7 @@ func runSlackSenderJourney(t *testing.T, configuration map[string]any) slackSend
 }
 
 func prepareSlackJourneySend(
-	t *testing.T, project publicHTTPProject, parent integrationstore.IntegrationTargetRecord,
+	t *testing.T, project publicHTTPProject, parent integrationstore.IntegrationTargetRecord, receive bool,
 ) (executionstore.PrepareChannelOperationInput, executionstore.PreparedChannelOperation, json.RawMessage) {
 	t.Helper()
 	ctx, store := t.Context(), project.Store
@@ -220,7 +271,7 @@ func prepareSlackJourneySend(
 	_, err = store.Integrations().CreateIntegrationTargetBinding(ctx, integrationstore.CreateIntegrationTargetBindingInput{
 		ProjectID: project.ProjectUUID, AgentID: agentID, IntegrationInstallID: parent.IntegrationInstallID,
 		IntegrationTargetID: parent.ID, Source: "scheduled-output", SendAllowed: true,
-		ReplyChannelGrants: &integrationstore.ChannelGrants{ReceiveAllowed: true, SendAllowed: true},
+		ReplyChannelGrants: &integrationstore.ChannelGrants{ReceiveAllowed: receive, SendAllowed: true},
 	})
 	require.NoError(t, err)
 	work, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
@@ -267,7 +318,7 @@ func prepareSlackJourneySend(
 		Destination: channelconnector.OperationDestination{ImplementationKey: "slack_channel",
 			ProviderRef: parent.ProviderRef, ProviderRefKind: parent.ProviderRefKind, ProviderMetadata: parent.ProviderMetadata},
 		Message: channelconnector.Message{Text: "Scheduled update"}, Params: json.RawMessage(`{}`),
-		ReplyChannelGrants: &channelconnector.ChannelGrants{Receive: true, Send: true},
+		ReplyChannelGrants: &channelconnector.ChannelGrants{Receive: receive, Send: true},
 	})
 	require.NoError(t, err)
 	return owner, prepared, payload

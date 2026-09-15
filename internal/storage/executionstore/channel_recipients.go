@@ -32,6 +32,7 @@ type ChannelRecipient struct {
 
 type LookupChannelRecipientsResult struct {
 	ChannelID                uuid.UUID
+	ParentChannelID          uuid.UUID
 	HasReceiveBindingHistory bool
 	WorkflowStarted          bool
 	Recipients               []ChannelRecipient
@@ -75,8 +76,9 @@ func (s *Store) LookupChannelRecipients(
 		return LookupChannelRecipientsResult{}, err
 	}
 	result := LookupChannelRecipientsResult{
-		ChannelID: routing.ChannelID, HasReceiveBindingHistory: routing.HasReceiveBindingHistory,
-		WorkflowStarted: routing.WorkflowStarted, Recipients: []ChannelRecipient{},
+		ChannelID: routing.ChannelID, ParentChannelID: routing.ParentChannelID,
+		HasReceiveBindingHistory: routing.HasReceiveBindingHistory,
+		WorkflowStarted:          routing.WorkflowStarted, Recipients: []ChannelRecipient{},
 	}
 	if routing.ChannelID == uuid.Nil {
 		return result, nil

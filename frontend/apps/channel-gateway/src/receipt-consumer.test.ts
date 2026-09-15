@@ -119,6 +119,12 @@ describe('receipt consumer', () => {
       state: 'failed',
       code: 'behavior_outcome_unknown',
     },
+    {
+      cause: new DOMException('unclassified provider abort', 'AbortError'),
+      attempt: 1,
+      state: 'failed',
+      code: 'behavior_outcome_unknown',
+    },
   ])(
     'classifies $code using the durable attempt count, with no local behavior retry',
     async ({ cause, attempt, state, code }) => {
@@ -186,8 +192,8 @@ describe('receipt consumer', () => {
     await running
     expect(context?.signal.aborted).toBe(true)
     expect(client.completeEvent.mock.calls[0]?.[1]).toEqual({
-      state: 'failed',
-      last_error: { code: 'behavior_outcome_unknown' },
+      state: 'pending',
+      last_error: { code: 'retryable_failure' },
     })
   })
 
@@ -212,8 +218,145 @@ describe('receipt consumer', () => {
     expect(behaviorSignal?.aborted).toBe(true)
     expect(completionSignal?.aborted).toBe(true)
     expect(client.completeEvent).toHaveBeenCalledOnce()
-    expect(client.completeEvent.mock.calls[0]?.[1].state).toBe('failed')
+    expect(client.completeEvent.mock.calls[0]?.[1]).toEqual({
+      state: 'pending',
+      last_error: { code: 'retryable_failure' },
+    })
     expect(workBudget.usedBytes).toBe(0)
+  })
+
+  it.each(['shutdown', 'deadline'] as const)(
+    'replays partial admission after %s through a fresh consumer without duplicate inputs',
+    async (interruption) => {
+      const first = fixture()
+      const original = receipt()
+      first.client.claimNextEvent.mockResolvedValueOnce(original)
+      // Model core's durable semantic admission: a second call with the same
+      // agent/key returns the accepted input even under a new receipt lease.
+      const accepted = new Set<string>()
+      const inserted: string[] = []
+      const attempts: { recipient: string; generation: number }[] = []
+      const inputKey = 'slack:message:T1:C1:111.222'
+      const admit = (recipient: string, queued: Readonly<ChannelConnectorEventReceipt>) => {
+        attempts.push({ recipient, generation: queued.lease_generation })
+        const semanticKey = `${recipient}:${inputKey}`
+        if (!accepted.has(semanticKey)) {
+          accepted.add(semanticKey)
+          inserted.push(recipient)
+        }
+      }
+      first.behavior.mockImplementation(async (queued, { signal }) => {
+        admit('agent-one', queued)
+        try {
+          await untilAbort(signal)
+        } catch {
+          // The consumer's race observes its abort reason before this rejection.
+          throw new ReceiptBehaviorError(true)
+        }
+      })
+      first.client.completeEvent.mockImplementation(() => {
+        first.controller.abort()
+        return Promise.resolve()
+      })
+      const firstRun = new ReceiptConsumer(first.options).run(first.controller.signal)
+      await flush()
+      expect(inserted).toEqual(['agent-one'])
+      if (interruption === 'shutdown') first.controller.abort()
+      else await vi.advanceTimersByTimeAsync(first.options.behaviorTimeoutMs)
+      await firstRun
+      expect(first.client.completeEvent).toHaveBeenCalledOnce()
+      expect(first.client.completeEvent.mock.calls[0]?.[1]).toEqual({
+        state: 'pending',
+        last_error: { code: 'retryable_failure' },
+      })
+      expect(first.behavior).toHaveBeenCalledOnce()
+      expect(first.workBudget.usedBytes).toBe(0)
+
+      // Core reclaims the same durable receipt with a new fenced lease. No
+      // process-local progress or payload rewrite is carried to the new consumer.
+      const restarted = fixture()
+      const reclaimed: ChannelConnectorEventReceipt = {
+        ...original,
+        attempt_count: original.attempt_count + 1,
+        lease_generation: original.lease_generation + 1,
+        lease_token: '01994550-1234-7123-8123-123456789abd',
+        lease_expires_at: new Date(Date.now() + restarted.options.leaseMs).toISOString(),
+      }
+      restarted.client.claimNextEvent.mockResolvedValueOnce(reclaimed)
+      restarted.behavior.mockImplementation((queued) => {
+        admit('agent-one', queued)
+        admit('agent-two', queued)
+        return Promise.resolve()
+      })
+      restarted.client.completeEvent.mockImplementation(() => {
+        restarted.controller.abort()
+        return Promise.resolve()
+      })
+      await new ReceiptConsumer(restarted.options).run(restarted.controller.signal)
+      expect(restarted.behavior.mock.calls[0]?.[0]).toEqual(reclaimed)
+      expect(restarted.behavior.mock.calls[0]?.[0].payload).toBe(original.payload)
+      expect(restarted.client.completeEvent).toHaveBeenCalledWith(
+        reclaimed,
+        { state: 'completed' },
+        expect.any(AbortSignal),
+      )
+      expect(attempts).toEqual([
+        { recipient: 'agent-one', generation: original.lease_generation },
+        { recipient: 'agent-one', generation: reclaimed.lease_generation },
+        { recipient: 'agent-two', generation: reclaimed.lease_generation },
+      ])
+      expect(inserted).toEqual(['agent-one', 'agent-two'])
+      expect(accepted.size).toBe(2)
+      expect(restarted.behavior).toHaveBeenCalledOnce()
+      expect(restarted.workBudget.usedBytes).toBe(0)
+    },
+  )
+
+  it.each(['shutdown', 'deadline'] as const)(
+    'exhausts the durable attempt budget on final-attempt %s',
+    async (interruption) => {
+      const { options, controller, client, behavior, workBudget } = fixture()
+      client.claimNextEvent.mockResolvedValueOnce({
+        ...receipt(),
+        attempt_count: options.maxAttempts,
+      })
+      behavior.mockImplementation((_queued, { signal }) => untilAbort(signal))
+      client.completeEvent.mockImplementation(() => {
+        controller.abort()
+        return Promise.resolve()
+      })
+      const running = new ReceiptConsumer(options).run(controller.signal)
+      await flush()
+      if (interruption === 'shutdown') controller.abort()
+      else await vi.advanceTimersByTimeAsync(options.behaviorTimeoutMs)
+      await running
+      expect(client.completeEvent.mock.calls[0]?.[1]).toEqual({
+        state: 'failed',
+        last_error: { code: 'retry_budget_exhausted' },
+      })
+      expect(behavior).toHaveBeenCalledOnce()
+      expect(client.claimNextEvent).toHaveBeenCalledOnce()
+      expect(workBudget.usedBytes).toBe(0)
+    },
+  )
+
+  it('retries work that crosses the deadline before the abort timer runs', async () => {
+    const { options, controller, client, behavior } = fixture()
+    client.claimNextEvent.mockResolvedValueOnce(receipt())
+    behavior.mockImplementation((_queued, { deadlineMs }) => {
+      vi.setSystemTime(deadlineMs)
+      return Promise.resolve()
+    })
+    client.completeEvent.mockImplementation(() => {
+      controller.abort()
+      return Promise.resolve()
+    })
+    await new ReceiptConsumer(options).run(controller.signal)
+    expect(client.completeEvent.mock.calls[0]?.[1]).toEqual({
+      state: 'pending',
+      last_error: { code: 'retryable_failure' },
+    })
+    expect(behavior).toHaveBeenCalledOnce()
   })
 
   it.each(['claim', 'behavior', 'completion'] as const)(

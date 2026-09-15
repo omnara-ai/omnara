@@ -69,14 +69,19 @@ export interface ReceiptBehaviorContext {
 
 /** Process an already-verified queued event using this exact scoped lease.
  * Never re-enter handleWebhook, signature verification, or SDK intake dedupe.
+ * Verified inbound work can replay after shutdown, deadline or lease expiry,
+ * including after partial admission. Use core's receipt/semantic idempotency
+ * for durable input effects and honor the supplied signal. Outgoing provider
+ * sends retain their separate operation retry/unknown-outcome contract.
  */
 export type ReceiptBehavior = (
   receipt: Readonly<ChannelConnectorEventReceipt>,
   context: ReceiptBehaviorContext,
 ) => Promise<void>
 
-/** retryable asserts replay of the entire behavior is safe. Unknown outcomes
- * must not use it; generic/unclassified exceptions terminalize the receipt.
+/** Classifies a behavior failure; retryable permits a bounded receipt replay.
+ * Consumer interruption is retryable too. Other generic/unclassified exceptions
+ * and explicit permanent failures terminalize the receipt.
  */
 export class ReceiptBehaviorError extends Error {
   constructor(readonly retryable: boolean) {

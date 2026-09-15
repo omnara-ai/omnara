@@ -275,6 +275,7 @@ export async function processSlackEvent(
                   definition_id: definition.id,
                   provider_ref: route.providerRef,
                   provider_ref_kind: route.kind,
+                  parent_channel_id: target.parentChannelID,
                 },
                 grants: target.configured.grants,
               },
@@ -324,6 +325,7 @@ type InputTarget =
   | {
       kind: 'workflow'
       configured: SlackWorkflowRoute
+      parentChannelID: string | undefined
       lookup: LookupChannelConnectorWorkflowResponse
     }
 
@@ -364,6 +366,6 @@ async function* inputTargets(
       },
       signal,
     )
-    yield { kind: 'workflow', configured, lookup }
+    yield { kind: 'workflow', configured, lookup, parentChannelID: page.parent_channel_id }
   }
 }

@@ -154,26 +154,14 @@ delay. Unclassified failures are unknown and never retried. Unknown classified
 failures can retry only with explicit whole-operation idempotence; all retries
 keep the same identity/deadline. Prior uncertainty survives subsequent failures.
 
-Integration remaining for the lead:
+The [channel tools](../harness/tools/channel_operations.go) resolve live authority
+and prepare operations through executionstore before dispatch. The gateway's
+[operation handler](../../frontend/apps/channel-gateway/src/operations.ts)
+validates the envelope, deadline, credentials, and provider payload. Slack I/O
+uses the shared bounded retry helper with SDK retries disabled.
 
-- Construct the client from deployment configuration and resolve live authority
-  and exact connector capability before `Execute`; connect tool/interaction
-  execution records and stable request identity.
-- Supply `GatewayServerOptions.operations` to enable `/internal/operations`.
-  The receiver has constant-time shared-token verification, envelope/scope
-  validation, deadline/disconnect cancellation and deployment byte budgets.
-  The executor must validate operation-specific payloads and live authority.
-  See `plans/channel-integration/gateway-operations-checkpoint.md` for declared
-  MIME parser semantics, cancellation regression coverage, and focused test results.
-  This coding-worker validation is not independent reviewer clearance.
-- Define typed send/read/interaction payload and completion/error mapping in the
-  owning shared contract. Send data includes authorized content/params; read
-  data includes bounded cursor/limit; interaction data references the canonical
-  interaction. Validate publication and continuation before granting/exposing IDs.
-- Feed actual provider I/O the attempt signal and stable provider idempotency
-  key when supported. Disable SDK auto-retries, including retries in underlying
-  upload/download clients, so hidden attempts do not exceed the helper's budget.
-- Wire deployment examples and remove the outgoing outbox in the lead's separate
-  scope. The real Go-to-Hono test in gateway operations.test.ts drives
-  testdata/gateway-interop/main.go through send/read/interaction and a streamed
-  12 MiB Unicode-named artifact. Concrete provider interoperability remains unwired.
+The [transport interoperability test](../../frontend/apps/channel-gateway/src/operations.test.ts)
+drives the real Go client through send, read, interaction, and a streamed 12 MiB
+artifact. The [Slack sender journey](../httpapi/slack_sender_journey_integration_test.go)
+exercises provider execution, transactional completion, child-channel grants,
+and subsequent inbound replies against Go HTTP and PostgreSQL.

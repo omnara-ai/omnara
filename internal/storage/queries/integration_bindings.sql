@@ -163,7 +163,7 @@ WHERE project_id = sqlc.arg(project_id)
 -- One snapshot distinguishes prior receive history from this receipt's partial
 -- workflow fanout. Revoked receive grants still count; send/read-only grants do
 -- not claim listener routing. These observations validate no lease or authority.
-SELECT target.id AS channel_id,
+SELECT target.id AS channel_id, target.parent_channel_id,
   EXISTS (
     SELECT 1 FROM integration_target_bindings binding
     WHERE binding.project_id = receipt.project_id

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -355,4 +356,49 @@ func TestChannelReceiptRoutingTracksOnlyReceiveHistory(t *testing.T) {
 	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, uuid.Nil, 1)
 	require.NoError(t, err)
 	require.Empty(t, page, "revoked receive history blocks automatic replacement without authorizing delivery")
+}
+
+func TestChannelReceiptRoutingPreservesExistingParentWithoutReceiving(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newChannelWorkflowFixture(t, ctx, "recipient-parent")
+	input := f.event(t, ctx, "child-mention")
+	store := f.Store.Integrations()
+	parent, err := store.CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
+		ProjectID: testProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
+		ChannelDefinitionID: f.Definition.ID, ProviderRef: "root", ProviderRefKind: "conversation",
+	})
+	require.NoError(t, err)
+	childInput := input.Target
+	childInput.ProjectID, childInput.IntegrationInstallID = testProjectID, f.Identity.IntegrationInstallID
+	childInput.ParentChannelID = parent.ID
+	child, err := store.CreateIntegrationTarget(ctx, childInput)
+	require.NoError(t, err)
+	_, err = store.CreateIntegrationTargetBinding(ctx, integrationstore.CreateIntegrationTargetBindingInput{
+		ProjectID: testProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
+		AgentID: mustCreateAgent(t, ctx, f.Store), IntegrationTargetID: child.ID, SendAllowed: true, Source: "api",
+	})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		providerRef         string
+		channelID, parentID uuid.UUID
+	}{
+		{parent.ProviderRef, parent.ID, uuid.Nil},
+		{child.ProviderRef, child.ID, parent.ID},
+		{"unregistered-thread", uuid.Nil, uuid.Nil},
+	} {
+		got, err := f.Store.Execution().LookupChannelRecipients(ctx, executionstore.LookupChannelRecipientsInput{
+			ProjectID: testProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
+			ProviderRef: tc.providerRef, Receipt: input.Receipt, Capabilities: f.Identity.Capabilities, Limit: 1,
+		})
+		require.NoError(t, err)
+		require.Equal(t, tc.channelID, got.ChannelID)
+		require.Equal(t, tc.parentID, got.ParentChannelID, "lookup preserves the registered parent for %s", tc.providerRef)
+		require.False(t, got.HasReceiveBindingHistory)
+		require.False(t, got.WorkflowStarted)
+		require.Empty(t, got.Recipients, "returning a parent does not subscribe the child or inherit grants")
+	}
+	childInput.ParentChannelID = uuid.Nil
+	_, err = store.CreateIntegrationTarget(ctx, childInput)
+	require.ErrorIs(t, err, storeerr.ErrConflict, "an existing child still cannot be re-registered without its parent")
 }

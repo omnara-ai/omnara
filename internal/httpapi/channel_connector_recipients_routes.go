@@ -74,6 +74,10 @@ func (s strictOpenAPIServer) LookupChannelConnectorRecipients(
 	if err != nil {
 		return nil, err
 	}
+	response.ParentChannelId, err = idOrNil(publicid.KindIntegrationTarget, result.ParentChannelID)
+	if err != nil {
+		return nil, err
+	}
 	var after listing.Cursor
 	for _, recipient := range result.Recipients {
 		agentID, err := publicID(publicid.KindAgent, recipient.AgentID)

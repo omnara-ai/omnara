@@ -527,6 +527,10 @@ export type LookupChannelConnectorRecipientsResponse = {
      */
     channel_id?: IntegrationTargetId;
     /**
+     * The registered address's existing parent, if any. Preserve this containment when admitting a workflow at an address with no receive bindings; it grants no access to the parent.
+     */
+    parent_channel_id?: IntegrationTargetId;
+    /**
      * A receive binding has existed for this channel, including revoked receive grants. Send-only and read-only grants do not establish a receiving conversation. Independent of pagination; an empty live-recipient page does not authorize launching replacement agents.
      */
     has_receive_binding_history: boolean;

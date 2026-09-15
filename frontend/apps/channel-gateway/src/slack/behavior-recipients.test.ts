@@ -35,38 +35,42 @@ function reply() {
 }
 
 describe('Slack bound recipient admission', () => {
-  it('launches a mention normally at an address with only a send binding', async () => {
-    const { context } = await fixture()
-    context.lookupRecipients.mockResolvedValue({
-      channel_id: `itgt_${id}`,
-      has_receive_binding_history: false,
-      workflow_started: false,
-      recipients: [],
-      next_cursor: null,
-    })
-    context.deliverWorkflow.mockResolvedValue({
-      ...result,
-      agent_id: secondRecipient.agent_id,
-      created_agent: true,
-    })
-    const queued = receipt()
-    await processSlackEvent(queued, context)
-    expect(context.listRoutes).toHaveBeenCalledOnce()
-    expect(context.lookupWorkflow).toHaveBeenCalledOnce()
-    expect(context.deliverWorkflow).toHaveBeenCalledOnce()
-    expect(context.deliverWorkflow.mock.calls[0]?.[1]).toMatchObject({
-      route_id: `iroute_${id}`,
-      instance_key: 'C1:100.000002',
-      only_if_unbound: true,
-      input_key: plainKey,
-      target: { provider_ref: 'C1:100.000002' },
-    })
-    // Only core's configured workflow selects the new agent. An existing sender
-    // receives no direct input and supplies no launch identity or receive grant.
-    expect(context.deliverInput).not.toHaveBeenCalled()
-    expect(context.deliverWorkflow.mock.calls[0]?.[1]).not.toHaveProperty('agent_id')
-    expect(context.deliverWorkflow.mock.calls[0]?.[1]).not.toHaveProperty('binding_id')
-  })
+  it.each([undefined, `itgt_${secondID}`])(
+    'preserves parent %s when a send-only address receives its first mention',
+    async (parentChannelID) => {
+      const { context } = await fixture()
+      context.lookupRecipients.mockResolvedValue({
+        channel_id: `itgt_${id}`,
+        parent_channel_id: parentChannelID,
+        has_receive_binding_history: false,
+        workflow_started: false,
+        recipients: [],
+        next_cursor: null,
+      })
+      context.deliverWorkflow.mockResolvedValue({
+        ...result,
+        agent_id: secondRecipient.agent_id,
+        created_agent: true,
+      })
+      const queued = receipt()
+      await processSlackEvent(queued, context)
+      expect(context.listRoutes).toHaveBeenCalledOnce()
+      expect(context.lookupWorkflow).toHaveBeenCalledOnce()
+      expect(context.deliverWorkflow).toHaveBeenCalledOnce()
+      expect(context.deliverWorkflow.mock.calls[0]?.[1]).toMatchObject({
+        route_id: `iroute_${id}`,
+        instance_key: 'C1:100.000002',
+        only_if_unbound: true,
+        input_key: plainKey,
+        target: { provider_ref: 'C1:100.000002', parent_channel_id: parentChannelID },
+      })
+      // Only core's configured workflow selects the new agent. An existing sender
+      // receives no direct input and supplies no launch identity or receive grant.
+      expect(context.deliverInput).not.toHaveBeenCalled()
+      expect(context.deliverWorkflow.mock.calls[0]?.[1]).not.toHaveProperty('agent_id')
+      expect(context.deliverWorkflow.mock.calls[0]?.[1]).not.toHaveProperty('binding_id')
+    },
+  )
 
   it('delivers a cron-created thread reply with zero launch routes and no history read', async () => {
     const { context, calls } = await fixture()

@@ -1264,7 +1264,7 @@ func (q *Queries) LockIntegrationTargetForBinding(ctx context.Context, arg LockI
 }
 
 const lookupChannelReceiptRouting = `-- name: LookupChannelReceiptRouting :one
-SELECT target.id AS channel_id,
+SELECT target.id AS channel_id, target.parent_channel_id,
   EXISTS (
     SELECT 1 FROM integration_target_bindings binding
     WHERE binding.project_id = receipt.project_id
@@ -1303,6 +1303,7 @@ type LookupChannelReceiptRoutingParams struct {
 
 type LookupChannelReceiptRoutingRow struct {
 	ChannelID                *uuid.UUID
+	ParentChannelID          *uuid.UUID
 	HasReceiveBindingHistory bool
 	WorkflowStarted          bool
 }
@@ -1319,7 +1320,12 @@ func (q *Queries) LookupChannelReceiptRouting(ctx context.Context, arg LookupCha
 		arg.ReceiptID,
 	)
 	var i LookupChannelReceiptRoutingRow
-	err := row.Scan(&i.ChannelID, &i.HasReceiveBindingHistory, &i.WorkflowStarted)
+	err := row.Scan(
+		&i.ChannelID,
+		&i.ParentChannelID,
+		&i.HasReceiveBindingHistory,
+		&i.WorkflowStarted,
+	)
 	return i, err
 }
 

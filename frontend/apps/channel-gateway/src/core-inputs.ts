@@ -57,7 +57,10 @@ export async function lookupInputRecipients(
           recipient.input_keys.some((key) => !request.input_keys.includes(key)),
       ) ||
       (!data.channel_id &&
-        (data.has_receive_binding_history || data.workflow_started || data.next_cursor))
+        (data.parent_channel_id ||
+          data.has_receive_binding_history ||
+          data.workflow_started ||
+          data.next_cursor))
     )
       throw new ReceiptClientError('invalid_response')
     return data

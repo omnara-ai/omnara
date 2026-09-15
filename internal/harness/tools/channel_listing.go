@@ -86,7 +86,8 @@ func listChannels(
 			return nil, err
 		}
 		active := target.InstallState == integrationstore.IntegrationInstallStateActive &&
-			target.AppState == integrationstore.IntegrationAppStateActive
+			(target.IntegrationKind == integrationstore.IntegrationKindExternal ||
+				target.AppState == integrationstore.IntegrationAppStateActive)
 		state := "disabled"
 		if active {
 			state = "active"

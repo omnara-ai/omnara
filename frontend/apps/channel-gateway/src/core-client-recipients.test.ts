@@ -55,9 +55,10 @@ function request(value: Parameters<typeof globalThis.fetch>[0] | undefined): Req
 }
 
 describe('generated receipt recipient client', () => {
-  it('accepts an existing channel with no receive history or recipients', async () => {
+  it('preserves containment for an existing channel with no receive history or recipients', async () => {
     const expected = {
       ...lookupResult,
+      parent_channel_id: `itgt_aaaaaaaaaaaaaaaaaaaaaaaabi`,
       has_receive_binding_history: false,
       recipients: [],
     }
@@ -122,6 +123,13 @@ describe('generated receipt recipient client', () => {
     { ...lookupResult, recipients: [recipient, recipient] },
     { ...lookupResult, channel_id: undefined },
     { ...lookupResult, next_cursor: 123 },
+    {
+      ...lookupResult,
+      channel_id: undefined,
+      parent_channel_id: `itgt_${id}`,
+      has_receive_binding_history: false,
+      recipients: [],
+    },
   ])('rejects inconsistent recipient state before rendering', async (body) => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(body))
     await expect(

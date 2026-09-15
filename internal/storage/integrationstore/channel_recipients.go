@@ -23,9 +23,11 @@ type ChannelBindingIdentity struct {
 
 // ChannelReceiptRouting observes existing routing facts in one database snapshot.
 // ChannelID is uuid.Nil when the provider address has no current registered channel.
+// ParentChannelID preserves its immutable parent, or uuid.Nil for a root channel.
 // Receive history includes revoked grants, but not send/read-only grants.
 type ChannelReceiptRouting struct {
 	ChannelID                uuid.UUID
+	ParentChannelID          uuid.UUID
 	HasReceiveBindingHistory bool
 	WorkflowStarted          bool
 }
@@ -55,6 +57,7 @@ func (s *Store) LookupChannelReceiptRouting(
 	}
 	return ChannelReceiptRouting{
 		ChannelID:                storeutil.IDFromPtr(row.ChannelID),
+		ParentChannelID:          storeutil.IDFromPtr(row.ParentChannelID),
 		HasReceiveBindingHistory: row.HasReceiveBindingHistory, WorkflowStarted: row.WorkflowStarted,
 	}, nil
 }
