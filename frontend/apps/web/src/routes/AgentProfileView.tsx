@@ -1,4 +1,9 @@
-import { useAgentProfile, useCreateAgent, useDeleteAgentProfile } from '@omnara/react'
+import {
+  useAgentProfile,
+  useAgentProfileUsage,
+  useCreateAgent,
+  useDeleteAgentProfile,
+} from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -18,13 +23,14 @@ import { DetailList } from '@/components/data-table/DetailList'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
+import { UsageReportView } from '@/components/usage/UsageReport'
 import { formatDateTime } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { useWebConfig } from '@/lib/web-config'
 
-type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents'
+type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents' | 'usage'
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -152,6 +158,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             { value: 'integrations', label: 'Integrations' },
             { value: 'schedules', label: 'Schedules' },
             { value: 'agents', label: 'Agents' },
+            { value: 'usage', label: 'Usage' },
           ]}
         />
       </header>
@@ -228,6 +235,10 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
       )}
 
+      {tab === 'usage' && (
+        <ProfileUsageTab orgId={activeOrg.id} projectId={projectId} profileId={profile.id} />
+      )}
+
       {canManage && deployOpen && (
         <DeployAgentProfileDialog
           open
@@ -297,6 +308,30 @@ function ConfigurationTab({
           setResetNonce((nonce) => nonce + 1)
         }}
         onDelete={onDelete}
+      />
+    </div>
+  )
+}
+
+function ProfileUsageTab({
+  orgId,
+  projectId,
+  profileId,
+}: {
+  orgId: string
+  projectId: string
+  profileId: string
+}) {
+  const query = useAgentProfileUsage(orgId, projectId, profileId)
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-muted-foreground text-sm">
+        Model tokens and provider-reported cost across agents launched from this profile. Subagent
+        usage is not included.
+      </p>
+      <UsageReportView
+        query={query}
+        emptyMessage="No model usage from this profile yet. Launch an agent to get started."
       />
     </div>
   )

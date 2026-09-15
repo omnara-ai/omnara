@@ -9,6 +9,7 @@ export {
   LightBulbIcon as Brain,
   CpuChipIcon as BrainCircuit,
   BuildingOffice2Icon as Building2,
+  ChartBarIcon as ChartBar,
   CheckIcon as Check,
   CheckIcon,
   ChevronDownIcon as ChevronDown,

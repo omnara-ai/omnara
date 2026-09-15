@@ -68,6 +68,11 @@ export function ProjectsNav() {
                   path: `${projectRoot}/skills`,
                   label: 'Project Skills',
                 },
+                {
+                  to: '/projects/$projectId/usage' as const,
+                  path: `${projectRoot}/usage`,
+                  label: 'Usage',
+                },
               ]
 
               return (

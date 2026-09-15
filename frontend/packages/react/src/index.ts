@@ -240,4 +240,5 @@ export {
   useUpdateSkill,
 } from './domains/skills'
 export { useToolCatalog } from './domains/tool-catalog'
+export { useAgentProfileUsage, useAgentUsage, useOrgUsage, useProjectUsage } from './domains/usage'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

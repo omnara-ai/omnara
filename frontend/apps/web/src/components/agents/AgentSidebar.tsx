@@ -1,4 +1,4 @@
-import { useAgents, useMachine, useServerInfo } from '@omnara/react'
+import { useAgents, useAgentUsage, useMachine, useServerInfo } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -6,11 +6,12 @@ import { useState } from 'react'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DetailList } from '@/components/data-table/DetailList'
-import { InfoIcon, PlusIcon } from '@/components/icons'
+import { ChevronDown, InfoIcon, PlusIcon } from '@/components/icons'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
 import { McpServerIcon } from '@/components/mcp/McpServerIcon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Sidebar,
   SidebarContent,
@@ -22,7 +23,8 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatDateTime } from '@/lib/format'
+import { formatCompactCount, formatCount, formatDateTime, formatUsd } from '@/lib/format'
+import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
 export const sidebarToggleActiveClass =
@@ -110,6 +112,7 @@ export function AgentSidebar({
           <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
           <AgentSubagentsGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentMcpGroup connections={mcpConnections} />
+          <AgentUsageGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentCronGroup
             orgId={orgId}
             projectId={projectId}
@@ -214,6 +217,115 @@ function AgentSubagentsGroup({
               </SidebarMenuItem>
             )}
           </SidebarMenu>
+        )}
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
+function AgentUsageGroup({
+  orgId,
+  projectId,
+  agentId,
+}: {
+  orgId: string
+  projectId: string
+  agentId: string
+}) {
+  const [includeSubagents, setIncludeSubagents] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const query = useAgentUsage(orgId, projectId, agentId, includeSubagents)
+  return (
+    <SidebarGroup>
+      <div className="flex items-center justify-between gap-2">
+        <SidebarGroupLabel className="px-0 text-sm">Usage</SidebarGroupLabel>
+        <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            className="size-3.5 cursor-pointer"
+            checked={includeSubagents}
+            onChange={(event) => {
+              setIncludeSubagents(event.target.checked)
+            }}
+          />
+          Subagents
+        </label>
+      </div>
+      <SidebarGroupContent>
+        {query.isPending ? (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">Loading…</p>
+        ) : query.isError ? (
+          <p className="text-destructive py-1.5 text-sm">
+            {errorMessage(query.error, 'Could not load usage.')}
+          </p>
+        ) : query.data.totals.model_calls === 0 ? (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">No model usage yet.</p>
+        ) : (
+          <Collapsible open={expanded} onOpenChange={setExpanded}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="hover:text-foreground flex w-full items-center justify-between gap-2 py-1.5 text-left text-sm"
+                aria-label={expanded ? 'Hide usage details' : 'Show usage details'}
+              >
+                <span className="truncate tabular-nums">
+                  {formatUsd(query.data.totals.cost.provider_reported_usd)}
+                  <span className="text-muted-foreground">
+                    {' · '}
+                    {formatCompactCount(query.data.totals.tokens.input_tokens_total)} in
+                    {' · '}
+                    {formatCompactCount(query.data.totals.tokens.output_tokens_total)} out
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    'text-muted-foreground size-4 shrink-0 transition-transform',
+                    expanded && 'rotate-180',
+                  )}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="flex flex-col gap-3 pb-1">
+              <DetailList
+                items={[
+                  { label: 'Calls', value: formatCount(query.data.totals.model_calls) },
+                  {
+                    label: 'Uncached',
+                    value: formatCount(query.data.totals.tokens.uncached_input_tokens),
+                  },
+                  {
+                    label: 'Cache read',
+                    value: formatCount(query.data.totals.tokens.cache_read_input_tokens),
+                  },
+                  {
+                    label: 'Cache write',
+                    value: formatCount(query.data.totals.tokens.cache_write_input_tokens),
+                  },
+                  {
+                    label: 'Reasoning',
+                    value: formatCount(query.data.totals.tokens.reasoning_output_tokens),
+                  },
+                ]}
+              />
+              {query.data.by_model.length > 1 && (
+                <SidebarMenu>
+                  {query.data.by_model.map((row) => (
+                    <SidebarMenuItem
+                      key={`${row.model.configured_model_id}:${row.model.provider_model_slug}`}
+                      className="flex items-center justify-between gap-2 py-1 text-xs"
+                    >
+                      <span className="truncate">{row.model.name}</span>
+                      <span className="text-muted-foreground shrink-0 tabular-nums">
+                        {formatCompactCount(row.tokens.input_tokens_total)} in ·{' '}
+                        {formatCompactCount(row.tokens.output_tokens_total)} out ·{' '}
+                        {formatUsd(row.cost.provider_reported_usd)}
+                      </span>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         )}
       </SidebarGroupContent>
     </SidebarGroup>

@@ -98,6 +98,15 @@ const organizationModelsRoute = createRoute({
   ),
 })
 
+const organizationUsageRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/usage',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrganizationUsagePage'),
+    'OrganizationUsagePage',
+  ),
+})
+
 const secretsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/secrets',
@@ -148,6 +157,12 @@ const projectSkillsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/skills',
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
+})
+
+const projectUsageRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/usage',
+  component: lazyRouteComponent(() => import('@/routes/ProjectUsagePage'), 'ProjectUsagePage'),
 })
 
 const agentProfileRoute = createRoute({
@@ -254,6 +269,7 @@ const routeTree = rootRoute.addChildren([
       membersRoute,
       organizationMachinesRoute,
       organizationModelsRoute,
+      organizationUsageRoute,
       secretsRoute,
       skillsRoute,
       apiTokensRoute,
@@ -262,6 +278,7 @@ const routeTree = rootRoute.addChildren([
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,
+      projectUsageRoute,
       agentProfileRoute,
       createAgentRoute,
       agentRoute,
