@@ -9,6 +9,7 @@ import {
 } from './MachinePoolDialogState'
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
+import { machineSizeOmitted } from './machinePoolSizes'
 
 export function MachinePoolAdvancedSection({
   orgId,
@@ -24,6 +25,10 @@ export function MachinePoolAdvancedSection({
   setValue: <K extends keyof MachinePoolFormValues>(key: K, value: MachinePoolFormValues[K]) => void
 }) {
   const resources = machinePoolProviderDefinitions[values.provider].resources
+  const sizeOmitted = machineSizeOmitted(values.provider, values)
+  const capDescription = sizeOmitted
+    ? 'Required while the size is left to the provider.'
+    : undefined
   return (
     <OverridesCollapsible title="Advanced">
       <FieldGroup>
@@ -110,6 +115,8 @@ export function MachinePoolAdvancedSection({
                   type="number"
                   min="1"
                   step="1"
+                  required={sizeOmitted}
+                  description={capDescription}
                   value={values.maxMachineCpu}
                   placeholder={values.cpu || undefined}
                   onValueChange={(value) => {
@@ -157,6 +164,8 @@ export function MachinePoolAdvancedSection({
                   type="number"
                   min="0"
                   step="any"
+                  required={sizeOmitted}
+                  description={capDescription}
                   value={values.maxMachineMemoryGb}
                   placeholder={values.memoryGb || undefined}
                   onValueChange={(value) => {

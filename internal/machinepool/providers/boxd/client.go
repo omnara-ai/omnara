@@ -164,6 +164,13 @@ func isTransient(err error) bool {
 // isRejectedRequest reports whether boxd answered a request by refusing it
 // outright, which it does synchronously with a terminal code. Such an answer
 // proves the request had no effect; a transport failure proves nothing.
+//
+// AlreadyExists is deliberately not in the set. It says the name is already
+// held, which is the opposite of proof that nothing exists: the holder is
+// usually this machine from an earlier attempt, and the next attempt adopts
+// it through the lookup that precedes every create. Should the lookup keep
+// missing it, cleanup must keep the missing-resource grace period rather
+// than finalize on a code that asserts a resource is there.
 func isRejectedRequest(err error) bool {
 	var apiErr apiError
 	if !errors.As(err, &apiErr) {
@@ -175,7 +182,6 @@ func isRejectedRequest(err error) bool {
 		codes.PermissionDenied,
 		codes.Unauthenticated,
 		codes.NotFound,
-		codes.AlreadyExists,
 		codes.OutOfRange,
 		codes.Unimplemented:
 		return true
