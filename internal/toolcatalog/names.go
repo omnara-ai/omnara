@@ -24,8 +24,6 @@ const (
 	ToolNameWebFetch               = "web_fetch"
 	ToolNameUploadFile             = "upload_file"
 	ToolNameDownloadFile           = "download_file"
-	ToolNameUploadArtifact         = "upload_artifact"
-	ToolNameDownloadArtifact       = "download_artifact"
 	ToolNameSkill                  = "skill"
 	ToolNameSpawnAgent             = "spawn_agent"
 	ToolNameReadAgent              = "read_agent"

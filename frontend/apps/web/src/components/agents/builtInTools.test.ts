@@ -8,21 +8,6 @@ import {
 } from './builtInTools'
 
 describe('machine tool completeness', () => {
-  it('preserves legacy tools and their permissions without adding equivalent file tools', () => {
-    const tools = recommendedMachineToolNames.map((name) => ({
-      name:
-        name === 'upload_file'
-          ? 'upload_artifact'
-          : name === 'download_file'
-            ? 'download_artifact'
-            : name,
-      permission: { mode: 'always_ask', parameters: {} },
-    }))
-
-    expect(hasMissingMachineTools(tools)).toBe(false)
-    expect(addMissingMachineTools(tools)).toBe(tools)
-  })
-
   it('detects and adds only missing machine tools', () => {
     const runCommand = {
       name: 'run_command',

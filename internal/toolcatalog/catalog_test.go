@@ -1,9 +1,53 @@
 package toolcatalog
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
+
+func TestFileToolPathSchemas(t *testing.T) {
+	catalog, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, toolName := range []string{ToolNameUploadFile, ToolNameDownloadFile} {
+		t.Run(toolName, func(t *testing.T) {
+			entry, ok := catalog.Lookup(toolName)
+			if !ok {
+				t.Fatal("tool missing from catalog")
+			}
+			validator, err := jsonschema.Compile(entry.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifactPath := "/artifacts/art_z3jehcyd5n6a2bfgik7mv4qtrw"
+			for _, path := range []string{
+				"/artifacts", artifactPath, "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW",
+				"", "/artifacts/", "/skills/example", artifactPath + "/", artifactPath + "/nested",
+				"/artifacts/art_short", "prefix" + artifactPath,
+			} {
+				input := map[string]string{"path": path}
+				wantValid := path == ArtifactVFSRoot
+				if toolName == ToolNameUploadFile {
+					input["source"] = "file.txt"
+				} else {
+					input["destination"] = "file.txt"
+					wantValid = path == artifactPath || path == "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW"
+				}
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := validator.Validate(raw); (err == nil) != wantValid {
+					t.Errorf("path %q: error = %v, want valid = %t", path, err, wantValid)
+				}
+			}
+		})
+	}
+}
 
 func TestDefaultCatalogDoesNotUseReservedMCPNamespace(t *testing.T) {
 	catalog, err := Default()

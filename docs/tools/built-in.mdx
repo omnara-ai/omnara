@@ -162,13 +162,15 @@ Deletes a pool-backed machine. Requires `machine_id`.
 
 ## Files
 
+`path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
+
 ### `upload_file`
 
 Use `upload_file` to copy a file from an attached machine into Omnara's virtual filesystem. Currently, uploads support only creating artifacts at `/artifacts`, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its public `artifact_id` and a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their IDs in `artifact_ids` to `send_integration_message`.
+On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, take the artifact ID from the final component of each `/artifacts/<artifact_id>` path and pass those IDs in `artifact_ids` to `send_integration_message`.
 
 ### `download_file`
 

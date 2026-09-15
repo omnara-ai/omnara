@@ -1,76 +1,27 @@
 package tools
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const uploadArtifactProcessTimeoutSeconds = 30
-
-type uploadArtifactRequest struct {
-	Path      string          `json:"path"`
-	MachineID json.RawMessage `json:"machine_id,omitempty"`
-}
-
-type resolvedUploadArtifactRequest struct {
-	Path      string
-	MachineID uuid.UUID
-}
 
 type uploadArtifactAuthorization struct {
 	AgentMachineBindingID string `json:"agent_machine_binding_id"`
 	Path                  string `json:"path"`
 }
 
-type downloadArtifactRequest struct {
-	ArtifactID string          `json:"artifact_id"`
-	Path       string          `json:"path"`
-	MachineID  json.RawMessage `json:"machine_id,omitempty"`
-}
-
-type resolvedDownloadArtifactRequest struct {
-	ArtifactID string
-	Path       string
-	MachineID  uuid.UUID
-}
-
 type downloadArtifactAuthorization struct {
 	AgentMachineBindingID string `json:"agent_machine_binding_id"`
 	ArtifactID            string `json:"artifact_id"`
 	Path                  string `json:"path"`
-}
-
-func validateUploadArtifactInput(input json.RawMessage) error {
-	_, err := resolveUploadArtifactRequest(input)
-	return err
-}
-
-func resolveUploadArtifactRequest(raw json.RawMessage) (resolvedUploadArtifactRequest, error) {
-	var input uploadArtifactRequest
-	if err := decodeSingleStrictJSON(raw, &input, "upload_artifact request"); err != nil {
-		return resolvedUploadArtifactRequest{}, fmt.Errorf("parse upload_artifact request: %w", err)
-	}
-	if input.Path == "" {
-		return resolvedUploadArtifactRequest{}, errors.New("path is required")
-	}
-	if strings.Contains(input.Path, "\x00") {
-		return resolvedUploadArtifactRequest{}, errors.New("path cannot contain NUL")
-	}
-	machineID, err := resolveOptionalMachineID(input.MachineID)
-	if err != nil {
-		return resolvedUploadArtifactRequest{}, err
-	}
-	return resolvedUploadArtifactRequest{Path: input.Path, MachineID: machineID}, nil
 }
 
 func uploadArtifactAuthorizationInput(
@@ -82,40 +33,9 @@ func uploadArtifactAuthorizationInput(
 		Path:                  path,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal upload_artifact authorization: %w", err)
+		return nil, fmt.Errorf("marshal artifact upload authorization: %w", err)
 	}
 	return input, nil
-}
-
-func validateDownloadArtifactInput(input json.RawMessage) error {
-	_, err := resolveDownloadArtifactRequest(input)
-	return err
-}
-
-func resolveDownloadArtifactRequest(raw json.RawMessage) (resolvedDownloadArtifactRequest, error) {
-	var input downloadArtifactRequest
-	if err := decodeSingleStrictJSON(raw, &input, "download_artifact request"); err != nil {
-		return resolvedDownloadArtifactRequest{}, fmt.Errorf("parse download_artifact request: %w", err)
-	}
-	artifactID := input.ArtifactID
-	if _, err := publicid.Decode(publicid.KindArtifact, artifactID); err != nil {
-		return resolvedDownloadArtifactRequest{}, errors.New("artifact_id must be a valid artifact ID")
-	}
-	if input.Path == "" {
-		return resolvedDownloadArtifactRequest{}, errors.New("path is required")
-	}
-	if strings.Contains(input.Path, "\x00") {
-		return resolvedDownloadArtifactRequest{}, errors.New("path cannot contain NUL")
-	}
-	machineID, err := resolveOptionalMachineID(input.MachineID)
-	if err != nil {
-		return resolvedDownloadArtifactRequest{}, err
-	}
-	return resolvedDownloadArtifactRequest{
-		ArtifactID: artifactID,
-		Path:       input.Path,
-		MachineID:  machineID,
-	}, nil
 }
 
 func downloadArtifactAuthorizationInput(
@@ -129,38 +49,9 @@ func downloadArtifactAuthorizationInput(
 		Path:                  path,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal download_artifact authorization: %w", err)
+		return nil, fmt.Errorf("marshal artifact download authorization: %w", err)
 	}
 	return input, nil
-}
-
-func runUploadArtifact(
-	ctx context.Context,
-	call transactionalToolContext,
-) (transactionalPhaseResult, error) {
-	resolved, err := resolveUploadArtifactRequest(call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
-	if err != nil {
-		return processToolMachineResolutionError(err)
-	}
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
-	if err != nil {
-		return nil, fmt.Errorf("encode tool call id: %w", err)
-	}
-	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Path)
-	if err != nil {
-		return nil, err
-	}
-	return startProcessTool(
-		ctx,
-		call,
-		binding,
-		authorizationInput,
-		uploadArtifactProcessInput(toolCallID, resolved.Path),
-	)
 }
 
 func uploadArtifactProcessInput(
@@ -180,39 +71,6 @@ func uploadArtifactProcessInput(
 		InitialWaitMS:  processaction.MaxWaitMilliseconds,
 		TimeoutSeconds: uploadArtifactProcessTimeoutSeconds,
 	}
-}
-
-func runDownloadArtifact(
-	ctx context.Context,
-	call transactionalToolContext,
-) (transactionalPhaseResult, error) {
-	resolved, err := resolveDownloadArtifactRequest(call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
-	if err != nil {
-		return processToolMachineResolutionError(err)
-	}
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
-	if err != nil {
-		return nil, fmt.Errorf("encode tool call id: %w", err)
-	}
-	authorizationInput, err := downloadArtifactAuthorizationInput(
-		binding.ID,
-		resolved.ArtifactID,
-		resolved.Path,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return startProcessTool(
-		ctx,
-		call,
-		binding,
-		authorizationInput,
-		downloadArtifactProcessInput(toolCallID, resolved.ArtifactID, resolved.Path),
-	)
 }
 
 func downloadArtifactProcessInput(

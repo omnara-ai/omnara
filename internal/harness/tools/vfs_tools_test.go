@@ -6,18 +6,17 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
 func TestResolveUploadFileRequest(t *testing.T) {
 	resolved, err := resolveUploadFileRequest(json.RawMessage(
-		`{"path":"/artifacts","source":"reports/final.pdf","machine_ref":"  mchr-first1  "}`,
+		`{"path":"/artifacts","source":"reports/final.pdf","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve upload: %v", err)
 	}
-	if resolved.Source != "reports/final.pdf" || resolved.MachineRef != "mchr-first1" {
+	if resolved.Source != "reports/final.pdf" || resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("resolved upload = %+v", resolved)
 	}
 
@@ -38,7 +37,7 @@ func TestResolveUploadFileRequest(t *testing.T) {
 			raw:  "{\"path\":\"/artifacts\",\"source\":\"bad\\u0000path\"}",
 			want: "source cannot contain NUL",
 		},
-		{name: "null machine", raw: `{"path":"/artifacts","source":"a","machine_ref":null}`, want: "cannot be null"},
+		{name: "null machine", raw: `{"path":"/artifacts","source":"a","machine_id":null}`, want: "cannot be null"},
 		{name: "extra field", raw: `{"path":"/artifacts","source":"a","extra":true}`, want: "unknown field"},
 	}
 	for _, test := range tests {
@@ -92,48 +91,5 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
 		})
-	}
-}
-
-func TestVFSArtifactCallsReuseLegacyInputs(t *testing.T) {
-	upload, err := resolveUploadFileRequest(json.RawMessage(
-		`{"path":"/artifacts","source":"report.pdf","machine_ref":"mchr-first1"}`,
-	))
-	if err != nil {
-		t.Fatalf("resolve upload: %v", err)
-	}
-	uploadCall, err := artifactUploadCall(model.ToolCall{Name: "upload_file"}, upload)
-	if err != nil {
-		t.Fatalf("build artifact upload call: %v", err)
-	}
-	resolvedArtifactUpload, err := resolveUploadArtifactRequest(uploadCall.Input)
-	if err != nil {
-		t.Fatalf("resolve artifact upload: %v", err)
-	}
-	if uploadCall.Name != "upload_file" || resolvedArtifactUpload.Path != "report.pdf" ||
-		resolvedArtifactUpload.MachineRef != "mchr-first1" {
-		t.Fatalf("artifact upload call = %+v resolved=%+v", uploadCall, resolvedArtifactUpload)
-	}
-	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
-	if err != nil {
-		t.Fatalf("encode artifact id: %v", err)
-	}
-	download, err := resolveDownloadFileRequest(json.RawMessage(
-		`{"path":"/artifacts/` + artifactID + `","destination":"report.pdf","machine_ref":"mchr-first1"}`,
-	))
-	if err != nil {
-		t.Fatalf("resolve download: %v", err)
-	}
-	downloadCall, err := artifactDownloadCall(model.ToolCall{Name: "download_file"}, download)
-	if err != nil {
-		t.Fatalf("build artifact download call: %v", err)
-	}
-	resolvedArtifactDownload, err := resolveDownloadArtifactRequest(downloadCall.Input)
-	if err != nil {
-		t.Fatalf("resolve artifact download: %v", err)
-	}
-	if downloadCall.Name != "download_file" || resolvedArtifactDownload.ArtifactID != artifactID ||
-		resolvedArtifactDownload.Path != "report.pdf" || resolvedArtifactDownload.MachineRef != "mchr-first1" {
-		t.Fatalf("artifact download call = %+v resolved=%+v", downloadCall, resolvedArtifactDownload)
 	}
 }

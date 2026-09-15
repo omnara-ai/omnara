@@ -3,7 +3,6 @@ package tools
 import (
 	"encoding/base64"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -15,38 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func TestResolveUploadArtifactRequest(t *testing.T) {
-	resolved, err := resolveUploadArtifactRequest(json.RawMessage(
-		`{"path":"screenshots/latest.png","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
-	))
-	if err != nil {
-		t.Fatalf("resolve upload_artifact: %v", err)
-	}
-	if resolved.Path != "screenshots/latest.png" ||
-		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
-		t.Fatalf("resolved upload_artifact = %+v", resolved)
-	}
-
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{name: "empty path", raw: `{"path":""}`, want: "path is required"},
-		{name: "nul path", raw: "{\"path\":\"bad\\u0000path\"}", want: "path cannot contain NUL"},
-		{name: "null machine ID", raw: `{"path":"a","machine_id":null}`, want: "machine_id cannot be null"},
-		{name: "unknown field", raw: `{"path":"a","artifact_id":"art_x"}`, want: "unknown field"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := resolveUploadArtifactRequest(json.RawMessage(test.raw))
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want %q", err, test.want)
-			}
-		})
-	}
-}
-
 func TestUploadArtifactApprovalPinsBindingAndPath(t *testing.T) {
 	bindingID := uuid.New()
 	approvedInput, err := uploadArtifactAuthorizationInput(bindingID, "shot.png")
@@ -55,8 +22,8 @@ func TestUploadArtifactApprovalPinsBindingAndPath(t *testing.T) {
 	}
 	call := model.ToolCall{
 		ID:    "call_upload",
-		Name:  "upload_artifact",
-		Input: json.RawMessage(`{"path":"shot.png"}`),
+		Name:  "upload_file",
+		Input: json.RawMessage(`{"path":"/artifacts","source":"shot.png"}`),
 	}
 	authorization, err := toolpermission.NewAuthorization(call.Name, approvedInput)
 	if err != nil {
@@ -67,7 +34,7 @@ func TestUploadArtifactApprovalPinsBindingAndPath(t *testing.T) {
 	if !ok {
 		t.Fatal("always_ask descriptor missing")
 	}
-	value, err := toolpermission.NewAllowDenyForm("Permission requested for upload_artifact", nil)
+	value, err := toolpermission.NewAllowDenyForm("Permission requested for upload_file", nil)
 	if err != nil {
 		t.Fatalf("permission interaction form: %v", err)
 	}
@@ -119,51 +86,6 @@ func TestUploadArtifactProcessInput(t *testing.T) {
 		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
 		input.TimeoutSeconds != 30 {
 		t.Fatalf("upload process input = %+v, want command %q", input, wantCommand)
-	}
-}
-
-func TestResolveDownloadArtifactRequest(t *testing.T) {
-	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
-	if err != nil {
-		t.Fatalf("encode artifact id: %v", err)
-	}
-	resolved, err := resolveDownloadArtifactRequest(json.RawMessage(
-		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
-	))
-	if err != nil {
-		t.Fatalf("resolve download_artifact: %v", err)
-	}
-	if resolved.ArtifactID != artifactID || resolved.Path != "downloads/report.pdf" ||
-		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
-		t.Fatalf("resolved download_artifact = %+v", resolved)
-	}
-
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{name: "invalid artifact id", raw: `{"artifact_id":"not-an-artifact","path":"a"}`, want: "valid artifact ID"},
-		{name: "empty path", raw: `{"artifact_id":"` + artifactID + `","path":""}`, want: "path is required"},
-		{
-			name: "nul path",
-			raw:  `{"artifact_id":"` + artifactID + `","path":"bad\u0000path"}`,
-			want: "path cannot contain NUL",
-		},
-		{
-			name: "null machine ID",
-			raw:  `{"artifact_id":"` + artifactID + `","path":"a","machine_id":null}`,
-			want: "machine_id cannot be null",
-		},
-		{name: "unknown field", raw: `{"artifact_id":"` + artifactID + `","path":"a","extra":true}`, want: "unknown field"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := resolveDownloadArtifactRequest(json.RawMessage(test.raw))
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want %q", err, test.want)
-			}
-		})
 	}
 }
 

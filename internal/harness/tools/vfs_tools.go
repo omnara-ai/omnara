@@ -7,47 +7,32 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type uploadFileRequest struct {
-	Path       string          `json:"path"`
-	Source     string          `json:"source"`
-	MachineRef json.RawMessage `json:"machine_ref,omitempty"`
+	Path      string          `json:"path"`
+	Source    string          `json:"source"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
 }
 
 type resolvedUploadFileRequest struct {
-	Source     string
-	MachineRef string
+	Source    string
+	MachineID uuid.UUID
 }
 
 type downloadFileRequest struct {
 	Path        string          `json:"path"`
 	Destination string          `json:"destination"`
-	MachineRef  json.RawMessage `json:"machine_ref,omitempty"`
+	MachineID   json.RawMessage `json:"machine_id,omitempty"`
 }
 
 type resolvedDownloadFileRequest struct {
 	ArtifactID  string
 	Destination string
-	MachineRef  string
-}
-
-func resolveOptionalMachineRef(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 {
-		return "", nil
-	}
-	var value *string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("parse machine_ref: %w", err)
-	}
-	if value == nil {
-		return "", errors.New("machine_ref cannot be null")
-	}
-	return strings.TrimSpace(*value), nil
+	MachineID   uuid.UUID
 }
 
 func validateUploadFileInput(input json.RawMessage) error {
@@ -69,11 +54,11 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 	if strings.Contains(input.Source, "\x00") {
 		return resolvedUploadFileRequest{}, errors.New("source cannot contain NUL")
 	}
-	machineRef, err := resolveOptionalMachineRef(input.MachineRef)
+	machineID, err := resolveOptionalMachineID(input.MachineID)
 	if err != nil {
 		return resolvedUploadFileRequest{}, err
 	}
-	return resolvedUploadFileRequest{Source: input.Source, MachineRef: machineRef}, nil
+	return resolvedUploadFileRequest{Source: input.Source, MachineID: machineID}, nil
 }
 
 func validateDownloadFileInput(input json.RawMessage) error {
@@ -99,50 +84,13 @@ func resolveDownloadFileRequest(raw json.RawMessage) (resolvedDownloadFileReques
 	if strings.Contains(input.Destination, "\x00") {
 		return resolvedDownloadFileRequest{}, errors.New("destination cannot contain NUL")
 	}
-	machineRef, err := resolveOptionalMachineRef(input.MachineRef)
+	machineID, err := resolveOptionalMachineID(input.MachineID)
 	if err != nil {
 		return resolvedDownloadFileRequest{}, err
 	}
 	return resolvedDownloadFileRequest{
-		ArtifactID: artifactID, Destination: input.Destination, MachineRef: machineRef,
+		ArtifactID: artifactID, Destination: input.Destination, MachineID: machineID,
 	}, nil
-}
-
-func artifactUploadCall(call model.ToolCall, resolved resolvedUploadFileRequest) (model.ToolCall, error) {
-	input := uploadArtifactRequest{Path: resolved.Source}
-	if resolved.MachineRef != "" {
-		raw, err := marshalJSON(resolved.MachineRef)
-		if err != nil {
-			return model.ToolCall{}, err
-		}
-		input.MachineRef = raw
-	}
-	raw, err := marshalJSON(input)
-	if err != nil {
-		return model.ToolCall{}, fmt.Errorf("marshal artifact upload input: %w", err)
-	}
-	call.Input = raw
-	return call, nil
-}
-
-func artifactDownloadCall(call model.ToolCall, resolved resolvedDownloadFileRequest) (model.ToolCall, error) {
-	input := downloadArtifactRequest{
-		ArtifactID: resolved.ArtifactID,
-		Path:       resolved.Destination,
-	}
-	if resolved.MachineRef != "" {
-		raw, err := marshalJSON(resolved.MachineRef)
-		if err != nil {
-			return model.ToolCall{}, err
-		}
-		input.MachineRef = raw
-	}
-	raw, err := marshalJSON(input)
-	if err != nil {
-		return model.ToolCall{}, fmt.Errorf("marshal artifact download input: %w", err)
-	}
-	call.Input = raw
-	return call, nil
 }
 
 func runUploadFile(
@@ -153,12 +101,25 @@ func runUploadFile(
 	if err != nil {
 		return nil, err
 	}
-	artifactCall, err := artifactUploadCall(call.Call, resolved)
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
+	if err != nil {
+		return processToolMachineResolutionError(err)
+	}
+	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
+	if err != nil {
+		return nil, fmt.Errorf("encode tool call id: %w", err)
+	}
+	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Source)
 	if err != nil {
 		return nil, err
 	}
-	call.Call = artifactCall
-	return runUploadArtifact(ctx, call)
+	return startProcessTool(
+		ctx,
+		call,
+		binding,
+		authorizationInput,
+		uploadArtifactProcessInput(toolCallID, resolved.Source),
+	)
 }
 
 func runDownloadFile(
@@ -169,46 +130,27 @@ func runDownloadFile(
 	if err != nil {
 		return nil, err
 	}
-	artifactCall, err := artifactDownloadCall(call.Call, resolved)
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
+	if err != nil {
+		return processToolMachineResolutionError(err)
+	}
+	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
+	if err != nil {
+		return nil, fmt.Errorf("encode tool call id: %w", err)
+	}
+	authorizationInput, err := downloadArtifactAuthorizationInput(
+		binding.ID,
+		resolved.ArtifactID,
+		resolved.Destination,
+	)
 	if err != nil {
 		return nil, err
 	}
-	call.Call = artifactCall
-	return runDownloadArtifact(ctx, call)
-}
-
-func uploadFilePermissionChallenge(
-	ctx context.Context,
-	executor Executor,
-	turn Turn,
-	call model.ToolCall,
-	mode permissionModeContext,
-) (toolpermission.Request, error) {
-	resolved, err := resolveUploadFileRequest(call.Input)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	artifactCall, err := artifactUploadCall(call, resolved)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	return uploadArtifactPermissionChallenge(ctx, executor, turn, artifactCall, mode)
-}
-
-func downloadFilePermissionChallenge(
-	ctx context.Context,
-	executor Executor,
-	turn Turn,
-	call model.ToolCall,
-	mode permissionModeContext,
-) (toolpermission.Request, error) {
-	resolved, err := resolveDownloadFileRequest(call.Input)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	artifactCall, err := artifactDownloadCall(call, resolved)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	return downloadArtifactPermissionChallenge(ctx, executor, turn, artifactCall, mode)
+	return startProcessTool(
+		ctx,
+		call,
+		binding,
+		authorizationInput,
+		downloadArtifactProcessInput(toolCallID, resolved.ArtifactID, resolved.Destination),
+	)
 }

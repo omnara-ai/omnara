@@ -188,9 +188,8 @@ func TestIsUploadArtifactToolCall(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "legacy",
-			call: ToolCallRecord{Type: toolcatalog.ToolTypeBuiltIn, Name: toolcatalog.ToolNameUploadArtifact},
-			want: true,
+			name: "removed legacy tool",
+			call: ToolCallRecord{Type: toolcatalog.ToolTypeBuiltIn, Name: "upload_artifact"},
 		},
 		{
 			name: "vfs artifact",

@@ -173,22 +173,10 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(runCommandPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameUploadArtifact,
-			semanticInputValidator: validateUploadArtifactInput,
-			handler:                toolHandler{Transactional: runUploadArtifact, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(uploadArtifactPermissionChallenge),
-		},
-		{
 			name:                   toolcatalog.ToolNameUploadFile,
 			semanticInputValidator: validateUploadFileInput,
 			handler:                toolHandler{Transactional: runUploadFile, Background: wakeProcessTool},
 			permissionModes:        commonPermissionModeHandlers(uploadFilePermissionChallenge),
-		},
-		{
-			name:                   toolcatalog.ToolNameDownloadArtifact,
-			semanticInputValidator: validateDownloadArtifactInput,
-			handler:                toolHandler{Transactional: runDownloadArtifact, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(downloadArtifactPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameDownloadFile,

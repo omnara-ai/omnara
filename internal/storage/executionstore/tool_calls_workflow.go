@@ -239,9 +239,6 @@ func isUploadArtifactToolCall(call ToolCallRecord) bool {
 	if call.Type != toolcatalog.ToolTypeBuiltIn {
 		return false
 	}
-	if call.Name == toolcatalog.ToolNameUploadArtifact {
-		return true
-	}
 	if call.Name != toolcatalog.ToolNameUploadFile {
 		return false
 	}
@@ -278,7 +275,7 @@ func uploadArtifactProcessToolResultContentParts(
 		{
 			"type": "structured_data",
 			"value": map[string]any{
-				"artifact_id": publicResourceID(publicid.KindArtifact, artifact.ID),
+				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
 			},
 		},
 		{

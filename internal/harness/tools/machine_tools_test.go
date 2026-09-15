@@ -319,8 +319,8 @@ func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 		{"run_command", `{"command":"pwd","%s":"%s"}`},
 		{"inspect_machine", `{"%s":"%s"}`},
 		{"delete_machine", `{"%s":"%s"}`},
-		{"upload_artifact", `{"path":"report.pdf","%s":"%s"}`},
-		{"download_artifact", `{"artifact_id":"art_aaaaaaaaaaaaaaaaaaaaaaaaae","path":"report.pdf","%s":"%s"}`},
+		{"upload_file", `{"path":"/artifacts","source":"report.pdf","%s":"%s"}`},
+		{"download_file", `{"path":"/artifacts/art_aaaaaaaaaaaaaaaaaaaaaaaaae","destination":"report.pdf","%s":"%s"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, value := range []string{

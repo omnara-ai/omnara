@@ -396,8 +396,7 @@ WHERE process.org_id = sqlc.arg(org_id)
 -- name: GetDaemonArtifactProcessScope :one
 SELECT process.project_id,
        process.agent_id,
-       tool_call.name AS tool_name,
-       COALESCE(tool_call.input->>'artifact_id', tool_call.input->>'path', '')::text AS artifact_locator
+       COALESCE(tool_call.input->>'path', '')::text AS path
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -407,7 +406,7 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
   AND tool_call.type = 'built_in'
-  AND tool_call.name = ANY(sqlc.arg(tool_names)::text[]);
+  AND tool_call.name = sqlc.arg(tool_name);
 
 -- name: MarkActiveProcessUnknownByMachine :one
 UPDATE processes

@@ -21,35 +21,29 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonArtifactProcessScope struct {
-	ProjectID       uuid.UUID
-	AgentID         uuid.UUID
-	ToolName        string
-	ArtifactLocator string
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	Path      string
 }
 
 func (s *Store) GetDaemonArtifactProcessScope(
 	ctx context.Context,
 	orgID, machineID, toolCallID uuid.UUID,
-	toolNames []string,
+	toolName string,
 ) (DaemonArtifactProcessScope, bool, error) {
 	if orgID == uuid.Nil || machineID == uuid.Nil || toolCallID == uuid.Nil {
 		return DaemonArtifactProcessScope{}, false, errors.New(
 			"organization id, machine id, and tool call id are required",
 		)
 	}
-	if len(toolNames) == 0 {
-		return DaemonArtifactProcessScope{}, false, errors.New("tool names are required")
-	}
-	for _, name := range toolNames {
-		if name == "" {
-			return DaemonArtifactProcessScope{}, false, errors.New("tool names cannot contain an empty name")
-		}
+	if toolName == "" {
+		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
 	}
 	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
 		OrgID:      orgID,
 		MachineID:  machineID,
 		ToolCallID: toolCallID,
-		ToolNames:  toolNames,
+		ToolName:   toolName,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DaemonArtifactProcessScope{}, false, nil
@@ -58,10 +52,9 @@ func (s *Store) GetDaemonArtifactProcessScope(
 		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
 	}
 	return DaemonArtifactProcessScope{
-		ProjectID:       record.ProjectID,
-		AgentID:         record.AgentID,
-		ToolName:        record.ToolName,
-		ArtifactLocator: record.ArtifactLocator,
+		ProjectID: record.ProjectID,
+		AgentID:   record.AgentID,
+		Path:      record.Path,
 	}, true, nil
 }
 
@@ -333,7 +326,7 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 		dbsqlc.CompleteProcessParams{
 			ProjectID:          input.ProjectID,
 			AgentID:            input.AgentID,
-			ID:                 input.uuid.UUID,
+			ID:                 input.ID,
 			RuntimeLockID:      input.RuntimeLockID,
 			State:              string(input.State),
 			SourceEndedAt:      input.SourceEndedAt,

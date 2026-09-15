@@ -13,14 +13,14 @@ function catalogEntry(name: string, mode: string): ToolCatalogEntry {
 }
 
 describe('defaultAgentTools', () => {
-  it('uses file tools in templates even when legacy aliases are available', () => {
+  it('uses file tools in templates', () => {
     const permission = {
       default_permission: { mode: 'always_allow', parameters: {} },
       permission_modes: [],
     }
     const catalog: ToolCatalog = {
-      built_in_tools: ['upload_file', 'download_file', 'upload_artifact', 'download_artifact'].map(
-        (name) => catalogEntry(name, 'always_allow'),
+      built_in_tools: ['upload_file', 'download_file'].map((name) =>
+        catalogEntry(name, 'always_allow'),
       ),
       custom_tool_permissions: permission,
       mcp_tool_permissions: permission,
