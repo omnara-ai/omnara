@@ -242,16 +242,10 @@ function ProfileUsageTab({
 }) {
   const query = useAgentProfileUsage(orgId, projectId, profileId)
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground text-sm">
-        Model tokens and provider-reported cost across agents launched from this profile. Subagent
-        usage is not included.
-      </p>
-      <UsageReportView
-        query={query}
-        emptyMessage="No model usage from this profile yet. Launch an agent to get started."
-      />
-    </div>
+    <UsageReportView
+      query={query}
+      emptyMessage="No model usage from this profile yet. Launch an agent to get started."
+    />
   )
 }
 

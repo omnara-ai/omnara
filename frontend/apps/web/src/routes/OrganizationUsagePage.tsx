@@ -17,12 +17,7 @@ export function OrganizationUsagePage() {
         ]}
       />
       <section className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="type-title">Usage</h1>
-          <p className="text-muted-foreground text-sm">
-            Model tokens and provider-reported cost across every agent in {activeOrg.name}.
-          </p>
-        </div>
+        <h1 className="type-title">Usage</h1>
         <UsageReportView query={query} />
       </section>
     </div>
