@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -1221,5 +1223,134 @@ func assertDispatchTestResultCount(
 	}
 	if count != want {
 		t.Fatalf("dispatch test results = %d, want %d", count, want)
+	}
+}
+
+func TestFileToolsApprovalDispatch(t *testing.T) {
+	for _, name := range []string{"upload_file", "download_file"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newIntegrationToolFixture(t, ctx, "file-approval-"+name)
+			machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, name, fixture.Now.Add(time.Second))
+			var bindingID uuid.UUID
+			err := fixture.Pool.QueryRow(ctx, `
+				INSERT INTO agent_machine_bindings(
+					org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, 'mchr-file01', 'explicit', 'attached', $5, $5)
+				RETURNING id`,
+				toolsTestOrgID, toolsTestProjectID, fixture.Agent.ID, machine.MachineID, fixture.Now,
+			).Scan(&bindingID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
+			if err != nil {
+				t.Fatal(err)
+			}
+			machineID, err := publicid.Encode(publicid.KindMachine, machine.MachineID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := `{"path":"/artifacts","source":"report.pdf","machine_id":"` + machineID + `"}`
+			if name == "download_file" {
+				input = `{"path":"/artifacts/` + artifactID + `","destination":"report.pdf","machine_id":"` + machineID + `"}`
+			}
+			call := fixture.recordPendingToolCall(t, ctx, "call_file", name, input, fixture.Now.Add(20*time.Second))
+			turn := fixture.turn()
+			turn.Tools = map[string]ToolSpec{name: {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}}
+			wakes := 0
+			executor := Executor{
+				Store:            fixture.Store,
+				Now:              func() time.Time { return fixture.Now.Add(21 * time.Second) },
+				BackgroundRunner: backgroundRunnerFunc(func(string, func(context.Context) error) bool { wakes++; return true }),
+			}
+			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
+				t.Fatal(err)
+			}
+			callID := fixture.toolCallID(t, ctx, call.ID)
+			if _, found, err := fixture.Store.Execution().GetProcessByToolCall(
+				ctx, toolsTestProjectID, fixture.Agent.ID, callID,
+			); err != nil || found {
+				t.Fatalf("process existed before approval: found=%v err=%v", found, err)
+			}
+			interaction := integrationToolInteraction(t, ctx, fixture, callID, "permission")
+			request, err := toolpermission.ParseRequest(interaction.Request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantAuth, err := uploadArtifactAuthorizationInput(bindingID, "report.pdf")
+			if name == "download_file" {
+				wantAuth, err = downloadArtifactAuthorizationInput(bindingID, artifactID, "report.pdf")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(request.Authorization.Input) != string(wantAuth) {
+				t.Fatalf("authorization = %s, want %s", request.Authorization.Input, wantAuth)
+			}
+			actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(fixture.User.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fixture.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+				ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ID: interaction.ID, Actor: actor,
+				Resolution: interactionform.Resolution{
+					Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wakes = 0
+			result, err := executor.Dispatch(ctx, turn, call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Disposition != DispatchDeferred || wakes != 1 {
+				t.Fatalf("dispatch=%+v wakes=%d", result, wakes)
+			}
+			process, found, err := fixture.Store.Execution().GetProcessByToolCall(
+				ctx, toolsTestProjectID, fixture.Agent.ID, callID,
+			)
+			if err != nil || !found {
+				t.Fatalf("load process found=%v err=%v", found, err)
+			}
+			publicCallID, err := publicid.Encode(publicid.KindToolCall, callID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := uploadArtifactProcessInput(publicCallID, "report.pdf")
+			if name == "download_file" {
+				want = downloadArtifactProcessInput(publicCallID, artifactID, "report.pdf")
+			}
+			if process.AgentMachineBindingID != bindingID || process.Command != want.Command ||
+				process.TimeoutSeconds != want.TimeoutSeconds {
+				t.Fatalf("process=%+v want=%+v", process, want)
+			}
+			record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(record.Input) == "" || !strings.Contains(string(record.Input), "/artifacts") {
+				t.Fatalf("lost VFS input: %s", record.Input)
+			}
+		})
+	}
+}
+
+func TestRemovedArtifactToolsFailDispatch(t *testing.T) {
+	for _, name := range []string{"upload_artifact", "download_artifact"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newIntegrationToolFixture(t, ctx, "removed-"+name)
+			call := fixture.recordToolCall(t, ctx, "call_removed", name, `{}`, fixture.Now.Add(20*time.Second))
+			result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, fixture.turn(), call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Disposition != DispatchCompleted || !strings.Contains(string(result.ContentParts), "unsupported") {
+				t.Fatalf("removed tool result=%+v", result)
+			}
+		})
 	}
 }

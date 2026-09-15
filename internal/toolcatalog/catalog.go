@@ -52,11 +52,12 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	uploadArtifactToolDescription = "Create an artifact from a regular file on an attached machine. " +
-		"The file must be non-empty and at most 10 MiB. " +
-		"The result includes artifact metadata after a successful upload."
-	downloadArtifactToolDescription = "Copy an existing artifact to an attached machine. " +
-		"The result includes a process_id; use the process tools to inspect the transfer if it is still running."
+	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
+		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
+		"Successful uploads return the created file's path."
+	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
+		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
+		"If the download is still running after the initial wait, use the returned process_id with the process tools."
 )
 
 type Catalog struct {
@@ -261,10 +262,10 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineID); err != nil {
+	if entries[ToolNameUploadFile], err = uploadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameDownloadArtifact], err = downloadArtifactTool(machineID); err != nil {
+	if entries[ToolNameDownloadFile], err = downloadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -383,7 +384,8 @@ func integrationSendTool() (Entry, error) {
 					"type":      "string",
 					"minLength": 1,
 				},
-				"description": "Use exact artifact_ids returned by Omnara; omit this field or use an empty array for text-only messages.",
+				"description": "Use artifact IDs; for an upload_file result, use the final component of its /artifacts/<artifact_id> path. " +
+					"Omit this field or use an empty array for text-only messages.",
 			},
 		},
 	)
@@ -491,13 +493,19 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
-func uploadArtifactTool(machineID map[string]any) (Entry, error) {
+func uploadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameUploadArtifact,
-		uploadArtifactToolDescription,
-		[]string{"path"},
+		ToolNameUploadFile,
+		uploadFileToolDescription,
+		[]string{"path", "source"},
 		map[string]any{
 			"path": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Destination path in Omnara's virtual filesystem. Currently supports /artifacts, which creates a new artifact.",
+				"enum":        []string{ArtifactVFSRoot},
+			},
+			"source": map[string]any{
 				"type":      "string",
 				"minLength": 1,
 				"description": "Path to a regular file on the selected machine. " +
@@ -508,21 +516,23 @@ func uploadArtifactTool(machineID map[string]any) (Entry, error) {
 	)
 }
 
-func downloadArtifactTool(machineID map[string]any) (Entry, error) {
+func downloadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameDownloadArtifact,
-		downloadArtifactToolDescription,
-		[]string{"artifact_id", "path"},
+		ToolNameDownloadFile,
+		downloadFileToolDescription,
+		[]string{"path", "destination"},
 		map[string]any{
-			"artifact_id": map[string]any{
+			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Public artifact_id provided alongside a conversation attachment.",
+				"description": "Source path in Omnara's virtual filesystem. Currently supports /artifacts/<artifact_id>.",
+				"pattern":     "^" + ArtifactVFSRoot + "/art_[a-z2-7]{26}$",
 			},
-			"path": map[string]any{
+			"destination": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Destination path on the selected machine. The parent directory must exist. " +
+				"description": "Destination path on the selected machine. " +
+					"The parent directory must exist; an existing destination is replaced atomically. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineID,

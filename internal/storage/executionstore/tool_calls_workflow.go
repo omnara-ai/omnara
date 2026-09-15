@@ -236,8 +236,16 @@ func commandTerminalToolResult(
 }
 
 func isUploadArtifactToolCall(call ToolCallRecord) bool {
-	return call.Type == toolcatalog.ToolTypeBuiltIn &&
-		call.Name == toolcatalog.ToolNameUploadArtifact
+	if call.Type != toolcatalog.ToolTypeBuiltIn {
+		return false
+	}
+	if call.Name != toolcatalog.ToolNameUploadFile {
+		return false
+	}
+	var input struct {
+		Path string `json:"path"`
+	}
+	return json.Unmarshal(call.Input, &input) == nil && input.Path == toolcatalog.ArtifactVFSRoot
 }
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
@@ -267,7 +275,7 @@ func uploadArtifactProcessToolResultContentParts(
 		{
 			"type": "structured_data",
 			"value": map[string]any{
-				"artifact_id": publicResourceID(publicid.KindArtifact, artifact.ID),
+				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
 			},
 		},
 		{

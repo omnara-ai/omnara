@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type countingSecretKeyWrapper struct {
@@ -1176,16 +1177,22 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 	t.Parallel()
 	for _, test := range []struct {
 		name           string
+		toolName       string
+		input          json.RawMessage
 		createArtifact bool
 		wantOutcome    executionstore.ToolResultOutcome
 	}{
 		{
 			name:           "stored_artifact",
+			toolName:       "upload_file",
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			createArtifact: true,
 			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
 		},
 		{
 			name:        "missing_artifact",
+			toolName:    "upload_file",
+			input:       json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 	} {
@@ -1193,13 +1200,20 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(t, ctx, "upload_artifact_terminal_"+test.name)
-			toolCallID := createToolCallForProcessTest(
+			toolCallIDs := createToolCallBatchForProcessTest(
 				t,
 				ctx,
 				fixture,
 				"upload_artifact_terminal_"+test.name,
-				"upload_artifact",
+				[]processToolCallBatchItem{{
+					TestName: test.name,
+					ToolName: test.toolName,
+					ToolType: toolcatalog.ToolTypeBuiltIn,
+					Allowed:  true,
+					Input:    test.input,
+				}},
 			)
+			toolCallID := toolCallIDs[0]
 			process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 				ProjectID:     testProjectID,
 				AgentID:       fixture.AgentID,
@@ -1310,7 +1324,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			if test.createArtifact {
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
 				wantContent := []byte(
-					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID +
+					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
 						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
 						`","exclude_from_model_context":true}]`,
 				)
@@ -1340,7 +1354,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					)
 				}
 				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID + `"}}]`,
+					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}]`,
 				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {
@@ -1403,7 +1417,7 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				}
 				foundCompactionResult := false
 				for _, event := range compactionEvents {
-					if event.ToolName == "upload_artifact" &&
+					if event.ToolName == test.toolName &&
 						event.ToolOutcome == string(executionstore.ToolResultOutcomeSucceeded) {
 						foundCompactionResult = sameJSON(event.ContentParts, wantModelContent)
 					}

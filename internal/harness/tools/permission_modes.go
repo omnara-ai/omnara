@@ -412,14 +412,14 @@ func runCommandPermissionChallenge(
 	return permissionChallenge(call, mode, authorizationInput, contextItems...)
 }
 
-func uploadArtifactPermissionChallenge(
+func uploadFilePermissionChallenge(
 	ctx context.Context,
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	resolved, err := resolveUploadArtifactRequest(call.Input)
+	resolved, err := resolveUploadFileRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
@@ -431,27 +431,25 @@ func uploadArtifactPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Path)
+	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Source)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(
-		call,
-		mode,
-		authorizationInput,
-		interactionform.ContextItem{Label: "Path", Value: resolved.Path},
+	return permissionChallenge(call, mode, authorizationInput,
+		interactionform.ContextItem{Label: "Source", Value: resolved.Source},
+		interactionform.ContextItem{Label: "Destination", Value: toolcatalog.ArtifactVFSRoot},
 		interactionform.ContextItem{Label: "Machine", Value: machineID},
 	)
 }
 
-func downloadArtifactPermissionChallenge(
+func downloadFilePermissionChallenge(
 	ctx context.Context,
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	resolved, err := resolveDownloadArtifactRequest(call.Input)
+	resolved, err := resolveDownloadFileRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
@@ -466,17 +464,14 @@ func downloadArtifactPermissionChallenge(
 	authorizationInput, err := downloadArtifactAuthorizationInput(
 		binding.ID,
 		resolved.ArtifactID,
-		resolved.Path,
+		resolved.Destination,
 	)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(
-		call,
-		mode,
-		authorizationInput,
-		interactionform.ContextItem{Label: "Artifact", Value: resolved.ArtifactID},
-		interactionform.ContextItem{Label: "Destination", Value: resolved.Path},
+	return permissionChallenge(call, mode, authorizationInput,
+		interactionform.ContextItem{Label: "Source", Value: toolcatalog.ArtifactVFSRoot + "/" + resolved.ArtifactID},
+		interactionform.ContextItem{Label: "Destination", Value: resolved.Destination},
 		interactionform.ContextItem{Label: "Machine", Value: machineID},
 	)
 }

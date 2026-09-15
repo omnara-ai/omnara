@@ -21,9 +21,9 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonArtifactProcessScope struct {
-	ProjectID  uuid.UUID
-	AgentID    uuid.UUID
-	ArtifactID string
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	Path      string
 }
 
 func (s *Store) GetDaemonArtifactProcessScope(
@@ -52,9 +52,9 @@ func (s *Store) GetDaemonArtifactProcessScope(
 		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
 	}
 	return DaemonArtifactProcessScope{
-		ProjectID:  record.ProjectID,
-		AgentID:    record.AgentID,
-		ArtifactID: record.ArtifactID,
+		ProjectID: record.ProjectID,
+		AgentID:   record.AgentID,
+		Path:      record.Path,
 	}, true, nil
 }
 

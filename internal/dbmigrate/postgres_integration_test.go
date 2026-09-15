@@ -4,7 +4,9 @@ package dbmigrate_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,11 +23,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1378,4 +1383,89 @@ func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
 	}
 	parsed.Path = "/" + pool.Config().ConnConfig.Database
 	return parsed.String()
+}
+
+func TestFileToolCutoverMigration(t *testing.T) {
+	for _, collision := range []bool{false, true} {
+		t.Run(fmt.Sprintf("collision_%v", collision), func(t *testing.T) {
+			ctx := context.Background()
+			pool := integrationdb.OpenUnmigratedPool(t, ctx)
+			db := stdlib.OpenDBFromPool(pool)
+			defer func() { _ = db.Close() }()
+			_, err := db.ExecContext(ctx, `
+				CREATE TABLE agent_configs (
+					id uuid PRIMARY KEY, project_id uuid NOT NULL, source text NOT NULL,
+					source_format text NOT NULL, source_hash text NOT NULL,
+					definition jsonb NOT NULL, compiled_definition jsonb NOT NULL,
+					effective_definition_hash text NOT NULL,
+					UNIQUE(project_id, effective_definition_hash, source_format, source_hash));
+				CREATE FUNCTION reject_config_update() RETURNS trigger LANGUAGE plpgsql AS $$
+				BEGIN RAISE EXCEPTION 'immutable'; END $$;
+				CREATE TRIGGER agent_configs_immutable BEFORE UPDATE OR DELETE ON agent_configs
+				FOR EACH ROW EXECUTE FUNCTION reject_config_update();
+				CREATE TABLE config_references (kind text PRIMARY KEY, config_id uuid REFERENCES agent_configs(id));`)
+			require.NoError(t, err)
+			configID, projectID := uuid.New(), uuid.New()
+			legacy, err := jsoncanonical.Normalize(json.RawMessage(`{"tools":{"upload_artifact":{"enabled":true,"type":"built_in","permission":{"mode":"always_ask","parameters":{}}},"download_artifact":{"enabled":false,"type":"built_in","permission":{"mode":"always_deny","parameters":{}}}}}`))
+			require.NoError(t, err)
+			hash := fmt.Sprintf("%x", sha256.Sum256(legacy))
+			_, err = db.ExecContext(ctx, `
+				INSERT INTO agent_configs VALUES ($1,$2,$3::text,'json',$4,$3::text::jsonb,$3::text::jsonb,$4);
+				`, configID, projectID, string(legacy), hash)
+			require.NoError(t, err)
+			for _, kind := range []string{"agent", "profile_version", "model_context"} {
+				_, err = db.ExecContext(ctx, "INSERT INTO config_references VALUES ($1,$2)", kind, configID)
+				require.NoError(t, err)
+			}
+			if collision {
+				current := strings.ReplaceAll(strings.ReplaceAll(string(legacy), "upload_artifact", "upload_file"),
+					"download_artifact", "download_file")
+				_, err = db.ExecContext(ctx,
+					"INSERT INTO agent_configs VALUES ($1,$2,$3::text,'json',$4,$3::text::jsonb,$3::text::jsonb,$4)",
+					uuid.New(), projectID, current, fmt.Sprintf("%x", sha256.Sum256([]byte(current))))
+				require.NoError(t, err)
+			}
+			var migration *goose.Migration
+			for _, candidate := range schemamigrations.GoMigrations() {
+				if candidate.Version == 37 {
+					migration = candidate
+				}
+			}
+			require.NotNil(t, migration)
+			provider, err := goose.NewProvider(goose.DialectPostgres, db, fstest.MapFS{},
+				goose.WithDisableGlobalRegistry(true), goose.WithGoMigrations(migration))
+			require.NoError(t, err)
+			_, err = provider.Up(ctx)
+			if collision {
+				require.ErrorContains(t, err, "identical")
+			} else {
+				require.NoError(t, err)
+			}
+			var source, sourceHash, effectiveHash string
+			var compiled []byte
+			require.NoError(t, db.QueryRowContext(ctx, `
+				SELECT source, source_hash, compiled_definition, effective_definition_hash
+				FROM agent_configs WHERE id=$1`, configID).Scan(&source, &sourceHash, &compiled, &effectiveHash))
+			if collision {
+				require.Equal(t, string(legacy), source)
+			} else {
+				require.NotContains(t, source, "upload_artifact")
+				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(source))), sourceHash)
+				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
+				require.NoError(t, err)
+				require.Len(t, contract.Tools, 1)
+				require.Equal(t, "upload_file", contract.Tools[0].Name)
+				require.Equal(t, "always_ask", contract.Tools[0].Permission.Mode)
+				var references int
+				require.NoError(t, db.QueryRowContext(ctx, `
+					SELECT count(*) FROM config_references r JOIN agent_configs c ON c.id=r.config_id
+					WHERE c.id=$1 AND c.compiled_definition->'tools' ? 'upload_file'`, configID).Scan(&references))
+				require.Equal(t, 3, references)
+				_, err = provider.Up(ctx)
+				require.NoError(t, err)
+			}
+			_, err = db.ExecContext(ctx, "UPDATE agent_configs SET source=source WHERE id=$1", configID)
+			require.ErrorContains(t, err, "immutable")
+		})
+	}
 }

@@ -523,7 +523,7 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 const getDaemonArtifactProcessScope = `-- name: GetDaemonArtifactProcessScope :one
 SELECT process.project_id,
        process.agent_id,
-       COALESCE(tool_call.input->>'artifact_id', '')::text AS artifact_id
+       COALESCE(tool_call.input->>'path', '')::text AS path
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -544,9 +544,9 @@ type GetDaemonArtifactProcessScopeParams struct {
 }
 
 type GetDaemonArtifactProcessScopeRow struct {
-	ProjectID  uuid.UUID
-	AgentID    uuid.UUID
-	ArtifactID string
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	Path      string
 }
 
 func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaemonArtifactProcessScopeParams) (GetDaemonArtifactProcessScopeRow, error) {
@@ -557,7 +557,7 @@ func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaem
 		arg.ToolName,
 	)
 	var i GetDaemonArtifactProcessScopeRow
-	err := row.Scan(&i.ProjectID, &i.AgentID, &i.ArtifactID)
+	err := row.Scan(&i.ProjectID, &i.AgentID, &i.Path)
 	return i, err
 }
 

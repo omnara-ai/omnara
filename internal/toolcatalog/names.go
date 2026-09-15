@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	ArtifactVFSRoot                = "/artifacts"
 	ToolNamePattern                = `^[A-Za-z_][A-Za-z0-9_]{0,63}$`
 	ToolNameRunCommand             = "run_command"
 	ToolNameWriteProcess           = "write_process"
@@ -21,8 +22,8 @@ const (
 	ToolNameSetIntegrationTarget   = "set_integration_target"
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
-	ToolNameUploadArtifact         = "upload_artifact"
-	ToolNameDownloadArtifact       = "download_artifact"
+	ToolNameUploadFile             = "upload_file"
+	ToolNameDownloadFile           = "download_file"
 	ToolNameSkill                  = "skill"
 	ToolNameSpawnAgent             = "spawn_agent"
 	ToolNameReadAgent              = "read_agent"

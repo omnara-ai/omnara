@@ -3080,6 +3080,9 @@ func createHTTPProcessToolCallBatch(
 	modelContext := modelCall.Context
 	providerResponseID := "resp_" + name
 	primaryToolInput := json.RawMessage(`{}`)
+	if toolName == "upload_file" {
+		primaryToolInput = json.RawMessage(`{"path":"/artifacts","source":"report.pdf"}`)
+	}
 	if primaryToolInputBuilder != nil {
 		primaryToolInput = primaryToolInputBuilder(agent.ID)
 	}

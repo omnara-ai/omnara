@@ -36,8 +36,8 @@ const alwaysAllowProfile: ToolPermissionProfile = {
 const catalog: ToolCatalog = {
   built_in_tools: [
     {
-      name: 'download_artifact',
-      description: 'Download an artifact.',
+      name: 'download_file',
+      description: 'Download a file.',
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
     },
@@ -124,7 +124,7 @@ async function renderAndFlush(node: ReactNode) {
 
 it('preserves an inherited built-in permission when the catalog loads', async () => {
   const onToolsChange = vi.fn()
-  const tools = [{ name: 'download_artifact', permission: null }]
+  const tools = [{ name: 'download_file', permission: null }]
 
   await renderAndFlush(<AgentConfigToolsField tools={tools} onToolsChange={onToolsChange} />)
   await renderAndFlush(
@@ -133,6 +133,7 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
 
   expect(onToolsChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always allow')
+  expect(container.textContent).toContain('download_file')
 })
 
 it('preserves an inherited MCP permission when its profile loads', async () => {
