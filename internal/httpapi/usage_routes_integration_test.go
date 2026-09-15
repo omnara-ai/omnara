@@ -59,7 +59,8 @@ func TestUsageRoutes(t *testing.T) {
 		input: 157, uncached: 117, cacheRead: 30, cacheWrite: 10, output: 33, reasoning: 5,
 	}
 	parentPath := project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, parent.ID)
-	profilePath := project.ProjectPath + "/agent-profiles/" + testPublicID(t, publicid.KindAgentProfile, parent.AgentProfileID)
+	profilePath := project.ProjectPath + "/agent-profiles/" +
+		testPublicID(t, publicid.KindAgentProfile, parent.AgentProfileID)
 
 	get := func(path string) map[string]any {
 		t.Helper()
@@ -116,10 +117,12 @@ func assertUsageReport(t *testing.T, report map[string]any, want expectedUsage) 
 		modelInfo["model_provider_config_name"] != "openai-prod" {
 		t.Fatalf("by_model[0].model = %+v", modelInfo)
 	}
-	if _, err := publicid.Decode(publicid.KindConfiguredModel, testutil.RequireType[string](t, modelInfo["configured_model_id"])); err != nil {
+	configuredModelID := testutil.RequireType[string](t, modelInfo["configured_model_id"])
+	if _, err := publicid.Decode(publicid.KindConfiguredModel, configuredModelID); err != nil {
 		t.Fatalf("configured_model_id: %v", err)
 	}
-	if _, err := publicid.Decode(publicid.KindModelProviderConfig, testutil.RequireType[string](t, modelInfo["model_provider_config_id"])); err != nil {
+	providerConfigID := testutil.RequireType[string](t, modelInfo["model_provider_config_id"])
+	if _, err := publicid.Decode(publicid.KindModelProviderConfig, providerConfigID); err != nil {
 		t.Fatalf("model_provider_config_id: %v", err)
 	}
 }
@@ -147,7 +150,8 @@ func assertUsageTotals(t *testing.T, label string, row map[string]any, want expe
 	if cost["provider_reported_usd"] != want.cost {
 		t.Fatalf("%s.cost.provider_reported_usd = %v, want %s", label, cost["provider_reported_usd"], want.cost)
 	}
-	if withCost := testutil.RequireType[float64](t, cost["model_calls_with_reported_cost"]); int(withCost) != want.withCost {
+	withCost := testutil.RequireType[float64](t, cost["model_calls_with_reported_cost"])
+	if int(withCost) != want.withCost {
 		t.Fatalf("%s.cost.model_calls_with_reported_cost = %v, want %d", label, withCost, want.withCost)
 	}
 }
