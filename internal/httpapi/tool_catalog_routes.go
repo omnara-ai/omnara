@@ -28,9 +28,11 @@ func (s strictOpenAPIServer) GetToolCatalog(
 		if err != nil {
 			return nil, err
 		}
+		configurable := !toolcatalog.IsBindingManagedTool(entry.Name)
 		tools = append(tools, openapi.ToolCatalogEntry{
 			Name:              entry.Name,
 			Description:       entry.Description,
+			Configurable:      &configurable,
 			DefaultPermission: defaultPermission,
 			PermissionModes:   modes,
 		})

@@ -67,9 +67,13 @@ SET updated_at = CASE WHEN revoked_at IS NULL THEN transaction_timestamp() ELSE 
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id)
 RETURNING id, org_id, name, token_id, token_hash, created_by_user_id, created_at, updated_at, last_used_at, revoked_at;
 
--- name: DeleteOrganizationOrgAPIKeys :exec
-DELETE FROM org_api_keys
-WHERE org_id = sqlc.arg(org_id);
+-- name: RevokeOrganizationOrgAPIKeys :exec
+-- Retained installations reference their installer identity after org deletion.
+-- Remove key authority now; a future organization purge removes both records.
+UPDATE org_api_keys
+SET updated_at = transaction_timestamp(),
+    revoked_at = transaction_timestamp()
+WHERE org_id = sqlc.arg(org_id) AND revoked_at IS NULL;
 
 -- name: TouchOrgAPIKeyUpdatedAt :one
 UPDATE org_api_keys

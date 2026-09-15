@@ -25,10 +25,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 const (
 	runtimeLockReapBatchSize         int32 = 100
+	integrationEventBatchSize              = 1000
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
 	idleMachineReconcileInterval           = time.Minute
@@ -214,6 +216,7 @@ func main() {
 		logger,
 		store,
 		cfg.MaintenanceInterval,
+		cfg.IntegrationEventRetention,
 		healthErr,
 	)
 	cancel()
@@ -334,6 +337,7 @@ func runCoreMaintenanceLoop(
 	log *slog.Logger,
 	store *storage.Store,
 	interval time.Duration,
+	integrationEventRetention time.Duration,
 	healthErr <-chan error,
 ) int {
 	ticker := time.NewTicker(interval)
@@ -341,7 +345,12 @@ func runCoreMaintenanceLoop(
 	for {
 		now := time.Now().UTC()
 		loopCtx, event := logent.MaintenanceLoop(ctx, interval, now)
-		runCoreMaintenanceTick(loopCtx, log, store)
+		runCoreMaintenanceTick(
+			loopCtx,
+			log,
+			store,
+			integrationEventRetention,
+		)
 		event.Done(loopCtx)
 		select {
 		case <-ctx.Done():
@@ -363,6 +372,7 @@ func runCoreMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
+	integrationEventRetention time.Duration,
 ) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -387,8 +397,19 @@ func runCoreMaintenanceTick(
 			executionstore.ProcessToolMachineUnreachableGrace,
 		)
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
+	expiredChannelRequests, expireChannelRequestsErr := store.Execution().ExpireExternalChannelRequests(ctx, 100)
+	expireChannelRequestsOutcome := completedMaintenanceOutcome(ctx, expireChannelRequestsErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
+	failedEvents, failEventsErr := store.Integrations().FailUnprocessableIntegrationEvents(ctx, integrationEventBatchSize)
+	failEventsOutcome := completedMaintenanceOutcome(ctx, failEventsErr)
+	deletedEvents, deleteEventsErr := store.Integrations().DeleteRetainedIntegrationEvents(
+		ctx,
+		integrationstore.DeleteRetainedIntegrationEventsInput{
+			Retention: integrationEventRetention, Limit: integrationEventBatchSize,
+		},
+	)
+	deleteEventsOutcome := completedMaintenanceOutcome(ctx, deleteEventsErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
@@ -398,7 +419,9 @@ func runCoreMaintenanceTick(
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredProcessTools > 0 ||
-		authCleanupDeleted
+		expiredChannelRequests > 0 ||
+		authCleanupDeleted ||
+		failedEvents > 0 || deletedEvents > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -408,7 +431,10 @@ func runCoreMaintenanceTick(
 			reapRuntimeLocksOutcome.err,
 			expireDaemonRuntimesOutcome.err,
 			expireProcessToolsOutcome.err,
+			expireChannelRequestsOutcome.err,
 			authCleanupOutcome.err,
+			failEventsOutcome.err,
+			deleteEventsOutcome.err,
 		),
 	)
 	if expireDaemonRuntimesOutcome.err != nil {
@@ -420,6 +446,11 @@ func runCoreMaintenanceTick(
 		log.Error("expire process tool calls", "error", expireProcessToolsOutcome.err)
 	} else if !expireProcessToolsOutcome.interrupted && expiredProcessTools > 0 {
 		log.Info("expired process tool calls", "count", expiredProcessTools)
+	}
+	if expireChannelRequestsOutcome.err != nil {
+		log.Error("expire external channel requests", "error", expireChannelRequestsOutcome.err)
+	} else if !expireChannelRequestsOutcome.interrupted && expiredChannelRequests > 0 {
+		log.Info("expired external channel requests", "count", expiredChannelRequests)
 	}
 	if authCleanupOutcome.err != nil {
 		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)
@@ -439,6 +470,15 @@ func runCoreMaintenanceTick(
 			"deleted_oauth_tokens",
 			authCleanup.DeletedOAuthTokens,
 		)
+	}
+	if failEventsOutcome.err != nil {
+		log.Error("fail unprocessable incoming events", "error", failEventsOutcome.err)
+	}
+	if deleteEventsOutcome.err != nil {
+		log.Error("delete retained incoming events", "error", deleteEventsOutcome.err)
+	}
+	if !failEventsOutcome.interrupted && !deleteEventsOutcome.interrupted && (failedEvents > 0 || deletedEvents > 0) {
+		log.Info("maintained incoming event receipts", "failed", failedEvents, "deleted", deletedEvents)
 	}
 }
 

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import { emptyProviderOptions } from '@/components/machines/machineOverrides'
-
 import {
   type BasicConfig,
   basicConfigValid,
@@ -13,113 +11,7 @@ import {
   mcpToolEnabled,
   unexposableMcpTools,
 } from './useAgentBuilderForm'
-
-const fullConfig: BasicConfig = {
-  instruction: 'You are a research assistant.\n\nCite sources.',
-  providerConfig: 'anthropic',
-  modelName: 'claude-sonnet-5',
-  machineSources: [
-    {
-      id: 'source-1',
-      kind: 'pool',
-      name: 'default-pool',
-      provider: '',
-      managementKind: '',
-      defaultCwd: '/workspace',
-      initialNumMachines: '2',
-      maxMachines: '5',
-      deleteAfterIdleMinutes: '0',
-      machineCpu: '4',
-      machineMemoryGb: '8',
-      providerOptions: emptyProviderOptions,
-      envRows: [{ id: 'env-1', key: 'MODE', value: 'ci' }],
-      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_123' }],
-    },
-    {
-      id: 'source-2',
-      kind: 'machine',
-      name: 'build-box',
-      provider: '',
-      managementKind: '',
-      defaultCwd: '',
-      initialNumMachines: '',
-      maxMachines: '',
-      deleteAfterIdleMinutes: '',
-      machineCpu: '',
-      machineMemoryGb: '',
-      providerOptions: emptyProviderOptions,
-      envRows: [],
-      secretEnvRows: [],
-    },
-  ],
-  tools: [
-    { name: 'shell', permission: { mode: 'always_ask', parameters: {} } },
-    { name: 'browser', permission: { mode: 'allowlist', parameters: { hosts: ['example.com'] } } },
-  ],
-  mcpServers: [
-    {
-      id: 'mcp-1',
-      name: 'search',
-      url: 'https://mcp.example.com',
-      permission: { mode: 'always_allow', parameters: {} },
-      defaultEnabled: true,
-      authType: 'none',
-      secretId: '',
-      service: '',
-      region: '',
-      tools: [],
-    },
-    {
-      id: 'mcp-2',
-      name: 'aws-docs',
-      url: 'https://mcp.aws.example.com',
-      permission: { mode: 'always_ask', parameters: {} },
-      defaultEnabled: false,
-      authType: 'sigv4',
-      secretId: 'sec_456',
-      service: 'execute-api',
-      region: 'us-east-1',
-      tools: [],
-    },
-    {
-      id: 'mcp-3',
-      name: 'issues',
-      url: 'https://mcp.issues.example.com',
-      permission: { mode: 'always_ask', parameters: {} },
-      defaultEnabled: true,
-      authType: 'bearer',
-      secretId: 'sec_789',
-      service: '',
-      region: '',
-      tools: [],
-    },
-  ],
-  skillIds: ['skl_1', 'skl_2'],
-  subagents: [
-    {
-      id: 'sub-1',
-      key: 'researcher',
-      type: 'profile',
-      profileName: 'research-agent',
-      description: 'Investigate.',
-      instructionAppend: 'Report as bullets.',
-      maxInstances: '2',
-      archiveAfterIdleMinutes: '30',
-    },
-    {
-      id: 'sub-2',
-      key: 'fork',
-      type: 'self',
-      profileName: '',
-      description: '',
-      instructionAppend: '',
-      maxInstances: '',
-      archiveAfterIdleMinutes: '',
-    },
-  ],
-  maxSubagents: '4',
-  maxDepth: '2',
-}
+import { fullConfig } from './useAgentBuilderForm.test-fixtures'
 
 const minimalYaml = `instruction: Do the thing.
 model:
@@ -540,6 +432,117 @@ describe('createBasicConfigSession apply', () => {
   it('returns the source verbatim when the draft matches it', () => {
     const config = mustDeserialize(commentedYaml)
     expect(applyToSource(commentedYaml, config)).toBe(commentedYaml)
+  })
+
+  it('removes legacy binding-managed tools from an otherwise unrelated edit', () => {
+    const source = `${minimalYaml}tools:
+  ask_question: {}
+  list_channels: {}
+  get_channel: {}
+  set_current_channel:
+    permission:
+      mode: always_ask
+  read_channel: {}
+  send_channel_message:
+    enabled: false
+`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected the legacy config to deserialize')
+    expect(config.tools.map((tool) => tool.name)).toEqual(['ask_question'])
+
+    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
+    expect(parse(updated)).toMatchObject({
+      instruction: 'Updated instruction.',
+      tools: { ask_question: {} },
+    })
+    expect(parse(updated)).toHaveProperty('tools', { ask_question: {} })
+  })
+
+  it.each([
+    'list_channels',
+    'get_channel',
+    'set_current_channel',
+    'send_channel_message',
+    'read_channel',
+  ])('omits binding-managed tool %s supplied in a builder draft', (name) => {
+    const draft = { ...mustDeserialize(minimalYaml), tools: [{ name, permission: null }] }
+    expect(parse(applyToSource(minimalYaml, draft))).not.toHaveProperty('tools')
+  })
+
+  it('preserves a user-authored empty tools map on an unrelated edit', () => {
+    const source = `${minimalYaml}# Keep this explicit empty map.
+tools: {}
+`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected the empty tools config to deserialize')
+
+    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
+    expect(updated).toContain('# Keep this explicit empty map.')
+    expect(parse(updated)).toMatchObject({ tools: {} })
+  })
+
+  it.each([
+    `  list_channels: &shared {}
+  ask_question: *shared # Keep this tool.
+  run_command: *shared
+`,
+    `  list_channels:
+    permission: &approval
+      mode: always_ask
+  ask_question:
+    permission: *approval
+  run_command:
+    permission: *approval
+`,
+  ])('preserves aliases when removing legacy channel tools: %s', (tools) => {
+    const source = `${minimalYaml}tools:\n${tools}`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected the aliased config to deserialize')
+    expect(config.tools.map((tool) => tool.name)).toEqual(['ask_question', 'run_command'])
+
+    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
+    expect(updated).not.toContain('list_channels')
+    expect(mustDeserialize(updated)).toEqual({ ...config, instruction: 'Updated instruction.' })
+    if (source.includes('# Keep this tool.')) expect(updated).toContain('# Keep this tool.')
+  })
+
+  it('preserves references to an entire removed tools map', () => {
+    const source = `${minimalYaml}tools: &shared {list_channels: {}}
+mcp:
+  remote:
+    url: https://example.test/mcp
+    tools: *shared
+`
+    const config = mustDeserialize(source)
+    expect(config.tools).toEqual([])
+    const updated = applyToSource(source, { ...config, instruction: 'Updated instruction.' })
+    expect(parse(updated)).toMatchObject({ mcp: { remote: { tools: { list_channels: {} } } } })
+    expect(mustDeserialize(updated)).toMatchObject({
+      ...config,
+      instruction: 'Updated instruction.',
+      // Builder field IDs are regenerated on every parse.
+      mcpServers: config.mcpServers.map(({ name, url, tools }) => ({ name, url, tools })),
+    })
+  })
+
+  it('preserves alias targets when a removed entry has a shadowed nested anchor', () => {
+    const source = `${minimalYaml}tools:
+  list_channels: &entry {permission: &p {mode: always_allow}}
+  ask_question: {permission: &p {mode: always_ask}}
+  run_command: *entry
+  shell: {permission: *p}
+`
+    const config = mustDeserialize(source)
+    expect(config.tools.map((tool) => tool.permission?.mode)).toEqual([
+      'always_ask',
+      'always_allow',
+      'always_ask',
+    ])
+    const updated = applyToSource(source, { ...config, instruction: 'Updated instruction.' })
+    expect(mustDeserialize(updated)).toEqual({ ...config, instruction: 'Updated instruction.' })
   })
 
   it('rewrites only the entries that changed, preserving everything else', () => {

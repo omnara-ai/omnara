@@ -10,6 +10,41 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
+func (s strictOpenAPIServer) CreateExternalIntegrationInstall(
+	ctx context.Context,
+	request openapi.CreateExternalIntegrationInstallRequestObject,
+) (openapi.CreateExternalIntegrationInstallResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
+	}
+	displayName := ""
+	if request.Body.DisplayName != nil {
+		displayName = *request.Body.DisplayName
+	}
+	record, err := s.server.store.Integrations().CreateExternalIntegrationInstall(
+		ctx, integrationstore.CreateExternalIntegrationInstallInput{
+			OrgID: scope.project.OrgID, ProjectID: scope.project.ID, InstalledBy: principal,
+			DisplayName: displayName, Metadata: request.Body.Metadata,
+		},
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := integrationInstallResponse(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.CreateExternalIntegrationInstall201JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) ListIntegrationInstalls(
 	ctx context.Context,
 	request openapi.ListIntegrationInstallsRequestObject,
@@ -100,29 +135,25 @@ func integrationInstallResponse(record integrationstore.IntegrationInstallRecord
 	if err != nil {
 		return openapi.IntegrationInstall{}, err
 	}
-	agentProfileID, err := idOrNil(publicid.KindAgentProfile, record.AgentProfileID)
-	if err != nil {
-		return openapi.IntegrationInstall{}, err
-	}
-	agentID, err := idOrNil(publicid.KindAgent, record.AgentID)
+	appID, err := idOrNil(publicid.KindIntegrationApp, record.IntegrationAppID)
 	if err != nil {
 		return openapi.IntegrationInstall{}, err
 	}
 	return openapi.IntegrationInstall{
-		Id:                       id,
-		OrgId:                    orgID,
-		ProjectId:                projectID,
-		AgentProfileId:           agentProfileID,
-		AgentId:                  agentID,
-		Provider:                 record.Provider,
-		IntegrationKind:          record.IntegrationKind,
-		ConnectionMode:           record.ConnectionMode,
-		State:                    openapi.IntegrationInstallState(record.State),
-		ProviderTenantId:         record.ProviderTenantID,
-		ProviderAccountRef:       record.ProviderAccountRef,
-		ProviderAgentDisplayName: record.ProviderAgentDisplayName,
-		CreatedAt:                record.CreatedAt,
-		UpdatedAt:                record.UpdatedAt,
+		Id:                 id,
+		OrgId:              orgID,
+		ProjectId:          projectID,
+		IntegrationAppId:   appID,
+		Provider:           ptrFromNonEmpty(record.Provider),
+		IntegrationKind:    openapi.IntegrationKind(record.IntegrationKind),
+		ConnectionMode:     record.ConnectionMode,
+		State:              openapi.IntegrationInstallState(record.State),
+		ProviderTenantId:   ptrFromNonEmpty(record.ProviderTenantID),
+		ProviderAccountRef: ptrFromNonEmpty(record.ProviderAccountRef),
+		DisplayName:        record.DisplayName,
+		Metadata:           record.Metadata,
+		CreatedAt:          record.CreatedAt,
+		UpdatedAt:          record.UpdatedAt,
 	}, nil
 }
 

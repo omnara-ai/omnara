@@ -15,28 +15,29 @@ import (
 )
 
 type AgentInputRecord struct {
-	ID                  uuid.UUID              `json:"id"`
-	ProjectID           uuid.UUID              `json:"project_id"`
-	AgentID             uuid.UUID              `json:"agent_id"`
-	State               string                 `json:"state"`
-	InputRank           int64                  `json:"input_rank"`
-	ActorID             uuid.UUID              `json:"actor_id,omitzero"`
-	InputKind           string                 `json:"input_kind"`
-	IntegrationTargetID uuid.UUID              `json:"integration_target_id,omitempty"`
-	IdempotencyScope    string                 `json:"idempotency_scope,omitempty"`
-	InputIdempotencyKey string                 `json:"input_idempotency_key,omitempty"`
-	QueuedAt            time.Time              `json:"queued_at"`
-	AdmittedEventID     uuid.UUID              `json:"admitted_event_id,omitempty"`
-	AdmittedAt          *time.Time             `json:"admitted_at,omitempty"`
-	CanceledAt          *time.Time             `json:"canceled_at,omitempty"`
-	DeliveryMode        AgentInputDeliveryMode `json:"delivery_mode"`
-	ControlType         string                 `json:"control_type,omitempty"`
-	TargetInteractionID uuid.UUID              `json:"target_interaction_id,omitempty"`
-	AgentConfigID       uuid.UUID              `json:"agent_config_id,omitempty"`
-	ResolvedAt          *time.Time             `json:"resolved_at,omitempty"`
-	RejectedReason      string                 `json:"rejected_reason,omitempty"`
-	Metadata            json.RawMessage        `json:"metadata"`
-	ContentBlocks       json.RawMessage        `json:"-"`
+	ID                         uuid.UUID              `json:"id"`
+	ProjectID                  uuid.UUID              `json:"project_id"`
+	AgentID                    uuid.UUID              `json:"agent_id"`
+	State                      string                 `json:"state"`
+	InputRank                  int64                  `json:"input_rank"`
+	ActorID                    uuid.UUID              `json:"actor_id,omitzero"`
+	InputKind                  string                 `json:"input_kind"`
+	IntegrationTargetID        uuid.UUID              `json:"integration_target_id,omitempty"`
+	IntegrationTargetBindingID uuid.UUID              `json:"integration_target_binding_id,omitempty"`
+	IdempotencyScope           string                 `json:"idempotency_scope,omitempty"`
+	InputIdempotencyKey        string                 `json:"input_idempotency_key,omitempty"`
+	QueuedAt                   time.Time              `json:"queued_at"`
+	AdmittedEventID            uuid.UUID              `json:"admitted_event_id,omitempty"`
+	AdmittedAt                 *time.Time             `json:"admitted_at,omitempty"`
+	CanceledAt                 *time.Time             `json:"canceled_at,omitempty"`
+	DeliveryMode               AgentInputDeliveryMode `json:"delivery_mode"`
+	ControlType                string                 `json:"control_type,omitempty"`
+	TargetInteractionID        uuid.UUID              `json:"target_interaction_id,omitempty"`
+	AgentConfigID              uuid.UUID              `json:"agent_config_id,omitempty"`
+	ResolvedAt                 *time.Time             `json:"resolved_at,omitempty"`
+	RejectedReason             string                 `json:"rejected_reason,omitempty"`
+	Metadata                   json.RawMessage        `json:"metadata"`
+	ContentBlocks              json.RawMessage        `json:"-"`
 }
 
 type AgentInputQueueCursor struct {
@@ -70,15 +71,16 @@ const (
 type AgentInputDeliveryMode string
 
 type insertAgentInputInput struct {
-	ID                  uuid.UUID
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	DeliveryMode        AgentInputDeliveryMode
-	ActorID             uuid.UUID
-	IntegrationTargetID uuid.UUID
-	IdempotencyScope    string
-	InputIdempotencyKey string
-	Metadata            json.RawMessage
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	DeliveryMode               AgentInputDeliveryMode
+	ActorID                    uuid.UUID
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
+	IdempotencyScope           string
+	InputIdempotencyKey        string
+	Metadata                   json.RawMessage
 }
 
 func insertAgentInputTx(
@@ -97,16 +99,17 @@ func insertAgentInputTx(
 	}
 	input.Metadata = normalizedJSON(input.Metadata)
 	row, err := dbsqlc.New(tx).InsertAgentInput(ctx, dbsqlc.InsertAgentInputParams{
-		RankStride:          agentInputRankStride,
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		ID:                  storeutil.IDFromNil(input.ID),
-		DeliveryMode:        string(input.DeliveryMode),
-		ActorID:             storeutil.IDFromNil(input.ActorID),
-		IntegrationTargetID: storeutil.IDFromNil(input.IntegrationTargetID),
-		IdempotencyScope:    storeutil.TextFromEmpty(input.IdempotencyScope),
-		InputIdempotencyKey: storeutil.TextFromEmpty(input.InputIdempotencyKey),
-		Metadata:            input.Metadata,
+		RankStride:                 agentInputRankStride,
+		ProjectID:                  input.ProjectID,
+		AgentID:                    input.AgentID,
+		ID:                         storeutil.IDFromNil(input.ID),
+		DeliveryMode:               string(input.DeliveryMode),
+		ActorID:                    storeutil.IDFromNil(input.ActorID),
+		IntegrationTargetID:        storeutil.IDFromNil(input.IntegrationTargetID),
+		IntegrationTargetBindingID: storeutil.IDFromNil(input.IntegrationTargetBindingID),
+		IdempotencyScope:           storeutil.TextFromEmpty(input.IdempotencyScope),
+		InputIdempotencyKey:        storeutil.TextFromEmpty(input.InputIdempotencyKey),
+		Metadata:                   input.Metadata,
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/registryname"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -56,8 +57,11 @@ func upsertActorIdentityTx(
 	if input.ProjectID == uuid.Nil || provider == "" || providerUserID == "" {
 		return ActorRecord{}, errors.New("project, provider, and provider user id are required")
 	}
-	if provider != ActorProviderExternal && providerTenantID == "" {
-		return ActorRecord{}, errors.New("provider tenant id is required for non-external actors")
+	if !registryname.Valid(provider) {
+		return ActorRecord{}, fmt.Errorf(
+			"%w: provider must be a lowercase registry name",
+			storeerr.ErrInvalidActorRequest,
+		)
 	}
 	row, err := qtx.UpsertActorIdentity(ctx, dbsqlc.UpsertActorIdentityParams{
 		ProjectID:        input.ProjectID,
@@ -247,6 +251,13 @@ func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorR
 	if input.ProjectID == uuid.Nil {
 		return nil, errors.New("project is required")
 	}
+	provider := strings.TrimSpace(input.Provider)
+	if provider != "" && !registryname.Valid(provider) {
+		return nil, fmt.Errorf(
+			"%w: provider must be a lowercase registry name",
+			storeerr.ErrInvalidActorRequest,
+		)
+	}
 	limit := input.Limit
 	if limit <= 0 {
 		limit = 100
@@ -259,7 +270,7 @@ func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorR
 	}
 	rows, err := s.q.ListActors(ctx, dbsqlc.ListActorsParams{
 		ProjectID:        input.ProjectID,
-		Provider:         strings.TrimSpace(input.Provider),
+		Provider:         provider,
 		ProviderTenantID: strings.TrimSpace(input.ProviderTenantID),
 		ProviderUserID:   strings.TrimSpace(input.ProviderUserID),
 		CursorCreatedAt:  cursorCreatedAt,

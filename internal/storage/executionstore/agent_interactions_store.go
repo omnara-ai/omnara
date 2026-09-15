@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -46,29 +47,35 @@ type CreateQuestionInteractionInput struct {
 }
 
 type ResolveAgentInteractionInput struct {
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	ID                  uuid.UUID
-	Resolution          interactionform.Resolution
-	Actor               *ActorParams
-	IntegrationTargetID uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	ID                         uuid.UUID
+	Resolution                 interactionform.Resolution
+	Actor                      *ActorParams
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
+	IntegrationInstallID       uuid.UUID
+	Metadata                   json.RawMessage
+	RuntimeLease               *IntegrationRuntimeLeaseProof
 }
 
 type AgentInteractionRecord struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    AgentInteractionKind
-	State              AgentInteractionState
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         time.Time
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	IntegrationTargetID uuid.UUID
+	InteractionKind     AgentInteractionKind
+	State               AgentInteractionState
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          time.Time
+	Replayed            bool `json:"-"`
 }
 
 func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
@@ -266,6 +273,19 @@ func (s *Store) ResolveAgentInteraction(
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
+	hasIntegrationOrigin := input.IntegrationInstallID != uuid.Nil ||
+		input.IntegrationTargetID != uuid.Nil || input.IntegrationTargetBindingID != uuid.Nil
+	if hasIntegrationOrigin && (input.IntegrationInstallID == uuid.Nil ||
+		input.IntegrationTargetID == uuid.Nil || input.IntegrationTargetBindingID == uuid.Nil) {
+		return AgentInteractionRecord{}, errors.New(
+			"integration install, target, and binding must either all be set or all be omitted",
+		)
+	}
+	metadata, err := normalizedJSONObject(input.Metadata, "interaction response metadata")
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	input.Metadata = metadata
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -273,7 +293,7 @@ func (s *Store) ResolveAgentInteraction(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	record, err := resolveAgentInteractionTx(ctx, txNotifications, tx, qtx, input)
+	record, err := s.resolveAgentInteractionTx(ctx, txNotifications, tx, qtx, input)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
@@ -283,18 +303,53 @@ func (s *Store) ResolveAgentInteraction(
 	return record, nil
 }
 
-func resolveAgentInteractionTx(
+func (s *Store) resolveAgentInteractionTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input ResolveAgentInteractionInput,
 ) (AgentInteractionRecord, error) {
-	if _, err := qtx.LockAgentInProject(
+	hasIntegrationOrigin := input.IntegrationInstallID != uuid.Nil
+	if hasIntegrationOrigin {
+		install, err := s.integrations.GetIntegrationInstallByIDTx(ctx, tx, input.IntegrationInstallID)
+		if err != nil {
+			return AgentInteractionRecord{}, err
+		}
+		if install.ProjectID != input.ProjectID {
+			return AgentInteractionRecord{}, storeerr.ErrConflict
+		}
+		if err := lockIntegrationInputAgentTx(ctx, tx, install, input.AgentID); err != nil {
+			return AgentInteractionRecord{}, err
+		}
+	} else if _, err := qtx.LockAgentInProject(
+
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("lock agent for interaction resolution: %w", err)
+	}
+	if hasIntegrationOrigin {
+		if _, err := s.integrations.GetActiveInteractionBindingTx(
+			ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			input.IntegrationInstallID,
+			input.IntegrationTargetID,
+			input.IntegrationTargetBindingID,
+		); err != nil {
+			return AgentInteractionRecord{}, err
+		}
+	}
+	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+		ctx,
+		qtx,
+		input.RuntimeLease,
+		input.ProjectID,
+		input.IntegrationInstallID,
+	); err != nil {
+		return AgentInteractionRecord{}, err
 	}
 	existing, err := qtx.GetAgentInteraction(
 		ctx,
@@ -309,6 +364,11 @@ func resolveAgentInteractionTx(
 			return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		return AgentInteractionRecord{}, fmt.Errorf("get agent interaction: %w", err)
+	}
+	// A later input or setter may have changed the agent's current destination.
+	// Only the channel pinned when this prompt was created may answer it.
+	if hasIntegrationOrigin && storeutil.IDFromPtr(existing.IntegrationTargetID) != input.IntegrationTargetID {
+		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 	}
 	resolution, err := normalizeAgentInteractionResolution(
 		AgentInteractionKind(existing.InteractionKind),
@@ -330,13 +390,14 @@ func resolveAgentInteractionTx(
 		if stopped {
 			return AgentInteractionRecord{}, storeerr.ErrStateTransitionConflict
 		}
-		resolvedByActorID, err := resolveActorTx(
+		resolvedByActorID, err := resolveInputActorTx(
 			ctx,
 			qtx,
 			input.ProjectID,
 			input.AgentID,
 			input.Actor,
 			input.IntegrationTargetID,
+			true,
 		)
 		if err != nil {
 			return AgentInteractionRecord{}, err
@@ -383,6 +444,13 @@ func resolveAgentInteractionTx(
 			}
 			return AgentInteractionRecord{}, fmt.Errorf("resolve agent interaction: %w", err)
 		}
+		if _, err := qtx.CancelExternalChannelRequestsForInteraction(ctx,
+			dbsqlc.CancelExternalChannelRequestsForInteractionParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID,
+				InteractionID: input.ID, Reason: "interaction_resolved",
+			}); err != nil {
+			return AgentInteractionRecord{}, fmt.Errorf("close resolved interaction's channel request: %w", err)
+		}
 		row, err := qtx.GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
 			ProjectID: input.ProjectID,
 			AgentID:   input.AgentID,
@@ -402,6 +470,15 @@ func resolveAgentInteractionTx(
 			},
 		); err != nil {
 			return AgentInteractionRecord{}, fmt.Errorf("resolve interaction response agent input: %w", err)
+		}
+		if hasIntegrationOrigin {
+			// Interaction responses are admitted here rather than through the
+			// content-input queue. Replay must not reapply this selection.
+			if err := qtx.SetAgentCurrentChannelFromInput(ctx, dbsqlc.SetAgentCurrentChannelFromInputParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ChannelID: input.IntegrationTargetID,
+			}); err != nil {
+				return AgentInteractionRecord{}, fmt.Errorf("select admitted interaction channel: %w", err)
+			}
 		}
 		record = agentInteractionRecordFromSQLC(row)
 		if err := applyPermissionInteractionResolutionTx(ctx, txNotifications, tx, qtx, record); err != nil {
@@ -432,12 +509,16 @@ func resolveAgentInteractionTx(
 		}
 		if !actorFound || !responseFound ||
 			record.ResolvedByInputID != responseInput.ID ||
-			responseInput.ActorID != requestActorID {
+			responseInput.ActorID != requestActorID ||
+			responseInput.IntegrationTargetID != input.IntegrationTargetID ||
+			responseInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID ||
+			!sameJSON(responseInput.Metadata, input.Metadata) {
 			return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		if err := completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, record); err != nil {
 			return AgentInteractionRecord{}, err
 		}
+		record.Replayed = true
 	}
 	if err := qtx.MarkAgentWakeup(
 		ctx,
@@ -721,13 +802,15 @@ func insertInteractionResponseInputTx(
 	row, err := qtx.InsertInteractionResponseAgentInput(
 		ctx,
 		dbsqlc.InsertInteractionResponseAgentInputParams{
-			ProjectID:           input.ProjectID,
-			AgentID:             input.AgentID,
-			TargetInteractionID: input.ID,
-			ActorID:             storeutil.IDFromNil(resolvedByActorID),
-			IdempotencyScope:    storeutil.TextFromEmpty(scope),
-			InputIdempotencyKey: storeutil.TextFromEmpty(key),
-			Metadata:            json.RawMessage(`{}`),
+			ProjectID:                  input.ProjectID,
+			AgentID:                    input.AgentID,
+			TargetInteractionID:        input.ID,
+			ActorID:                    storeutil.IDFromNil(resolvedByActorID),
+			IntegrationTargetID:        storeutil.IDFromNil(input.IntegrationTargetID),
+			IntegrationTargetBindingID: storeutil.IDFromNil(input.IntegrationTargetBindingID),
+			IdempotencyScope:           storeutil.TextFromEmpty(scope),
+			InputIdempotencyKey:        storeutil.TextFromEmpty(key),
+			Metadata:                   input.Metadata,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -747,7 +830,10 @@ func insertInteractionResponseInputTx(
 			)
 		}
 		record := agentInputRecordFromIdempotencySQLC(existingInput)
-		if record.InputKind != "interaction_response" || record.TargetInteractionID != input.ID {
+		if record.InputKind != "interaction_response" || record.TargetInteractionID != input.ID ||
+			record.IntegrationTargetID != input.IntegrationTargetID ||
+			record.IntegrationTargetBindingID != input.IntegrationTargetBindingID ||
+			!sameJSON(record.Metadata, input.Metadata) {
 			return AgentInputRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		return record, nil

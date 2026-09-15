@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +45,40 @@ func TestReferencesStayInsideTheSubmittedSchema(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s schema unexpectedly compiled", name)
 		}
+	}
+}
+
+func TestValidatorRejectsAmbiguousJSONBeforeValidation(t *testing.T) {
+	t.Parallel()
+	for _, schema := range []string{
+		`{"type":"object","type":"string"}`,
+		`{"type":"object","properties":{"a":{"type":"integer","\u0074ype":"string"}}}`,
+		`{"type":"object"} null`,
+	} {
+		if _, err := Compile(json.RawMessage(schema)); err == nil {
+			t.Fatalf("compiled ambiguous schema %s", schema)
+		}
+	}
+	validator, err := Compile(json.RawMessage(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{
+		`{"a":1,"\u0061":2}`,
+		`{"a":[{"nested":1,"nested":2}]}`,
+		`{} []`,
+	} {
+		err := validator.Validate(json.RawMessage(value))
+		if err == nil || !strings.Contains(err.Error(), "decode JSON value") {
+			t.Fatalf("want pre-validation decoding error for %s, got %v", value, err)
+		}
+	}
+	// The general validator still accepts non-object JSON for existing callers.
+	if err := Validate(json.RawMessage(`{"type":"integer","minimum":9007199254740993}`), json.RawMessage(`9007199254740993`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(json.RawMessage(`{"type":"integer","minimum":9007199254740993}`), json.RawMessage(`9007199254740992`)); err == nil {
+		t.Fatal("validator lost integer precision")
 	}
 }
 

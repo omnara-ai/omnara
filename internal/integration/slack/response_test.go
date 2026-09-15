@@ -107,50 +107,44 @@ func TestValidActionResponseURL(t *testing.T) {
 	}
 }
 
-func TestPostMessageClassifiesNon2XXSlackError(t *testing.T) {
+func TestUserLookupClassifiesNon2XXSlackError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		writeSlackTestJSON(w, map[string]any{"ok": false, "error": "token_revoked"})
 	}))
 	defer server.Close()
 
-	result, err := PostMessage(
+	_, result, err := LookupUserDisplayName(
 		context.Background(),
-		slackTestClient(server),
-		MessageTarget{TargetRef: "slack-abcd", Channel: "C123", BotToken: "xoxb-test"},
-		"agt_test",
-		"call_test",
-		"hello",
+		OAuthConfig{HTTPClient: slackTestClient(server)},
+		"xoxb-test", "U123",
 	)
 	if err != nil {
-		t.Fatalf("PostMessage: %v", err)
+		t.Fatalf("LookupUserDisplayName: %v", err)
 	}
 	if !result.PermanentFailure || result.Code != "integration_disabled" {
-		t.Fatalf("PostMessage result = %+v, want integration_disabled", result)
+		t.Fatalf("LookupUserDisplayName result = %+v, want integration_disabled", result)
 	}
 }
 
-func TestPostMessageKeepsUnknown5XXSlackErrorTransient(t *testing.T) {
+func TestUserLookupKeepsUnknown5XXSlackErrorTransient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		writeSlackTestJSON(w, map[string]any{"ok": false, "error": "rollup_error"})
 	}))
 	defer server.Close()
 
-	result, err := PostMessage(
+	_, result, err := LookupUserDisplayName(
 		context.Background(),
-		slackTestClient(server),
-		MessageTarget{TargetRef: "slack-abcd", Channel: "C123", BotToken: "xoxb-test"},
-		"agt_test",
-		"call_test",
-		"hello",
+		OAuthConfig{HTTPClient: slackTestClient(server)},
+		"xoxb-test", "U123",
 	)
 	if err != nil {
-		t.Fatalf("PostMessage: %v", err)
+		t.Fatalf("LookupUserDisplayName: %v", err)
 	}
 	if !result.TransientFailure || result.PermanentFailure || result.Code != "transient_failure" ||
 		!strings.Contains(result.Message, "rollup_error") {
-		t.Fatalf("PostMessage result = %+v, want transient with slack error", result)
+		t.Fatalf("LookupUserDisplayName result = %+v, want transient with slack error", result)
 	}
 }
 

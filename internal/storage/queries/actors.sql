@@ -79,7 +79,6 @@ SELECT EXISTS (
   FROM actors actor
   JOIN integration_targets target
     ON target.project_id = sqlc.arg(project_id)
-   AND target.agent_id = sqlc.arg(agent_id)
    AND target.id = sqlc.arg(integration_target_id)
    AND target.deleted_at IS NULL
   JOIN integration_installs install
@@ -87,8 +86,37 @@ SELECT EXISTS (
    AND install.id = target.integration_install_id
    AND install.state = 'active'
    AND install.deleted_at IS NULL
+  LEFT JOIN integration_apps app
+    ON app.org_id = install.org_id AND app.id = install.integration_app_id
+   AND app.state = 'active' AND app.deleted_at IS NULL
   WHERE actor.id = sqlc.arg(actor_id)
     AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
+    AND (
+      (install.integration_kind = 'external' AND actor.provider IN ('external', 'omnara'))
+      OR (install.integration_kind = 'managed' AND app.id IS NOT NULL
+        AND actor.provider = install.provider
+        AND actor.provider_tenant_id IS NOT DISTINCT FROM install.provider_tenant_id)
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM integration_target_bindings binding
+      WHERE binding.project_id = target.project_id
+        AND binding.agent_id = sqlc.arg(agent_id)
+        AND binding.integration_target_id = target.id
+        AND CASE WHEN sqlc.arg(for_interaction_response)::boolean
+          THEN binding.send_allowed ELSE binding.receive_allowed END
+        AND binding.revoked_at IS NULL
+        AND (
+          binding.integration_route_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM integration_routes route
+            WHERE route.project_id = binding.project_id
+              AND route.integration_install_id = binding.integration_install_id
+              AND route.id = binding.integration_route_id
+              AND route.state = 'active'
+              AND route.deleted_at IS NULL
+          )
+        )
+    )
 ) AS matches;

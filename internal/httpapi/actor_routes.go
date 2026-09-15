@@ -26,7 +26,7 @@ func (s strictOpenAPIServer) ListActors(
 	}
 	provider := ""
 	if request.Params.Provider != nil {
-		provider = string(*request.Params.Provider)
+		provider = *request.Params.Provider
 	}
 	providerTenantID := ""
 	if request.Params.ProviderTenantId != nil {
@@ -196,7 +196,7 @@ func publicActorFromRecord(
 		Id:             id,
 		OrgId:          publicOrgID,
 		ProjectId:      projectID,
-		Provider:       openapi.ActorProvider(record.Provider),
+		Provider:       record.Provider,
 		ProviderUserId: record.ProviderUserID,
 		Metadata:       metadata,
 		CreatedAt:      record.CreatedAt,

@@ -16,7 +16,7 @@ Then, ask the user questions on what type of agent they'd like to create:
 
 2. Look up the user's org, its default project, and the granted model and
    machine pool via the API. Tailor the instruction to the user's request. Use `npx omnara profiles create` to create a reusable profile of the agent.
-   - Attach every built-in tool except create_machine and delete_machine. List them from GET /tool-catalog. Include send_integration_message and set_integration_target only if using the first party Slack integration; omit both if not
+   - Attach every configurable built-in tool except create_machine and delete_machine. List them from GET /tool-catalog and include only entries with configurable: true. Channel tools are supplied by live bindings; do not add them to the config.
    - The granted model and machine pool
    - Relevant secrets or startup scripts for the machine pool env override. For example, if the user wants to clone a Github repository, you may setup a script which clones the repo upon starting the machine. If needed, you can pipe a Github PAT via a secret into the env var overlay
 

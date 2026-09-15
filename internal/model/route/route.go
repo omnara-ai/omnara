@@ -14,6 +14,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"golang.org/x/net/http/httpguts"
@@ -161,7 +162,7 @@ const (
 	defaultProviderRequestTimeout = time.Hour
 	defaultProviderIdleTimeout    = 5 * time.Minute
 
-	defaultMaxProviderResponseBytes      int64 = 64 * 1024 * 1024
+	defaultMaxProviderResponseBytes      int64 = modelenvelope.DefaultMaxProviderResponseBytes
 	defaultMaxProviderErrorResponseBytes int64 = 64 * 1024
 	providerErrorCodeBodyReadFailed            = "provider_error_body_read_failed"
 )

@@ -4,7 +4,7 @@ description: Steps to run Omnara on your own infrastructure
 icon: "cloud-arrow-up"
 ---
 
-Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
+Self-hosting means running four core long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them. Deployments that enable Slack also run the independently scalable `channel-gateway` service.
 
 ## Quick start (local)
 
@@ -23,6 +23,14 @@ docker compose -f compose.yaml --profile app up -d
 
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
+The optional `channels` Compose profile adds the channel gateway with Slack receipt and operation callbacks. Configure the same connector token on API, worker, and gateway, and set the worker's full private `operations_url` in [connector configuration](/self-hosting/configuration#channel-gateway). The gateway needs writable temporary storage sized for its operation byte budget. The generic provider factory registry is empty; enabling this profile does not enable Discord or GitHub.
+
+Once those are configured, enable both the core stack and the optional gateway:
+
+```sh
+docker compose --profile app --profile channels up -d --build
+```
+
 ## Production database upgrades
 
 Run the release's one-shot `migrate` image before starting its API, worker, and
@@ -31,12 +39,48 @@ do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
 may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
 for connection-pool defaults.
 
+### Channel toolkit cutover (migration39)
+
+Run this cutover offline, with application writers stopped. Migration39 removes
+only the retired builtin declarations `send_integration_message` and
+`set_integration_target` from saved config source, definition, and compiled JSON,
+and recomputes the source and effective-definition hashes. Config IDs and all
+references remain unchanged. Historical config views intentionally show the
+migrated definitions. The five replacement channel tools derive from live
+bindings, not saved config declarations.
+
+YAML and JSON source formatting may normalize during migration. Non-retired
+values retain their meaning, and YAML comments are retained; source bytes are
+not preserved exactly.
+
+Recorded tool calls, arguments, and results remain unchanged. Unfinished ordinary
+tools can still reconstruct their pinned config; pending calls to the two retired
+tools are unsupported. There are no runtime aliases or historical fallback reader.
+
+Like migration26, this is a one-time transactional exception to config
+immutability: the config trigger is disabled for the updates and restored in the
+same transaction. Existing uniqueness constraints remain enforced. If configs
+converge on a duplicate, migration39's config updates and trigger changes roll
+back. Goose commits each migration separately: migration38 remains applied, so
+the old release cannot restart against that partially upgraded database. Keep
+services stopped while repairing the observed duplicates and retrying the new
+release's migrator, or restore the entire pre-upgrade backup before reopening
+services. Rehearse this boundary before upgrading. The migration does not merge
+configs, repoint references, or implement automatic duplicate repair.
+
 ## Exposing the deployment publicly
 
 `OMNARA_PUBLIC_URL` is the public app origin used for email links, OAuth callbacks, and browser flows. The API defaults to the same deployment at `/api/v1`; set `OMNARA_PUBLIC_API_URL` when it is exposed at a different public URL. The daemon installer is served from the API origin at `/install/omnarad.sh`. These features will not function unless the configured URLs are publicly accessible.
 
+Slack uses the event and action URLs returned by setup under `/api/integrations/slack/*`; route these to `api` along with OAuth callbacks. Core verifies and durably records accepted events before acknowledging Slack, and the channel gateway consumes the receipts over the private API.
+
+The generic `/hooks/<integration-app>/<provider>/...` prefix routes to `channel-gateway` for explicitly registered webhook factories. Keep `/api/v1/channel-connector/*` and the gateway's `/internal/operations` endpoint private. The included nginx configuration blocks both at the public edge. The worker's `operations_url` should use the private service address, such as `http://channel-gateway:8080/internal/operations`. Set `OMNARA_CHANNEL_GATEWAY_PUBLIC_URL` to the exact public origin used to reconstruct provider webhook URLs.
+
 <Warning>
-  Set `OMNARA_PUBLIC_URL` on every backend service. Outside local development it is required.
+  Set `OMNARA_PUBLIC_URL` on every backend service, and set
+  `OMNARA_PUBLIC_API_URL` consistently on API, worker, and maintenance when
+  using a separate API URL. Outside local development the public origin is
+  required.
 </Warning>
 
 ### Cloudflare Tunnel

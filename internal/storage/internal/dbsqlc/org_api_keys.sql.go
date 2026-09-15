@@ -91,20 +91,6 @@ func (q *Queries) CreateOrgAPIKey(ctx context.Context, arg CreateOrgAPIKeyParams
 	return i, err
 }
 
-const deleteOrganizationOrgAPIKeys = `-- name: DeleteOrganizationOrgAPIKeys :exec
-DELETE FROM org_api_keys
-WHERE org_id = $1
-`
-
-type DeleteOrganizationOrgAPIKeysParams struct {
-	OrgID uuid.UUID
-}
-
-func (q *Queries) DeleteOrganizationOrgAPIKeys(ctx context.Context, arg DeleteOrganizationOrgAPIKeysParams) error {
-	_, err := q.db.Exec(ctx, deleteOrganizationOrgAPIKeys, arg.OrgID)
-	return err
-}
-
 const getOrgAPIKey = `-- name: GetOrgAPIKey :one
 SELECT k.id, k.org_id, k.name, k.token_id, k.token_hash, k.created_by_user_id,
        k.created_at, k.updated_at, k.last_used_at, k.revoked_at,
@@ -305,6 +291,24 @@ func (q *Queries) RevokeOrgAPIKey(ctx context.Context, arg RevokeOrgAPIKeyParams
 		&i.RevokedAt,
 	)
 	return i, err
+}
+
+const revokeOrganizationOrgAPIKeys = `-- name: RevokeOrganizationOrgAPIKeys :exec
+UPDATE org_api_keys
+SET updated_at = transaction_timestamp(),
+    revoked_at = transaction_timestamp()
+WHERE org_id = $1 AND revoked_at IS NULL
+`
+
+type RevokeOrganizationOrgAPIKeysParams struct {
+	OrgID uuid.UUID
+}
+
+// Retained installations reference their installer identity after org deletion.
+// Remove key authority now; a future organization purge removes both records.
+func (q *Queries) RevokeOrganizationOrgAPIKeys(ctx context.Context, arg RevokeOrganizationOrgAPIKeysParams) error {
+	_, err := q.db.Exec(ctx, revokeOrganizationOrgAPIKeys, arg.OrgID)
+	return err
 }
 
 const touchOrgAPIKeyUpdatedAt = `-- name: TouchOrgAPIKeyUpdatedAt :one

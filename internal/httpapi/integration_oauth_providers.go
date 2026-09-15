@@ -16,12 +16,12 @@ var errIntegrationOAuthMissingScope = errors.New("integration oauth missing requ
 type SlackOAuthConfig = slack.OAuthConfig
 
 type integrationOAuthProviderInstall struct {
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	CredentialPayload        secrets.Payload
+	ProviderTenantID   string
+	ProviderAccountRef string
+	DisplayName        string
+	ProviderIdentity   json.RawMessage
+	Metadata           json.RawMessage
+	CredentialPayload  secrets.Payload
 }
 
 func supportedIntegrationOAuthProvider(provider string) bool {
@@ -102,12 +102,12 @@ func (s *Server) completeIntegrationOAuth(
 			return integrationOAuthProviderInstall{}, err
 		}
 		return integrationOAuthProviderInstall{
-			ProviderTenantID:         install.TenantID,
-			ProviderAccountRef:       install.AppID,
-			ProviderAgentDisplayName: displayName,
-			ProviderIdentity:         identity,
-			ProviderMetadata:         metadataJSON,
-			CredentialPayload:        credentialPayload,
+			ProviderTenantID:   install.TenantID,
+			ProviderAccountRef: install.AppID,
+			DisplayName:        displayName,
+			ProviderIdentity:   identity,
+			Metadata:           metadataJSON,
+			CredentialPayload:  credentialPayload,
 		}, nil
 	default:
 		return integrationOAuthProviderInstall{}, errors.New("unsupported integration provider")

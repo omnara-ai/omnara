@@ -7,8 +7,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
+
+// DefaultMaxProviderResponseBytes is the default transport response budget and
+// the ceiling for one raw tool input before normalization or persistence.
+const DefaultMaxProviderResponseBytes = 64 * 1024 * 1024
 
 type ResponseEnvelope struct {
 	RequestedProviderModelSlug string                   `json:"requested_provider_model_slug"`
@@ -47,21 +52,16 @@ type ResponsePart struct {
 }
 
 func NormalizeToolInput(input json.RawMessage) (json.RawMessage, error) {
-	input = bytes.TrimSpace(input)
 	if err := ValidateToolInput(input); err != nil {
 		return nil, err
 	}
+	input = bytes.TrimSpace(input)
 	return append(json.RawMessage(nil), input...), nil
 }
 
 func ValidateToolInput(input json.RawMessage) error {
-	input = bytes.TrimSpace(input)
-	if len(input) == 0 || bytes.Equal(input, []byte("null")) {
-		return errors.New("tool input must be a JSON object")
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(input, &object); err != nil || object == nil {
-		return errors.New("tool input must be a JSON object")
+	if _, err := jsoncanonical.ParseObject(input, DefaultMaxProviderResponseBytes); err != nil {
+		return fmt.Errorf("tool input must be a JSON object: %w", err)
 	}
 	return nil
 }

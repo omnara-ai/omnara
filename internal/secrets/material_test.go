@@ -82,6 +82,13 @@ func TestCanonicalizeMaterial(t *testing.T) {
 			wantKind: KindAWSCredentials,
 		},
 		{
+			name: "integration credentials",
+			material: IntegrationCredentialsMaterial{Values: map[string]string{
+				"bot_token": "token", "signing_secret": "secret",
+			}},
+			wantKind: KindIntegrationCredentials,
+		},
+		{
 			name: "aws external id without role",
 			material: AWSCredentialsMaterial{
 				AccessKeyID:     "AKIAEXAMPLE",

@@ -19,12 +19,13 @@ const (
 type TokenKind string
 
 const (
-	TokenKindPersonalAccess TokenKind = "personal_access_token"
-	TokenKindOrgAPIKey      TokenKind = "org_api_key"
-	TokenKindMachineDaemon  TokenKind = "machine_daemon_token"
-	TokenKindBrowserSession TokenKind = "browser_session"
-	TokenKindOAuthAccess    TokenKind = "oauth_access_token"
-	TokenKindUnknown        TokenKind = "unknown"
+	TokenKindPersonalAccess   TokenKind = "personal_access_token"
+	TokenKindOrgAPIKey        TokenKind = "org_api_key"
+	TokenKindMachineDaemon    TokenKind = "machine_daemon_token"
+	TokenKindChannelConnector TokenKind = "channel_connector_token"
+	TokenKindBrowserSession   TokenKind = "browser_session"
+	TokenKindUnknown          TokenKind = "unknown"
+	TokenKindOAuthAccess      TokenKind = "oauth_access_token"
 )
 
 type AuthResult string
@@ -131,6 +132,7 @@ func principal(p identitystore.PrincipalRecord) log.Fields {
 		"org_api_key.id":           p.OrgAPIKeyID,
 		"browser_session.id":       p.BrowserSessionID,
 		"machine_daemon_token.id":  p.MachineDaemonTokenID,
+		"channel_connector.id":     p.ChannelConnectorID,
 		"oauth_access_token.id":    p.OAuthAccessTokenID,
 	}
 	if p.Type == identitystore.PrincipalTypeMachineDaemon {

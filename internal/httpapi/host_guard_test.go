@@ -7,6 +7,50 @@ import (
 	"testing"
 )
 
+func TestPublicHostGuardScopesExactInternalServiceOriginToConnectorAPI(t *testing.T) {
+	server := mustNewUnitServer(
+		t,
+		WithPublicURL("https://omnara.example.test"),
+		WithInternalAPIOrigins([]string{"http://api:8080"}),
+	)
+	handler := server.publicHostGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	tests := []struct {
+		host   string
+		path   string
+		status int
+	}{
+		{host: "omnara.example.test", path: "/api/v1/projects", status: http.StatusNoContent},
+		{
+			host: "api:8080", path: "/api/v1/channel-connector/deliveries/claim",
+			status: http.StatusNoContent,
+		},
+		{host: "api:8080", path: "/api/v1/projects", status: http.StatusNotFound},
+		{host: "api:8080", path: "/healthz", status: http.StatusNotFound},
+		{
+			host: "untrusted:8080", path: "/api/v1/channel-connector/deliveries/claim",
+			status: http.StatusNotFound,
+		},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(http.MethodGet, "http://service.test"+test.path, nil)
+		request.Host = test.host
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.status {
+			t.Fatalf(
+				"host %q path %q status = %d, want %d",
+				test.host,
+				test.path,
+				response.Code,
+				test.status,
+			)
+		}
+	}
+}
+
 func TestConfiguredOriginMatchesCanonicalHosts(t *testing.T) {
 	origin, err := parseConfiguredOrigin(" https://Example.COM./ ")
 	if err != nil {

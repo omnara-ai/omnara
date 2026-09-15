@@ -24,9 +24,9 @@
       "token": "omnara_daemon_v1_0000000000000000000000000000000000000000000_49kVrl"
     },
     {
-      "kind": "oauth",
+      "kind": "connector",
       "secret": "0000000000000000000000000000000000000000000",
-      "token": "omnara_oauth_v1_0000000000000000000000000000000000000000000_1WR7qh"
+      "token": "omnara_connector_v1_0000000000000000000000000000000000000000000_0uc6H1"
     },
     {
       "kind": "pat",
@@ -44,9 +44,9 @@
       "token": "omnara_daemon_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_0uXuZW"
     },
     {
-      "kind": "oauth",
+      "kind": "connector",
       "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
-      "token": "omnara_oauth_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_2NTZtE"
+      "token": "omnara_connector_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_49pFhs"
     },
     {
       "kind": "pat",
@@ -64,9 +64,9 @@
       "token": "omnara_daemon_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_2lsHvM"
     },
     {
-      "kind": "oauth",
+      "kind": "connector",
       "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-      "token": "omnara_oauth_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0id49e"
+      "token": "omnara_connector_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_1HBlwk"
     },
     {
       "kind": "pat",
@@ -82,6 +82,26 @@
       "kind": "daemon",
       "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "token": "omnara_daemon_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_2Ls0H2"
+    },
+    {
+      "kind": "connector",
+      "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "token": "omnara_connector_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_1VqNRG"
+    },
+    {
+      "kind": "oauth",
+      "secret": "0000000000000000000000000000000000000000000",
+      "token": "omnara_oauth_v1_0000000000000000000000000000000000000000000_1WR7qh"
+    },
+    {
+      "kind": "oauth",
+      "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
+      "token": "omnara_oauth_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_2NTZtE"
+    },
+    {
+      "kind": "oauth",
+      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "token": "omnara_oauth_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0id49e"
     },
     {
       "kind": "oauth",

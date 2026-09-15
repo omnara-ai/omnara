@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
 type Normalizer interface {
@@ -70,26 +71,10 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 	if len(bundle.Messages) > 0 && lastCheckpointEnd > 0 && bundle.Messages[0].Sequence <= lastCheckpointEnd {
 		return fmt.Errorf("transcript tail overlaps checkpoint range")
 	}
-	seenIntegrationTargets := map[string]bool{}
-	currentIntegrationTargets := 0
-	for _, target := range bundle.IntegrationTargets {
-		if target.TargetRef == "" || target.DurableID == "" || target.Provider == "" ||
-			target.ProviderRefKind == "" ||
-			target.Label == "" {
-			return fmt.Errorf(
-				"integration target ref, durable id, provider, ref kind, and label are required",
-			)
+	if bundle.CurrentChannelID != "" {
+		if _, err := publicid.Decode(publicid.KindIntegrationTarget, bundle.CurrentChannelID); err != nil {
+			return fmt.Errorf("invalid current channel ID: %w", err)
 		}
-		if seenIntegrationTargets[target.TargetRef] {
-			return fmt.Errorf("duplicate integration target in context: %s", target.TargetRef)
-		}
-		seenIntegrationTargets[target.TargetRef] = true
-		if target.IsCurrent {
-			currentIntegrationTargets++
-		}
-	}
-	if currentIntegrationTargets > 1 {
-		return fmt.Errorf("multiple current integration targets in context")
 	}
 	seenAvailableMachinePools := map[string]bool{}
 	for _, pool := range bundle.AvailableMachinePools {

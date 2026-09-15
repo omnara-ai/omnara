@@ -6,27 +6,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"strconv"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
-	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -34,7 +27,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -52,12 +44,23 @@ type integrationToolFixture struct {
 	Agent              executionstore.AgentRecord
 	AgentConfig        executionstore.AgentConfigRecord
 	Lock               executionstore.AgentRuntimeLockRecord
+	TurnID             uuid.UUID
 	ModelCallContextID uuid.UUID
 	ModelOutputEventID uuid.UUID
 	Install            integrationstore.IntegrationInstallRecord
 	Target             integrationstore.IntegrationTargetRecord
+	OriginChannel      connectorToolChannel
+	OriginChannels     []connectorToolChannel
 	Now                time.Time
 	WithMCP            bool
+}
+
+type connectorToolChannel struct {
+	App     integrationstore.IntegrationAppRecord
+	Install integrationstore.IntegrationInstallRecord
+	Route   integrationstore.IntegrationRouteRecord
+	Target  integrationstore.IntegrationTargetRecord
+	Binding integrationstore.IntegrationTargetBindingRecord
 }
 
 func toolsTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
@@ -95,1660 +98,330 @@ func immediateIntegrationBackgroundRunner(ctx context.Context) BackgroundRunner 
 	})
 }
 
-func TestIntegrationSendToolDispatchDeliversDistinctCalls(t *testing.T) {
+func TestListChannelsPaginatesWithoutRepeatingTargets(t *testing.T) {
 	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "send-distinct")
-	postCount := 0
-	readbackCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/conversations.replies":
-			readbackCount++
-			writeToolTestJSON(w, map[string]any{"ok": true, "messages": []map[string]any{}})
-		case "/chat.postMessage":
-			postCount++
-			writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-		default:
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
+	fixture := newIntegrationToolFixture(t, ctx, "list-channels-pagination")
+	createConnectorToolChannel(t, ctx, fixture, "list-channels-pagination")
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameListChannels] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	executor := Executor{Store: fixture.Store, ChannelOperations: unexpectedChannelOperations(t),
+		Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }}
+	page, err := fixture.Store.Integrations().ListAgentChannelTargets(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 1},
+	)
+	if err != nil || page.Next == nil {
+		t.Fatalf("prepare channel page cursor = %+v, %v", page, err)
+	}
+	wantCursor, err := encodeChannelListCursor(*page.Next, turn, "")
+	if err != nil {
+		t.Fatalf("encode expected channel page cursor: %v", err)
+	}
+	secondInput, err := json.Marshal(map[string]any{"cursor": wantCursor, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := []model.ToolCall{
 		{
-			ID:    "call_send_first",
-			Name:  "send_integration_message",
-			Input: json.RawMessage(`{"text":"hello"}`),
+			ID: "call_list_channels_page_one", Name: toolcatalog.ToolNameListChannels,
+			Input: json.RawMessage(`{"limit":1}`),
 		},
 		{
-			ID:    "call_send_second",
-			Name:  "send_integration_message",
-			Input: json.RawMessage(`{"text":"hello"}`),
+			ID: "call_list_channels_page_two", Name: toolcatalog.ToolNameListChannels,
+			Input: secondInput,
 		},
 	}
 	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
-	first := calls[0]
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	firstResult, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), first)
+	firstCall := calls[0]
+	firstResult, err := executor.Dispatch(ctx, turn, firstCall)
 	if err != nil {
-		t.Fatalf("dispatch first send: %v", err)
+		t.Fatalf("dispatch first channel page: %v", err)
 	}
-	firstBody := integrationToolResultFromTestParts(t, firstResult.ContentParts)
-	if firstBody.Code != "delivered" || firstBody.ProviderMessageID != "C123:222.333" {
-		t.Fatalf("first send result = %+v", firstBody)
+	firstBody := toolResultMapFromTestParts(t, firstResult.ContentParts)
+	firstChannels, ok := firstBody["channels"].([]any)
+	if !ok || len(firstChannels) != 1 {
+		t.Fatalf("first channel page = %#v", firstBody)
 	}
-	if postCount != 1 {
-		t.Fatalf("post count after first send = %d, want 1", postCount)
+	cursor, ok := firstBody["next_cursor"].(string)
+	if !ok || cursor == "" {
+		t.Fatalf("first channel page cursor = %#v", firstBody["next_cursor"])
 	}
+	if cursor != wantCursor {
+		t.Fatalf("first channel page cursor = %q, want %q", cursor, wantCursor)
+	}
+	firstChannel, ok := firstChannels[0].(map[string]any)
+	if !ok {
+		t.Fatalf("first channel = %#v", firstChannels[0])
+	}
+	assertListedChannelShape(t, firstChannel)
 
-	second := calls[1]
-	secondResult, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), second)
+	secondCall := calls[1]
+	secondResult, err := executor.Dispatch(ctx, turn, secondCall)
 	if err != nil {
-		t.Fatalf("dispatch second send: %v", err)
+		t.Fatalf("dispatch second channel page: %v", err)
 	}
-	secondBody := integrationToolResultFromTestParts(t, secondResult.ContentParts)
-	if secondBody.Code != "delivered" || secondBody.ProviderMessageID != "C123:222.333" {
-		t.Fatalf("second send result = %+v", secondBody)
+	secondBody := toolResultMapFromTestParts(t, secondResult.ContentParts)
+	secondChannels, ok := secondBody["channels"].([]any)
+	if !ok || len(secondChannels) != 1 {
+		t.Fatalf("second channel page = %#v", secondBody)
 	}
-	if postCount != 2 {
-		t.Fatalf("post count after second send = %d, want 2", postCount)
+	secondChannel, ok := secondChannels[0].(map[string]any)
+	if !ok {
+		t.Fatalf("second channel = %#v", secondChannels[0])
 	}
-	if readbackCount != 0 {
-		t.Fatalf("readback count = %d, want 0 for successful sends", readbackCount)
+	assertListedChannelShape(t, secondChannel)
+	if firstChannel["channel_id"] == secondChannel["channel_id"] {
+		t.Fatalf("channel repeated across pages: %#v", firstChannel["channel_id"])
+	}
+	providers := map[any]bool{
+		firstChannel["provider"]:  true,
+		secondChannel["provider"]: true,
+	}
+	if !providers[integrationstore.IntegrationProviderSlack] || !providers["discord"] {
+		t.Fatalf("listed channel providers = %#v, want slack and discord", providers)
+	}
+	if _, ok := secondBody["next_cursor"]; ok {
+		t.Fatalf("unexpected cursor after final channel page: %#v", secondBody)
 	}
 }
 
-func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
-	tests := []struct {
-		name                   string
-		artifactCount          int
-		uploadURLFailures      int
-		completionRateLimits   int
-		completionStatus       int
-		loseAfterPath          string
-		wantCode               string
-		wantUploadRequests     int
-		wantCompletionRequests int
-	}{
-		{name: "success", artifactCount: 2, wantCode: "delivered", wantUploadRequests: 2, wantCompletionRequests: 1},
-		{
-			name:                   "upload URL transient failure",
-			uploadURLFailures:      1,
-			wantCode:               "delivered",
-			wantUploadRequests:     1,
-			wantCompletionRequests: 1,
-		},
-		{
-			name:                   "upload retries do not consume completion retry budget",
-			uploadURLFailures:      2,
-			completionRateLimits:   1,
-			wantCode:               "delivered",
-			wantUploadRequests:     1,
-			wantCompletionRequests: 2,
-		},
-		{
-			name:                   "completion rate limit",
-			completionRateLimits:   1,
-			wantCode:               "delivered",
-			wantUploadRequests:     1,
-			wantCompletionRequests: 2,
-		},
-		{
-			name:                   "completion failure",
-			completionStatus:       http.StatusInternalServerError,
-			wantCode:               "delivery_unknown",
-			wantUploadRequests:     1,
-			wantCompletionRequests: 1,
-		},
-		{name: "ownership lost before content upload", loseAfterPath: "/files.getUploadURLExternal"},
-		{name: "ownership lost before completion", loseAfterPath: "/upload/v1/artifact", wantUploadRequests: 1},
+func assertListedChannelShape(t *testing.T, channel map[string]any) {
+	t.Helper()
+	for _, field := range []string{"channel_id", "provider", "address_kind", "name", "state"} {
+		if value, ok := channel[field].(string); !ok || value == "" {
+			t.Fatalf("listed channel %s = %#v, want a non-empty string", field, channel[field])
+		}
 	}
-	for index, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			seed := "send-artifact-" + strconv.Itoa(index)
-			fixture := newIntegrationToolFixtureWithMCP(
-				t,
-				ctx,
-				seed,
-				false,
-				storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
-			)
-			artifactCount := tt.artifactCount
-			if artifactCount == 0 {
-				artifactCount = 1
-			}
-			artifactFiles := []struct {
-				filename   string
-				content    []byte
-				fileID     string
-				uploadPath string
-			}{
-				{filename: "report.txt", content: []byte("artifact contents"), fileID: "F123", uploadPath: "/upload/v1/artifact"},
-				{filename: "chart.txt", content: []byte("chart contents"), fileID: "F456", uploadPath: "/upload/v1/chart"},
-			}
-			artifactFiles = artifactFiles[:artifactCount]
-			artifactIDs := make([]string, 0, artifactCount)
-			for artifactIndex, file := range artifactFiles {
-				artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
-					ProjectID:      toolsTestProjectID,
-					AgentID:        fixture.Agent.ID,
-					ContentType:    "text/plain",
-					Filename:       file.filename,
-					Content:        file.content,
-					MaxBytes:       1024,
-					IdempotencyKey: seed + "-" + strconv.Itoa(artifactIndex),
-				})
-				if err != nil {
-					t.Fatalf("create artifact: %v", err)
-				}
-				artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
-				if err != nil {
-					t.Fatalf("encode artifact id: %v", err)
-				}
-				artifactIDs = append(artifactIDs, artifactID)
-			}
-			requests := make(map[string]int)
-			loseOwnership := func() error {
-				return fixture.Store.Execution().ReleaseAgentRuntimeLock(
-					ctx,
-					toolsTestProjectID,
-					fixture.Agent.ID,
-					fixture.Lock.ID,
-				)
-			}
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requests[r.URL.Path]++
-				switch r.URL.Path {
-				case "/files.getUploadURLExternal":
-					if requests[r.URL.Path] <= tt.uploadURLFailures {
-						w.WriteHeader(http.StatusInternalServerError)
-						return
-					}
-					if err := r.ParseForm(); err != nil {
-						t.Errorf("parse upload URL request: %v", err)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					artifactIndex := requests[r.URL.Path] - tt.uploadURLFailures - 1
-					if artifactIndex >= len(artifactFiles) {
-						t.Errorf("unexpected upload URL request %d", requests[r.URL.Path])
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					file := artifactFiles[artifactIndex]
-					if r.Form.Get("filename") != file.filename || r.Form.Get("length") != strconv.Itoa(len(file.content)) {
-						t.Errorf("upload URL form = %v", r.Form)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					if tt.loseAfterPath == r.URL.Path {
-						if err := loseOwnership(); err != nil {
-							t.Errorf("release runtime lock: %v", err)
-							http.Error(w, "test ownership change failed", http.StatusBadRequest)
-							return
-						}
-					}
-					writeToolTestJSON(w, map[string]any{
-						"ok":         true,
-						"upload_url": "https://files.slack.com" + file.uploadPath,
-						"file_id":    file.fileID,
-					})
-				case "/upload/v1/artifact", "/upload/v1/chart":
-					if r.Header.Get("Authorization") != "" {
-						t.Errorf("file upload included authorization")
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					artifactIndex := 0
-					if r.URL.Path == "/upload/v1/chart" {
-						artifactIndex = 1
-					}
-					if artifactIndex >= len(artifactFiles) {
-						t.Errorf("unexpected artifact upload path %s", r.URL.Path)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					file := artifactFiles[artifactIndex]
-					body, err := io.ReadAll(r.Body)
-					if err != nil {
-						t.Errorf("read uploaded artifact: %v", err)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					if string(body) != string(file.content) {
-						t.Errorf("uploaded artifact = %q", body)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					if tt.loseAfterPath == r.URL.Path {
-						if err := loseOwnership(); err != nil {
-							t.Errorf("release runtime lock: %v", err)
-							http.Error(w, "test ownership change failed", http.StatusBadRequest)
-							return
-						}
-					}
-					w.WriteHeader(http.StatusOK)
-				case "/files.completeUploadExternal":
-					var payload struct {
-						Files []struct {
-							ID    string `json:"id"`
-							Title string `json:"title"`
-						} `json:"files"`
-						ChannelID      string `json:"channel_id"`
-						ThreadTS       string `json:"thread_ts"`
-						InitialComment string `json:"initial_comment"`
-					}
-					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-						t.Errorf("decode completion payload: %v", err)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					if len(payload.Files) != len(artifactFiles) || payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
-						payload.InitialComment != "here is the report" {
-						t.Errorf("completion payload = %+v", payload)
-						http.Error(w, "test handler failed", http.StatusBadRequest)
-						return
-					}
-					for artifactIndex, file := range artifactFiles {
-						if payload.Files[artifactIndex].ID != file.fileID || payload.Files[artifactIndex].Title != file.filename {
-							t.Errorf("completion payload = %+v", payload)
-							http.Error(w, "test handler failed", http.StatusBadRequest)
-							return
-						}
-					}
-					if requests[r.URL.Path] <= tt.completionRateLimits {
-						w.Header().Set("Retry-After", "0")
-						w.WriteHeader(http.StatusTooManyRequests)
-						return
-					}
-					if tt.completionStatus != 0 {
-						w.WriteHeader(tt.completionStatus)
-						return
-					}
-					writeToolTestJSON(w, map[string]any{"ok": true})
-				default:
-					t.Errorf("unexpected integration provider path %s", r.URL.Path)
-					http.Error(w, "test handler failed", http.StatusBadRequest)
-					return
-				}
-			}))
-			defer server.Close()
+	if channel["state"] != "active" {
+		t.Fatalf("listed channel state = %#v, want active", channel["state"])
+	}
+	for _, field := range []string{"can_receive", "can_send"} {
+		if value, ok := channel[field].(bool); !ok || !value {
+			t.Fatalf("listed channel %s = %#v, want true", field, channel[field])
+		}
+	}
+}
 
-			executor := Executor{
-				Store:                 fixture.Store,
-				IntegrationHTTPClient: integrationProviderTestClient(server),
-				Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
+func TestChannelSendRequiresDestinationRegardlessOfOrigins(t *testing.T) {
+	for _, originCount := range []int{0, 1, 2} {
+		t.Run(strconv.Itoa(originCount), func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newIntegrationToolFixtureWithConnectorOrigins(t,
+				ctx,
+				"channel-required-"+strconv.Itoa(originCount),
+				originCount)
+			call := fixture.recordToolCall(
+				t, ctx, "call_send_channel_without_destination", toolcatalog.ToolNameSendChannelMessage,
+				`{"message":{"text":"do not guess a destination"}}`, fixture.Now.Add(20*time.Second),
+			)
+			turn := fixture.turn()
+			turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			}
-			if tt.loseAfterPath != "" {
-				target, err := executor.currentIntegrationToolTarget(ctx, fixture.turn())
-				if err != nil {
-					t.Fatalf("resolve integration target: %v", err)
-				}
-				slackTarget, err := slackMessageTarget(target)
-				if err != nil {
-					t.Fatalf("resolve Slack target: %v", err)
-				}
-				_, err = executor.dispatchIntegrationArtifactSend(
-					ctx,
-					fixture.turn(),
-					slackTarget,
-					integrationMessageRequest{Text: "here is the report", ArtifactIDs: artifactIDs},
-				)
-				if !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
-					t.Fatalf("artifact send error = %v, want ErrRuntimeLockInactive", err)
-				}
-			} else {
-				input, err := json.Marshal(map[string]any{
-					"text":         "here is the report",
-					"artifact_ids": artifactIDs,
-				})
-				require.NoError(t, err)
-				call := fixture.recordToolCall(
-					t,
-					ctx,
-					"call_"+seed,
-					"send_integration_message",
-					string(input),
-					fixture.Now.Add(20*time.Second),
-				)
-				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-				if err != nil {
-					t.Fatalf("dispatch artifact send: %v", err)
-				}
-				body := integrationToolResultFromTestParts(t, result.ContentParts)
-				if body.Code != tt.wantCode || body.ProviderMessageID != "" || body.TargetRef != fixture.Target.TargetRef {
-					t.Fatalf("artifact send result = %+v", body)
-				}
+			result, err := dispatchAsyncToolToTerminal(t, ctx,
+				Executor{Store: fixture.Store, ChannelOperations: unexpectedChannelOperations(t),
+					Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }},
+				turn, call,
+			)
+			if err != nil {
+				t.Fatalf("dispatch channel send without destination: %v", err)
 			}
-			if requests["/files.getUploadURLExternal"] != artifactCount+tt.uploadURLFailures {
-				t.Fatalf(
-					"upload URL requests = %d, want %d", requests["/files.getUploadURLExternal"],
-					artifactCount+tt.uploadURLFailures,
-				)
+			body := toolResultMapFromTestParts(t, result.ContentParts)
+			if result.Disposition != DispatchCompleted || body["error_code"] != "malformed" {
+				t.Fatalf("channel send without destination = %+v, disposition %v, want terminal malformed",
+					body,
+					result.Disposition)
 			}
-			uploadRequests := requests["/upload/v1/artifact"] + requests["/upload/v1/chart"]
-			if uploadRequests != tt.wantUploadRequests {
-				t.Fatalf("upload requests = %d, want %d", uploadRequests, tt.wantUploadRequests)
-			}
-			if requests["/files.completeUploadExternal"] != tt.wantCompletionRequests {
-				t.Fatalf("completion requests = %d, want %d", requests["/files.completeUploadExternal"], tt.wantCompletionRequests)
-			}
+			var interactionCount int
+			require.NoError(t, fixture.Pool.QueryRow(ctx,
+				`SELECT count(*) FROM agent_interactions WHERE agent_id=$1`, fixture.Agent.ID).Scan(&interactionCount))
+			require.Zero(t, interactionCount)
+
 		})
 	}
 }
 
-func TestPostIntegrationRuntimeMessageUsesCurrentTarget(t *testing.T) {
+func TestChannelToolEligibilityUsesAllSendableBindingsInChannelMode(t *testing.T) {
 	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "runtime-message")
-	agentPublicID, err := publicid.Encode(publicid.KindAgent, fixture.Agent.ID)
-	if err != nil {
-		t.Fatalf("encode agent id: %v", err)
-	}
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		var payload struct {
-			Channel  string `json:"channel"`
-			ThreadTS string `json:"thread_ts"`
-			Text     string `json:"text"`
-			Metadata struct {
-				EventType    string            `json:"event_type"`
-				EventPayload map[string]string `json:"event_payload"`
-			} `json:"metadata"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("decode runtime message payload: %v", err)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		if payload.Channel != "C123" || payload.ThreadTS != "111.222" ||
-			payload.Text != "I couldn't complete this request: model unavailable" {
-			t.Errorf("unexpected runtime message payload: %+v", payload)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		if payload.Metadata.EventType != slack.MessageMarkerEventType ||
-			payload.Metadata.EventPayload["agent_id"] != agentPublicID ||
-			payload.Metadata.EventPayload["provider_call_id"] != "runtime_error:"+fixture.Lock.ID.String() ||
-			payload.Metadata.EventPayload["target_ref"] != fixture.Target.TargetRef {
-			t.Errorf("unexpected runtime message metadata: %+v", payload.Metadata)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-	}))
-	defer server.Close()
-
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	if err := executor.PostIntegrationRuntimeMessage(
-		ctx,
-		fixture.turn(),
-		"I couldn't complete this request: model unavailable",
-	); err != nil {
-		t.Fatalf("post runtime message: %v", err)
-	}
-	if postCount != 1 {
-		t.Fatalf("post count = %d, want 1", postCount)
-	}
-}
-
-func TestIntegrationSendToolRetriesShortRateLimit(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "send-rate-limit-retry")
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		if postCount == 1 {
-			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_send_rate_limit_retry",
-		"send_integration_message",
-		`{"text":"hello"}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch rate-limited send: %v", err)
-	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "delivered" || body.ProviderMessageID != "C123:222.333" {
-		t.Fatalf("rate-limited send result = %+v", body)
-	}
-	if postCount != 2 {
-		t.Fatalf("post count = %d, want 2", postCount)
-	}
-}
-
-func TestIntegrationSendToolReadbackFailureAfterUnknownPost(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "readback-failure")
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/conversations.replies":
-			w.WriteHeader(http.StatusInternalServerError)
-		case "/chat.postMessage":
-			postCount++
-			writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123"})
-		default:
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_readback_failure",
-		"send_integration_message",
-		`{"text":"hello"}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch readback-failing send: %v", err)
-	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "delivery_unknown" {
-		t.Fatalf("readback-failing send result = %+v", body)
-	}
-	if postCount != 1 {
-		t.Fatalf("post count = %d, want 1", postCount)
-	}
-}
-
-func TestIntegrationSendToolTransientPostUsesReadback(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "transient-post-readback")
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_transient_post",
-		"send_integration_message",
-		`{"text":"hello"}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	agentPublicID, err := publicid.Encode(publicid.KindAgent, fixture.Agent.ID)
-	if err != nil {
-		t.Fatalf("encode agent id: %v", err)
-	}
-	targetRef := fixture.Target.TargetRef
-	postCount := 0
-	readbackCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/conversations.replies":
-			readbackCount++
-			writeToolTestJSON(w, map[string]any{
-				"ok": true,
-				"messages": []map[string]any{{
-					"channel": "C123",
-					"ts":      "222.333",
-					"metadata": map[string]any{
-						"event_type": slack.MessageMarkerEventType,
-						"event_payload": map[string]any{
-							"agent_id":         agentPublicID,
-							"provider_call_id": call.ID,
-							"target_ref":       targetRef,
-						},
-					},
-				}},
-			})
-		case "/chat.postMessage":
-			postCount++
-			w.WriteHeader(http.StatusInternalServerError)
-		default:
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch transient send: %v", err)
-	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "delivered" || body.ProviderMessageID != "C123:222.333" {
-		t.Fatalf("transient send result = %+v", body)
-	}
-	if body.TargetRef != targetRef {
-		t.Fatalf("target_ref = %q, want %q", body.TargetRef, targetRef)
-	}
-	if postCount != 1 || readbackCount != 1 {
-		t.Fatalf("post/readback count = %d/%d, want 1/1", postCount, readbackCount)
-	}
-}
-
-func TestIntegrationSendToolTokenRevokedReturnsIntegrationDisabled(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "token-revoked")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/chat.postMessage":
-			writeToolTestJSON(w, map[string]any{"ok": false, "error": "token_revoked"})
-		default:
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_token_revoked",
-		"send_integration_message",
-		`{"text":"hello"}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch token-revoked send: %v", err)
-	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "integration_disabled" {
-		t.Fatalf("token-revoked result = %+v", body)
-	}
-}
-
-func TestIntegrationSendToolUnknownPostRetriesAfterReadbackMiss(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "unknown-retry")
-	postCount := 0
-	readbackCount := 0
-	var readbackForms []url.Values
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/conversations.replies":
-			readbackCount++
-			if err := r.ParseForm(); err != nil {
-				t.Errorf("parse readback form: %v", err)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			readbackForms = append(readbackForms, r.Form)
-			writeToolTestJSON(w, map[string]any{"ok": true, "messages": []map[string]any{}})
-		case "/chat.postMessage":
-			postCount++
-			if postCount == 1 {
-				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123"})
-				return
-			}
-			writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-		default:
-			t.Errorf("unexpected integration provider path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_send_unknown_retry",
-		"send_integration_message",
-		`{"text":"hello"}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	toolCall, err := fixture.Store.Execution().GetToolCall(
+	fixture := newIntegrationToolFixture(t, ctx, "channel-tool-eligibility")
+	eligibility, err := fixture.Store.Integrations().GetAgentChannelToolEligibility(
 		ctx,
 		toolsTestProjectID,
 		fixture.Agent.ID,
-		fixture.toolCallID(t, ctx, call.ID),
 	)
 	if err != nil {
-		t.Fatalf("get integration send tool call: %v", err)
+		t.Fatalf("get native-only channel tool eligibility: %v", err)
 	}
-	wantOldest := strconv.FormatFloat(
-		float64(toolCall.CreatedAt.Add(-time.Second).UnixNano())/float64(time.Second),
-		'f',
-		6,
-		64,
-	)
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch send: %v", err)
+	if !eligibility.List || !eligibility.Read || !eligibility.Send {
+		t.Fatalf("registered Slack channel eligibility = %+v, want list/read/send", eligibility)
 	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "delivered" {
-		t.Fatalf("send result = %+v", body)
-	}
-	if postCount != 2 {
-		t.Fatalf("post count = %d, want 2", postCount)
-	}
-	if readbackCount != 1 {
-		t.Fatalf("readback count = %d, want 1", readbackCount)
-	}
-	if len(readbackForms) != 1 || readbackForms[0].Get("oldest") != wantOldest {
-		t.Fatalf("readback forms = %v, want oldest %q from tool call creation", readbackForms, wantOldest)
-	}
-}
-
-func TestIntegrationSetTargetToolDispatchUpdatesTarget(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "set-target")
-	secondTarget, err := fixture.Store.Integrations().CreateIntegrationTarget(
+	connector := createConnectorToolChannel(t, ctx, fixture, "channel-tool-eligibility")
+	receiveOnlyBinding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
 		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID:            toolsTestProjectID,
-			AgentID:              fixture.Agent.ID,
-			IntegrationInstallID: fixture.Install.ID,
-			ProviderRef:          "D456",
-			ProviderRefKind:      "dm",
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: connector.Install.ID,
+			IntegrationTargetID:  connector.Target.ID,
+			IntegrationRouteID:   connector.Route.ID,
+			ReceiveAllowed:       true, SendAllowed: false,
+			Source: "test", Metadata: json.RawMessage(`{}`),
 		},
 	)
 	if err != nil {
-		t.Fatalf("create second target: %v", err)
+		t.Fatalf("replace connector binding with receive-only binding: %v", err)
 	}
-	targetRef := secondTarget.TargetRef
-
-	calls := []model.ToolCall{
-		{
-			ID:    "call_set_target",
-			Name:  "set_integration_target",
-			Input: json.RawMessage(`{"target_ref":"` + targetRef + `"}`),
-		},
-		{
-			ID:    "call_set_target_current",
-			Name:  "set_integration_target",
-			Input: json.RawMessage(`{"target_ref":"` + targetRef + `"}`),
-		},
-	}
-	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(21*time.Second))
-	call := calls[0]
-	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(22 * time.Second) }}
-	result, err := executor.Dispatch(
+	// All registered bindings contribute independently, including the managed
+	// Slack destination and this second connector destination.
+	sendable := createConnectorToolChannel(t, ctx, fixture, "channel-tool-other")
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
 		ctx,
-		fixture.turn(),
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil {
+		t.Fatalf("get channel tool eligibility: %v", err)
+	}
+	if !eligibility.List || !eligibility.Send {
+		t.Fatalf("multiple connector eligibility = %+v, want list and send", eligibility)
+	}
+	legacyBinding, err := fixture.Store.Integrations().GetActiveSendBindingForTarget(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		fixture.Target.ID,
+	)
+	if err != nil {
+		t.Fatalf("load legacy Slack binding: %v", err)
+	}
+	if err := fixture.Store.Integrations().RevokeIntegrationTargetBinding(
+		ctx,
+		toolsTestProjectID,
+		legacyBinding.ID,
+	); err != nil {
+		t.Fatalf("revoke legacy Slack binding: %v", err)
+	}
+	require.NoError(t, fixture.Store.Integrations().RevokeIntegrationTargetBinding(
+		ctx, toolsTestProjectID, sendable.Binding.ID))
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil {
+		t.Fatalf("get receive-only channel tool eligibility: %v", err)
+	}
+	if !eligibility.List || eligibility.Send {
+		t.Fatalf("receive-only connector eligibility = %+v, want list-only", eligibility)
+	}
+	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, connector.Target.ID)
+	if err != nil {
+		t.Fatalf("encode receive-only connector channel: %v", err)
+	}
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_send_channel_receive_only",
+		toolcatalog.ToolNameSendChannelMessage,
+		`{"channel_id":"`+channelID+`","message":{"text":"must not send"}}`,
+		fixture.Now.Add(20*time.Second),
+	)
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := dispatchAsyncToolToTerminal(
+		t,
+		ctx,
+		Executor{Store: fixture.Store, ChannelOperations: unexpectedChannelOperations(t),
+			Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }},
+		turn,
 		call,
 	)
 	if err != nil {
-		t.Fatalf("dispatch set target: %v", err)
+		t.Fatalf("dispatch receive-only connector send: %v", err)
 	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "target_set" || body.TargetRef != targetRef ||
-		body.Provider != integrationstore.IntegrationProviderSlack {
-		t.Fatalf("set target result = %+v", body)
+	body := toolResultMapFromTestParts(t, result.ContentParts)
+	if body["code"] != "invalid_channel_request" {
+		t.Fatalf("receive-only connector send = %+v, want invalid_channel_request", body)
 	}
-	targets, err := fixture.Store.Integrations().ListIntegrationTargets(ctx, toolsTestProjectID, fixture.Agent.ID)
-	if err != nil {
-		t.Fatalf("list targets: %v", err)
-	}
-	for _, target := range targets {
-		if target.ID == secondTarget.ID && !target.IsCurrent {
-			t.Fatalf("second target was not made current: %+v", targets)
-		}
-	}
-
-	executor = Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(23 * time.Second) }}
-	result, err = executor.Dispatch(
+	sendBinding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
 		ctx,
-		fixture.turn(),
-		calls[1],
-	)
-	if err != nil {
-		t.Fatalf("dispatch current set target: %v", err)
-	}
-	body = integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "target_set" || body.TargetRef != targetRef ||
-		body.Provider != integrationstore.IntegrationProviderSlack {
-		t.Fatalf("current set target result = %+v", body)
-	}
-}
-
-func TestIntegrationSendToolDisabledAndMissingTargetFailures(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "disabled-target")
-	if _, err := fixture.Store.Integrations().DisableIntegrationInstall(
-		ctx,
-		integrationstore.DisableIntegrationInstallInput{
-			ProjectID:           toolsTestProjectID,
-			ID:                  fixture.Install.ID,
-			ExpectedOAuthFlowID: &fixture.Install.LastOAuthFlowID,
-		},
-	); err != nil {
-		t.Fatalf("disable install: %v", err)
-	}
-	calls := []model.ToolCall{
-		{
-			ID:    "call_disabled",
-			Name:  "send_integration_message",
-			Input: json.RawMessage(`{"text":"hello"}`),
-		},
-		{
-			ID:    "call_missing",
-			Name:  "send_integration_message",
-			Input: json.RawMessage(`{"text":"hello"}`),
-		},
-	}
-	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(21*time.Second))
-	call := calls[0]
-	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(22 * time.Second) }}
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch disabled send: %v", err)
-	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "integration_disabled" {
-		t.Fatalf("disabled send result = %+v", body)
-	}
-
-	if err := storagetest.SeedAgentIntegrationTarget(
-		ctx,
-		fixture.Pool,
-		toolsTestProjectID,
-		fixture.Agent.ID,
-		uuid.Nil,
-	); err != nil {
-		t.Fatalf("clear target: %v", err)
-	}
-	missing := calls[1]
-	executor = Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(25 * time.Second) }}
-	result, err = dispatchAsyncToolToTerminal(
-		t,
-		ctx,
-		executor,
-		fixture.turn(),
-		missing,
-	)
-	if err != nil {
-		t.Fatalf("dispatch missing-target send: %v", err)
-	}
-	body = integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "missing_integration_target" {
-		t.Fatalf("missing target result = %+v", body)
-	}
-}
-
-func TestIntegrationQuestionPromptDisabledTargetFallsBackToOmnara(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "question-disabled-target")
-	if _, err := fixture.Store.Integrations().DisableIntegrationInstall(
-		ctx,
-		integrationstore.DisableIntegrationInstallInput{
-			ProjectID:           toolsTestProjectID,
-			ID:                  fixture.Install.ID,
-			ExpectedOAuthFlowID: &fixture.Install.LastOAuthFlowID,
-		},
-	); err != nil {
-		t.Fatalf("disable install: %v", err)
-	}
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/chat.postMessage" {
-			postCount++
-		}
-		t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-		http.Error(w, "test handler failed", http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_question_disabled_target",
-		"ask_question",
-		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	result, err := dispatchToolAndDrainAsync(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch question: %v", err)
-	}
-	if result.Disposition != DispatchDeferred {
-		t.Fatalf("question disposition = %d, want deferred", result.Disposition)
-	}
-	if postCount != 0 {
-		t.Fatalf("post count = %d, want 0", postCount)
-	}
-	toolCallID := fixture.toolCallID(t, ctx, "call_question_disabled_target")
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
-	if err != nil {
-		t.Fatalf("get question tool call: %v", err)
-	}
-	if toolCall.State != "waiting" {
-		t.Fatalf("question tool call state = %q, want waiting", toolCall.State)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "question")
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("question interaction = %+v, want open", interaction)
-	}
-}
-
-func TestQuestionDispatchCommitsBeforePromptAndReleasesAsyncOwnership(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "question-transaction-async")
-	requestStarted := make(chan struct{}, 1)
-	releaseResponse := make(chan struct{})
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		requestStarted <- struct{}{}
-		<-releaseResponse
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-	}))
-	defer server.Close()
-	responseReleased := false
-	defer func() {
-		if !responseReleased {
-			close(releaseResponse)
-		}
-	}()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_question_transaction_async",
-		"ask_question",
-		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	scope := NewAsyncExecutionScope(nil)
-	result, err := executor.Dispatch(
-		WithAsyncExecutionScope(ctx, scope),
-		fixture.turn(),
-		call,
-	)
-	if err != nil {
-		t.Fatalf("dispatch question: %v", err)
-	}
-	if result.Disposition != DispatchDeferred {
-		t.Fatalf("question disposition = %d, want deferred", result.Disposition)
-	}
-	scope.Seal()
-	select {
-	case <-requestStarted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("question prompt delivery did not start")
-	}
-
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	var state string
-	var ownsRuntime bool
-	if err := fixture.Pool.QueryRow(
-		ctx,
-		`SELECT state, runtime_lock_id = $2 FROM tool_calls WHERE id = $1`,
-		toolCallID,
-		fixture.Lock.ID,
-	).Scan(&state, &ownsRuntime); err != nil {
-		t.Fatalf("load question during async prompt delivery: %v", err)
-	}
-	if state != "running" || !ownsRuntime {
-		t.Fatalf("question during prompt delivery state=%q owns_runtime=%v", state, ownsRuntime)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "question")
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("question interaction = %+v, want open", interaction)
-	}
-	concurrentResult, err := executor.Dispatch(ctx, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("concurrent question dispatch: %v", err)
-	}
-	if concurrentResult.Disposition != DispatchDeferred {
-		t.Fatalf("concurrent question dispatch result = %+v, want deferred", concurrentResult)
-	}
-
-	responseReleased = true
-	close(releaseResponse)
-	select {
-	case <-scope.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("question async prompt delivery did not finish")
-	}
-	if err := scope.Err(); err != nil {
-		t.Fatalf("question async prompt delivery: %v", err)
-	}
-	var released bool
-	if err := fixture.Pool.QueryRow(
-		ctx,
-		`SELECT runtime_lock_id IS NULL FROM tool_calls WHERE id = $1`,
-		toolCallID,
-	).Scan(&released); err != nil {
-		t.Fatalf("load question after async prompt delivery: %v", err)
-	}
-	if !released {
-		t.Fatal("question retained runtime ownership after async prompt delivery")
-	}
-	releasedResult, err := executor.Dispatch(ctx, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("released question dispatch: %v", err)
-	}
-	if releasedResult.Disposition != DispatchDeferred {
-		t.Fatalf("released question dispatch result = %+v, want deferred", releasedResult)
-	}
-	if postCount != 1 {
-		t.Fatalf("post count after released dispatch = %d, want 1", postCount)
-	}
-}
-
-func TestIntegrationQuestionPromptRetriesShortRateLimit(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "question-rate-limit-retry")
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		if postCount == 1 {
-			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_question_rate_limit_retry",
-		"ask_question",
-		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	result, err := dispatchToolAndDrainAsync(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch question: %v", err)
-	}
-	if result.Disposition != DispatchDeferred {
-		t.Fatalf("question disposition = %d, want deferred", result.Disposition)
-	}
-	if postCount != 2 {
-		t.Fatalf("post count = %d, want 2", postCount)
-	}
-	interaction := integrationToolInteraction(
-		t,
-		ctx,
-		fixture,
-		fixture.toolCallID(t, ctx, "call_question_rate_limit_retry"),
-		"question",
-	)
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("question interaction = %+v, want open", interaction)
-	}
-}
-
-func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "question-unknown-readback")
-	var mu sync.Mutex
-	var blocks any
-	postCount := 0
-	readbackCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/chat.postMessage":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Errorf("decode question prompt payload: %v", err)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			mu.Lock()
-			postCount++
-			blocks = payload["blocks"]
-			mu.Unlock()
-			w.WriteHeader(http.StatusInternalServerError)
-			writeToolTestJSON(w, map[string]any{"ok": false})
-		case "/conversations.replies":
-			if err := r.ParseForm(); err != nil {
-				t.Errorf("parse prompt readback form: %v", err)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			if r.Form.Get("oldest") != "" || r.Form.Get("limit") != "100" {
-				t.Errorf("prompt readback bounds = %+v", r.Form)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			mu.Lock()
-			readbackCount++
-			readback := readbackCount
-			promptBlocks := blocks
-			mu.Unlock()
-			if readback == 1 {
-				if r.Form.Get("cursor") != "" {
-					t.Errorf("first prompt readback cursor = %q", r.Form.Get("cursor"))
-					http.Error(w, "test handler failed", http.StatusInternalServerError)
-					return
-				}
-				writeToolTestJSON(w, map[string]any{
-					"ok": true,
-					"messages": []map[string]any{
-						{"ts": "111.111"},
-						{"ts": "222.222"},
-					},
-					"response_metadata": map[string]any{"next_cursor": "page-2"},
-				})
-				return
-			}
-			if r.Form.Get("cursor") != "page-2" {
-				t.Errorf("second prompt readback cursor = %q", r.Form.Get("cursor"))
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			writeToolTestJSON(w, map[string]any{
-				"ok": true,
-				"messages": []map[string]any{{
-					"ts":     "333.333",
-					"blocks": promptBlocks,
-				}},
-			})
-		default:
-			t.Errorf("unexpected integration provider request to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_question_unknown_readback",
-		"ask_question",
-		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	result, err := dispatchToolAndDrainAsync(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch question: %v", err)
-	}
-	if result.Disposition != DispatchDeferred {
-		t.Fatal("question dispatch was not deferred after readback")
-	}
-	mu.Lock()
-	posts := postCount
-	readbacks := readbackCount
-	mu.Unlock()
-	if posts != 1 || readbacks != 2 {
-		t.Fatalf("prompt posts/readbacks = %d/%d, want 1/2", posts, readbacks)
-	}
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
-	if err != nil {
-		t.Fatalf("get question tool call after readback: %v", err)
-	}
-	if toolCall.State != "waiting" {
-		t.Fatalf("question tool call after readback = %+v", toolCall)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "question")
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("question interaction after readback = %+v", interaction)
-	}
-}
-
-func TestIntegrationQuestionPromptUnknownOutcomeFailsTool(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "question-delivery-unknown")
-	postCount := 0
-	readbackCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/chat.postMessage":
-			postCount++
-			w.WriteHeader(http.StatusInternalServerError)
-			writeToolTestJSON(w, map[string]any{"ok": false})
-		case "/conversations.replies":
-			readbackCount++
-			writeToolTestJSON(w, map[string]any{"ok": true, "messages": []any{}})
-		default:
-			t.Errorf("unexpected integration provider request to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_question_delivery_unknown",
-		"ask_question",
-		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	result, err := dispatchToolAndDrainAsync(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch question: %v", err)
-	}
-	if result.Disposition != DispatchDeferred {
-		t.Fatal("question did not begin async prompt delivery")
-	}
-	if postCount != integrationMessageSendAttempts || readbackCount != integrationMessageSendAttempts {
-		t.Fatalf(
-			"prompt posts/readbacks = %d/%d, want %d/%d",
-			postCount,
-			readbackCount,
-			integrationMessageSendAttempts,
-			integrationMessageSendAttempts,
-		)
-	}
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
-	if err != nil {
-		t.Fatalf("get delivery-unknown question tool call: %v", err)
-	}
-	if toolCall.State != executionstore.ToolCallStateCompleted ||
-		toolCall.Outcome != executionstore.ToolResultOutcomeFailed ||
-		!strings.Contains(string(toolCall.ResultContentParts), "delivery outcome is unknown") {
-		t.Fatalf("delivery-unknown question tool = %+v, want failed execution", toolCall)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "question")
-	if interaction.State != executionstore.AgentInteractionStateCanceled {
-		t.Fatalf("delivery-unknown question interaction = %+v, want canceled", interaction)
-	}
-}
-
-func TestIntegrationQuestionPromptDeliveryFailureFailsTool(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "question-delivery-failure")
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		writeToolTestJSON(w, map[string]any{"ok": false, "error": "channel_not_found"})
-	}))
-	defer server.Close()
-
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_question_delivery_failure",
-		"ask_question",
-		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	result, err := dispatchToolAndDrainAsync(t, ctx, executor, fixture.turn(), call)
-	if err != nil {
-		t.Fatalf("dispatch question: %v", err)
-	}
-	if result.Disposition != DispatchDeferred {
-		t.Fatal("question did not begin async prompt delivery")
-	}
-	if postCount != 1 {
-		t.Fatalf("post count = %d, want 1", postCount)
-	}
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
-	if err != nil {
-		t.Fatalf("get failed question tool call: %v", err)
-	}
-	if toolCall.State != executionstore.ToolCallStateCompleted ||
-		toolCall.Outcome != executionstore.ToolResultOutcomeFailed ||
-		!strings.Contains(string(toolCall.ResultContentParts), "channel_not_found") {
-		t.Fatalf("failed-delivery question tool = %+v, want failed execution", toolCall)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "question")
-	if interaction.State != executionstore.AgentInteractionStateCanceled {
-		t.Fatalf("failed question interaction = %+v, want canceled", interaction)
-	}
-}
-
-func TestIntegrationSetTargetPermissionUsesResolvedAuthorizationInput(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "set-target-permission")
-	currentTarget, err := fixture.Store.Integrations().CreateIntegrationTarget(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID:            toolsTestProjectID,
-			AgentID:              fixture.Agent.ID,
-			IntegrationInstallID: fixture.Install.ID,
-			ProviderRef:          "D456",
-			ProviderRefKind:      "dm",
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: connector.Install.ID,
+			IntegrationTargetID:  connector.Target.ID,
+			IntegrationRouteID:   connector.Route.ID,
+			ReceiveAllowed:       true, SendAllowed: true,
+			Source: "test", Metadata: json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatalf("create current integration target: %v", err)
+	if err != nil || sendBinding.ID == receiveOnlyBinding.ID {
+		t.Fatalf("replace receive-only binding with send binding = %+v, %v", sendBinding, err)
 	}
-	if err := storagetest.SeedAgentIntegrationTarget(
-		ctx,
-		fixture.Pool,
-		toolsTestProjectID,
-		fixture.Agent.ID,
-		currentTarget.ID,
-	); err != nil {
-		t.Fatalf("set current integration target: %v", err)
-	}
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		var payload struct {
-			Channel string `json:"channel"`
-			Text    string `json:"text"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("decode set-target permission prompt: %v", err)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		if payload.Channel != "D456" {
-			t.Errorf("permission prompt channel = %q, want current target D456", payload.Channel)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		if !strings.Contains(payload.Text, "set_integration_target") ||
-			!strings.Contains(payload.Text, fixture.Target.TargetRef) {
-			t.Errorf("set-target permission prompt text = %q", payload.Text)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "D456", "ts": "222.333"})
-	}))
-	defer server.Close()
-
-	turn := fixture.turn()
-	turn.Tools = map[string]ToolSpec{
-		"set_integration_target": {
-			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
-		},
-	}
-	call := fixture.recordPendingToolCall(
-		t,
-		ctx,
-		"call_set_target_permission",
-		"set_integration_target",
-		`{"target_ref":"  `+strings.ToUpper(fixture.Target.TargetRef)+`  "}`,
-		fixture.Now.Add(22*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		BackgroundRunner:      immediateIntegrationBackgroundRunner(ctx),
-		Now:                   func() time.Time { return fixture.Now.Add(23 * time.Second) },
-	}
-	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
-		t.Fatalf("prepare set-target permission: %v", err)
-	}
-	if postCount != 1 {
-		t.Fatalf("set-target permission post count = %d, want 1", postCount)
-	}
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "permission")
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("set-target permission interaction = %+v, want open", interaction)
-	}
-	permissionRequest, err := toolpermission.ParseRequest(interaction.Request)
-	if err != nil {
-		t.Fatalf("parse set-target permission request: %v", err)
-	}
-	wantAuthorizationInput := `{"target_ref":"` + fixture.Target.TargetRef + `"}`
-	if string(permissionRequest.Authorization.Input) != wantAuthorizationInput {
-		t.Fatalf(
-			"set-target authorization input = %s, want %s",
-			permissionRequest.Authorization.Input,
-			wantAuthorizationInput,
-		)
-	}
-	resolution := interactionform.Resolution{
-		Answers: []interactionform.Answer{{
-			OptionIndices: []int{toolpermission.AllowOptionIndex},
-		}},
-	}
-	actor, err := executionstore.OmnaraActorParams(
-		toolsTestOrgID,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.User.ID},
-	)
-	if err != nil {
-		t.Fatalf("build set-target permission actor: %v", err)
-	}
-	if _, err := fixture.Store.Execution().ResolveAgentInteraction(
-		ctx,
-		executionstore.ResolveAgentInteractionInput{
-			ProjectID:  toolsTestProjectID,
-			AgentID:    fixture.Agent.ID,
-			ID:         interaction.ID,
-			Resolution: resolution,
-			Actor:      actor,
-		},
-	); err != nil {
-		t.Fatalf("approve set-target permission: %v", err)
-	}
-	result, err := executor.Dispatch(ctx, turn, call)
-	if err != nil {
-		t.Fatalf("dispatch approved set-target call: %v", err)
-	}
-	body := integrationToolResultFromTestParts(t, result.ContentParts)
-	if body.Code != "target_set" || body.TargetRef != fixture.Target.TargetRef {
-		t.Fatalf("approved set-target result = %+v", body)
-	}
-	targets, err := fixture.Store.Integrations().ListIntegrationTargets(
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
 		ctx,
 		toolsTestProjectID,
 		fixture.Agent.ID,
 	)
-	if err != nil {
-		t.Fatalf("list targets after approved set-target call: %v", err)
+	if err != nil || !eligibility.List || !eligibility.Send {
+		t.Fatalf("sendable connector eligibility = %+v, %v", eligibility, err)
 	}
-	for _, target := range targets {
-		if target.ID == fixture.Target.ID && !target.IsCurrent {
-			t.Fatalf("approved target was not made current: %+v", targets)
-		}
-	}
-}
-
-func TestIntegrationPermissionPromptDisabledTargetFallsBackToOmnara(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "permission-disabled-target")
-	if _, err := fixture.Store.Integrations().DisableIntegrationInstall(
+	if err := fixture.Store.Integrations().RevokeIntegrationTargetBinding(
 		ctx,
-		integrationstore.DisableIntegrationInstallInput{
-			ProjectID:           toolsTestProjectID,
-			ID:                  fixture.Install.ID,
-			ExpectedOAuthFlowID: &fixture.Install.LastOAuthFlowID,
-		},
+		toolsTestProjectID,
+		sendBinding.ID,
 	); err != nil {
-		t.Fatalf("disable install: %v", err)
+		t.Fatalf("detach connector channel: %v", err)
 	}
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/chat.postMessage" {
-			postCount++
-		}
-		t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-		http.Error(w, "test handler failed", http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	turn := fixture.turn()
-	turn.Tools = map[string]ToolSpec{
-		"list_processes": {
-			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
-		},
-	}
-	call := fixture.recordPendingToolCall(
-		t,
+	if err := fixture.Store.Integrations().RevokeIntegrationTargetBinding(
 		ctx,
-		"call_permission_disabled_target",
-		"list_processes",
-		`{}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		BackgroundRunner:      immediateIntegrationBackgroundRunner(ctx),
-		Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}
-	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
-		t.Fatalf("prepare permission: %v", err)
-	}
-	if postCount != 0 {
-		t.Fatalf("post count = %d, want 0", postCount)
-	}
-	toolCallID := fixture.toolCallID(t, ctx, "call_permission_disabled_target")
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
-	if err != nil {
-		t.Fatalf("get permission tool call: %v", err)
-	}
-	if toolCall.State != executionstore.ToolCallStateAwaitingPermission {
-		t.Fatalf("permission tool call = %+v, want awaiting permission", toolCall)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "permission")
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("permission interaction = %+v, want open", interaction)
-	}
-}
-
-func TestIntegrationPermissionPromptDeliveryDoesNotBlockOmnaraPrompt(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "permission-delivery-failure")
-	runner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
-	if err != nil {
-		t.Fatalf("new background runner: %v", err)
-	}
-	defer runner.Shutdown()
-	postStarted := make(chan struct{})
-	postFinished := make(chan struct{})
-	releasePost := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() {
-		releaseOnce.Do(func() { close(releasePost) })
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		close(postStarted)
-		<-releasePost
-		writeToolTestJSON(w, map[string]any{"ok": false, "error": "channel_not_found"})
-		close(postFinished)
-	}))
-	defer server.Close()
-	defer release()
-
-	turn := fixture.turn()
-	turn.Tools = map[string]ToolSpec{
-		"list_processes": {
-			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
-		},
-	}
-	call := fixture.recordPendingToolCall(
-		t,
-		ctx,
-		"call_permission_delivery_failure",
-		"list_processes",
-		`{}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		BackgroundRunner:      runner,
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	prepareDone := make(chan error, 1)
-	go func() {
-		prepareDone <- executor.PrepareToolCallPermission(ctx, turn, call)
-	}()
-	select {
-	case <-postStarted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("integration permission prompt copy did not start")
-	}
-	select {
-	case err := <-prepareDone:
-		if err != nil {
-			t.Fatalf("prepare permission: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("permission preparation waited for the integration copy")
-	}
-	toolCallID := fixture.toolCallID(t, ctx, "call_permission_delivery_failure")
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
-	if err != nil {
-		t.Fatalf("get permission tool call: %v", err)
-	}
-	if toolCall.State != executionstore.ToolCallStateAwaitingPermission {
-		t.Fatalf("permission tool call = %+v, want awaiting permission", toolCall)
-	}
-	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "permission")
-	if interaction.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("permission interaction = %+v, want open", interaction)
-	}
-	release()
-	select {
-	case <-postFinished:
-	case <-time.After(time.Second):
-		t.Fatal("integration permission prompt copy did not finish")
-	}
-}
-
-func TestIntegrationExistingPermissionPromptDoesNotRedeliver(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "permission-existing-prompt")
-	postCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat.postMessage" {
-			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-		postCount++
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-	}))
-	defer server.Close()
-
-	turn := fixture.turn()
-	turn.Tools = map[string]ToolSpec{
-		"list_processes": {
-			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
-		},
-	}
-	call := fixture.recordPendingToolCall(
-		t,
-		ctx,
-		"call_permission_existing_prompt",
-		"list_processes",
-		`{}`,
-		fixture.Now.Add(21*time.Second),
-	)
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
-		BackgroundRunner:      immediateIntegrationBackgroundRunner(ctx),
-		Now:                   func() time.Time { return fixture.Now.Add(22 * time.Second) },
-	}
-	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
-		t.Fatalf("prepare permission: %v", err)
-	}
-	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
-		t.Fatalf("prepare existing permission: %v", err)
-	}
-	if postCount != 1 {
-		t.Fatalf("post count = %d, want 1", postCount)
-	}
-	if _, err := fixture.Pool.Exec(
-		ctx,
-		`UPDATE agent_runtime_locks
-SET started_at = statement_timestamp() - interval '3 minutes',
-    renewed_at = statement_timestamp() - interval '2 minutes',
-    lease_expires_at = statement_timestamp() - interval '1 minute'
-WHERE id = $1`,
-		fixture.Lock.ID,
+		toolsTestProjectID,
+		sendBinding.ID,
 	); err != nil {
-		t.Fatalf("expire runtime lock: %v", err)
+		t.Fatalf("replay connector channel detach: %v", err)
 	}
-	if err := executor.PrepareToolCallPermission(ctx, turn, call); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
-		t.Fatalf("existing permission with inactive runtime error = %v, want runtime lock inactive", err)
+	if _, err := fixture.Store.Integrations().GetActiveSendBindingForTarget(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		sendBinding.IntegrationTargetID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("detached connector send binding error = %v, want not found", err)
 	}
-	if postCount != 1 {
-		t.Fatalf("post count after inactive check = %d, want 1", postCount)
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil || eligibility.List || eligibility.Send {
+		t.Fatalf("detached channel tool eligibility = %+v, %v", eligibility, err)
+	}
+	channels, err := fixture.Store.Integrations().ListAgentChannelTargets(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 10},
+	)
+	if err != nil || len(channels.Targets) != 0 {
+		t.Fatalf("channels after detaching all bindings = %+v, %v", channels, err)
 	}
 }
 
 func newIntegrationToolFixture(t *testing.T, ctx context.Context, label string) integrationToolFixture {
 	return newIntegrationToolFixtureWithMCP(t, ctx, label, false)
+}
+
+func newIntegrationToolFixtureWithConnectorOrigins(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	count int,
+) integrationToolFixture {
+	return newIntegrationToolFixtureConfigured(t, ctx, label, toolFixtureOptions{}, count)
 }
 
 func newIntegrationToolFixtureWithMCP(
@@ -1770,7 +443,18 @@ func newIntegrationToolFixtureWithOptions(
 	t *testing.T,
 	ctx context.Context,
 	label string,
+	options toolFixtureOptions,
+	storeOptions ...storage.Option,
+) integrationToolFixture {
+	return newIntegrationToolFixtureConfigured(t, ctx, label, options, 0, storeOptions...)
+}
+
+func newIntegrationToolFixtureConfigured(
+	t *testing.T,
+	ctx context.Context,
+	label string,
 	fixtureOptions toolFixtureOptions,
+	connectorOriginCount int,
 	storeOptions ...storage.Option,
 ) integrationToolFixture {
 	t.Helper()
@@ -1836,12 +520,12 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		t.Fatalf("launch integration tool agent: %v", err)
 	}
 	agent := launch.Agent
-	install := createIntegrationToolInstall(t, ctx, store, profile.ID, user.ID, label, now.Add(3*time.Second))
+	install, definition := createIntegrationToolInstall(t, ctx, store, user.ID, label, now.Add(3*time.Second))
 	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
 			ProjectID:            toolsTestProjectID,
-			AgentID:              agent.ID,
+			ChannelDefinitionID:  definition.ID,
 			IntegrationInstallID: install.ID,
 			ProviderRef:          "C123:111.222",
 			ProviderRefKind:      "thread",
@@ -1850,7 +534,8 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if err != nil {
 		t.Fatalf("create integration target: %v", err)
 	}
-	if err := storagetest.SeedAgentIntegrationTarget(
+	bindIntegrationToolTarget(t, ctx, store, agent.ID, target)
+	if err := seedIntegrationToolCurrentChannel(
 		ctx,
 		pool,
 		toolsTestProjectID,
@@ -1859,20 +544,72 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	); err != nil {
 		t.Fatalf("set integration target: %v", err)
 	}
-	producer, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(user.ID))
-	if err != nil {
-		t.Fatalf("omnara actor params: %v", err)
+	var originChannel connectorToolChannel
+	var originChannels []connectorToolChannel
+	var inputIDs []uuid.UUID
+	if connectorOriginCount > 0 {
+		originChannels = make([]connectorToolChannel, 0, connectorOriginCount)
+		deliveryMode := executionstore.DeliveryModeQueued
+		if connectorOriginCount > 1 {
+			deliveryMode = executionstore.DeliveryModeSteering
+		}
+		for index := range connectorOriginCount {
+			suffix := label + "-origin-" + strconv.Itoa(index)
+			originChannel = createConnectorToolChannel(t, ctx, integrationToolFixture{
+				Store: store, User: user, Agent: agent,
+			}, suffix)
+			// The send/context fixture starts from a resolved receive binding;
+			// provider receipt authorization is exercised by workflow tests.
+			actorDisplayName := "Connector User"
+			input, _, _, createErr := store.Execution().CreateAgentContentInput(
+				ctx,
+				executionstore.CreateAgentContentInputInput{
+					ProjectID:                  toolsTestProjectID,
+					IntegrationTargetID:        originChannel.Target.ID,
+					IntegrationTargetBindingID: originChannel.Binding.ID,
+					AgentID:                    agent.ID,
+					Actor: &executionstore.ActorParams{
+						Provider:         originChannel.Install.Provider,
+						ProviderTenantID: originChannel.Install.ProviderTenantID,
+						ProviderUserID:   "connector-user-" + suffix,
+						DisplayName:      &actorDisplayName,
+					},
+					ContentBlocks:    json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
+					Metadata:         json.RawMessage(`{}`),
+					DeliveryMode:     deliveryMode,
+					IdempotencyScope: integrationstore.IdempotencyScope(originChannel.Install),
+					IdempotencyKey:   "tools-integration-input-" + suffix,
+				},
+			)
+			if createErr != nil {
+				t.Fatalf("create connector agent input: %v", createErr)
+			}
+			originChannels = append(originChannels, originChannel)
+			inputIDs = append(inputIDs, input.ID)
+		}
+	} else {
+		var producer *executionstore.ActorParams
+		producer, err = executionstore.OmnaraActorParams(
+			toolsTestOrgID,
+			toolsTestUserPrincipal(user.ID),
+		)
+		if err == nil {
+			input, _, _, createErr := store.Execution().CreateAgentContentInput(
+				ctx,
+				executionstore.CreateAgentContentInputInput{
+					ProjectID:      toolsTestProjectID,
+					AgentID:        agent.ID,
+					Actor:          producer,
+					ContentBlocks:  json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
+					IdempotencyKey: "tools-integration-input-" + label,
+				},
+			)
+			err = createErr
+			if createErr == nil {
+				inputIDs = append(inputIDs, input.ID)
+			}
+		}
 	}
-	input, _, _, err := store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      toolsTestProjectID,
-			AgentID:        agent.ID,
-			Actor:          producer,
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
-			IdempotencyKey: "tools-integration-input-" + label,
-		},
-	)
 	if err != nil {
 		t.Fatalf("create agent input: %v", err)
 	}
@@ -1880,14 +617,14 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || len(claim.Model.AdmittedInputTurn.Inputs) != 1 ||
-		claim.Model.AdmittedInputTurn.Inputs[0].ID != input.ID {
+	if !found || claim.Kind != executionstore.AgentWorkModel ||
+		len(claim.Model.AdmittedInputTurn.Inputs) != len(inputIDs) {
 		t.Fatalf(
-			"claim input found=%v executable=%v input=%+v want %s",
+			"claim input found=%v executable=%v input=%+v want %v",
 			found,
 			claim.Kind == executionstore.AgentWorkModel,
 			claim.Model.AdmittedInputTurn.Inputs,
-			input.ID,
+			inputIDs,
 		)
 	}
 	lock := claim.RuntimeLock
@@ -1899,9 +636,9 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		toolsTestProjectID,
 		agent.ID,
 		lock,
-		[]uuid.UUID{input.ID},
+		inputIDs,
 		launch.AgentConfig.ID,
-		admitted.Events[0].Sequence,
+		admitted.Events[len(admitted.Events)-1].Sequence,
 		uuid.Nil,
 	)
 	return integrationToolFixture{
@@ -1912,9 +649,12 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		Agent:              agent,
 		AgentConfig:        launch.AgentConfig,
 		Lock:               lock,
+		TurnID:             admitted.Turn.ID,
 		ModelCallContextID: modelCall.Context.ID,
 		Install:            install,
 		Target:             target,
+		OriginChannel:      originChannel,
+		OriginChannels:     originChannels,
 		Now:                now,
 		WithMCP:            withMCP,
 	}
@@ -1924,6 +664,7 @@ func (f *integrationToolFixture) turn() Turn {
 	turn := Turn{
 		ProjectID:          toolsTestProjectID,
 		AgentID:            f.Agent.ID,
+		TurnID:             f.TurnID,
 		SourceEventID:      f.ModelOutputEventID,
 		RuntimeLockID:      f.Lock.ID,
 		ModelCallContextID: f.ModelCallContextID,
@@ -1931,18 +672,13 @@ func (f *integrationToolFixture) turn() Turn {
 			"ask_question": {
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			},
-			"send_integration_message": {
-				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
-			},
-			"set_integration_target": {
-				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
-			},
 		},
 	}
 	if f.WithMCP {
 		turn.Tools[toolcatalog.MCPRuntimeToolName("docs", "greet")] = ToolSpec{
-			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
-			Type:       toolcatalog.ToolTypeMCP,
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+			Permission:  toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+			Type:        toolcatalog.ToolTypeMCP,
 		}
 	}
 	return turn
@@ -2089,8 +825,6 @@ tools:
     permission:
       mode: always_allow
       parameters: {}
-  send_integration_message: {}
-  set_integration_target: {}
 `
 	if withMCP {
 		sourceYAML += `mcp:
@@ -2224,24 +958,132 @@ func createIntegrationToolInstall(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentProfileID, userID uuid.UUID,
-	label string,
+	userID uuid.UUID, label string,
 	now time.Time,
-) integrationstore.IntegrationInstallRecord {
+) (integrationstore.IntegrationInstallRecord, integrationstore.ChannelDefinition) {
 	t.Helper()
-	install, err := store.Integrations().UpsertIntegrationInstall(
+	secretID := createIntegrationToolSecrets(t, ctx, store, userID, label, now)
+	app, err := store.Integrations().CreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
+		OrgID: toolsTestOrgID, OwnerProjectID: toolsTestProjectID,
+		Provider: integrationstore.IntegrationProviderSlack, ProviderAppRef: "A123",
+		DisplayName: "Slack test app", ConnectorKey: channelconnector.BuiltInConnectorKey,
+		InstallationCredentialKind: string(secrets.KindSlackAppCredentials),
+		CredentialSecretID:         secretID, ProviderConfig: json.RawMessage(`{}`), ProviderMetadata: json.RawMessage(`{}`),
+		State: integrationstore.IntegrationAppStateActive,
+	})
+	require.NoError(t, err)
+	install, err := store.Integrations().UpsertIntegrationInstall(ctx, integrationstore.UpsertIntegrationInstallInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, IntegrationAppID: app.ID,
+		InstalledBy: identitystore.NewUserPrincipal(userID),
+		Provider:    integrationstore.IntegrationProviderSlack, IntegrationKind: integrationstore.IntegrationKindManaged,
+		ConnectionMode: slack.ConnectionModeWebhook, State: integrationstore.IntegrationInstallStateActive,
+		ProviderTenantID: "T123", ProviderAccountRef: "A123", CredentialSecretID: secretID,
+		ProviderIdentity: json.RawMessage(`{"bot_user_id":"B123"}`), Metadata: json.RawMessage(`{}`),
+	})
+	require.NoError(t, err)
+	definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
+		integrationstore.PublishChannelDefinitionInput{
+			ProjectID: toolsTestProjectID, IntegrationInstallID: install.ID,
+			ImplementationKey: "slack-thread", Kind: integrationstore.ChannelKindSlackThread,
+			SendParamsSchema: json.RawMessage(`{"type":"object"}`),
+			Capabilities: integrationstore.ChannelCapabilities{
+				Read: true, Send: true, Text: true, Artifacts: true, Permissions: true, Questions: true,
+			},
+			ConnectorCapabilities: []channelconnector.Capability{{
+				ConnectorKey: channelconnector.BuiltInConnectorKey, Provider: integrationstore.IntegrationProviderSlack,
+			}},
+		})
+	require.NoError(t, err)
+	return install, definition
+}
+
+func createConnectorToolChannel(
+	t *testing.T,
+	ctx context.Context,
+	fixture integrationToolFixture,
+	label string,
+) connectorToolChannel {
+	t.Helper()
+	app, err := fixture.Store.Integrations().CreateIntegrationApp(
 		ctx,
-		integrationToolInstallInput(
-			agentProfileID,
-			userID,
-			createIntegrationToolSecrets(t, ctx, store, userID, label, now),
-			now,
-		),
+		integrationstore.CreateIntegrationAppInput{
+			OrgID: toolsTestOrgID, OwnerProjectID: toolsTestProjectID,
+			Provider: "discord", ProviderAppRef: "discord-app-" + label,
+			DisplayName: "Discord " + label, ConnectorKey: channelconnector.BuiltInConnectorKey,
+			ProviderConfig: json.RawMessage(`{}`), ProviderMetadata: json.RawMessage(`{}`),
+			State: integrationstore.IntegrationAppStateActive,
+		},
 	)
 	if err != nil {
-		t.Fatalf("create integration install: %v", err)
+		t.Fatalf("create connector app: %v", err)
 	}
-	return install
+	install, err := fixture.Store.Integrations().UpsertIntegrationInstall(
+		ctx,
+		integrationstore.UpsertIntegrationInstallInput{
+			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, IntegrationAppID: app.ID,
+			InstalledBy: identitystore.NewUserPrincipal(fixture.User.ID),
+			Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "webhook",
+			State:            integrationstore.IntegrationInstallStateActive,
+			ProviderTenantID: "guild-" + label, ProviderAccountRef: "bot-" + label,
+			ProviderConfig: json.RawMessage(`{}`), ProviderIdentity: json.RawMessage(`{}`),
+			Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector install: %v", err)
+	}
+	route, err := fixture.Store.Integrations().CreateIntegrationRoute(
+		ctx,
+		integrationstore.CreateIntegrationRouteInput{
+			ProjectID:            toolsTestProjectID,
+			IntegrationInstallID: install.ID, DeploymentKey: "single-agent-channel-" + label,
+			BehaviorKey:   "single_agent_channel",
+			Configuration: json.RawMessage(`{}`), State: integrationstore.IntegrationRouteStateActive,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector route: %v", err)
+	}
+	definition, err := fixture.Store.Integrations().PublishConnectorChannelDefinition(ctx,
+		integrationstore.PublishChannelDefinitionInput{
+			ProjectID: toolsTestProjectID, IntegrationInstallID: install.ID,
+			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindExternal,
+			SendParamsSchema: json.RawMessage(`{"type":"object"}`),
+			Capabilities: integrationstore.ChannelCapabilities{Read: true,
+				Send:        true,
+				Text:        true,
+				Permissions: true,
+				Questions:   true},
+			ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: app.ConnectorKey, Provider: app.Provider}},
+		})
+	if err != nil {
+		t.Fatalf("publish connector channel definition: %v", err)
+	}
+	target, err := fixture.Store.Integrations().CreateIntegrationTarget(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID:            toolsTestProjectID,
+			ChannelDefinitionID:  definition.ID,
+			IntegrationInstallID: install.ID, ProviderRef: "channel-" + label,
+			ProviderRefKind: "channel", DisplayName: "Connector channel " + label,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector target: %v", err)
+	}
+	binding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
+			Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector binding: %v", err)
+	}
+	return connectorToolChannel{App: app, Install: install, Route: route, Target: target, Binding: binding}
 }
 
 func createIntegrationToolSecrets(
@@ -2273,28 +1115,6 @@ func createIntegrationToolSecrets(
 		t.Fatalf("create integration credential secret: %v", err)
 	}
 	return secret.ID
-}
-
-func integrationToolInstallInput(
-	agentProfileID, userID uuid.UUID,
-	credentialSecretID uuid.UUID,
-	now time.Time,
-) integrationstore.UpsertIntegrationInstallInput {
-	return integrationstore.UpsertIntegrationInstallInput{
-		OrgID:              toolsTestOrgID,
-		ProjectID:          toolsTestProjectID,
-		AgentProfileID:     agentProfileID,
-		InstalledByUserID:  userID,
-		Provider:           integrationstore.IntegrationProviderSlack,
-		IntegrationKind:    slack.IntegrationKindAgentProfile,
-		ConnectionMode:     slack.ConnectionModeWebhook,
-		State:              integrationstore.IntegrationInstallStateActive,
-		ProviderTenantID:   "T123",
-		ProviderAccountRef: "A123",
-		CredentialSecretID: credentialSecretID,
-		ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B123"}`),
-		ProviderMetadata:   json.RawMessage(`{}`),
-	}
 }
 
 func integrationToolKeyWrapper(t *testing.T) secrets.KeyWrapper {
@@ -2344,24 +1164,6 @@ func dispatchAsyncToolToTerminal(
 		return result, err
 	}
 	return executor.Dispatch(ctx, turn, call)
-}
-
-func integrationToolResultFromTestParts(t *testing.T, parts json.RawMessage) integrationToolResult {
-	t.Helper()
-	var decoded []struct {
-		Type  string                `json:"type"`
-		Value integrationToolResult `json:"value"`
-	}
-	if err := json.Unmarshal(parts, &decoded); err != nil {
-		t.Fatalf("decode result parts: %v raw=%s", err, parts)
-	}
-	for _, part := range decoded {
-		if part.Type == "structured_data" {
-			return part.Value
-		}
-	}
-	t.Fatalf("missing structured result in %s", parts)
-	return integrationToolResult{}
 }
 
 func toolResultMapFromTestParts(t *testing.T, parts json.RawMessage) map[string]any {

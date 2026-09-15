@@ -289,7 +289,7 @@ func TestOrgAPIKeyLifecycleAndAuthorization(t *testing.T) {
 	}
 }
 
-func TestDeleteOrganizationDeletesOrgAPIKeys(t *testing.T) {
+func TestDeleteOrganizationRevokesOrgAPIKeys(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -324,20 +324,21 @@ func TestDeleteOrganizationDeletesOrgAPIKeys(t *testing.T) {
 	if _, err := store.Identity().AuthenticateOrgAPIKey(ctx, key.Token); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("authenticate org api key after org deletion error = %v, want ErrUnauthorized", err)
 	}
-	var keyRows, membershipRows int
+	var keyRows, activeKeyRows, membershipRows int
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT
 		   (SELECT count(*) FROM org_api_keys WHERE org_id = $1),
+		   (SELECT count(*) FROM org_api_keys WHERE org_id = $1 AND revoked_at IS NULL),
 		   (SELECT count(*) FROM org_memberships WHERE org_id = $1 AND org_api_key_id IS NOT NULL)`,
 		created.Org.ID,
-	).Scan(&keyRows, &membershipRows); err != nil {
+	).Scan(&keyRows, &activeKeyRows, &membershipRows); err != nil {
 		t.Fatalf("count org api key rows after org deletion: %v", err)
 	}
-	if keyRows != 0 || membershipRows != 0 {
+	if keyRows != 1 || activeKeyRows != 0 || membershipRows != 0 {
 		t.Fatalf(
-			"org api key rows after org deletion: keys=%d memberships=%d, want both 0",
-			keyRows, membershipRows,
+			"org api key rows after org deletion: keys=%d active=%d memberships=%d, want 1, 0, 0",
+			keyRows, activeKeyRows, membershipRows,
 		)
 	}
 }

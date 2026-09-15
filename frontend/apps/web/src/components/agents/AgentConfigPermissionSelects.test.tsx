@@ -38,6 +38,7 @@ const catalog: ToolCatalog = {
     {
       name: 'download_file',
       description: 'Download a file.',
+      configurable: true,
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
     },
@@ -134,6 +135,96 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
   expect(onToolsChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always allow')
   expect(container.textContent).toContain('download_file')
+})
+
+it('keeps runtime-injected channel tools out of agent config', async () => {
+  const channelTools = [
+    'list_channels',
+    'get_channel',
+    'set_current_channel',
+    'send_channel_message',
+    'read_channel',
+  ].map((name) => ({
+    name,
+    description: `${name} is derived from active channel bindings.`,
+    configurable: false,
+    default_permission: alwaysAllowProfile.default_permission,
+    permission_modes: alwaysAllowProfile.permission_modes,
+  }))
+  const onToolsChange = vi.fn()
+
+  await renderAndFlush(
+    <form>
+      <AgentConfigToolsField
+        catalog={{ ...catalog, built_in_tools: channelTools }}
+        tools={channelTools.map(({ name }) => ({ name, permission: null }))}
+        onToolsChange={onToolsChange}
+      />
+    </form>,
+  )
+
+  expect(container.textContent).not.toContain('list_channels')
+  expect(container.textContent).not.toContain('get_channel')
+  expect(container.textContent).not.toContain('set_current_channel')
+  expect(container.textContent).not.toContain('send_channel_message')
+  expect(container.textContent).not.toContain('read_channel')
+  expect(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Add tools"]')?.disabled,
+  ).toBe(true)
+  expect(onToolsChange).not.toHaveBeenCalled()
+})
+
+it('keeps file and subagent tools configurable alongside binding-managed channels', async () => {
+  const tools = [
+    { name: 'download_file', configurable: true },
+    { name: 'spawn_agent', configurable: true },
+    { name: 'send_channel_message', configurable: false },
+  ].map((entry) => ({
+    ...entry,
+    description: entry.name,
+    default_permission: alwaysAllowProfile.default_permission,
+    permission_modes: alwaysAllowProfile.permission_modes,
+  }))
+  const onToolsChange = vi.fn()
+
+  await renderAndFlush(
+    <form>
+      <AgentConfigToolsField
+        catalog={{ ...catalog, built_in_tools: tools }}
+        tools={tools.map(({ name }) => ({ name, permission: null }))}
+        onToolsChange={onToolsChange}
+      />
+    </form>,
+  )
+
+  expect(container.textContent).toContain('download_file')
+  expect(container.textContent).toContain('spawn_agent')
+  expect(container.textContent).not.toContain('send_channel_message')
+  expect(onToolsChange).not.toHaveBeenCalled()
+})
+
+it('treats a catalog entry without configurable as configurable', async () => {
+  const oldCatalog: ToolCatalog = {
+    ...catalog,
+    built_in_tools: [
+      {
+        name: 'download_file',
+        description: 'Download a file.',
+        default_permission: alwaysAllowProfile.default_permission,
+        permission_modes: alwaysAllowProfile.permission_modes,
+      },
+    ],
+  }
+
+  await renderAndFlush(
+    <form>
+      <AgentConfigToolsField catalog={oldCatalog} tools={[]} onToolsChange={vi.fn()} />
+    </form>,
+  )
+
+  expect(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Add tools"]')?.disabled,
+  ).toBe(false)
 })
 
 it('preserves an inherited MCP permission when its profile loads', async () => {

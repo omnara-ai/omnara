@@ -56,6 +56,24 @@ func (q *Queries) DeleteIntegrationInstall(ctx context.Context, arg DeleteIntegr
 	return result.RowsAffected(), nil
 }
 
+const deleteIntegrationRoutes = `-- name: DeleteIntegrationRoutes :exec
+UPDATE integration_routes
+SET state = 'disabled', deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+WHERE project_id = $1
+  AND integration_install_id = $2
+  AND deleted_at IS NULL
+`
+
+type DeleteIntegrationRoutesParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+}
+
+func (q *Queries) DeleteIntegrationRoutes(ctx context.Context, arg DeleteIntegrationRoutesParams) error {
+	_, err := q.db.Exec(ctx, deleteIntegrationRoutes, arg.ProjectID, arg.IntegrationInstallID)
+	return err
+}
+
 const deleteIntegrationTargets = `-- name: DeleteIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = $1 AND integration_install_id = $2
@@ -97,12 +115,31 @@ func (q *Queries) DisableIntegrationInstall(ctx context.Context, arg DisableInte
 	return result.RowsAffected(), nil
 }
 
+const getAgentCurrentChannelID = `-- name: GetAgentCurrentChannelID :one
+SELECT integration_target_id
+FROM agents
+WHERE project_id = $1 AND id = $2
+`
+
+type GetAgentCurrentChannelIDParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) GetAgentCurrentChannelID(ctx context.Context, arg GetAgentCurrentChannelIDParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAgentCurrentChannelID, arg.ProjectID, arg.AgentID)
+	var integration_target_id *uuid.UUID
+	err := row.Scan(&integration_target_id)
+	return integration_target_id, err
+}
+
 const getIntegrationInstall = `-- name: GetIntegrationInstall :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
 WHERE project_id = $1
   AND id = $2
@@ -121,8 +158,6 @@ func (q *Queries) GetIntegrationInstall(ctx context.Context, arg GetIntegrationI
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -130,25 +165,82 @@ func (q *Queries) GetIntegrationInstall(ctx context.Context, arg GetIntegrationI
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
+	)
+	return i, err
+}
+
+const getIntegrationInstallByAppProviderAccount = `-- name: GetIntegrationInstallByAppProviderAccount :one
+SELECT id, org_id, project_id, installed_by_user_id,
+  provider, integration_kind, connection_mode, state,
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
+FROM integration_installs
+WHERE integration_kind = 'managed'
+  AND integration_app_id = $1::uuid
+  AND provider_tenant_id IS NOT DISTINCT FROM $2::text
+  AND provider_account_ref = $3::text
+  AND deleted_at IS NULL
+`
+
+type GetIntegrationInstallByAppProviderAccountParams struct {
+	IntegrationAppID   uuid.UUID
+	ProviderTenantID   *string
+	ProviderAccountRef string
+}
+
+// Unlocked discovery precedes lifecycle/installation row locking. In particular
+// this lookup must not acquire the app SHARE lock held by INSERT triggers.
+func (q *Queries) GetIntegrationInstallByAppProviderAccount(ctx context.Context, arg GetIntegrationInstallByAppProviderAccountParams) (IntegrationInstall, error) {
+	row := q.db.QueryRow(ctx, getIntegrationInstallByAppProviderAccount, arg.IntegrationAppID, arg.ProviderTenantID, arg.ProviderAccountRef)
+	var i IntegrationInstall
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.IntegrationKind,
+		&i.ConnectionMode,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.DisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.Metadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
 
 const getIntegrationInstallByID = `-- name: GetIntegrationInstallByID :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -164,8 +256,6 @@ func (q *Queries) GetIntegrationInstallByID(ctx context.Context, arg GetIntegrat
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -173,70 +263,25 @@ func (q *Queries) GetIntegrationInstallByID(ctx context.Context, arg GetIntegrat
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getIntegrationInstallByProviderAccount = `-- name: GetIntegrationInstallByProviderAccount :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
-FROM integration_installs
-WHERE provider = $1
-  AND provider_tenant_id IS NOT DISTINCT FROM $2
-  AND provider_account_ref = $3
-  AND deleted_at IS NULL
-`
-
-type GetIntegrationInstallByProviderAccountParams struct {
-	Provider           string
-	ProviderTenantID   *string
-	ProviderAccountRef string
-}
-
-func (q *Queries) GetIntegrationInstallByProviderAccount(ctx context.Context, arg GetIntegrationInstallByProviderAccountParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, getIntegrationInstallByProviderAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
-	var i IntegrationInstall
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
-		&i.InstalledByUserID,
-		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
-		&i.State,
-		&i.ProviderTenantID,
-		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
-		&i.CredentialSecretID,
-		&i.ProviderConfig,
-		&i.ProviderIdentity,
-		&i.ProviderMetadata,
-		&i.LastOauthFlowID,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
 
 const getIntegrationTarget = `-- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_install_id, target.target_ref, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
+SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.target_ref, target.provider_ref,
+  target.provider_ref_kind, target.parent_channel_id, target.channel_definition_id, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = $1
@@ -253,11 +298,12 @@ type GetIntegrationTargetRow struct {
 	ID                   uuid.UUID
 	OrgID                uuid.UUID
 	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
 	IntegrationInstallID uuid.UUID
 	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
+	ParentChannelID      *uuid.UUID
+	ChannelDefinitionID  uuid.UUID
 	DisplayName          string
 	ProviderMetadata     json.RawMessage
 	DeletedAt            *time.Time
@@ -272,11 +318,12 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentID,
 		&i.IntegrationInstallID,
 		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
+		&i.ParentChannelID,
+		&i.ChannelDefinitionID,
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.DeletedAt,
@@ -287,8 +334,8 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 }
 
 const getIntegrationTargetByProviderRef = `-- name: GetIntegrationTargetByProviderRef :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_install_id, target.target_ref, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
+SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.target_ref, target.provider_ref,
+  target.provider_ref_kind, target.parent_channel_id, target.channel_definition_id, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = $1
@@ -307,11 +354,12 @@ type GetIntegrationTargetByProviderRefRow struct {
 	ID                   uuid.UUID
 	OrgID                uuid.UUID
 	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
 	IntegrationInstallID uuid.UUID
 	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
+	ParentChannelID      *uuid.UUID
+	ChannelDefinitionID  uuid.UUID
 	DisplayName          string
 	ProviderMetadata     json.RawMessage
 	DeletedAt            *time.Time
@@ -326,11 +374,12 @@ func (q *Queries) GetIntegrationTargetByProviderRef(ctx context.Context, arg Get
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentID,
 		&i.IntegrationInstallID,
 		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
+		&i.ParentChannelID,
+		&i.ChannelDefinitionID,
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.DeletedAt,
@@ -340,77 +389,33 @@ func (q *Queries) GetIntegrationTargetByProviderRef(ctx context.Context, arg Get
 	return i, err
 }
 
-const insertIntegrationInstall = `-- name: InsertIntegrationInstall :one
-INSERT INTO integration_installs(
-  org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+const getSlackIntegrationInstallByIdentity = `-- name: GetSlackIntegrationInstallByIdentity :one
+SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, created_at, updated_at
-)
-VALUES (
-  $1, $2, $3, $4,
-  $5, $6, $7,
-  $8, $9, $10,
-  $11, $12, $13,
-  $14, $15, $16,
-  $17, transaction_timestamp(), transaction_timestamp()
-)
-ON CONFLICT (provider, provider_tenant_id, provider_account_ref) WHERE deleted_at IS NULL DO NOTHING
-RETURNING id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
+FROM integration_installs
+WHERE integration_kind = 'managed' AND provider = 'slack'
+  AND provider_tenant_id = $1::text
+  AND provider_account_ref = $2::text
+  AND deleted_at IS NULL
 `
 
-type InsertIntegrationInstallParams struct {
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
-	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
+type GetSlackIntegrationInstallByIdentityParams struct {
+	ProviderTenantID   string
+	ProviderAccountRef string
 }
 
-func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegrationInstallParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, insertIntegrationInstall,
-		arg.OrgID,
-		arg.ProjectID,
-		arg.AgentProfileID,
-		arg.AgentID,
-		arg.InstalledByUserID,
-		arg.Provider,
-		arg.IntegrationKind,
-		arg.ConnectionMode,
-		arg.State,
-		arg.ProviderTenantID,
-		arg.ProviderAccountRef,
-		arg.ProviderAgentDisplayName,
-		arg.CredentialSecretID,
-		arg.ProviderConfig,
-		arg.ProviderIdentity,
-		arg.ProviderMetadata,
-		arg.LastOauthFlowID,
-	)
+// Slack alone retains its released physical app/workspace edge identity.
+func (q *Queries) GetSlackIntegrationInstallByIdentity(ctx context.Context, arg GetSlackIntegrationInstallByIdentityParams) (IntegrationInstall, error) {
+	row := q.db.QueryRow(ctx, getSlackIntegrationInstallByIdentity, arg.ProviderTenantID, arg.ProviderAccountRef)
 	var i IntegrationInstall
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -418,65 +423,222 @@ func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegr
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
+	)
+	return i, err
+}
+
+const insertExternalIntegrationInstall = `-- name: InsertExternalIntegrationInstall :one
+INSERT INTO integration_installs (
+  org_id, project_id, installed_by_user_id, installed_by_org_api_key_id,
+  integration_kind, connection_mode, state, display_name, metadata, created_at, updated_at
+) VALUES (
+  $1, $2, $3, $4,
+  'external', 'api', 'active', $5, $6, statement_timestamp(), statement_timestamp()
+)
+RETURNING id, org_id, project_id, installed_by_user_id,
+  provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref,
+  display_name, credential_secret_id, provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
+`
+
+type InsertExternalIntegrationInstallParams struct {
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	InstalledByOrgApiKeyID *uuid.UUID
+	DisplayName            string
+	Metadata               json.RawMessage
+}
+
+func (q *Queries) InsertExternalIntegrationInstall(ctx context.Context, arg InsertExternalIntegrationInstallParams) (IntegrationInstall, error) {
+	row := q.db.QueryRow(ctx, insertExternalIntegrationInstall,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.InstalledByUserID,
+		arg.InstalledByOrgApiKeyID,
+		arg.DisplayName,
+		arg.Metadata,
+	)
+	var i IntegrationInstall
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.IntegrationKind,
+		&i.ConnectionMode,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.DisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.Metadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
+	)
+	return i, err
+}
+
+const insertIntegrationInstall = `-- name: InsertIntegrationInstall :one
+INSERT INTO integration_installs(
+  org_id, project_id, installed_by_user_id,
+  provider, integration_kind, connection_mode, state,
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, created_at, updated_at, integration_app_id, installed_by_org_api_key_id
+)
+VALUES (
+  $1, $2,
+  $3, $4, $5,
+  $6, $7, $8,
+  $9, $10, $11,
+  $12, $13, $14,
+  $15, transaction_timestamp(), transaction_timestamp(),
+  $16, $17
+)
+ON CONFLICT (integration_app_id, provider_tenant_id, provider_account_ref)
+  WHERE integration_kind = 'managed' AND deleted_at IS NULL DO NOTHING
+RETURNING id, org_id, project_id, installed_by_user_id,
+  provider, integration_kind, connection_mode, state,
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
+`
+
+type InsertIntegrationInstallParams struct {
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	Provider               *string
+	IntegrationKind        string
+	ConnectionMode         string
+	State                  string
+	ProviderTenantID       *string
+	ProviderAccountRef     *string
+	DisplayName            string
+	CredentialSecretID     *uuid.UUID
+	ProviderConfig         json.RawMessage
+	ProviderIdentity       json.RawMessage
+	Metadata               json.RawMessage
+	LastOauthFlowID        *uuid.UUID
+	IntegrationAppID       *uuid.UUID
+	InstalledByOrgApiKeyID *uuid.UUID
+}
+
+func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegrationInstallParams) (IntegrationInstall, error) {
+	row := q.db.QueryRow(ctx, insertIntegrationInstall,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.InstalledByUserID,
+		arg.Provider,
+		arg.IntegrationKind,
+		arg.ConnectionMode,
+		arg.State,
+		arg.ProviderTenantID,
+		arg.ProviderAccountRef,
+		arg.DisplayName,
+		arg.CredentialSecretID,
+		arg.ProviderConfig,
+		arg.ProviderIdentity,
+		arg.Metadata,
+		arg.LastOauthFlowID,
+		arg.IntegrationAppID,
+		arg.InstalledByOrgApiKeyID,
+	)
+	var i IntegrationInstall
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.IntegrationKind,
+		&i.ConnectionMode,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.DisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.Metadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
 
 const insertIntegrationTarget = `-- name: InsertIntegrationTarget :one
 INSERT INTO integration_targets(
-  project_id, agent_id, integration_install_id, target_ref, provider_ref,
-  provider_ref_kind, display_name, created_at, updated_at
+  project_id, integration_install_id, target_ref, provider_ref,
+  provider_ref_kind, parent_channel_id, channel_definition_id, display_name, provider_metadata, created_at, updated_at
 )
-SELECT agent.project_id, agent.id, install.id,
-       $1, $2, $3,
-       $4, transaction_timestamp(), transaction_timestamp()
-FROM agents agent
-JOIN integration_installs install
-  ON install.project_id = agent.project_id
- AND install.id = $5
- AND install.state = 'active'
- AND install.deleted_at IS NULL
-WHERE agent.project_id = $6
-  AND agent.id = $7
+VALUES (
+  $1, $2,
+  $3, $4, $5, $6, $7,
+  $8, $9,
+  transaction_timestamp(), transaction_timestamp()
+)
 ON CONFLICT DO NOTHING
-RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
-  provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at
+RETURNING id, project_id, integration_install_id, target_ref, provider_ref,
+  provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at, parent_channel_id, channel_definition_id
 `
 
 type InsertIntegrationTargetParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
+	ParentChannelID      *uuid.UUID
+	ChannelDefinitionID  uuid.UUID
 	DisplayName          string
-	IntegrationInstallID uuid.UUID
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
+	ProviderMetadata     json.RawMessage
 }
 
 func (q *Queries) InsertIntegrationTarget(ctx context.Context, arg InsertIntegrationTargetParams) (IntegrationTarget, error) {
 	row := q.db.QueryRow(ctx, insertIntegrationTarget,
+		arg.ProjectID,
+		arg.IntegrationInstallID,
 		arg.TargetRef,
 		arg.ProviderRef,
 		arg.ProviderRefKind,
+		arg.ParentChannelID,
+		arg.ChannelDefinitionID,
 		arg.DisplayName,
-		arg.IntegrationInstallID,
-		arg.ProjectID,
-		arg.AgentID,
+		arg.ProviderMetadata,
 	)
 	var i IntegrationTarget
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.AgentID,
 		&i.IntegrationInstallID,
 		&i.TargetRef,
 		&i.ProviderRef,
@@ -486,6 +648,8 @@ func (q *Queries) InsertIntegrationTarget(ctx context.Context, arg InsertIntegra
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentChannelID,
+		&i.ChannelDefinitionID,
 	)
 	return i, err
 }
@@ -508,10 +672,25 @@ func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg Integrat
 }
 
 const listIntegrationInstallAgentIDsForLifecycle = `-- name: ListIntegrationInstallAgentIDsForLifecycle :many
-SELECT DISTINCT agent_id
-FROM integration_targets
-WHERE project_id = $1
-  AND integration_install_id = $2
+SELECT binding.agent_id
+FROM integration_target_bindings binding
+WHERE binding.project_id = $1
+  AND binding.integration_install_id = $2
+  AND binding.revoked_at IS NULL
+UNION
+SELECT agent.id
+FROM agents agent
+JOIN integration_targets target
+  ON target.project_id = agent.project_id
+ AND target.id = agent.integration_target_id
+WHERE agent.project_id = $1
+  AND target.integration_install_id = $2
+UNION
+SELECT request.agent_id
+FROM external_channel_requests request
+WHERE request.project_id = $1
+  AND request.integration_install_id = $2
+  AND request.state = 'pending'
 ORDER BY agent_id
 `
 
@@ -521,7 +700,8 @@ type ListIntegrationInstallAgentIDsForLifecycleParams struct {
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
-// Include historical targets whose agents may still hold references to clear.
+// Lock owners of live bindings, current pointers and pending requests before
+// retiring the installation. A revoked binding can still have a pending owner.
 func (q *Queries) ListIntegrationInstallAgentIDsForLifecycle(ctx context.Context, arg ListIntegrationInstallAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listIntegrationInstallAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationInstallID)
 	if err != nil {
@@ -544,29 +724,36 @@ func (q *Queries) ListIntegrationInstallAgentIDsForLifecycle(ctx context.Context
 
 const listIntegrationInstallsForProject = `-- name: ListIntegrationInstallsForProject :many
 WITH listed AS (
-SELECT install.id, install.org_id, install.project_id, install.agent_profile_id, install.agent_id,
+SELECT install.id, install.org_id, install.project_id,
        install.installed_by_user_id, install.provider, install.integration_kind, install.connection_mode,
        install.state, install.provider_tenant_id, install.provider_account_ref,
-       install.provider_agent_display_name, install.credential_secret_id,
-       install.provider_config, install.provider_identity, install.provider_metadata,
+       install.display_name, install.credential_secret_id,
+       install.provider_config, install.provider_identity, install.metadata,
        install.last_oauth_flow_id, install.created_at, install.updated_at,
+       install.integration_app_id, install.configuration_revision, install.installed_by_org_api_key_id,
        CASE $6::text
-         WHEN 'name' THEN lower(install.provider_agent_display_name)
+         WHEN 'name' THEN lower(install.display_name)
          WHEN 'created_at' THEN to_char(install.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(install.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
        END::text AS sort_key
 FROM integration_installs install
 WHERE install.project_id = $7
   AND install.deleted_at IS NULL
-  AND ($8::text = '' OR install.provider_agent_display_name ILIKE $8::text ESCAPE '\')
-  AND ($9::uuid IS NULL OR install.agent_profile_id = $9::uuid)
+  AND ($8::text = '' OR install.display_name ILIKE $8::text ESCAPE '\')
+  AND ($9::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM integration_routes route
+      WHERE route.project_id = install.project_id AND route.integration_install_id = install.id
+        AND route.agent_profile_id = $9::uuid AND route.deleted_at IS NULL
+    ))
   AND ($10::uuid IS NULL OR install.last_oauth_flow_id = $10::uuid)
 )
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+SELECT id, org_id, project_id, installed_by_user_id,
        provider, integration_kind, connection_mode, state,
-       provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-       provider_config, provider_identity, provider_metadata,
-       last_oauth_flow_id, created_at, updated_at, sort_key
+       provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+       provider_config, provider_identity, metadata,
+       last_oauth_flow_id, created_at, updated_at, integration_app_id,
+       configuration_revision, installed_by_org_api_key_id, sort_key
 FROM listed
 WHERE $1::boolean = false
    OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
@@ -592,27 +779,28 @@ type ListIntegrationInstallsForProjectParams struct {
 }
 
 type ListIntegrationInstallsForProjectRow struct {
-	ID                       uuid.UUID
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
-	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	SortKey                  string
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	Provider               *string
+	IntegrationKind        string
+	ConnectionMode         string
+	State                  string
+	ProviderTenantID       *string
+	ProviderAccountRef     *string
+	DisplayName            string
+	CredentialSecretID     *uuid.UUID
+	ProviderConfig         json.RawMessage
+	ProviderIdentity       json.RawMessage
+	Metadata               json.RawMessage
+	LastOauthFlowID        *uuid.UUID
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	IntegrationAppID       *uuid.UUID
+	ConfigurationRevision  int64
+	InstalledByOrgApiKeyID *uuid.UUID
+	SortKey                string
 }
 
 func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg ListIntegrationInstallsForProjectParams) ([]ListIntegrationInstallsForProjectRow, error) {
@@ -639,8 +827,6 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 			&i.ID,
 			&i.OrgID,
 			&i.ProjectID,
-			&i.AgentProfileID,
-			&i.AgentID,
 			&i.InstalledByUserID,
 			&i.Provider,
 			&i.IntegrationKind,
@@ -648,14 +834,17 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 			&i.State,
 			&i.ProviderTenantID,
 			&i.ProviderAccountRef,
-			&i.ProviderAgentDisplayName,
+			&i.DisplayName,
 			&i.CredentialSecretID,
 			&i.ProviderConfig,
 			&i.ProviderIdentity,
-			&i.ProviderMetadata,
+			&i.Metadata,
 			&i.LastOauthFlowID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IntegrationAppID,
+			&i.ConfigurationRevision,
+			&i.InstalledByOrgApiKeyID,
 			&i.SortKey,
 		); err != nil {
 			return nil, err
@@ -680,20 +869,29 @@ SELECT target.id,
 FROM integration_targets target
 JOIN agents agent
   ON agent.project_id = target.project_id
- AND agent.id = target.agent_id
+ AND agent.id = $1::uuid
 JOIN integration_installs install
   ON install.project_id = target.project_id
  AND install.id = target.integration_install_id
  AND install.deleted_at IS NULL
-WHERE target.project_id = $1
-  AND target.agent_id = $2
+WHERE target.project_id = $2
+  AND EXISTS (
+    SELECT 1 FROM integration_target_bindings binding
+    WHERE binding.project_id = target.project_id AND binding.integration_target_id = target.id
+      AND binding.agent_id = agent.id AND binding.revoked_at IS NULL
+      AND (binding.integration_route_id IS NULL OR EXISTS (
+        SELECT 1 FROM integration_routes route
+        WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
+          AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+      ))
+  )
   AND target.deleted_at IS NULL
 ORDER BY is_current DESC, target.created_at ASC, target.id ASC
 `
 
 type ListIntegrationTargetsParams struct {
-	ProjectID uuid.UUID
 	AgentID   uuid.UUID
+	ProjectID uuid.UUID
 }
 
 type ListIntegrationTargetsRow struct {
@@ -703,13 +901,13 @@ type ListIntegrationTargetsRow struct {
 	ProviderRef          string
 	ProviderRefKind      string
 	DisplayName          string
-	Provider             string
+	Provider             *string
 	InstallState         string
 	IsCurrent            bool
 }
 
 func (q *Queries) ListIntegrationTargets(ctx context.Context, arg ListIntegrationTargetsParams) ([]ListIntegrationTargetsRow, error) {
-	rows, err := q.db.Query(ctx, listIntegrationTargets, arg.ProjectID, arg.AgentID)
+	rows, err := q.db.Query(ctx, listIntegrationTargets, arg.AgentID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -738,35 +936,58 @@ func (q *Queries) ListIntegrationTargets(ctx context.Context, arg ListIntegratio
 	return items, nil
 }
 
-const lockIntegrationInstallByProviderAccount = `-- name: LockIntegrationInstallByProviderAccount :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+const lockIntegrationChannelParent = `-- name: LockIntegrationChannelParent :one
+SELECT id
+FROM integration_targets
+WHERE project_id = $1
+  AND integration_install_id = $2
+  AND id = $3
+  AND deleted_at IS NULL
+FOR SHARE
+`
+
+type LockIntegrationChannelParentParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ParentChannelID      uuid.UUID
+}
+
+func (q *Queries) LockIntegrationChannelParent(ctx context.Context, arg LockIntegrationChannelParentParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationChannelParent, arg.ProjectID, arg.IntegrationInstallID, arg.ParentChannelID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockIntegrationInstallByAppProviderAccount = `-- name: LockIntegrationInstallByAppProviderAccount :one
+SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
-WHERE provider = $1
-  AND provider_tenant_id = $2
+WHERE integration_kind = 'managed'
+  AND integration_app_id = $1
+  AND provider_tenant_id IS NOT DISTINCT FROM $2
   AND provider_account_ref = $3
   AND deleted_at IS NULL
 FOR UPDATE
 `
 
-type LockIntegrationInstallByProviderAccountParams struct {
-	Provider           string
+type LockIntegrationInstallByAppProviderAccountParams struct {
+	IntegrationAppID   *uuid.UUID
 	ProviderTenantID   *string
-	ProviderAccountRef string
+	ProviderAccountRef *string
 }
 
-func (q *Queries) LockIntegrationInstallByProviderAccount(ctx context.Context, arg LockIntegrationInstallByProviderAccountParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, lockIntegrationInstallByProviderAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
+func (q *Queries) LockIntegrationInstallByAppProviderAccount(ctx context.Context, arg LockIntegrationInstallByAppProviderAccountParams) (IntegrationInstall, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationInstallByAppProviderAccount, arg.IntegrationAppID, arg.ProviderTenantID, arg.ProviderAccountRef)
 	var i IntegrationInstall
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -774,15 +995,18 @@ func (q *Queries) LockIntegrationInstallByProviderAccount(ctx context.Context, a
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
@@ -834,6 +1058,31 @@ func (q *Queries) LockIntegrationInstallForMutation(ctx context.Context, arg Loc
 	return id, err
 }
 
+const lockIntegrationInstallIdentity = `-- name: LockIntegrationInstallIdentity :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+  'integration_install_identity:' || jsonb_build_array(
+    $1::uuid::text,
+    $2::text,
+    $3::text
+  )::text, 0
+))
+`
+
+type LockIntegrationInstallIdentityParams struct {
+	IntegrationAppID   uuid.UUID
+	ProviderTenantID   *string
+	ProviderAccountRef string
+}
+
+// Managed upserts serialize the physical installation identity before looking
+// for an existing row or acquiring app/credential locks. Project is deliberately
+// absent: the unique identity belongs to the app across all project callers.
+// JSON tuple encoding distinguishes NULL tenant and delimiter-bearing values.
+func (q *Queries) LockIntegrationInstallIdentity(ctx context.Context, arg LockIntegrationInstallIdentityParams) error {
+	_, err := q.db.Exec(ctx, lockIntegrationInstallIdentity, arg.IntegrationAppID, arg.ProviderTenantID, arg.ProviderAccountRef)
+	return err
+}
+
 const lockIntegrationInstallLifecycleExclusive = `-- name: LockIntegrationInstallLifecycleExclusive :exec
 SELECT pg_advisory_xact_lock(
   hashtextextended('integration_install_lifecycle:' || $1::uuid::text, 0)
@@ -864,6 +1113,60 @@ func (q *Queries) LockIntegrationInstallLifecycleShared(ctx context.Context, arg
 	return err
 }
 
+const lockIntegrationTargetCreateAuthority = `-- name: LockIntegrationTargetCreateAuthority :one
+WITH install_authority AS MATERIALIZED (
+  SELECT install.id, install.org_id, install.integration_app_id, install.integration_kind
+  FROM integration_installs install
+  WHERE install.project_id = $1
+    AND install.id = $2
+    AND install.state = 'active'
+    AND install.deleted_at IS NULL
+  FOR SHARE OF install
+)
+SELECT install.id
+FROM install_authority install
+LEFT JOIN LATERAL (
+  SELECT app.id FROM integration_apps app
+  WHERE app.id = install.integration_app_id AND app.org_id = install.org_id
+    AND app.state = 'active' AND app.deleted_at IS NULL
+  FOR SHARE OF app
+) app ON true
+WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+`
+
+type LockIntegrationTargetCreateAuthorityParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+}
+
+func (q *Queries) LockIntegrationTargetCreateAuthority(ctx context.Context, arg LockIntegrationTargetCreateAuthorityParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationTargetCreateAuthority, arg.ProjectID, arg.IntegrationInstallID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const setAgentCurrentChannelFromInput = `-- name: SetAgentCurrentChannelFromInput :exec
+UPDATE agents
+SET integration_target_id = $1::uuid, updated_at = statement_timestamp()
+WHERE project_id = $2 AND id = $3
+  AND integration_target_id IS DISTINCT FROM $1::uuid
+`
+
+type SetAgentCurrentChannelFromInputParams struct {
+	ChannelID uuid.UUID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+// Only newly admitted inputs update routing. The caller already holds the agent
+// lock, and the input's project-scoped foreign key established its provenance.
+// A retired origin must not block admission or silently retain an older origin.
+func (q *Queries) SetAgentCurrentChannelFromInput(ctx context.Context, arg SetAgentCurrentChannelFromInputParams) error {
+	_, err := q.db.Exec(ctx, setAgentCurrentChannelFromInput, arg.ChannelID, arg.ProjectID, arg.AgentID)
+	return err
+}
+
 const setAgentIntegrationTarget = `-- name: SetAgentIntegrationTarget :one
 UPDATE agents
 SET integration_target_id = $1::uuid,
@@ -880,10 +1183,32 @@ WHERE agents.project_id = $2
        AND install.id = target.integration_install_id
        AND install.state = 'active'
        AND install.deleted_at IS NULL
-      WHERE target.project_id = agents.project_id
-        AND target.agent_id = agents.id
+      LEFT JOIN integration_apps app
+        ON app.org_id = install.org_id
+       AND app.id = install.integration_app_id
+       AND app.state = 'active'
+       AND app.deleted_at IS NULL
+      WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+        AND target.project_id = agents.project_id
         AND target.id = $1::uuid
         AND target.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM integration_target_bindings binding
+          WHERE binding.project_id = agents.project_id
+            AND binding.agent_id = agents.id
+            AND binding.integration_target_id = target.id
+            AND binding.revoked_at IS NULL
+            AND (
+              binding.integration_route_id IS NULL
+              OR EXISTS (
+                SELECT 1 FROM integration_routes route
+                WHERE route.project_id = binding.project_id
+                  AND route.integration_install_id = binding.integration_install_id
+                  AND route.id = binding.integration_route_id
+                  AND route.state = 'active' AND route.deleted_at IS NULL
+              )
+            )
+        )
     )
   )
 RETURNING id, org_id, project_id, state, name,
@@ -943,57 +1268,61 @@ func (q *Queries) SetAgentIntegrationTarget(ctx context.Context, arg SetAgentInt
 const updateIntegrationInstall = `-- name: UpdateIntegrationInstall :one
 UPDATE integration_installs
 SET installed_by_user_id = $1,
-    connection_mode = $2,
-    state = $3,
-    provider_agent_display_name = CASE
-      WHEN $4::text = '' THEN provider_agent_display_name
-      ELSE $4::text
+    installed_by_org_api_key_id = $2,
+    connection_mode = $3,
+    state = $4,
+    display_name = CASE
+      WHEN $5::text = '' THEN display_name
+      ELSE $5::text
     END,
-    credential_secret_id = $5,
-    provider_config = $6,
-    provider_identity = $7,
-    provider_metadata = $8,
-    last_oauth_flow_id = coalesce($9, last_oauth_flow_id),
+    credential_secret_id = $6,
+    provider_config = $7,
+    provider_identity = $8,
+    metadata = $9,
+    last_oauth_flow_id = coalesce($10, last_oauth_flow_id),
     updated_at = statement_timestamp()
-WHERE project_id = $10
-  AND id = $11
+WHERE project_id = $11
+  AND id = $12
   AND deleted_at IS NULL
   AND (
-    $9::uuid IS NULL
+    $10::uuid IS NULL
     OR last_oauth_flow_id IS NULL
-    OR last_oauth_flow_id < $9::uuid
+    OR last_oauth_flow_id < $10::uuid
   )
-RETURNING id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
-  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
-  provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
+  provider_config, provider_identity, metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision, installed_by_org_api_key_id
 `
 
 type UpdateIntegrationInstallParams struct {
-	InstalledByUserID        uuid.UUID
-	ConnectionMode           string
-	State                    string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	ProjectID                uuid.UUID
-	ID                       uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	InstalledByOrgApiKeyID *uuid.UUID
+	ConnectionMode         string
+	State                  string
+	DisplayName            string
+	CredentialSecretID     *uuid.UUID
+	ProviderConfig         json.RawMessage
+	ProviderIdentity       json.RawMessage
+	Metadata               json.RawMessage
+	LastOauthFlowID        *uuid.UUID
+	ProjectID              uuid.UUID
+	ID                     uuid.UUID
 }
 
 func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegrationInstallParams) (IntegrationInstall, error) {
 	row := q.db.QueryRow(ctx, updateIntegrationInstall,
 		arg.InstalledByUserID,
+		arg.InstalledByOrgApiKeyID,
 		arg.ConnectionMode,
 		arg.State,
-		arg.ProviderAgentDisplayName,
+		arg.DisplayName,
 		arg.CredentialSecretID,
 		arg.ProviderConfig,
 		arg.ProviderIdentity,
-		arg.ProviderMetadata,
+		arg.Metadata,
 		arg.LastOauthFlowID,
 		arg.ProjectID,
 		arg.ID,
@@ -1003,8 +1332,6 @@ func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegr
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -1012,15 +1339,18 @@ func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegr
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IntegrationAppID,
+		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
@@ -1054,4 +1384,62 @@ func (q *Queries) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(ctx con
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateResolvedIntegrationTarget = `-- name: UpdateResolvedIntegrationTarget :one
+UPDATE integration_targets
+SET display_name = CASE
+      WHEN $1::text = '' THEN display_name
+      ELSE $1::text
+    END,
+    provider_metadata = $2,
+    updated_at = CASE
+      WHEN (
+        $1::text <> ''
+        AND display_name IS DISTINCT FROM $1::text
+      ) OR provider_metadata IS DISTINCT FROM $2::jsonb
+      THEN statement_timestamp()
+      ELSE updated_at
+    END
+WHERE project_id = $3
+  AND id = $4
+  AND provider_ref_kind = $5
+  AND deleted_at IS NULL
+RETURNING id, project_id, integration_install_id, target_ref, provider_ref,
+  provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at, parent_channel_id, channel_definition_id
+`
+
+type UpdateResolvedIntegrationTargetParams struct {
+	DisplayName      string
+	ProviderMetadata json.RawMessage
+	ProjectID        uuid.UUID
+	ID               uuid.UUID
+	ProviderRefKind  string
+}
+
+func (q *Queries) UpdateResolvedIntegrationTarget(ctx context.Context, arg UpdateResolvedIntegrationTargetParams) (IntegrationTarget, error) {
+	row := q.db.QueryRow(ctx, updateResolvedIntegrationTarget,
+		arg.DisplayName,
+		arg.ProviderMetadata,
+		arg.ProjectID,
+		arg.ID,
+		arg.ProviderRefKind,
+	)
+	var i IntegrationTarget
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.IntegrationInstallID,
+		&i.TargetRef,
+		&i.ProviderRef,
+		&i.ProviderRefKind,
+		&i.DisplayName,
+		&i.ProviderMetadata,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ParentChannelID,
+		&i.ChannelDefinitionID,
+	)
+	return i, err
 }

@@ -232,6 +232,9 @@ func validateRuntimeTool(
 	entry toolcatalog.Entry,
 	builtInName bool,
 ) error {
+	if toolcatalog.IsBindingManagedTool(name) {
+		return fmt.Errorf("compiled tool %q is managed by live channel bindings and cannot be configured", name)
+	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
 		if toolcatalog.UsesMCPRuntimeNamespace(name) {
 			return fmt.Errorf("compiled custom tool %q uses the reserved MCP tool namespace", name)

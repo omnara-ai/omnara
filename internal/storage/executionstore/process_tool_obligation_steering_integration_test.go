@@ -250,6 +250,8 @@ func TestPromoteQueuedInputCanCancelCurrentTurnInteractions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "promotion_cancels_interactions")
+	permissionTool := builtInProcessToolCallBatchItem("promotion_permission", "run_command")
+	permissionTool.Allowed = false
 	toolCallIDs := createToolCallBatchForProcessTest(
 		t,
 		ctx,
@@ -257,13 +259,15 @@ func TestPromoteQueuedInputCanCancelCurrentTurnInteractions(t *testing.T) {
 		"promotion_cancels_interactions",
 		[]processToolCallBatchItem{
 			builtInProcessToolCallBatchItem("promotion_question_one", "ask_question"),
-			builtInProcessToolCallBatchItem("promotion_question_two", "ask_question"),
+			permissionTool,
 			builtInProcessToolCallBatchItem("promotion_unrelated_tool", "read_process"),
 		},
 	)
 	interactions := []executionstore.AgentInteractionRecord{
 		createQuestionInteractionForTest(t, ctx, fixture, toolCallIDs[0]),
-		createQuestionInteractionForTest(t, ctx, fixture, toolCallIDs[1]),
+		createPermissionInteractionForTest(
+			t, ctx, fixture, toolCallIDs[1], permissionRequestForStorageTest(t, "run_command"),
+		),
 	}
 	queued, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
 		ctx,
@@ -271,7 +275,7 @@ func TestPromoteQueuedInputCanCancelCurrentTurnInteractions(t *testing.T) {
 			ProjectID:      testProjectID,
 			AgentID:        fixture.AgentID,
 			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"continue without the questions"}]`),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"pending prompts canceled for upgrade"}]`),
 			IdempotencyKey: "promotion-cancels-interactions",
 		},
 	)

@@ -4,8 +4,8 @@ description: Put agents in a Slack workspace
 icon: "slack"
 ---
 
-import SlackCreateApp from '/snippets/slack-create-app.mdx'
-import SlackExistingApp from '/snippets/slack-existing-app.mdx'
+import SlackCreateApp from "/snippets/slack-create-app.mdx";
+import SlackExistingApp from "/snippets/slack-existing-app.mdx";
 
 The Slack integration connects an [agent profile](/agents/configuration#profiles) to a bot. Each new Slack conversation launches a separate agent from that profile. The agents start with the profile's current config but keep independent conversations and histories. Later replies return to the agent for that thread or DM.
 
@@ -23,10 +23,14 @@ For a complete runnable example that ends in a Slack channel — an X (Twitter) 
 
 ## Before you start
 
-Agents handling Slack conversations automatically receive **`send_integration_message`** unless it is explicitly disabled in the profile's config. You do not need to add it yourself.
+Agents receive the [channel toolkit](/tools/built-in#integrations) from their active channel bindings: `list_channels`, `get_channel`, `set_current_channel`, and the permitted `read_channel` and `send_channel_message` operations. Toolkit membership follows live channel grants and is not configured in the profile. Sends require a `channel_id` and `message`; the current channel selects where future question and approval prompts are copied.
 
 <Note>
-  **Self-hosting?** Set `OMNARA_PUBLIC_URL` to a public HTTPS origin so Slack can deliver webhooks. Hosted Omnara is already configured.
+  **Self-hosting?** Set `OMNARA_PUBLIC_URL` to a public HTTPS origin and
+  configure the [channel gateway](/self-hosting/configuration#channel-gateway)
+  on API, worker, and gateway services. Slack's signed event and action URLs
+  remain on the Go API; the gateway processes saved events and executes bounded
+  channel operations.
 </Note>
 
 ## Connect Slack
@@ -39,9 +43,10 @@ Get a **Slack app configuration token** from [api.slack.com/apps](https://api.sl
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart). One call creates the app and returns the install link:
 
-  <SlackCreateApp />
+<SlackCreateApp />
 
-  Open `oauth_url` within 10 minutes while signed in to Omnara as the user who started setup. Approve the Slack install, and the browser returns to the dashboard. The CLI opens the link in your browser for you; `--no-browser` prints the authorization URL instead.
+Open `oauth_url` within 10 minutes while signed in to Omnara as the user who started setup. Approve the Slack install, and the browser returns to the dashboard. The CLI opens the link in your browser for you; `--no-browser` prints the authorization URL instead.
+
 </Tab>
 <Tab title="Dashboard">
   <Steps>
@@ -71,7 +76,9 @@ Your Slack app must already be configured with Omnara's event, action, and redir
 Both setup paths connect one Slack workspace to the profile.
 
 <Note>
-  Removing a Slack integration from Omnara keeps its agents and histories, but does not uninstall the app from Slack. Remove it separately in Slack if you are decommissioning the bot.
+  Removing a Slack integration from Omnara keeps its agents and histories, but
+  does not uninstall the app from Slack. Remove it separately in Slack if you
+  are decommissioning the bot.
 </Note>
 
 ## How Slack conversations map to agents
@@ -80,8 +87,20 @@ Both setup paths connect one Slack workspace to the profile.
 - A DM keeps one persistent agent for the whole conversation.
 - Messages in other threads are ignored until someone mentions the bot.
 
+Channel permissions and input routing are separate. Giving an agent permission to
+send does not subscribe it to replies. The built-in Slack behavior delivers replies
+to agents connected to receive from that thread; a thread with only send or read
+access still follows the normal first-mention behavior. In that case, the mention
+starts a separate agent; the original sender keeps its existing permissions.
+If a thread's receiving agents have been archived or their receive access revoked,
+messages do not automatically launch replacements. Customer-managed listeners
+choose which events to submit, even when their agents have receive permission.
+
 Slack messages are attributed to their sender and appear in the same [timeline](/events/streaming) as dashboard activity. [Questions and approvals](/events/interactions) can be answered in Slack or the dashboard; either response resumes the same agent.
 
 <Info>
-Full schema and playground: [Create Slack app and OAuth setup](/api-reference/endpoints/configs-and-profiles/create-slack-app-and-oauth-setup) · [Create integration OAuth setup](/api-reference/endpoints/configs-and-profiles/create-integration-oauth-setup).
+  Full schema and playground: [Create Slack app and OAuth
+  setup](/api-reference/endpoints/configs-and-profiles/create-slack-app-and-oauth-setup)
+  · [Create integration OAuth
+  setup](/api-reference/endpoints/configs-and-profiles/create-integration-oauth-setup).
 </Info>

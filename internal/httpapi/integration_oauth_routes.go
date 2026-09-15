@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
@@ -27,7 +27,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 const (
@@ -141,6 +140,19 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": []string{"exchange_failed"}})
 		return
 	}
+	app, err := s.store.Integrations().GetOrCreateIntegrationApp(r.Context(), integrationstore.CreateIntegrationAppInput{
+		OrgID: state.OrgID, OwnerProjectID: state.ProjectID, Provider: state.Provider,
+		ProviderAppRef: providerInstall.ProviderAccountRef, DisplayName: providerInstall.DisplayName,
+		ConnectorKey:               channelconnector.BuiltInConnectorKey,
+		InstallationCredentialKind: string(secretstore.SecretKindSlackAppCredentials),
+		State:                      integrationstore.IntegrationAppStateActive,
+	})
+	if err != nil {
+		logpkg.Error(r.Context(), fmt.Errorf("integration oauth app registration failed: %w", err))
+		s.redirectOAuthOutcome(w, r, state.ReturnTo,
+			url.Values{"integration_oauth_error": []string{"install_save_failed"}})
+		return
+	}
 	credentialSecret, err := s.createSlackIntegrationCredentialSecret(
 		r.Context(),
 		state.OrgID,
@@ -161,21 +173,25 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 	install, err := s.store.Integrations().UpsertIntegrationInstall(
 		r.Context(),
 		integrationstore.UpsertIntegrationInstallInput{
-			OrgID:                    state.OrgID,
-			ProjectID:                state.ProjectID,
-			AgentProfileID:           state.AgentProfileID,
-			InstalledByUserID:        state.InstalledByUserID,
-			Provider:                 state.Provider,
-			IntegrationKind:          slack.IntegrationKindAgentProfile,
-			ConnectionMode:           slack.ConnectionModeWebhook,
-			State:                    integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID:         providerInstall.ProviderTenantID,
-			ProviderAccountRef:       providerInstall.ProviderAccountRef,
-			ProviderAgentDisplayName: providerInstall.ProviderAgentDisplayName,
-			CredentialSecretID:       credentialSecret.ID,
-			ProviderIdentity:         providerInstall.ProviderIdentity,
-			ProviderMetadata:         providerInstall.ProviderMetadata,
-			OAuthFlowID:              state.FlowID,
+			OrgID:              state.OrgID,
+			ProjectID:          state.ProjectID,
+			IntegrationAppID:   app.ID,
+			InstalledBy:        identitystore.NewUserPrincipal(state.InstalledByUserID),
+			Provider:           state.Provider,
+			IntegrationKind:    integrationstore.IntegrationKindManaged,
+			ConnectionMode:     slack.ConnectionModeWebhook,
+			State:              integrationstore.IntegrationInstallStateActive,
+			ProviderTenantID:   providerInstall.ProviderTenantID,
+			ProviderAccountRef: providerInstall.ProviderAccountRef,
+			DisplayName:        providerInstall.DisplayName,
+			CredentialSecretID: credentialSecret.ID,
+			ProviderIdentity:   providerInstall.ProviderIdentity,
+			Metadata:           providerInstall.Metadata,
+			OAuthFlowID:        state.FlowID,
+			InitialRoute: &integrationstore.CreateIntegrationRouteInput{
+				AgentProfileID: state.AgentProfileID, DeploymentKey: "slack",
+				BehaviorKey: "slack_conversation", State: integrationstore.IntegrationRouteStateActive,
+			},
 		},
 	)
 	if err != nil {
@@ -252,37 +268,10 @@ func (s *Server) cleanupIntegrationOAuthSecret(
 	}
 }
 
-func agentConfigCanUseIntegrationSendTool(config executionstore.AgentConfigRecord) bool {
-	contract, err := agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition,
-		config.CompilerVersion,
-		config.EffectiveDefinitionHash,
-	)
-	if err != nil {
-		return false
-	}
-	contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
-	if err != nil {
-		return false
-	}
-	for _, tool := range contract.Tools {
-		if tool.Name == toolcatalog.ToolNameSendIntegrationMessage {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) validateIntegrationSendSetupConfig(
+func (s *Server) validateChannelSetupModel(
 	ctx context.Context,
 	config executionstore.AgentConfigRecord,
 ) error {
-	if !agentConfigCanUseIntegrationSendTool(config) {
-		return apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile config does not allow send_integration_message",
-		)
-	}
 	configuredModel, err := s.store.Models().GetConfiguredModel(ctx, config.OrgID, config.ConfiguredModelID)
 	if err != nil {
 		return apierror.ProjectScoped(err)

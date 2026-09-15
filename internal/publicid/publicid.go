@@ -21,8 +21,15 @@ const (
 	KindAgentConfig             Kind = "agent_config"
 	KindAgentProfile            Kind = "agent_profile"
 	KindCronTrigger             Kind = "cron_trigger"
+	KindIntegrationApp          Kind = "integration_app"
 	KindIntegrationInstall      Kind = "integration_install"
+	KindIntegrationRoute        Kind = "integration_route"
 	KindIntegrationTarget       Kind = "integration_target"
+	KindIntegrationBinding      Kind = "integration_binding"
+	KindIntegrationEventReceipt Kind = "integration_event_receipt"
+	KindChannelDefinition       Kind = "channel_definition"
+	KindExternalChannelRequest  Kind = "external_channel_request"
+	KindIntegrationRuntimeUnit  Kind = "integration_runtime_unit"
 	KindAgentEvent              Kind = "agent_event"
 	KindAgentInput              Kind = "agent_input"
 	KindAgentMachineBinding     Kind = "agent_machine_binding"
@@ -66,8 +73,15 @@ var kindPrefixes = map[Kind]string{
 	KindAgentConfig:             "acfg",
 	KindAgentProfile:            "aprf",
 	KindCronTrigger:             "cron",
+	KindIntegrationApp:          "iapp",
 	KindIntegrationInstall:      "iin",
+	KindIntegrationRoute:        "iroute",
 	KindIntegrationTarget:       "itgt",
+	KindIntegrationBinding:      "ibnd",
+	KindIntegrationEventReceipt: "irec",
+	KindChannelDefinition:       "cdef",
+	KindExternalChannelRequest:  "creq",
+	KindIntegrationRuntimeUnit:  "irun",
 	KindAgentEvent:              "evt",
 	KindAgentInput:              "ain",
 	KindAgentMachineBinding:     "amb",

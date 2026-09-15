@@ -99,7 +99,7 @@ skills:
 		t.Fatalf("launch agent: %v", err)
 	}
 	agentID := launch.Agent.ID
-	attachKernelSlackTarget(t, ctx, fixture, agentID, profile.ID, "prompt-cache", "C_PROMPT_CACHE:1.0")
+	attachKernelSlackChannel(t, ctx, fixture, agentID, "prompt-cache", "C_PROMPT_CACHE:1.0")
 
 	text := func(id, value string) model.Response {
 		return model.Response{
@@ -160,10 +160,10 @@ skills:
 	}
 	last := bundles[len(bundles)-1]
 	if !modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSkill) ||
-		!modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSendIntegrationMessage) ||
+		!modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSendChannelMessage) ||
 		!modelcontext.HasTool(last.ToolSpecs, "lookup_customer") ||
 		len(last.AvailableMachinePools) != 1 ||
-		len(last.IntegrationTargets) != 1 ||
+		last.CurrentChannelID == "" ||
 		len(last.ToolResults) != 1 ||
 		!strings.Contains(last.SystemPrompt, "<available_skills>") {
 		t.Fatalf("final bundle lacks the expected tools, pool, target, tool result, or skill catalog: %+v", last)

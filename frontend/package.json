@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @omnara/web dev",
-    "build": "pnpm --filter @omnara/web build",
+    "build": "pnpm --filter @omnara/web --filter @omnara/channel-gateway build",
     "preview": "pnpm --filter @omnara/web preview",
     "generate:api": "pnpm --filter @omnara/sdk generate:api",
     "doctor": "npx --yes react-doctor@latest . --project \"*\" --scope changed --blocking warning",

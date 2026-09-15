@@ -102,7 +102,19 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if err != nil {
 		return nil, err
 	}
-	if integrationTarget.IntegrationInstallID != install.ID || integrationTarget.AgentID != agentID {
+	if integrationTarget.IntegrationInstallID != install.ID {
+		return nil, storeerr.ErrUnauthorized
+	}
+	binding, err := s.store.Integrations().GetActiveSendBindingForTarget(
+		r.Context(),
+		install.ProjectID,
+		agentID,
+		integrationTargetID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if binding.IntegrationInstallID != install.ID {
 		return nil, storeerr.ErrUnauthorized
 	}
 	existing, found, err := s.store.Execution().GetAgentInteraction(
@@ -116,6 +128,9 @@ func (s *Server) resolveIntegrationInteractionAction(
 	}
 	if !found {
 		return nil, storeerr.ErrNotFound
+	}
+	if existing.IntegrationTargetID != integrationTargetID {
+		return nil, storeerr.ErrUnauthorized
 	}
 	if existing.State != executionstore.AgentInteractionStateOpen {
 		return map[string]any{
@@ -155,7 +170,9 @@ func (s *Server) resolveIntegrationInteractionAction(
 			ProviderUserID:   envelope.User.ID,
 			DisplayName:      &displayName,
 		},
-		IntegrationTargetID: integrationTargetID,
+		IntegrationTargetID:        integrationTargetID,
+		IntegrationTargetBindingID: binding.ID,
+		IntegrationInstallID:       install.ID,
 	}); err != nil {
 		if errors.Is(err, storeerr.ErrIdempotencyConflict) {
 			return map[string]any{

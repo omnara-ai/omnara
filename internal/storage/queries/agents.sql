@@ -407,14 +407,16 @@ WHERE project_id = sqlc.arg(project_id)
   AND profile_id = sqlc.arg(profile_id)
   AND deleted_at IS NULL;
 
--- name: AgentProfileHasIntegrationInstall :one
+-- name: AgentProfileHasIntegrationReference :one
 SELECT EXISTS (
-  SELECT 1 FROM integration_installs
-  WHERE project_id = sqlc.arg(project_id)
-    AND agent_profile_id = sqlc.arg(profile_id)
-    AND state = 'active'
-    AND deleted_at IS NULL
-) AS has_integration_install;
+  SELECT 1 FROM integration_routes route
+  JOIN integration_installs install
+    ON install.project_id = route.project_id AND install.id = route.integration_install_id
+  WHERE route.project_id = sqlc.arg(project_id)
+    AND route.agent_profile_id = sqlc.arg(profile_id)
+    AND route.deleted_at IS NULL
+    AND install.deleted_at IS NULL
+)::boolean AS has_integration_reference;
 
 -- name: AgentProfileVersionExistsForConfig :one
 -- @sqlc-vet-disable agent-profile-versions-deleted-at

@@ -43,44 +43,52 @@ VALUES ($1, 'Test Org', 'idem-test-org', $2, $2)
 	)
 	require.NoError(t, err, "seed org")
 	InsertProject(t, ctx, pool, ids.OrgID, ids.ProjectID, "Test Project", "idem-test-project", now)
-	_, err = pool.Exec(
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err, "begin default provider fixture")
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Secret-reference guards must see the secret before the provider is inserted.
+	_, err = tx.Exec(
 		ctx,
 		`
-WITH seeded_secret AS (
-  INSERT INTO secrets(
+INSERT INTO secrets(
     id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at, updated_at
   )
-  VALUES ($2, $1, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $3, $5, $5)
-  ON CONFLICT (id) DO NOTHING
-),
-seeded_secret_version AS (
-  INSERT INTO secret_versions(
+  VALUES ($2, $1, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $3, $4, $4)
+ON CONFLICT (id) DO NOTHING`,
+		ids.OrgID, ids.ProviderSecretID, ids.ProviderSecretVersionID, now,
+	)
+	require.NoError(t, err, "seed default provider secret")
+	_, err = tx.Exec(ctx, `
+INSERT INTO secret_versions(
     id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by,
     encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at
   )
   VALUES (
     $3, $1, $2, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local',
     decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'),
-    decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $5
+    decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $4
   )
-  ON CONFLICT (id) DO NOTHING
-)
+ON CONFLICT (id) DO NOTHING`,
+		ids.OrgID, ids.ProviderSecretID, ids.ProviderSecretVersionID, now,
+	)
+	require.NoError(t, err, "seed default provider secret version")
+	_, err = tx.Exec(ctx, `
 INSERT INTO model_provider_configs(
   id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, auth_kind,
   credential_secret_id, created_at, updated_at
 )
 VALUES (
-  $4, $1, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1',
-  '/responses', 'bearer_token', $2, $5, $5
+  $3, $1, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1',
+  '/responses', 'bearer_token', $2, $4, $4
 )
 ON CONFLICT (id) DO NOTHING`,
 		ids.OrgID,
 		ids.ProviderSecretID,
-		ids.ProviderSecretVersionID,
 		ids.ProviderConfigID,
 		now,
 	)
 	require.NoError(t, err, "seed default model provider config")
+	require.NoError(t, tx.Commit(ctx), "commit default provider fixture")
 }
 
 func InsertProject(

@@ -196,9 +196,8 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if len(location.Query()) != 1 {
 		t.Fatalf("unexpected callback redirect params: %s", location.String())
 	}
-	install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := project.Store.Integrations().GetSlackIntegrationInstallByIdentity(
 		ctx,
-		integrationstore.IntegrationProviderSlack,
 		"T123",
 		"A123",
 	)
@@ -211,18 +210,22 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 		t.Fatalf("parse install identity: %v", err)
 	}
 	var metadata slack.InstallMetadata
-	if err := json.Unmarshal(install.ProviderMetadata, &metadata); err != nil {
+	if err := json.Unmarshal(install.Metadata, &metadata); err != nil {
 		t.Fatalf("parse install metadata: %v", err)
 	}
-	if install.AgentProfileID != profileUUID ||
+	routes, err := project.Store.Integrations().ListActiveIntegrationRoutes(ctx, project.ProjectUUID, install.ID)
+	if err != nil || len(routes) != 1 {
+		t.Fatalf("get installed behavior: %v %+v", err, routes)
+	}
+	if routes[0].AgentProfileID != profileUUID ||
 		install.Provider != integrationstore.IntegrationProviderSlack ||
 		install.State != integrationstore.IntegrationInstallStateActive ||
-		install.IntegrationKind != slack.IntegrationKindAgentProfile ||
+		install.IntegrationKind != integrationstore.IntegrationKindManaged ||
 		install.ConnectionMode != slack.ConnectionModeWebhook ||
 		install.ProviderAccountRef != "A123" ||
 		identity.BotUserID != "U_BOT" ||
 		metadata.TeamName != "Acme" ||
-		install.ProviderAgentDisplayName != "Omnara" ||
+		install.DisplayName != "Omnara" ||
 		install.ProviderTenantID != "T123" {
 		t.Fatalf("unexpected install: %+v", install)
 	}
@@ -399,9 +402,8 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 		if location.Query().Get("integration_oauth") != "success" {
 			t.Fatalf("callback redirect = %s, want success", location.String())
 		}
-		install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+		install, err := project.Store.Integrations().GetSlackIntegrationInstallByIdentity(
 			ctx,
-			integrationstore.IntegrationProviderSlack,
 			"T123",
 			appID,
 		)
@@ -413,8 +415,16 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 
 	first := complete("first-code", "A_FIRST")
 	second := complete("second-code", "A_SECOND")
+	for _, install := range []integrationstore.IntegrationInstallRecord{first, second} {
+		routes, err := project.Store.Integrations().ListActiveIntegrationRoutes(ctx, project.ProjectUUID, install.ID)
+		if err != nil || len(routes) != 1 {
+			t.Fatalf("get installed behavior: %v %+v", err, routes)
+		}
+		if routes[0].AgentProfileID != mustPublicHTTPID(t, publicid.KindAgentProfile, profileID) {
+			t.Fatalf("unexpected route profile: %+v", routes[0])
+		}
+	}
 	if first.ID == second.ID ||
-		first.AgentProfileID != second.AgentProfileID ||
 		first.ProviderTenantID != second.ProviderTenantID ||
 		first.State != integrationstore.IntegrationInstallStateActive ||
 		second.State != integrationstore.IntegrationInstallStateActive {
@@ -619,9 +629,8 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 	if len(location.Query()) != 1 {
 		t.Fatalf("unexpected callback redirect params: %s", location.String())
 	}
-	install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := project.Store.Integrations().GetSlackIntegrationInstallByIdentity(
 		ctx,
-		integrationstore.IntegrationProviderSlack,
 		"T123",
 		"A_MANIFEST",
 	)
@@ -865,81 +874,18 @@ func TestIntegrationOAuthSetupRejectsNonPublicSlackPublicURL(t *testing.T) {
 	}
 }
 
-func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *testing.T) {
+func TestAgentConfigCannotDeclareChannelAccessTools(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-
-	var manifestCalled bool
-	slackServer := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			manifestCalled = true
-			writeJSON(
-				w,
-				http.StatusInternalServerError,
-				map[string]string{"error": "unexpected slack call"},
-			)
-		}),
-	)
-	defer slackServer.Close()
-
-	handler := newIntegrationServer(
-		pool,
-		WithPublicURL("https://omnara.test"),
-		WithSlackOAuth(
-			SlackOAuthConfig{
-				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
-				APIURL:       slackServer.URL,
-				HTTPClient:   slackServer.Client(),
-			},
-		),
-	)
-	project := bootstrapPublicHTTPProject(
-		t,
-		handler,
-		"slack-manifest-disabled-tool",
-	)
-	sourceYAML := "instruction: Help the user make progress.\n" +
-		"model:\n" +
-		"  provider_config: openai-prod\n" +
-		"  name: gpt-test\n" +
-		"tools:\n" +
-		"  send_integration_message:\n" +
-		"    enabled: false\n"
-	config := createPublicHTTPAgentConfig(
-		t,
-		handler,
-		project,
-		"slack-manifest-disabled-tool",
-		"yaml",
-		sourceYAML,
-		project.AdminToken,
-		http.StatusCreated,
-	)
-	profile := createPublicHTTPAgentProfile(
-		t,
-		handler,
-		project,
-		"slack-manifest-disabled-tool",
-		"Disabled Integration Send",
-		testutil.RequireType[string](t, config["id"]),
-		project.AdminToken,
-		http.StatusCreated,
-	)
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
-		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
-		"agent profile config does not allow send_integration_message",
-		http.StatusBadRequest,
-		authHeaders(project.AdminToken),
-	)
-	if manifestCalled {
-		t.Fatal(
-			"slack manifest creation was called for profile with explicitly disabled send_integration_message",
-		)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "channel-tool-config-authority")
+	for _, name := range []string{
+		"list_channels", "get_channel", "set_current_channel", "read_channel", "send_channel_message",
+	} {
+		source := "instruction: Help the user.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n" +
+			"tools:\n  " + name + ": {}\n"
+		createPublicHTTPAgentConfig(t, handler, project, name, "yaml", source, project.AdminToken, http.StatusBadRequest)
 	}
 }
 
@@ -1247,9 +1193,8 @@ func completeSlackOAuthInstall(
 	if len(location.Query()) != 1 {
 		t.Fatalf("unexpected callback redirect params: %s", location.String())
 	}
-	install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := project.Store.Integrations().GetSlackIntegrationInstallByIdentity(
 		context.Background(),
-		integrationstore.IntegrationProviderSlack,
 		"T123",
 		"A123",
 	)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -72,12 +73,17 @@ func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
 	return nil
 }
 
+func (s *recordingBlobStore) OpenBlob(context.Context, string) (io.ReadCloser, blobstore.Metadata, error) {
+	return nil, blobstore.Metadata{}, errors.New("unexpected streaming read in buffered artifact fixture")
+}
+
 func TestCreateArtifactContentRoundTrip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
 	agentID := mustCreateAgent(t, ctx, store)
 
 	record, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
@@ -249,8 +255,47 @@ func TestCreateArtifactCleanupSurvivesRequestCancellation(t *testing.T) {
 	if len(blobs.deleteKeys) != 1 {
 		t.Fatalf("deleted blobs = %v, want one", blobs.deleteKeys)
 	}
+	if len(blobs.putKeys) != 1 || len(blobs.content) != 0 || blobs.deleteKeys[0] != blobs.putKeys[0] {
+		t.Fatalf("canceled artifact cleanup writes=%v deletes=%v retained=%v", blobs.putKeys, blobs.deleteKeys, blobs.content)
+	}
 	if len(blobs.deleteContextErrors) != 1 || blobs.deleteContextErrors[0] != nil {
 		t.Fatalf("delete context errors = %v, want [nil]", blobs.deleteContextErrors)
+	}
+}
+
+func TestCreateArtifactRetainsUploadWhenCommitFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	agentID := mustCreateAgent(t, ctx, store)
+	// Fail at COMMIT, after insertion succeeded. All commit failures retain the
+	// upload because a transport failure can hide a successfully committed row.
+	if _, err := pool.Exec(ctx, `
+CREATE FUNCTION fail_artifact_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'injected artifact commit failure';
+END;
+$$;
+CREATE CONSTRAINT TRIGGER fail_artifact_commit
+AFTER INSERT ON artifacts DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION fail_artifact_commit();
+`); err != nil {
+		t.Fatalf("install deferred artifact failure: %v", err)
+	}
+	_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID:   testProjectID,
+		AgentID:     agentID,
+		ContentType: "text/plain",
+		Content:     []byte("retain on commit failure"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "commit create artifact") {
+		t.Fatalf("create artifact error = %v, want commit failure", err)
+	}
+	if len(blobs.putKeys) != 1 || len(blobs.deleteKeys) != 0 || len(blobs.content) != 1 {
+		t.Fatalf("failed commit writes=%v deletes=%v retained=%v", blobs.putKeys, blobs.deleteKeys, blobs.content)
 	}
 }
 
@@ -286,7 +331,7 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 		t.Fatal("replay should not report created")
 	}
 	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
-		blobs.deleteKeys[0] != blobs.putKeys[1] {
+		blobs.deleteKeys[0] != blobs.putKeys[1] || len(blobs.content) != 1 {
 		t.Fatalf("replay blob writes=%v deletes=%v, want second upload deleted", blobs.putKeys, blobs.deleteKeys)
 	}
 	if _, ok := blobs.content[blobs.putKeys[0]]; !ok {
@@ -298,7 +343,7 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
 	}
 	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
-		blobs.deleteKeys[1] != blobs.putKeys[2] {
+		blobs.deleteKeys[1] != blobs.putKeys[2] || len(blobs.content) != 1 {
 		t.Fatalf("conflict blob writes=%v deletes=%v, want third upload deleted", blobs.putKeys, blobs.deleteKeys)
 	}
 }

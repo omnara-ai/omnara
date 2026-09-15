@@ -37,6 +37,7 @@ func PreparePrefix(t testing.TB, client model.Client, bundle modelcontext.Bundle
 	}
 	messages, _ := body[messagesKey].([]any)
 	delete(body, messagesKey)
+	messages = withoutCurrentChannelNotice(messages, client.APIFormat(), bundle)
 	return PreparedPrefix{static: body, messages: withoutTrailingSystemContext(messages)}
 }
 
@@ -79,4 +80,31 @@ func withoutTrailingSystemContext(messages []any) []any {
 		end--
 	}
 	return messages[:end]
+}
+
+// The harness appends current routing state after the stable history. Responses
+// and Chat use a trailing system message; Anthropic appends a final text block.
+// Exclude only the exact known generated block, retaining every earlier block.
+func withoutCurrentChannelNotice(messages []any, format modelprotocol.APIFormat, bundle modelcontext.Bundle) []any {
+	if format != modelprotocol.APIFormatAnthropicMessages ||
+		!modelcontext.CurrentChannelContextEnabled(bundle.ToolSpecs) || len(messages) == 0 {
+		return messages
+	}
+	last, ok := messages[len(messages)-1].(map[string]any)
+	if !ok {
+		return messages
+	}
+	content, ok := last["content"].([]any)
+	if !ok || len(content) == 0 {
+		return messages
+	}
+	block, ok := content[len(content)-1].(map[string]any)
+	if !ok || block["type"] != "text" || block["text"] != modelcontext.CurrentChannelContent(bundle.CurrentChannelID) {
+		return messages
+	}
+	if len(content) == 1 {
+		return messages[:len(messages)-1]
+	}
+	last["content"] = content[:len(content)-1]
+	return messages
 }

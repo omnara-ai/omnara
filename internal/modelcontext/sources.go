@@ -14,6 +14,7 @@ import (
 )
 
 type ExecutionStore interface {
+	GetAgentCurrentChannelID(ctx context.Context, projectID, agentID uuid.UUID) (uuid.UUID, error)
 	IsOutputLimitBoundary(ctx context.Context, projectID, agentID uuid.UUID, sequence int64) (bool, error)
 	CaptureAgentConfigForModelContext(
 		ctx context.Context,
@@ -60,10 +61,9 @@ type ArtifactStore interface {
 }
 
 type IntegrationStore interface {
-	ListIntegrationTargets(
+	GetAgentChannelToolEligibility(
 		ctx context.Context,
-		projectID, agentID uuid.UUID,
-	) ([]integrationstore.IntegrationTargetSummary, error)
+		projectID, agentID uuid.UUID) (integrationstore.AgentChannelToolEligibility, error)
 }
 
 type Store interface {

@@ -40,6 +40,22 @@ rules:
     message: "integration_installs query must filter deleted_at (or annotate @sqlc-vet-disable integration-installs-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+integration_installs\b') && !query.sql.contains('deleted_at')
+  - name: integration-apps-deleted-at
+    message: "integration_apps query must filter deleted_at (or annotate @sqlc-vet-disable integration-apps-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_apps\b') && !query.sql.contains('deleted_at')
+  - name: integration-routes-deleted-at
+    message: "integration_routes query must filter deleted_at (or annotate @sqlc-vet-disable integration-routes-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_routes\b') && !query.sql.contains('deleted_at')
+  - name: integration-target-bindings-deleted-at
+    message: "integration_target_bindings query must filter revoked_at (or annotate @sqlc-vet-disable integration-target-bindings-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_target_bindings\b') && !query.sql.contains('revoked_at')
+  - name: integration-runtime-units-deleted-at
+    message: "integration_runtime_units query must filter deleted_at (or annotate @sqlc-vet-disable integration-runtime-units-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_runtime_units\b') && !query.sql.contains('deleted_at')
   - name: integration-targets-deleted-at
     message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
     rule: >-
@@ -74,6 +90,10 @@ sql:
       - agent-profiles-deleted-at
       - agent-profile-versions-deleted-at
       - integration-installs-deleted-at
+      - integration-apps-deleted-at
+      - integration-routes-deleted-at
+      - integration-target-bindings-deleted-at
+      - integration-runtime-units-deleted-at
       - integration-targets-deleted-at
       - machine-pools-deleted-at
       - machines-deleted-at

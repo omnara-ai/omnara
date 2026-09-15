@@ -51,23 +51,16 @@ func conversationStates(systemPrompt string) []modelcontext.Bundle {
 		return json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, value))
 	}
 	base := modelcontext.Bundle{
-		AgentID:      uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
-		SystemPrompt: systemPrompt,
+		CurrentChannelID: "itgt_aaaaaaaaaaaaaaaaaaaaaaaaae",
+		AgentID:          uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
+		SystemPrompt:     systemPrompt,
 		ToolSpecs: []modelcontext.ToolSpec{
 			{
 				Name:        toolcatalog.ToolNameRunCommand,
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}}}`),
 			},
-			{Name: toolcatalog.ToolNameSendIntegrationMessage},
+			{Name: toolcatalog.ToolNameSetCurrentChannel},
 		},
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef:       "slack-abcd",
-			DurableID:       "internal-target-id",
-			Provider:        "slack",
-			ProviderRefKind: "thread",
-			Label:           "slack thread C123",
-			IsCurrent:       true,
-		}},
 	}
 	user1 := modelcontext.Message{Role: modelprotocol.RoleUser, Sequence: 10, Content: text("list the files")}
 	toolCall := modelcontext.Message{

@@ -94,10 +94,12 @@ func bindToolCalls(
 				part.ProviderCallID,
 			)
 		}
+		// Check the original bytes before JSONB can discard duplicate keys. The
+		// validator leaves valid arguments and numeric values unchanged.
 		if err := modelenvelope.ValidateToolInput(part.ToolInput); err != nil {
 			return nil, fmt.Errorf(
-				"provider call id %q input must be a JSON object",
-				part.ProviderCallID,
+				"provider call id %q input must be a JSON object: %w",
+				part.ProviderCallID, err,
 			)
 		}
 		seenProviderCallIDs[part.ProviderCallID] = struct{}{}

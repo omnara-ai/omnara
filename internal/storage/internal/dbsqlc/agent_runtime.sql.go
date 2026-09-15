@@ -264,20 +264,20 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 const insertAgent = `-- name: InsertAgent :one
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
-        $1, $2, 'active', $3,
-        $4, $5, $6,
-        $7, $8,
-        $9,
+        coalesce($1::uuid, uuidv7()), $2, $3, 'active', $4,
+        $5, $6, $7,
+        $8, $9,
+        $10,
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id
-    WHERE project.org_id = $1
-      AND project.id = $2
+    WHERE project.org_id = $2
+      AND project.id = $3
       AND project.deleted_at IS NULL
       AND org.deleted_at IS NULL
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
@@ -306,6 +306,7 @@ LEFT JOIN model_provider_configs model_provider_config
 `
 
 type InsertAgentParams struct {
+	ID                      *uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	Name                    string
@@ -341,6 +342,7 @@ type InsertAgentRow struct {
 // Display-only model names must still resolve after the model or provider config is soft deleted.
 func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (InsertAgentRow, error) {
 	row := q.db.QueryRow(ctx, insertAgent,
+		arg.ID,
 		arg.OrgID,
 		arg.ProjectID,
 		arg.Name,
@@ -414,7 +416,6 @@ SELECT agent.id,
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
- AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
 LEFT JOIN integration_installs install
@@ -597,7 +598,6 @@ SELECT agent.id,
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
- AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
 LEFT JOIN integration_installs install
@@ -754,7 +754,6 @@ SELECT agent.id,
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
- AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
 LEFT JOIN integration_installs install

@@ -132,7 +132,7 @@ const getAgentInteraction = `-- name: GetAgentInteraction :one
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -163,6 +163,7 @@ func (q *Queries) GetAgentInteraction(ctx context.Context, arg GetAgentInteracti
 		&i.ResolvedByInputID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+		&i.IntegrationTargetID,
 	)
 	return i, err
 }
@@ -171,7 +172,7 @@ const getAgentInteractionByToolCallKind = `-- name: GetAgentInteractionByToolCal
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -209,6 +210,7 @@ func (q *Queries) GetAgentInteractionByToolCallKind(ctx context.Context, arg Get
 		&i.ResolvedByInputID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+		&i.IntegrationTargetID,
 	)
 	return i, err
 }
@@ -216,12 +218,13 @@ func (q *Queries) GetAgentInteractionByToolCallKind(ctx context.Context, arg Get
 const insertAgentInteraction = `-- name: InsertAgentInteraction :one
 INSERT INTO agent_interactions(
   agent_id, tool_call_id,
-  interaction_kind, state, request, created_at
+  interaction_kind, state, request, created_at, integration_target_id
 )
 SELECT tool_call.agent_id,
 	     tool_call.id, $1, 'open',
-	     $2, statement_timestamp()
+	     $2, statement_timestamp(), agent.integration_target_id
 FROM tool_call_read_projection tool_call
+JOIN agents agent ON agent.project_id = tool_call.project_id AND agent.id = tool_call.agent_id
 WHERE tool_call.project_id = $3
 	AND tool_call.agent_id = $4
 	AND tool_call.id = $5
@@ -256,61 +259,76 @@ WITH target AS (
   JOIN agent_interaction_read_projection projection
     ON projection.agent_id = interaction.agent_id
    AND projection.id = interaction.id
-  WHERE projection.project_id = $5
-    AND interaction.agent_id = $6
-    AND interaction.id = $7
+  WHERE projection.project_id = $7
+    AND interaction.agent_id = $8
+    AND interaction.id = $9
 )
 INSERT INTO agent_inputs(
   project_id, agent_id, state,
-  actor_id, input_kind, delivery_mode, target_interaction_id,
+  actor_id, input_kind, integration_target_id, integration_target_binding_id,
+  delivery_mode, target_interaction_id,
   idempotency_scope, input_idempotency_key, queued_at, metadata
 )
 SELECT target.project_id, target.agent_id, 'received',
-       $1::uuid,
-       'interaction_response', 'immediate', target.id,
-       $2, $3,
-       statement_timestamp(), $4
+       $1::uuid, 'interaction_response',
+       $2::uuid,
+       $3::uuid,
+       'immediate', target.id,
+       $4, $5,
+       statement_timestamp(), $6
 FROM target
 ON CONFLICT (project_id, agent_id, idempotency_scope, input_idempotency_key) WHERE idempotency_scope IS NOT NULL AND input_idempotency_key IS NOT NULL DO NOTHING
-RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind,
+  integration_target_id, integration_target_binding_id,
+  coalesce(idempotency_scope, '') AS idempotency_scope,
+  coalesce(input_idempotency_key, '') AS input_idempotency_key,
+  queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode,
+  coalesce(control_type, '') AS control_type, target_interaction_id,
+  agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 `
 
 type InsertInteractionResponseAgentInputParams struct {
-	ActorID             *uuid.UUID
-	IdempotencyScope    *string
-	InputIdempotencyKey *string
-	Metadata            json.RawMessage
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	TargetInteractionID uuid.UUID
+	ActorID                    *uuid.UUID
+	IntegrationTargetID        *uuid.UUID
+	IntegrationTargetBindingID *uuid.UUID
+	IdempotencyScope           *string
+	InputIdempotencyKey        *string
+	Metadata                   json.RawMessage
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	TargetInteractionID        uuid.UUID
 }
 
 type InsertInteractionResponseAgentInputRow struct {
-	ID                  uuid.UUID
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	State               string
-	InputRank           int64
-	ActorID             *uuid.UUID
-	InputKind           string
-	IdempotencyScope    string
-	InputIdempotencyKey string
-	QueuedAt            time.Time
-	AdmittedEventID     *uuid.UUID
-	AdmittedAt          *time.Time
-	CanceledAt          *time.Time
-	DeliveryMode        string
-	ControlType         string
-	TargetInteractionID *uuid.UUID
-	AgentConfigID       *uuid.UUID
-	ResolvedAt          *time.Time
-	RejectedReason      string
-	Metadata            json.RawMessage
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	State                      string
+	InputRank                  int64
+	ActorID                    *uuid.UUID
+	InputKind                  string
+	IntegrationTargetID        *uuid.UUID
+	IntegrationTargetBindingID *uuid.UUID
+	IdempotencyScope           string
+	InputIdempotencyKey        string
+	QueuedAt                   time.Time
+	AdmittedEventID            *uuid.UUID
+	AdmittedAt                 *time.Time
+	CanceledAt                 *time.Time
+	DeliveryMode               string
+	ControlType                string
+	TargetInteractionID        *uuid.UUID
+	AgentConfigID              *uuid.UUID
+	ResolvedAt                 *time.Time
+	RejectedReason             string
+	Metadata                   json.RawMessage
 }
 
 func (q *Queries) InsertInteractionResponseAgentInput(ctx context.Context, arg InsertInteractionResponseAgentInputParams) (InsertInteractionResponseAgentInputRow, error) {
 	row := q.db.QueryRow(ctx, insertInteractionResponseAgentInput,
 		arg.ActorID,
+		arg.IntegrationTargetID,
+		arg.IntegrationTargetBindingID,
 		arg.IdempotencyScope,
 		arg.InputIdempotencyKey,
 		arg.Metadata,
@@ -327,6 +345,8 @@ func (q *Queries) InsertInteractionResponseAgentInput(ctx context.Context, arg I
 		&i.InputRank,
 		&i.ActorID,
 		&i.InputKind,
+		&i.IntegrationTargetID,
+		&i.IntegrationTargetBindingID,
 		&i.IdempotencyScope,
 		&i.InputIdempotencyKey,
 		&i.QueuedAt,
@@ -348,7 +368,7 @@ const listAgentInteractionsByIDs = `-- name: ListAgentInteractionsByIDs :many
 SELECT id, project_id, agent_id, turn_id,
 	   model_call_context_id, tool_call_id, provider_call_id,
 	   interaction_kind, state, request, resolution,
-	   resolved_by_input_id, created_at, resolved_at
+	   resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
 	AND agent_id = $2
@@ -386,6 +406,7 @@ func (q *Queries) ListAgentInteractionsByIDs(ctx context.Context, arg ListAgentI
 			&i.ResolvedByInputID,
 			&i.CreatedAt,
 			&i.ResolvedAt,
+			&i.IntegrationTargetID,
 		); err != nil {
 			return nil, err
 		}

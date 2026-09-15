@@ -8,44 +8,38 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
 
-func TestFileToolPathSchemas(t *testing.T) {
+func TestSendChannelMessageSchemaRequiresDestination(t *testing.T) {
 	catalog, err := Default()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, toolName := range []string{ToolNameUploadFile, ToolNameDownloadFile} {
-		t.Run(toolName, func(t *testing.T) {
-			entry, ok := catalog.Lookup(toolName)
-			if !ok {
-				t.Fatal("tool missing from catalog")
-			}
-			validator, err := jsonschema.Compile(entry.InputSchema)
-			if err != nil {
-				t.Fatal(err)
-			}
-			artifactPath := "/artifacts/art_z3jehcyd5n6a2bfgik7mv4qtrw"
-			for _, path := range []string{
-				"/artifacts", artifactPath, "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW",
-				"", "/artifacts/", "/skills/example", artifactPath + "/", artifactPath + "/nested",
-				"/artifacts/art_short", "prefix" + artifactPath,
-			} {
-				input := map[string]string{"path": path}
-				wantValid := path == ArtifactVFSRoot
-				if toolName == ToolNameUploadFile {
-					input["source"] = "file.txt"
-				} else {
-					input["destination"] = "file.txt"
-					wantValid = path == artifactPath
-				}
-				raw, err := json.Marshal(input)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := validator.Validate(raw); (err == nil) != wantValid {
-					t.Errorf("path %q: error = %v, want valid = %t", path, err, wantValid)
-				}
-			}
-		})
+	entry, ok := catalog.Lookup(ToolNameSendChannelMessage)
+	if !ok {
+		t.Fatal("send_channel_message missing from default catalog")
+	}
+	validator, err := jsonschema.Compile(entry.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for input, valid := range map[string]bool{
+		`{"message":{"text":"hello"},"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`: true,
+		`{"message":{"text":"hello"}}`:                                                                                   false,
+		`{"message":{"text":"hello"},"channel_id":null}`:                                                                 false,
+		`{"message":{"text":"hello"},"channel_id":""}`:                                                                   false,
+		`{"message":{"text":"hello"},"channel_id":42}`:                                                                   false,
+		`{"message":{"text":"hello"},"channel_id":"not-a-channel"}`:                                                      false,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`:                                                               false,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","message":{}}`:                                                  false,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","message":{"text":null}}`:                                       false,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","message":{"artifact_ids":[]}}`:                                 false,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","message":{"artifact_ids":["art_aaaaaaaaaaaaaaaaaaaaaaaaaa"]}}`: true,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","message":{"text":"hello"},"params":{}}`:                        true,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","message":{"text":"hello"},"params":null}`:                      false,
+		`{"channel_id":"itgt_aaaaaaaaaaaaaaaaaaaaaaaaaa","text":"hello"}`:                                                false,
+	} {
+		if err := validator.Validate(json.RawMessage(input)); (err == nil) != valid {
+			t.Errorf("validate %s = %v, want valid=%t", input, err, valid)
+		}
 	}
 }
 
@@ -57,6 +51,23 @@ func TestDefaultCatalogDoesNotUseReservedMCPNamespace(t *testing.T) {
 	for _, entry := range catalog.Entries() {
 		if UsesMCPRuntimeNamespace(entry.Name) {
 			t.Fatalf("built-in tool %q uses the reserved MCP tool namespace", entry.Name)
+		}
+	}
+}
+
+func TestIsBindingManagedTool(t *testing.T) {
+	for name, want := range map[string]bool{
+		ToolNameListChannels:       true,
+		ToolNameGetChannel:         true,
+		ToolNameSetCurrentChannel:  true,
+		ToolNameSendChannelMessage: true,
+		ToolNameReadChannel:        true,
+		ToolNameRunCommand:         false,
+		"send_integration_message": false,
+		"set_integration_target":   false,
+	} {
+		if got := IsBindingManagedTool(name); got != want {
+			t.Errorf("IsBindingManagedTool(%q) = %t, want %t", name, got, want)
 		}
 	}
 }
@@ -110,5 +121,46 @@ func TestDefaultCatalogIncludesRuntimeDiscoveryGuidance(t *testing.T) {
 				t.Fatalf("%s schema does not contain %q: %s", check.name, needle, entry.InputSchema)
 			}
 		}
+	}
+}
+
+func TestFileToolPathSchemas(t *testing.T) {
+	catalog, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, toolName := range []string{ToolNameUploadFile, ToolNameDownloadFile} {
+		t.Run(toolName, func(t *testing.T) {
+			entry, ok := catalog.Lookup(toolName)
+			if !ok {
+				t.Fatal("tool missing from catalog")
+			}
+			validator, err := jsonschema.Compile(entry.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifactPath := "/artifacts/art_z3jehcyd5n6a2bfgik7mv4qtrw"
+			for _, path := range []string{
+				"/artifacts", artifactPath, "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW",
+				"", "/artifacts/", "/skills/example", artifactPath + "/", artifactPath + "/nested",
+				"/artifacts/art_short", "prefix" + artifactPath,
+			} {
+				input := map[string]string{"path": path}
+				wantValid := path == ArtifactVFSRoot
+				if toolName == ToolNameUploadFile {
+					input["source"] = "file.txt"
+				} else {
+					input["destination"] = "file.txt"
+					wantValid = path == artifactPath
+				}
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := validator.Validate(raw); (err == nil) != wantValid {
+					t.Errorf("path %q: error = %v, want valid = %t", path, err, wantValid)
+				}
+			}
+		})
 	}
 }

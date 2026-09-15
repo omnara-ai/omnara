@@ -102,6 +102,17 @@ func resolveActorTx(
 	params *ActorParams,
 	integrationTargetID uuid.UUID,
 ) (uuid.UUID, error) {
+	return resolveInputActorTx(ctx, qtx, projectID, agentID, params, integrationTargetID, false)
+}
+
+func resolveInputActorTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+	params *ActorParams,
+	integrationTargetID uuid.UUID,
+	forInteractionResponse bool,
+) (uuid.UUID, error) {
 	if projectID == uuid.Nil {
 		return uuid.Nil, errors.New("project id is required for input actor")
 	}
@@ -151,10 +162,11 @@ func resolveActorTx(
 		matches, err := qtx.ActorMatchesIntegrationTarget(
 			ctx,
 			dbsqlc.ActorMatchesIntegrationTargetParams{
-				ProjectID:           projectID,
-				AgentID:             agentID,
-				IntegrationTargetID: integrationTargetID,
-				ActorID:             actor.ID,
+				ProjectID:              projectID,
+				AgentID:                agentID,
+				IntegrationTargetID:    integrationTargetID,
+				ActorID:                actor.ID,
+				ForInteractionResponse: forInteractionResponse,
 			},
 		)
 		if err != nil {

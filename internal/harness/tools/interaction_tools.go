@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -65,11 +66,15 @@ func deliverStructuredQuestionPrompts(
 		return nil, errors.New("question interaction not found")
 	}
 	if interaction.State == executionstore.AgentInteractionStateOpen {
-		if err := call.Executor.postIntegrationPrompt(ctx, call.Turn, interaction); err != nil {
-			return nil, fmt.Errorf("deliver question interaction: %w", err)
+		if err := call.Executor.postIntegrationPrompt(ctx, call.Turn, interaction); err != nil &&
+			!(errors.Is(err, context.Canceled) && ctx.Err() != nil) {
+			// The external prompt is a copy. A provider failure must not cancel
+			// the canonical question the user can still answer in the dashboard.
+			slog.WarnContext(ctx, "integration question prompt copy failed",
+				"agent_id", call.Turn.AgentID, "interaction_id", interaction.ID, "error", err)
 		}
 	}
-	return awaitDurableAsynchronously(), nil
+	return awaitDurableAsynchronously(), nil //nolint:nilerr // A failed external copy leaves the dashboard question open.
 }
 
 func askQuestionForm(raw json.RawMessage) (interactionform.Form, error) {

@@ -25,6 +25,7 @@ const (
 )
 
 type insertAgentInput struct {
+	ID                      uuid.UUID // Optional internal identity for blob preparation before atomic launch.
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	AgentProfileID          uuid.UUID
@@ -83,6 +84,7 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
+		ID:                      storeutil.IDFromNil(input.ID),
 		OrgID:                   input.OrgID,
 		ProjectID:               input.ProjectID,
 		AgentProfileID:          storeutil.IDFromNil(input.AgentProfileID),
@@ -178,6 +180,9 @@ func (s *Store) GetAgentInProject(ctx context.Context, projectID, id uuid.UUID) 
 		dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: id},
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AgentRecord{}, storeerr.ErrNotFound
+		}
 		return AgentRecord{}, fmt.Errorf("load agent in project: %w", err)
 	}
 	return agentRecordFromProjectSQLC(row), nil
@@ -478,6 +483,15 @@ func archiveAgentTx(
 	}
 	if rows == 0 {
 		return nil, storeerr.ErrNotFound
+	}
+	if err := qtx.RevokeIntegrationTargetBindingsForAgent(
+		ctx,
+		dbsqlc.RevokeIntegrationTargetBindingsForAgentParams{
+			ProjectID: projectID,
+			AgentID:   agentID,
+		},
+	); err != nil {
+		return nil, fmt.Errorf("revoke archived agent channel bindings: %w", err)
 	}
 
 	if _, err := qtx.CancelQueuedBacklogInputsForAgent(ctx, dbsqlc.CancelQueuedBacklogInputsForAgentParams{

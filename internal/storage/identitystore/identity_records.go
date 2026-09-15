@@ -1,10 +1,12 @@
 package identitystore
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 )
 
 type OrgRecord struct {
@@ -59,10 +61,11 @@ type VisibleProjectRecord struct {
 }
 
 const (
-	PrincipalTypeUser          = authz.PrincipalUser
-	PrincipalTypeOrgAPIKey     = authz.PrincipalOrgAPIKey
-	PrincipalTypeSystem        = "system"
-	PrincipalTypeMachineDaemon = authz.PrincipalMachineDaemon
+	PrincipalTypeUser             = authz.PrincipalUser
+	PrincipalTypeOrgAPIKey        = authz.PrincipalOrgAPIKey
+	PrincipalTypeSystem           = "system"
+	PrincipalTypeMachineDaemon    = authz.PrincipalMachineDaemon
+	PrincipalTypeChannelConnector = "channel_connector"
 
 	ProjectActionRead          = authz.ProjectRead
 	ProjectActionManage        = authz.ProjectManage
@@ -485,14 +488,16 @@ type OrgAPIKeyRecord struct {
 // PrincipalRecord identifies an authenticated subject or internal actor. ID is
 // the subject; credential-specific IDs record how it authenticated.
 type PrincipalRecord struct {
-	Type                  string
-	ID                    uuid.UUID
-	OrgID                 uuid.UUID
-	PersonalAccessTokenID uuid.UUID
-	OrgAPIKeyID           uuid.UUID
-	BrowserSessionID      uuid.UUID
-	MachineDaemonTokenID  uuid.UUID
-	OAuthAccessTokenID    uuid.UUID
+	Type                         string
+	ID                           uuid.UUID
+	OrgID                        uuid.UUID
+	PersonalAccessTokenID        uuid.UUID
+	OrgAPIKeyID                  uuid.UUID
+	BrowserSessionID             uuid.UUID
+	MachineDaemonTokenID         uuid.UUID
+	ChannelConnectorID           string
+	ChannelConnectorCapabilities []channelconnector.Capability
+	OAuthAccessTokenID           uuid.UUID
 }
 
 func NewUserPrincipal(userID uuid.UUID) PrincipalRecord {
@@ -538,6 +543,16 @@ func NewMachineDaemonPrincipal(orgID, machineID, tokenID uuid.UUID) PrincipalRec
 		ID:                   machineID,
 		OrgID:                orgID,
 		MachineDaemonTokenID: tokenID,
+	}
+}
+
+func NewChannelConnectorPrincipal(
+	id string,
+	capabilities []channelconnector.Capability,
+) PrincipalRecord {
+	return PrincipalRecord{
+		Type: PrincipalTypeChannelConnector, ChannelConnectorID: id,
+		ChannelConnectorCapabilities: slices.Clone(capabilities),
 	}
 }
 

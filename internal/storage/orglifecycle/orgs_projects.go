@@ -138,8 +138,20 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectCronTriggers(ctx, dbsqlc.DeleteProjectCronTriggersParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project cron triggers: %w", err)
 	}
+	if err := q.RevokeProjectIntegrationTargetBindings(ctx, dbsqlc.RevokeProjectIntegrationTargetBindingsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("revoke project integration target bindings: %w", err)
+	}
 	if err := q.DeleteProjectIntegrationInstalls(ctx, dbsqlc.DeleteProjectIntegrationInstallsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration installs: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationApps(ctx, dbsqlc.DeleteProjectIntegrationAppsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration apps: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationRuntimeUnits(ctx, dbsqlc.DeleteProjectIntegrationRuntimeUnitsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration runtime units: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationRoutes(ctx, dbsqlc.DeleteProjectIntegrationRoutesParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration routes: %w", err)
 	}
 	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration targets: %w", err)
@@ -593,6 +605,12 @@ func (s *Service) deleteOrganizationOnce(
 			return nil, err
 		}
 	}
+	if err := q.DeleteOrganizationIntegrationApps(ctx, dbsqlc.DeleteOrganizationIntegrationAppsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization integration apps: %w", err)
+	}
+	if err := q.DeleteOrganizationIntegrationRuntimeUnits(ctx, dbsqlc.DeleteOrganizationIntegrationRuntimeUnitsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization integration runtime units: %w", err)
+	}
 	if err := q.DeleteOrganizationConfiguredModels(ctx, dbsqlc.DeleteOrganizationConfiguredModelsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization configured models: %w", err)
 	}
@@ -638,8 +656,8 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationProjects(ctx, dbsqlc.DeleteOrganizationProjectsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization projects: %w", err)
 	}
-	if err := q.DeleteOrganizationOrgAPIKeys(ctx, dbsqlc.DeleteOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("delete organization api keys: %w", err)
+	if err := q.RevokeOrganizationOrgAPIKeys(ctx, dbsqlc.RevokeOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("revoke organization api keys: %w", err)
 	}
 	if err := storeutil.CommitTxWithNotifications(
 		ctx,

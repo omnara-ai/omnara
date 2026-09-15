@@ -28,7 +28,7 @@ export interface BasicTool {
   permission: PermissionSelection | null
 }
 
-const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
+const hiddenToolNames = new Set(['skill'])
 const toolDescriptions = new Map([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['write_process', 'Send input to a command that is still running.'],
@@ -55,10 +55,16 @@ export function AgentConfigToolsField({
   tools: BasicTool[]
   onToolsChange: (tools: BasicTool[]) => void
 }) {
-  const catalogTools = (catalog?.built_in_tools ?? []).filter(
-    (entry) => !hiddenToolNames.has(entry.name),
+  const allCatalogTools = catalog?.built_in_tools ?? []
+  const nonConfigurableToolNames = new Set(
+    allCatalogTools.flatMap((entry) => (entry.configurable === false ? [entry.name] : [])),
   )
-  const visibleTools = tools.filter((tool) => !hiddenToolNames.has(tool.name))
+  const catalogTools = allCatalogTools.filter(
+    (entry) => entry.configurable !== false && !hiddenToolNames.has(entry.name),
+  )
+  const visibleTools = tools.filter(
+    (tool) => !hiddenToolNames.has(tool.name) && !nonConfigurableToolNames.has(tool.name),
+  )
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
   const availableTools = catalogTools.filter((entry) =>
     tools.every((tool) => tool.name !== entry.name),

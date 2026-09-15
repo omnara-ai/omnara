@@ -237,6 +237,12 @@ func cancelAgentTx(
 	}
 	var interactionRows []dbsqlc.AgentInteractionReadProjection
 	if currentTurnErr == nil {
+		if _, err := qtx.CancelExternalChannelRequestsForTurn(ctx,
+			dbsqlc.CancelExternalChannelRequestsForTurnParams{
+				ProjectID: projectID, AgentID: agentID, TurnID: currentTurn.ID, Reason: input.ReasonCode,
+			}); err != nil {
+			return CancelAgentResult{}, fmt.Errorf("cancel turn's external channel requests: %w", err)
+		}
 		interactionIDs, cancelErr := qtx.CancelOpenAgentInteractionsForAgent(
 			ctx,
 			dbsqlc.CancelOpenAgentInteractionsForAgentParams{

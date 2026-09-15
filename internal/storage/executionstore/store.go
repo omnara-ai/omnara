@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -15,6 +16,7 @@ import (
 )
 
 type Config struct {
+	Artifacts             *artifactstore.Store
 	PostCommitPublisher   notifications.PostCommitPublisher
 	ModelCallRetryBackoff func(int, string) time.Duration
 	Integrations          *integrationstore.Store
@@ -24,6 +26,7 @@ type Config struct {
 }
 
 type Store struct {
+	artifacts             *artifactstore.Store
 	pool                  *pgxpool.Pool
 	q                     *dbsqlc.Queries
 	postCommitPublisher   notifications.PostCommitPublisher
@@ -36,6 +39,7 @@ type Store struct {
 
 func New(pool *pgxpool.Pool, config Config) *Store {
 	return &Store{
+		artifacts:             config.Artifacts,
 		pool:                  pool,
 		q:                     dbsqlc.New(pool),
 		postCommitPublisher:   config.PostCommitPublisher,

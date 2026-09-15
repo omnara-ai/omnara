@@ -13,26 +13,28 @@ import (
 	"github.com/google/uuid"
 )
 
-const agentProfileHasIntegrationInstall = `-- name: AgentProfileHasIntegrationInstall :one
+const agentProfileHasIntegrationReference = `-- name: AgentProfileHasIntegrationReference :one
 SELECT EXISTS (
-  SELECT 1 FROM integration_installs
-  WHERE project_id = $1
-    AND agent_profile_id = $2
-    AND state = 'active'
-    AND deleted_at IS NULL
-) AS has_integration_install
+  SELECT 1 FROM integration_routes route
+  JOIN integration_installs install
+    ON install.project_id = route.project_id AND install.id = route.integration_install_id
+  WHERE route.project_id = $1
+    AND route.agent_profile_id = $2
+    AND route.deleted_at IS NULL
+    AND install.deleted_at IS NULL
+)::boolean AS has_integration_reference
 `
 
-type AgentProfileHasIntegrationInstallParams struct {
+type AgentProfileHasIntegrationReferenceParams struct {
 	ProjectID uuid.UUID
 	ProfileID *uuid.UUID
 }
 
-func (q *Queries) AgentProfileHasIntegrationInstall(ctx context.Context, arg AgentProfileHasIntegrationInstallParams) (bool, error) {
-	row := q.db.QueryRow(ctx, agentProfileHasIntegrationInstall, arg.ProjectID, arg.ProfileID)
-	var has_integration_install bool
-	err := row.Scan(&has_integration_install)
-	return has_integration_install, err
+func (q *Queries) AgentProfileHasIntegrationReference(ctx context.Context, arg AgentProfileHasIntegrationReferenceParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentProfileHasIntegrationReference, arg.ProjectID, arg.ProfileID)
+	var has_integration_reference bool
+	err := row.Scan(&has_integration_reference)
+	return has_integration_reference, err
 }
 
 const agentProfileVersionExistsForConfig = `-- name: AgentProfileVersionExistsForConfig :one

@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -18,6 +18,8 @@ import (
 )
 
 var ErrBlobStoreNotConfigured = errors.New("blob store is not configured")
+
+const artifactCompensationTimeout = 10 * time.Second
 
 type ArtifactRecord struct {
 	ID             uuid.UUID `json:"id"`
@@ -42,6 +44,9 @@ type CreateArtifactInput struct {
 	Content        []byte
 	MaxBytes       int64
 	IdempotencyKey string
+
+	integrationInstallID uuid.UUID
+	runtimeLease         *integrationstore.IntegrationRuntimeLeaseProof
 }
 
 func artifactObjectKey(agentID, artifactID uuid.UUID) string {
@@ -52,92 +57,93 @@ func (s *Store) CreateArtifact(
 	ctx context.Context,
 	input CreateArtifactInput,
 ) (ArtifactRecord, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
-		return ArtifactRecord{}, errors.New("project id and agent id are required")
-	}
-	if input.ContentType == "" {
-		return ArtifactRecord{}, errors.New("artifact content type is required")
-	}
-	if err := dbsafe.Text(input.ContentType); err != nil {
-		return ArtifactRecord{}, storeerr.InvalidRequest(
-			fmt.Errorf("artifact content type %w", err),
-		)
-	}
-	if err := dbsafe.Text(input.Filename); err != nil {
-		return ArtifactRecord{}, storeerr.InvalidRequest(
-			fmt.Errorf("artifact filename %w", err),
-		)
-	}
-	if len(input.Content) == 0 {
-		return ArtifactRecord{}, errors.New("artifact content is required")
-	}
-	if input.MaxBytes > 0 && int64(len(input.Content)) > input.MaxBytes {
-		return ArtifactRecord{}, fmt.Errorf("artifact content exceeds %d bytes", input.MaxBytes)
-	}
-	if s.blobs == nil {
-		return ArtifactRecord{}, ErrBlobStoreNotConfigured
-	}
-	id, err := uuid.NewV7()
+	prepared, err := s.PrepareArtifact(ctx, input)
 	if err != nil {
-		return ArtifactRecord{}, fmt.Errorf("generate artifact id: %w", err)
+		return ArtifactRecord{}, err
 	}
-	artifactID := id
-	artifactKey := artifactObjectKey(input.AgentID, artifactID)
-	metadata, err := s.blobs.PutBlob(ctx, artifactKey, input.Content)
-	if err != nil {
-		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
-	}
-	input.Digest = metadata.Digest
-	input.SizeBytes = &metadata.SizeBytes
-	record, err := s.createArtifactRecord(ctx, artifactID, input)
-	// The transaction has committed or rolled back before external cleanup starts.
-	if err != nil || !record.Created {
-		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
-		if err != nil && cleanupErr != nil {
-			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
-		} else if cleanupErr != nil {
-			event := log.NewEvent(ctx, "artifact.replay.cleanup", log.Fields{
-				"project.id":  input.ProjectID,
-				"agent.id":    input.AgentID,
-				"artifact.id": record.ID,
-				"blob.key":    artifactKey,
-			})
-			event.Level(log.WarnLevel)
-			event.Error(cleanupErr)
-			event.Done(ctx)
-		}
+	record, outcome, err := s.createArtifactRecord(ctx, prepared)
+	// The owned transaction settles before any external compensation starts.
+	cleanupErr := s.FinishPreparedArtifacts(ctx, outcome, prepared)
+	if err != nil && cleanupErr != nil {
+		err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
+	} else if cleanupErr != nil {
+		event := log.NewEvent(ctx, "artifact.replay.cleanup", log.Fields{
+			"project.id": input.ProjectID, "agent.id": input.AgentID,
+			"artifact.id": record.ID, "blob.key": prepared.key,
+		})
+		event.Level(log.WarnLevel)
+		event.Error(cleanupErr)
+		event.Done(ctx)
 	}
 	return record, err
 }
 
 func (s *Store) createArtifactRecord(
 	ctx context.Context,
-	artifactID uuid.UUID,
-	input CreateArtifactInput,
-) (ArtifactRecord, error) {
+	prepared *PreparedArtifact,
+) (ArtifactRecord, ArtifactTransactionOutcome, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return ArtifactRecord{}, fmt.Errorf("begin create artifact: %w", err)
+		return ArtifactRecord{}, ArtifactTransactionRolledBack, fmt.Errorf("begin create artifact: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), artifactCompensationTimeout)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+	// Standalone creation historically permits identical replay after archival.
+	// Composed writes require an active agent, including when an artifact replays.
+	record, err := s.persistPreparedArtifact(ctx, tx, prepared, false)
+	if err != nil {
+		return ArtifactRecord{}, ArtifactTransactionRolledBack, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ArtifactRecord{}, ArtifactTransactionUnknown, fmt.Errorf("commit create artifact: %w", err)
+	}
+	return record, ArtifactTransactionCommitted, nil
+}
+
+func persistArtifactRecordTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	artifactID uuid.UUID,
+	input CreateArtifactInput,
+	requireActiveAgent bool,
+) (ArtifactRecord, error) {
 	qtx := dbsqlc.New(tx)
+	if input.runtimeLease != nil {
+		install, err := qtx.GetIntegrationInstall(ctx, dbsqlc.GetIntegrationInstallParams{
+			ProjectID: input.ProjectID, ID: input.integrationInstallID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ArtifactRecord{}, storeerr.ErrNotFound
+		}
+		if err != nil {
+			return ArtifactRecord{}, fmt.Errorf("load runtime artifact installation: %w", err)
+		}
+		if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, input.ProjectID); err != nil {
+			return ArtifactRecord{}, err
+		}
+		if err := qtx.LockIntegrationInstallLifecycleShared(ctx, dbsqlc.LockIntegrationInstallLifecycleSharedParams{
+			InstallID: input.integrationInstallID,
+		}); err != nil {
+			return ArtifactRecord{}, fmt.Errorf("lock runtime artifact installation lifecycle: %w", err)
+		}
+	}
 	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
 		ProjectID: input.ProjectID,
 		AgentID:   input.AgentID,
 	}}); err != nil {
 		return ArtifactRecord{}, err
 	}
-	if input.IdempotencyKey != "" {
-		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
-		if err != nil {
-			return ArtifactRecord{}, err
-		}
-		if found {
-			if err := tx.Commit(ctx); err != nil {
-				return ArtifactRecord{}, fmt.Errorf("commit idempotent create artifact: %w", err)
-			}
-			return replay, nil
-		}
+	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+		ctx,
+		qtx,
+		input.runtimeLease,
+		input.ProjectID,
+		input.integrationInstallID,
+	); err != nil {
+		return ArtifactRecord{}, err
 	}
 	agent, err := qtx.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
 		ProjectID: input.ProjectID,
@@ -149,6 +155,18 @@ func (s *Store) createArtifactRecord(
 	if err != nil {
 		return ArtifactRecord{}, fmt.Errorf("revalidate artifact agent: %w", err)
 	}
+	if requireActiveAgent && agent.State != "active" {
+		return ArtifactRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	if input.IdempotencyKey != "" {
+		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
+		if err != nil {
+			return ArtifactRecord{}, err
+		}
+		if found {
+			return replay, nil
+		}
+	}
 	if agent.State != "active" {
 		return ArtifactRecord{}, storeerr.ErrStateTransitionConflict
 	}
@@ -156,10 +174,30 @@ func (s *Store) createArtifactRecord(
 	if err != nil {
 		return ArtifactRecord{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
-	}
 	return record, nil
+}
+
+func (s *Store) deleteProvisionalArtifactBlob(ctx context.Context, key string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), artifactCompensationTimeout)
+	defer cancel()
+	return s.blobs.DeleteBlob(cleanupCtx, key)
+}
+
+// CreateArtifactWithIntegrationRuntimeLease fences the artifact row against
+// runtime ownership in the same transaction. If ownership is already stale,
+// the provisional blob is removed by CreateArtifact's normal cleanup path.
+func (s *Store) CreateArtifactWithIntegrationRuntimeLease(
+	ctx context.Context,
+	input CreateArtifactInput,
+	integrationInstallID uuid.UUID,
+	proof *integrationstore.IntegrationRuntimeLeaseProof,
+) (ArtifactRecord, error) {
+	if proof == nil {
+		return ArtifactRecord{}, errors.New("runtime lease proof is required")
+	}
+	input.integrationInstallID = integrationInstallID
+	input.runtimeLease = proof
+	return s.CreateArtifact(ctx, input)
 }
 
 func findArtifactReplayTx(
@@ -299,7 +337,8 @@ func validateArtifactReplay(record ArtifactRecord, input CreateArtifactInput) er
 		record.AgentID == input.AgentID &&
 		record.Digest == input.Digest &&
 		record.ContentType == input.ContentType &&
-		record.Filename == input.Filename {
+		record.Filename == input.Filename &&
+		(record.SizeBytes == nil || input.SizeBytes == nil || *record.SizeBytes == *input.SizeBytes) {
 		return nil
 	}
 	return storeerr.ErrIdempotencyConflict

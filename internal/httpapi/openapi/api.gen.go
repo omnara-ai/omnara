@@ -43,45 +43,6 @@ func (e AWSCredentialsSecretMaterialKind) Valid() bool {
 	}
 }
 
-// Defines values for ActorProvider.
-const (
-	ActorProviderExternal ActorProvider = "external"
-	ActorProviderOmnara   ActorProvider = "omnara"
-	ActorProviderSlack    ActorProvider = "slack"
-)
-
-// Valid indicates whether the value is a known member of the ActorProvider enum.
-func (e ActorProvider) Valid() bool {
-	switch e {
-	case ActorProviderExternal:
-		return true
-	case ActorProviderOmnara:
-		return true
-	case ActorProviderSlack:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for AgentState.
-const (
-	AgentStateActive   AgentState = "active"
-	AgentStateArchived AgentState = "archived"
-)
-
-// Valid indicates whether the value is a known member of the AgentState enum.
-func (e AgentState) Valid() bool {
-	switch e {
-	case AgentStateActive:
-		return true
-	case AgentStateArchived:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for AgentActivityState.
 const (
 	AgentActivityStateArchived             AgentActivityState = "archived"
@@ -100,6 +61,24 @@ func (e AgentActivityState) Valid() bool {
 	case AgentActivityStateRunning:
 		return true
 	case AgentActivityStateWaitingOnInteraction:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentChannelSummaryState.
+const (
+	AgentChannelStateActive   AgentChannelSummaryState = "active"
+	AgentChannelStateDisabled AgentChannelSummaryState = "disabled"
+)
+
+// Valid indicates whether the value is a known member of the AgentChannelSummaryState enum.
+func (e AgentChannelSummaryState) Valid() bool {
+	switch e {
+	case AgentChannelStateActive:
+		return true
+	case AgentChannelStateDisabled:
 		return true
 	default:
 		return false
@@ -322,6 +301,228 @@ const (
 func (e AgentProfileCronTriggerTargetType) Valid() bool {
 	switch e {
 	case Profile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentState.
+const (
+	AgentStateActive   AgentState = "active"
+	AgentStateArchived AgentState = "archived"
+)
+
+// Valid indicates whether the value is a known member of the AgentState enum.
+func (e AgentState) Valid() bool {
+	switch e {
+	case AgentStateActive:
+		return true
+	case AgentStateArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelEventOutcome.
+const (
+	ChannelEventOutcomeCompleted ChannelEventOutcome = "completed"
+	ChannelEventOutcomeFailed    ChannelEventOutcome = "failed"
+	ChannelEventOutcomePending   ChannelEventOutcome = "pending"
+)
+
+// Valid indicates whether the value is a known member of the ChannelEventOutcome enum.
+func (e ChannelEventOutcome) Valid() bool {
+	switch e {
+	case ChannelEventOutcomeCompleted:
+		return true
+	case ChannelEventOutcomeFailed:
+		return true
+	case ChannelEventOutcomePending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelEventState.
+const (
+	ChannelEventStateCompleted  ChannelEventState = "completed"
+	ChannelEventStateFailed     ChannelEventState = "failed"
+	ChannelEventStatePending    ChannelEventState = "pending"
+	ChannelEventStateProcessing ChannelEventState = "processing"
+)
+
+// Valid indicates whether the value is a known member of the ChannelEventState enum.
+func (e ChannelEventState) Valid() bool {
+	switch e {
+	case ChannelEventStateCompleted:
+		return true
+	case ChannelEventStateFailed:
+		return true
+	case ChannelEventStatePending:
+		return true
+	case ChannelEventStateProcessing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelHistoryCoverage.
+const (
+	ChannelHistoryCoverageComplete ChannelHistoryCoverage = "complete"
+	ChannelHistoryCoveragePartial  ChannelHistoryCoverage = "partial"
+)
+
+// Valid indicates whether the value is a known member of the ChannelHistoryCoverage enum.
+func (e ChannelHistoryCoverage) Valid() bool {
+	switch e {
+	case ChannelHistoryCoverageComplete:
+		return true
+	case ChannelHistoryCoveragePartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelKind.
+const (
+	ChannelKindExternal     ChannelKind = "EXTERNAL"
+	ChannelKindSlackChannel ChannelKind = "SLACK_CHANNEL"
+	ChannelKindSlackThread  ChannelKind = "SLACK_THREAD"
+)
+
+// Valid indicates whether the value is a known member of the ChannelKind enum.
+func (e ChannelKind) Valid() bool {
+	switch e {
+	case ChannelKindExternal:
+		return true
+	case ChannelKindSlackChannel:
+		return true
+	case ChannelKindSlackThread:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelMessageLocation.
+const (
+	ChannelMessageLocationDestination  ChannelMessageLocation = "destination"
+	ChannelMessageLocationReplyChannel ChannelMessageLocation = "reply_channel"
+)
+
+// Valid indicates whether the value is a known member of the ChannelMessageLocation enum.
+func (e ChannelMessageLocation) Valid() bool {
+	switch e {
+	case ChannelMessageLocationDestination:
+		return true
+	case ChannelMessageLocationReplyChannel:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelMessagePublication.
+const (
+	ChannelMessagePublicationDraft     ChannelMessagePublication = "draft"
+	ChannelMessagePublicationPublished ChannelMessagePublication = "published"
+)
+
+// Valid indicates whether the value is a known member of the ChannelMessagePublication enum.
+func (e ChannelMessagePublication) Valid() bool {
+	switch e {
+	case ChannelMessagePublicationDraft:
+		return true
+	case ChannelMessagePublicationPublished:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelOperationKind.
+const (
+	ChannelOperationKindInteraction ChannelOperationKind = "interaction"
+	ChannelOperationKindRead        ChannelOperationKind = "read"
+	ChannelOperationKindSend        ChannelOperationKind = "send"
+)
+
+// Valid indicates whether the value is a known member of the ChannelOperationKind enum.
+func (e ChannelOperationKind) Valid() bool {
+	switch e {
+	case ChannelOperationKindInteraction:
+		return true
+	case ChannelOperationKindRead:
+		return true
+	case ChannelOperationKindSend:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelOperationOutcome.
+const (
+	ChannelOperationOutcomeCompleted ChannelOperationOutcome = "completed"
+	ChannelOperationOutcomeFailed    ChannelOperationOutcome = "failed"
+	ChannelOperationOutcomeUnknown   ChannelOperationOutcome = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ChannelOperationOutcome enum.
+func (e ChannelOperationOutcome) Valid() bool {
+	switch e {
+	case ChannelOperationOutcomeCompleted:
+		return true
+	case ChannelOperationOutcomeFailed:
+		return true
+	case ChannelOperationOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelRuntimeDesiredState.
+const (
+	ChannelRuntimeDesiredStateRunning ChannelRuntimeDesiredState = "running"
+	ChannelRuntimeDesiredStateStopped ChannelRuntimeDesiredState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ChannelRuntimeDesiredState enum.
+func (e ChannelRuntimeDesiredState) Valid() bool {
+	switch e {
+	case ChannelRuntimeDesiredStateRunning:
+		return true
+	case ChannelRuntimeDesiredStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelRuntimeStatus.
+const (
+	ChannelRuntimeStatusError   ChannelRuntimeStatus = "error"
+	ChannelRuntimeStatusIdle    ChannelRuntimeStatus = "idle"
+	ChannelRuntimeStatusRunning ChannelRuntimeStatus = "running"
+	ChannelRuntimeStatusStopped ChannelRuntimeStatus = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ChannelRuntimeStatus enum.
+func (e ChannelRuntimeStatus) Valid() bool {
+	switch e {
+	case ChannelRuntimeStatusError:
+		return true
+	case ChannelRuntimeStatusIdle:
+		return true
+	case ChannelRuntimeStatusRunning:
+		return true
+	case ChannelRuntimeStatusStopped:
 		return true
 	default:
 		return false
@@ -661,6 +862,30 @@ func (e ErrorContentBlockType) Valid() bool {
 	}
 }
 
+// Defines values for ExternalChannelRequestState.
+const (
+	ExternalChannelRequestStateCanceled  ExternalChannelRequestState = "canceled"
+	ExternalChannelRequestStateCompleted ExternalChannelRequestState = "completed"
+	ExternalChannelRequestStateExpired   ExternalChannelRequestState = "expired"
+	ExternalChannelRequestStatePending   ExternalChannelRequestState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the ExternalChannelRequestState enum.
+func (e ExternalChannelRequestState) Valid() bool {
+	switch e {
+	case ExternalChannelRequestStateCanceled:
+		return true
+	case ExternalChannelRequestStateCompleted:
+		return true
+	case ExternalChannelRequestStateExpired:
+		return true
+	case ExternalChannelRequestStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GenericSecretMaterialKind.
 const (
 	Generic GenericSecretMaterialKind = "generic"
@@ -796,18 +1021,51 @@ func (e InlineMediaContentBlockType) Valid() bool {
 	}
 }
 
+// Defines values for IntegrationCredentialsSecretMaterialKind.
+const (
+	IntegrationCredentials IntegrationCredentialsSecretMaterialKind = "integration_credentials"
+)
+
+// Valid indicates whether the value is a known member of the IntegrationCredentialsSecretMaterialKind enum.
+func (e IntegrationCredentialsSecretMaterialKind) Valid() bool {
+	switch e {
+	case IntegrationCredentials:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IntegrationInstallState.
 const (
-	IntegrationInstallStateActive   IntegrationInstallState = "active"
-	IntegrationInstallStateDisabled IntegrationInstallState = "disabled"
+	Active   IntegrationInstallState = "active"
+	Disabled IntegrationInstallState = "disabled"
 )
 
 // Valid indicates whether the value is a known member of the IntegrationInstallState enum.
 func (e IntegrationInstallState) Valid() bool {
 	switch e {
-	case IntegrationInstallStateActive:
+	case Active:
 		return true
-	case IntegrationInstallStateDisabled:
+	case Disabled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IntegrationKind.
+const (
+	IntegrationKindExternal IntegrationKind = "external"
+	IntegrationKindManaged  IntegrationKind = "managed"
+)
+
+// Valid indicates whether the value is a known member of the IntegrationKind enum.
+func (e IntegrationKind) Valid() bool {
+	switch e {
+	case IntegrationKindExternal:
+		return true
+	case IntegrationKindManaged:
 		return true
 	default:
 		return false
@@ -1762,6 +2020,24 @@ func (e ReasoningContentBlockType) Valid() bool {
 	}
 }
 
+// Defines values for ResolveChannelConnectorInteractionResponseStatus.
+const (
+	AlreadyResolved ResolveChannelConnectorInteractionResponseStatus = "already_resolved"
+	Resolved        ResolveChannelConnectorInteractionResponseStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the ResolveChannelConnectorInteractionResponseStatus enum.
+func (e ResolveChannelConnectorInteractionResponseStatus) Valid() bool {
+	switch e {
+	case AlreadyResolved:
+		return true
+	case Resolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceListSort.
 const (
 	ResourceListSortCreatedAt      ResourceListSort = "created_at"
@@ -1794,10 +2070,11 @@ func (e ResourceListSort) Valid() bool {
 
 // Defines values for SecretKind.
 const (
-	SecretKindAWSCredentials      SecretKind = "aws_credentials"
-	SecretKindGeneric             SecretKind = "generic"
-	SecretKindOAuthTokenSet       SecretKind = "oauth_token_set"
-	SecretKindSlackAppCredentials SecretKind = "slack_app_credentials"
+	SecretKindAWSCredentials         SecretKind = "aws_credentials"
+	SecretKindGeneric                SecretKind = "generic"
+	SecretKindIntegrationCredentials SecretKind = "integration_credentials"
+	SecretKindOAuthTokenSet          SecretKind = "oauth_token_set"
+	SecretKindSlackAppCredentials    SecretKind = "slack_app_credentials"
 )
 
 // Valid indicates whether the value is a known member of the SecretKind enum.
@@ -1806,6 +2083,8 @@ func (e SecretKind) Valid() bool {
 	case SecretKindAWSCredentials:
 		return true
 	case SecretKindGeneric:
+		return true
+	case SecretKindIntegrationCredentials:
 		return true
 	case SecretKindOAuthTokenSet:
 		return true
@@ -2337,7 +2616,7 @@ type Actor struct {
 	OrgId     OrganizationID `json:"org_id"`
 	ProjectId ProjectID      `json:"project_id"`
 
-	// Provider omnara for project members, an integration provider such as slack, or external for API-managed actors.
+	// Provider omnara for project members, external for API-managed actors, or the integration provider that supplied the actor.
 	Provider         ActorProvider `json:"provider"`
 	ProviderTenantId *string       `json:"provider_tenant_id,omitempty"`
 	ProviderUserId   string        `json:"provider_user_id"`
@@ -2347,8 +2626,8 @@ type Actor struct {
 // ActorID defines model for ActorID.
 type ActorID = string
 
-// ActorProvider omnara for project members, an integration provider such as slack, or external for API-managed actors.
-type ActorProvider string
+// ActorProvider omnara for project members, external for API-managed actors, or the integration provider that supplied the actor.
+type ActorProvider = string
 
 // Agent defines model for Agent.
 type Agent struct {
@@ -2376,9 +2655,6 @@ type Agent struct {
 	UpdatedAt   Timestamp `json:"updated_at"`
 }
 
-// AgentState defines model for Agent.State.
-type AgentState string
-
 // AgentActivity defines model for AgentActivity.
 type AgentActivity struct {
 	// LastActivityAt When the agent's latest event was recorded, or its creation time before any event.
@@ -2390,6 +2666,54 @@ type AgentActivity struct {
 
 // AgentActivityState running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
 type AgentActivityState string
+
+// AgentChannel defines model for AgentChannel.
+type AgentChannel struct {
+	Active bool `json:"active"`
+
+	// CanReceive Input admission is authorized; the connection behavior determines delivery.
+	CanReceive   bool                `json:"can_receive"`
+	Capabilities ChannelCapabilities `json:"capabilities"`
+	ChannelId    IntegrationTargetID `json:"channel_id"`
+	Description  string              `json:"description"`
+	IsCurrent    bool                `json:"is_current"`
+
+	// Kind Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+	Kind             ChannelKind          `json:"kind"`
+	Name             string               `json:"name"`
+	ParentChannelId  *IntegrationTargetID `json:"parent_channel_id,omitempty"`
+	SendParamsSchema ChannelOpaqueObject  `json:"send_params_schema"`
+}
+
+// AgentChannelBinding defines model for AgentChannelBinding.
+type AgentChannelBinding struct {
+	ChannelId IntegrationTargetID `json:"channel_id"`
+
+	// Grants Explicit access for one agent and channel. At least one grant must be true. Grants authorize operations; application behavior independently decides when to deliver input.
+	Grants ChannelGrants        `json:"grants"`
+	Id     IntegrationBindingID `json:"id"`
+
+	// ReplyChannelGrants Explicit access for one agent and channel. At least one grant must be true. Grants authorize operations; application behavior independently decides when to deliver input.
+	ReplyChannelGrants *ChannelGrants `json:"reply_channel_grants,omitempty"`
+}
+
+// AgentChannelSummary defines model for AgentChannelSummary.
+type AgentChannelSummary struct {
+	AddressKind string `json:"address_kind"`
+	CanRead     bool   `json:"can_read"`
+
+	// CanReceive Input admission is authorized; the connection behavior determines delivery.
+	CanReceive      bool                     `json:"can_receive"`
+	CanSend         bool                     `json:"can_send"`
+	ChannelId       IntegrationTargetID      `json:"channel_id"`
+	Name            string                   `json:"name"`
+	ParentChannelId *IntegrationTargetID     `json:"parent_channel_id,omitempty"`
+	Provider        string                   `json:"provider"`
+	State           AgentChannelSummaryState `json:"state"`
+}
+
+// AgentChannelSummaryState defines model for AgentChannelSummary.State.
+type AgentChannelSummaryState string
 
 // AgentConfig defines model for AgentConfig.
 type AgentConfig struct {
@@ -2697,6 +3021,9 @@ type AgentSequence = int64
 // AgentSequenceCursor Non-negative agent timeline cursor.
 type AgentSequenceCursor = int64
 
+// AgentState defines model for AgentState.
+type AgentState string
+
 // AgentTurn defines model for AgentTurn.
 type AgentTurn struct {
 	AgentId AgentID `json:"agent_id"`
@@ -2733,6 +3060,17 @@ type Artifact struct {
 // ArtifactID defines model for ArtifactID.
 type ArtifactID = string
 
+// AttachAgentChannelRequest defines model for AttachAgentChannelRequest.
+type AttachAgentChannelRequest struct {
+	ChannelId IntegrationTargetID `json:"channel_id"`
+
+	// Grants Explicit access for one agent and channel. At least one grant must be true. Grants authorize operations; application behavior independently decides when to deliver input.
+	Grants ChannelGrants `json:"grants"`
+
+	// ReplyChannelGrants Optional nonempty grant for a reply channel created by a successful send. Requires send on this binding and does not authorize further descendants.
+	ReplyChannelGrants *ChannelGrants `json:"reply_channel_grants,omitempty"`
+}
+
 // BootstrapDaemonResponse defines model for BootstrapDaemonResponse.
 type BootstrapDaemonResponse struct {
 	InstallationId InstallationID `json:"installation_id"`
@@ -2758,8 +3096,523 @@ type CancelAgentResponse struct {
 	RuntimeCancelRequested bool `json:"runtime_cancel_requested"`
 }
 
+// ChannelActor defines model for ChannelActor.
+type ChannelActor struct {
+	DisplayName string              `json:"display_name"`
+	Metadata    ChannelOpaqueObject `json:"metadata"`
+	Ref         string              `json:"ref"`
+}
+
+// ChannelCapabilities defines model for ChannelCapabilities.
+type ChannelCapabilities struct {
+	Artifacts           bool `json:"artifacts"`
+	CreatesReplyChannel bool `json:"creates_reply_channel"`
+	Permissions         bool `json:"permissions"`
+	Questions           bool `json:"questions"`
+	Read                bool `json:"read"`
+	Send                bool `json:"send"`
+	Text                bool `json:"text"`
+}
+
+// ChannelConnectorApp defines model for ChannelConnectorApp.
+type ChannelConnectorApp struct {
+	ConfigurationRevision      int64               `json:"configuration_revision"`
+	ConnectorKey               string              `json:"connector_key"`
+	DisplayName                string              `json:"display_name"`
+	Id                         IntegrationAppID    `json:"id"`
+	InstallationCredentialKind *SecretKindResponse `json:"installation_credential_kind,omitempty"`
+	Provider                   string              `json:"provider"`
+	ProviderAppRef             string              `json:"provider_app_ref"`
+	ProviderConfig             ChannelOpaqueObject `json:"provider_config"`
+	ProviderMetadata           ChannelOpaqueObject `json:"provider_metadata"`
+	UpdatedAt                  Timestamp           `json:"updated_at"`
+}
+
+// ChannelConnectorAppConfiguration defines model for ChannelConnectorAppConfiguration.
+type ChannelConnectorAppConfiguration struct {
+	App        ChannelConnectorApp       `json:"app"`
+	Credential *ChannelCredentialPayload `json:"credential,omitempty"`
+}
+
+// ChannelConnectorCapability defines model for ChannelConnectorCapability.
+type ChannelConnectorCapability struct {
+	ConnectorKey string `json:"connector_key"`
+	Provider     string `json:"provider"`
+}
+
+// ChannelConnectorClaimRequest defines model for ChannelConnectorClaimRequest.
+type ChannelConnectorClaimRequest struct {
+	Capability ChannelConnectorCapability `json:"capability"`
+	LeaseMs    int32                      `json:"lease_ms"`
+	Limit      int32                      `json:"limit"`
+	Owner      string                     `json:"owner"`
+}
+
+// ChannelConnectorEventReceipt defines model for ChannelConnectorEventReceipt.
+type ChannelConnectorEventReceipt struct {
+	AttemptCount         int32                `json:"attempt_count"`
+	EventId              string               `json:"event_id"`
+	IntegrationAppId     IntegrationAppID     `json:"integration_app_id"`
+	IntegrationInstallId IntegrationInstallID `json:"integration_install_id"`
+	LastError            ChannelOpaqueObject  `json:"last_error"`
+	LeaseExpiresAt       Timestamp            `json:"lease_expires_at"`
+	LeaseGeneration      int64                `json:"lease_generation"`
+	LeaseToken           openapi_types.UUID   `json:"lease_token"`
+
+	// Payload Provider event data for asynchronous processing. Must be one PostgreSQL-safe JSON object without duplicate keys, at most 24 MiB. IDs or runtime proof within this opaque payload do not confer authority.
+	Payload   ChannelEventPayload       `json:"payload"`
+	ReceiptId IntegrationEventReceiptID `json:"receipt_id"`
+	State     ChannelEventState         `json:"state"`
+}
+
+// ChannelConnectorInputResponse defines model for ChannelConnectorInputResponse.
+type ChannelConnectorInputResponse struct {
+	AgentId      AgentID      `json:"agent_id"`
+	AgentInputId AgentInputID `json:"agent_input_id"`
+
+	// BindingId Present for newly admitted inputs. Historical inputs retain their original provenance and may predate bindings.
+	BindingId *IntegrationBindingID `json:"binding_id,omitempty"`
+
+	// CanceledInteractionIds Canonical interactions canceled by this newly admitted input; presentation cleanup is best effort and replay may return no IDs.
+	CanceledInteractionIds *[]AgentInteractionID    `json:"canceled_interaction_ids,omitempty"`
+	ChannelId              IntegrationTargetID      `json:"channel_id"`
+	ContentBlocks          []AgentInputContentBlock `json:"content_blocks"`
+	CreatedAgent           bool                     `json:"created_agent"`
+	CreatedInput           bool                     `json:"created_input"`
+}
+
+// ChannelConnectorInstall defines model for ChannelConnectorInstall.
+type ChannelConnectorInstall struct {
+	ConfigurationRevision int64               `json:"configuration_revision"`
+	DisplayName           string              `json:"display_name"`
+	Id                    string              `json:"id"`
+	Metadata              ChannelOpaqueObject `json:"metadata"`
+	ProjectId             ProjectID           `json:"project_id"`
+	ProviderAccountRef    string              `json:"provider_account_ref"`
+	ProviderConfig        ChannelOpaqueObject `json:"provider_config"`
+	ProviderIdentity      ChannelOpaqueObject `json:"provider_identity"`
+	ProviderTenantId      *string             `json:"provider_tenant_id,omitempty"`
+	UpdatedAt             Timestamp           `json:"updated_at"`
+}
+
+// ChannelConnectorInstallationConfiguration defines model for ChannelConnectorInstallationConfiguration.
+type ChannelConnectorInstallationConfiguration struct {
+	AppConfigurationRevision int64                     `json:"app_configuration_revision"`
+	Credential               *ChannelCredentialPayload `json:"credential,omitempty"`
+	Install                  ChannelConnectorInstall   `json:"install"`
+	IntegrationAppId         IntegrationAppID          `json:"integration_app_id"`
+}
+
+// ChannelConnectorRecipient defines model for ChannelConnectorRecipient.
+type ChannelConnectorRecipient struct {
+	AgentId   AgentID              `json:"agent_id"`
+	BindingId IntegrationBindingID `json:"binding_id"`
+	InputKeys []ChannelInputKey    `json:"input_keys"`
+}
+
+// ChannelConnectorRoute defines model for ChannelConnectorRoute.
+type ChannelConnectorRoute struct {
+	BehaviorKey   string              `json:"behavior_key"`
+	Configuration ChannelOpaqueObject `json:"configuration"`
+	Id            IntegrationRouteID  `json:"id"`
+}
+
+// ChannelConnectorRuntimeUnit defines model for ChannelConnectorRuntimeUnit.
+type ChannelConnectorRuntimeUnit struct {
+	Checkpoint                        ChannelOpaqueObject        `json:"checkpoint"`
+	CheckpointRevision                int64                      `json:"checkpoint_revision"`
+	CheckpointVersion                 int32                      `json:"checkpoint_version"`
+	Configuration                     ChannelOpaqueObject        `json:"configuration"`
+	CreatedAt                         Timestamp                  `json:"created_at"`
+	DesiredState                      ChannelRuntimeDesiredState `json:"desired_state"`
+	Id                                IntegrationRuntimeUnitID   `json:"id"`
+	IntegrationAppId                  IntegrationAppID           `json:"integration_app_id"`
+	IntegrationInstallId              *string                    `json:"integration_install_id,omitempty"`
+	LastError                         ChannelOpaqueObject        `json:"last_error"`
+	LeaseAppConfigurationRevision     *int64                     `json:"lease_app_configuration_revision,omitempty"`
+	LeaseExpiresAt                    *Timestamp                 `json:"lease_expires_at,omitempty"`
+	LeaseGeneration                   int64                      `json:"lease_generation"`
+	LeaseInstallConfigurationRevision *int64                     `json:"lease_install_configuration_revision,omitempty"`
+	LeaseOwner                        *string                    `json:"lease_owner,omitempty"`
+	LeaseSpecRevision                 *int32                     `json:"lease_spec_revision,omitempty"`
+	LeaseToken                        *openapi_types.UUID        `json:"lease_token,omitempty"`
+	LeasedAt                          *Timestamp                 `json:"leased_at,omitempty"`
+	RenewedAt                         *Timestamp                 `json:"renewed_at,omitempty"`
+	RuntimeKind                       string                     `json:"runtime_kind"`
+	SpecRevision                      int32                      `json:"spec_revision"`
+	Status                            ChannelRuntimeStatus       `json:"status"`
+	UnitKey                           string                     `json:"unit_key"`
+	UpdatedAt                         Timestamp                  `json:"updated_at"`
+}
+
+// ChannelConnectorRuntimeUnitsResponse defines model for ChannelConnectorRuntimeUnitsResponse.
+type ChannelConnectorRuntimeUnitsResponse struct {
+	RuntimeUnits []ChannelConnectorRuntimeUnit `json:"runtime_units"`
+}
+
+// ChannelContinuationError Publication succeeded, but its continuation could not be made available. This does not mean the message was unsent.
+type ChannelContinuationError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ChannelCredentialPayload defines model for ChannelCredentialPayload.
+type ChannelCredentialPayload struct {
+	Kind    SecretKindResponse  `json:"kind"`
+	Payload ChannelOpaqueObject `json:"payload"`
+}
+
+// ChannelDefinition defines model for ChannelDefinition.
+type ChannelDefinition struct {
+	Capabilities      ChannelCapabilities `json:"capabilities"`
+	Description       string              `json:"description"`
+	Id                ChannelDefinitionID `json:"id"`
+	ImplementationKey string              `json:"implementation_key"`
+
+	// Kind Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+	Kind             ChannelKind         `json:"kind"`
+	SendParamsSchema ChannelOpaqueObject `json:"send_params_schema"`
+}
+
+// ChannelDefinitionID defines model for ChannelDefinitionID.
+type ChannelDefinitionID = string
+
+// ChannelEventLease defines model for ChannelEventLease.
+type ChannelEventLease struct {
+	LeaseGeneration int64                     `json:"lease_generation"`
+	LeaseToken      openapi_types.UUID        `json:"lease_token"`
+	ReceiptId       IntegrationEventReceiptID `json:"receipt_id"`
+}
+
+// ChannelEventOutcome Pending schedules a bounded-backoff retry; failed is a permanent rejection; completed records successful processing.
+type ChannelEventOutcome string
+
+// ChannelEventPayload Provider event data for asynchronous processing. Must be one PostgreSQL-safe JSON object without duplicate keys, at most 24 MiB. IDs or runtime proof within this opaque payload do not confer authority.
+type ChannelEventPayload = json.RawMessage
+
+// ChannelEventState defines model for ChannelEventState.
+type ChannelEventState string
+
+// ChannelGrants Explicit access for one agent and channel. At least one grant must be true. Grants authorize operations; application behavior independently decides when to deliver input.
+type ChannelGrants struct {
+	Read bool `json:"read"`
+
+	// Receive Authorizes input admission. Connection behavior selects recipients; this grant alone does not subscribe the agent.
+	Receive bool `json:"receive"`
+	Send    bool `json:"send"`
+}
+
+// ChannelHistoryCoverage Completeness of the provider's available history representation, independent of pagination.
+type ChannelHistoryCoverage string
+
+// ChannelHistoryPage defines model for ChannelHistoryPage.
+type ChannelHistoryPage struct {
+	// Coverage Completeness of the provider's available history representation, independent of pagination.
+	Coverage ChannelHistoryCoverage `json:"coverage"`
+
+	// CoverageReason Explains a partial representation, such as unavailable message contents or provider history restrictions.
+	CoverageReason *string `json:"coverage_reason,omitempty"`
+
+	// Messages Messages in chronological order within a page. The first page contains recent messages; subsequent pages move toward older history.
+	Messages []ChannelMessageObservation `json:"messages"`
+
+	// NextCursor Omitted at the end of available history. Absence does not override partial coverage.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// ChannelInboundEventRequest defines model for ChannelInboundEventRequest.
+type ChannelInboundEventRequest struct {
+	// EventId Stable provider event identity, scoped to the installation; at most 512 UTF-8 bytes.
+	EventId              string               `json:"event_id"`
+	IntegrationInstallId IntegrationInstallID `json:"integration_install_id"`
+
+	// Payload Provider event data for asynchronous processing. Must be one PostgreSQL-safe JSON object without duplicate keys, at most 24 MiB. IDs or runtime proof within this opaque payload do not confer authority.
+	Payload ChannelEventPayload `json:"payload"`
+}
+
+// ChannelInboundEventResponse defines model for ChannelInboundEventResponse.
+type ChannelInboundEventResponse struct {
+	ReceiptId IntegrationEventReceiptID `json:"receipt_id"`
+	State     ChannelEventState         `json:"state"`
+}
+
+// ChannelInputKey Provider-selected semantic message identity, scoped to the connection and receiving agent. At most 512 UTF-8 bytes. Different callbacks describing the same message use the same key.
+type ChannelInputKey = string
+
+// ChannelInputPrecondition Checked under the receiving agent's lock before admission. If presence changed, lookup current state and render content again; do not retry the unchanged body. An already accepted receipt or semantic input is returned before this check.
+type ChannelInputPrecondition struct {
+	Exists bool `json:"exists"`
+
+	// InputKey Provider-selected semantic message identity, scoped to the connection and receiving agent. At most 512 UTF-8 bytes. Different callbacks describing the same message use the same key.
+	InputKey ChannelInputKey `json:"input_key"`
+}
+
+// ChannelInteractionOperation A presentation copy of a canonical interaction, pinned to its channel. Delivering this copy does not resolve the interaction; the Omnara dashboard remains actionable.
+type ChannelInteractionOperation struct {
+	AgentId   AgentID             `json:"agent_id"`
+	ChannelId IntegrationTargetID `json:"channel_id"`
+
+	// Destination Private destination resolved by Omnara after authorization. The model never supplies this address.
+	Destination   ChannelOperationDestination `json:"destination"`
+	Form          InteractionForm             `json:"form"`
+	InteractionId AgentInteractionID          `json:"interaction_id"`
+	Kind          AgentInteractionKind        `json:"kind"`
+}
+
+// ChannelInteractionOperationResult Records presentation only. Approval and question answers use the canonical interaction resolution API.
+type ChannelInteractionOperationResult struct {
+	MessageId *string             `json:"message_id,omitempty"`
+	Metadata  ChannelOpaqueObject `json:"metadata,omitempty"`
+}
+
+// ChannelKind Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+type ChannelKind string
+
+// ChannelMessage Content of one logical message. An observation may be empty when its provider content is unavailable; history reports partial coverage. Sending requires nonempty text or accessible artifacts.
+type ChannelMessage struct {
+	ArtifactIds []ArtifactID `json:"artifact_ids,omitempty"`
+
+	// Text Message text, at most 64 KiB of UTF-8. Whitespace alone requires an attachment.
+	Text *string `json:"text,omitempty"`
+}
+
+// ChannelMessageAuthor defines model for ChannelMessageAuthor.
+type ChannelMessageAuthor struct {
+	DisplayName *string `json:"display_name,omitempty"`
+
+	// Ref Provider author reference scoped to this channel's connection; not an Omnara authorization principal.
+	Ref *string `json:"ref,omitempty"`
+}
+
+// ChannelMessageLocation Actual containing conversation. A Slack root post belongs to destination even when it opens a reply thread; an inline GitHub finding belongs to reply_channel.
+type ChannelMessageLocation string
+
+// ChannelMessageObservation defines model for ChannelMessageObservation.
+type ChannelMessageObservation struct {
+	Author *ChannelMessageAuthor `json:"author,omitempty"`
+
+	// ChannelId Actual containing channel. Omitted when a known publication's containing channel could not be registered; never substituted with its parent.
+	ChannelId *IntegrationTargetID `json:"channel_id,omitempty"`
+
+	// Content Content of one logical message. An observation may be empty when its provider content is unavailable; history reports partial coverage. Sending requires nonempty text or accessible artifacts.
+	Content   ChannelMessage `json:"content"`
+	CreatedAt *Timestamp     `json:"created_at,omitempty"`
+
+	// MessageId Known provider message identity; interpret only with its containing channel.
+	MessageId *string `json:"message_id,omitempty"`
+
+	// Metadata Bounded public provider details, without credentials or private destination configuration.
+	Metadata ChannelOpaqueObject `json:"metadata,omitempty"`
+
+	// Publication Provider publication state, not proof of delivery to or reading by a person.
+	Publication ChannelMessagePublication `json:"publication"`
+
+	// ReplyChannelId Registered continuation available to this agent. A reference does not independently grant access.
+	ReplyChannelId *IntegrationTargetID     `json:"reply_channel_id,omitempty"`
+	ReplyTo        *ChannelMessageReference `json:"reply_to,omitempty"`
+}
+
+// ChannelMessagePublication Provider publication state, not proof of delivery to or reading by a person.
+type ChannelMessagePublication string
+
+// ChannelMessageReference defines model for ChannelMessageReference.
+type ChannelMessageReference struct {
+	ChannelId IntegrationTargetID `json:"channel_id"`
+
+	// MessageId Provider message identity scoped to the containing channel.
+	MessageId string `json:"message_id"`
+}
+
+// ChannelOpaqueObject defines model for ChannelOpaqueObject.
+type ChannelOpaqueObject = json.RawMessage
+
+// ChannelOperationDestination Private destination resolved by Omnara after authorization. The model never supplies this address.
+type ChannelOperationDestination struct {
+	ImplementationKey string              `json:"implementation_key"`
+	ProviderMetadata  ChannelOpaqueObject `json:"provider_metadata"`
+	ProviderRef       string              `json:"provider_ref"`
+	ProviderRefKind   string              `json:"provider_ref_kind"`
+}
+
+// ChannelOperationKind defines model for ChannelOperationKind.
+type ChannelOperationKind string
+
+// ChannelOperationOutcome Completed records a known result. Failed means publication is known not to have happened. Unknown means publication may have happened and must not be blindly retried.
+type ChannelOperationOutcome string
+
+// ChannelProviderMessageObservation defines model for ChannelProviderMessageObservation.
+type ChannelProviderMessageObservation struct {
+	Author *ChannelMessageAuthor `json:"author,omitempty"`
+
+	// Content Content of one logical message. An observation may be empty when its provider content is unavailable; history reports partial coverage. Sending requires nonempty text or accessible artifacts.
+	Content   ChannelMessage      `json:"content"`
+	CreatedAt *Timestamp          `json:"created_at,omitempty"`
+	MessageId *string             `json:"message_id,omitempty"`
+	Metadata  ChannelOpaqueObject `json:"metadata,omitempty"`
+
+	// Publication Provider publication state, not proof of delivery to or reading by a person.
+	Publication ChannelMessagePublication `json:"publication"`
+
+	// ReplyChannel Provider facts for one direct child of the addressed channel, within the same connection. Core validates and registers the child before exposing an actionable channel ID.
+	ReplyChannel *ChannelReplyDestination         `json:"reply_channel,omitempty"`
+	ReplyTo      *ChannelProviderMessageReference `json:"reply_to,omitempty"`
+}
+
+// ChannelProviderMessageReference defines model for ChannelProviderMessageReference.
+type ChannelProviderMessageReference struct {
+	// Destination Omit when the referenced message belongs to the requested channel.
+	Destination *ChannelReplyDestination `json:"destination,omitempty"`
+	MessageId   string                   `json:"message_id"`
+}
+
+// ChannelReadOperation defines model for ChannelReadOperation.
+type ChannelReadOperation struct {
+	// Cursor Provider pagination state decoded from the channel-scoped cursor by core. Never an alternate destination or request URL.
+	Cursor *string `json:"cursor,omitempty"`
+
+	// Destination Private destination resolved by Omnara after authorization. The model never supplies this address.
+	Destination ChannelOperationDestination `json:"destination"`
+	Limit       int                         `json:"limit"`
+}
+
+// ChannelReadOperationResult Provider history at the requested destination. Core supplies public channel IDs, resolves only already registered authorized reply addresses, reauthorizes artifacts and wraps the cursor. Reading never creates or binds a channel.
+type ChannelReadOperationResult struct {
+	// Coverage Completeness of the provider's available history representation, independent of pagination.
+	Coverage ChannelHistoryCoverage `json:"coverage"`
+
+	// CoverageReason Required when coverage is partial.
+	CoverageReason *string                             `json:"coverage_reason,omitempty"`
+	Messages       []ChannelProviderMessageObservation `json:"messages"`
+	NextCursor     *string                             `json:"next_cursor,omitempty"`
+}
+
+// ChannelReplyDestination Provider facts for one direct child of the addressed channel, within the same connection. Core validates and registers the child before exposing an actionable channel ID.
+type ChannelReplyDestination struct {
+	DisplayName       *string             `json:"display_name,omitempty"`
+	ImplementationKey string              `json:"implementation_key"`
+	ProviderMetadata  ChannelOpaqueObject `json:"provider_metadata,omitempty"`
+	ProviderRef       string              `json:"provider_ref"`
+	ProviderRefKind   string              `json:"provider_ref_kind"`
+}
+
+// ChannelRuntimeDesiredState defines model for ChannelRuntimeDesiredState.
+type ChannelRuntimeDesiredState string
+
+// ChannelRuntimeInboundEventRequest defines model for ChannelRuntimeInboundEventRequest.
+type ChannelRuntimeInboundEventRequest struct {
+	Event           ChannelInboundEventRequest `json:"event"`
+	LeaseGeneration int64                      `json:"lease_generation"`
+	LeaseToken      openapi_types.UUID         `json:"lease_token"`
+}
+
+// ChannelRuntimeInteractionRequest defines model for ChannelRuntimeInteractionRequest.
+type ChannelRuntimeInteractionRequest struct {
+	Interaction     ResolveChannelConnectorInteractionRequest `json:"interaction"`
+	LeaseGeneration int64                                     `json:"lease_generation"`
+	LeaseToken      openapi_types.UUID                        `json:"lease_token"`
+}
+
+// ChannelRuntimeStatus defines model for ChannelRuntimeStatus.
+type ChannelRuntimeStatus string
+
+// ChannelSendMessage Nonempty text, accessible artifacts, or both. An empty history observation is not a valid send.
+type ChannelSendMessage struct {
+	ArtifactIds []ArtifactID `json:"artifact_ids,omitempty"`
+
+	// Text Message text, at most 64 KiB of UTF-8. Whitespace alone requires an attachment.
+	Text *string `json:"text,omitempty"`
+}
+
+// ChannelSendOperation defines model for ChannelSendOperation.
+type ChannelSendOperation struct {
+	// Destination Private destination resolved by Omnara after authorization. The model never supplies this address.
+	Destination ChannelOperationDestination `json:"destination"`
+
+	// Message Nonempty text, accessible artifacts, or both. An empty history observation is not a valid send.
+	Message ChannelSendMessage  `json:"message"`
+	Params  ChannelOpaqueObject `json:"params"`
+
+	// ReplyChannelGrants Permission captured from one exact live binding. Absence prohibits creating a new reply channel. Completion cannot change or extend these grants.
+	ReplyChannelGrants *ChannelGrants `json:"reply_channel_grants,omitempty"`
+}
+
+// ChannelSendOperationResult defines model for ChannelSendOperationResult.
+type ChannelSendOperationResult struct {
+	CreatedAt *Timestamp `json:"created_at,omitempty"`
+
+	// MessageChannel Actual containing conversation. A Slack root post belongs to destination even when it opens a reply thread; an inline GitHub finding belongs to reply_channel.
+	MessageChannel ChannelMessageLocation `json:"message_channel"`
+	MessageId      *string                `json:"message_id,omitempty"`
+	Metadata       ChannelOpaqueObject    `json:"metadata,omitempty"`
+
+	// Publication Provider publication state, not proof of delivery to or reading by a person.
+	Publication ChannelMessagePublication `json:"publication"`
+
+	// ReplyChannel Required when message_channel is reply_channel. Existing-thread replies use destination and need no new child.
+	ReplyChannel *ChannelReplyDestination `json:"reply_channel,omitempty"`
+}
+
+// ChannelWorkflowAuthor defines model for ChannelWorkflowAuthor.
+type ChannelWorkflowAuthor struct {
+	DisplayName string `json:"display_name"`
+	Ref         string `json:"ref"`
+}
+
+// ChannelWorkflowGrants defines model for ChannelWorkflowGrants.
+type ChannelWorkflowGrants struct {
+	Read bool `json:"read"`
+	Send bool `json:"send"`
+}
+
+// ChannelWorkflowTarget defines model for ChannelWorkflowTarget.
+type ChannelWorkflowTarget struct {
+	DefinitionId     ChannelDefinitionID  `json:"definition_id"`
+	DisplayName      *string              `json:"display_name,omitempty"`
+	ParentChannelId  *IntegrationTargetID `json:"parent_channel_id,omitempty"`
+	ProviderMetadata ChannelOpaqueObject  `json:"provider_metadata,omitempty"`
+	ProviderRef      string               `json:"provider_ref"`
+	ProviderRefKind  string               `json:"provider_ref_kind"`
+}
+
+// ClaimNextChannelConnectorEventRequest defines model for ClaimNextChannelConnectorEventRequest.
+type ClaimNextChannelConnectorEventRequest struct {
+	Capability ChannelConnectorCapability `json:"capability"`
+	LeaseMs    int32                      `json:"lease_ms"`
+}
+
 // ClientErrorCode Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
 type ClientErrorCode string
+
+// CompleteChannelConnectorEventRequest defines model for CompleteChannelConnectorEventRequest.
+type CompleteChannelConnectorEventRequest struct {
+	// LastError A nonempty error object is required for pending or failed. Completed requires an omitted or empty error object.
+	LastError       ChannelOpaqueObject `json:"last_error,omitempty"`
+	LeaseGeneration int64               `json:"lease_generation"`
+	LeaseToken      openapi_types.UUID  `json:"lease_token"`
+
+	// State Pending schedules a bounded-backoff retry; failed is a permanent rejection; completed records successful processing.
+	State ChannelEventOutcome `json:"state"`
+}
+
+// CompleteExternalChannelRequestRequest defines model for CompleteExternalChannelRequestRequest.
+type CompleteExternalChannelRequestRequest struct {
+	// Outcome Completed records a known result. Failed means publication is known not to have happened. Unknown means publication may have happened and must not be blindly retried.
+	Outcome ChannelOperationOutcome `json:"outcome"`
+
+	// Payload For completed operations, use ChannelSendOperationResult, ChannelReadOperationResult or ChannelInteractionOperationResult according to the request. Core validates that exact result before accepting it. Failed or unknown outcomes may include code and detail strings of at most 1024 bytes each.
+	Payload ChannelOpaqueObject `json:"payload"`
+}
+
+// CompleteExternalChannelRequestResponse defines model for CompleteExternalChannelRequestResponse.
+type CompleteExternalChannelRequestResponse struct {
+	Request ExternalChannelRequest `json:"request"`
+
+	// ToolCall A model-emitted tool call together with its current lifecycle state.
+	ToolCall *ToolCall `json:"tool_call,omitempty"`
+
+	// ToolResultContentBlocks Canonical tool result, including public continuation-channel IDs or a continuation error after known publication. Omitted for automatic presentations and notices.
+	ToolResultContentBlocks *[]ToolResultContentBlock `json:"tool_result_content_blocks,omitempty"`
+}
 
 // ConfiguredModel defines model for ConfiguredModel.
 type ConfiguredModel struct {
@@ -2928,6 +3781,9 @@ type CreateAgentInputRequest struct {
 	// CancelOpenInteractions Only valid when delivery_mode is steering. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
 	CancelOpenInteractions *bool `json:"cancel_open_interactions,omitempty"`
 
+	// ChannelId Optional input origin on an external connection. Requires an existing live receive binding to this agent. Managed provider origins arrive through verified provider intake. An identical retry retains its original binding after revocation or replacement.
+	ChannelId *IntegrationTargetID `json:"channel_id,omitempty"`
+
 	// ContentBlocks At most 20 inline media blocks per submission, each holding up to 10 MiB of decoded media and up to 24 MiB decoded across the submission. Non-media blocks may hold up to 1 MiB combined. The whole request body is capped at 48 MiB.
 	ContentBlocks []CreateAgentInputContentBlock `json:"content_blocks"`
 	DeliveryMode  *CreateAgentInputDeliveryMode  `json:"delivery_mode,omitempty"`
@@ -2943,8 +3799,10 @@ type CreateAgentProfileRequest struct {
 
 // CreateAgentRequest defines model for CreateAgentRequest.
 type CreateAgentRequest struct {
-	Config  AgentConfigID `json:"config"`
-	Message *string       `json:"message,omitempty"`
+	// ChannelBindings Optional initial channel grants, created atomically with a new agent. Requires project management. Launch retries return the original agent and never add or restore grants, even if this list changes.
+	ChannelBindings []AttachAgentChannelRequest `json:"channel_bindings,omitempty"`
+	Config          AgentConfigID               `json:"config"`
+	Message         *string                     `json:"message,omitempty"`
 
 	// Name Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
 	Name    *AgentName      `json:"name,omitempty"`
@@ -3008,6 +3866,13 @@ type CreateCronTriggerRequest struct {
 
 	// Timezone IANA time zone the schedule is evaluated in.
 	Timezone *CronTimezone `json:"timezone,omitempty"`
+}
+
+// CreateExternalIntegrationInstallRequest Register a project-owned customer connector. No provider app, tenant, account, credentials, agent, or agent profile is required or accepted.
+type CreateExternalIntegrationInstallRequest struct {
+	// DisplayName At most 512 UTF-8 bytes.
+	DisplayName *string             `json:"display_name,omitempty"`
+	Metadata    ChannelOpaqueObject `json:"metadata,omitempty"`
 }
 
 // CreateIntegrationOAuthSetupRequest defines model for CreateIntegrationOAuthSetupRequest.
@@ -3415,6 +4280,56 @@ type DaemonRuntimeReconciliation struct {
 // DaemonRuntimeState defines model for DaemonRuntimeState.
 type DaemonRuntimeState string
 
+// DeliverChannelConnectorInputRequest Delivers to the existing agent and channel named by an exact receive binding. Creates no workflow, agent, channel or grant. Receipt and semantic replay return the original accepted input. Complete the receipt separately after all selected recipients.
+type DeliverChannelConnectorInputRequest struct {
+	Author    ChannelWorkflowAuthor `json:"author"`
+	BindingId IntegrationBindingID  `json:"binding_id"`
+
+	// CancelOpenInteractions Only valid with steering delivery; cancel open interactions atomically with admission.
+	CancelOpenInteractions *bool `json:"cancel_open_interactions,omitempty"`
+
+	// ContentBlocks Same inline attachment and request limits as workflow input delivery; artifacts and input commit atomically.
+	ContentBlocks []CreateAgentInputContentBlock `json:"content_blocks"`
+	DeliveryMode  *CreateAgentInputDeliveryMode  `json:"delivery_mode,omitempty"`
+
+	// InputKey Provider-selected semantic message identity, scoped to the connection and receiving agent. At most 512 UTF-8 bytes. Different callbacks describing the same message use the same key.
+	InputKey ChannelInputKey `json:"input_key"`
+
+	// InputPrecondition Checked under the receiving agent's lock before admission. If presence changed, lookup current state and render content again; do not retry the unchanged body. An already accepted receipt or semantic input is returned before this check.
+	InputPrecondition *ChannelInputPrecondition `json:"input_precondition,omitempty"`
+	Metadata          ChannelOpaqueObject       `json:"metadata,omitempty"`
+	Receipt           ChannelEventLease         `json:"receipt"`
+}
+
+// DeliverChannelConnectorWorkflowRequest Uses the authenticated app's real installation and the registered behavior route. Project, launch profile and agent identity are derived internally. One workflow winner retry may prepare fresh uploads outside the database transaction. Complete the incoming receipt separately after successful delivery to all intended workflows.
+type DeliverChannelConnectorWorkflowRequest struct {
+	Author ChannelWorkflowAuthor `json:"author"`
+
+	// CancelOpenInteractions Only valid with steering delivery; cancel open interactions atomically with admission.
+	CancelOpenInteractions *bool `json:"cancel_open_interactions,omitempty"`
+
+	// ContentBlocks Up to 20 inline attachments, 10 MiB each and 24 MiB decoded combined; at most 1 MiB of other content. The complete request is limited to 48 MiB. Artifact records and canonical input references commit with the workflow.
+	ContentBlocks []CreateAgentInputContentBlock `json:"content_blocks"`
+	DeliveryMode  *CreateAgentInputDeliveryMode  `json:"delivery_mode,omitempty"`
+	Grants        ChannelWorkflowGrants          `json:"grants"`
+
+	// InputKey Provider-selected semantic message identity, scoped to the connection and receiving agent. At most 512 UTF-8 bytes. Different callbacks describing the same message use the same key.
+	InputKey ChannelInputKey `json:"input_key"`
+
+	// InputPrecondition Checked under the receiving agent's lock before admission. If presence changed, lookup current state and render content again; do not retry the unchanged body. An already accepted receipt or semantic input is returned before this check.
+	InputPrecondition *ChannelInputPrecondition `json:"input_precondition,omitempty"`
+
+	// InstanceKey Stable workflow identity within the configured route; at most 512 UTF-8 bytes.
+	InstanceKey string              `json:"instance_key"`
+	Metadata    ChannelOpaqueObject `json:"metadata,omitempty"`
+
+	// OnlyIfUnbound If creating a workflow, require no receive binding history for the destination unless this receipt already has a workflow outcome for that channel. A conflict requires recipient lookup again; existing workflow and input replay remain unchanged.
+	OnlyIfUnbound *bool                 `json:"only_if_unbound,omitempty"`
+	Receipt       ChannelEventLease     `json:"receipt"`
+	RouteId       IntegrationRouteID    `json:"route_id"`
+	Target        ChannelWorkflowTarget `json:"target"`
+}
+
 // DirectSecretAvailability defines model for DirectSecretAvailability.
 type DirectSecretAvailability struct {
 	ProjectId ProjectID                      `json:"project_id"`
@@ -3481,6 +4396,35 @@ type ExternalActorParams struct {
 	ProviderUserId   string   `json:"provider_user_id"`
 }
 
+// ExternalChannelRequest defines model for ExternalChannelRequest.
+type ExternalChannelRequest struct {
+	AgentId       AgentID                  `json:"agent_id"`
+	ChannelId     IntegrationTargetID      `json:"channel_id"`
+	CreatedAt     Timestamp                `json:"created_at"`
+	DeadlineAt    Timestamp                `json:"deadline_at"`
+	Id            ExternalChannelRequestID `json:"id"`
+	InteractionId *AgentInteractionID      `json:"interaction_id,omitempty"`
+	Operation     ChannelOperationKind     `json:"operation"`
+
+	// Payload The accepted payload for operation. Artifact IDs can be downloaded through the agent artifact API. Credentials never appear here.
+	Payload         ExternalChannelRequest_Payload `json:"payload"`
+	State           ExternalChannelRequestState    `json:"state"`
+	StateReasonCode *string                        `json:"state_reason_code,omitempty"`
+	TerminalAt      *Timestamp                     `json:"terminal_at,omitempty"`
+	ToolCallId      *ToolCallID                    `json:"tool_call_id,omitempty"`
+}
+
+// ExternalChannelRequest_Payload The accepted payload for operation. Artifact IDs can be downloaded through the agent artifact API. Credentials never appear here.
+type ExternalChannelRequest_Payload struct {
+	union json.RawMessage
+}
+
+// ExternalChannelRequestID defines model for ExternalChannelRequestID.
+type ExternalChannelRequestID = string
+
+// ExternalChannelRequestState defines model for ExternalChannelRequestState.
+type ExternalChannelRequestState string
+
 // GenericSecretMaterial defines model for GenericSecretMaterial.
 type GenericSecretMaterial struct {
 	Kind  GenericSecretMaterialKind `json:"kind"`
@@ -3520,6 +4464,15 @@ type GrantedSkillAvailability struct {
 // GrantedSkillAvailabilitySource defines model for GrantedSkillAvailability.Source.
 type GrantedSkillAvailabilitySource string
 
+// HeartbeatChannelConnectorRuntimeUnitRequest defines model for HeartbeatChannelConnectorRuntimeUnitRequest.
+type HeartbeatChannelConnectorRuntimeUnitRequest struct {
+	Checkpoint        ChannelOpaqueObject `json:"checkpoint,omitempty"`
+	CheckpointVersion *int32              `json:"checkpoint_version,omitempty"`
+	LeaseGeneration   int64               `json:"lease_generation"`
+	LeaseMs           int32               `json:"lease_ms"`
+	LeaseToken        openapi_types.UUID  `json:"lease_token"`
+}
+
 // InlineMediaContentBlock Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
 type InlineMediaContentBlock struct {
 	// Data Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
@@ -3541,22 +4494,42 @@ type InlineMediaContentBlockType string
 // InstallationID defines model for InstallationID.
 type InstallationID = string
 
-// IntegrationInstall A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+// IntegrationAppID defines model for IntegrationAppID.
+type IntegrationAppID = string
+
+// IntegrationBindingID defines model for IntegrationBindingID.
+type IntegrationBindingID = string
+
+// IntegrationCredentialsSecretMaterial defines model for IntegrationCredentialsSecretMaterial.
+type IntegrationCredentialsSecretMaterial struct {
+	Kind   IntegrationCredentialsSecretMaterialKind `json:"kind"`
+	Values map[string]string                        `json:"values"`
+}
+
+// IntegrationCredentialsSecretMaterialKind defines model for IntegrationCredentialsSecretMaterial.Kind.
+type IntegrationCredentialsSecretMaterialKind string
+
+// IntegrationEventReceiptID defines model for IntegrationEventReceiptID.
+type IntegrationEventReceiptID = string
+
+// IntegrationInstall A project-owned connection. Managed connections install a genuine provider app; external connections use a customer API consumer and omit provider identity. Channels and agent bindings are separate resources. Provider credentials are never returned.
 type IntegrationInstall struct {
-	AgentId                  *AgentID                `json:"agent_id,omitempty"`
-	AgentProfileId           *AgentProfileID         `json:"agent_profile_id,omitempty"`
-	ConnectionMode           string                  `json:"connection_mode"`
-	CreatedAt                Timestamp               `json:"created_at"`
-	Id                       IntegrationInstallID    `json:"id"`
-	IntegrationKind          string                  `json:"integration_kind"`
-	OrgId                    OrganizationID          `json:"org_id"`
-	ProjectId                ProjectID               `json:"project_id"`
-	Provider                 string                  `json:"provider"`
-	ProviderAccountRef       string                  `json:"provider_account_ref"`
-	ProviderAgentDisplayName string                  `json:"provider_agent_display_name"`
-	ProviderTenantId         string                  `json:"provider_tenant_id"`
-	State                    IntegrationInstallState `json:"state"`
-	UpdatedAt                Timestamp               `json:"updated_at"`
+	ConnectionMode   string               `json:"connection_mode"`
+	CreatedAt        Timestamp            `json:"created_at"`
+	DisplayName      string               `json:"display_name"`
+	Id               IntegrationInstallID `json:"id"`
+	IntegrationAppId *IntegrationAppID    `json:"integration_app_id,omitempty"`
+
+	// IntegrationKind Immutable connection ownership. Managed connections use an Omnara-hosted connector; external connections use the customer's authorized API consumer.
+	IntegrationKind    IntegrationKind         `json:"integration_kind"`
+	Metadata           ChannelOpaqueObject     `json:"metadata"`
+	OrgId              OrganizationID          `json:"org_id"`
+	ProjectId          ProjectID               `json:"project_id"`
+	Provider           *string                 `json:"provider,omitempty"`
+	ProviderAccountRef *string                 `json:"provider_account_ref,omitempty"`
+	ProviderTenantId   *string                 `json:"provider_tenant_id,omitempty"`
+	State              IntegrationInstallState `json:"state"`
+	UpdatedAt          Timestamp               `json:"updated_at"`
 }
 
 // IntegrationInstallState defines model for IntegrationInstall.State.
@@ -3564,6 +4537,9 @@ type IntegrationInstallState string
 
 // IntegrationInstallID defines model for IntegrationInstallID.
 type IntegrationInstallID = string
+
+// IntegrationKind Immutable connection ownership. Managed connections use an Omnara-hosted connector; external connections use the customer's authorized API consumer.
+type IntegrationKind string
 
 // IntegrationOAuthFlowID defines model for IntegrationOAuthFlowID.
 type IntegrationOAuthFlowID = string
@@ -3579,6 +4555,12 @@ type IntegrationOAuthSetup struct {
 	RedirectUri string                 `json:"redirect_uri"`
 }
 
+// IntegrationRouteID defines model for IntegrationRouteID.
+type IntegrationRouteID = string
+
+// IntegrationRuntimeUnitID defines model for IntegrationRuntimeUnitID.
+type IntegrationRuntimeUnitID = string
+
 // IntegrationTarget defines model for IntegrationTarget.
 type IntegrationTarget struct {
 	DisplayName     string  `json:"display_name"`
@@ -3587,6 +4569,9 @@ type IntegrationTarget struct {
 	ProviderRefKind string  `json:"provider_ref_kind"`
 	ProviderUri     *string `json:"provider_uri,omitempty"`
 }
+
+// IntegrationTargetID defines model for IntegrationTargetID.
+type IntegrationTargetID = string
 
 // InteractionAnswer defines model for InteractionAnswer.
 type InteractionAnswer struct {
@@ -3647,6 +4632,13 @@ type ListActorsResponse struct {
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
 }
 
+// ListAgentChannelsResponse defines model for ListAgentChannelsResponse.
+type ListAgentChannelsResponse struct {
+	Channels         []AgentChannelSummary     `json:"channels"`
+	CurrentChannelId nullable.Nullable[string] `json:"current_channel_id"`
+	NextCursor       nullable.Nullable[string] `json:"next_cursor"`
+}
+
 // ListAgentEventsResponse defines model for ListAgentEventsResponse.
 type ListAgentEventsResponse struct {
 	Data []AgentEvent `json:"data"`
@@ -3697,11 +4689,22 @@ type ListAgentsResponse struct {
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
 }
 
+// ListChannelConnectorRoutesResponse defines model for ListChannelConnectorRoutesResponse.
+type ListChannelConnectorRoutesResponse struct {
+	Routes []ChannelConnectorRoute `json:"routes"`
+}
+
 // ListCronTriggersResponse defines model for ListCronTriggersResponse.
 type ListCronTriggersResponse struct {
 	Data []CronTrigger `json:"data"`
 
 	// NextCursor Opaque cursor for the next page, or null when this is the last page.
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// ListExternalChannelRequestsResponse defines model for ListExternalChannelRequestsResponse.
+type ListExternalChannelRequestsResponse struct {
+	Data       []ExternalChannelRequest  `json:"data"`
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
 }
 
@@ -3855,6 +4858,50 @@ type ListTurnEventsResponse struct {
 type ListVisibleMachinesResponse struct {
 	Data       []VisibleMachine          `json:"data"`
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// LookupChannelConnectorRecipientsRequest defines model for LookupChannelConnectorRecipientsRequest.
+type LookupChannelConnectorRecipientsRequest struct {
+	Cursor    *string           `json:"cursor,omitempty"`
+	InputKeys []ChannelInputKey `json:"input_keys"`
+	Limit     *int              `json:"limit,omitempty"`
+
+	// ProviderRef Existing provider address within the authenticated installation; at most 512 UTF-8 bytes.
+	ProviderRef string            `json:"provider_ref"`
+	Receipt     ChannelEventLease `json:"receipt"`
+}
+
+// LookupChannelConnectorRecipientsResponse defines model for LookupChannelConnectorRecipientsResponse.
+type LookupChannelConnectorRecipientsResponse struct {
+	// ChannelId Absent if the provider address has never been registered.
+	ChannelId *IntegrationTargetID `json:"channel_id,omitempty"`
+
+	// HasReceiveBindingHistory A receive binding has existed for this channel, including revoked receive grants. Send-only and read-only grants do not establish a receiving conversation. Independent of pagination; an empty live-recipient page does not authorize launching replacement agents.
+	HasReceiveBindingHistory bool                      `json:"has_receive_binding_history"`
+	NextCursor               nullable.Nullable[string] `json:"next_cursor"`
+
+	// ParentChannelId The registered address's existing parent, if any. Preserve this containment when admitting a workflow at an address with no receive bindings; it grants no access to the parent.
+	ParentChannelId *IntegrationTargetID        `json:"parent_channel_id,omitempty"`
+	Recipients      []ChannelConnectorRecipient `json:"recipients"`
+
+	// WorkflowStarted This receipt already has an accepted workflow input for this addressed channel. Behaviors may continue partially completed route fanout on replay without mistaking those newly created bindings for a pre-existing conversation.
+	WorkflowStarted bool `json:"workflow_started"`
+}
+
+// LookupChannelConnectorWorkflowRequest defines model for LookupChannelConnectorWorkflowRequest.
+type LookupChannelConnectorWorkflowRequest struct {
+	InputKeys   []ChannelInputKey  `json:"input_keys"`
+	InstanceKey string             `json:"instance_key"`
+	RouteId     IntegrationRouteID `json:"route_id"`
+}
+
+// LookupChannelConnectorWorkflowResponse defines model for LookupChannelConnectorWorkflowResponse.
+type LookupChannelConnectorWorkflowResponse struct {
+	AgentState *AgentState `json:"agent_state,omitempty"`
+	Exists     bool        `json:"exists"`
+
+	// InputKeys Requested keys already accepted by this workflow's agent.
+	InputKeys []ChannelInputKey `json:"input_keys"`
 }
 
 // MCPOAuthFlowID defines model for MCPOAuthFlowID.
@@ -5006,6 +6053,30 @@ type PromoteQueuedInputToSteeringRequest struct {
 	CancelOpenInteractions *bool `json:"cancel_open_interactions,omitempty"`
 }
 
+// PublishChannelConnectorDefinitionRequest defines model for PublishChannelConnectorDefinitionRequest.
+type PublishChannelConnectorDefinitionRequest struct {
+	Capabilities ChannelCapabilities `json:"capabilities"`
+
+	// Description At most 16 KiB of UTF-8 text.
+	Description       string `json:"description"`
+	ImplementationKey string `json:"implementation_key"`
+
+	// Kind Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+	Kind ChannelKind `json:"kind"`
+
+	// SendParamsSchema Valid send-parameter JSON Schema object, at most 256 KiB, without duplicate keys.
+	SendParamsSchema ChannelOpaqueObject `json:"send_params_schema"`
+}
+
+// ReadChannelRequest defines model for ReadChannelRequest.
+type ReadChannelRequest struct {
+	ChannelId IntegrationTargetID `json:"channel_id"`
+
+	// Cursor Opaque next_cursor from this agent's previous read of the same channel.
+	Cursor *string `json:"cursor,omitempty"`
+	Limit  *int    `json:"limit,omitempty"`
+}
+
 // ReasoningContentBlock defines model for ReasoningContentBlock.
 type ReasoningContentBlock struct {
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
@@ -5032,6 +6103,39 @@ type RegisterDaemonRuntimeResponse struct {
 	Runtime        DaemonRuntime               `json:"runtime"`
 }
 
+// RegisterExternalChannelRequest defines model for RegisterExternalChannelRequest.
+type RegisterExternalChannelRequest struct {
+	DefinitionId ChannelDefinitionID `json:"definition_id"`
+
+	// Name Provider display label, at most 512 UTF-8 bytes, without NUL characters.
+	Name             string               `json:"name"`
+	ParentChannelId  *IntegrationTargetID `json:"parent_channel_id,omitempty"`
+	ProviderMetadata ChannelOpaqueObject  `json:"provider_metadata,omitempty"`
+
+	// ProviderRef Nonblank provider address, at most 2048 UTF-8 bytes, without NUL characters.
+	ProviderRef string `json:"provider_ref"`
+
+	// ProviderRefKind Nonblank provider address kind, at most 128 UTF-8 bytes, without NUL characters.
+	ProviderRefKind string `json:"provider_ref_kind"`
+}
+
+// RegisteredChannel defines model for RegisteredChannel.
+type RegisteredChannel struct {
+	ChannelId       IntegrationTargetID  `json:"channel_id"`
+	DefinitionId    ChannelDefinitionID  `json:"definition_id"`
+	Name            string               `json:"name"`
+	ParentChannelId *IntegrationTargetID `json:"parent_channel_id,omitempty"`
+}
+
+// ReleaseChannelConnectorRuntimeUnitRequest defines model for ReleaseChannelConnectorRuntimeUnitRequest.
+type ReleaseChannelConnectorRuntimeUnitRequest struct {
+	Checkpoint        ChannelOpaqueObject `json:"checkpoint,omitempty"`
+	CheckpointVersion *int32              `json:"checkpoint_version,omitempty"`
+	LastError         ChannelOpaqueObject `json:"last_error"`
+	LeaseGeneration   int64               `json:"lease_generation"`
+	LeaseToken        openapi_types.UUID  `json:"lease_token"`
+}
+
 // RenameAgentProfileRequest defines model for RenameAgentProfileRequest.
 type RenameAgentProfileRequest struct {
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
@@ -5045,6 +6149,26 @@ type ResolveAgentInteractionRequest struct {
 	Answers []InteractionAnswer  `json:"answers"`
 }
 
+// ResolveChannelConnectorInteractionRequest defines model for ResolveChannelConnectorInteractionRequest.
+type ResolveChannelConnectorInteractionRequest struct {
+	Actor                      ChannelActor         `json:"actor"`
+	Answers                    []InteractionAnswer  `json:"answers"`
+	ExternalAccountRef         string               `json:"external_account_ref"`
+	ExternalTenantId           string               `json:"external_tenant_id"`
+	IntegrationTargetBindingId IntegrationBindingID `json:"integration_target_binding_id"`
+	IntegrationTargetId        string               `json:"integration_target_id"`
+	Metadata                   ChannelOpaqueObject  `json:"metadata"`
+}
+
+// ResolveChannelConnectorInteractionResponse defines model for ResolveChannelConnectorInteractionResponse.
+type ResolveChannelConnectorInteractionResponse struct {
+	Status ResolveChannelConnectorInteractionResponseStatus `json:"status"`
+	Text   string                                           `json:"text"`
+}
+
+// ResolveChannelConnectorInteractionResponseStatus defines model for ResolveChannelConnectorInteractionResponse.Status.
+type ResolveChannelConnectorInteractionResponseStatus string
+
 // ResourceListSort Sort order for named resources that expose created and modified timestamps.
 type ResourceListSort string
 
@@ -5053,10 +6177,10 @@ type ResourceName = string
 
 // Secret defines model for Secret.
 type Secret struct {
-	CreatedAt            Timestamp  `json:"created_at"`
-	CurrentVersionNumber int32      `json:"current_version_number"`
-	Id                   SecretID   `json:"id"`
-	Kind                 SecretKind `json:"kind"`
+	CreatedAt            Timestamp          `json:"created_at"`
+	CurrentVersionNumber int32              `json:"current_version_number"`
+	Id                   SecretID           `json:"id"`
+	Kind                 SecretKindResponse `json:"kind"`
 
 	// ManagementKind Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
 	ManagementKind ManagementKind `json:"management_kind"`
@@ -5106,6 +6230,9 @@ type SecretID = string
 // SecretKind defines model for SecretKind.
 type SecretKind string
 
+// SecretKindResponse defines model for SecretKindResponse.
+type SecretKindResponse = string
+
 // SecretMaterial defines model for SecretMaterial.
 type SecretMaterial struct {
 	union json.RawMessage
@@ -5124,6 +6251,27 @@ type SecretOwnerInput struct {
 // SecretVersionRequest defines model for SecretVersionRequest.
 type SecretVersionRequest struct {
 	Material SecretMaterial `json:"material"`
+}
+
+// SendChannelMessageRequest defines model for SendChannelMessageRequest.
+type SendChannelMessageRequest struct {
+	ChannelId IntegrationTargetID `json:"channel_id"`
+
+	// Message Nonempty text, accessible artifacts, or both. An empty history observation is not a valid send.
+	Message ChannelSendMessage `json:"message"`
+
+	// Params Validated against the channel's current send_params_schema. Omission means an empty object; null is invalid.
+	Params ChannelOpaqueObject `json:"params,omitempty"`
+}
+
+// SendChannelMessageResult One known message publication, with optional continuation failure. No batch or background-delivery result.
+type SendChannelMessageResult struct {
+	// ContinuationError Publication succeeded, but its continuation could not be made available. This does not mean the message was unsent.
+	ContinuationError *ChannelContinuationError `json:"continuation_error,omitempty"`
+	Message           ChannelMessageObservation `json:"message"`
+
+	// RequestId Stable operation correlation, including the original tool or external request identity.
+	RequestId string `json:"request_id"`
 }
 
 // ServerErrorCode Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
@@ -5332,6 +6480,8 @@ type ToolCatalog struct {
 
 // ToolCatalogEntry defines model for ToolCatalogEntry.
 type ToolCatalogEntry struct {
+	// Configurable Whether this tool may be stored in agent configuration. False means runtime state injects it when applicable.
+	Configurable      *bool                   `json:"configurable,omitempty"`
 	DefaultPermission ToolPermissionSelection `json:"default_permission"`
 	Description       string                  `json:"description"`
 	Name              string                  `json:"name"`
@@ -5834,6 +6984,12 @@ type Unauthorized = Error
 // UnprocessableEntity defines model for UnprocessableEntity.
 type UnprocessableEntity = Error
 
+// ResolveChannelConnectorInstallationConfigurationParams defines parameters for ResolveChannelConnectorInstallationConfiguration.
+type ResolveChannelConnectorInstallationConfigurationParams struct {
+	ExternalTenantId   string `form:"external_tenant_id" json:"external_tenant_id"`
+	ExternalAccountRef string `form:"external_account_ref" json:"external_account_ref"`
+}
+
 // RecordMachineFailureTextBody defines parameters for RecordMachineFailure.
 type RecordMachineFailureTextBody = string
 
@@ -6072,6 +7228,16 @@ type CreateAgentParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListAgentChannelsParams defines parameters for ListAgentChannels.
+type ListAgentChannelsParams struct {
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor          *PageCursor          `form:"cursor,omitempty" json:"cursor,omitempty"`
+	ParentChannelId *IntegrationTargetID `form:"parent_channel_id,omitempty" json:"parent_channel_id,omitempty"`
+}
+
 // UpdateAgentConfigParams defines parameters for UpdateAgentConfig.
 type UpdateAgentConfigParams struct {
 	// IdempotencyKey Idempotency key for replay-safe mutating requests.
@@ -6198,6 +7364,15 @@ type ListIntegrationInstallsParams struct {
 	OauthFlowId *IntegrationInstallOAuthFlowIDFilter `form:"oauth_flow_id,omitempty" json:"oauth_flow_id,omitempty"`
 	Sort        *ResourceListSort                    `form:"sort,omitempty" json:"sort,omitempty"`
 
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListExternalChannelRequestsParams defines parameters for ListExternalChannelRequests.
+type ListExternalChannelRequestsParams struct {
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -6416,6 +7591,48 @@ type ListPersonalAccessTokensParams struct {
 	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// AcceptChannelConnectorEventJSONRequestBody defines body for AcceptChannelConnectorEvent for application/json ContentType.
+type AcceptChannelConnectorEventJSONRequestBody = ChannelInboundEventRequest
+
+// PublishChannelConnectorDefinitionJSONRequestBody defines body for PublishChannelConnectorDefinition for application/json ContentType.
+type PublishChannelConnectorDefinitionJSONRequestBody = PublishChannelConnectorDefinitionRequest
+
+// DeliverChannelConnectorInputJSONRequestBody defines body for DeliverChannelConnectorInput for application/json ContentType.
+type DeliverChannelConnectorInputJSONRequestBody = DeliverChannelConnectorInputRequest
+
+// LookupChannelConnectorRecipientsJSONRequestBody defines body for LookupChannelConnectorRecipients for application/json ContentType.
+type LookupChannelConnectorRecipientsJSONRequestBody = LookupChannelConnectorRecipientsRequest
+
+// CompleteChannelConnectorEventJSONRequestBody defines body for CompleteChannelConnectorEvent for application/json ContentType.
+type CompleteChannelConnectorEventJSONRequestBody = CompleteChannelConnectorEventRequest
+
+// DeliverChannelConnectorWorkflowJSONRequestBody defines body for DeliverChannelConnectorWorkflow for application/json ContentType.
+type DeliverChannelConnectorWorkflowJSONRequestBody = DeliverChannelConnectorWorkflowRequest
+
+// LookupChannelConnectorWorkflowJSONRequestBody defines body for LookupChannelConnectorWorkflow for application/json ContentType.
+type LookupChannelConnectorWorkflowJSONRequestBody = LookupChannelConnectorWorkflowRequest
+
+// ResolveChannelConnectorInteractionJSONRequestBody defines body for ResolveChannelConnectorInteraction for application/json ContentType.
+type ResolveChannelConnectorInteractionJSONRequestBody = ResolveChannelConnectorInteractionRequest
+
+// AcceptChannelConnectorRuntimeEventJSONRequestBody defines body for AcceptChannelConnectorRuntimeEvent for application/json ContentType.
+type AcceptChannelConnectorRuntimeEventJSONRequestBody = ChannelRuntimeInboundEventRequest
+
+// ResolveChannelConnectorRuntimeInteractionJSONRequestBody defines body for ResolveChannelConnectorRuntimeInteraction for application/json ContentType.
+type ResolveChannelConnectorRuntimeInteractionJSONRequestBody = ChannelRuntimeInteractionRequest
+
+// ClaimNextChannelConnectorEventJSONRequestBody defines body for ClaimNextChannelConnectorEvent for application/json ContentType.
+type ClaimNextChannelConnectorEventJSONRequestBody = ClaimNextChannelConnectorEventRequest
+
+// ClaimChannelConnectorRuntimeUnitsJSONRequestBody defines body for ClaimChannelConnectorRuntimeUnits for application/json ContentType.
+type ClaimChannelConnectorRuntimeUnitsJSONRequestBody = ChannelConnectorClaimRequest
+
+// HeartbeatChannelConnectorRuntimeUnitJSONRequestBody defines body for HeartbeatChannelConnectorRuntimeUnit for application/json ContentType.
+type HeartbeatChannelConnectorRuntimeUnitJSONRequestBody = HeartbeatChannelConnectorRuntimeUnitRequest
+
+// ReleaseChannelConnectorRuntimeUnitJSONRequestBody defines body for ReleaseChannelConnectorRuntimeUnit for application/json ContentType.
+type ReleaseChannelConnectorRuntimeUnitJSONRequestBody = ReleaseChannelConnectorRuntimeUnitRequest
+
 // RecordMachineFailureTextRequestBody defines body for RecordMachineFailure for text/plain ContentType.
 type RecordMachineFailureTextRequestBody = RecordMachineFailureTextBody
 
@@ -6503,6 +7720,9 @@ type CreateAgentJSONRequestBody = CreateAgentRequest
 // CancelAgentJSONRequestBody defines body for CancelAgent for application/json ContentType.
 type CancelAgentJSONRequestBody = CancelAgentRequest
 
+// AttachAgentChannelJSONRequestBody defines body for AttachAgentChannel for application/json ContentType.
+type AttachAgentChannelJSONRequestBody = AttachAgentChannelRequest
+
 // UpdateAgentConfigJSONRequestBody defines body for UpdateAgentConfig for application/json ContentType.
 type UpdateAgentConfigJSONRequestBody = UpdateAgentConfigRequest
 
@@ -6526,6 +7746,18 @@ type CreateCronTriggerJSONRequestBody = CreateCronTriggerRequest
 
 // UpdateCronTriggerJSONRequestBody defines body for UpdateCronTrigger for application/json ContentType.
 type UpdateCronTriggerJSONRequestBody = UpdateCronTriggerRequest
+
+// CreateExternalIntegrationInstallJSONRequestBody defines body for CreateExternalIntegrationInstall for application/json ContentType.
+type CreateExternalIntegrationInstallJSONRequestBody = CreateExternalIntegrationInstallRequest
+
+// PublishExternalChannelDefinitionJSONRequestBody defines body for PublishExternalChannelDefinition for application/json ContentType.
+type PublishExternalChannelDefinitionJSONRequestBody = PublishChannelConnectorDefinitionRequest
+
+// RegisterExternalChannelJSONRequestBody defines body for RegisterExternalChannel for application/json ContentType.
+type RegisterExternalChannelJSONRequestBody = RegisterExternalChannelRequest
+
+// CompleteExternalChannelRequestJSONRequestBody defines body for CompleteExternalChannelRequest for application/json ContentType.
+type CompleteExternalChannelRequestJSONRequestBody = CompleteExternalChannelRequestRequest
 
 // CreateProjectMachineGrantJSONRequestBody defines body for CreateProjectMachineGrant for application/json ContentType.
 type CreateProjectMachineGrantJSONRequestBody = CreateProjectMachineGrantRequest
@@ -7158,6 +8390,94 @@ func (t CronTriggerTarget) MarshalJSON() ([]byte, error) {
 }
 
 func (t *CronTriggerTarget) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsChannelSendOperation returns the union data inside the ExternalChannelRequest_Payload as a ChannelSendOperation
+func (t ExternalChannelRequest_Payload) AsChannelSendOperation() (ChannelSendOperation, error) {
+	var body ChannelSendOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromChannelSendOperation overwrites any union data inside the ExternalChannelRequest_Payload as the provided ChannelSendOperation
+func (t *ExternalChannelRequest_Payload) FromChannelSendOperation(v ChannelSendOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeChannelSendOperation performs a merge with any union data inside the ExternalChannelRequest_Payload, using the provided ChannelSendOperation
+func (t *ExternalChannelRequest_Payload) MergeChannelSendOperation(v ChannelSendOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsChannelReadOperation returns the union data inside the ExternalChannelRequest_Payload as a ChannelReadOperation
+func (t ExternalChannelRequest_Payload) AsChannelReadOperation() (ChannelReadOperation, error) {
+	var body ChannelReadOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromChannelReadOperation overwrites any union data inside the ExternalChannelRequest_Payload as the provided ChannelReadOperation
+func (t *ExternalChannelRequest_Payload) FromChannelReadOperation(v ChannelReadOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeChannelReadOperation performs a merge with any union data inside the ExternalChannelRequest_Payload, using the provided ChannelReadOperation
+func (t *ExternalChannelRequest_Payload) MergeChannelReadOperation(v ChannelReadOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsChannelInteractionOperation returns the union data inside the ExternalChannelRequest_Payload as a ChannelInteractionOperation
+func (t ExternalChannelRequest_Payload) AsChannelInteractionOperation() (ChannelInteractionOperation, error) {
+	var body ChannelInteractionOperation
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromChannelInteractionOperation overwrites any union data inside the ExternalChannelRequest_Payload as the provided ChannelInteractionOperation
+func (t *ExternalChannelRequest_Payload) FromChannelInteractionOperation(v ChannelInteractionOperation) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeChannelInteractionOperation performs a merge with any union data inside the ExternalChannelRequest_Payload, using the provided ChannelInteractionOperation
+func (t *ExternalChannelRequest_Payload) MergeChannelInteractionOperation(v ChannelInteractionOperation) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ExternalChannelRequest_Payload) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ExternalChannelRequest_Payload) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -8165,6 +9485,40 @@ func (t *SecretMaterial) MergeAWSCredentialsSecretMaterial(v AWSCredentialsSecre
 	return err
 }
 
+// AsIntegrationCredentialsSecretMaterial returns the union data inside the SecretMaterial as a IntegrationCredentialsSecretMaterial
+func (t SecretMaterial) AsIntegrationCredentialsSecretMaterial() (IntegrationCredentialsSecretMaterial, error) {
+	var body IntegrationCredentialsSecretMaterial
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIntegrationCredentialsSecretMaterial overwrites any union data inside the SecretMaterial as the provided IntegrationCredentialsSecretMaterial
+func (t *SecretMaterial) FromIntegrationCredentialsSecretMaterial(v IntegrationCredentialsSecretMaterial) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"integration_credentials"}`))
+	t.union = b
+	return err
+}
+
+// MergeIntegrationCredentialsSecretMaterial performs a merge with any union data inside the SecretMaterial, using the provided IntegrationCredentialsSecretMaterial
+func (t *SecretMaterial) MergeIntegrationCredentialsSecretMaterial(v IntegrationCredentialsSecretMaterial) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"integration_credentials"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t SecretMaterial) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"kind"`
@@ -8183,6 +9537,8 @@ func (t SecretMaterial) ValueByDiscriminator() (interface{}, error) {
 		return t.AsAWSCredentialsSecretMaterial()
 	case "generic":
 		return t.AsGenericSecretMaterial()
+	case "integration_credentials":
+		return t.AsIntegrationCredentialsSecretMaterial()
 	case "oauth_token_set":
 		return t.AsOAuthTokenSetSecretMaterial()
 	default:
@@ -9235,6 +10591,60 @@ func (t *UpdateSkillRequest) UnmarshalJSON(b []byte) error {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetChannelConnectorAppConfiguration Get one connector-scoped provider app configuration
+	// (GET /channel-connector/apps/{integrationAppID}/configuration)
+	GetChannelConnectorAppConfiguration(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID)
+	// AcceptChannelConnectorEvent Durably receive one provider event
+	// (POST /channel-connector/apps/{integrationAppID}/events)
+	AcceptChannelConnectorEvent(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID)
+	// ResolveChannelConnectorInstallationConfiguration Resolve one installation configuration by provider identity
+	// (GET /channel-connector/apps/{integrationAppID}/installations/resolve)
+	ResolveChannelConnectorInstallationConfiguration(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, params ResolveChannelConnectorInstallationConfigurationParams)
+	// PublishChannelConnectorDefinition Publish the current channel definition for one connection
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channel-definitions/publish)
+	PublishChannelConnectorDefinition(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// DeliverChannelConnectorInput Atomically deliver a receipt through an existing receive binding
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/deliver)
+	DeliverChannelConnectorInput(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// LookupChannelConnectorRecipients Observe existing receive bindings for a provider address
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/recipients)
+	LookupChannelConnectorRecipients(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// GetChannelConnectorInstallationConfiguration Get one installation configuration by internal identity
+	// (GET /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/configuration)
+	GetChannelConnectorInstallationConfiguration(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// CompleteChannelConnectorEvent Finish processing an incoming receipt with its current lease
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/events/{receiptID}/complete)
+	CompleteChannelConnectorEvent(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID, receiptID IntegrationEventReceiptID)
+	// ListChannelConnectorRoutes Read active behavior configuration for a connection
+	// (GET /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/routes)
+	ListChannelConnectorRoutes(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// DeliverChannelConnectorWorkflow Atomically deliver a receipt through a configured behavior workflow
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/deliver)
+	DeliverChannelConnectorWorkflow(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// LookupChannelConnectorWorkflow Observe a configured workflow before preparing input content
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/lookup)
+	LookupChannelConnectorWorkflow(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID)
+	// ResolveChannelConnectorInteraction Resolve an agent interaction from a provider channel
+	// (POST /channel-connector/apps/{integrationAppID}/interactions/{interactionID}/resolve)
+	ResolveChannelConnectorInteraction(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, interactionID AgentInteractionID)
+	// AcceptChannelConnectorRuntimeEvent Durably receive one event from a fenced persistent runtime
+	// (POST /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/events)
+	AcceptChannelConnectorRuntimeEvent(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, runtimeUnitID IntegrationRuntimeUnitID)
+	// ResolveChannelConnectorRuntimeInteraction Resolve an agent interaction from a fenced persistent runtime
+	// (POST /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/interactions/{interactionID}/resolve)
+	ResolveChannelConnectorRuntimeInteraction(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, runtimeUnitID IntegrationRuntimeUnitID, interactionID AgentInteractionID)
+	// ClaimNextChannelConnectorEvent Claim one due incoming event for an exact connector capability
+	// (POST /channel-connector/events/claim-next)
+	ClaimNextChannelConnectorEvent(w http.ResponseWriter, r *http.Request)
+	// ClaimChannelConnectorRuntimeUnits Claim persistent provider runtime units
+	// (POST /channel-connector/runtime-units/claim)
+	ClaimChannelConnectorRuntimeUnits(w http.ResponseWriter, r *http.Request)
+	// HeartbeatChannelConnectorRuntimeUnit Renew a runtime lease and optionally checkpoint it
+	// (POST /channel-connector/runtime-units/{runtimeUnitID}/heartbeat)
+	HeartbeatChannelConnectorRuntimeUnit(w http.ResponseWriter, r *http.Request, runtimeUnitID IntegrationRuntimeUnitID)
+	// ReleaseChannelConnectorRuntimeUnit Release a fenced provider runtime unit
+	// (POST /channel-connector/runtime-units/{runtimeUnitID}/release)
+	ReleaseChannelConnectorRuntimeUnit(w http.ResponseWriter, r *http.Request, runtimeUnitID IntegrationRuntimeUnitID)
 	// BootstrapDaemon Bootstrap daemon
 	// (POST /daemon/bootstrap)
 	BootstrapDaemon(w http.ResponseWriter, r *http.Request)
@@ -9484,6 +10894,18 @@ type ServerInterface interface {
 	// CancelAgent Cancel agent
 	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel)
 	CancelAgent(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string)
+	// AttachAgentChannel Attach a channel to an agent
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings)
+	AttachAgentChannel(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID)
+	// RevokeAgentChannelBinding Revoke a channel binding
+	// (DELETE /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings/{bindingID})
+	RevokeAgentChannelBinding(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID, bindingID IntegrationBindingID)
+	// ListAgentChannels List agent channels
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels)
+	ListAgentChannels(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID, params ListAgentChannelsParams)
+	// GetAgentChannel Get an agent channel
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels/{channelID})
+	GetAgentChannel(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID, channelID IntegrationTargetID)
 	// UpdateAgentConfig Update agent config
 	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config)
 	UpdateAgentConfig(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params UpdateAgentConfigParams)
@@ -9547,9 +10969,24 @@ type ServerInterface interface {
 	// ListIntegrationInstalls List integration installs
 	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs)
 	ListIntegrationInstalls(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListIntegrationInstallsParams)
+	// CreateExternalIntegrationInstall Register an external connector
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs)
+	CreateExternalIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string)
 	// DeleteIntegrationInstall Delete integration install
 	// (DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
 	DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string, integrationInstallID string)
+	// PublishExternalChannelDefinition Publish an external channel definition
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channel-definitions)
+	PublishExternalChannelDefinition(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID)
+	// RegisterExternalChannel Register an external channel
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels)
+	RegisterExternalChannel(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID)
+	// ListExternalChannelRequests Poll pending work for an external connector
+	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests)
+	ListExternalChannelRequests(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID, params ListExternalChannelRequestsParams)
+	// CompleteExternalChannelRequest Complete an external channel request
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests/{requestID}/result)
+	CompleteExternalChannelRequest(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID, requestID ExternalChannelRequestID)
 	// ListProjectMachineGrants List project machine grants
 	// (GET /orgs/{orgID}/projects/{projectID}/machine-grants)
 	ListProjectMachineGrants(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectMachineGrantsParams)
@@ -9677,6 +11114,596 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetChannelConnectorAppConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) GetChannelConnectorAppConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChannelConnectorAppConfiguration(w, r, integrationAppID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptChannelConnectorEvent operation middleware
+func (siw *ServerInterfaceWrapper) AcceptChannelConnectorEvent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptChannelConnectorEvent(w, r, integrationAppID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveChannelConnectorInstallationConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) ResolveChannelConnectorInstallationConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResolveChannelConnectorInstallationConfigurationParams
+
+	// ------------- Required query parameter "external_tenant_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "external_tenant_id", r.URL.Query(), &params.ExternalTenantId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "external_tenant_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_tenant_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "external_account_ref" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "external_account_ref", r.URL.Query(), &params.ExternalAccountRef, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "external_account_ref"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_account_ref", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveChannelConnectorInstallationConfiguration(w, r, integrationAppID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishChannelConnectorDefinition operation middleware
+func (siw *ServerInterfaceWrapper) PublishChannelConnectorDefinition(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishChannelConnectorDefinition(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeliverChannelConnectorInput operation middleware
+func (siw *ServerInterfaceWrapper) DeliverChannelConnectorInput(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeliverChannelConnectorInput(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LookupChannelConnectorRecipients operation middleware
+func (siw *ServerInterfaceWrapper) LookupChannelConnectorRecipients(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupChannelConnectorRecipients(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChannelConnectorInstallationConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) GetChannelConnectorInstallationConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChannelConnectorInstallationConfiguration(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteChannelConnectorEvent operation middleware
+func (siw *ServerInterfaceWrapper) CompleteChannelConnectorEvent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "receiptID" -------------
+	var receiptID IntegrationEventReceiptID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "receiptID", r.PathValue("receiptID"), &receiptID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "receiptID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteChannelConnectorEvent(w, r, integrationAppID, integrationInstallID, receiptID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChannelConnectorRoutes operation middleware
+func (siw *ServerInterfaceWrapper) ListChannelConnectorRoutes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChannelConnectorRoutes(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeliverChannelConnectorWorkflow operation middleware
+func (siw *ServerInterfaceWrapper) DeliverChannelConnectorWorkflow(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeliverChannelConnectorWorkflow(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LookupChannelConnectorWorkflow operation middleware
+func (siw *ServerInterfaceWrapper) LookupChannelConnectorWorkflow(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupChannelConnectorWorkflow(w, r, integrationAppID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveChannelConnectorInteraction operation middleware
+func (siw *ServerInterfaceWrapper) ResolveChannelConnectorInteraction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "interactionID" -------------
+	var interactionID AgentInteractionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "interactionID", r.PathValue("interactionID"), &interactionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "interactionID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveChannelConnectorInteraction(w, r, integrationAppID, interactionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptChannelConnectorRuntimeEvent operation middleware
+func (siw *ServerInterfaceWrapper) AcceptChannelConnectorRuntimeEvent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "runtimeUnitID" -------------
+	var runtimeUnitID IntegrationRuntimeUnitID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtimeUnitID", r.PathValue("runtimeUnitID"), &runtimeUnitID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtimeUnitID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptChannelConnectorRuntimeEvent(w, r, integrationAppID, runtimeUnitID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveChannelConnectorRuntimeInteraction operation middleware
+func (siw *ServerInterfaceWrapper) ResolveChannelConnectorRuntimeInteraction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integrationAppID" -------------
+	var integrationAppID IntegrationAppID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationAppID", r.PathValue("integrationAppID"), &integrationAppID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationAppID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "runtimeUnitID" -------------
+	var runtimeUnitID IntegrationRuntimeUnitID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtimeUnitID", r.PathValue("runtimeUnitID"), &runtimeUnitID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtimeUnitID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "interactionID" -------------
+	var interactionID AgentInteractionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "interactionID", r.PathValue("interactionID"), &interactionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "interactionID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveChannelConnectorRuntimeInteraction(w, r, integrationAppID, runtimeUnitID, interactionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClaimNextChannelConnectorEvent operation middleware
+func (siw *ServerInterfaceWrapper) ClaimNextChannelConnectorEvent(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClaimNextChannelConnectorEvent(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClaimChannelConnectorRuntimeUnits operation middleware
+func (siw *ServerInterfaceWrapper) ClaimChannelConnectorRuntimeUnits(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClaimChannelConnectorRuntimeUnits(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HeartbeatChannelConnectorRuntimeUnit operation middleware
+func (siw *ServerInterfaceWrapper) HeartbeatChannelConnectorRuntimeUnit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "runtimeUnitID" -------------
+	var runtimeUnitID IntegrationRuntimeUnitID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtimeUnitID", r.PathValue("runtimeUnitID"), &runtimeUnitID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtimeUnitID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HeartbeatChannelConnectorRuntimeUnit(w, r, runtimeUnitID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReleaseChannelConnectorRuntimeUnit operation middleware
+func (siw *ServerInterfaceWrapper) ReleaseChannelConnectorRuntimeUnit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "runtimeUnitID" -------------
+	var runtimeUnitID IntegrationRuntimeUnitID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "runtimeUnitID", r.PathValue("runtimeUnitID"), &runtimeUnitID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtimeUnitID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReleaseChannelConnectorRuntimeUnit(w, r, runtimeUnitID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // BootstrapDaemon operation middleware
 func (siw *ServerInterfaceWrapper) BootstrapDaemon(w http.ResponseWriter, r *http.Request) {
@@ -13359,6 +15386,242 @@ func (siw *ServerInterfaceWrapper) CancelAgent(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// AttachAgentChannel operation middleware
+func (siw *ServerInterfaceWrapper) AttachAgentChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID AgentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AttachAgentChannel(w, r, orgID, projectID, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeAgentChannelBinding operation middleware
+func (siw *ServerInterfaceWrapper) RevokeAgentChannelBinding(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID AgentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "bindingID" -------------
+	var bindingID IntegrationBindingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bindingID", r.PathValue("bindingID"), &bindingID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bindingID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeAgentChannelBinding(w, r, orgID, projectID, agentID, bindingID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentChannels operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentChannels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID AgentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAgentChannelsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "parent_channel_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "parent_channel_id", r.URL.Query(), &params.ParentChannelId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "parent_channel_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "parent_channel_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentChannels(w, r, orgID, projectID, agentID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentChannel operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID AgentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "channelID" -------------
+	var channelID IntegrationTargetID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "channelID", r.PathValue("channelID"), &channelID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channelID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentChannel(w, r, orgID, projectID, agentID, channelID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UpdateAgentConfig operation middleware
 func (siw *ServerInterfaceWrapper) UpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 
@@ -14855,6 +17118,41 @@ func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// CreateExternalIntegrationInstall operation middleware
+func (siw *ServerInterfaceWrapper) CreateExternalIntegrationInstall(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateExternalIntegrationInstall(w, r, orgID, projectID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteIntegrationInstall operation middleware
 func (siw *ServerInterfaceWrapper) DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request) {
 
@@ -14890,6 +17188,220 @@ func (siw *ServerInterfaceWrapper) DeleteIntegrationInstall(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteIntegrationInstall(w, r, orgID, projectID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishExternalChannelDefinition operation middleware
+func (siw *ServerInterfaceWrapper) PublishExternalChannelDefinition(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishExternalChannelDefinition(w, r, orgID, projectID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegisterExternalChannel operation middleware
+func (siw *ServerInterfaceWrapper) RegisterExternalChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegisterExternalChannel(w, r, orgID, projectID, integrationInstallID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExternalChannelRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListExternalChannelRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExternalChannelRequestsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExternalChannelRequests(w, r, orgID, projectID, integrationInstallID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteExternalChannelRequest operation middleware
+func (siw *ServerInterfaceWrapper) CompleteExternalChannelRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationInstallID" -------------
+	var integrationInstallID IntegrationInstallID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "requestID" -------------
+	var requestID ExternalChannelRequestID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestID", r.PathValue("requestID"), &requestID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteExternalChannelRequest(w, r, orgID, projectID, integrationInstallID, requestID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -17214,6 +19726,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants", wrapper.CreateSecretGrant)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants/{grantID}", wrapper.DeleteSecretGrant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs", wrapper.ListIntegrationInstalls)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs", wrapper.CreateExternalIntegrationInstall)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channel-definitions", wrapper.PublishExternalChannelDefinition)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels", wrapper.RegisterExternalChannel)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings", wrapper.AttachAgentChannel)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings/{bindingID}", wrapper.RevokeAgentChannelBinding)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels", wrapper.ListAgentChannels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels/{channelID}", wrapper.GetAgentChannel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests", wrapper.ListExternalChannelRequests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests/{requestID}/result", wrapper.CompleteExternalChannelRequest)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}", wrapper.DeleteIntegrationInstall)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs", wrapper.CreateAgentConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tool-catalog", wrapper.GetToolCatalog)
@@ -17304,6 +19825,24 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/skills/{skillID}/archive", wrapper.GetDaemonSkillArchive)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/tool-calls/{toolCallID}/artifact", wrapper.UploadDaemonArtifact)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", wrapper.DownloadDaemonArtifact)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/configuration", wrapper.GetChannelConnectorAppConfiguration)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/configuration", wrapper.GetChannelConnectorInstallationConfiguration)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/routes", wrapper.ListChannelConnectorRoutes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channel-definitions/publish", wrapper.PublishChannelConnectorDefinition)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/lookup", wrapper.LookupChannelConnectorWorkflow)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/deliver", wrapper.DeliverChannelConnectorWorkflow)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/recipients", wrapper.LookupChannelConnectorRecipients)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/deliver", wrapper.DeliverChannelConnectorInput)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/resolve", wrapper.ResolveChannelConnectorInstallationConfiguration)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/events", wrapper.AcceptChannelConnectorEvent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/interactions/{interactionID}/resolve", wrapper.ResolveChannelConnectorInteraction)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/events", wrapper.AcceptChannelConnectorRuntimeEvent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/interactions/{interactionID}/resolve", wrapper.ResolveChannelConnectorRuntimeInteraction)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/events/claim-next", wrapper.ClaimNextChannelConnectorEvent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/events/{receiptID}/complete", wrapper.CompleteChannelConnectorEvent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/runtime-units/claim", wrapper.ClaimChannelConnectorRuntimeUnits)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/runtime-units/{runtimeUnitID}/heartbeat", wrapper.HeartbeatChannelConnectorRuntimeUnit)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channel-connector/runtime-units/{runtimeUnitID}/release", wrapper.ReleaseChannelConnectorRuntimeUnit)
 
 	return m
 }
@@ -17343,6 +19882,2608 @@ type ServiceUnavailableJSONResponse Error
 type UnauthorizedJSONResponse Error
 
 type UnprocessableEntityJSONResponse Error
+
+type GetChannelConnectorAppConfigurationRequestObject struct {
+	IntegrationAppID IntegrationAppID `json:"integrationAppID"`
+}
+
+type GetChannelConnectorAppConfigurationResponseObject interface {
+	VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error
+}
+
+type GetChannelConnectorAppConfiguration200JSONResponse ChannelConnectorAppConfiguration
+
+func (response GetChannelConnectorAppConfiguration200JSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetChannelConnectorAppConfiguration400JSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetChannelConnectorAppConfiguration401JSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetChannelConnectorAppConfiguration403JSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetChannelConnectorAppConfiguration404JSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetChannelConnectorAppConfiguration4XXJSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetChannelConnectorAppConfiguration503JSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorAppConfiguration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetChannelConnectorAppConfiguration5XXJSONResponse) VisitGetChannelConnectorAppConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEventRequestObject struct {
+	IntegrationAppID IntegrationAppID `json:"integrationAppID"`
+	Body             *AcceptChannelConnectorEventJSONRequestBody
+}
+
+type AcceptChannelConnectorEventResponseObject interface {
+	VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error
+}
+
+type AcceptChannelConnectorEvent202JSONResponse ChannelInboundEventResponse
+
+func (response AcceptChannelConnectorEvent202JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AcceptChannelConnectorEvent400JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcceptChannelConnectorEvent401JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AcceptChannelConnectorEvent403JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcceptChannelConnectorEvent404JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent409JSONResponse struct{ ConflictJSONResponse }
+
+func (response AcceptChannelConnectorEvent409JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response AcceptChannelConnectorEvent4XXJSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response AcceptChannelConnectorEvent503JSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorEvent5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response AcceptChannelConnectorEvent5XXJSONResponse) VisitAcceptChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfigurationRequestObject struct {
+	IntegrationAppID IntegrationAppID `json:"integrationAppID"`
+	Params           ResolveChannelConnectorInstallationConfigurationParams
+}
+
+type ResolveChannelConnectorInstallationConfigurationResponseObject interface {
+	VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error
+}
+
+type ResolveChannelConnectorInstallationConfiguration200JSONResponse ChannelConnectorInstallationConfiguration
+
+func (response ResolveChannelConnectorInstallationConfiguration200JSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ResolveChannelConnectorInstallationConfiguration400JSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResolveChannelConnectorInstallationConfiguration401JSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResolveChannelConnectorInstallationConfiguration403JSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResolveChannelConnectorInstallationConfiguration404JSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ResolveChannelConnectorInstallationConfiguration4XXJSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ResolveChannelConnectorInstallationConfiguration503JSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInstallationConfiguration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ResolveChannelConnectorInstallationConfiguration5XXJSONResponse) VisitResolveChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinitionRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *PublishChannelConnectorDefinitionJSONRequestBody
+}
+
+type PublishChannelConnectorDefinitionResponseObject interface {
+	VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error
+}
+
+type PublishChannelConnectorDefinition200JSONResponse ChannelDefinition
+
+func (response PublishChannelConnectorDefinition200JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PublishChannelConnectorDefinition400JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response PublishChannelConnectorDefinition401JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response PublishChannelConnectorDefinition403JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response PublishChannelConnectorDefinition404JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition409JSONResponse struct{ ConflictJSONResponse }
+
+func (response PublishChannelConnectorDefinition409JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response PublishChannelConnectorDefinition4XXJSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response PublishChannelConnectorDefinition503JSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishChannelConnectorDefinition5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response PublishChannelConnectorDefinition5XXJSONResponse) VisitPublishChannelConnectorDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInputRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *DeliverChannelConnectorInputJSONRequestBody
+}
+
+type DeliverChannelConnectorInputResponseObject interface {
+	VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error
+}
+
+type DeliverChannelConnectorInput200JSONResponse ChannelConnectorInputResponse
+
+func (response DeliverChannelConnectorInput200JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeliverChannelConnectorInput400JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeliverChannelConnectorInput401JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeliverChannelConnectorInput403JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeliverChannelConnectorInput404JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeliverChannelConnectorInput409JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeliverChannelConnectorInput4XXJSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DeliverChannelConnectorInput503JSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorInput5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeliverChannelConnectorInput5XXJSONResponse) VisitDeliverChannelConnectorInputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipientsRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *LookupChannelConnectorRecipientsJSONRequestBody
+}
+
+type LookupChannelConnectorRecipientsResponseObject interface {
+	VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error
+}
+
+type LookupChannelConnectorRecipients200JSONResponse LookupChannelConnectorRecipientsResponse
+
+func (response LookupChannelConnectorRecipients200JSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response LookupChannelConnectorRecipients400JSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LookupChannelConnectorRecipients401JSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LookupChannelConnectorRecipients403JSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LookupChannelConnectorRecipients404JSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response LookupChannelConnectorRecipients4XXJSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response LookupChannelConnectorRecipients503JSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorRecipients5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response LookupChannelConnectorRecipients5XXJSONResponse) VisitLookupChannelConnectorRecipientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfigurationRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+}
+
+type GetChannelConnectorInstallationConfigurationResponseObject interface {
+	VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error
+}
+
+type GetChannelConnectorInstallationConfiguration200JSONResponse ChannelConnectorInstallationConfiguration
+
+func (response GetChannelConnectorInstallationConfiguration200JSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetChannelConnectorInstallationConfiguration400JSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetChannelConnectorInstallationConfiguration401JSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetChannelConnectorInstallationConfiguration403JSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetChannelConnectorInstallationConfiguration404JSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetChannelConnectorInstallationConfiguration4XXJSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetChannelConnectorInstallationConfiguration503JSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChannelConnectorInstallationConfiguration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetChannelConnectorInstallationConfiguration5XXJSONResponse) VisitGetChannelConnectorInstallationConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEventRequestObject struct {
+	IntegrationAppID     IntegrationAppID          `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID      `json:"integrationInstallID"`
+	ReceiptID            IntegrationEventReceiptID `json:"receiptID"`
+	Body                 *CompleteChannelConnectorEventJSONRequestBody
+}
+
+type CompleteChannelConnectorEventResponseObject interface {
+	VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error
+}
+
+type CompleteChannelConnectorEvent200JSONResponse ChannelInboundEventResponse
+
+func (response CompleteChannelConnectorEvent200JSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CompleteChannelConnectorEvent400JSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CompleteChannelConnectorEvent401JSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CompleteChannelConnectorEvent403JSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CompleteChannelConnectorEvent404JSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CompleteChannelConnectorEvent409JSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CompleteChannelConnectorEvent4XXJSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteChannelConnectorEvent5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CompleteChannelConnectorEvent5XXJSONResponse) VisitCompleteChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChannelConnectorRoutesRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+}
+
+type ListChannelConnectorRoutesResponseObject interface {
+	VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error
+}
+
+type ListChannelConnectorRoutes200JSONResponse ListChannelConnectorRoutesResponse
+
+func (response ListChannelConnectorRoutes200JSONResponse) VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChannelConnectorRoutes401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListChannelConnectorRoutes401JSONResponse) VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChannelConnectorRoutes403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListChannelConnectorRoutes403JSONResponse) VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChannelConnectorRoutes404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListChannelConnectorRoutes404JSONResponse) VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChannelConnectorRoutes4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListChannelConnectorRoutes4XXJSONResponse) VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChannelConnectorRoutes5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListChannelConnectorRoutes5XXJSONResponse) VisitListChannelConnectorRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflowRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *DeliverChannelConnectorWorkflowJSONRequestBody
+}
+
+type DeliverChannelConnectorWorkflowResponseObject interface {
+	VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error
+}
+
+type DeliverChannelConnectorWorkflow200JSONResponse ChannelConnectorInputResponse
+
+func (response DeliverChannelConnectorWorkflow200JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeliverChannelConnectorWorkflow400JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeliverChannelConnectorWorkflow401JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeliverChannelConnectorWorkflow403JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeliverChannelConnectorWorkflow404JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeliverChannelConnectorWorkflow409JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeliverChannelConnectorWorkflow4XXJSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DeliverChannelConnectorWorkflow503JSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeliverChannelConnectorWorkflow5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeliverChannelConnectorWorkflow5XXJSONResponse) VisitDeliverChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflowRequestObject struct {
+	IntegrationAppID     IntegrationAppID     `json:"integrationAppID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *LookupChannelConnectorWorkflowJSONRequestBody
+}
+
+type LookupChannelConnectorWorkflowResponseObject interface {
+	VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error
+}
+
+type LookupChannelConnectorWorkflow200JSONResponse LookupChannelConnectorWorkflowResponse
+
+func (response LookupChannelConnectorWorkflow200JSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response LookupChannelConnectorWorkflow400JSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LookupChannelConnectorWorkflow401JSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LookupChannelConnectorWorkflow403JSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LookupChannelConnectorWorkflow404JSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response LookupChannelConnectorWorkflow4XXJSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response LookupChannelConnectorWorkflow503JSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupChannelConnectorWorkflow5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response LookupChannelConnectorWorkflow5XXJSONResponse) VisitLookupChannelConnectorWorkflowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteractionRequestObject struct {
+	IntegrationAppID IntegrationAppID   `json:"integrationAppID"`
+	InteractionID    AgentInteractionID `json:"interactionID"`
+	Body             *ResolveChannelConnectorInteractionJSONRequestBody
+}
+
+type ResolveChannelConnectorInteractionResponseObject interface {
+	VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error
+}
+
+type ResolveChannelConnectorInteraction200JSONResponse ResolveChannelConnectorInteractionResponse
+
+func (response ResolveChannelConnectorInteraction200JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ResolveChannelConnectorInteraction400JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResolveChannelConnectorInteraction401JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResolveChannelConnectorInteraction403JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResolveChannelConnectorInteraction404JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ResolveChannelConnectorInteraction409JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ResolveChannelConnectorInteraction4XXJSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ResolveChannelConnectorInteraction503JSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorInteraction5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ResolveChannelConnectorInteraction5XXJSONResponse) VisitResolveChannelConnectorInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEventRequestObject struct {
+	IntegrationAppID IntegrationAppID         `json:"integrationAppID"`
+	RuntimeUnitID    IntegrationRuntimeUnitID `json:"runtimeUnitID"`
+	Body             *AcceptChannelConnectorRuntimeEventJSONRequestBody
+}
+
+type AcceptChannelConnectorRuntimeEventResponseObject interface {
+	VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error
+}
+
+type AcceptChannelConnectorRuntimeEvent202JSONResponse ChannelInboundEventResponse
+
+func (response AcceptChannelConnectorRuntimeEvent202JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AcceptChannelConnectorRuntimeEvent400JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcceptChannelConnectorRuntimeEvent401JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AcceptChannelConnectorRuntimeEvent403JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcceptChannelConnectorRuntimeEvent404JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent409JSONResponse struct{ ConflictJSONResponse }
+
+func (response AcceptChannelConnectorRuntimeEvent409JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response AcceptChannelConnectorRuntimeEvent4XXJSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response AcceptChannelConnectorRuntimeEvent503JSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptChannelConnectorRuntimeEvent5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response AcceptChannelConnectorRuntimeEvent5XXJSONResponse) VisitAcceptChannelConnectorRuntimeEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteractionRequestObject struct {
+	IntegrationAppID IntegrationAppID         `json:"integrationAppID"`
+	RuntimeUnitID    IntegrationRuntimeUnitID `json:"runtimeUnitID"`
+	InteractionID    AgentInteractionID       `json:"interactionID"`
+	Body             *ResolveChannelConnectorRuntimeInteractionJSONRequestBody
+}
+
+type ResolveChannelConnectorRuntimeInteractionResponseObject interface {
+	VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error
+}
+
+type ResolveChannelConnectorRuntimeInteraction200JSONResponse ResolveChannelConnectorInteractionResponse
+
+func (response ResolveChannelConnectorRuntimeInteraction200JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ResolveChannelConnectorRuntimeInteraction400JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResolveChannelConnectorRuntimeInteraction401JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResolveChannelConnectorRuntimeInteraction403JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResolveChannelConnectorRuntimeInteraction404JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ResolveChannelConnectorRuntimeInteraction409JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ResolveChannelConnectorRuntimeInteraction4XXJSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ResolveChannelConnectorRuntimeInteraction503JSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveChannelConnectorRuntimeInteraction5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ResolveChannelConnectorRuntimeInteraction5XXJSONResponse) VisitResolveChannelConnectorRuntimeInteractionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEventRequestObject struct {
+	Body *ClaimNextChannelConnectorEventJSONRequestBody
+}
+
+type ClaimNextChannelConnectorEventResponseObject interface {
+	VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error
+}
+
+type ClaimNextChannelConnectorEvent200JSONResponse ChannelConnectorEventReceipt
+
+func (response ClaimNextChannelConnectorEvent200JSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent204Response struct {
+}
+
+func (response ClaimNextChannelConnectorEvent204Response) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClaimNextChannelConnectorEvent400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ClaimNextChannelConnectorEvent400JSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ClaimNextChannelConnectorEvent401JSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ClaimNextChannelConnectorEvent403JSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ClaimNextChannelConnectorEvent404JSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ClaimNextChannelConnectorEvent409JSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ClaimNextChannelConnectorEvent4XXJSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimNextChannelConnectorEvent5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ClaimNextChannelConnectorEvent5XXJSONResponse) VisitClaimNextChannelConnectorEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnitsRequestObject struct {
+	Body *ClaimChannelConnectorRuntimeUnitsJSONRequestBody
+}
+
+type ClaimChannelConnectorRuntimeUnitsResponseObject interface {
+	VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error
+}
+
+type ClaimChannelConnectorRuntimeUnits200JSONResponse ChannelConnectorRuntimeUnitsResponse
+
+func (response ClaimChannelConnectorRuntimeUnits200JSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnits400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ClaimChannelConnectorRuntimeUnits400JSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnits401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ClaimChannelConnectorRuntimeUnits401JSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnits403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ClaimChannelConnectorRuntimeUnits403JSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnits4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ClaimChannelConnectorRuntimeUnits4XXJSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnits503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ClaimChannelConnectorRuntimeUnits503JSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimChannelConnectorRuntimeUnits5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ClaimChannelConnectorRuntimeUnits5XXJSONResponse) VisitClaimChannelConnectorRuntimeUnitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnitRequestObject struct {
+	RuntimeUnitID IntegrationRuntimeUnitID `json:"runtimeUnitID"`
+	Body          *HeartbeatChannelConnectorRuntimeUnitJSONRequestBody
+}
+
+type HeartbeatChannelConnectorRuntimeUnitResponseObject interface {
+	VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error
+}
+
+type HeartbeatChannelConnectorRuntimeUnit200JSONResponse ChannelConnectorRuntimeUnit
+
+func (response HeartbeatChannelConnectorRuntimeUnit200JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response HeartbeatChannelConnectorRuntimeUnit400JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response HeartbeatChannelConnectorRuntimeUnit401JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response HeartbeatChannelConnectorRuntimeUnit403JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response HeartbeatChannelConnectorRuntimeUnit404JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit409JSONResponse struct{ ConflictJSONResponse }
+
+func (response HeartbeatChannelConnectorRuntimeUnit409JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response HeartbeatChannelConnectorRuntimeUnit4XXJSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response HeartbeatChannelConnectorRuntimeUnit503JSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatChannelConnectorRuntimeUnit5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response HeartbeatChannelConnectorRuntimeUnit5XXJSONResponse) VisitHeartbeatChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnitRequestObject struct {
+	RuntimeUnitID IntegrationRuntimeUnitID `json:"runtimeUnitID"`
+	Body          *ReleaseChannelConnectorRuntimeUnitJSONRequestBody
+}
+
+type ReleaseChannelConnectorRuntimeUnitResponseObject interface {
+	VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error
+}
+
+type ReleaseChannelConnectorRuntimeUnit200JSONResponse ChannelConnectorRuntimeUnit
+
+func (response ReleaseChannelConnectorRuntimeUnit200JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ReleaseChannelConnectorRuntimeUnit400JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ReleaseChannelConnectorRuntimeUnit401JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ReleaseChannelConnectorRuntimeUnit403JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReleaseChannelConnectorRuntimeUnit404JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ReleaseChannelConnectorRuntimeUnit409JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ReleaseChannelConnectorRuntimeUnit4XXJSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ReleaseChannelConnectorRuntimeUnit503JSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseChannelConnectorRuntimeUnit5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ReleaseChannelConnectorRuntimeUnit5XXJSONResponse) VisitReleaseChannelConnectorRuntimeUnitResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type BootstrapDaemonRequestObject struct {
 }
@@ -29827,6 +34968,620 @@ func (response CancelAgent5XXJSONResponse) VisitCancelAgentResponse(w http.Respo
 	return err
 }
 
+type AttachAgentChannelRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	AgentID   AgentID        `json:"agentID"`
+	Body      *AttachAgentChannelJSONRequestBody
+}
+
+type AttachAgentChannelResponseObject interface {
+	VisitAttachAgentChannelResponse(w http.ResponseWriter) error
+}
+
+type AttachAgentChannel200JSONResponse AgentChannelBinding
+
+func (response AttachAgentChannel200JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AttachAgentChannel400JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AttachAgentChannel401JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AttachAgentChannel403JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AttachAgentChannel404JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response AttachAgentChannel409JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response AttachAgentChannel4XXJSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response AttachAgentChannel503JSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AttachAgentChannel5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response AttachAgentChannel5XXJSONResponse) VisitAttachAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBindingRequestObject struct {
+	OrgID     OrganizationID       `json:"orgID"`
+	ProjectID ProjectID            `json:"projectID"`
+	AgentID   AgentID              `json:"agentID"`
+	BindingID IntegrationBindingID `json:"bindingID"`
+}
+
+type RevokeAgentChannelBindingResponseObject interface {
+	VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error
+}
+
+type RevokeAgentChannelBinding204Response struct {
+}
+
+func (response RevokeAgentChannelBinding204Response) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeAgentChannelBinding400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RevokeAgentChannelBinding400JSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeAgentChannelBinding401JSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RevokeAgentChannelBinding403JSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RevokeAgentChannelBinding404JSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RevokeAgentChannelBinding409JSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response RevokeAgentChannelBinding4XXJSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response RevokeAgentChannelBinding503JSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeAgentChannelBinding5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response RevokeAgentChannelBinding5XXJSONResponse) VisitRevokeAgentChannelBindingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannelsRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	AgentID   AgentID        `json:"agentID"`
+	Params    ListAgentChannelsParams
+}
+
+type ListAgentChannelsResponseObject interface {
+	VisitListAgentChannelsResponse(w http.ResponseWriter) error
+}
+
+type ListAgentChannels200JSONResponse ListAgentChannelsResponse
+
+func (response ListAgentChannels200JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListAgentChannels400JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListAgentChannels401JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListAgentChannels403JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListAgentChannels404JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListAgentChannels409JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListAgentChannels4XXJSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListAgentChannels503JSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentChannels5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListAgentChannels5XXJSONResponse) VisitListAgentChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannelRequestObject struct {
+	OrgID     OrganizationID      `json:"orgID"`
+	ProjectID ProjectID           `json:"projectID"`
+	AgentID   AgentID             `json:"agentID"`
+	ChannelID IntegrationTargetID `json:"channelID"`
+}
+
+type GetAgentChannelResponseObject interface {
+	VisitGetAgentChannelResponse(w http.ResponseWriter) error
+}
+
+type GetAgentChannel200JSONResponse AgentChannel
+
+func (response GetAgentChannel200JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetAgentChannel400JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetAgentChannel401JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetAgentChannel403JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetAgentChannel404JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetAgentChannel409JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetAgentChannel4XXJSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetAgentChannel503JSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentChannel5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetAgentChannel5XXJSONResponse) VisitGetAgentChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateAgentConfigRequestObject struct {
 	OrgID     string `json:"orgID"`
 	ProjectID string `json:"projectID"`
@@ -33010,6 +38765,146 @@ func (response ListIntegrationInstalls5XXJSONResponse) VisitListIntegrationInsta
 	return err
 }
 
+type CreateExternalIntegrationInstallRequestObject struct {
+	OrgID     string `json:"orgID"`
+	ProjectID string `json:"projectID"`
+	Body      *CreateExternalIntegrationInstallJSONRequestBody
+}
+
+type CreateExternalIntegrationInstallResponseObject interface {
+	VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error
+}
+
+type CreateExternalIntegrationInstall201JSONResponse IntegrationInstall
+
+func (response CreateExternalIntegrationInstall201JSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateExternalIntegrationInstall400JSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateExternalIntegrationInstall401JSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateExternalIntegrationInstall403JSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateExternalIntegrationInstall404JSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateExternalIntegrationInstall4XXJSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CreateExternalIntegrationInstall503JSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalIntegrationInstall5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateExternalIntegrationInstall5XXJSONResponse) VisitCreateExternalIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteIntegrationInstallRequestObject struct {
 	OrgID                string `json:"orgID"`
 	ProjectID            string `json:"projectID"`
@@ -33133,6 +39028,613 @@ type DeleteIntegrationInstall5XXJSONResponse struct {
 }
 
 func (response DeleteIntegrationInstall5XXJSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinitionRequestObject struct {
+	OrgID                OrganizationID       `json:"orgID"`
+	ProjectID            ProjectID            `json:"projectID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *PublishExternalChannelDefinitionJSONRequestBody
+}
+
+type PublishExternalChannelDefinitionResponseObject interface {
+	VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error
+}
+
+type PublishExternalChannelDefinition200JSONResponse ChannelDefinition
+
+func (response PublishExternalChannelDefinition200JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PublishExternalChannelDefinition400JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response PublishExternalChannelDefinition401JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response PublishExternalChannelDefinition403JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response PublishExternalChannelDefinition404JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition409JSONResponse struct{ ConflictJSONResponse }
+
+func (response PublishExternalChannelDefinition409JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response PublishExternalChannelDefinition4XXJSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response PublishExternalChannelDefinition503JSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishExternalChannelDefinition5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response PublishExternalChannelDefinition5XXJSONResponse) VisitPublishExternalChannelDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannelRequestObject struct {
+	OrgID                OrganizationID       `json:"orgID"`
+	ProjectID            ProjectID            `json:"projectID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Body                 *RegisterExternalChannelJSONRequestBody
+}
+
+type RegisterExternalChannelResponseObject interface {
+	VisitRegisterExternalChannelResponse(w http.ResponseWriter) error
+}
+
+type RegisterExternalChannel200JSONResponse RegisteredChannel
+
+func (response RegisterExternalChannel200JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RegisterExternalChannel400JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RegisterExternalChannel401JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RegisterExternalChannel403JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RegisterExternalChannel404JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RegisterExternalChannel409JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response RegisterExternalChannel4XXJSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response RegisterExternalChannel503JSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterExternalChannel5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response RegisterExternalChannel5XXJSONResponse) VisitRegisterExternalChannelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequestsRequestObject struct {
+	OrgID                OrganizationID       `json:"orgID"`
+	ProjectID            ProjectID            `json:"projectID"`
+	IntegrationInstallID IntegrationInstallID `json:"integrationInstallID"`
+	Params               ListExternalChannelRequestsParams
+}
+
+type ListExternalChannelRequestsResponseObject interface {
+	VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListExternalChannelRequests200JSONResponse ListExternalChannelRequestsResponse
+
+func (response ListExternalChannelRequests200JSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListExternalChannelRequests400JSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListExternalChannelRequests401JSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListExternalChannelRequests403JSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListExternalChannelRequests404JSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListExternalChannelRequests4XXJSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListExternalChannelRequests503JSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalChannelRequests5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListExternalChannelRequests5XXJSONResponse) VisitListExternalChannelRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequestRequestObject struct {
+	OrgID                OrganizationID           `json:"orgID"`
+	ProjectID            ProjectID                `json:"projectID"`
+	IntegrationInstallID IntegrationInstallID     `json:"integrationInstallID"`
+	RequestID            ExternalChannelRequestID `json:"requestID"`
+	Body                 *CompleteExternalChannelRequestJSONRequestBody
+}
+
+type CompleteExternalChannelRequestResponseObject interface {
+	VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error
+}
+
+type CompleteExternalChannelRequest200JSONResponse CompleteExternalChannelRequestResponse
+
+func (response CompleteExternalChannelRequest200JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CompleteExternalChannelRequest400JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CompleteExternalChannelRequest401JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CompleteExternalChannelRequest403JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CompleteExternalChannelRequest404JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CompleteExternalChannelRequest409JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CompleteExternalChannelRequest4XXJSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CompleteExternalChannelRequest503JSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteExternalChannelRequest5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CompleteExternalChannelRequest5XXJSONResponse) VisitCompleteExternalChannelRequestResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -39294,6 +45796,60 @@ func (response GetToolCatalog5XXJSONResponse) VisitGetToolCatalogResponse(w http
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetChannelConnectorAppConfiguration Get one connector-scoped provider app configuration
+	// (GET /channel-connector/apps/{integrationAppID}/configuration)
+	GetChannelConnectorAppConfiguration(ctx context.Context, request GetChannelConnectorAppConfigurationRequestObject) (GetChannelConnectorAppConfigurationResponseObject, error)
+	// AcceptChannelConnectorEvent Durably receive one provider event
+	// (POST /channel-connector/apps/{integrationAppID}/events)
+	AcceptChannelConnectorEvent(ctx context.Context, request AcceptChannelConnectorEventRequestObject) (AcceptChannelConnectorEventResponseObject, error)
+	// ResolveChannelConnectorInstallationConfiguration Resolve one installation configuration by provider identity
+	// (GET /channel-connector/apps/{integrationAppID}/installations/resolve)
+	ResolveChannelConnectorInstallationConfiguration(ctx context.Context, request ResolveChannelConnectorInstallationConfigurationRequestObject) (ResolveChannelConnectorInstallationConfigurationResponseObject, error)
+	// PublishChannelConnectorDefinition Publish the current channel definition for one connection
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channel-definitions/publish)
+	PublishChannelConnectorDefinition(ctx context.Context, request PublishChannelConnectorDefinitionRequestObject) (PublishChannelConnectorDefinitionResponseObject, error)
+	// DeliverChannelConnectorInput Atomically deliver a receipt through an existing receive binding
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/deliver)
+	DeliverChannelConnectorInput(ctx context.Context, request DeliverChannelConnectorInputRequestObject) (DeliverChannelConnectorInputResponseObject, error)
+	// LookupChannelConnectorRecipients Observe existing receive bindings for a provider address
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/recipients)
+	LookupChannelConnectorRecipients(ctx context.Context, request LookupChannelConnectorRecipientsRequestObject) (LookupChannelConnectorRecipientsResponseObject, error)
+	// GetChannelConnectorInstallationConfiguration Get one installation configuration by internal identity
+	// (GET /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/configuration)
+	GetChannelConnectorInstallationConfiguration(ctx context.Context, request GetChannelConnectorInstallationConfigurationRequestObject) (GetChannelConnectorInstallationConfigurationResponseObject, error)
+	// CompleteChannelConnectorEvent Finish processing an incoming receipt with its current lease
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/events/{receiptID}/complete)
+	CompleteChannelConnectorEvent(ctx context.Context, request CompleteChannelConnectorEventRequestObject) (CompleteChannelConnectorEventResponseObject, error)
+	// ListChannelConnectorRoutes Read active behavior configuration for a connection
+	// (GET /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/routes)
+	ListChannelConnectorRoutes(ctx context.Context, request ListChannelConnectorRoutesRequestObject) (ListChannelConnectorRoutesResponseObject, error)
+	// DeliverChannelConnectorWorkflow Atomically deliver a receipt through a configured behavior workflow
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/deliver)
+	DeliverChannelConnectorWorkflow(ctx context.Context, request DeliverChannelConnectorWorkflowRequestObject) (DeliverChannelConnectorWorkflowResponseObject, error)
+	// LookupChannelConnectorWorkflow Observe a configured workflow before preparing input content
+	// (POST /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/lookup)
+	LookupChannelConnectorWorkflow(ctx context.Context, request LookupChannelConnectorWorkflowRequestObject) (LookupChannelConnectorWorkflowResponseObject, error)
+	// ResolveChannelConnectorInteraction Resolve an agent interaction from a provider channel
+	// (POST /channel-connector/apps/{integrationAppID}/interactions/{interactionID}/resolve)
+	ResolveChannelConnectorInteraction(ctx context.Context, request ResolveChannelConnectorInteractionRequestObject) (ResolveChannelConnectorInteractionResponseObject, error)
+	// AcceptChannelConnectorRuntimeEvent Durably receive one event from a fenced persistent runtime
+	// (POST /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/events)
+	AcceptChannelConnectorRuntimeEvent(ctx context.Context, request AcceptChannelConnectorRuntimeEventRequestObject) (AcceptChannelConnectorRuntimeEventResponseObject, error)
+	// ResolveChannelConnectorRuntimeInteraction Resolve an agent interaction from a fenced persistent runtime
+	// (POST /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/interactions/{interactionID}/resolve)
+	ResolveChannelConnectorRuntimeInteraction(ctx context.Context, request ResolveChannelConnectorRuntimeInteractionRequestObject) (ResolveChannelConnectorRuntimeInteractionResponseObject, error)
+	// ClaimNextChannelConnectorEvent Claim one due incoming event for an exact connector capability
+	// (POST /channel-connector/events/claim-next)
+	ClaimNextChannelConnectorEvent(ctx context.Context, request ClaimNextChannelConnectorEventRequestObject) (ClaimNextChannelConnectorEventResponseObject, error)
+	// ClaimChannelConnectorRuntimeUnits Claim persistent provider runtime units
+	// (POST /channel-connector/runtime-units/claim)
+	ClaimChannelConnectorRuntimeUnits(ctx context.Context, request ClaimChannelConnectorRuntimeUnitsRequestObject) (ClaimChannelConnectorRuntimeUnitsResponseObject, error)
+	// HeartbeatChannelConnectorRuntimeUnit Renew a runtime lease and optionally checkpoint it
+	// (POST /channel-connector/runtime-units/{runtimeUnitID}/heartbeat)
+	HeartbeatChannelConnectorRuntimeUnit(ctx context.Context, request HeartbeatChannelConnectorRuntimeUnitRequestObject) (HeartbeatChannelConnectorRuntimeUnitResponseObject, error)
+	// ReleaseChannelConnectorRuntimeUnit Release a fenced provider runtime unit
+	// (POST /channel-connector/runtime-units/{runtimeUnitID}/release)
+	ReleaseChannelConnectorRuntimeUnit(ctx context.Context, request ReleaseChannelConnectorRuntimeUnitRequestObject) (ReleaseChannelConnectorRuntimeUnitResponseObject, error)
 	// BootstrapDaemon Bootstrap daemon
 	// (POST /daemon/bootstrap)
 	BootstrapDaemon(ctx context.Context, request BootstrapDaemonRequestObject) (BootstrapDaemonResponseObject, error)
@@ -39543,6 +46099,18 @@ type StrictServerInterface interface {
 	// CancelAgent Cancel agent
 	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel)
 	CancelAgent(ctx context.Context, request CancelAgentRequestObject) (CancelAgentResponseObject, error)
+	// AttachAgentChannel Attach a channel to an agent
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings)
+	AttachAgentChannel(ctx context.Context, request AttachAgentChannelRequestObject) (AttachAgentChannelResponseObject, error)
+	// RevokeAgentChannelBinding Revoke a channel binding
+	// (DELETE /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings/{bindingID})
+	RevokeAgentChannelBinding(ctx context.Context, request RevokeAgentChannelBindingRequestObject) (RevokeAgentChannelBindingResponseObject, error)
+	// ListAgentChannels List agent channels
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels)
+	ListAgentChannels(ctx context.Context, request ListAgentChannelsRequestObject) (ListAgentChannelsResponseObject, error)
+	// GetAgentChannel Get an agent channel
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels/{channelID})
+	GetAgentChannel(ctx context.Context, request GetAgentChannelRequestObject) (GetAgentChannelResponseObject, error)
 	// UpdateAgentConfig Update agent config
 	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config)
 	UpdateAgentConfig(ctx context.Context, request UpdateAgentConfigRequestObject) (UpdateAgentConfigResponseObject, error)
@@ -39606,9 +46174,24 @@ type StrictServerInterface interface {
 	// ListIntegrationInstalls List integration installs
 	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs)
 	ListIntegrationInstalls(ctx context.Context, request ListIntegrationInstallsRequestObject) (ListIntegrationInstallsResponseObject, error)
+	// CreateExternalIntegrationInstall Register an external connector
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs)
+	CreateExternalIntegrationInstall(ctx context.Context, request CreateExternalIntegrationInstallRequestObject) (CreateExternalIntegrationInstallResponseObject, error)
 	// DeleteIntegrationInstall Delete integration install
 	// (DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
 	DeleteIntegrationInstall(ctx context.Context, request DeleteIntegrationInstallRequestObject) (DeleteIntegrationInstallResponseObject, error)
+	// PublishExternalChannelDefinition Publish an external channel definition
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channel-definitions)
+	PublishExternalChannelDefinition(ctx context.Context, request PublishExternalChannelDefinitionRequestObject) (PublishExternalChannelDefinitionResponseObject, error)
+	// RegisterExternalChannel Register an external channel
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels)
+	RegisterExternalChannel(ctx context.Context, request RegisterExternalChannelRequestObject) (RegisterExternalChannelResponseObject, error)
+	// ListExternalChannelRequests Poll pending work for an external connector
+	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests)
+	ListExternalChannelRequests(ctx context.Context, request ListExternalChannelRequestsRequestObject) (ListExternalChannelRequestsResponseObject, error)
+	// CompleteExternalChannelRequest Complete an external channel request
+	// (POST /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests/{requestID}/result)
+	CompleteExternalChannelRequest(ctx context.Context, request CompleteExternalChannelRequestRequestObject) (CompleteExternalChannelRequestResponseObject, error)
 	// ListProjectMachineGrants List project machine grants
 	// (GET /orgs/{orgID}/projects/{projectID}/machine-grants)
 	ListProjectMachineGrants(ctx context.Context, request ListProjectMachineGrantsRequestObject) (ListProjectMachineGrantsResponseObject, error)
@@ -39765,6 +46348,582 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetChannelConnectorAppConfiguration operation middleware
+func (sh *strictHandler) GetChannelConnectorAppConfiguration(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID) {
+	var request GetChannelConnectorAppConfigurationRequestObject
+
+	request.IntegrationAppID = integrationAppID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetChannelConnectorAppConfiguration(ctx, request.(GetChannelConnectorAppConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetChannelConnectorAppConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetChannelConnectorAppConfigurationResponseObject); ok {
+		if err := validResponse.VisitGetChannelConnectorAppConfigurationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptChannelConnectorEvent operation middleware
+func (sh *strictHandler) AcceptChannelConnectorEvent(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID) {
+	var request AcceptChannelConnectorEventRequestObject
+
+	request.IntegrationAppID = integrationAppID
+
+	var body AcceptChannelConnectorEventJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptChannelConnectorEvent(ctx, request.(AcceptChannelConnectorEventRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptChannelConnectorEvent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptChannelConnectorEventResponseObject); ok {
+		if err := validResponse.VisitAcceptChannelConnectorEventResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveChannelConnectorInstallationConfiguration operation middleware
+func (sh *strictHandler) ResolveChannelConnectorInstallationConfiguration(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, params ResolveChannelConnectorInstallationConfigurationParams) {
+	var request ResolveChannelConnectorInstallationConfigurationRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveChannelConnectorInstallationConfiguration(ctx, request.(ResolveChannelConnectorInstallationConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveChannelConnectorInstallationConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveChannelConnectorInstallationConfigurationResponseObject); ok {
+		if err := validResponse.VisitResolveChannelConnectorInstallationConfigurationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishChannelConnectorDefinition operation middleware
+func (sh *strictHandler) PublishChannelConnectorDefinition(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request PublishChannelConnectorDefinitionRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body PublishChannelConnectorDefinitionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishChannelConnectorDefinition(ctx, request.(PublishChannelConnectorDefinitionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishChannelConnectorDefinition")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishChannelConnectorDefinitionResponseObject); ok {
+		if err := validResponse.VisitPublishChannelConnectorDefinitionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeliverChannelConnectorInput operation middleware
+func (sh *strictHandler) DeliverChannelConnectorInput(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request DeliverChannelConnectorInputRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body DeliverChannelConnectorInputJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeliverChannelConnectorInput(ctx, request.(DeliverChannelConnectorInputRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeliverChannelConnectorInput")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeliverChannelConnectorInputResponseObject); ok {
+		if err := validResponse.VisitDeliverChannelConnectorInputResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LookupChannelConnectorRecipients operation middleware
+func (sh *strictHandler) LookupChannelConnectorRecipients(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request LookupChannelConnectorRecipientsRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body LookupChannelConnectorRecipientsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LookupChannelConnectorRecipients(ctx, request.(LookupChannelConnectorRecipientsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LookupChannelConnectorRecipients")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LookupChannelConnectorRecipientsResponseObject); ok {
+		if err := validResponse.VisitLookupChannelConnectorRecipientsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetChannelConnectorInstallationConfiguration operation middleware
+func (sh *strictHandler) GetChannelConnectorInstallationConfiguration(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request GetChannelConnectorInstallationConfigurationRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetChannelConnectorInstallationConfiguration(ctx, request.(GetChannelConnectorInstallationConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetChannelConnectorInstallationConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetChannelConnectorInstallationConfigurationResponseObject); ok {
+		if err := validResponse.VisitGetChannelConnectorInstallationConfigurationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteChannelConnectorEvent operation middleware
+func (sh *strictHandler) CompleteChannelConnectorEvent(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID, receiptID IntegrationEventReceiptID) {
+	var request CompleteChannelConnectorEventRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+	request.ReceiptID = receiptID
+
+	var body CompleteChannelConnectorEventJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteChannelConnectorEvent(ctx, request.(CompleteChannelConnectorEventRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteChannelConnectorEvent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteChannelConnectorEventResponseObject); ok {
+		if err := validResponse.VisitCompleteChannelConnectorEventResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChannelConnectorRoutes operation middleware
+func (sh *strictHandler) ListChannelConnectorRoutes(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request ListChannelConnectorRoutesRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChannelConnectorRoutes(ctx, request.(ListChannelConnectorRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChannelConnectorRoutes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChannelConnectorRoutesResponseObject); ok {
+		if err := validResponse.VisitListChannelConnectorRoutesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeliverChannelConnectorWorkflow operation middleware
+func (sh *strictHandler) DeliverChannelConnectorWorkflow(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request DeliverChannelConnectorWorkflowRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body DeliverChannelConnectorWorkflowJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeliverChannelConnectorWorkflow(ctx, request.(DeliverChannelConnectorWorkflowRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeliverChannelConnectorWorkflow")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeliverChannelConnectorWorkflowResponseObject); ok {
+		if err := validResponse.VisitDeliverChannelConnectorWorkflowResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LookupChannelConnectorWorkflow operation middleware
+func (sh *strictHandler) LookupChannelConnectorWorkflow(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, integrationInstallID IntegrationInstallID) {
+	var request LookupChannelConnectorWorkflowRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body LookupChannelConnectorWorkflowJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LookupChannelConnectorWorkflow(ctx, request.(LookupChannelConnectorWorkflowRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LookupChannelConnectorWorkflow")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LookupChannelConnectorWorkflowResponseObject); ok {
+		if err := validResponse.VisitLookupChannelConnectorWorkflowResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveChannelConnectorInteraction operation middleware
+func (sh *strictHandler) ResolveChannelConnectorInteraction(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, interactionID AgentInteractionID) {
+	var request ResolveChannelConnectorInteractionRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.InteractionID = interactionID
+
+	var body ResolveChannelConnectorInteractionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveChannelConnectorInteraction(ctx, request.(ResolveChannelConnectorInteractionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveChannelConnectorInteraction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveChannelConnectorInteractionResponseObject); ok {
+		if err := validResponse.VisitResolveChannelConnectorInteractionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptChannelConnectorRuntimeEvent operation middleware
+func (sh *strictHandler) AcceptChannelConnectorRuntimeEvent(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, runtimeUnitID IntegrationRuntimeUnitID) {
+	var request AcceptChannelConnectorRuntimeEventRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.RuntimeUnitID = runtimeUnitID
+
+	var body AcceptChannelConnectorRuntimeEventJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptChannelConnectorRuntimeEvent(ctx, request.(AcceptChannelConnectorRuntimeEventRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptChannelConnectorRuntimeEvent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptChannelConnectorRuntimeEventResponseObject); ok {
+		if err := validResponse.VisitAcceptChannelConnectorRuntimeEventResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveChannelConnectorRuntimeInteraction operation middleware
+func (sh *strictHandler) ResolveChannelConnectorRuntimeInteraction(w http.ResponseWriter, r *http.Request, integrationAppID IntegrationAppID, runtimeUnitID IntegrationRuntimeUnitID, interactionID AgentInteractionID) {
+	var request ResolveChannelConnectorRuntimeInteractionRequestObject
+
+	request.IntegrationAppID = integrationAppID
+	request.RuntimeUnitID = runtimeUnitID
+	request.InteractionID = interactionID
+
+	var body ResolveChannelConnectorRuntimeInteractionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveChannelConnectorRuntimeInteraction(ctx, request.(ResolveChannelConnectorRuntimeInteractionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveChannelConnectorRuntimeInteraction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveChannelConnectorRuntimeInteractionResponseObject); ok {
+		if err := validResponse.VisitResolveChannelConnectorRuntimeInteractionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClaimNextChannelConnectorEvent operation middleware
+func (sh *strictHandler) ClaimNextChannelConnectorEvent(w http.ResponseWriter, r *http.Request) {
+	var request ClaimNextChannelConnectorEventRequestObject
+
+	var body ClaimNextChannelConnectorEventJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClaimNextChannelConnectorEvent(ctx, request.(ClaimNextChannelConnectorEventRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClaimNextChannelConnectorEvent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClaimNextChannelConnectorEventResponseObject); ok {
+		if err := validResponse.VisitClaimNextChannelConnectorEventResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClaimChannelConnectorRuntimeUnits operation middleware
+func (sh *strictHandler) ClaimChannelConnectorRuntimeUnits(w http.ResponseWriter, r *http.Request) {
+	var request ClaimChannelConnectorRuntimeUnitsRequestObject
+
+	var body ClaimChannelConnectorRuntimeUnitsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClaimChannelConnectorRuntimeUnits(ctx, request.(ClaimChannelConnectorRuntimeUnitsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClaimChannelConnectorRuntimeUnits")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClaimChannelConnectorRuntimeUnitsResponseObject); ok {
+		if err := validResponse.VisitClaimChannelConnectorRuntimeUnitsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// HeartbeatChannelConnectorRuntimeUnit operation middleware
+func (sh *strictHandler) HeartbeatChannelConnectorRuntimeUnit(w http.ResponseWriter, r *http.Request, runtimeUnitID IntegrationRuntimeUnitID) {
+	var request HeartbeatChannelConnectorRuntimeUnitRequestObject
+
+	request.RuntimeUnitID = runtimeUnitID
+
+	var body HeartbeatChannelConnectorRuntimeUnitJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.HeartbeatChannelConnectorRuntimeUnit(ctx, request.(HeartbeatChannelConnectorRuntimeUnitRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "HeartbeatChannelConnectorRuntimeUnit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(HeartbeatChannelConnectorRuntimeUnitResponseObject); ok {
+		if err := validResponse.VisitHeartbeatChannelConnectorRuntimeUnitResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReleaseChannelConnectorRuntimeUnit operation middleware
+func (sh *strictHandler) ReleaseChannelConnectorRuntimeUnit(w http.ResponseWriter, r *http.Request, runtimeUnitID IntegrationRuntimeUnitID) {
+	var request ReleaseChannelConnectorRuntimeUnitRequestObject
+
+	request.RuntimeUnitID = runtimeUnitID
+
+	var body ReleaseChannelConnectorRuntimeUnitJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReleaseChannelConnectorRuntimeUnit(ctx, request.(ReleaseChannelConnectorRuntimeUnitRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReleaseChannelConnectorRuntimeUnit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReleaseChannelConnectorRuntimeUnitResponseObject); ok {
+		if err := validResponse.VisitReleaseChannelConnectorRuntimeUnitResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // BootstrapDaemon operation middleware
@@ -42221,6 +49380,128 @@ func (sh *strictHandler) CancelAgent(w http.ResponseWriter, r *http.Request, org
 	}
 }
 
+// AttachAgentChannel operation middleware
+func (sh *strictHandler) AttachAgentChannel(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID) {
+	var request AttachAgentChannelRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.AgentID = agentID
+
+	var body AttachAgentChannelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AttachAgentChannel(ctx, request.(AttachAgentChannelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AttachAgentChannel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AttachAgentChannelResponseObject); ok {
+		if err := validResponse.VisitAttachAgentChannelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeAgentChannelBinding operation middleware
+func (sh *strictHandler) RevokeAgentChannelBinding(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID, bindingID IntegrationBindingID) {
+	var request RevokeAgentChannelBindingRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.AgentID = agentID
+	request.BindingID = bindingID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeAgentChannelBinding(ctx, request.(RevokeAgentChannelBindingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeAgentChannelBinding")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeAgentChannelBindingResponseObject); ok {
+		if err := validResponse.VisitRevokeAgentChannelBindingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAgentChannels operation middleware
+func (sh *strictHandler) ListAgentChannels(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID, params ListAgentChannelsParams) {
+	var request ListAgentChannelsRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.AgentID = agentID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentChannels(ctx, request.(ListAgentChannelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentChannels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentChannelsResponseObject); ok {
+		if err := validResponse.VisitListAgentChannelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAgentChannel operation middleware
+func (sh *strictHandler) GetAgentChannel(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentID AgentID, channelID IntegrationTargetID) {
+	var request GetAgentChannelRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.AgentID = agentID
+	request.ChannelID = channelID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAgentChannel(ctx, request.(GetAgentChannelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAgentChannel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAgentChannelResponseObject); ok {
+		if err := validResponse.VisitGetAgentChannelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // UpdateAgentConfig operation middleware
 func (sh *strictHandler) UpdateAgentConfig(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params UpdateAgentConfigParams) {
 	var request UpdateAgentConfigRequestObject
@@ -42884,6 +50165,40 @@ func (sh *strictHandler) ListIntegrationInstalls(w http.ResponseWriter, r *http.
 	}
 }
 
+// CreateExternalIntegrationInstall operation middleware
+func (sh *strictHandler) CreateExternalIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string) {
+	var request CreateExternalIntegrationInstallRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+
+	var body CreateExternalIntegrationInstallJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExternalIntegrationInstall(ctx, request.(CreateExternalIntegrationInstallRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExternalIntegrationInstall")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateExternalIntegrationInstallResponseObject); ok {
+		if err := validResponse.VisitCreateExternalIntegrationInstallResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteIntegrationInstall operation middleware
 func (sh *strictHandler) DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string, integrationInstallID string) {
 	var request DeleteIntegrationInstallRequestObject
@@ -42905,6 +50220,141 @@ func (sh *strictHandler) DeleteIntegrationInstall(w http.ResponseWriter, r *http
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteIntegrationInstallResponseObject); ok {
 		if err := validResponse.VisitDeleteIntegrationInstallResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishExternalChannelDefinition operation middleware
+func (sh *strictHandler) PublishExternalChannelDefinition(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID) {
+	var request PublishExternalChannelDefinitionRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body PublishExternalChannelDefinitionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishExternalChannelDefinition(ctx, request.(PublishExternalChannelDefinitionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishExternalChannelDefinition")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishExternalChannelDefinitionResponseObject); ok {
+		if err := validResponse.VisitPublishExternalChannelDefinitionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RegisterExternalChannel operation middleware
+func (sh *strictHandler) RegisterExternalChannel(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID) {
+	var request RegisterExternalChannelRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationInstallID = integrationInstallID
+
+	var body RegisterExternalChannelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RegisterExternalChannel(ctx, request.(RegisterExternalChannelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RegisterExternalChannel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegisterExternalChannelResponseObject); ok {
+		if err := validResponse.VisitRegisterExternalChannelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListExternalChannelRequests operation middleware
+func (sh *strictHandler) ListExternalChannelRequests(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID, params ListExternalChannelRequestsParams) {
+	var request ListExternalChannelRequestsRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationInstallID = integrationInstallID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExternalChannelRequests(ctx, request.(ListExternalChannelRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExternalChannelRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListExternalChannelRequestsResponseObject); ok {
+		if err := validResponse.VisitListExternalChannelRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteExternalChannelRequest operation middleware
+func (sh *strictHandler) CompleteExternalChannelRequest(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationInstallID IntegrationInstallID, requestID ExternalChannelRequestID) {
+	var request CompleteExternalChannelRequestRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationInstallID = integrationInstallID
+	request.RequestID = requestID
+
+	var body CompleteExternalChannelRequestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteExternalChannelRequest(ctx, request.(CompleteExternalChannelRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteExternalChannelRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteExternalChannelRequestResponseObject); ok {
+		if err := validResponse.VisitCompleteExternalChannelRequestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -44083,702 +51533,888 @@ func (sh *strictHandler) GetToolCatalog(w http.ResponseWriter, r *http.Request) 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"wURnrs0ZLQbV3Z/+/wMA",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

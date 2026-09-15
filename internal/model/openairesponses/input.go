@@ -37,9 +37,6 @@ func buildInput(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
 	items := make([]any, 0, capacity)
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil {
 		items = append(
@@ -91,14 +88,11 @@ func buildInput(
 			},
 		)
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		items = append(
-			items,
-			map[string]any{
-				"role":    responsesRoleSystem,
-				"content": modelcontext.IntegrationTargetsContent(bundle.IntegrationTargets),
-			},
-		)
+	if modelcontext.CurrentChannelContextEnabled(bundle.ToolSpecs) {
+		items = append(items, map[string]any{
+			"role":    responsesRoleSystem,
+			"content": modelcontext.CurrentChannelContent(bundle.CurrentChannelID),
+		})
 	}
 	return items, nil
 }

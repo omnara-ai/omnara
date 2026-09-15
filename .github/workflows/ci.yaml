@@ -179,6 +179,14 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-
 
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        if: matrix.target == 'test-integration-httpapi'
+        with:
+          node-version-file: .node-version
+
+      - run: corepack enable
+        if: matrix.target == 'test-integration-httpapi'
+
       - uses: ./.github/actions/setup-test-db
 
       - run: make ${{ matrix.target }}

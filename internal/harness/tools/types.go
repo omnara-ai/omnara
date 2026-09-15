@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
@@ -38,10 +39,17 @@ type SkillStore interface {
 	) (skillstore.SkillRecord, error)
 }
 
+// ChannelOperationsClient executes one bounded managed operation. Implementations
+// must honor the caller's deadline and must not retry HTTP mutations in core.
+type ChannelOperationsClient interface {
+	Execute(context.Context, channelconnector.OperationRequest) (channelconnector.OperationResult, error)
+}
+
 type Turn struct {
 	OrgID              uuid.UUID
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
+	TurnID             uuid.UUID
 	SourceEventID      uuid.UUID
 	RuntimeLockID      uuid.UUID
 	ModelCallContextID uuid.UUID
@@ -58,7 +66,7 @@ type Executor struct {
 	Store                    *storage.Store
 	Skills                   SkillStore
 	MCP                      mcp.Client
-	IntegrationHTTPClient    *http.Client
+	ChannelOperations        ChannelOperationsClient
 	MCPAuthHTTPClient        *http.Client
 	SigV4CredentialCache     *sigv4.CredentialCache
 	WebSearch                webaccess.SearchProvider

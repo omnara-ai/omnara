@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -63,6 +64,13 @@ func (s *coordinatedSkillBlobStore) GetBlob(
 	key string,
 ) ([]byte, blobstore.Metadata, error) {
 	return s.delegate.GetBlob(ctx, key)
+}
+
+func (s *coordinatedSkillBlobStore) OpenBlob(
+	ctx context.Context,
+	key string,
+) (io.ReadCloser, blobstore.Metadata, error) {
+	return s.delegate.OpenBlob(ctx, key)
 }
 
 func (s *coordinatedSkillBlobStore) DeleteBlob(ctx context.Context, key string) error {

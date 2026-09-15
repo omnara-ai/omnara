@@ -32,10 +32,7 @@ func (e Executor) Dispatch(ctx context.Context, turn Turn, call model.ToolCall) 
 	if err != nil {
 		return Result{}, err
 	}
-	var inputErr error
-	if implemented {
-		inputErr = implementation.validateInput(call.Input)
-	}
+	inputErr := validateToolInput(turn, call, implementation)
 	unsupportedErr := toolAvailabilityError(call.Name, turn.Tools, implemented)
 	var content toolResultContent
 	var dispatchResult toolDispatchResult

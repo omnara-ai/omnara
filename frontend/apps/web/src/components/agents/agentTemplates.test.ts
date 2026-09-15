@@ -7,6 +7,7 @@ function catalogEntry(name: string, mode: string): ToolCatalogEntry {
   return {
     name,
     description: `${name} description`,
+    configurable: true,
     default_permission: { mode, parameters: {} },
     permission_modes: [],
   }

@@ -14,13 +14,12 @@ func IntegrationInstall(ctx context.Context, install integrationstore.Integratio
 		"integration_install.id":                   install.ID,
 		"integration_install.provider":             install.Provider,
 		"integration_install.state":                string(install.State),
-		"integration_install.agent_profile_id":     install.AgentProfileID,
-		"integration_install.agent_id":             install.AgentID,
 		"integration_install.integration_kind":     install.IntegrationKind,
 		"integration_install.connection_mode":      install.ConnectionMode,
 		"integration_install.provider_tenant_id":   install.ProviderTenantID,
 		"integration_install.provider_account_ref": install.ProviderAccountRef,
-		"integration_install.installed_by_user_id": install.InstalledByUserID,
+		"integration_install.installed_by.type":    install.InstalledBy.Type,
+		"integration_install.installed_by.id":      install.InstalledBy.ID,
 	})
 }
 

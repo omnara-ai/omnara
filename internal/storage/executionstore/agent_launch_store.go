@@ -20,12 +20,13 @@ import (
 )
 
 type LaunchAgentInput struct {
-	ProjectID     uuid.UUID
-	ProfileID     uuid.UUID
-	AgentConfigID uuid.UUID
-	LaunchedBy    identitystore.PrincipalRecord
-	Name          *string
-	Message       string
+	ProjectID       uuid.UUID
+	ProfileID       uuid.UUID
+	AgentConfigID   uuid.UUID
+	LaunchedBy      identitystore.PrincipalRecord
+	Name            *string
+	Message         string
+	ChannelBindings []LaunchChannelBinding
 	// MessageActor attributes the initial Message input. When nil, the actor
 	// is derived from LaunchedBy, which must then be a user or org API key
 	// principal.
@@ -34,6 +35,8 @@ type LaunchAgentInput struct {
 	ArchiveAfterIdleMinutes *int
 	DerivedConfig           *CreateAgentConfigInput
 	Subagent                *SubagentLaunch
+
+	preparedAgentID uuid.UUID
 }
 
 type LaunchAgentResult struct {
@@ -129,6 +132,10 @@ func (s *Store) launchAgentTx(
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
 		return result, err
 	}
+	channelBindings, err := s.prepareLaunchChannelBindingsTx(ctx, tx, input)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
 	if err := dbsafe.Text(input.Message); err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
 	}
@@ -169,6 +176,7 @@ func (s *Store) launchAgentTx(
 		return LaunchAgentResult{}, err
 	}
 	insertInput := insertAgentInput{
+		ID:                      input.preparedAgentID,
 		OrgID:                   project.OrgID,
 		ProjectID:               input.ProjectID,
 		AgentProfileID:          input.ProfileID,
@@ -191,6 +199,12 @@ func (s *Store) launchAgentTx(
 	}
 	if !inserted {
 		return LaunchAgentResult{Agent: agent}, nil
+	}
+	for _, binding := range channelBindings {
+		binding.AgentID = agent.ID
+		if _, err := s.integrations.CreateIntegrationTargetBindingTx(ctx, tx, binding); err != nil {
+			return LaunchAgentResult{}, err
+		}
 	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,

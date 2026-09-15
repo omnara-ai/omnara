@@ -15,14 +15,38 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func WithImplicitIntegrationMessageTool(
+func WithImplicitChannelTools(
 	contract agentconfig.RuntimeContract,
-	targets []integrationstore.IntegrationTargetSummary,
+	channelTools integrationstore.AgentChannelToolEligibility,
 ) (agentconfig.RuntimeContract, error) {
-	if len(targets) == 0 {
-		return contract, nil
+	var err error
+	if channelTools.List {
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameListChannels)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameGetChannel)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSetCurrentChannel)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
 	}
-	return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
+	if channelTools.Send {
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendChannelMessage)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
+	}
+	if channelTools.Read {
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameReadChannel)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
+	}
+	return contract, nil
 }
 
 func RuntimeContractToolSpecs(
@@ -91,6 +115,10 @@ func RuntimeContractToolSpecs(
 			)
 		}
 		seen[spec.Name] = struct{}{}
+	}
+	canSelectChannel := HasTool(out, toolcatalog.ToolNameSetCurrentChannel)
+	for i := range out {
+		out[i].Description = approvalDescription(out[i], canSelectChannel)
 	}
 	return out, nil
 }

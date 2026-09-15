@@ -7,37 +7,38 @@ icon: "sliders"
 All configuration is via environment variables. Use `.env.example` in the repo as a starting point.
 
 <Note>
-  **Required** refers to production. Setting `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1`
-  fills the fallbacks marked *dev* below (local Compose services, console email,
-  an insecure secret-encryption key). Never set it in production.
+  **Required** refers to production. Setting
+  `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1` fills the fallbacks marked *dev* below
+  (local Compose services, console email, an insecure secret-encryption key).
+  Never set it in production.
 </Note>
 
 ## Core
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_PUBLIC_URL` | Public app origin used in emails, browser links, and OAuth callbacks. Origin only, no path; HTTPS outside localhost. Set identically on API, worker, and maintenance. | — | Yes |
-| `OMNARA_PUBLIC_API_URL` | Public base URL of the versioned API as daemons and machines reach it, including the version path. Its origin also serves `/install/omnarad.sh`. Set it identically on API, worker, and maintenance when the API is served from a different host than `OMNARA_PUBLIC_URL`. HTTPS outside localhost. | `OMNARA_PUBLIC_URL` + `/api/v1` | No |
-| `OMNARA_BILLING_URL` | External billing page linked from the dashboard; the UI appends `?org={org-id}`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the dashboard. | — | No |
-| `OMNARA_API_ADDR` | Public listen address of `api` | `:8080` | No |
-| `OMNARA_API_METRICS_ADDR` | `api` health/metrics listener | `:8081` | No |
-| `OMNARA_WORKER_METRICS_ADDR` | `worker` health/metrics listener | `:8082` | No |
-| `OMNARA_MAINTENANCE_METRICS_ADDR` | `maintenance` health/metrics listener | `:8083` | No |
-| `OMNARA_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` | `info` | No |
-| `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS` | `1` enables local-development fallbacks | unset | No |
-| `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
-| `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
-| `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
-| `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
+| Variable                                 | Purpose                                                                                                                                                                                                                                                                                             | Default                         | Required |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | -------- |
+| `OMNARA_PUBLIC_URL`                      | Public app origin used in emails, browser links, and OAuth callbacks. Origin only, no path; HTTPS outside localhost. Set identically on API, worker, and maintenance.                                                                                                                               | —                               | Yes      |
+| `OMNARA_PUBLIC_API_URL`                  | Public base URL of the versioned API as daemons and machines reach it, including the version path. Its origin also serves `/install/omnarad.sh`. Set it identically on API, worker, and maintenance when the API is served from a different host than `OMNARA_PUBLIC_URL`. HTTPS outside localhost. | `OMNARA_PUBLIC_URL` + `/api/v1` | No       |
+| `OMNARA_BILLING_URL`                     | External billing page linked from the dashboard; the UI appends `?org={org-id}`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the dashboard.                                                                                                                        | —                               | No       |
+| `OMNARA_API_ADDR`                        | Public listen address of `api`                                                                                                                                                                                                                                                                      | `:8080`                         | No       |
+| `OMNARA_API_METRICS_ADDR`                | `api` health/metrics listener                                                                                                                                                                                                                                                                       | `:8081`                         | No       |
+| `OMNARA_WORKER_METRICS_ADDR`             | `worker` health/metrics listener                                                                                                                                                                                                                                                                    | `:8082`                         | No       |
+| `OMNARA_MAINTENANCE_METRICS_ADDR`        | `maintenance` health/metrics listener                                                                                                                                                                                                                                                               | `:8083`                         | No       |
+| `OMNARA_LOG_LEVEL`                       | `debug`, `info`, `warn`, or `error`                                                                                                                                                                                                                                                                 | `info`                          | No       |
+| `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS`     | `1` enables local-development fallbacks                                                                                                                                                                                                                                                             | unset                           | No       |
+| `OMNARA_WORKER_CAPACITY`                 | Maximum agent turns executed concurrently by each worker process                                                                                                                                                                                                                                    | `4`                             | No       |
+| `OMNARA_WORKER_ASYNC_TOOL_CAPACITY`      | Maximum runtime-owned asynchronous tool calls in flight per worker process                                                                                                                                                                                                                          | `32`                            | No       |
+| `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process                                                                                                                                                                                                                         | `8`                             | No       |
+| `OMNARA_MAINTENANCE_INTERVAL`            | Maintenance loop interval (Go duration)                                                                                                                                                                                                                                                             | `1s`                            | No       |
 
 ## Database and Redis
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_DATABASE_URL` | Postgres connection string used by `migrate` and the three long-running control-plane services | *dev:* local Compose Postgres | Yes |
-| `OMNARA_REDIS_URL` | Redis or Valkey URL | *dev:* `redis://127.0.0.1:6379/0` | Yes |
-| `OMNARA_MIGRATIONS_DIR` | Directory containing schema migrations; used only by `cmd/migrate` | `migrations` | No |
-| `OMNARA_MIGRATION_TIMEOUT` | Overall deadline for the one-shot migration process (Go duration) | `30m` | No |
+| Variable                   | Purpose                                                                                        | Default                           | Required |
+| -------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------- | -------- |
+| `OMNARA_DATABASE_URL`      | Postgres connection string used by `migrate` and the three long-running control-plane services | _dev:_ local Compose Postgres     | Yes      |
+| `OMNARA_REDIS_URL`         | Redis or Valkey URL                                                                            | _dev:_ `redis://127.0.0.1:6379/0` | Yes      |
+| `OMNARA_MIGRATIONS_DIR`    | Directory containing schema migrations; used only by `cmd/migrate`                             | `migrations`                      | No       |
+| `OMNARA_MIGRATION_TIMEOUT` | Overall deadline for the one-shot migration process (Go duration)                              | `30m`                             | No       |
 
 PostgreSQL 18 or newer is required. The API, worker, and maintenance services
 default to a pool of 1–10 connections, a 30-minute idle timeout, a 30-minute
@@ -54,31 +55,91 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 
 ## Web serving and proxy
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
-| `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
+| Variable                     | Purpose                                                                                                                                                                                                                                                                      | Default    | Required |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------- |
+| `OMNARA_WEB_SERVING`         | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No       |
+| `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control.                                                                                                                                 | —          | No       |
+
+## Channel gateway
+
+The `channel-gateway` runs Slack receipt processing and bounded send, read, and interaction operations. Go verifies Slack's existing event callbacks and saves the event before acknowledging it; the gateway claims those durable receipts through the private API. Slack OAuth and signed actions also remain on the Go API. The gateway uses Hono, calls the API with a scoped connector token, and never connects to Postgres.
+
+Generate a connector token with `make channel-connector-token`. Store it in your normal secret manager. API and worker need the same connector list; the gateway needs the matching token:
+
+```sh
+OMNARA_CHANNEL_CONNECTORS_JSON='[{"id":"primary","token":"<generated token>","operations_url":"http://channel-gateway:8080/internal/operations","capabilities":[{"connector_key":"chat_sdk","provider":"slack"}]}]'
+OMNARA_CHANNEL_CONNECTOR_TOKEN='<generated token>'
+```
+
+Each capability is one exact connector-and-provider pair. The worker selects `operations_url` only from this deployment configuration; it must include the complete private `/internal/operations` path. Duplicate or ambiguous outbound routes are rejected. Omitting the URL allows inbound authentication but supplies no outgoing route. For processes running outside Compose, use service addresses they can reach.
+
+Keep `/api/v1/channel-connector/*` and `/internal/operations` on the private service network. The bundled nginx gateway blocks both at the public edge; bearer authentication is still required. `OMNARA_INTERNAL_API_ORIGINS` belongs on the API and allows the exact private origin used by the gateway. Slack continues to use the event/action URLs returned by setup under `/api/integrations/slack/*`. The generic `/hooks/*` and polling/socket factory extension points do not enable additional providers: the built-in factory registry is empty, while Slack receipt and operation callbacks are wired separately.
+
+Receipt consumers claim only available processing slots and bound each event's retries. Replaying a saved, verified receipt does not repeat live SDK signature verification or deduplication. Core atomically admits workflow launch, input, binding, and wakeup; a failed launch transaction leaves no partially admitted input. Terminal receipts remain available for the configured retention period. Receipt completion and retry authority stay in core.
+
+Managed operations have one request deadline covering artifact transfer and provider attempts. The gateway may make an initial attempt plus up to three safe retries within it, respecting `Retry-After`. Permanent failures stop. An unknown non-idempotent outcome is terminal and must not be blindly retried. Core sends the HTTP mutation once and receives a completed, failed, or unknown result. There is no outgoing outbox or delivery polling loop. Customer-owned external connections use their separate finite request/completion lifecycle.
+
+Outgoing artifacts stream into ephemeral files. The gateway validates the whole bounded multipart request before provider mutation and cleans up files on completion, cancellation, or connection loss. Configure enough local temporary storage for the per-process total-byte budget and size the per-request budget for your stored artifacts. These deployment budgets include actual bytes; they do not impose a new 10 MiB per-file product limit. The outgoing artifact count remains 20. Container termination can discard this temporary work; it is not a durable staging queue.
+
+Provider credentials remain encrypted in Omnara's secret store. The gateway fetches authorized app and installation configuration from core; credentials are not stored in Redis. The built-in Slack receipt and operation callbacks run without a gateway Redis connection. Redis/Valkey is required only when provider factories are registered, for namespaced Chat SDK coordination and transient state. Those deployments must set `OMNARA_CHANNEL_REDIS_URL` and `OMNARA_CHANNEL_REDIS_TOPOLOGY` explicitly: `standalone` for one endpoint or `cluster` for Redis Cluster. Supplied Redis configuration is validated even when no factories are registered. Configuration generations and runtime leases fence stale work; they are independent of the unversioned `chat_sdk` capability key.
+
+| Variable                                           | Purpose                                                                                                      | Default                    | Required                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------- |
+| `OMNARA_CHANNEL_CONNECTORS_JSON`                   | API/worker connector identities, tokens, exact capabilities, and full private `operations_url`               | —                          | With a channel gateway                                                      |
+| `OMNARA_INTERNAL_API_ORIGINS`                      | Comma-separated exact private origins whose Host headers the API accepts for `/api/v1/channel-connector/*`   | —                          | When the channel gateway reaches the API through a private service hostname |
+| `OMNARA_CHANNEL_CONNECTOR_TOKEN`                   | Gateway bearer token matching the API/worker connector list                                                  | —                          | With a channel gateway                                                      |
+| `OMNARA_CHANNEL_CORE_API_URL`                      | Internal versioned API base URL used by the gateway, including the `/api/v1` mount                           | —                          | With a channel gateway                                                      |
+| `OMNARA_CHANNEL_GATEWAY_PUBLIC_URL`                | Exact public origin used to reconstruct provider webhook URLs                                                | —                          | With a channel gateway                                                      |
+| `OMNARA_CHANNEL_REDIS_URL`                         | Redis or Valkey URL used for Chat SDK state                                                                  | —                          | With provider factories                                                      |
+| `OMNARA_CHANNEL_REDIS_TOPOLOGY`                    | `standalone` for one endpoint; `cluster` for Redis Cluster or a cluster-compatible managed service           | —                          | With provider factories                                                      |
+| `OMNARA_CHANNEL_REDIS_CLUSTER_URLS`                | Optional comma-separated cluster seed URLs; all must use database 0 and identical protocol and credentials   | `OMNARA_CHANNEL_REDIS_URL` | No                                                                          |
+| `OMNARA_CHANNEL_REDIS_SOCKET_TIMEOUT_MS`           | Redis connect/idle-socket bound; the client pings within this window and rejects commands while disconnected | `5000`                     | No                                                                          |
+| `PORT`                                             | Gateway HTTP listener port                                                                                   | `8080`                     | No                                                                          |
+| `OMNARA_CHANNEL_GATEWAY_INSTANCE_ID`               | Stable claimant label for logs and leases; generated at startup when omitted                                 | random UUID                | No                                                                          |
+| `OMNARA_CHANNEL_APP_REFRESH_MS`                    | Factory app-cache maximum age before refresh on use                                                          | `60000`                    | No                                                                          |
+| `OMNARA_CHANNEL_MAX_APPS`                          | Maximum cached provider-app runtimes per gateway process                                                     | `1000`                     | No                                                                          |
+| `OMNARA_CHANNEL_MAX_CONCURRENT_LOADS`              | Maximum concurrent exact configuration reads and provider-runtime initializations                            | `32`                       | No                                                                          |
+| `OMNARA_CHANNEL_MAX_INSTALLATIONS`                 | Maximum cached exact installation configurations per gateway process                                         | `10000`                    | No                                                                          |
+| `OMNARA_CHANNEL_NOT_FOUND_CACHE_MS`                | Short negative-cache lifetime for unknown app and installation IDs                                           | `5000`                     | No                                                                          |
+| `OMNARA_CHANNEL_CORE_REQUEST_TIMEOUT_MS`           | Timeout for each gateway-to-API request                                                                      | `10000`                    | No                                                                          |
+| `OMNARA_CHANNEL_WEBHOOK_BODY_LIMIT_BYTES`          | Maximum provider webhook body                                                                                | `25165824`                 | No                                                                          |
+| `OMNARA_CHANNEL_WEBHOOK_HANDLER_TIMEOUT_MS`        | Provider adapter webhook deadline                                                                            | `30000`                    | No                                                                          |
+| `OMNARA_CHANNEL_WEBHOOK_MAX_BUFFERED_BYTES`        | Aggregate webhook body and media-work bytes retained by one gateway process                                  | `134217728`                | No                                                                          |
+| `OMNARA_CHANNEL_WEBHOOK_MAX_CONCURRENT_REQUESTS`   | Maximum webhook lifecycles active in one gateway process                                                     | `128`                      | No                                                                          |
+| `OMNARA_CHANNEL_HTTP_SHUTDOWN_TIMEOUT_MS`          | Grace period before open webhook connections are forced closed                                               | `10000`                    | No                                                                          |
+| `OMNARA_CHANNEL_PROVIDER_LIFECYCLE_TIMEOUT_MS`     | Deadline for provider runtime creation and shutdown                                                          | `10000`                    | No                                                                          |
+| `OMNARA_CHANNEL_STARTUP_TIMEOUT_MS`                | Whole deadline for connecting the gateway's Redis-backed state                                               | `30000`                    | No                                                                          |
+| `OMNARA_CHANNEL_IDLE_POLL_MS`                      | Idle receipt/runtime claim polling interval                                                                  | `1000`                     | No                                                                          |
+| `OMNARA_CHANNEL_OPERATION_MAX_DURATION_MS`         | Maximum operation deadline accepted by the receiver; the caller may require a shorter deadline               | `300000`                   | No                                                                          |
+| `OMNARA_CHANNEL_OPERATION_MAX_CONCURRENT_REQUESTS` | Maximum concurrent operations per gateway process                                                            | `8`                        | No                                                                          |
+| `OMNARA_CHANNEL_OPERATION_MAX_REQUEST_BYTES`       | Actual bytes per operation request, including multipart framing                                              | `1073741824` (1 GiB)       | No                                                                          |
+| `OMNARA_CHANNEL_OPERATION_MAX_TEMPORARY_BYTES`     | Total live artifact tempfile bytes per gateway process                                                       | `4294967296` (4 GiB)       | No                                                                          |
+| `OMNARA_CHANNEL_OPERATION_TEMPORARY_DIRECTORY`     | Writable ephemeral artifact directory                                                                        | OS temporary directory     | No                                                                          |
+| `OMNARA_CHANNEL_RUNTIME_CLAIM_LIMIT`               | Maximum persistent provider runtime units supervised concurrently                                            | `32`                       | No                                                                          |
+| `OMNARA_CHANNEL_RUNTIME_LEASE_MS`                  | Fenced persistent-runtime lease                                                                              | `30000`                    | No                                                                          |
+| `OMNARA_CHANNEL_RUNTIME_STOP_TIMEOUT_MS`           | Grace period for a provider runtime to honor cancellation                                                    | `10000`                    | No                                                                          |
+| `OMNARA_INTEGRATION_EVENT_RETENTION`               | Go-duration retention for terminal inbound receipts before bounded maintenance deletion                      | `168h`                     | No                                                                          |
 
 ## Email
 
 Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In production, use `smtp` or `sendgrid` — or disable both flows with `OMNARA_AUTH_SIGNUP_ENABLED=0` and `OMNARA_AUTH_PASSWORD_RESET_ENABLED=0`.
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_EMAIL_DRIVER` | `none`, `console` (dev only), `smtp`, or `sendgrid` | `none` (*dev:* `console`) | When signup or reset is enabled |
-| `OMNARA_EMAIL_FROM` | Sender address | — | With `smtp` or `sendgrid` |
-| `OMNARA_SMTP_ADDR` | SMTP server `host:port` | — | With `smtp` |
-| `OMNARA_SMTP_USERNAME` / `OMNARA_SMTP_PASSWORD` | SMTP credentials; set both or neither | — | No |
-| `OMNARA_SMTP_REQUIRE_TLS` | Require STARTTLS; disabling is dev-only | `1` | No |
-| `SENDGRID_API_KEY` | SendGrid API key | — | With `sendgrid` |
+| Variable                                        | Purpose                                             | Default                   | Required                        |
+| ----------------------------------------------- | --------------------------------------------------- | ------------------------- | ------------------------------- |
+| `OMNARA_EMAIL_DRIVER`                           | `none`, `console` (dev only), `smtp`, or `sendgrid` | `none` (_dev:_ `console`) | When signup or reset is enabled |
+| `OMNARA_EMAIL_FROM`                             | Sender address                                      | —                         | With `smtp` or `sendgrid`       |
+| `OMNARA_SMTP_ADDR`                              | SMTP server `host:port`                             | —                         | With `smtp`                     |
+| `OMNARA_SMTP_USERNAME` / `OMNARA_SMTP_PASSWORD` | SMTP credentials; set both or neither               | —                         | No                              |
+| `OMNARA_SMTP_REQUIRE_TLS`                       | Require STARTTLS; disabling is dev-only             | `1`                       | No                              |
+| `SENDGRID_API_KEY`                              | SendGrid API key                                    | —                         | With `sendgrid`                 |
 
 ## Auth and SSO connectors
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_AUTH_SIGNUP_ENABLED` | First-party password signup | `1` | No |
-| `OMNARA_AUTH_PASSWORD_RESET_ENABLED` | Password reset flow | `1` | No |
-| `OMNARA_AUTH_CONNECTORS_JSON` | JSON array of social/SSO login connectors | — | No |
+| Variable                             | Purpose                                   | Default | Required |
+| ------------------------------------ | ----------------------------------------- | ------- | -------- |
+| `OMNARA_AUTH_SIGNUP_ENABLED`         | First-party password signup               | `1`     | No       |
+| `OMNARA_AUTH_PASSWORD_RESET_ENABLED` | Password reset flow                       | `1`     | No       |
+| `OMNARA_AUTH_CONNECTORS_JSON`        | JSON array of social/SSO login connectors | —       | No       |
 
 GitHub uses `kind:"github"` (endpoints default to github.com; GitHub-compatible providers must supply `issuer`, `authorization_url`, `token_url`, and `userinfo_url`). Google and generic SSO providers — Keycloak, Okta, Auth0, Azure, ZITADEL — use `kind:"oidc"` with issuer discovery. An example is shown below:
 
@@ -93,10 +154,10 @@ OMNARA_AUTH_CONNECTORS_JSON='[
 
 Secret values are envelope-encrypted with keys from this ring.
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_SECRET_ENCRYPTION_KEYS` | JSON object of key ID to base64 32-byte key (the key ring) | *dev:* insecure `dev-local` key | Yes |
-| `OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID` | Key ID used to wrap new writes; must exist in the ring | *dev:* `dev-local` | Yes |
+| Variable                                 | Purpose                                                    | Default                         | Required |
+| ---------------------------------------- | ---------------------------------------------------------- | ------------------------------- | -------- |
+| `OMNARA_SECRET_ENCRYPTION_KEYS`          | JSON object of key ID to base64 32-byte key (the key ring) | _dev:_ insecure `dev-local` key | Yes      |
+| `OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID` | Key ID used to wrap new writes; must exist in the ring     | _dev:_ `dev-local`              | Yes      |
 
 Generate each key with `openssl rand -base64 32`. To rotate: add the new key to the ring, set it active, rewrap stored versions, then remove the old key once nothing references it.
 
@@ -104,42 +165,42 @@ Generate each key with `openssl rand -base64 32`. To rotate: add the new key to 
 
 Skill archive offers use a short-lived capability bound to one machine, skill, and revision.
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_SKILL_DOWNLOAD_SIGNING_KEY` | Base64-encoded 32-byte HMAC key for machine-bound skill download capabilities; generate with `openssl rand -base64 32` and set the same value on API and worker | *dev:* insecure local key | Yes |
+| Variable                            | Purpose                                                                                                                                                         | Default                   | Required |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | -------- |
+| `OMNARA_SKILL_DOWNLOAD_SIGNING_KEY` | Base64-encoded 32-byte HMAC key for machine-bound skill download capabilities; generate with `openssl rand -base64 32` and set the same value on API and worker | _dev:_ insecure local key | Yes      |
 
 ## Blob storage
 
 Artifact content lives in S3-compatible object storage; a bucket is required.
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose MinIO bucket `omnara` | Yes |
-| `OMNARA_BLOB_S3_REGION` | Bucket region | — | No |
-| `OMNARA_BLOB_S3_ENDPOINT` | Custom endpoint for MinIO or other S3-compatible stores; HTTPS outside localhost | — | No |
-| `OMNARA_BLOB_S3_ACCESS_KEY_ID` / `OMNARA_BLOB_S3_SECRET_ACCESS_KEY` | Static credentials; set both or neither. Leave empty to use the AWS default credential chain. | — | No |
-| `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (MinIO) | `0` | No |
+| Variable                                                            | Purpose                                                                                       | Default                              | Required |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------ | -------- |
+| `OMNARA_BLOB_S3_BUCKET`                                             | Bucket for artifact content                                                                   | _dev:_ Compose MinIO bucket `omnara` | Yes      |
+| `OMNARA_BLOB_S3_REGION`                                             | Bucket region                                                                                 | —                                    | No       |
+| `OMNARA_BLOB_S3_ENDPOINT`                                           | Custom endpoint for MinIO or other S3-compatible stores; HTTPS outside localhost              | —                                    | No       |
+| `OMNARA_BLOB_S3_ACCESS_KEY_ID` / `OMNARA_BLOB_S3_SECRET_ACCESS_KEY` | Static credentials; set both or neither. Leave empty to use the AWS default credential chain. | —                                    | No       |
+| `OMNARA_BLOB_S3_USE_PATH_STYLE`                                     | `1` for path-style addressing (MinIO)                                                         | `0`                                  | No       |
 
 ## Machine daemon and pools
 
 ### API daemon configuration
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_INTERVAL` | API-side fallback drain floor for connected daemon sockets when Redis wakeups are missed | `30s` | No |
-| `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_JITTER` | Jitter added to the fallback drain; must not exceed the interval | `10s` | No |
-| `OMNARA_DAEMON_RELEASE_URL` | Platform-manifest directory embedded in the hosted `omnarad.sh` installer | `https://releases.omnara.com/omnarad/latest` | No |
-| `OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES` | Path to a YAML file of default pool templates; when set, new orgs get cluster-managed machine pools | — | No |
-| `OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN` | Provider token read by the example default-pool template; default-pool provider tokens stay in env | — | No |
+| Variable                                       | Purpose                                                                                             | Default                                      | Required |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------- | -------- |
+| `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_INTERVAL` | API-side fallback drain floor for connected daemon sockets when Redis wakeups are missed            | `30s`                                        | No       |
+| `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_JITTER`   | Jitter added to the fallback drain; must not exceed the interval                                    | `10s`                                        | No       |
+| `OMNARA_DAEMON_RELEASE_URL`                    | Platform-manifest directory embedded in the hosted `omnarad.sh` installer                           | `https://releases.omnara.com/omnarad/latest` | No       |
+| `OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES`        | Path to a YAML file of default pool templates; when set, new orgs get cluster-managed machine pools | —                                            | No       |
+| `OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN`           | Provider token read by the example default-pool template; default-pool provider tokens stay in env  | —                                            | No       |
 
 Machine pool templates automatically create a base machine pool for any new organization. The supported providers are listed below:
 
-| Provider | CPU fields | `provider_config` | `default_machine_provider_options` |
-| --- | --- | --- | --- |
-| `unikraft` | Default and maximums required; minimum optional | Optional `api_base_url`, `allowed_images`, and `allowed_metros` | `image`, `metro`, and optional `startup_script` and `sleep_after_ms` |
-| `blaxel` | Omit all CPU fields | Required `workspace`; optional `allowed_images` and `allowed_regions` | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
-| `daytona` | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets` | Daytona snapshot name, `target`, and optional `startup_script` |
-| `modal` | Default and maximums required; minimum optional | Optional `app` (defaults to `omnara`), `environment` (defaults to `main`), `allowed_images`, and `allowed_regions` | Public linux/amd64 `image` plus optional `region` and `startup_script` |
+| Provider   | CPU fields                                      | `provider_config`                                                                                                  | `default_machine_provider_options`                                                   |
+| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `unikraft` | Default and maximums required; minimum optional | Optional `api_base_url`, `allowed_images`, and `allowed_metros`                                                    | `image`, `metro`, and optional `startup_script` and `sleep_after_ms`                 |
+| `blaxel`   | Omit all CPU fields                             | Required `workspace`; optional `allowed_images` and `allowed_regions`                                              | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
+| `daytona`  | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets`                                                | Daytona snapshot name, `target`, and optional `startup_script`                       |
+| `modal`    | Default and maximums required; minimum optional | Optional `app` (defaults to `omnara`), `environment` (defaults to `main`), `allowed_images`, and `allowed_regions` | Public linux/amd64 `image` plus optional `region` and `startup_script`               |
 
 Provider notes:
 
@@ -155,11 +216,11 @@ An installation can give each new organization a model provider without storing
 the upstream credential in configuration. Leave these variables unset to let
 organization owners configure providers themselves.
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
-| `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
-| `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
+| Variable                                 | Purpose                                                                                                        | Default | Required                         |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------- |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | —       | No                               |
+| `OMNARA_HOSTED_API_URL`                  | Base URL of the operator credential service. Used by the API and maintenance.                                  | —       | With a default provider template |
+| `OMNARA_HOSTED_API_TOKEN`                | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance.  | —       | With a default provider template |
 
 Templates support the [token settings and timeouts](/organization/model-providers)
 described for model providers.
@@ -194,19 +255,19 @@ The credential service contract has these invariants:
 
 ### Host daemon configuration
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `OMNARA_HOME` | Binary, configuration, logs, locks, and runtime state | `$HOME/.omnarad` |
-| `OMNARA_API_URL` | API root URL, including the `/api/v1` mount for self-hosted deployments; HTTP is accepted only for loopback or `host.docker.internal` during local development | Existing `daemon.json` value, otherwise `https://api.omnara.com/v1` |
-| `OMNARA_MACHINE_TOKEN` | Machine token; prompted for by the installer when omitted | Existing `daemon.json` value |
-| `OMNARA_NO_UPDATE` | Set to `1` or `0` to temporarily disable or enable managed updates | Existing `daemon.json` value, otherwise `0` |
-| `OMNARA_RUNNER_PATH` | Temporary `PATH` override for agent commands | Existing `daemon.json` value, otherwise the installation `PATH` |
-| `OMNARA_DAEMON_SEED_PATH` | Existing `omnarad` binary used only to seed a fresh installer-owned home | — |
+| Variable                  | Purpose                                                                                                                                                        | Default                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `OMNARA_HOME`             | Binary, configuration, logs, locks, and runtime state                                                                                                          | `$HOME/.omnarad`                                                    |
+| `OMNARA_API_URL`          | API root URL, including the `/api/v1` mount for self-hosted deployments; HTTP is accepted only for loopback or `host.docker.internal` during local development | Existing `daemon.json` value, otherwise `https://api.omnara.com/v1` |
+| `OMNARA_MACHINE_TOKEN`    | Machine token; prompted for by the installer when omitted                                                                                                      | Existing `daemon.json` value                                        |
+| `OMNARA_NO_UPDATE`        | Set to `1` or `0` to temporarily disable or enable managed updates                                                                                             | Existing `daemon.json` value, otherwise `0`                         |
+| `OMNARA_RUNNER_PATH`      | Temporary `PATH` override for agent commands                                                                                                                   | Existing `daemon.json` value, otherwise the installation `PATH`     |
+| `OMNARA_DAEMON_SEED_PATH` | Existing `omnarad` binary used only to seed a fresh installer-owned home                                                                                       | —                                                                   |
 
 ## Web tools
 
 Web tools work out of the box: `web_fetch` has no vendor dependency, and `web_search` defaults to Exa's keyless endpoint.
 
-| Variable | Purpose | Default | Required |
-| --- | --- | --- | --- |
-| `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments | — | No |
+| Variable      | Purpose                                                                                         | Default | Required |
+| ------------- | ----------------------------------------------------------------------------------------------- | ------- | -------- |
+| `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments | —       | No       |

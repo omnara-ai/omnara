@@ -158,14 +158,6 @@ func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 			),
 		})
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		blocks = append(blocks, textBlock{
-			Type: "text",
-			Text: modelcontext.IntegrationTargetsContent(
-				bundle.IntegrationTargets,
-			),
-		})
-	}
 	if control != nil {
 		blocks[len(blocks)-1].CacheControl = control
 	}
@@ -246,6 +238,11 @@ func buildMessages(
 	}
 	if historyAdded {
 		messages = markLastMessageCacheBreakpoint(messages, control)
+	}
+	if modelcontext.CurrentChannelContextEnabled(bundle.ToolSpecs) {
+		messages = appendMessageBlocks(messages, anthropicRoleUser, []any{textBlock{
+			Type: "text", Text: modelcontext.CurrentChannelContent(bundle.CurrentChannelID),
+		}})
 	}
 	if len(messages) > 0 && messages[0].Role == anthropicRoleAssistant {
 		messages = append(

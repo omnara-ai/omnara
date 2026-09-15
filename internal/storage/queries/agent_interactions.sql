@@ -1,12 +1,13 @@
 -- name: InsertAgentInteraction :one
 INSERT INTO agent_interactions(
   agent_id, tool_call_id,
-  interaction_kind, state, request, created_at
+  interaction_kind, state, request, created_at, integration_target_id
 )
 SELECT tool_call.agent_id,
 	     tool_call.id, sqlc.arg(interaction_kind), 'open',
-	     sqlc.arg(request), statement_timestamp()
+	     sqlc.arg(request), statement_timestamp(), agent.integration_target_id
 FROM tool_call_read_projection tool_call
+JOIN agents agent ON agent.project_id = tool_call.project_id AND agent.id = tool_call.agent_id
 WHERE tool_call.project_id = sqlc.arg(project_id)
 	AND tool_call.agent_id = sqlc.arg(agent_id)
 	AND tool_call.id = sqlc.arg(tool_call_id)
@@ -16,7 +17,7 @@ RETURNING id;
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -26,7 +27,7 @@ WHERE project_id = sqlc.arg(project_id)
 SELECT id, project_id, agent_id, turn_id,
 	   model_call_context_id, tool_call_id, provider_call_id,
 	   interaction_kind, state, request, resolution,
-	   resolved_by_input_id, created_at, resolved_at
+	   resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = sqlc.arg(project_id)
 	AND agent_id = sqlc.arg(agent_id)
@@ -51,7 +52,7 @@ FROM agent_interactions interaction
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -88,17 +89,26 @@ WITH target AS (
 )
 INSERT INTO agent_inputs(
   project_id, agent_id, state,
-  actor_id, input_kind, delivery_mode, target_interaction_id,
+  actor_id, input_kind, integration_target_id, integration_target_binding_id,
+  delivery_mode, target_interaction_id,
   idempotency_scope, input_idempotency_key, queued_at, metadata
 )
 SELECT target.project_id, target.agent_id, 'received',
-       sqlc.narg(actor_id)::uuid,
-       'interaction_response', 'immediate', target.id,
+       sqlc.narg(actor_id)::uuid, 'interaction_response',
+       sqlc.narg(integration_target_id)::uuid,
+       sqlc.narg(integration_target_binding_id)::uuid,
+       'immediate', target.id,
        sqlc.arg(idempotency_scope), sqlc.arg(input_idempotency_key),
        statement_timestamp(), sqlc.arg(metadata)
 FROM target
 ON CONFLICT (project_id, agent_id, idempotency_scope, input_idempotency_key) WHERE idempotency_scope IS NOT NULL AND input_idempotency_key IS NOT NULL DO NOTHING
-RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata;
+RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind,
+  integration_target_id, integration_target_binding_id,
+  coalesce(idempotency_scope, '') AS idempotency_scope,
+  coalesce(input_idempotency_key, '') AS input_idempotency_key,
+  queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode,
+  coalesce(control_type, '') AS control_type, target_interaction_id,
+  agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata;
 
 -- name: ResolveInteractionResponseAgentInput :one
 UPDATE agent_inputs

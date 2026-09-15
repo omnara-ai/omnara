@@ -605,22 +605,13 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		Context: modelcontext.Bundle{
 			SystemPrompt:      "sys",
 			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
-			IntegrationTargets: []modelcontext.IntegrationTargetRef{
-				{
-					TargetRef:       "slack-abcd",
-					DurableID:       "internal-target-id",
-					Provider:        "slack",
-					ProviderRefKind: "thread",
-					Label:           "slack thread C123",
-					IsCurrent:       true,
-				},
-			},
+			CurrentChannelID:  "itgt_aaaaaaaaaaaaaaaaaaaaaaaaae",
 			Messages: []modelcontext.Message{
 				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"changing user suffix"}]`)},
 			},
 			ToolSpecs: []modelcontext.ToolSpec{
 				{Name: toolcatalog.ToolNameRunCommand},
-				{Name: toolcatalog.ToolNameSendIntegrationMessage},
+				{Name: toolcatalog.ToolNameSetCurrentChannel},
 			},
 			InputEventSequence: 10,
 		},
@@ -654,19 +645,17 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		!strings.Contains(system, "context_checkpoint") {
 		t.Fatalf("expected only fixed checkpoint guidance in the cached system prefix: %s", system)
 	}
-	if len(systemBlocks) != 2 || systemBlocks[0].CacheControl != nil ||
-		systemBlocks[1].CacheControl == nil ||
-		!strings.Contains(systemBlocks[1].Text, "External integration targets") ||
-		!strings.Contains(systemBlocks[1].Text, "slack-abcd") ||
-		strings.Contains(systemBlocks[1].Text, "internal-target-id") {
-		t.Fatalf("expected integration target refs without durable ids: %s", system)
+	if len(systemBlocks) != 1 || systemBlocks[0].CacheControl == nil ||
+		strings.Contains(system, "Current channel:") {
+		t.Fatalf("cached system prefix must exclude changing current-channel context: %s", system)
 	}
-	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 2 {
-		t.Fatalf("messages = %+v, want checkpoint/history blocks", payload.Messages)
+	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 3 {
+		t.Fatalf("messages = %+v, want checkpoint/history/current-channel blocks", payload.Messages)
 	}
 	blocks := payload.Messages[0].Content
 	if !strings.Contains(blocks[0].Text, "stable summary") || blocks[0].CacheControl == nil ||
-		!strings.Contains(blocks[1].Text, "changing user suffix") || blocks[1].CacheControl == nil {
+		!strings.Contains(blocks[1].Text, "changing user suffix") || blocks[1].CacheControl == nil ||
+		!strings.Contains(blocks[2].Text, "Current channel:") || blocks[2].CacheControl != nil {
 		t.Fatalf("cache boundaries are not on the stable system, checkpoint, and history tail: %s", prepared.Body)
 	}
 }

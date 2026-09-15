@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -36,7 +36,6 @@ import (
 type Server struct {
 	log                                 *slog.Logger
 	store                               *storage.Store
-	integrations                        *integration.Service
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
 	authOAuthStates                     httpauth.OAuthStateStore
@@ -48,6 +47,8 @@ type Server struct {
 	publicURL                           string
 	publicAPIURL                        string
 	publicOrigins                       []configuredOrigin
+	internalOriginURLs                  []string
+	internalOrigins                     []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
@@ -75,6 +76,7 @@ type Server struct {
 	authHTTPClient                      *http.Client
 	oauthClientMetadataHTTPClient       *http.Client
 	mcpRegistry                         *mcpregistry.Registry
+	channelConnectorAuth                *channelconnector.Authenticator
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	apiMCP                              *mcpsdk.Server
@@ -173,6 +175,15 @@ func WithPublicAPIURL(publicAPIURL string) Option {
 	}
 }
 
+// WithInternalAPIOrigins allows exact private service origins through the Host
+// guard for channel-connector control-plane routes only. Authentication and
+// authorization still apply normally.
+func WithInternalAPIOrigins(origins []string) Option {
+	return func(s *Server) {
+		s.internalOriginURLs = append([]string(nil), origins...)
+	}
+}
+
 func WithBillingURL(billingURL string) Option {
 	return func(s *Server) {
 		s.billingURL = strings.TrimRight(strings.TrimSpace(billingURL), "/")
@@ -237,6 +248,12 @@ func WithOAuthClientMetadataHTTPClient(client *http.Client) Option {
 func WithMCPRegistry(registry *mcpregistry.Registry) Option {
 	return func(s *Server) {
 		s.mcpRegistry = registry
+	}
+}
+
+func WithChannelConnectorAuthenticator(authenticator *channelconnector.Authenticator) Option {
+	return func(s *Server) {
+		s.channelConnectorAuth = authenticator
 	}
 }
 
@@ -372,7 +389,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	var compromiseRevoker httpauth.CompromiseRevoker
 	if store != nil {
 		server.skills = store.Skills()
-		server.integrations = integration.New(store.Execution(), store.Integrations())
 		authStore = store.Identity()
 		compromiseRevoker = store.AccountSecurity()
 	}
@@ -405,6 +421,15 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		server.publicOrigins = append(server.publicOrigins, publicOrigin)
 		if publicAPIOrigin.host != "" {
 			server.publicOrigins = append(server.publicOrigins, publicAPIOrigin)
+		}
+	}
+	for _, raw := range server.internalOriginURLs {
+		origin, err := parseConfiguredOrigin(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid internal API origin: %w", err)
+		}
+		if origin.host != "" {
+			server.internalOrigins = append(server.internalOrigins, origin)
 		}
 	}
 	server.authRoutes = httpauth.New(httpauth.Config{
@@ -484,6 +509,7 @@ func (s *Server) Handler() http.Handler {
 		s.requestLog,
 		maxBody(requestBodyLimit),
 		s.publicHostGuard,
+		channelConnectorNoStore,
 		s.auth,
 		s.openAPIRequestValidator,
 	)

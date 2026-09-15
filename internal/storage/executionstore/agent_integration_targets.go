@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -29,30 +28,11 @@ func (IntegrationInstallAccess) ValidateInstallBinding(
 	if project.OrgID != binding.OrgID {
 		return storeerr.ErrNotFound
 	}
-	if binding.AgentProfileID != uuid.Nil {
-		_, err := lockAgentProfileTx(ctx, qtx, binding.ProjectID, binding.AgentProfileID)
-		return err
+	if binding.AgentProfileID == uuid.Nil {
+		return storeerr.InvalidRequest(errors.New("route profile is required"))
 	}
-	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
-		ProjectID: binding.ProjectID,
-		AgentID:   binding.AgentID,
-	}}); err != nil {
-		return err
-	}
-	row, err := qtx.GetAgentInProject(
-		ctx,
-		dbsqlc.GetAgentInProjectParams{ProjectID: binding.ProjectID, ID: binding.AgentID},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("validate integration install agent: %w", err)
-	}
-	if AgentState(row.State) != AgentStateActive {
-		return storeerr.ErrStateTransitionConflict
-	}
-	return nil
+	_, err = lockAgentProfileTx(ctx, qtx, binding.ProjectID, binding.AgentProfileID)
+	return err
 }
 
 func (IntegrationInstallAccess) ClearInstallTargetsFromAgents(
@@ -60,6 +40,9 @@ func (IntegrationInstallAccess) ClearInstallTargetsFromAgents(
 	tx pgx.Tx,
 	projectID, integrationInstallID uuid.UUID,
 ) error {
+	if err := cancelExternalChannelRequestsForInstallationTx(ctx, tx, projectID, integrationInstallID); err != nil {
+		return fmt.Errorf("cancel deleted connection requests: %w", err)
+	}
 	err := dbsqlc.New(tx).ClearDeletedIntegrationTargetsFromAgents(
 		ctx,
 		dbsqlc.ClearDeletedIntegrationTargetsFromAgentsParams{
@@ -83,6 +66,49 @@ func (r *ToolCallReader) ListIntegrationTargets(
 		t.input.ProjectID,
 		t.input.AgentID,
 	)
+}
+
+func (r *ToolCallReader) ListAgentChannelTargets(
+	ctx context.Context,
+	input integrationstore.ListAgentChannelTargetsInput,
+) (integrationstore.AgentChannelTargetPage, error) {
+	t := r.transaction
+	return t.store.integrations.ListAgentChannelTargetsTx(
+		ctx,
+		t.tx,
+		t.input.ProjectID,
+		t.input.AgentID,
+		input,
+	)
+}
+
+func (r *ToolCallReader) GetChannelAccess(
+	ctx context.Context, channelID uuid.UUID,
+) (integrationstore.ChannelAccess, error) {
+	t := r.transaction
+	return t.store.integrations.GetAgentChannelAccessTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, channelID)
+}
+
+func (s *Store) GetAgentCurrentChannelID(ctx context.Context, projectID, agentID uuid.UUID) (uuid.UUID, error) {
+	return getAgentCurrentChannelID(ctx, s.q, projectID, agentID)
+}
+
+func (r *ToolCallReader) CurrentChannelID(ctx context.Context) (uuid.UUID, error) {
+	t := r.transaction
+	return getAgentCurrentChannelID(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+}
+
+func getAgentCurrentChannelID(ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID) (uuid.UUID, error) {
+	id, err := q.GetAgentCurrentChannelID(ctx, dbsqlc.GetAgentCurrentChannelIDParams{
+		ProjectID: projectID, AgentID: agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("get current channel: %w", err)
+	}
+	return storeutil.IDFromPtr(id), nil
 }
 
 func (t *toolCallTransaction) setAgentIntegrationTarget(

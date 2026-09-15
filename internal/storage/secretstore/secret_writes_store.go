@@ -523,6 +523,9 @@ func (s *Store) deleteSecretOnce(
 			return SecretRecord{}, fmt.Errorf("lock secret owner: %w", err)
 		}
 	}
+	// FOR UPDATE conflicts with credential-association triggers' FOR SHARE.
+	// Scan references only after taking this lock so a concurrent association
+	// either becomes visible here or waits and rejects the deleted secret.
 	if _, err := qtx.LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},

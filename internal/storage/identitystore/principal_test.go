@@ -1,9 +1,11 @@
 package identitystore_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -62,11 +64,24 @@ func TestPrincipalConstructors(t *testing.T) {
 				MachineDaemonTokenID: credentialID,
 			},
 		},
+		{
+			name: "channel connector",
+			got: identitystore.NewChannelConnectorPrincipal(
+				"primary",
+				[]channelconnector.Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}},
+			),
+			want: identitystore.PrincipalRecord{
+				Type: identitystore.PrincipalTypeChannelConnector, ChannelConnectorID: "primary",
+				ChannelConnectorCapabilities: []channelconnector.Capability{{
+					ConnectorKey: "chat_sdk_v1", Provider: "discord",
+				}},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if test.got != test.want {
+			if !reflect.DeepEqual(test.got, test.want) {
 				t.Fatalf("principal = %+v, want %+v", test.got, test.want)
 			}
 		})
