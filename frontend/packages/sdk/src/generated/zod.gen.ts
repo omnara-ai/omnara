@@ -2574,6 +2574,49 @@ export const zOrgOverviewResponse = z.object({
     recent_agent_profiles: z.array(zAgentProfile)
 });
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export const zUsageTokenTotals = z.object({
+    input_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    uncached_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_read_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_write_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    output_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    reasoning_output_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageCostTotals = z.object({
+    provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageTotals = z.object({
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageModel = z.object({
+    configured_model_id: zConfiguredModelId,
+    name: zResourceName,
+    provider_model_slug: z.string(),
+    model_provider_config_id: zModelProviderConfigId,
+    model_provider_config_name: zResourceName
+});
+
+export const zModelUsageTotals = z.object({
+    model: zUsageModel,
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageReport = z.object({
+    totals: zUsageTotals,
+    by_model: z.array(zModelUsageTotals)
+});
+
 export const zCurrentUserIdentity = z.object({
     id: zUserId,
     email: z.string(),
@@ -2845,6 +2888,15 @@ export const zGetOrgOverviewPath = z.object({
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
 
+export const zGetOrgUsagePath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Usage totals for the organization.
+ */
+export const zGetOrgUsageResponse = zUsageReport;
+
 export const zListVisibleProjectsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -2883,6 +2935,16 @@ export const zDeleteProjectPath = z.object({
  * Project deleted.
  */
 export const zDeleteProjectResponse = z.void();
+
+export const zGetProjectUsagePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+/**
+ * Usage totals for the project.
+ */
+export const zGetProjectUsageResponse = zUsageReport;
 
 export const zListOrgMembersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
@@ -3491,6 +3553,17 @@ export const zRenameAgentProfilePath = z.object({
  */
 export const zRenameAgentProfileResponse = zAgentProfile;
 
+export const zGetAgentProfileUsagePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentProfileID: z.string().regex(/^aprf_[a-z2-7]{26}$/)
+});
+
+/**
+ * Usage totals for the agent profile.
+ */
+export const zGetAgentProfileUsageResponse = zUsageReport;
+
 export const zUpdateAgentProfileBody = zUpdateAgentProfileRequest;
 
 export const zUpdateAgentProfileHeaders = z.object({
@@ -3651,6 +3724,21 @@ export const zGetAgentPath = z.object({
  * Agent.
  */
 export const zGetAgentResponse2 = zGetAgentResponse;
+
+export const zGetAgentUsagePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/)
+});
+
+export const zGetAgentUsageQuery = z.object({
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent.
+ */
+export const zGetAgentUsageResponse = zUsageReport;
 
 export const zArchiveAgentPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

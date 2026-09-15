@@ -589,6 +589,39 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgUsage
+      tags: [Organizations and Projects]
+      summary: Get org usage
+      description: >-
+        Tallies model token usage and provider-reported cost across every
+        agent in the organization, broken down by configured model.
+      responses:
+        '200':
+          description: Usage totals for the organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects:
     parameters:
       - name: orgID
@@ -715,6 +748,46 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: getProjectUsage
+      tags: [Organizations and Projects]
+      summary: Get project usage
+      description: >-
+        Tallies model token usage and provider-reported cost across every
+        agent in the project, including subagents, broken down by configured model.
+      responses:
+        '200':
+          description: Usage totals for the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -2710,6 +2783,53 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentProfileID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^aprf_[a-z2-7]{26}$'
+    get:
+      operationId: getAgentProfileUsage
+      tags: [Configs and Profiles]
+      summary: Get agent profile usage
+      description: >-
+        Tallies model token usage and provider-reported cost across the
+        top-level agents launched from this profile, broken down by configured
+        model. Usage from subagents those agents spawned is not included.
+      responses:
+        '200':
+          description: Usage totals for the agent profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
     parameters:
       - name: orgID
@@ -3263,6 +3383,61 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+    get:
+      operationId: getAgentUsage
+      tags: [Agents]
+      summary: Get agent usage
+      description: >-
+        Tallies this agent's model token usage and provider-reported cost,
+        broken down by configured model.
+      parameters:
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also include usage from this agent's subagents at every depth.
+            Defaults to false.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Usage totals for the agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -12234,6 +12409,116 @@ components:
             projects, ordered by updated_at descending.
           items:
             $ref: '#/components/schemas/AgentProfile'
+    UsageTokenTotals:
+      type: object
+      additionalProperties: false
+      description: >-
+        Summed token counts across the tallied model calls. Input totals are the
+        sum of uncached, cache-read, and cache-write tokens; output totals
+        include reasoning tokens.
+      required: [input_tokens_total, uncached_input_tokens, cache_read_input_tokens, cache_write_input_tokens, output_tokens_total, reasoning_output_tokens]
+      properties:
+        input_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        uncached_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_read_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_write_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoning_output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+    UsageCostTotals:
+      type: object
+      additionalProperties: false
+      required: [provider_reported_usd, model_calls_with_reported_cost]
+      properties:
+        provider_reported_usd:
+          type: string
+          description: >-
+            Exact decimal sum in USD of the costs the provider reported for the
+            tallied model calls. Calls whose provider reported no cost contribute
+            nothing; compare model_calls_with_reported_cost against model_calls
+            to see how complete the figure is.
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        model_calls_with_reported_cost:
+          type: integer
+          format: int64
+          minimum: 0
+    UsageTotals:
+      type: object
+      additionalProperties: false
+      required: [model_calls, tokens, cost]
+      properties:
+        model_calls:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Model calls that recorded token usage or a provider-reported cost.
+        tokens:
+          $ref: '#/components/schemas/UsageTokenTotals'
+        cost:
+          $ref: '#/components/schemas/UsageCostTotals'
+    UsageModel:
+      type: object
+      additionalProperties: false
+      required: [configured_model_id, name, provider_model_slug, model_provider_config_id, model_provider_config_name]
+      properties:
+        configured_model_id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Configured model name, resolved even if the model has since been deleted.
+        provider_model_slug:
+          type: string
+        model_provider_config_id:
+          $ref: '#/components/schemas/ModelProviderConfigID'
+        model_provider_config_name:
+          $ref: '#/components/schemas/ResourceName'
+    ModelUsageTotals:
+      type: object
+      additionalProperties: false
+      required: [model, model_calls, tokens, cost]
+      properties:
+        model:
+          $ref: '#/components/schemas/UsageModel'
+        model_calls:
+          type: integer
+          format: int64
+          minimum: 0
+        tokens:
+          $ref: '#/components/schemas/UsageTokenTotals'
+        cost:
+          $ref: '#/components/schemas/UsageCostTotals'
+    UsageReport:
+      type: object
+      additionalProperties: false
+      required: [totals, by_model]
+      properties:
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+        by_model:
+          type: array
+          description: >-
+            Per-model rows ordered by provider config name, configured model name,
+            then provider model slug. Models with distinct provider slugs across
+            revisions appear once per slug.
+          items:
+            $ref: '#/components/schemas/ModelUsageTotals'
     CurrentUserIdentity:
       type: object
       additionalProperties: false

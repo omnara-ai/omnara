@@ -132,6 +132,10 @@ const (
 	operationGetMachine                    operationID = "GetMachine"
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
 	operationGetOrgOverview                operationID = "GetOrgOverview"
+	operationGetOrgUsage                   operationID = "GetOrgUsage"
+	operationGetProjectUsage               operationID = "GetProjectUsage"
+	operationGetAgentProfileUsage          operationID = "GetAgentProfileUsage"
+	operationGetAgentUsage                 operationID = "GetAgentUsage"
 	operationGetMachinePool                operationID = "GetMachinePool"
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
@@ -290,6 +294,10 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentProfileUsage:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentUsage:              accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListVisibleProjects:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleMachines:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateSecret:               accountPolicy(orgScope(identitystore.OrgActionRead)),
