@@ -68,6 +68,137 @@ func TestFileToolYAMLFormatting(t *testing.T) {
 	}
 }
 
+func TestFileToolYAMLSourcePreservation(t *testing.T) {
+	for _, test := range []struct{ name, source, want string }{
+		{
+			// Synthetic reproduction of the folded-scalar failure, not customer data.
+			name: "folded instruction with extra-indented paragraphs",
+			source: "instruction: >-\n  First paragraph.\n\n    Extra-indented paragraph.\n\n  Last paragraph.\n" +
+				"tools:\n  download_artifact: {}\n",
+			want: "instruction: >-\n  First paragraph.\n\n    Extra-indented paragraph.\n\n  Last paragraph.\n" +
+				"tools:\n  download_file: {}\n",
+		},
+		{
+			name: "comments, quoted keys and CRLF",
+			source: "# upload_artifact: stays here\r\ninstruction: |-\r\n  download_artifact: stays here\r\n" +
+				"tools:\r\n  'upload_artifact' : {} # keep this\r\n  \"download_artifact\": {}\r\n",
+			want: "# upload_artifact: stays here\r\ninstruction: |-\r\n  download_artifact: stays here\r\n" +
+				"tools:\r\n  'upload_file' : {} # keep this\r\n  \"download_file\": {}\r\n",
+		},
+		{
+			name:   "flow mapping with Unicode before tool keys",
+			source: "{instruction: 'こんにちは 🌍', tools: {upload_artifact: {}, download_artifact: {}}}",
+			want:   "{instruction: 'こんにちは 🌍', tools: {upload_file: {}, download_file: {}}}",
+		},
+		{
+			name: "settings aliases stay intact",
+			source: "tools: {upload_artifact: &settings {enabled: false}, " +
+				"download_artifact: *settings, run_command: *settings}\n",
+			want: "tools: {upload_file: &settings {enabled: false}, download_file: *settings, run_command: *settings}\n",
+		},
+		{
+			name:   "instruction looks like YAML, without trailing newline",
+			source: "instruction: |2-\n  tools:\n    upload_artifact: {}\ntools: {download_artifact: {}}",
+			want:   "instruction: |2-\n  tools:\n    upload_artifact: {}\ntools: {download_file: {}}",
+		},
+		{
+			name:   "escaped quoted keys",
+			source: `tools: {"\x75pload_artifact": {}, "\u0064ownload_artifact": {}}`,
+			want:   `tools: {"upload_file": {}, "download_file": {}}`,
+		},
+		{
+			name:   "document markers and byte order mark",
+			source: "\ufeff---\ntools: {upload_artifact: {}}\n...\n",
+			want:   "\ufeff---\ntools: {upload_file: {}}\n...\n",
+		},
+		{
+			name:   "byte order mark before keys on the same line",
+			source: "\ufeff{tools: {upload_artifact: {}}}",
+			want:   "\ufeff{tools: {upload_file: {}}}",
+		},
+		{
+			name:   "root and tools merges",
+			source: "<<: {tools: {<<: [{upload_artifact: {enabled: false}}, {upload_artifact: {enabled: true}}]}}\n",
+			want:   "<<: {tools: {<<: [{upload_file: {enabled: false}}, {upload_file: {enabled: true}}]}}\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			migrated, changed, err := renameFileToolsYAML([]byte(test.source))
+			if err != nil || !changed {
+				t.Fatalf("migration changed=%v err=%v", changed, err)
+			}
+			if string(migrated) != test.want {
+				t.Fatalf("source changed outside tool keys:\ngot:  %q\nwant: %q", migrated, test.want)
+			}
+			if again, changed, err := renameFileToolsYAML(migrated); err != nil || changed || string(again) != test.want {
+				t.Fatalf("second migration changed=%v err=%v", changed, err)
+			}
+		})
+	}
+}
+
+func TestFileToolYAMLEquivalentKeys(t *testing.T) {
+	for _, tools := range []string{
+		"{upload_artifact: {}, upload_file: {}}",
+		"{upload_file: {}, upload_artifact: {}}",
+		"{upload_file: {description: don't change this}, upload_artifact: {description: don't change this}}",
+		"{upload_artifact: {}, download_artifact: {}, upload_file: {}, download_file: {}}",
+		"{upload_file: {}, download_file: {}, upload_artifact: {}, download_artifact: {}}",
+		"\n  upload_artifact: {}\n  upload_file: {}\n",
+		"\n  upload_file: {}\n  upload_artifact: {}\n",
+		"\n  upload_artifact:\n    description: >-\n      One paragraph.\n\n        Indented paragraph.\n\n" +
+			"  upload_file:\n    description: >-\n      One paragraph.\n\n        Indented paragraph.\n",
+	} {
+		t.Run(tools, func(t *testing.T) {
+			prefix := "# keep this\ninstruction: >-\n  First paragraph.\n\n    Indented paragraph.\n\ntools: "
+			migrated, changed, err := renameFileToolsYAML([]byte(prefix + tools + "\n"))
+			if err != nil || !changed {
+				t.Fatalf("migration changed=%v err=%v", changed, err)
+			}
+			if !strings.HasPrefix(string(migrated), prefix) || strings.Contains(string(migrated), "upload_artifact:") ||
+				strings.Contains(string(migrated), "download_artifact:") {
+				t.Fatalf("unexpected migrated source: %s", migrated)
+			}
+		})
+	}
+}
+
+func TestFileToolYAMLRejectsUnsafeEdits(t *testing.T) {
+	for _, source := range []string{
+		"tools: {upload_artifact: {}, upload_artifact: {}}",
+		"tools: {upload_artifact: {enabled: false}, upload_file: {enabled: true}}",
+		"tools: &shared {upload_artifact: {}}\nother: *shared\n",
+		"tools: {upload_artifact: &settings {}, upload_file: *settings}",
+		"tools: {&key upload_artifact: {}}",
+		"tools: {!!str upload_artifact: {}}",
+	} {
+		t.Run(source, func(t *testing.T) {
+			migrated, changed, err := renameFileToolsYAML([]byte(source))
+			if err == nil || changed || migrated != nil {
+				t.Fatalf("unsafe migration accepted: changed=%v err=%v", changed, err)
+			}
+		})
+	}
+}
+
+func TestFileToolYAMLEquivalentKeysPreserveFollowingComments(t *testing.T) {
+	for _, test := range []struct{ source, want string }{
+		{
+			source: "tools:\n  upload_artifact: {}\n\n  # Keep this explanation.\n  upload_file: {}\n",
+			want:   "tools:\n\n  # Keep this explanation.\n  upload_file: {}\n",
+		},
+		{
+			source: "tools: {upload_file: {},\n  # Keep this explanation.\n  upload_artifact: {}}\n",
+			want:   "tools: {  # Keep this explanation.\n  upload_file: {}}\n",
+		},
+	} {
+		migrated, changed, err := renameFileToolsYAML([]byte(test.source))
+		if err != nil || !changed || string(migrated) != test.want {
+			t.Fatalf("migration changed=%v err=%v\ngot: %q\nwant: %q", changed, err, migrated, test.want)
+		}
+	}
+}
+
 func TestFileToolConfigMigration(t *testing.T) {
 	for _, format := range []string{"json", "yaml"} {
 		t.Run(format, func(t *testing.T) {

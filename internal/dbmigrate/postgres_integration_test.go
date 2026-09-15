@@ -32,6 +32,7 @@ import (
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
@@ -1386,8 +1387,50 @@ func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
 }
 
 func TestFileToolCutoverMigration(t *testing.T) {
-	for _, collision := range []bool{false, true} {
-		t.Run(fmt.Sprintf("collision_%v", collision), func(t *testing.T) {
+	legacyJSON, err := jsoncanonical.Normalize(json.RawMessage(`{"tools":{"upload_artifact":{"enabled":true,"type":"built_in","permission":{"mode":"always_ask","parameters":{}}},"download_artifact":{"enabled":false,"type":"built_in","permission":{"mode":"always_deny","parameters":{}}}}}`))
+	require.NoError(t, err)
+	// Synthetic regression fixture: folded YAML with extra-indented paragraphs
+	// must retain its exact source and instruction apart from the tool key renames.
+	const foldedYAML = `# upload_artifact: stays in this comment.
+instruction: >-
+  Keep upload_artifact and download_artifact in this paragraph.
+
+    Extra-indented paragraph.
+    Preserve this line break too.
+
+  Final paragraph.
+tools:
+  upload_artifact:
+    enabled: true
+    type: built_in
+    permission: {mode: always_ask, parameters: {}}
+  download_artifact:
+    enabled: false
+    type: built_in
+    permission: {mode: always_deny, parameters: {}}
+`
+	renameToolKeys := strings.NewReplacer(
+		`"upload_artifact":`, `"upload_file":`,
+		`"download_artifact":`, `"download_file":`,
+		"\n  upload_artifact:", "\n  upload_file:",
+		"\n  download_artifact:", "\n  download_file:",
+	)
+	for _, test := range []struct {
+		name        string
+		format      string
+		source      string
+		instruction string
+		collision   bool
+	}{
+		{name: "collision_false", format: "json", source: string(legacyJSON)},
+		{name: "collision_true", format: "json", source: string(legacyJSON), collision: true},
+		{
+			name: "yaml_folded_instruction", format: "yaml", source: foldedYAML,
+			instruction: "Keep upload_artifact and download_artifact in this paragraph.\n\n" +
+				"  Extra-indented paragraph.\n  Preserve this line break too.\n\nFinal paragraph.",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
@@ -1406,23 +1449,35 @@ func TestFileToolCutoverMigration(t *testing.T) {
 				CREATE TABLE config_references (kind text PRIMARY KEY, config_id uuid REFERENCES agent_configs(id));`)
 			require.NoError(t, err)
 			configID, projectID := uuid.New(), uuid.New()
-			legacy, err := jsoncanonical.Normalize(json.RawMessage(`{"tools":{"upload_artifact":{"enabled":true,"type":"built_in","permission":{"mode":"always_ask","parameters":{}}},"download_artifact":{"enabled":false,"type":"built_in","permission":{"mode":"always_deny","parameters":{}}}}}`))
+			legacy := legacyJSON
+			if test.format == "yaml" {
+				var value map[string]any
+				require.NoError(t, yaml.Unmarshal([]byte(test.source), &value))
+				require.Equal(t, test.instruction, value["instruction"])
+				raw, err := json.Marshal(value)
+				require.NoError(t, err)
+				legacy, err = jsoncanonical.Normalize(raw)
+				require.NoError(t, err)
+			}
+			expectedSource := renameToolKeys.Replace(test.source)
+			expectedDefinition, err := jsoncanonical.Normalize([]byte(renameToolKeys.Replace(string(legacy))))
 			require.NoError(t, err)
-			hash := fmt.Sprintf("%x", sha256.Sum256(legacy))
+			sourceHashBefore := fmt.Sprintf("%x", sha256.Sum256([]byte(test.source)))
+			effectiveHashBefore := fmt.Sprintf("%x", sha256.Sum256(legacy))
 			_, err = db.ExecContext(ctx, `
-				INSERT INTO agent_configs VALUES ($1,$2,$3::text,'json',$4,$3::text::jsonb,$3::text::jsonb,$4);
-				`, configID, projectID, string(legacy), hash)
+				INSERT INTO agent_configs VALUES ($1,$2,$3,$4,$5,$6::jsonb,$6::jsonb,$7);
+				`, configID, projectID, test.source, test.format, sourceHashBefore, string(legacy), effectiveHashBefore)
 			require.NoError(t, err)
 			for _, kind := range []string{"agent", "profile_version", "model_context"} {
 				_, err = db.ExecContext(ctx, "INSERT INTO config_references VALUES ($1,$2)", kind, configID)
 				require.NoError(t, err)
 			}
-			if collision {
-				current := strings.ReplaceAll(strings.ReplaceAll(string(legacy), "upload_artifact", "upload_file"),
-					"download_artifact", "download_file")
+			if test.collision {
 				_, err = db.ExecContext(ctx,
-					"INSERT INTO agent_configs VALUES ($1,$2,$3::text,'json',$4,$3::text::jsonb,$3::text::jsonb,$4)",
-					uuid.New(), projectID, current, fmt.Sprintf("%x", sha256.Sum256([]byte(current))))
+					"INSERT INTO agent_configs VALUES ($1,$2,$3,$4,$5,$6::jsonb,$6::jsonb,$7)",
+					uuid.New(), projectID, expectedSource, test.format,
+					fmt.Sprintf("%x", sha256.Sum256([]byte(expectedSource))), string(expectedDefinition),
+					fmt.Sprintf("%x", sha256.Sum256(expectedDefinition)))
 				require.NoError(t, err)
 			}
 			var migration *goose.Migration
@@ -1436,23 +1491,30 @@ func TestFileToolCutoverMigration(t *testing.T) {
 				goose.WithDisableGlobalRegistry(true), goose.WithGoMigrations(migration))
 			require.NoError(t, err)
 			_, err = provider.Up(ctx)
-			if collision {
+			if test.collision {
 				require.ErrorContains(t, err, "identical")
 			} else {
 				require.NoError(t, err)
 			}
-			var source, sourceHash, effectiveHash string
-			var compiled []byte
+			var source, sourceFormat, sourceHash, effectiveHash string
+			var definition, compiled []byte
 			require.NoError(t, db.QueryRowContext(ctx, `
-				SELECT source, source_hash, compiled_definition, effective_definition_hash
-				FROM agent_configs WHERE id=$1`, configID).Scan(&source, &sourceHash, &compiled, &effectiveHash))
-			if collision {
-				require.Equal(t, string(legacy), source)
+				SELECT source, source_format, source_hash, definition, compiled_definition, effective_definition_hash
+				FROM agent_configs WHERE id=$1`, configID).Scan(&source, &sourceFormat, &sourceHash, &definition, &compiled, &effectiveHash))
+			require.Equal(t, test.format, sourceFormat)
+			if test.collision {
+				require.Equal(t, test.source, source)
 			} else {
-				require.NotContains(t, source, "upload_artifact")
-				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(source))), sourceHash)
+				require.Equal(t, expectedSource, source)
+				require.JSONEq(t, string(expectedDefinition), string(definition))
+				require.JSONEq(t, string(expectedDefinition), string(compiled))
+				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(expectedSource))), sourceHash)
+				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256(expectedDefinition)), effectiveHash)
+				require.NotEqual(t, sourceHashBefore, sourceHash)
+				require.NotEqual(t, effectiveHashBefore, effectiveHash)
 				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
 				require.NoError(t, err)
+				require.Equal(t, test.instruction, contract.Instruction)
 				require.Len(t, contract.Tools, 1)
 				require.Equal(t, "upload_file", contract.Tools[0].Name)
 				require.Equal(t, "always_ask", contract.Tools[0].Permission.Mode)

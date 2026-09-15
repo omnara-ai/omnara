@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"unicode/utf8"
 
 	"github.com/pressly/goose/v3"
 	"gopkg.in/yaml.v3"
@@ -167,103 +169,248 @@ func renameFileToolsYAML(raw []byte) ([]byte, bool, error) {
 	if !ok {
 		return nil, false, errors.New("config must be an object")
 	}
-	var document yaml.Node
-	if err := yaml.Unmarshal(raw, &document); err != nil {
-		return nil, false, err
-	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return nil, false, errors.New("config must be an object")
-	}
-	root := document.Content[0]
-	if fileToolYAMLHasReferences(root) {
-		var value map[string]any
-		if err := root.Decode(&value); err != nil {
-			return nil, false, err
-		}
-		if err := root.Encode(value); err != nil {
-			return nil, false, err
-		}
-	}
-	var tools *yaml.Node
-	for i := 0; i < len(root.Content); i += 2 {
-		if root.Content[i].Value == "tools" {
-			tools = root.Content[i+1]
-		}
-	}
-	if tools == nil {
-		return raw, false, nil
-	}
-	if tools.Kind != yaml.MappingNode {
-		return nil, false, errors.New("tools must be a mapping")
-	}
+	expectedTools, _ := before["tools"].(map[string]any)
 	changed := false
 	for _, names := range fileToolRenames {
-		oldIndex, newIndex := -1, -1
-		for i := 0; i < len(tools.Content); i += 2 {
-			switch tools.Content[i].Value {
-			case names[0]:
-				oldIndex = i
-			case names[1]:
-				newIndex = i
-			}
-		}
-		if oldIndex < 0 {
+		value, exists := expectedTools[names[0]]
+		if !exists {
 			continue
 		}
-		if newIndex >= 0 {
-			var oldValue, newValue any
-			if err := tools.Content[oldIndex+1].Decode(&oldValue); err != nil {
-				return nil, false, err
-			}
-			if err := tools.Content[newIndex+1].Decode(&newValue); err != nil {
-				return nil, false, err
-			}
-			if !reflect.DeepEqual(oldValue, newValue) {
-				return nil, false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
-			}
-			tools.Content = append(tools.Content[:oldIndex], tools.Content[oldIndex+2:]...)
-		} else {
-			tools.Content[oldIndex].Value = names[1]
+		if current, exists := expectedTools[names[1]]; exists && !reflect.DeepEqual(current, value) {
+			return nil, false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
 		}
+		expectedTools[names[1]] = value
+		delete(expectedTools, names[0])
 		changed = true
 	}
 	if !changed {
 		return raw, false, nil
 	}
-	var encoded bytes.Buffer
-	encoder := yaml.NewEncoder(&encoded)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(&document); err != nil {
+	var document yaml.Node
+	if err := yaml.Unmarshal(raw, &document); err != nil {
 		return nil, false, err
 	}
-	if err := encoder.Close(); err != nil {
-		return nil, false, err
-	}
-	expectedTools, _ := before["tools"].(map[string]any)
-	for _, names := range fileToolRenames {
-		if value, exists := expectedTools[names[0]]; exists {
-			expectedTools[names[1]] = value
-			delete(expectedTools, names[0])
+	tools := fileToolYAMLMappingValue(document.Content[0], "tools")
+	var edits []fileToolYAMLEdit
+	seen := make(map[*yaml.Node]bool)
+	var visit func(*yaml.Node) error
+	visit = func(node *yaml.Node) error {
+		if node == nil || seen[node] {
+			return nil
 		}
+		seen[node] = true
+		switch node.Kind {
+		case yaml.AliasNode:
+			return visit(node.Alias)
+		case yaml.SequenceNode:
+			for _, child := range node.Content {
+				if err := visit(child); err != nil {
+					return err
+				}
+			}
+		case yaml.MappingNode:
+			for i := 0; i < len(node.Content); i += 2 {
+				key := node.Content[i]
+				if key.Tag == "!!merge" {
+					if err := visit(node.Content[i+1]); err != nil {
+						return err
+					}
+					continue
+				}
+				for _, names := range fileToolRenames {
+					if key.Value != names[0] {
+						continue
+					}
+					edit, err := fileToolYAMLKeyEdit(raw, key, names[1])
+					if err != nil {
+						return err
+					}
+					// A direct new-name entry wins over merged entries. Only a
+					// duplicate in this same mapping needs to be removed.
+					for j := 0; j < len(node.Content); j += 2 {
+						if node.Content[j].Value == names[1] {
+							// Remove the earlier equivalent entry so its end is
+							// the next key's position, even in flow mappings.
+							removed, err := fileToolYAMLRemoveEntry(raw, node, min(i, j))
+							if err != nil {
+								return err
+							}
+							if i < j {
+								edit = removed
+							} else {
+								edits = append(edits, removed)
+							}
+							break
+						}
+					}
+					edits = append(edits, edit)
+				}
+			}
+		default:
+			return errors.New("tools must be a mapping")
+		}
+		return nil
 	}
-	after, err := decodeAgentConfigNameMigrationYAML(encoded.Bytes())
+	if err := visit(tools); err != nil {
+		return nil, false, err
+	}
+
+	// Source positions belong to the original document. Edit from the end so
+	// earlier offsets stay valid; never re-encode unrelated YAML scalars.
+	sort.Slice(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
+	migrated := bytes.Clone(raw)
+	previousStart := len(raw)
+	for _, edit := range edits {
+		if edit.start < 0 || edit.end > previousStart || edit.start >= edit.end {
+			return nil, false, errors.New("overlapping or invalid YAML tool edits")
+		}
+		migrated = append(append(append([]byte{}, migrated[:edit.start]...), edit.text...), migrated[edit.end:]...)
+		previousStart = edit.start
+	}
+	after, err := decodeAgentConfigNameMigrationYAML(migrated)
 	if err != nil {
 		return nil, false, fmt.Errorf("parse migrated source: %w", err)
 	}
+	// Shared anchors can expose a tool key elsewhere in the document. Keep
+	// this guard even for byte edits: an unrelated value must never change.
 	if !reflect.DeepEqual(after, before) {
 		return nil, false, errors.New("renaming file tools changed other source values")
 	}
-	return encoded.Bytes(), true, nil
+	return migrated, true, nil
 }
 
-func fileToolYAMLHasReferences(node *yaml.Node) bool {
-	if node.Kind == yaml.AliasNode || node.Tag == "!!merge" {
-		return true
+// Explicit entries override merged entries; the first map in a merge sequence
+// wins. Decoding above has already rejected invalid or cyclic YAML references.
+func fileToolYAMLMappingValue(node *yaml.Node, name string) *yaml.Node {
+	switch node.Kind {
+	case yaml.AliasNode:
+		return fileToolYAMLMappingValue(node.Alias, name)
+	case yaml.SequenceNode:
+		for _, child := range node.Content {
+			if value := fileToolYAMLMappingValue(child, name); value != nil {
+				return value
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i < len(node.Content); i += 2 {
+			if node.Content[i].Value == name {
+				return node.Content[i+1]
+			}
+		}
+		for i := 0; i < len(node.Content); i += 2 {
+			if node.Content[i].Tag == "!!merge" {
+				if value := fileToolYAMLMappingValue(node.Content[i+1], name); value != nil {
+					return value
+				}
+			}
+		}
+	default:
+		return nil
 	}
-	for _, child := range node.Content {
-		if fileToolYAMLHasReferences(child) {
-			return true
+	return nil
+}
+
+type fileToolYAMLEdit struct {
+	start, end int
+	text       string
+}
+
+func fileToolYAMLOffset(raw []byte, node *yaml.Node) (int, error) {
+	line, column := 1, 1
+	// The reader consumes an initial UTF-8 BOM before counting columns.
+	initial := 0
+	if bytes.HasPrefix(raw, []byte{0xef, 0xbb, 0xbf}) {
+		initial = 3
+	}
+	for offset := initial; offset < len(raw); {
+		if line == node.Line && column == node.Column {
+			return offset, nil
+		}
+		r, size := utf8.DecodeRune(raw[offset:])
+		offset += size
+		switch r {
+		case '\r':
+			if offset < len(raw) && raw[offset] == '\n' {
+				offset++
+			}
+			line, column = line+1, 1
+		case '\n', '\u0085', '\u2028', '\u2029':
+			line, column = line+1, 1
+		default:
+			column++
 		}
 	}
-	return false
+	return 0, fmt.Errorf("cannot locate YAML node at %d:%d", node.Line, node.Column)
+}
+
+func fileToolYAMLKeyEdit(raw []byte, key *yaml.Node, name string) (fileToolYAMLEdit, error) {
+	start, err := fileToolYAMLOffset(raw, key)
+	if err != nil {
+		return fileToolYAMLEdit{}, err
+	}
+	end := start + len(key.Value)
+	text := name
+	if raw[start] == '\'' || raw[start] == '"' {
+		quote := raw[start]
+		end = start + 1
+		for end < len(raw) {
+			if raw[end] == quote {
+				end++
+				if quote == '\'' && end < len(raw) && raw[end] == quote {
+					end++
+					continue
+				}
+				break
+			}
+			if quote == '"' && raw[end] == '\\' {
+				end++
+			}
+			end++
+		}
+		text = string(quote) + name + string(quote)
+	}
+	if end > len(raw) {
+		return fileToolYAMLEdit{}, errors.New("unterminated YAML tool key")
+	}
+	var original string
+	if err := yaml.Unmarshal(raw[start:end], &original); err != nil || original != key.Value {
+		return fileToolYAMLEdit{}, fmt.Errorf("unsupported YAML tool key at %d:%d", key.Line, key.Column)
+	}
+	return fileToolYAMLEdit{start: start, end: end, text: text}, nil
+}
+
+// Only remove an entry with a following sibling. Keeping the later equivalent
+// entry gives us exact boundaries without scanning YAML values or delimiters.
+func fileToolYAMLRemoveEntry(raw []byte, mapping *yaml.Node, index int) (fileToolYAMLEdit, error) {
+	start, err := fileToolYAMLOffset(raw, mapping.Content[index])
+	if err != nil {
+		return fileToolYAMLEdit{}, err
+	}
+	end, err := fileToolYAMLOffset(raw, mapping.Content[index+2])
+	if err != nil {
+		return fileToolYAMLEdit{}, err
+	}
+	if mapping.Style&yaml.FlowStyle == 0 {
+		lineStart := bytes.LastIndexByte(raw[:start], '\n') + 1
+		lineEnd := bytes.LastIndexByte(raw[:end], '\n') + 1
+		if len(bytes.Trim(raw[lineStart:start], " \t")) != 0 || len(bytes.Trim(raw[lineEnd:end], " \t")) != 0 {
+			return fileToolYAMLEdit{}, errors.New("duplicate YAML tool must be a standalone mapping entry")
+		}
+		start, end = lineStart, lineEnd
+	}
+	// Retain standalone comments and blank lines before the following key.
+	// They need not belong to the entry being removed.
+	for end > start {
+		lineStart := bytes.LastIndexByte(raw[:end], '\n') + 1
+		if len(bytes.TrimSpace(raw[lineStart:end])) != 0 || lineStart == 0 {
+			break
+		}
+		previousStart := bytes.LastIndexByte(raw[:lineStart-1], '\n') + 1
+		line := bytes.TrimSpace(raw[previousStart : lineStart-1])
+		if previousStart < start || len(line) > 0 && line[0] != '#' {
+			break
+		}
+		end = previousStart
+	}
+	return fileToolYAMLEdit{start: start, end: end}, nil
 }
