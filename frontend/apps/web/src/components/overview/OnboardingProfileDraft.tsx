@@ -172,7 +172,7 @@ function InlineProfileBuilder({
 }) {
   const [name, setName] = useState(initial.name)
   const [session] = useState(() => createBasicConfigSession(''))
-  const form = useAgentBuilderForm(session, initial.config)
+  const form = useAgentBuilderForm(session, initial.config, { orgId, projectId })
   const valid = resourceNameValid(name) && !form.blocked
 
   return (

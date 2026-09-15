@@ -58,6 +58,17 @@ export function AgentConfigBasicForm({
             tools={form.tools}
             onToolsChange={form.setTools}
           />
+          {form.toolsPending && (
+            <p className="text-muted-foreground text-sm">Loading other tools…</p>
+          )}
+          {form.toolsError && (
+            <p className="text-destructive text-sm" role="alert">
+              Couldn’t load other tools.{' '}
+              <button type="button" className="underline" onClick={form.retryTools}>
+                Retry
+              </button>
+            </p>
+          )}
           <AgentConfigSkillsField
             orgId={orgId}
             projectId={projectId}

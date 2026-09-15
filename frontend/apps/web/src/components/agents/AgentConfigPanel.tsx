@@ -114,6 +114,8 @@ function AgentConfigPanelEditor({
 }) {
   const updateConfig = useUpdateAgentConfig(orgId, projectId, agentId)
   const editor = useAgentConfigEditor({
+    orgId,
+    projectId,
     source,
     canManage,
     preferredMode,

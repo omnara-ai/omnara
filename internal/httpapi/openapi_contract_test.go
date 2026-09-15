@@ -396,6 +396,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"OrgMember.display_name":                         "",
 		"ToolCall.name":                                  "",
 		"ToolCatalogEntry.name":                          "",
+		"ResolvedAgentConfigTool.name":                   "",
 		"ToolPermissionMode.name":                        "",
 		"UpdateMachinePoolRequest.provider_config":       "",
 	}

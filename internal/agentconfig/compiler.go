@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -165,6 +166,17 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 	if err != nil {
 		return Result{}, err
 	}
+	additions := missingDefaultToolNames(source)
+	if len(additions) > 0 {
+		raw, err = addSourceTools(format, raw, root, additions)
+		if err != nil {
+			return Result{}, err
+		}
+		source, root, err = parseSource(format, raw)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	compiled, err := compile(source, opts)
 	if err != nil {
 		return Result{}, validationErrorFrom(err, root)
@@ -227,29 +239,9 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	if len(machines) > 0 {
 		compiled.MachineSources = machines
 	}
-	if len(source.Tools) > 0 {
-		catalog, err := toolcatalog.Default()
-		if err != nil {
-			return Compiled{}, err
-		}
-		compiled.Tools = make(map[string]ToolCompiled, len(source.Tools))
-		for name, tool := range source.Tools {
-			enabled := true
-			if tool.Enabled != nil {
-				enabled = *tool.Enabled
-			}
-			var compiledTool ToolCompiled
-			var err error
-			if tool.Type == toolcatalog.ToolTypeCustom {
-				compiledTool, err = compileCustomTool(name, tool, enabled, catalog)
-			} else {
-				compiledTool, err = compileBuiltInTool(name, tool, enabled, catalog)
-			}
-			if err != nil {
-				return Compiled{}, err
-			}
-			compiled.Tools[name] = compiledTool
-		}
+	compiled.Tools, err = compileTools(source.Tools)
+	if err != nil {
+		return Compiled{}, err
 	}
 	if len(source.MCP) > 0 {
 		mcpServers, err := compileMCPServers(source.MCP, opts)
@@ -321,20 +313,12 @@ func requiresModelToolSupport(compiled Compiled) bool {
 			return true
 		}
 	}
-	if len(compiled.MCP) > 0 || len(compiled.Subagents) > 0 {
-		return true
-	}
-	for _, name := range implicitBuiltInToolNames(compiled) {
-		if _, configured := compiled.Tools[name]; !configured {
-			return true
-		}
-	}
-	return false
+	return len(compiled.MCP) > 0 || len(compiled.Subagents) > 0
 }
 
-func implicitBuiltInToolNames(compiled Compiled) []string {
+func missingDefaultToolNames(source AgentConfigSource) []string {
 	var names []string
-	if len(compiled.MachineSources) > 0 {
+	if len(source.MachineSources) > 0 {
 		names = append(names,
 			toolcatalog.ToolNameRunCommand,
 			toolcatalog.ToolNameWriteProcess,
@@ -346,17 +330,20 @@ func implicitBuiltInToolNames(compiled Compiled) []string {
 			toolcatalog.ToolNameUploadFile,
 			toolcatalog.ToolNameDownloadFile,
 		)
-		for _, source := range compiled.MachineSources {
-			if source.MachinePoolID != "" {
+		for _, machine := range source.MachineSources {
+			if machine.MachinePoolName != "" {
 				names = append(names, toolcatalog.ToolNameCreateMachine, toolcatalog.ToolNameDeleteMachine)
 				break
 			}
 		}
 	}
-	if len(compiled.Skills) > 0 {
+	if len(source.Skills) > 0 {
 		names = append(names, toolcatalog.ToolNameSkill)
 	}
-	return names
+	return slices.DeleteFunc(names, func(name string) bool {
+		_, configured := source.Tools[name]
+		return configured
+	})
 }
 
 // compileSkills validates and pins the attached skill set. Skills do not

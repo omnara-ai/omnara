@@ -893,6 +893,21 @@ export type SlackSetup = {
     expires_at: Timestamp;
 };
 
+export type ResolveAgentConfigToolsRequest = {
+    source: string;
+    source_format: 'yaml' | 'json';
+};
+
+export type ResolvedAgentConfigTools = {
+    tools: Array<ResolvedAgentConfigTool>;
+};
+
+export type ResolvedAgentConfigTool = {
+    name: string;
+    enabled: boolean;
+    permission: ToolPermissionSelection;
+};
+
 export type CreateAgentConfigRequest = {
     source: string;
     source_format: 'yaml' | 'json';
@@ -7388,6 +7403,60 @@ export type DeleteIntegrationInstallResponses = {
 };
 
 export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
+
+export type ResolveAgentConfigToolsData = {
+    body: ResolveAgentConfigToolsRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/tools';
+};
+
+export type ResolveAgentConfigToolsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+};
+
+export type ResolveAgentConfigToolsError = ResolveAgentConfigToolsErrors[keyof ResolveAgentConfigToolsErrors];
+
+export type ResolveAgentConfigToolsResponses = {
+    /**
+     * Resolved config tools.
+     */
+    200: ResolvedAgentConfigTools;
+};
+
+export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
 
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;

@@ -1,8 +1,9 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import type { Document } from 'yaml'
+import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
+import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
 import type {
   BasicConfig,
   BasicMachineSource,
@@ -97,7 +98,7 @@ export type McpEntry = z.infer<typeof mcpEntry>
 
 const toolEntry = z.strictObject({
   type: z.literal('built_in').optional(),
-  enabled: z.literal(true).nullable().optional(),
+  enabled: z.boolean().nullable().optional(),
   permission: permission.optional(),
 })
 
@@ -140,9 +141,34 @@ const basicDocument = z.looseObject({
 })
 
 export function extractBasicConfig(document: Document): BasicConfig | null {
+  const sharedYaml = { found: false }
+  visit(document, {
+    Node(key, node) {
+      if (
+        isAlias(node) ||
+        node.anchor ||
+        (key === 'key' &&
+          isScalar(node) &&
+          node.value === '<<' &&
+          (node.type === 'PLAIN' || node.tag === 'tag:yaml.org,2002:merge'))
+      ) {
+        sharedYaml.found = true
+        return visit.BREAK
+      }
+      return undefined
+    },
+  })
+  if (sharedYaml.found) return null
+
   const parsed = basicDocument.safeParse(document.toJS())
   if (!parsed.success) return null
   const doc = parsed.data
+  if (
+    Object.entries(doc.tools ?? {}).some(
+      ([name, entry]) => entry.enabled === false && !automaticallyAddedToolNames.has(name),
+    )
+  )
+    return null
 
   const machineSources: BasicMachineSource[] = []
   for (const entry of doc.machine_sources ?? []) {
@@ -158,6 +184,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => ({
       name,
+      enabled: entry.enabled ?? undefined,
       permission: permissionDraft(entry.permission),
     })),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),

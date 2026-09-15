@@ -22,6 +22,7 @@ import {
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
+import { useAgentBuilderTools } from '@/components/agents/useAgentBuilderTools'
 import {
   emptyProviderOptions,
   envOverlayFromRows,
@@ -116,6 +117,7 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   return {
     initialDraft,
     apply(config) {
+      if (doc != null && initialDraft == null) return source
       return applyToDocument(doc?.clone() ?? new Document({}), source, initialDraft, config)
     },
   }
@@ -123,29 +125,46 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
 
 export type AgentBuilderForm = ReturnType<typeof useAgentBuilderForm>
 
-export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: BasicConfig) {
-  const [draft, setDraft] = useState<BasicConfig>(
+export function useAgentBuilderForm(
+  session: BasicConfigSession,
+  seedConfig: BasicConfig | undefined,
+  scope: { orgId: string; projectId: string },
+) {
+  const [storedDraft, setDraft] = useState<BasicConfig>(
     seedConfig ?? session.initialDraft ?? emptyBasicConfig,
   )
+  const tools = useAgentBuilderTools(storedDraft, scope)
+  const draft = { ...storedDraft, tools: tools.normalize(storedDraft.tools) }
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
 
   const blocked =
+    tools.pending ||
+    tools.error ||
     unavailableSkillIds.length > 0 ||
     unavailableSourceIds.length > 0 ||
     modelUnavailable ||
     !basicConfigValid(draft)
 
   const patch = (fields: Partial<BasicConfig>) => {
-    setDraft((prev) => ({ ...prev, ...fields }))
+    setDraft((prev) => ({ ...prev, tools: tools.normalize(prev.tools), ...fields }))
+  }
+
+  const changeSources = (fields: Partial<BasicConfig>) => {
+    tools.sourcesChanged()
+    patch(fields)
   }
 
   return {
     draft,
     yaml: session.apply(draft),
     blocked,
+    toolsPending: tools.pending,
+    toolsError: tools.error,
+    retryTools: tools.retry,
     reset: (config: BasicConfig | null) => {
+      tools.reset()
       setDraft(config ?? emptyBasicConfig)
     },
     instruction: draft.instruction,
@@ -164,13 +183,13 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ providerConfig: model.providerConfig, modelName: model.modelName })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
-      patch({ machineSources })
+      changeSources({ machineSources })
     },
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
     },
     setSkillIds: (skillIds: string[]) => {
-      patch({ skillIds })
+      changeSources({ skillIds })
     },
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
@@ -517,6 +536,7 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
 
 function toolWire(tool: BasicTool): ToolEntry {
   const wire: ToolEntry = { type: 'built_in' }
+  if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   return wire
 }
