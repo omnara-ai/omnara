@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   derivedMemoryTotalCapPlaceholder,
   machinePoolCreateRequest,
+  machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
   machinePoolFormValid,
@@ -148,6 +149,79 @@ describe('Modal machine pools', () => {
       })
     },
   )
+})
+
+describe('Freestyle machine pools', () => {
+  it('creates a configured-size pool from a snapshot without a location option', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'freestyle' as const,
+      name: 'freestyle-pool',
+      image: ' freestyle/ubuntu-sm ',
+      location: 'not-applicable',
+      cpu: '2',
+      memoryGb: '4',
+      secretId: 'sec_freestyle',
+      runtimeProtectionEnabled: true,
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'freestyle',
+      default_machine_provider_options: { snapshot: 'freestyle/ubuntu-sm' },
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+      runtime_protection_enabled: true,
+    })
+    expect(machinePoolCreateRequest(values).default_machine_provider_options).not.toHaveProperty(
+      'location',
+    )
+  })
+
+  it('uses the smallest systemd snapshot size when switching providers', () => {
+    const values = machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'freestyle')
+
+    expect(values).toMatchObject({
+      provider: 'freestyle',
+      location: '',
+      cpu: '2',
+      memoryGb: '4',
+    })
+  })
+
+  it('preserves API-only provider options when editing a pool', () => {
+    const pool = machinePool({
+      provider: 'freestyle',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      default_machine_provider_options: {
+        snapshot: 'freestyle/ubuntu-sm',
+        idle_timeout_seconds: 600,
+      },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected Freestyle form values')
+
+    expect(values).toMatchObject({
+      provider: 'freestyle',
+      image: 'freestyle/ubuntu-sm',
+      location: '',
+      cpu: '2',
+      memoryGb: '4',
+    })
+    expect(
+      machinePoolUpdateRequest(pool, { ...values, image: 'team/configured-worker' })
+        .default_machine_provider_options,
+    ).toEqual({ snapshot: 'team/configured-worker', idle_timeout_seconds: 600 })
+  })
 })
 
 describe('machine pool edit state', () => {

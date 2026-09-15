@@ -232,7 +232,8 @@ function inferProviderOverlay(
     let matched = true
     for (const [key, entry] of Object.entries(value)) {
       if (key === definition.resource.key) options.resource = entry
-      else if (key === definition.location.key) options.location = entry
+      else if (definition.location.supported !== false && key === definition.location.key)
+        options.location = entry
       else if (key === 'startup_script') options.startupScript = entry
       else matched = false
       if (!matched) break
