@@ -16,6 +16,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const MaxMachineCwdLength = 4096
+
 type SourceFormat string
 
 const (
@@ -433,7 +435,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 						kjsonschema.Integer(kjsonschema.Min(5), kjsonschema.Max(float64(math.MaxInt32))),
 					),
 				),
-				kjsonschema.Prop("cwd", kjsonschema.String()),
+				kjsonschema.Prop("cwd", kjsonschema.String(kjsonschema.MaxLength(MaxMachineCwdLength))),
 				kjsonschema.Prop(
 					"machine_cpu",
 					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
@@ -466,7 +468,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Object(),
 					kjsonschema.Null(),
 				)),
-				kjsonschema.Prop("description", kjsonschema.String()),
+				kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MaxLength(4096))),
 				kjsonschema.AdditionalProps(false),
 				kjsonschema.Keyword(func(s *kjsonschema.Schema) {
 					s.OneOf = []*kjsonschema.Schema{

@@ -18,3 +18,16 @@ func TruncateRunes(s string, limit int) string {
 	}
 	return s
 }
+
+func TruncateBytes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
+}

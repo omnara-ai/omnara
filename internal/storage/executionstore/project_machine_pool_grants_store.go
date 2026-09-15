@@ -290,6 +290,9 @@ func normalizeProjectMachinePoolGrantConfig(
 			math.MaxInt32,
 		)
 	}
+	if err := validateMachineCwdLength("pool grant default_cwd", config.DefaultCwd); err != nil {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, err
+	}
 	if strings.ContainsRune(config.DefaultCwd, 0) {
 		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, errors.New(
 			"pool grant default_cwd cannot contain NUL",

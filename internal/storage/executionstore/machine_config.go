@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -887,6 +888,13 @@ func decodeStrictObject(raw json.RawMessage, dest any) error {
 			return errors.New("trailing JSON value")
 		}
 		return err
+	}
+	return nil
+}
+
+func validateMachineCwdLength(field, cwd string) error {
+	if utf8.RuneCountInString(cwd) > agentconfig.MaxMachineCwdLength {
+		return fmt.Errorf("%s cannot exceed %d characters", field, agentconfig.MaxMachineCwdLength)
 	}
 	return nil
 }

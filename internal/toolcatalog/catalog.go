@@ -20,6 +20,16 @@ const (
 	ToolInputSchemaObject = "object"
 )
 
+const (
+	ArtifactPageBytes        = 4 * 1024
+	MaxReadableArtifactBytes = 48 * 1024 * 1024
+	ReadFileMaxLines         = 200
+	SearchDefaultMatches     = 20
+	SearchMaxMatches         = 100
+	SearchMaxContextLines    = 5
+	SearchMaxPatternBytes    = 1024
+)
+
 func IsPlatformManagedToolType(toolType string) bool {
 	return toolType == ToolTypeBuiltIn || toolType == ToolTypeMCP
 }
@@ -34,7 +44,7 @@ const (
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_id values and current availability."
+	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_id values and current availability. Pass next_cursor as cursor to continue listing."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
@@ -52,6 +62,13 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
+	readFileToolDescription = "Read a text file in Omnara's virtual filesystem. " +
+		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
+		"For large files, call again with the next position returned in the result."
+	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +
+		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +
+		"Returns matching lines with line numbers and optional surrounding lines. " +
+		"Use read_file to read more around a match."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
 		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
 		"Successful uploads return the created file's path."
@@ -235,7 +252,10 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameListMachines,
 		listMachinesToolDescription,
 		nil,
-		nil,
+		map[string]any{"cursor": map[string]any{
+			"type": "string", "pattern": `^mch_[a-z2-7]{26}$`,
+			"description": "next_cursor from the previous result. Omit it to start listing.",
+		}},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -260,6 +280,12 @@ func buildDefaultCatalog() (Catalog, error) {
 		return Catalog{}, err
 	}
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameReadFile], err = readFileTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSearchFiles], err = searchFilesTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameUploadFile], err = uploadFileTool(machineID); err != nil {
@@ -491,6 +517,93 @@ func webFetchTool() (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func readFileTool() (Entry, error) {
+	return toolEntry(
+		ToolNameReadFile,
+		readFileToolDescription,
+		[]string{"path"},
+		map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Exact VFS path /artifacts/<artifact_id>.",
+			},
+			"offset_line": map[string]any{
+				"type":    "integer",
+				"minimum": 1,
+				"default": 1,
+				"description": "Line number to start reading from, starting at 1. " +
+					"To continue, use next_offset_line from the previous result. " +
+					"Cannot be combined with offset_byte or limit_bytes.",
+			},
+			"limit_lines": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ReadFileMaxLines,
+				"default":     ReadFileMaxLines,
+				"description": "Maximum number of lines to return. Defaults to 200; each response contains at most 4 KiB of text.",
+			},
+			"offset_byte": map[string]any{
+				"type":    "integer",
+				"minimum": 0,
+				"default": 0,
+				"description": "Byte position to start reading from, starting at 0, at a UTF-8 character boundary. " +
+					"To continue, use next_offset_byte from the previous result. " +
+					"Cannot be combined with offset_line or limit_lines.",
+			},
+			"limit_bytes": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ArtifactPageBytes,
+				"default":     ArtifactPageBytes,
+				"description": "Maximum UTF-8 bytes to return. Use at least 4 to accommodate any character.",
+			},
+		},
+	)
+}
+
+func searchFilesTool() (Entry, error) {
+	return toolEntry(
+		ToolNameSearchFiles,
+		searchFilesToolDescription,
+		[]string{"path", "pattern"},
+		map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Exact VFS path /artifacts/<artifact_id>.",
+			},
+			"pattern": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   SearchMaxPatternBytes,
+				"description": "RE2 regex, at most 1024 UTF-8 bytes. Case-sensitive by default; use (?i) for case-insensitive matching.",
+			},
+			"max_matches": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     SearchMaxMatches,
+				"default":     SearchDefaultMatches,
+				"description": "Maximum matching lines, not occurrences.",
+			},
+			"offset_line": map[string]any{
+				"type":    "integer",
+				"minimum": 1,
+				"default": 1,
+				"description": "Line number to start searching from, starting at 1. " +
+					"To continue, use next_offset_line from the previous result with the same pattern.",
+			},
+			"context_lines": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"maximum":     SearchMaxContextLines,
+				"default":     0,
+				"description": "Lines before and after each matching line.",
+			},
+		},
+	)
 }
 
 func uploadFileTool(machineID map[string]any) (Entry, error) {

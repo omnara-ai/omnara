@@ -494,6 +494,9 @@ func prepareMachinePoolConfigInput(
 		*input.MinMachineMemoryMB > *input.MaxMachineMemoryMB {
 		return machinePoolDefaults{}, errors.New("min_machine_memory_mb cannot exceed max_machine_memory_mb")
 	}
+	if err := validateMachineCwdLength("default_cwd", input.DefaultCwd); err != nil {
+		return machinePoolDefaults{}, err
+	}
 	if strings.ContainsRune(input.DefaultCwd, 0) {
 		return machinePoolDefaults{}, errors.New("default_cwd cannot contain NUL")
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +22,7 @@ func TestMachineToolInputValidation(t *testing.T) {
 		{Name: "inspect_machine", Input: json.RawMessage(`{}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "list_machines", Input: json.RawMessage(`{}`)},
+		{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 	}
 	for _, call := range valid {
 		if err := validateRegisteredToolInput(call.Name, call.Input); err != nil {
@@ -53,6 +55,14 @@ func TestMachineToolInputValidation(t *testing.T) {
 		{
 			name: "list rejects fields",
 			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
+		},
+		{
+			name: "list rejects nil cursor UUID",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
+		},
+		{
+			name: "list rejects noncanonical cursor",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaab"}`)},
 		},
 	}
 	for _, tc := range invalid {
@@ -338,4 +348,174 @@ func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMachineListPagination(t *testing.T) {
+	machines := make([]executionstore.AgentMachineObservationRecord, 150)
+	for i := range machines {
+		machines[i] = executionstore.AgentMachineObservationRecord{
+			MachineID: uuid.UUID{15: byte(len(machines) - i)}, Description: strings.Repeat("<é", 500),
+		}
+	}
+	cursor := ""
+	seen := []string{}
+	for range 151 {
+		page := machineListPageForTest(t, machines, cursor)
+		for _, machine := range page.Machines {
+			if slices.Contains(seen, machine.MachineID) {
+				t.Fatalf("machine %s repeated after cursor %s", machine.MachineID, cursor)
+			}
+			seen = append(seen, machine.MachineID)
+			cursor = machine.MachineID
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		if page.NextCursor != cursor {
+			t.Fatalf("next cursor %s does not match last entry %s", page.NextCursor, cursor)
+		}
+		machines = slices.DeleteFunc(machines, func(machine executionstore.AgentMachineObservationRecord) bool {
+			return machinePublicIDForTest(t, machine.MachineID) == cursor
+		})
+	}
+	if len(seen) != 150 {
+		t.Fatalf("listed %d machines, want 150", len(seen))
+	}
+	for i, ref := range seen {
+		if want := machinePublicIDForTest(t, uuid.UUID{15: byte(i + 1)}); ref != want {
+			t.Fatalf("machine %d = %s, want %s", i, ref, want)
+		}
+	}
+	for _, input := range [][]executionstore.AgentMachineObservationRecord{nil, machines} {
+		page := machineListPageForTest(t, input, cursor)
+		if page.Machines == nil || len(page.Machines) != 0 || page.NextCursor != "" {
+			t.Fatalf("final page = %+v", page)
+		}
+	}
+}
+
+func TestMachineListPageSizeBoundary(t *testing.T) {
+	for _, delta := range []int{-1, 0, 1} {
+		t.Run(fmt.Sprint(delta), func(t *testing.T) {
+			machines := []executionstore.AgentMachineObservationRecord{
+				{MachineID: uuid.UUID{15: 1}}, {MachineID: uuid.UUID{15: 2}},
+			}
+			content, err := structuredToolResultContent(machineListResult{
+				Machines:   []machineObservationPayload{machineObservationForPaginationTest(t, machines[0])},
+				NextCursor: machinePublicIDForTest(t, machines[0].MachineID),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts, err := content.contentParts()
+			if err != nil {
+				t.Fatal(err)
+			}
+			machines[0].Description = strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts)+delta)
+			if delta <= 0 {
+				page := machineListPageForTest(t, machines, "")
+				if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
+					t.Fatalf("unexpected boundary page: machines=%d cursor=%s", len(page.Machines), page.NextCursor)
+				}
+			} else {
+				result, err := machineListPage(machines, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				failure, ok := result.(failTransaction)
+				if !ok {
+					t.Fatalf("oversized entry returned %T", result)
+				}
+				parts, err := failure.content.contentParts()
+				if err != nil || len(parts) > executionstore.ToolResultInlineBudgetBytes ||
+					!strings.Contains(string(parts), "inspect_machine") ||
+					!strings.Contains(string(parts), machinePublicIDForTest(t, machines[0].MachineID)) ||
+					!strings.Contains(string(parts), "cursor") {
+					t.Fatalf("missing bounded recovery instructions: %s, %v", parts, err)
+				}
+			}
+			page := machineListPageForTest(t, machines, machinePublicIDForTest(t, machines[0].MachineID))
+			if len(page.Machines) != 1 || page.Machines[0].MachineID != machinePublicIDForTest(t, machines[1].MachineID) ||
+				page.NextCursor != "" {
+				t.Fatalf("continuation skipped remaining machine: %+v", page)
+			}
+		})
+	}
+}
+
+func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
+	for _, count := range []int{2, 3} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			machines := []executionstore.AgentMachineObservationRecord{
+				{MachineID: uuid.UUID{15: 1}, Description: "é<\"\\\n"},
+				{MachineID: uuid.UUID{15: 2}, Description: "é<\"\\\n"},
+				{MachineID: uuid.UUID{15: 3}},
+			}
+			machines = machines[:count]
+			cursor := ""
+			if count > 2 {
+				cursor = machinePublicIDForTest(t, machines[1].MachineID)
+			}
+			content, err := structuredToolResultContent(machineListResult{
+				Machines: []machineObservationPayload{
+					machineObservationForPaginationTest(t, machines[0]), machineObservationForPaginationTest(t, machines[1]),
+				},
+				NextCursor: cursor,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts, err := content.contentParts()
+			if err != nil {
+				t.Fatal(err)
+			}
+			machines[1].Description += strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts))
+			page := machineListPageForTest(t, machines, "")
+			if len(page.Machines) != 2 || page.NextCursor != cursor {
+				t.Fatalf("exact-size page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
+			}
+			machines[1].Description += "x"
+			page = machineListPageForTest(t, machines, "")
+			if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
+				t.Fatalf("oversized page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
+			}
+		})
+	}
+}
+
+func machineListPageForTest(
+	t *testing.T,
+	machines []executionstore.AgentMachineObservationRecord,
+	cursor string,
+) machineListResult {
+	t.Helper()
+	result, err := machineListPage(machines, cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, ok := result.(completeTransaction)
+	if !ok {
+		t.Fatalf("page returned %T", result)
+	}
+	parts, err := completed.content.contentParts()
+	if err != nil || len(parts) > executionstore.ToolResultInlineBudgetBytes {
+		t.Fatalf("page size=%d, error=%v", len(parts), err)
+	}
+	var blocks []struct{ Value machineListResult }
+	if err := json.Unmarshal(parts, &blocks); err != nil {
+		t.Fatal(err)
+	}
+	return blocks[0].Value
+}
+
+func machineObservationForPaginationTest(
+	t *testing.T,
+	machine executionstore.AgentMachineObservationRecord,
+) machineObservationPayload {
+	t.Helper()
+	observation, err := agentMachineObservation(machine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }

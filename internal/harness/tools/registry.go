@@ -167,6 +167,18 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 func builtInToolRegistrations() []toolRegistration {
 	return []toolRegistration{
 		{
+			name:                   toolcatalog.ToolNameReadFile,
+			semanticInputValidator: validateReadFileInput,
+			handler:                toolHandler{Async: runReadFileAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameSearchFiles,
+			semanticInputValidator: validateSearchFilesInput,
+			handler:                toolHandler{Async: runSearchFilesAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameRunCommand,
 			semanticInputValidator: validateRunCommandInput,
 			handler:                toolHandler{Transactional: runCommand, Background: wakeProcessTool},
