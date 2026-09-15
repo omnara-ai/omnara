@@ -603,7 +603,13 @@ paths:
       summary: Get org usage
       description: >-
         Tallies model token usage and provider-reported cost across every
-        agent in the organization, broken down by configured model.
+        agent in the organization, broken down by configured model. Optionally
+        limits the tally to a time window or to a subset of projects.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - $ref: '#/components/parameters/UsageIncludeProjectIDs'
+        - $ref: '#/components/parameters/UsageExcludeProjectIDs'
       responses:
         '200':
           description: Usage totals for the organization.
@@ -761,14 +767,12 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
     get:
       operationId: getProjectUsage
       tags: [Organizations and Projects]
@@ -776,6 +780,10 @@ paths:
       description: >-
         Tallies model token usage and provider-reported cost across every
         agent in the project, including subagents, broken down by configured model.
+        Optionally limits the tally to a time window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
       responses:
         '200':
           description: Usage totals for the project.
@@ -2790,20 +2798,17 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
       - name: agentProfileID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^aprf_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/AgentProfileID'
     get:
       operationId: getAgentProfileUsage
       tags: [Configs and Profiles]
@@ -2811,7 +2816,19 @@ paths:
       description: >-
         Tallies model token usage and provider-reported cost across the
         top-level agents launched from this profile, broken down by configured
-        model. Usage from subagents those agents spawned is not included.
+        model. Usage from subagents those agents spawned is included only when
+        `include_subagents` is true. Optionally limits the tally to a time window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also include usage from subagents spawned, at every depth, by
+            agents launched from this profile. Defaults to false.
+          schema:
+            type: boolean
       responses:
         '200':
           description: Usage totals for the agent profile.
@@ -3396,28 +3413,28 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
       - name: agentID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^agt_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/AgentID'
     get:
       operationId: getAgentUsage
       tags: [Agents]
       summary: Get agent usage
       description: >-
         Tallies this agent's model token usage and provider-reported cost,
-        broken down by configured model.
+        broken down by configured model. Optionally limits the tally to a time
+        window.
       parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
         - name: include_subagents
           in: query
           required: false
@@ -6769,6 +6786,52 @@ components:
       bearerFormat: Omnara machine daemon token
       description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
+    UsageSince:
+      name: since
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Only tally model calls started at or after this instant. Omit to start
+        from the earliest recorded call.
+    UsageUntil:
+      name: until
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Only tally model calls started before this instant. Must be later than
+        `since` when both are given. Omit to include calls up to now.
+    UsageIncludeProjectIDs:
+      name: include_project_ids
+      in: query
+      required: false
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/ProjectID'
+      description: >-
+        Only tally model calls from these projects. Cannot be combined with
+        `exclude_project_ids`.
+    UsageExcludeProjectIDs:
+      name: exclude_project_ids
+      in: query
+      required: false
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/ProjectID'
+      description: >-
+        Tally model calls from every project except these. Cannot be combined
+        with `include_project_ids`.
     IdempotencyKey:
       name: Idempotency-Key
       in: header

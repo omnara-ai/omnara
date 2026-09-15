@@ -25,6 +25,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -85,6 +86,11 @@ export interface ModelPricingLookup {
 export function useClusterModelPricing(orgID: string): ModelPricingLookup {
   const client = useOmnaraClient()
   const providersQuery = useModelProviders(orgID, { pageSize: 100 })
+  const { fetchNextPage, hasNextPage, isError, isFetching } = providersQuery
+  useEffect(() => {
+    if (!hasNextPage || isFetching || isError) return
+    void fetchNextPage()
+  }, [fetchNextPage, hasNextPage, isError, isFetching])
   const clusterProviders = (providersQuery.data?.pages ?? [])
     .flatMap((page) => page.data)
     .filter((provider) => provider.management_kind === 'cluster')
@@ -106,7 +112,10 @@ export function useClusterModelPricing(orgID: string): ModelPricingLookup {
   return {
     pricingFor: (modelProviderConfigID, providerModelSlug) =>
       pricingByProvider.get(modelProviderConfigID)?.get(providerModelSlug),
-    isPending: providersQuery.isPending || catalogs.some((catalog) => catalog.isPending),
+    isPending:
+      providersQuery.isPending ||
+      (hasNextPage && !isError) ||
+      catalogs.some((catalog) => catalog.isPending),
   }
 }
 

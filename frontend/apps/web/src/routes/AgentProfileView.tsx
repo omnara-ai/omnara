@@ -20,9 +20,11 @@ import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCred
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
+import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
+import { allTimeUsageRange, usageWindowIsActive } from '@/components/usage/usage-date-range'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { formatDateTime } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
@@ -240,12 +242,29 @@ function ProfileUsageTab({
   projectId: string
   profileId: string
 }) {
-  const query = useAgentProfileUsage(orgId, projectId, profileId)
+  const [range, setRange] = useState(allTimeUsageRange)
+  const [includeSubagents, setIncludeSubagents] = useState(false)
+  const query = useAgentProfileUsage(orgId, projectId, profileId, {
+    ...range.window,
+    includeSubagents,
+  })
   return (
-    <UsageReportView
-      query={query}
-      emptyMessage="No model usage from this profile yet. Launch an agent to get started."
-    />
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <FiltersMenu
+          dateRange={{ value: range, onChange: setRange }}
+          subagents={{ checked: includeSubagents, onChange: setIncludeSubagents }}
+        />
+      </div>
+      <UsageReportView
+        query={query}
+        emptyMessage={
+          usageWindowIsActive(range.window)
+            ? 'No model usage from this profile in this time range.'
+            : 'No model usage from this profile yet. Launch an agent to get started.'
+        }
+      />
+    </div>
   )
 }
 

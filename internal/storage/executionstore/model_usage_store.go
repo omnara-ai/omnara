@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -22,56 +24,132 @@ type ModelUsageTotals struct {
 }
 
 type ModelUsageRecord struct {
-	ConfiguredModelID       ID
+	ConfiguredModelID       uuid.UUID
 	ConfiguredModelName     string
 	ProviderModelSlug       string
-	ModelProviderConfigID   ID
+	ModelProviderConfigID   uuid.UUID
 	ModelProviderConfigName string
 	Totals                  ModelUsageTotals
 }
 
-func (s *Store) SumOrgModelUsage(ctx context.Context, orgID ID) ([]ModelUsageRecord, error) {
-	if isNilID(orgID) {
-		return nil, errors.New("org is required")
-	}
-	return s.sumModelUsage(ctx, dbsqlc.SumModelCallUsageByModelParams{OrgID: orgID})
+type UsageWindow struct {
+	Since *time.Time
+	Until *time.Time
 }
 
-func (s *Store) SumProjectModelUsage(ctx context.Context, orgID, projectID ID) ([]ModelUsageRecord, error) {
-	if isNilID(orgID) || isNilID(projectID) {
-		return nil, errors.New("org and project are required")
+func (w UsageWindow) validate() error {
+	if w.Since != nil && w.Until != nil && !w.Until.After(*w.Since) {
+		return errors.New("usage window until must be after since")
+	}
+	return nil
+}
+
+type SumOrgModelUsageInput struct {
+	OrgID             uuid.UUID
+	Window            UsageWindow
+	IncludeProjectIDs []uuid.UUID
+	ExcludeProjectIDs []uuid.UUID
+}
+
+type SumProjectModelUsageInput struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Window    UsageWindow
+}
+
+type SumAgentProfileModelUsageInput struct {
+	OrgID            uuid.UUID
+	ProjectID        uuid.UUID
+	AgentProfileID   uuid.UUID
+	IncludeSubagents bool
+	Window           UsageWindow
+}
+
+type SumAgentsModelUsageInput struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	AgentIDs  []uuid.UUID
+	Window    UsageWindow
+}
+
+func (s *Store) SumOrgModelUsage(ctx context.Context, input SumOrgModelUsageInput) ([]ModelUsageRecord, error) {
+	if input.OrgID == uuid.Nil {
+		return nil, errors.New("org is required")
+	}
+	if len(input.IncludeProjectIDs) > 0 && len(input.ExcludeProjectIDs) > 0 {
+		return nil, errors.New("include and exclude project filters are mutually exclusive")
+	}
+	if err := input.Window.validate(); err != nil {
+		return nil, err
 	}
 	return s.sumModelUsage(ctx, dbsqlc.SumModelCallUsageByModelParams{
-		OrgID: orgID, ProjectID: &projectID,
+		OrgID:             input.OrgID,
+		IncludeProjectIds: nilIfEmpty(input.IncludeProjectIDs),
+		ExcludeProjectIds: nilIfEmpty(input.ExcludeProjectIDs),
+		Since:             input.Window.Since,
+		Until:             input.Window.Until,
+	})
+}
+
+func (s *Store) SumProjectModelUsage(ctx context.Context, input SumProjectModelUsageInput) ([]ModelUsageRecord, error) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
+		return nil, errors.New("org and project are required")
+	}
+	if err := input.Window.validate(); err != nil {
+		return nil, err
+	}
+	return s.sumModelUsage(ctx, dbsqlc.SumModelCallUsageByModelParams{
+		OrgID:     input.OrgID,
+		ProjectID: &input.ProjectID,
+		Since:     input.Window.Since,
+		Until:     input.Window.Until,
 	})
 }
 
 func (s *Store) SumAgentProfileModelUsage(
 	ctx context.Context,
-	orgID, projectID, agentProfileID ID,
+	input SumAgentProfileModelUsageInput,
 ) ([]ModelUsageRecord, error) {
-	if isNilID(orgID) || isNilID(projectID) || isNilID(agentProfileID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.AgentProfileID == uuid.Nil {
 		return nil, errors.New("org, project, and agent profile are required")
 	}
+	if err := input.Window.validate(); err != nil {
+		return nil, err
+	}
 	return s.sumModelUsage(ctx, dbsqlc.SumModelCallUsageByModelParams{
-		OrgID: orgID, ProjectID: &projectID, AgentProfileID: &agentProfileID,
+		OrgID:                   input.OrgID,
+		ProjectID:               &input.ProjectID,
+		AgentProfileID:          &input.AgentProfileID,
+		IncludeProfileSubagents: input.IncludeSubagents,
+		Since:                   input.Window.Since,
+		Until:                   input.Window.Until,
 	})
 }
 
-func (s *Store) SumAgentsModelUsage(
-	ctx context.Context,
-	orgID, projectID ID,
-	agentIDs []ID,
-) ([]ModelUsageRecord, error) {
-	if isNilID(orgID) || isNilID(projectID) {
+func (s *Store) SumAgentsModelUsage(ctx context.Context, input SumAgentsModelUsageInput) ([]ModelUsageRecord, error) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return nil, errors.New("org and project are required")
 	}
-	if len(agentIDs) == 0 {
+	if len(input.AgentIDs) == 0 {
 		return nil, errors.New("at least one agent is required")
 	}
+	if err := input.Window.validate(); err != nil {
+		return nil, err
+	}
 	return s.sumModelUsage(ctx, dbsqlc.SumModelCallUsageByModelParams{
-		OrgID: orgID, ProjectID: &projectID, AgentIds: agentIDs,
+		OrgID:     input.OrgID,
+		ProjectID: &input.ProjectID,
+		AgentIds:  input.AgentIDs,
+		Since:     input.Window.Since,
+		Until:     input.Window.Until,
 	})
+}
+
+func nilIfEmpty(ids []uuid.UUID) []uuid.UUID {
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }
 
 func (s *Store) sumModelUsage(

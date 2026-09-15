@@ -3272,6 +3272,26 @@ export type ListProjectMembershipGrantsResponse = {
 };
 
 /**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export type UsageSince = string;
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export type UsageUntil = string;
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export type UsageIncludeProjectIds = Array<ProjectId>;
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export type UsageExcludeProjectIds = Array<ProjectId>;
+
+/**
  * Idempotency key for replay-safe mutating requests.
  */
 export type IdempotencyKey = string;
@@ -4260,7 +4280,24 @@ export type GetOrgUsageData = {
     path: {
         orgID: OrganizationId;
     };
-    query?: never;
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+         */
+        include_project_ids?: Array<ProjectId>;
+        /**
+         * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+         */
+        exclude_project_ids?: Array<ProjectId>;
+    };
     url: '/orgs/{orgID}/usage';
 };
 
@@ -4538,10 +4575,19 @@ export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectRe
 export type GetProjectUsageData = {
     body?: never;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
     };
-    query?: never;
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+    };
     url: '/orgs/{orgID}/projects/{projectID}/usage';
 };
 
@@ -8064,11 +8110,24 @@ export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof Renam
 export type GetAgentProfileUsageData = {
     body?: never;
     path: {
-        orgID: string;
-        projectID: string;
-        agentProfileID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentProfileID: AgentProfileId;
     };
-    query?: never;
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from subagents spawned, at every depth, by agents launched from this profile. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
     url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage';
 };
 
@@ -8942,11 +9001,19 @@ export type GetAgentResponse2 = GetAgentResponses[keyof GetAgentResponses];
 export type GetAgentUsageData = {
     body?: never;
     path: {
-        orgID: string;
-        projectID: string;
-        agentID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
     };
     query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
         /**
          * Also include usage from this agent's subagents at every depth. Defaults to false.
          */

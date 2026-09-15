@@ -2689,6 +2689,26 @@ export const zListProjectMembershipGrantsResponse = z.object({
 });
 
 /**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export const zUsageSince = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export const zUsageUntil = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
+
+/**
  * Idempotency key for replay-safe mutating requests.
  */
 export const zIdempotencyKey = z.string().min(1).max(255);
@@ -2904,6 +2924,13 @@ export const zGetOrgUsagePath = z.object({
     orgID: zOrganizationId
 });
 
+export const zGetOrgUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    exclude_project_ids: z.array(zProjectId).min(1).max(100).optional()
+});
+
 /**
  * Usage totals for the organization.
  */
@@ -2949,8 +2976,13 @@ export const zDeleteProjectPath = z.object({
 export const zDeleteProjectResponse = z.void();
 
 export const zGetProjectUsagePath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zGetProjectUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional()
 });
 
 /**
@@ -3566,9 +3598,15 @@ export const zRenameAgentProfilePath = z.object({
 export const zRenameAgentProfileResponse = zAgentProfile;
 
 export const zGetAgentProfileUsagePath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    agentProfileID: z.string().regex(/^aprf_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentProfileID: zAgentProfileId
+});
+
+export const zGetAgentProfileUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
 });
 
 /**
@@ -3738,12 +3776,14 @@ export const zGetAgentPath = z.object({
 export const zGetAgentResponse2 = zGetAgentResponse;
 
 export const zGetAgentUsagePath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentID: zAgentId
 });
 
 export const zGetAgentUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
     include_subagents: z.boolean().optional()
 });
 

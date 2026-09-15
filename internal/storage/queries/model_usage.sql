@@ -1,6 +1,21 @@
 -- name: SumModelCallUsageByModel :many
 -- @sqlc-vet-disable model-provider-configs-deleted-at configured-models-deleted-at
 -- Usage must still resolve when the configured model or provider config is soft deleted.
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE sqlc.narg(agent_profile_id)::uuid IS NOT NULL
+    AND agent.project_id = sqlc.narg(project_id)::uuid
+    AND agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE sqlc.arg(include_profile_subagents)::boolean
+    AND child.project_id = sqlc.narg(project_id)::uuid
+    AND profile_agents.depth < 64
+)
 SELECT revision.configured_model_id,
        configured_model.name AS configured_model_name,
        revision.provider_model_slug,
@@ -16,8 +31,6 @@ SELECT revision.configured_model_id,
        coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
        coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
 FROM model_call_contexts context
-JOIN agents agent ON agent.project_id = context.project_id
-  AND agent.id = context.agent_id
 JOIN configured_model_revisions revision ON revision.org_id = context.org_id
   AND revision.id = context.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
@@ -27,10 +40,20 @@ JOIN model_provider_configs provider_config ON provider_config.org_id = revision
 WHERE context.org_id = sqlc.arg(org_id)
   AND (sqlc.narg(project_id)::uuid IS NULL OR context.project_id = sqlc.narg(project_id)::uuid)
   AND (
+    sqlc.narg(include_project_ids)::uuid[] IS NULL
+    OR context.project_id = ANY(sqlc.narg(include_project_ids)::uuid[])
+  )
+  AND (
+    sqlc.narg(exclude_project_ids)::uuid[] IS NULL
+    OR context.project_id <> ALL(sqlc.narg(exclude_project_ids)::uuid[])
+  )
+  AND (
     sqlc.narg(agent_profile_id)::uuid IS NULL
-    OR (agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid AND agent.parent_agent_id IS NULL)
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
   )
   AND (sqlc.narg(agent_ids)::uuid[] IS NULL OR context.agent_id = ANY(sqlc.narg(agent_ids)::uuid[]))
+  AND (sqlc.narg(since)::timestamptz IS NULL OR context.created_at >= sqlc.narg(since)::timestamptz)
+  AND (sqlc.narg(until)::timestamptz IS NULL OR context.created_at < sqlc.narg(until)::timestamptz)
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL

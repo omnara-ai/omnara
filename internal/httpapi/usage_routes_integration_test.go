@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -72,15 +74,58 @@ func TestUsageRoutes(t *testing.T) {
 	assertUsageReport(t, get(parentPath+"/usage?include_subagents=false"), parentOnly)
 	assertUsageReport(t, get(parentPath+"/usage?include_subagents=true"), wholeTree)
 	assertUsageReport(t, get(profilePath+"/usage"), parentOnly)
+	assertUsageReport(t, get(profilePath+"/usage?include_subagents=false"), parentOnly)
+	assertUsageReport(t, get(profilePath+"/usage?include_subagents=true"), wholeTree)
 	assertUsageReport(t, get(project.ProjectPath+"/usage"), wholeTree)
-	assertUsageReport(t, get("/api/v1/orgs/"+project.OrgID+"/usage"), wholeTree)
+	orgUsagePath := "/api/v1/orgs/" + project.OrgID + "/usage"
+	assertUsageReport(t, get(orgUsagePath), wholeTree)
+
+	nothing := expectedUsage{cost: "0"}
+	window := "since=2000-01-01T00:00:00Z&until=2100-01-01T00:00:00Z"
+	for _, scope := range []struct {
+		path string
+		want expectedUsage
+	}{
+		{parentPath + "/usage", parentOnly},
+		{profilePath + "/usage", parentOnly},
+		{project.ProjectPath + "/usage", wholeTree},
+		{orgUsagePath, wholeTree},
+	} {
+		path := scope.path
+		assertUsageReport(t, get(path+"?"+window), scope.want)
+		assertUsageReport(t, get(path+"?since=2100-01-01T00:00:00Z"), nothing)
+		assertUsageReport(t, get(path+"?until=2000-01-01T00:00:00Z"), nothing)
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, path+"?since=2100-01-01T00:00:00Z&until=2000-01-01T00:00:00Z", "", "",
+			http.StatusBadRequest, authHeaders(project.AdminToken),
+		)
+	}
 
 	fresh := requestJSONWithHeaders(
 		t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/projects",
 		`{"name":"Usage Empty"}`, "idem-usage-empty-project", http.StatusCreated, authHeaders(project.AdminToken),
 	)
-	emptyPath := "/api/v1/orgs/" + project.OrgID + "/projects/" + testutil.RequireType[string](t, fresh["id"]) + "/usage"
-	assertUsageReport(t, get(emptyPath), expectedUsage{cost: "0"})
+	emptyProjectID := testutil.RequireType[string](t, fresh["id"])
+	emptyPath := "/api/v1/orgs/" + project.OrgID + "/projects/" + emptyProjectID + "/usage"
+	assertUsageReport(t, get(emptyPath), nothing)
+
+	assertUsageReport(t, get(orgUsagePath+"?include_project_ids="+project.ProjectID), wholeTree)
+	assertUsageReport(t, get(orgUsagePath+"?include_project_ids="+emptyProjectID), nothing)
+	assertUsageReport(
+		t, get(orgUsagePath+"?include_project_ids="+project.ProjectID+"&include_project_ids="+emptyProjectID), wholeTree,
+	)
+	assertUsageReport(t, get(orgUsagePath+"?exclude_project_ids="+project.ProjectID), nothing)
+	assertUsageReport(t, get(orgUsagePath+"?exclude_project_ids="+emptyProjectID), wholeTree)
+	for _, query := range []string{
+		"include_project_ids=" + project.ProjectID + "&exclude_project_ids=" + emptyProjectID,
+		"include_project_ids=not-a-project",
+		"exclude_project_ids=not-a-project",
+	} {
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, orgUsagePath+"?"+query, "", "",
+			http.StatusBadRequest, authHeaders(project.AdminToken),
+		)
+	}
 
 	missingProfilePath := project.ProjectPath + "/agent-profiles/" +
 		testPublicID(t, publicid.KindAgentProfile, httpTestID("usage-missing-profile")) + "/usage"
@@ -160,7 +205,7 @@ func recordHTTPModelUsageForAgent(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	agent executionstore.AgentRecord,
 	usage modelenvelope.Usage,
 	cost modelenvelope.ProviderReportedCostUSD,
@@ -203,7 +248,7 @@ func recordHTTPModelUsageForAgent(
 		t.Fatalf("capture config snapshot: %v", err)
 	}
 	modelCall := claimNormalModelCallForHTTPTest(
-		t, ctx, store, projectID, agent.ID, runtime, []storage.ID{input.ID},
+		t, ctx, store, projectID, agent.ID, runtime, []uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID, admitted.Events[0].Sequence,
 	)
 	providerResponse, err := model.NewResponseEnvelopeForStorage(

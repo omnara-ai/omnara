@@ -4,25 +4,77 @@ import {
   getOrgUsageOptions,
   getProjectUsageOptions,
 } from '@omnara/sdk/tanstack'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, type Query, useQuery } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { generatedQueryKey } from './query-keys'
 
-export function useOrgUsage(orgID: string) {
-  const client = useOmnaraClient()
-  return useQuery(getOrgUsageOptions({ path: { orgID }, client }))
+export interface UsageWindow {
+  since?: string
+  until?: string
 }
 
-export function useProjectUsage(orgID: string, projectID: string) {
-  const client = useOmnaraClient()
-  return useQuery(getProjectUsageOptions({ path: { orgID, projectID }, client }))
+export interface OrgUsageFilters extends UsageWindow {
+  includeProjectIDs?: string[]
+  excludeProjectIDs?: string[]
 }
 
-export function useAgentProfileUsage(orgID: string, projectID: string, agentProfileID: string) {
+export interface AgentProfileUsageFilters extends UsageWindow {
+  includeSubagents?: boolean
+}
+
+function nonEmpty(ids: string[] | undefined) {
+  return ids && ids.length > 0 ? ids : undefined
+}
+
+export function useOrgUsage(orgID: string, filters: OrgUsageFilters = {}) {
   const client = useOmnaraClient()
-  return useQuery(
-    getAgentProfileUsageOptions({ path: { orgID, projectID, agentProfileID }, client }),
-  )
+  return useQuery({
+    ...getOrgUsageOptions({
+      path: { orgID },
+      query: {
+        since: filters.since,
+        until: filters.until,
+        include_project_ids: nonEmpty(filters.includeProjectIDs),
+        exclude_project_ids: nonEmpty(filters.excludeProjectIDs),
+      },
+      client,
+    }),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useProjectUsage(orgID: string, projectID: string, window: UsageWindow = {}) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getProjectUsageOptions({
+      path: { orgID, projectID },
+      query: { since: window.since, until: window.until },
+      client,
+    }),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useAgentProfileUsage(
+  orgID: string,
+  projectID: string,
+  agentProfileID: string,
+  filters: AgentProfileUsageFilters = {},
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentProfileUsageOptions({
+      path: { orgID, projectID, agentProfileID },
+      query: {
+        since: filters.since,
+        until: filters.until,
+        include_subagents: filters.includeSubagents ?? false,
+      },
+      client,
+    }),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useAgentUsage(
@@ -30,14 +82,24 @@ export function useAgentUsage(
   projectID: string,
   agentID: string,
   includeSubagents: boolean,
+  window: UsageWindow = {},
 ) {
   const client = useOmnaraClient()
   return useQuery({
     ...getAgentUsageOptions({
       path: { orgID, projectID, agentID },
-      query: { include_subagents: includeSubagents },
+      query: { include_subagents: includeSubagents, since: window.since, until: window.until },
       client,
     }),
     placeholderData: keepPreviousData,
   })
+}
+
+export function agentUsageQueryPredicate(orgID: string, projectID: string) {
+  return (query: Query): boolean => {
+    const key = generatedQueryKey(query)
+    return (
+      key?._id === 'getAgentUsage' && key.path?.orgID === orgID && key.path.projectID === projectID
+    )
+  }
 }

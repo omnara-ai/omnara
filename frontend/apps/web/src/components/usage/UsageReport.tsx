@@ -1,5 +1,6 @@
 import type { ModelUsageTotals, UsageReport as UsageReportData, UsageTotals } from '@omnara/sdk'
 import type { UseQueryResult } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -11,7 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatCount, formatUsd } from '@/lib/format'
+import { ReportedCost } from '@/components/usage/ReportedCost'
+import { formatCount } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 
 export function UsageReportView({
@@ -53,8 +55,11 @@ export function UsageReportView({
 }
 
 function UsageSummaryCards({ totals }: { totals: UsageTotals }) {
-  const cards = [
-    { label: 'Provider-reported cost', value: formatUsd(totals.cost.provider_reported_usd) },
+  const cards: { label: string; value: ReactNode }[] = [
+    {
+      label: 'Provider-reported cost',
+      value: <ReportedCost modelCalls={totals.model_calls} cost={totals.cost} />,
+    },
     { label: 'Input tokens', value: formatCount(totals.tokens.input_tokens_total) },
     { label: 'Output tokens', value: formatCount(totals.tokens.output_tokens_total) },
     { label: 'Model calls', value: formatCount(totals.model_calls) },
@@ -90,7 +95,7 @@ function UsageByModelTable({ rows }: { rows: ModelUsageTotals[] }) {
             <TableHead className="text-right">Cache write</TableHead>
             <TableHead className="text-right">Output</TableHead>
             <TableHead className="text-right">Reasoning</TableHead>
-            <TableHead className="text-right">Cost</TableHead>
+            <TableHead className="pr-4 text-right">Cost</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -122,29 +127,13 @@ function UsageByModelTable({ rows }: { rows: ModelUsageTotals[] }) {
               <TableCell className="text-right tabular-nums">
                 {formatCount(row.tokens.reasoning_output_tokens)}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                <UsageCostCell totals={row} />
+              <TableCell className="pr-4 text-right tabular-nums">
+                <ReportedCost modelCalls={row.model_calls} cost={row.cost} />
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
     </div>
-  )
-}
-
-function UsageCostCell({ totals }: { totals: ModelUsageTotals }) {
-  const missing = totals.model_calls - totals.cost.model_calls_with_reported_cost
-  return (
-    <span
-      title={
-        missing > 0
-          ? `${formatCount(missing)} of ${formatCount(totals.model_calls)} calls reported no cost`
-          : undefined
-      }
-    >
-      {formatUsd(totals.cost.provider_reported_usd)}
-      {missing > 0 && <span className="text-muted-foreground"> *</span>}
-    </span>
   )
 }

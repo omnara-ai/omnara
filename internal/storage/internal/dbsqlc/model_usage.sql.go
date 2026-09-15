@@ -7,11 +7,27 @@ package dbsqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const sumModelCallUsageByModel = `-- name: SumModelCallUsageByModel :many
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE $5::uuid IS NOT NULL
+    AND agent.project_id = $2::uuid
+    AND agent.agent_profile_id = $5::uuid
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE $9::boolean
+    AND child.project_id = $2::uuid
+    AND profile_agents.depth < 64
+)
 SELECT revision.configured_model_id,
        configured_model.name AS configured_model_name,
        revision.provider_model_slug,
@@ -27,8 +43,6 @@ SELECT revision.configured_model_id,
        coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
        coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
 FROM model_call_contexts context
-JOIN agents agent ON agent.project_id = context.project_id
-  AND agent.id = context.agent_id
 JOIN configured_model_revisions revision ON revision.org_id = context.org_id
   AND revision.id = context.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
@@ -38,10 +52,20 @@ JOIN model_provider_configs provider_config ON provider_config.org_id = revision
 WHERE context.org_id = $1
   AND ($2::uuid IS NULL OR context.project_id = $2::uuid)
   AND (
-    $3::uuid IS NULL
-    OR (agent.agent_profile_id = $3::uuid AND agent.parent_agent_id IS NULL)
+    $3::uuid[] IS NULL
+    OR context.project_id = ANY($3::uuid[])
   )
-  AND ($4::uuid[] IS NULL OR context.agent_id = ANY($4::uuid[]))
+  AND (
+    $4::uuid[] IS NULL
+    OR context.project_id <> ALL($4::uuid[])
+  )
+  AND (
+    $5::uuid IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
+  AND ($6::uuid[] IS NULL OR context.agent_id = ANY($6::uuid[]))
+  AND ($7::timestamptz IS NULL OR context.created_at >= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR context.created_at < $8::timestamptz)
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL
@@ -53,10 +77,15 @@ ORDER BY provider_config.name, configured_model.name, revision.provider_model_sl
 `
 
 type SumModelCallUsageByModelParams struct {
-	OrgID          uuid.UUID
-	ProjectID      *uuid.UUID
-	AgentProfileID *uuid.UUID
-	AgentIds       []uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               *uuid.UUID
+	IncludeProjectIds       []uuid.UUID
+	ExcludeProjectIds       []uuid.UUID
+	AgentProfileID          *uuid.UUID
+	AgentIds                []uuid.UUID
+	Since                   *time.Time
+	Until                   *time.Time
+	IncludeProfileSubagents bool
 }
 
 type SumModelCallUsageByModelRow struct {
@@ -82,8 +111,13 @@ func (q *Queries) SumModelCallUsageByModel(ctx context.Context, arg SumModelCall
 	rows, err := q.db.Query(ctx, sumModelCallUsageByModel,
 		arg.OrgID,
 		arg.ProjectID,
+		arg.IncludeProjectIds,
+		arg.ExcludeProjectIds,
 		arg.AgentProfileID,
 		arg.AgentIds,
+		arg.Since,
+		arg.Until,
+		arg.IncludeProfileSubagents,
 	)
 	if err != nil {
 		return nil, err

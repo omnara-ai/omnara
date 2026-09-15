@@ -399,7 +399,7 @@ export const getOrgUsageQueryKey = (options: Options<GetOrgUsageData>) => create
 /**
  * Get org usage
  *
- * Tallies model token usage and provider-reported cost across every agent in the organization, broken down by configured model.
+ * Tallies model token usage and provider-reported cost across every agent in the organization, broken down by configured model. Optionally limits the tally to a time window or to a subset of projects.
  */
 export const getOrgUsageOptions = (options: Options<GetOrgUsageData>) => queryOptions<GetOrgUsageResponse, GetOrgUsageError, GetOrgUsageResponse, ReturnType<typeof getOrgUsageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -507,7 +507,7 @@ export const getProjectUsageQueryKey = (options: Options<GetProjectUsageData>) =
 /**
  * Get project usage
  *
- * Tallies model token usage and provider-reported cost across every agent in the project, including subagents, broken down by configured model.
+ * Tallies model token usage and provider-reported cost across every agent in the project, including subagents, broken down by configured model. Optionally limits the tally to a time window.
  */
 export const getProjectUsageOptions = (options: Options<GetProjectUsageData>) => queryOptions<GetProjectUsageResponse, GetProjectUsageError, GetProjectUsageResponse, ReturnType<typeof getProjectUsageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1774,7 +1774,7 @@ export const getAgentProfileUsageQueryKey = (options: Options<GetAgentProfileUsa
 /**
  * Get agent profile usage
  *
- * Tallies model token usage and provider-reported cost across the top-level agents launched from this profile, broken down by configured model. Usage from subagents those agents spawned is not included.
+ * Tallies model token usage and provider-reported cost across the top-level agents launched from this profile, broken down by configured model. Usage from subagents those agents spawned is included only when `include_subagents` is true. Optionally limits the tally to a time window.
  */
 export const getAgentProfileUsageOptions = (options: Options<GetAgentProfileUsageData>) => queryOptions<GetAgentProfileUsageResponse, GetAgentProfileUsageError, GetAgentProfileUsageResponse, ReturnType<typeof getAgentProfileUsageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2059,7 +2059,7 @@ export const getAgentUsageQueryKey = (options: Options<GetAgentUsageData>) => cr
 /**
  * Get agent usage
  *
- * Tallies this agent's model token usage and provider-reported cost, broken down by configured model.
+ * Tallies this agent's model token usage and provider-reported cost, broken down by configured model. Optionally limits the tally to a time window.
  */
 export const getAgentUsageOptions = (options: Options<GetAgentUsageData>) => queryOptions<GetAgentUsageResponse, GetAgentUsageError, GetAgentUsageResponse, ReturnType<typeof getAgentUsageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

@@ -49,16 +49,13 @@ export function ProjectModelGrantsTable({
       <SearchHeader
         title="Model grants"
         toolbar={
-          showToolbar ? (
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={createdResourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search model grants by name…"
-            />
-          ) : undefined
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            sort={{ value: list.sort, options: createdResourceSortOptions, onChange: list.setSort }}
+            placeholder="Search model grants by name…"
+            showSearch={showToolbar}
+          />
         }
       >
         <Button asChild size="sm" variant="ghost">

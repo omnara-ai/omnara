@@ -319,7 +319,7 @@ export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Opt
 /**
  * Get org usage
  *
- * Tallies model token usage and provider-reported cost across every agent in the organization, broken down by configured model.
+ * Tallies model token usage and provider-reported cost across every agent in the organization, broken down by configured model. Optionally limits the tally to a time window or to a subset of projects.
  */
 export const getOrgUsage = <ThrowOnError extends boolean = true>(options: Options<GetOrgUsageData, ThrowOnError>): RequestResult<GetOrgUsageResponses, GetOrgUsageErrors, ThrowOnError> => (options.client ?? client).get<GetOrgUsageResponses, GetOrgUsageErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetOrgUsageResponse),
@@ -409,7 +409,7 @@ export const deleteProject = <ThrowOnError extends boolean = true>(options: Opti
 /**
  * Get project usage
  *
- * Tallies model token usage and provider-reported cost across every agent in the project, including subagents, broken down by configured model.
+ * Tallies model token usage and provider-reported cost across every agent in the project, including subagents, broken down by configured model. Optionally limits the tally to a time window.
  */
 export const getProjectUsage = <ThrowOnError extends boolean = true>(options: Options<GetProjectUsageData, ThrowOnError>): RequestResult<GetProjectUsageResponses, GetProjectUsageErrors, ThrowOnError> => (options.client ?? client).get<GetProjectUsageResponses, GetProjectUsageErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetProjectUsageResponse),
@@ -1503,7 +1503,7 @@ export const renameAgentProfile = <ThrowOnError extends boolean = true>(options:
 /**
  * Get agent profile usage
  *
- * Tallies model token usage and provider-reported cost across the top-level agents launched from this profile, broken down by configured model. Usage from subagents those agents spawned is not included.
+ * Tallies model token usage and provider-reported cost across the top-level agents launched from this profile, broken down by configured model. Usage from subagents those agents spawned is included only when `include_subagents` is true. Optionally limits the tally to a time window.
  */
 export const getAgentProfileUsage = <ThrowOnError extends boolean = true>(options: Options<GetAgentProfileUsageData, ThrowOnError>): RequestResult<GetAgentProfileUsageResponses, GetAgentProfileUsageErrors, ThrowOnError> => (options.client ?? client).get<GetAgentProfileUsageResponses, GetAgentProfileUsageErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetAgentProfileUsageResponse),
@@ -1783,7 +1783,7 @@ export const getAgent = <ThrowOnError extends boolean = true>(options: Options<G
 /**
  * Get agent usage
  *
- * Tallies this agent's model token usage and provider-reported cost, broken down by configured model.
+ * Tallies this agent's model token usage and provider-reported cost, broken down by configured model. Optionally limits the tally to a time window.
  */
 export const getAgentUsage = <ThrowOnError extends boolean = true>(options: Options<GetAgentUsageData, ThrowOnError>): RequestResult<GetAgentUsageResponses, GetAgentUsageErrors, ThrowOnError> => (options.client ?? client).get<GetAgentUsageResponses, GetAgentUsageErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetAgentUsageResponse),
