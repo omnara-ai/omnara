@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -438,6 +439,9 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		return events.Event{}, fmt.Errorf("begin record model output: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockAgentWithParentTx(ctx, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,
@@ -566,6 +570,14 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		); err != nil {
 			return events.Event{}, err
 		}
+		if message, ended := subagentTurnEndMessage(input.ProviderResponse); ended {
+			message.IdempotencyKey = "model_output:" + modelOutput.ID.String()
+			if err := handleSubagentTurnEndedTx(
+				ctx, txNotifications, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID, message,
+			); err != nil {
+				return events.Event{}, err
+			}
+		}
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "record model output"); err != nil {
 		return events.Event{}, err
@@ -672,4 +684,26 @@ func completeSuccessfulNormalModelCallTx(
 		return err
 	}
 	return nil
+}
+
+// subagentTurnEndMessage decides whether a model output ends a subagent's
+// turn from the parent's point of view. Tool calls keep the turn open, and so
+// does max_tokens, because the scheduler continues that output automatically;
+// only end_turn delivers the answer, while refusal and content_filter tell the
+// parent the subagent stopped without one.
+func subagentTurnEndMessage(envelope modelenvelope.ResponseEnvelope) (subagentMessage, bool) {
+	if envelope.HasToolCalls() {
+		return subagentMessage{}, false
+	}
+	text := strings.TrimSpace(envelope.Text())
+	switch envelope.Normalized.StopReason {
+	case modelenvelope.StopReasonEndTurn:
+		return subagentMessage{Kind: SubagentMessageKindResult, Text: text}, true
+	case modelenvelope.StopReasonRefusal:
+		return subagentMessage{Kind: SubagentMessageKindRefused, Text: text}, true
+	case modelenvelope.StopReasonContentFilter:
+		return subagentMessage{Kind: SubagentMessageKindContentFiltered, Text: text}, true
+	default:
+		return subagentMessage{}, false
+	}
 }

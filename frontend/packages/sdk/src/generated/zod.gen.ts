@@ -976,6 +976,16 @@ export const zCreateAgentRequest = z.object({
     message: z.string().optional()
 });
 
+export const zAgentActivity = z.object({
+    state: z.enum([
+        'running',
+        'idle',
+        'waiting_on_interaction',
+        'archived'
+    ]),
+    last_activity_at: zTimestamp
+});
+
 export const zAgentModel = z.object({
     provider_config: zResourceName,
     name: zResourceName
@@ -999,6 +1009,9 @@ export const zAgent = z.object({
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
+    parent_agent_id: zAgentId.optional(),
+    subagent_key: z.string().optional(),
+    activity: zAgentActivity.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     archived_at: zTimestamp.optional()
@@ -1324,6 +1337,7 @@ export const zToolCallOutcome = z.enum([
  */
 export const zToolCall = z.object({
     id: zToolCallId,
+    agent_id: zAgentId,
     turn_id: zAgentTurnId,
     provider_call_id: z.string(),
     name: z.string(),
@@ -1336,10 +1350,11 @@ export const zToolCall = z.object({
 });
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export const zToolCallUpdate = z.object({
     tool_call_id: zToolCallId,
+    agent_id: zAgentId.optional(),
     state: zToolCallState
 });
 
@@ -1656,6 +1671,8 @@ export const zAgentInteraction = z.object({
     agent_id: zAgentId,
     tool_call_id: zToolCallId,
     tool_name: z.string().optional(),
+    agent_name: zAgentName.optional(),
+    subagent_key: z.string().optional(),
     interaction_kind: zAgentInteractionKind,
     state: zAgentInteractionState,
     request: zInteractionForm,
@@ -3596,13 +3613,16 @@ export const zListAgentsPath = z.object({
 export const zListAgentsQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     agent_profile_id: zAgentProfileId.optional(),
+    parent_agent_id: zAgentId.optional(),
+    include_subagents: z.boolean().optional(),
+    include_archived: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
 
 /**
- * Active agents in the project, newest first.
+ * Agents in the project, newest first.
  */
 export const zListAgentsResponse2 = zListAgentsResponse;
 
@@ -3687,6 +3707,7 @@ export const zListToolCallsPath = z.object({
 export const zListToolCallsQuery = z.object({
     state: zToolCallState.optional(),
     type: zToolCallType.optional(),
+    include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
@@ -3776,7 +3797,7 @@ export const zStreamEventsQuery = z.object({
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 
@@ -3801,6 +3822,7 @@ export const zListAgentInteractionsPath = z.object({
 
 export const zListAgentInteractionsQuery = z.object({
     state: zAgentInteractionState.optional(),
+    include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });

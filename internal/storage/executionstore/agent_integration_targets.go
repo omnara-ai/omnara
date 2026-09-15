@@ -149,5 +149,7 @@ func agentRecordFromSetIntegrationTargetSQLC(row dbsqlc.SetAgentIntegrationTarge
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 }

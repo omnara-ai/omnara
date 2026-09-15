@@ -337,11 +337,15 @@ export class AgentChatSession {
       this.deltas = this.deltas.filter((delta) => delta.turn_id !== event.turn_id)
     }
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
-      void this.queryClient.invalidateQueries({
-        queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
-      })
+      this.invalidateInteractions()
     }
     this.notify()
+  }
+
+  private invalidateInteractions(): void {
+    void this.queryClient.invalidateQueries({
+      queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
+    })
   }
 
   private handleDelta(delta: ModelOutputDelta): void {
@@ -374,11 +378,7 @@ export class AgentChatSession {
       this.notify()
       return
     }
-    if (state.reconnected) {
-      void this.queryClient.invalidateQueries({
-        queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
-      })
-    }
+    if (state.reconnected) this.invalidateInteractions()
   }
 
   disconnect = (): void => {
@@ -409,6 +409,7 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
+        else this.invalidateInteractions()
       }
     } catch (error) {
       if (signal.aborted) return

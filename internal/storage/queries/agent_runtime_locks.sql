@@ -109,13 +109,6 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND agent_runtime_locks.agent_id = sqlc.arg(agent_id)
   AND agent_runtime_locks.id = sqlc.arg(id);
 
--- name: TryLockAgentForRuntimeLockReap :one
-SELECT id
-FROM agents
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(agent_id)
-FOR UPDATE SKIP LOCKED;
-
 -- Candidate discovery intentionally does not lock runtime rows. Destructive
 -- recovery must lock the canonical agent row before the runtime row.
 -- name: ListExpiredAgentRuntimeLockCandidates :many

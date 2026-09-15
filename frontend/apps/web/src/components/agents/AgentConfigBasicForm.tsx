@@ -3,6 +3,7 @@ import { useToolCatalog } from '@omnara/react'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
+import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
 import { addMissingMachineTools, hasMissingMachineTools } from '@/components/agents/builtInTools'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
@@ -71,6 +72,16 @@ export function AgentConfigBasicForm({
             selectedIds={form.skillIds}
             onSelectedIdsChange={form.setSkillIds}
             onUnavailableIdsChange={form.reportUnavailableSkillIds}
+          />
+          <AgentConfigSubagentsField
+            orgId={orgId}
+            projectId={projectId}
+            subagents={form.subagents}
+            maxSubagents={form.maxSubagents}
+            maxDepth={form.maxDepth}
+            onSubagentsChange={form.setSubagents}
+            onMaxSubagentsChange={form.setMaxSubagents}
+            onMaxDepthChange={form.setMaxDepth}
           />
           <AgentConfigMcpServersField
             orgId={orgId}

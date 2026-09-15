@@ -583,3 +583,22 @@ func IntegrationAppendToolResultEventTx(
 ) (events.Event, error) {
 	return appendToolResultEventTx(ctx, txNotifications, tx, record)
 }
+
+func (s *Store) ArchiveIdleAgentsAsOf(
+	ctx context.Context,
+	asOf time.Time,
+	limit int,
+) ([]MachineRecord, int, error) {
+	return s.archiveIdleAgents(ctx, &asOf, limit)
+}
+
+func (s *Store) ArchiveIdleAgentCandidateAsOf(
+	ctx context.Context,
+	projectID, agentID ID,
+	asOf time.Time,
+) (int, error) {
+	_, archived, err := s.archiveIdleCandidates(
+		ctx, []idleArchiveCandidate{{ProjectID: projectID, ID: agentID}}, &asOf,
+	)
+	return archived, err
+}

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -21,7 +23,18 @@ type RuntimeContract struct {
 	Tools           []RuntimeTool
 	MCPServers      []RuntimeMCPServer
 	Skills          []SkillCompiled
+	Subagents       map[string]SubagentCompiled
+	MaxSubagents    *int
+	MaxDepth        *int
 	configuredTools map[string]struct{}
+}
+
+func (contract RuntimeContract) SubagentDepthLimit() int {
+	return SubagentDepth{MaxDepth: contract.MaxDepth}.Limit()
+}
+
+func (contract RuntimeContract) SubagentKeys() []string {
+	return slices.Sorted(maps.Keys(contract.Subagents))
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
@@ -126,10 +139,24 @@ func RuntimeContractFromCompiled(
 		Tools:           tools,
 		MCPServers:      mcpServers,
 		Skills:          compiled.Skills,
+		Subagents:       compiled.Subagents,
+		MaxSubagents:    compiled.MaxSubagents,
+		MaxDepth:        compiled.MaxDepth,
 		configuredTools: configuredTools,
 	}
 	if len(compiled.Skills) > 0 {
-		return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
+		if err != nil {
+			return RuntimeContract{}, err
+		}
+	}
+	if len(compiled.Subagents) > 0 {
+		for _, name := range toolcatalog.SubagentToolNames() {
+			contract, err = contract.WithImplicitBuiltInTool(name)
+			if err != nil {
+				return RuntimeContract{}, err
+			}
+		}
 	}
 	return contract, nil
 }

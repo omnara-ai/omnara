@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -274,6 +275,128 @@ func TestListAgentInteractionsPaginatesAllInteractions(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
+}
+
+func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "interaction-tree")
+	store := newIntegrationStore(pool)
+	question := json.RawMessage(`{"questions":[{"prompt":"Ship?","options":[{"label":"Yes"},{"label":"No"}]}]}`)
+	user := createHTTPInteractionUser(t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, "interaction-tree")
+	parentLaunch := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, "interaction-tree",
+	)
+	parent := parentLaunch.Agent
+	parentInteraction := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, parent, "question", "", question,
+	)
+	child := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "child", "worker")
+	childInteraction := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, child, "question", "", question,
+	)
+	grandchild := spawnHTTPSubagentForTest(t, ctx, store, child, parentLaunch.AgentConfig.ID, "grandchild", "helper")
+	grandchildInteraction := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, grandchild, "question", "", question,
+	)
+
+	type expected struct {
+		interactionID string
+		agentID       string
+		agentName     string
+		subagentKey   string
+	}
+	want := []expected{
+		{
+			testPublicID(t, publicid.KindAgentInteraction, parentInteraction),
+			testPublicID(t, publicid.KindAgent, parent.ID),
+			"", "",
+		},
+		{
+			testPublicID(t, publicid.KindAgentInteraction, childInteraction),
+			testPublicID(t, publicid.KindAgent, child.ID),
+			"child", "worker",
+		},
+		{
+			testPublicID(t, publicid.KindAgentInteraction, grandchildInteraction),
+			testPublicID(t, publicid.KindAgent, grandchild.ID),
+			"grandchild", "helper",
+		},
+	}
+	assertRows := func(rows []map[string]any, listedAgentID string, want []expected) {
+		t.Helper()
+		if len(rows) != len(want) {
+			t.Fatalf("paged %d interactions, want %d: %+v", len(rows), len(want), rows)
+		}
+		for i, row := range rows {
+			if row["id"] != want[i].interactionID || row["agent_id"] != want[i].agentID {
+				t.Fatalf("interaction %d = %+v, want %+v", i, row, want[i])
+			}
+			wantName, wantKey := want[i].agentName, want[i].subagentKey
+			if want[i].agentID == listedAgentID {
+				wantName, wantKey = "", ""
+			}
+			agentName, _ := row["agent_name"].(string)
+			subagentKey, _ := row["subagent_key"].(string)
+			if agentName != wantName || subagentKey != wantKey {
+				t.Fatalf("interaction %d attribution = %q/%q, want %q/%q", i, agentName, subagentKey, wantName, wantKey)
+			}
+		}
+	}
+	parentPath := project.ProjectPath + "/agents/" + want[0].agentID + "/interactions?state=open"
+	assertRows(
+		pageThroughAgentInteractionRows(t, handler, parentPath+"&include_subagents=true", project.AdminToken, 1),
+		want[0].agentID,
+		want,
+	)
+	assertRows(
+		pageThroughAgentInteractionRows(t, handler, parentPath+"&include_subagents=true", project.AdminToken, 2),
+		want[0].agentID,
+		want,
+	)
+	assertRows(
+		pageThroughAgentInteractionRows(t, handler, parentPath, project.AdminToken, 1), want[0].agentID, want[:1],
+	)
+	childPath := project.ProjectPath + "/agents/" + want[1].agentID + "/interactions?state=open"
+	assertRows(
+		pageThroughAgentInteractionRows(t, handler, childPath+"&include_subagents=true", project.AdminToken, 1),
+		want[1].agentID,
+		want[1:],
+	)
+}
+
+func spawnHTTPSubagentForTest(
+	t *testing.T,
+	ctx context.Context,
+	store *storage.Store,
+	parent executionstore.AgentRecord,
+	configID storage.ID,
+	name, key string,
+) executionstore.AgentRecord {
+	t.Helper()
+	actor, err := executionstore.SubagentActorParams(parent.OrgID, parent)
+	if err != nil {
+		t.Fatalf("subagent actor params: %v", err)
+	}
+	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      parent.ProjectID,
+		AgentConfigID:  configID,
+		LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: parent.ID},
+		Name:           &name,
+		MessageActor:   actor,
+		IdempotencyKey: "spawn-" + name + "-" + parent.ID.String(),
+		Subagent: &executionstore.SubagentLaunch{
+			ParentAgentID: parent.ID,
+			Key:           key,
+			MaxDepth:      agentconfig.MaxSubagentDepth,
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent %s: %v", name, err)
+	}
+	return launch.Agent
 }
 
 func TestPublicCreateAgentInputPreservesOrExplicitlyCancelsOpenInteraction(t *testing.T) {
@@ -1913,7 +2036,19 @@ func mustHTTPPermissionForm(
 
 func pageThroughAgentInteractions(t *testing.T, handler http.Handler, path, token string, limit int) []string {
 	t.Helper()
-	got := make([]string, 0)
+	rows := pageThroughAgentInteractionRows(t, handler, path, token, limit)
+	got := make([]string, 0, len(rows))
+	for _, row := range rows {
+		got = append(got, testutil.RequireType[string](t, row["id"]))
+	}
+	return got
+}
+
+func pageThroughAgentInteractionRows(
+	t *testing.T, handler http.Handler, path, token string, limit int,
+) []map[string]any {
+	t.Helper()
+	got := make([]map[string]any, 0)
 	seen := map[string]bool{}
 	cursor := ""
 	for pages := 0; ; pages++ {
@@ -1927,12 +2062,13 @@ func pageThroughAgentInteractions(t *testing.T, handler http.Handler, path, toke
 			t.Fatalf("interaction page returned %d rows, want <= %d: %+v", len(rows), limit, page)
 		}
 		for _, raw := range rows {
-			id := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["id"])
+			row := testutil.RequireType[map[string]any](t, raw)
+			id := testutil.RequireType[string](t, row["id"])
 			if seen[id] {
 				t.Fatalf("interaction pagination returned duplicate id %s; got=%v", id, got)
 			}
 			seen[id] = true
-			got = append(got, id)
+			got = append(got, row)
 		}
 		if pages > 10 {
 			t.Fatalf("interaction pagination did not terminate; got=%v", got)
@@ -1960,9 +2096,34 @@ func createHTTPInteractionAuthority(
 	request json.RawMessage,
 ) (storage.ID, storage.ID) {
 	t.Helper()
+	user := createHTTPInteractionUser(t, ctx, pool, store, orgID, projectID, "interaction-"+kind+"-"+permissionToolName)
+	launch := createHTTPRuntimeAgent(
+		t,
+		ctx,
+		store,
+		orgID,
+		projectID,
+		user.ID,
+		"interaction-"+kind+"-"+permissionToolName,
+	)
+	interactionID := createHTTPInteractionForAgent(
+		t, ctx, store, orgID, projectID, user.ID, launch.Agent, kind, permissionToolName, request,
+	)
+	return launch.Agent.ID, interactionID
+}
+
+func createHTTPInteractionUser(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	store *storage.Store,
+	orgID, projectID storage.ID,
+	label string,
+) identitystore.UserRecord {
+	t.Helper()
 	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
-		Email:       "interaction-" + kind + "-" + permissionToolName + "@example.com",
-		DisplayName: "Interaction " + kind + " " + permissionToolName,
+		Email:       label + "@example.com",
+		DisplayName: "Interaction " + label,
 	},
 	)
 	if err != nil {
@@ -1983,70 +2144,20 @@ func createHTTPInteractionAuthority(
 	}); err != nil {
 		t.Fatalf("add interaction user membership: %v", err)
 	}
-	launch := createHTTPRuntimeAgent(
-		t,
-		ctx,
-		store,
-		orgID,
-		projectID,
-		user.ID,
-		"interaction-"+kind+"-"+permissionToolName,
-	)
-	agent := launch.Agent
+	return user
+}
+
+func createHTTPInteractionForAgent(
+	t *testing.T,
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID, userID storage.ID,
+	agent executionstore.AgentRecord,
+	kind, permissionToolName string,
+	request json.RawMessage,
+) storage.ID {
+	t.Helper()
 	agentID := agent.ID
-	input, _, _, err := store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			Actor:     httpOmnaraActorParams(t, orgID, user.ID),
-			ContentBlocks: json.RawMessage(
-				`[{"type":"text","text":"ask me"}]`,
-			),
-			IdempotencyKey: "msg-" + agentID.String(),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create interaction input: %v", err)
-	}
-	claim, found, err := store.Execution().ClaimNextAgentWork(
-		ctx,
-		httpTestClaimInput(),
-	)
-	if err != nil {
-		t.Fatalf("claim interaction input: %v", err)
-	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || len(claim.Model.AdmittedInputTurn.Inputs) != 1 ||
-		claim.Model.AdmittedInputTurn.Inputs[0].ID != input.ID {
-		t.Fatalf(
-			"claim interaction input found=%v executable=%v input=%+v want %s",
-			found,
-			claim.Kind == executionstore.AgentWorkModel,
-			claim.Model.AdmittedInputTurn.Inputs,
-			input.ID,
-		)
-	}
-	runtime := claim.RuntimeLock
-	admitted := claim.Model.AdmittedInputTurn
-	snapshot, err := store.Execution().CaptureAgentConfigForEventWatermark(
-		ctx, projectID, agentID, admitted.Events[0].Sequence,
-	)
-	if err != nil {
-		t.Fatalf("capture config snapshot: %v", err)
-	}
-	modelCall := claimNormalModelCallForHTTPTest(
-		t,
-		ctx,
-		store,
-		projectID,
-		agentID,
-		runtime,
-		[]storage.ID{input.ID},
-		snapshot.AgentConfig.ID,
-		admitted.Events[0].Sequence,
-	)
-	modelContext := modelCall.Context
-	providerResponseID := "resp_" + agentID.String()
 	toolName := "ask_question"
 	if kind == "permission" {
 		toolName = permissionToolName
@@ -2054,53 +2165,10 @@ func createHTTPInteractionAuthority(
 			toolName = "run_command"
 		}
 	}
-	providerCallID := "call_" + agentID.String()
-	providerResponse, err := model.NewResponseEnvelopeForStorage(
-		"http-test",
-		modelprotocol.APIFormatOpenAIResponses,
-		modelprotocol.APIVariantDefault,
-		model.Response{
-			ID:         providerResponseID,
-			StopReason: model.StopReasonToolUse,
-			Content: modeltest.ResponsePartsForToolCalls(
-				[]model.ToolCall{{ID: providerCallID, Name: toolName, Input: request}},
-			),
-		},
+	toolCall, runtime := recordHTTPToolCallForAgent(
+		t, ctx, store, orgID, projectID, userID, agent, toolName, toolcatalog.ToolTypeBuiltIn, request,
 	)
-	if err != nil {
-		t.Fatalf("build interaction provider response: %v", err)
-	}
-	responseToolCalls := model.ToolCallsFromEnvelope(providerResponse)
-	if len(responseToolCalls) != 1 {
-		t.Fatalf("interaction provider tool calls = %d, want 1", len(responseToolCalls))
-	}
-	responseToolCall := responseToolCalls[0]
-	source, calls, err := store.Execution().RecordToolCallSourceAndCompleteContext(
-		ctx,
-		executionstore.RecordToolCallSourceAndCompleteContextInput{
-			ProjectID:          projectID,
-			AgentID:            agentID,
-			RuntimeLockID:      runtime.ID,
-			ModelCallContextID: modelContext.ID,
-			ProviderResponse:   providerResponse,
-			ToolCallBindings: []executionstore.ToolCallBindingInput{
-				{
-					ProviderCallID: responseToolCall.ID,
-					Type:           toolcatalog.ToolTypeBuiltIn,
-				},
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("record interaction tool source: %v", err)
-	}
-	if source.ID == storage.NilID || len(calls) != 1 {
-		t.Fatalf(
-			"unexpected interaction source/calls: event=%+v calls=%+v",
-			source,
-			calls,
-		)
-	}
+	calls := []executionstore.ToolCallRecord{toolCall}
 	if kind == "question" {
 		if _, err := store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
 			ProjectID:     projectID,
@@ -2131,7 +2199,7 @@ func createHTTPInteractionAuthority(
 		if err != nil {
 			t.Fatalf("create permission interaction: %v", err)
 		}
-		return agentID, interaction.ID
+		return interaction.ID
 	}
 	var payload struct {
 		Questions []interactionform.Question `json:"questions"`
@@ -2181,7 +2249,7 @@ func createHTTPInteractionAuthority(
 	); err != nil {
 		t.Fatalf("release question tool call: %v", err)
 	}
-	return agentID, interaction.ID
+	return interaction.ID
 }
 
 func mustHTTPJSON(value any) json.RawMessage {
@@ -2259,4 +2327,145 @@ func httpInteractionResolvingInputPublicID(
 		t.Fatalf("query interaction resolving input id: %v", err)
 	}
 	return testPublicID(t, publicid.KindAgentInput, inputID)
+}
+
+func recordHTTPToolCallForAgent(
+	t *testing.T,
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID, userID storage.ID,
+	agent executionstore.AgentRecord,
+	toolName, toolType string,
+	request json.RawMessage,
+) (executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord) {
+	t.Helper()
+	agentID := agent.ID
+	input, _, _, err := store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			Actor:     httpOmnaraActorParams(t, orgID, userID),
+			ContentBlocks: json.RawMessage(
+				`[{"type":"text","text":"ask me"}]`,
+			),
+			IdempotencyKey: "msg-" + agentID.String(),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create interaction input: %v", err)
+	}
+	var claim executionstore.ClaimedAgentWork
+	for attempt := 0; ; attempt++ {
+		var found bool
+		claim, found, err = store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+		if err != nil {
+			t.Fatalf("claim interaction input: %v", err)
+		}
+		if found && claim.Kind == executionstore.AgentWorkModel && len(claim.Model.AdmittedInputTurn.Inputs) == 1 &&
+			claim.Model.AdmittedInputTurn.Inputs[0].ID == input.ID {
+			break
+		}
+		if !found || attempt >= 4 {
+			t.Fatalf(
+				"claim interaction input found=%v executable=%v input=%+v want %s",
+				found,
+				claim.Kind == executionstore.AgentWorkModel,
+				claim.Model.AdmittedInputTurn.Inputs,
+				input.ID,
+			)
+		}
+	}
+	runtime := claim.RuntimeLock
+	admitted := claim.Model.AdmittedInputTurn
+	snapshot, err := store.Execution().CaptureAgentConfigForEventWatermark(
+		ctx, projectID, agentID, admitted.Events[0].Sequence,
+	)
+	if err != nil {
+		t.Fatalf("capture config snapshot: %v", err)
+	}
+	modelCall := claimNormalModelCallForHTTPTest(
+		t,
+		ctx,
+		store,
+		projectID,
+		agentID,
+		runtime,
+		[]storage.ID{input.ID},
+		snapshot.AgentConfig.ID,
+		admitted.Events[0].Sequence,
+	)
+	modelContext := modelCall.Context
+	providerResponseID := "resp_" + agentID.String()
+	providerCallID := "call_" + agentID.String()
+	providerResponse, err := model.NewResponseEnvelopeForStorage(
+		"http-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		modelprotocol.APIVariantDefault,
+		model.Response{
+			ID:         providerResponseID,
+			StopReason: model.StopReasonToolUse,
+			Content: modeltest.ResponsePartsForToolCalls(
+				[]model.ToolCall{{ID: providerCallID, Name: toolName, Input: request}},
+			),
+		},
+	)
+	if err != nil {
+		t.Fatalf("build interaction provider response: %v", err)
+	}
+	responseToolCalls := model.ToolCallsFromEnvelope(providerResponse)
+	if len(responseToolCalls) != 1 {
+		t.Fatalf("interaction provider tool calls = %d, want 1", len(responseToolCalls))
+	}
+	responseToolCall := responseToolCalls[0]
+	source, calls, err := store.Execution().RecordToolCallSourceAndCompleteContext(
+		ctx,
+		executionstore.RecordToolCallSourceAndCompleteContextInput{
+			ProjectID:          projectID,
+			AgentID:            agentID,
+			RuntimeLockID:      runtime.ID,
+			ModelCallContextID: modelContext.ID,
+			ProviderResponse:   providerResponse,
+			ToolCallBindings: []executionstore.ToolCallBindingInput{
+				{
+					ProviderCallID: responseToolCall.ID,
+					Type:           toolType,
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("record interaction tool source: %v", err)
+	}
+	if source.ID == storage.NilID || len(calls) != 1 {
+		t.Fatalf(
+			"unexpected interaction source/calls: event=%+v calls=%+v",
+			source,
+			calls,
+		)
+	}
+	return calls[0], runtime
+}
+
+func createHTTPCustomToolCallForAgent(
+	t *testing.T,
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID, userID storage.ID,
+	agent executionstore.AgentRecord,
+) storage.ID {
+	t.Helper()
+	toolCall, runtime := recordHTTPToolCallForAgent(
+		t, ctx, store, orgID, projectID, userID, agent, "lookup_customer", toolcatalog.ToolTypeCustom,
+		json.RawMessage(`{"email":"ada@example.com"}`),
+	)
+	if _, err := store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
+		ProjectID:     projectID,
+		AgentID:       agent.ID,
+		ID:            toolCall.ID,
+		RuntimeLockID: runtime.ID,
+	}); err != nil {
+		t.Fatalf("mark custom tool call ready: %v", err)
+	}
+	return toolCall.ID
 }

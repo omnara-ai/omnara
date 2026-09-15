@@ -359,12 +359,7 @@ function Transcript({ items, live }: { items: TranscriptItem[]; live: OmnaraUIMe
 
 export function Chat({ scope }: { scope: AgentChatScope }) {
   const chat = useAgentChat(scope, { source: 'cli' })
-  const interactions = useAgentInteractions(
-    scope.orgID,
-    scope.projectID,
-    scope.agentID,
-    chat.isWorking,
-  )
+  const interactions = useAgentInteractions(scope.orgID, scope.projectID, scope.agentID)
   const resolveInteraction = useResolveAgentInteraction(scope.orgID, scope.projectID, scope.agentID)
   const { exit } = useApp()
   const [draft, setDraft] = useState('')
@@ -410,7 +405,11 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           interaction={interaction}
           onAnswer={(answers) => {
             void resolveInteraction
-              .mutateAsync({ interactionID: interaction.id, body: { answers } })
+              .mutateAsync({
+                interactionID: interaction.id,
+                body: { answers },
+                targetAgentID: interaction.agent_id,
+              })
               .catch(() => undefined)
           }}
         />

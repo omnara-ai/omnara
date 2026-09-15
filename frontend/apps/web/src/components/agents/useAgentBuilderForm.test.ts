@@ -95,6 +95,30 @@ const fullConfig: BasicConfig = {
     },
   ],
   skillIds: ['skl_1', 'skl_2'],
+  subagents: [
+    {
+      id: 'sub-1',
+      key: 'researcher',
+      type: 'profile',
+      profileName: 'research-agent',
+      description: 'Investigate.',
+      instructionAppend: 'Report as bullets.',
+      maxInstances: '2',
+      archiveAfterIdleMinutes: '30',
+    },
+    {
+      id: 'sub-2',
+      key: 'fork',
+      type: 'self',
+      profileName: '',
+      description: '',
+      instructionAppend: '',
+      maxInstances: '',
+      archiveAfterIdleMinutes: '',
+    },
+  ],
+  maxSubagents: '4',
+  maxDepth: '2',
 }
 
 const minimalYaml = `instruction: Do the thing.
@@ -183,6 +207,51 @@ describe('createBasicConfigSession initialDraft', () => {
       secretId: 'sec_456',
       service: 'execute-api',
       region: 'us-east-1',
+    })
+    expect(config.subagents).toMatchObject([
+      {
+        key: 'researcher',
+        type: 'profile',
+        profileName: 'research-agent',
+        description: 'Investigate.',
+        instructionAppend: 'Report as bullets.',
+        maxInstances: '2',
+        archiveAfterIdleMinutes: '30',
+      },
+      { key: 'fork', type: 'self', profileName: '' },
+    ])
+    expect(config.maxSubagents).toBe('4')
+    expect(config.maxDepth).toBe('2')
+    expect(parse(source)).toMatchObject({
+      subagents: {
+        researcher: { type: 'profile', profile: 'research-agent', max_instances: 2 },
+        fork: { type: 'self' },
+      },
+      max_subagents: 4,
+      max_depth: 2,
+    })
+  })
+
+  it('keeps subagent model overrides authored in YAML', () => {
+    const source = `instruction: Do the thing.
+model:
+  provider_config: anthropic
+  name: claude-sonnet-5
+subagents:
+  fork:
+    type: self
+    model:
+      name: claude-haiku
+`
+    const config = mustDeserialize(source)
+    expect(config.subagents[0]?.modelOverride).toEqual({ name: 'claude-haiku' })
+    expect(applyToSource(source, config)).toBe(source)
+    const renamed = {
+      ...config,
+      subagents: config.subagents.map((subagent) => ({ ...subagent, description: 'Fork.' })),
+    }
+    expect(parse(applyToSource(source, renamed))).toMatchObject({
+      subagents: { fork: { type: 'self', description: 'Fork.', model: { name: 'claude-haiku' } } },
     })
   })
 
@@ -461,6 +530,9 @@ describe('createBasicConfigSession apply', () => {
       tools: [],
       mcpServers: [],
       skillIds: [],
+      subagents: [],
+      maxSubagents: '',
+      maxDepth: '',
     }
     expect(applyToSource('', emptyConfig)).toBe('')
   })

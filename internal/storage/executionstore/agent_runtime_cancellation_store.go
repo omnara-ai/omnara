@@ -26,6 +26,8 @@ type CancelAgentInput struct {
 	Actor     *ActorParams
 }
 
+const cancelReasonAgentCanceled = "agent_canceled"
+
 func (s *Store) CancelAgent(
 	ctx context.Context,
 	input CancelAgentInput,
@@ -40,11 +42,8 @@ func (s *Store) CancelAgent(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
-		return CancelAgentResult{}, fmt.Errorf("lock agent for cancel: %w", err)
+	if err := lockAgentWithParentTx(ctx, tx, qtx, input.ProjectID, input.AgentID); err != nil {
+		return CancelAgentResult{}, err
 	}
 	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, NilID)
 	if err != nil {
@@ -59,7 +58,7 @@ func (s *Store) CancelAgent(
 			ProjectID:        input.ProjectID,
 			AgentID:          input.AgentID,
 			ActorID:          actorID,
-			ReasonCode:       "agent_canceled",
+			ReasonCode:       cancelReasonAgentCanceled,
 			ModelCallMessage: "The model call was canceled by an explicit agent cancellation.",
 		},
 	)
@@ -385,6 +384,14 @@ func cancelAgentTx(
 	}
 	if err := qtx.ReconcileAgentWakeup(ctx, params); err != nil {
 		return CancelAgentResult{}, fmt.Errorf("reconcile canceled agent wakeup: %w", err)
+	}
+	if input.ReasonCode == cancelReasonAgentCanceled {
+		if err := handleSubagentTurnEndedTx(ctx, txNotifications, tx, qtx, projectID, agentID, subagentMessage{
+			Kind:           SubagentMessageKindCanceled,
+			IdempotencyKey: fmt.Sprintf("canceled:%s:%d", agentID.String(), afterSequence),
+		}); err != nil {
+			return CancelAgentResult{}, err
+		}
 	}
 	return CancelAgentResult{
 		Event:                  event,

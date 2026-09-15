@@ -186,6 +186,30 @@ Sends a message to the agent's current [integration target](/integrations/slack#
 
 Changes where future integration messages and [approval or question prompts](/events/interactions) are sent. Requires `target_ref`.
 
+## Subagents
+
+These tools are added automatically when the config declares [`subagents`](/agents/configuration#subagents). Each subagent is an ordinary agent with a `parent_agent_id`.
+
+### `spawn_agent`
+
+Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` is an optional display label. Returns immediately with the subagent's `agent_id`, which the other subagent tools take. The subagent's final answer arrives later as a message from it.
+
+### `read_agent`
+
+Reads a subagent's timeline by `agent_id` in the same shape as the [turns API](/api-reference/endpoints/events/list-turns). Without `turn_id` it returns the newest turns first, each with its opening events and latest event; `before_turn_sequence` pages older turns and `limit` defaults to 10. With `turn_id` it returns that turn's events, newest first; `before_sequence` pages older events and `limit` defaults to 20. Each result carries `next_before_turn_sequence` or `next_before_sequence` for the next page.
+
+### `send_agent_message`
+
+Delivers `message` to the subagent identified by `agent_id` as a steering input. The subagent reads it once its current model call and tool batch finish, so running work is not stopped, but any open question or permission request is canceled. Parents cannot answer a subagent's questions; those wait for a human. The reply arrives as a message from the subagent.
+
+### `stop_agent`
+
+Cancels the current work of the subagent identified by `agent_id` and leaves it idle, so `send_agent_message` can resume it later. With `archive: true` it also archives the subagent and its descendants, after which it can no longer be messaged.
+
+### `list_agents`
+
+Lists the agent's subagents with their `agent_id`, name, key, state, and last activity.
+
 ## Skills
 
 ### `skill`

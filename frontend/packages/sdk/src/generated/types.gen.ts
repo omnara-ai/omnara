@@ -1330,9 +1330,32 @@ export type Agent = {
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
+    /**
+     * Set when this agent is a subagent spawned by another agent.
+     */
+    parent_agent_id?: AgentId;
+    /**
+     * The `subagents` key this agent was spawned from.
+     */
+    subagent_key?: string;
+    /**
+     * Current activity, present on list responses.
+     */
+    activity?: AgentActivity;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
+};
+
+export type AgentActivity = {
+    /**
+     * running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
+     */
+    state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
+    /**
+     * When the agent's latest event was recorded, or its creation time before any event.
+     */
+    last_activity_at: Timestamp;
 };
 
 export type AgentModel = {
@@ -1657,6 +1680,7 @@ export type ToolCallOutcome = 'succeeded' | 'failed' | 'denied' | 'canceled';
  */
 export type ToolCall = {
     id: ToolCallId;
+    agent_id: AgentId;
     turn_id: AgentTurnId;
     provider_call_id: string;
     name: string;
@@ -1669,10 +1693,14 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
+    /**
+     * The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
+     */
+    agent_id?: AgentId;
     state: ToolCallState;
 };
 
@@ -2087,6 +2115,11 @@ export type AgentInteraction = {
      * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
      */
     tool_name?: string;
+    agent_name?: AgentName;
+    /**
+     * Present when the interaction belongs to a subagent of the listed agent.
+     */
+    subagent_key?: string;
     interaction_kind: AgentInteractionKind;
     state: AgentInteractionState;
     request: InteractionForm;
@@ -8431,6 +8464,18 @@ export type ListAgentsData = {
          * Return only agents launched from this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Return only subagents spawned by this agent.
+         */
+        parent_agent_id?: AgentId;
+        /**
+         * Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+         */
+        include_subagents?: boolean;
+        /**
+         * Include archived agents. Defaults to false.
+         */
+        include_archived?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -8491,7 +8536,7 @@ export type ListAgentsError = ListAgentsErrors[keyof ListAgentsErrors];
 
 export type ListAgentsResponses = {
     /**
-     * Active agents in the project, newest first.
+     * Agents in the project, newest first.
      */
     200: ListAgentsResponse;
 };
@@ -8874,6 +8919,10 @@ export type ListToolCallsData = {
     query?: {
         state?: ToolCallState;
         type?: ToolCallType;
+        /**
+         * Also return tool calls from this agent's subagents at every depth. Each row's agent_id says which agent made the call.
+         */
+        include_subagents?: boolean;
         /**
          * Maximum number of items to return in one page.
          */
@@ -9304,7 +9353,7 @@ export type StreamEventsError = StreamEventsErrors[keyof StreamEventsErrors];
 
 export type StreamEventsResponses = {
     /**
-     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
      */
     200: AgentEventStreamData;
 };
@@ -9389,6 +9438,10 @@ export type ListAgentInteractionsData = {
     };
     query?: {
         state?: AgentInteractionState;
+        /**
+         * Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+         */
+        include_subagents?: boolean;
         /**
          * Maximum number of items to return in one page.
          */

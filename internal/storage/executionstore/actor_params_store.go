@@ -65,6 +65,16 @@ func omnaraActorDisplayNameTx(
 		}
 		return user.DisplayName, nil
 	}
+	if agentID, err := publicid.Decode(publicid.KindAgent, providerUserID); err == nil {
+		agent, err := qtx.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: agentID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("load omnara actor agent: %w", err)
+		}
+		return subagentDisplayName(agentRecordFromProjectSQLC(agent)), nil
+	}
 	keyID, err := publicid.Decode(publicid.KindOrgAPIKey, providerUserID)
 	if err != nil {
 		return "", fmt.Errorf("decode omnara actor principal: %w", err)

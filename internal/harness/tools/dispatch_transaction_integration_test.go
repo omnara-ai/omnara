@@ -74,6 +74,54 @@ func TestTransactionalToolDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentDispatchUsesOneDatabaseConnection(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithOptions(
+		t, ctx, "single-connection-spawn", toolFixtureOptions{withSubagents: true},
+	)
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_single_connection_spawn",
+		"spawn_agent",
+		`{"agent":"fork","task":"Investigate the failing build.","name":"worker"}`,
+		fixture.Now.Add(20*time.Second),
+	)
+
+	config := fixture.Pool.Config()
+	config.MinConns = 0
+	config.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("open single-connection pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	turn := fixture.turn()
+	turn.Tools = map[string]ToolSpec{
+		"spawn_agent": {
+			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+		},
+	}
+	result, err := (Executor{
+		Store: storage.NewStore(pool),
+		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
+	}).Dispatch(ctx, turn, call)
+	if err != nil {
+		t.Fatalf("dispatch spawn_agent with one database connection: %v", err)
+	}
+	if result.Disposition != DispatchCompleted {
+		t.Fatalf("transactional spawn_agent disposition = %d, want completed", result.Disposition)
+	}
+	subagents, err := fixture.Store.Execution().ListSubagents(ctx, toolsTestProjectID, fixture.Agent.ID)
+	if err != nil {
+		t.Fatalf("list subagents: %v", err)
+	}
+	if len(subagents) != 1 || subagents[0].Name != "worker" || subagents[0].Key != "fork" {
+		t.Fatalf("subagents after spawn = %+v, want one worker spawned from fork", subagents)
+	}
+}
+
 func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 	tests := []struct {
 		name            string

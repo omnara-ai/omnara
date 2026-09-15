@@ -101,6 +101,9 @@ export function agentTemplateBasicConfig(
   return {
     mcpServers: [],
     skillIds: [],
+    subagents: [],
+    maxSubagents: '',
+    maxDepth: '',
     ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
   }
 }

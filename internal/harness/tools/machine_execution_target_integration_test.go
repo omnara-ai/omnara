@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"reflect"
 	"testing"
 	"time"
@@ -2043,6 +2044,14 @@ func (m testPoolMachineManager) ProvisionMachine(
 	return m.provision(ctx, orgID, machineID)
 }
 
+func (m testPoolMachineManager) StartLaunchProvisioning(
+	context.Context,
+	*slog.Logger,
+	storage.ID,
+	[]storage.ID,
+) {
+}
+
 func (m testPoolMachineManager) DeleteMachine(
 	ctx context.Context,
 	candidate executionstore.PoolMachineCleanupCandidate,
@@ -2051,6 +2060,18 @@ func (m testPoolMachineManager) DeleteMachine(
 		return nil
 	}
 	return m.delete(ctx, candidate)
+}
+
+func (m testPoolMachineManager) DeleteMachines(
+	ctx context.Context,
+	machines []executionstore.MachineRecord,
+) (int, error) {
+	for _, machine := range machines {
+		if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: machine}); err != nil {
+			return 0, err
+		}
+	}
+	return len(machines), nil
 }
 
 func (m testPoolMachineManager) WakeMachine(

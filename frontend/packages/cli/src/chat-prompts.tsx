@@ -133,6 +133,12 @@ export function InteractionPrompt({
         <Label name={approval ? 'approval' : 'question'} color={approval ? 'yellow' : 'cyan'} />{' '}
         {form.title}
       </Text>
+      {interaction.agent_name != null && (
+        <Text>
+          {'  '}
+          <Text dimColor>from subagent</Text> {interaction.agent_name}
+        </Text>
+      )}
       {(form.context ?? []).map((item) => (
         <Text key={item.label}>
           {'  '}

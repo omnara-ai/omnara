@@ -181,7 +181,7 @@ FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
 WHERE call.project_id = sqlc.arg(project_id)
-  AND call.agent_id = sqlc.arg(agent_id)
+  AND call.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
   AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
   AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
   AND (
@@ -506,7 +506,7 @@ RETURNING call.id, projection.project_id, call.agent_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at;
 
--- name: CompleteMachineUnreachableToolCall :one
+-- name: CompleteWaitingBuiltInToolCall :one
 WITH locked_agent AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent

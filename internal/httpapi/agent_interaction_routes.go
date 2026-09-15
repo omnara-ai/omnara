@@ -39,11 +39,19 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	if params.State != nil {
 		state = executionstore.AgentInteractionState(*params.State)
 	}
-	page, err := s.server.store.Execution().ListAgentInteractionsForAgent(
+	agentIDs := []storage.ID{agentID}
+	if params.IncludeSubagents != nil && *params.IncludeSubagents {
+		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, projectID, agentID)
+		if err != nil {
+			return nil, apierror.ProjectScoped(err)
+		}
+		agentIDs = append(agentIDs, descendants...)
+	}
+	page, err := s.server.store.Execution().ListAgentInteractions(
 		ctx,
-		executionstore.ListAgentInteractionsForAgentInput{
+		executionstore.ListAgentInteractionsInput{
 			ProjectID: projectID,
-			AgentID:   agentID,
+			AgentIDs:  agentIDs,
 			State:     state,
 			Limit:     limit,
 			After:     after,
@@ -54,13 +62,17 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	}
 	data := make([]openapi.AgentInteraction, 0, len(page.Interactions))
 	var last executionstore.AgentInteractionRecord
-	for _, record := range page.Interactions {
-		response, err := agentInteractionResponseFromRecord(orgID, record)
+	for _, item := range page.Interactions {
+		response, err := agentInteractionResponseFromRecord(orgID, item.AgentInteractionRecord)
 		if err != nil {
 			return nil, err
 		}
+		if item.AgentID != agentID {
+			response.AgentName = &item.AgentName
+			response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
+		}
 		data = append(data, response)
-		last = record
+		last = item.AgentInteractionRecord
 	}
 	nextCursor, err := encodeNextCursor(
 		page.HasMore,

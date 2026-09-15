@@ -1,4 +1,4 @@
-package httpapi
+package publicevents
 
 import (
 	"bytes"
@@ -12,7 +12,366 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
+
+func publicID(kind publicid.Kind, id storage.ID) (string, error) {
+	encoded, err := publicid.Encode(kind, id)
+	if err != nil {
+		return "", fmt.Errorf("public id encoding failed for %s %s: %w", kind, id, err)
+	}
+	return encoded, nil
+}
+
+func EventFromReadRecord(record executionstore.AgentEventReadRecord) (openapi.AgentEvent, error) {
+	id, err := publicID(publicid.KindAgentEvent, record.ID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	orgID, err := publicID(publicid.KindOrganization, record.OrgID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	projectID, err := publicID(publicid.KindProject, record.ProjectID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	agentID, err := publicID(publicid.KindAgent, record.AgentID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	turnID, err := publicID(publicid.KindAgentTurn, record.TurnID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	switch record.EventKind {
+	case "agent_input":
+		return publicAgentInputEvent(record, id, orgID, projectID, agentID, turnID)
+	case "model_output":
+		return publicModelOutputEvent(record, id, orgID, projectID, agentID, turnID)
+	case "tool_result":
+		return publicToolResultEvent(record, id, orgID, projectID, agentID, turnID)
+	case "context_checkpoint":
+		return publicContextCheckpointEvent(record, id, orgID, projectID, agentID, turnID)
+	default:
+		return openapi.AgentEvent{}, fmt.Errorf("unsupported agent event kind %q", record.EventKind)
+	}
+}
+
+func publicContextCheckpointEvent(
+	record executionstore.AgentEventReadRecord,
+	id, orgID, projectID, agentID, turnID string,
+) (openapi.AgentEvent, error) {
+	if record.IsOpeningEvent {
+		return openapi.AgentEvent{}, errors.New("context checkpoint cannot open a turn")
+	}
+	checkpointID, err := publicID(
+		publicid.KindContextCheckpoint,
+		record.ContextCheckpointID,
+	)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	event := openapi.ContextCheckpointEvent{
+		Id:                             id,
+		OrgId:                          orgID,
+		ProjectId:                      projectID,
+		AgentId:                        agentID,
+		TurnId:                         turnID,
+		TurnSequence:                   record.TurnSequence,
+		IsOpeningEvent:                 openapi.ContextCheckpointEventIsOpeningEventFalse,
+		Sequence:                       record.Sequence,
+		ContextCheckpointId:            checkpointID,
+		SummarizedThroughEventSequence: record.SummarizedThroughEventSequence,
+		Summary:                        record.CheckpointSummary,
+		CreatedAt:                      record.CreatedAt,
+	}
+	var response openapi.AgentEvent
+	if err := response.FromContextCheckpointEvent(event); err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	return response, nil
+}
+
+func publicAgentInputEvent(
+	record executionstore.AgentEventReadRecord,
+	id, orgID, projectID, agentID, turnID string,
+) (openapi.AgentEvent, error) {
+	agentInputID, err := publicID(publicid.KindAgentInput, record.AgentInputID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	inputKind := openapi.AgentInputKind(record.InputKind)
+	if !inputKind.Valid() {
+		return openapi.AgentEvent{}, fmt.Errorf("invalid agent input kind %q", record.InputKind)
+	}
+	blocks, err := AgentInputContentBlocks(record.ContentBlocks)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	event := openapi.AgentInputEvent{
+		Id:             id,
+		OrgId:          orgID,
+		ProjectId:      projectID,
+		AgentId:        agentID,
+		TurnId:         turnID,
+		TurnSequence:   record.TurnSequence,
+		IsOpeningEvent: record.IsOpeningEvent,
+		Sequence:       record.Sequence,
+		AgentInputId:   agentInputID,
+		InputKind:      inputKind,
+		ContentBlocks:  blocks,
+		CreatedAt:      record.CreatedAt,
+	}
+	if record.ActorID != storage.NilID {
+		actorID, err := publicID(publicid.KindActor, record.ActorID)
+		if err != nil {
+			return openapi.AgentEvent{}, err
+		}
+		event.ActorId = &actorID
+	}
+	if inputKind == openapi.AgentInputKindContent && record.InputIdempotencyKey != "" {
+		event.InputIdempotencyKey = &record.InputIdempotencyKey
+	}
+	if record.ControlType != "" {
+		controlType := openapi.AgentControlType(record.ControlType)
+		if !controlType.Valid() {
+			return openapi.AgentEvent{}, fmt.Errorf("invalid agent control type %q", record.ControlType)
+		}
+		event.ControlType = &controlType
+	}
+	if record.TargetInteractionID != storage.NilID {
+		interactionID, err := publicID(publicid.KindAgentInteraction, record.TargetInteractionID)
+		if err != nil {
+			return openapi.AgentEvent{}, err
+		}
+		event.InteractionId = &interactionID
+	}
+	if record.AgentConfigID != storage.NilID {
+		agentConfigID, err := publicID(publicid.KindAgentConfig, record.AgentConfigID)
+		if err != nil {
+			return openapi.AgentEvent{}, err
+		}
+		event.AgentConfigId = &agentConfigID
+	}
+	var response openapi.AgentEvent
+	if err := response.FromAgentInputEvent(event); err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	return response, nil
+}
+
+func publicModelOutputEvent(
+	record executionstore.AgentEventReadRecord,
+	id, orgID, projectID, agentID, turnID string,
+) (openapi.AgentEvent, error) {
+	if record.IsOpeningEvent {
+		return openapi.AgentEvent{}, errors.New("model output cannot open a turn")
+	}
+	modelCallContextID, err := publicID(
+		publicid.KindModelCallContext,
+		record.ModelCallContextID,
+	)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	stopReason := openapi.ModelOutputStopReason(record.ModelStopReason)
+	if !stopReason.Valid() {
+		return openapi.AgentEvent{}, fmt.Errorf(
+			"invalid model stop reason %q",
+			record.ModelStopReason,
+		)
+	}
+	blocks, err := ModelOutputContentBlocks(record.ContentBlocks)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	event := openapi.ModelOutputEvent{
+		Id:                 id,
+		OrgId:              orgID,
+		ProjectId:          projectID,
+		AgentId:            agentID,
+		TurnId:             turnID,
+		TurnSequence:       record.TurnSequence,
+		IsOpeningEvent:     openapi.ModelOutputEventIsOpeningEventFalse,
+		Sequence:           record.Sequence,
+		ModelCallContextId: modelCallContextID,
+		StopReason:         stopReason,
+		ContentBlocks:      blocks,
+		Usage:              ModelUsage(record.ModelUsage),
+		CreatedAt:          record.CreatedAt,
+	}
+	if record.ProviderMetadata != (modelenvelope.ProviderMetadata{}) {
+		providerMetadata, err := json.Marshal(record.ProviderMetadata)
+		if err != nil {
+			return openapi.AgentEvent{}, err
+		}
+		event.ProviderMetadata = providerMetadata
+	}
+	var response openapi.AgentEvent
+	if err := response.FromModelOutputEvent(event); err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	return response, nil
+}
+
+func publicToolResultEvent(
+	record executionstore.AgentEventReadRecord,
+	id, orgID, projectID, agentID, turnID string,
+) (openapi.AgentEvent, error) {
+	if record.IsOpeningEvent {
+		return openapi.AgentEvent{}, errors.New("tool result cannot open a turn")
+	}
+	toolCallID, err := publicID(publicid.KindToolCall, record.ToolCallID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	outcome, err := ToolCallOutcome(record.ToolOutcome)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	blocks, err := ToolResultContentBlocks(record.ContentBlocks)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	event := openapi.ToolResultEvent{
+		Id:             id,
+		OrgId:          orgID,
+		ProjectId:      projectID,
+		AgentId:        agentID,
+		TurnId:         turnID,
+		TurnSequence:   record.TurnSequence,
+		IsOpeningEvent: openapi.ToolResultEventIsOpeningEventFalse,
+		Sequence:       record.Sequence,
+		ToolCallId:     toolCallID,
+		Outcome:        outcome,
+		ContentBlocks:  blocks,
+		CreatedAt:      record.CreatedAt,
+	}
+	var response openapi.AgentEvent
+	if err := response.FromToolResultEvent(event); err != nil {
+		return openapi.AgentEvent{}, err
+	}
+	return response, nil
+}
+
+func ToolCallOutcome(
+	outcome executionstore.ToolResultOutcome,
+) (openapi.ToolCallOutcome, error) {
+	value := openapi.ToolCallOutcome(outcome)
+	if !value.Valid() {
+		return "", fmt.Errorf("invalid terminal tool outcome %q", outcome)
+	}
+	return value, nil
+}
+
+func TurnFromReadRecord(record executionstore.AgentTurnReadRecord) (openapi.AgentTurn, error) {
+	id, err := publicID(publicid.KindAgentTurn, record.ID)
+	if err != nil {
+		return openapi.AgentTurn{}, err
+	}
+	agentID, err := publicID(publicid.KindAgent, record.AgentID)
+	if err != nil {
+		return openapi.AgentTurn{}, err
+	}
+	openingEvents, err := EventsFromReadRecords(record.OpeningEvents)
+	if err != nil {
+		return openapi.AgentTurn{}, err
+	}
+	response := openapi.AgentTurn{
+		Id:            id,
+		AgentId:       agentID,
+		TurnSequence:  record.TurnSequence,
+		EventCount:    record.EventCount,
+		OpeningEvents: openingEvents,
+		StartedAt:     record.StartedAt,
+		UpdatedAt:     record.UpdatedAt,
+	}
+	if record.LatestEvent.ID != storage.NilID {
+		latest, err := EventFromReadRecord(record.LatestEvent)
+		if err != nil {
+			return openapi.AgentTurn{}, err
+		}
+		response.LatestEvent = &latest
+	}
+	if record.LatestSemanticEvent.ID != storage.NilID {
+		latestSemantic, err := EventFromReadRecord(record.LatestSemanticEvent)
+		if err != nil {
+			return openapi.AgentTurn{}, err
+		}
+		response.LatestSemanticEvent = &latestSemantic
+	}
+	return response, nil
+}
+
+func TurnsFromReadRecords(records []executionstore.AgentTurnReadRecord) ([]openapi.AgentTurn, error) {
+	out := make([]openapi.AgentTurn, 0, len(records))
+	for _, record := range records {
+		response, err := TurnFromReadRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, response)
+	}
+	return out, nil
+}
+
+func EventsFromReadRecords(records []executionstore.AgentEventReadRecord) ([]openapi.AgentEvent, error) {
+	out := make([]openapi.AgentEvent, 0, len(records))
+	for _, record := range records {
+		response, err := EventFromReadRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, response)
+	}
+	return out, nil
+}
+
+func ModelUsage(usage modelenvelope.Usage) *openapi.ModelUsage {
+	if usage == (modelenvelope.Usage{}) {
+		return nil
+	}
+	return &openapi.ModelUsage{
+		InputTokensTotal:      &usage.InputTokens,
+		UncachedInputTokens:   &usage.UncachedInputTokens,
+		CacheReadInputTokens:  modelenvelope.OptionalCount(usage.CacheReadTokens),
+		CacheWriteInputTokens: modelenvelope.OptionalCount(usage.CacheWriteTokens),
+		OutputTokensTotal:     &usage.OutputTokens,
+		ReasoningOutputTokens: modelenvelope.OptionalCount(usage.ReasoningTokens),
+	}
+}
+
+func SequenceBoundary(value *int64, name string) (int64, error) {
+	if value == nil {
+		return 0, nil
+	}
+	if *value < 0 {
+		return 0, errors.New(name + " must be a non-negative integer")
+	}
+	return *value, nil
+}
+
+func TimelineLimit(value *int32, defaultValue, maxValue int32) (int32, error) {
+	if value == nil {
+		return defaultValue, nil
+	}
+	if *value < 1 || *value > maxValue {
+		return 0, fmt.Errorf("limit must be an integer between 1 and %d", maxValue)
+	}
+	return *value, nil
+}
+
+func TrimEventsBeforePage(
+	events []executionstore.AgentEventReadRecord,
+	limit int32,
+) ([]executionstore.AgentEventReadRecord, *int64) {
+	if len(events) <= int(limit) {
+		return events, nil
+	}
+	nextBeforeSequence := events[1].Sequence
+	return events[1:], &nextBeforeSequence
+}
 
 type storedContentBlockType struct {
 	Type string `json:"type"`
@@ -94,7 +453,7 @@ func decodeStoredContentBlock(
 	return nil
 }
 
-func publicAgentInputContentBlocks(
+func AgentInputContentBlocks(
 	raw json.RawMessage,
 ) ([]openapi.AgentInputContentBlock, error) {
 	blocks, err := decodeStoredContentBlocks(raw)
@@ -137,7 +496,7 @@ func publicAgentInputContentBlocks(
 	return out, nil
 }
 
-func publicModelOutputContentBlocks(
+func ModelOutputContentBlocks(
 	raw json.RawMessage,
 ) ([]openapi.ModelOutputContentBlock, error) {
 	blocks, err := decodeStoredContentBlocks(raw)
@@ -210,7 +569,7 @@ func publicModelOutputContentBlocks(
 	return out, nil
 }
 
-func publicToolResultContentBlocks(
+func ToolResultContentBlocks(
 	raw json.RawMessage,
 ) ([]openapi.ToolResultContentBlock, error) {
 	blocks, err := decodeStoredContentBlocks(raw)
@@ -385,7 +744,7 @@ func publicModelToolCallContentBlock(
 			index,
 		)
 	}
-	input, err := publicToolInput(
+	input, err := ToolInput(
 		block.Input,
 		fmt.Sprintf("tool call content block %d input", index),
 	)
@@ -401,7 +760,7 @@ func publicModelToolCallContentBlock(
 	}, nil
 }
 
-func publicToolInput(
+func ToolInput(
 	raw json.RawMessage,
 	description string,
 ) (openapi.ToolInput, error) {

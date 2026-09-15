@@ -57,6 +57,9 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
+	if err := lockAgentWithParentTx(ctx, tx, q, input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,
@@ -257,6 +260,16 @@ func publishModelCallErrorOutputTx(
 		Metadata:  json.RawMessage(`{"reason":"model_call_error"}`),
 	}); err != nil {
 		return TypedAgentEventRecord{}, fmt.Errorf("reconcile wakeup after model call error: %w", err)
+	}
+	message := subagentMessage{
+		Kind:           SubagentMessageKindFailed,
+		Text:           input.ErrorMessage,
+		IdempotencyKey: "model_output:" + modelOutput.ID.String(),
+	}
+	if err := handleSubagentTurnEndedTx(
+		ctx, txNotifications, tx, q, contextRow.ProjectID, contextRow.AgentID, message,
+	); err != nil {
+		return TypedAgentEventRecord{}, err
 	}
 	return eventRecord, nil
 }

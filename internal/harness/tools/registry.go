@@ -246,6 +246,42 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(inspectMachinePermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameSpawnAgent,
+			semanticInputValidator: validateSpawnAgentInput,
+			handler: toolHandler{
+				Transactional: spawnAgent,
+				Background:    provisionSubagentMachinesInBackground,
+			},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameReadAgent,
+			semanticInputValidator: validateReadAgentInput,
+			handler:                toolHandler{Transactional: readAgent},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameSendAgentMessage,
+			semanticInputValidator: validateSendAgentMessageInput,
+			handler:                toolHandler{Transactional: sendAgentMessage},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameStopAgent,
+			semanticInputValidator: validateStopAgentInput,
+			handler: toolHandler{
+				Transactional: stopAgent,
+				Background:    stopAgentInBackground,
+			},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameListAgents,
+			semanticInputValidator: validateListAgentsInput,
+			handler:                toolHandler{Transactional: listAgents},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameAskQuestion,
 			semanticInputValidator: validateQuestionInput,
 			handler: toolHandler{

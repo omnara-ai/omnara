@@ -24,12 +24,15 @@ const (
 )
 
 type insertAgentInput struct {
-	OrgID           ID
-	ProjectID       ID
-	AgentProfileID  ID
-	Name            string
-	CurrentConfigID ID
-	IdempotencyKey  string
+	OrgID                   ID
+	ProjectID               ID
+	AgentProfileID          ID
+	Name                    string
+	CurrentConfigID         ID
+	IdempotencyKey          string
+	ParentAgentID           ID
+	SubagentKey             string
+	ArchiveAfterIdleMinutes *int
 }
 
 type AgentRecord struct {
@@ -48,7 +51,15 @@ type AgentRecord struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
-	Created             bool       `json:"-"`
+	ParentAgentID       ID         `json:"parent_agent_id,omitempty"`
+	SubagentKey         string     `json:"subagent_key,omitempty"`
+	Activity            *AgentActivity
+	Created             bool `json:"-"`
+}
+
+type AgentActivity struct {
+	State          string
+	LastActivityAt time.Time
 }
 
 type AgentModelDisplay struct {
@@ -71,12 +82,15 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
-		OrgID:           input.OrgID,
-		ProjectID:       input.ProjectID,
-		AgentProfileID:  sqlcIDFromNil(input.AgentProfileID),
-		Name:            input.Name,
-		CurrentConfigID: input.CurrentConfigID,
-		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
+		OrgID:                   input.OrgID,
+		ProjectID:               input.ProjectID,
+		AgentProfileID:          sqlcIDFromNil(input.AgentProfileID),
+		Name:                    input.Name,
+		CurrentConfigID:         input.CurrentConfigID,
+		IdempotencyKey:          sqlcTextFromEmpty(input.IdempotencyKey),
+		ParentAgentID:           sqlcIDFromNil(input.ParentAgentID),
+		SubagentKey:             input.SubagentKey,
+		ArchiveAfterIdleMinutes: sqlcInt32Ptr(input.ArchiveAfterIdleMinutes),
 	})
 	if err == nil {
 		record := agentRecordFromInsertSQLC(row)
@@ -180,6 +194,9 @@ type AgentListFilters struct {
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
 	AgentProfileID         *ID
+	ParentAgentID          *ID
+	IncludeSubagents       bool
+	IncludeArchived        bool
 }
 
 type ListAgentsForProjectResult struct {
@@ -207,7 +224,11 @@ func (s *Store) ListAgentsForProject(
 		return ListAgentsForProjectResult{}, errors.New("unsupported agent list sort")
 	}
 	if input.List.SortField == "created_at" && input.List.SortDesc {
-		return s.listAgentsForProjectByCreatedAtDesc(ctx, input)
+		result, err := s.listAgentsForProjectByCreatedAtDesc(ctx, input)
+		if err != nil {
+			return ListAgentsForProjectResult{}, err
+		}
+		return s.attachAgentActivity(ctx, input.ProjectID, result)
 	}
 	params := dbsqlc.ListAgentsForProjectParams{
 		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
@@ -219,6 +240,9 @@ func (s *Store) ListAgentsForProject(
 		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
 		AgentProfileID:         input.Filters.AgentProfileID,
+		ParentAgentID:          input.Filters.ParentAgentID,
+		IncludeSubagents:       input.Filters.IncludeSubagents,
+		IncludeArchived:        input.Filters.IncludeArchived,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -236,6 +260,41 @@ func (s *Store) ListAgentsForProject(
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
 		result.Agents = append(result.Agents, agentRecordFromListForProjectSQLC(row))
+	}
+	return s.attachAgentActivity(ctx, input.ProjectID, result)
+}
+
+func (s *Store) attachAgentActivity(
+	ctx context.Context,
+	projectID ID,
+	result ListAgentsForProjectResult,
+) (ListAgentsForProjectResult, error) {
+	if len(result.Agents) == 0 {
+		return result, nil
+	}
+	agentIDs := make([]ID, 0, len(result.Agents))
+	for _, agent := range result.Agents {
+		agentIDs = append(agentIDs, agent.ID)
+	}
+	rows, err := s.q.ListAgentActivityForAgents(
+		ctx, dbsqlc.ListAgentActivityForAgentsParams{ProjectID: projectID, AgentIds: agentIDs},
+	)
+	if err != nil {
+		return ListAgentsForProjectResult{}, fmt.Errorf("list agent activity: %w", err)
+	}
+	activity := make(map[ID]AgentActivity, len(rows))
+	for _, row := range rows {
+		activity[row.ID] = AgentActivity{
+			State: agentActivityState(
+				row.State == string(AgentStateArchived), row.HasOpenQuestion, row.HasOpenPermission, row.IsRunning,
+			),
+			LastActivityAt: row.LastActivityAt,
+		}
+	}
+	for i := range result.Agents {
+		if value, ok := activity[result.Agents[i].ID]; ok {
+			result.Agents[i].Activity = &value
+		}
 	}
 	return result, nil
 }
@@ -261,6 +320,9 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
 			AgentProfileID:         input.Filters.AgentProfileID,
+			ParentAgentID:          input.Filters.ParentAgentID,
+			IncludeSubagents:       input.Filters.IncludeSubagents,
+			IncludeArchived:        input.Filters.IncludeArchived,
 			CursorSet:              input.List.After.Set,
 			CursorCreatedAt:        cursorCreatedAt,
 			CursorID:               input.List.After.ID,
@@ -355,13 +417,7 @@ func (s *Store) ArchiveAgent(
 		machines []MachineRecord
 	}
 	result, err := storeutil.RetryTransaction(ctx, "archive_agent", func() (archiveAgentResult, error) {
-		agent, machines, archiveErr := s.archiveAgentOnce(
-			ctx,
-			project.OrgID,
-			projectID,
-			agentID,
-			actor,
-		)
+		agent, machines, archiveErr := s.archiveAgentOnce(ctx, projectID, agentID, actor)
 		return archiveAgentResult{agent: agent, machines: machines}, archiveErr
 	})
 	return result.agent, result.machines, err
@@ -369,7 +425,7 @@ func (s *Store) ArchiveAgent(
 
 func (s *Store) archiveAgentOnce(
 	ctx context.Context,
-	orgID, projectID, agentID ID,
+	projectID, agentID ID,
 	actor *ActorParams,
 ) (AgentRecord, []MachineRecord, error) {
 	txNotifications := s.newTxNotifications()
@@ -379,10 +435,12 @@ func (s *Store) archiveAgentOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
+	if err := enterActiveAgentProjectTx(ctx, tx, qtx, projectID); err != nil {
 		return AgentRecord{}, nil, err
 	}
-	machines, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor)
+	machines, err := archiveAgentTreeTx(
+		ctx, tx, qtx, txNotifications, projectID, agentID, actor, SubagentMessageKindArchived,
+	)
 	if err != nil {
 		return AgentRecord{}, nil, err
 	}
@@ -409,27 +467,6 @@ func archiveAgentTx(
 	projectID, agentID ID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	if err := qtx.LockAgentMachineSources(
-		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
-	); err != nil {
-		return nil, fmt.Errorf("lock archived agent machine sources: %w", err)
-	}
-	if err := qtx.LockAttachedAgentPoolMachines(
-		ctx,
-		dbsqlc.LockAttachedAgentPoolMachinesParams{ProjectID: projectID, AgentID: agentID},
-	); err != nil {
-		return nil, fmt.Errorf("lock archived agent pool machines: %w", err)
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, storeerr.ErrNotFound
-		}
-		return nil, fmt.Errorf("lock agent for archive: %w", err)
-	}
 	actorID, err := resolveActorTx(ctx, qtx, projectID, agentID, actor, NilID)
 	if err != nil {
 		return nil, err
@@ -507,4 +544,168 @@ func archiveAgentTx(
 		machines = append(machines, machineRecordFromMarkArchivedAgentPoolMachinesDeletingSQLC(row))
 	}
 	return machines, nil
+}
+
+func listActiveAgentTreeTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, rootID ID) ([]ID, error) {
+	tree := []ID{rootID}
+	for index := 0; index < len(tree); index++ {
+		parentID := tree[index]
+		childIDs, err := qtx.ListActiveChildAgentIDs(ctx, dbsqlc.ListActiveChildAgentIDsParams{
+			ProjectID:     projectID,
+			ParentAgentID: &parentID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list subagents for archive: %w", err)
+		}
+		tree = append(tree, childIDs...)
+	}
+	return tree, nil
+}
+
+func sameAgentIDSet(left, right []ID) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := make(map[ID]struct{}, len(left))
+	for _, id := range left {
+		seen[id] = struct{}{}
+	}
+	for _, id := range right {
+		if _, ok := seen[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func lockAgentTreeForArchiveTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	root AgentRecord,
+	tree []ID,
+) error {
+	if err := lifecyclelock.AgentSources(ctx, tx, tree...); err != nil {
+		return err
+	}
+	var machineRefs []lifecyclelock.MachineRef
+	for _, agentID := range tree {
+		machineIDs, err := qtx.ListAttachedAgentPoolMachineIDsForLifecycle(
+			ctx,
+			dbsqlc.ListAttachedAgentPoolMachineIDsForLifecycleParams{ProjectID: root.ProjectID, AgentID: agentID},
+		)
+		if err != nil {
+			return fmt.Errorf("list archived agent pool machines: %w", err)
+		}
+		for _, machineID := range machineIDs {
+			machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: root.OrgID, MachineID: machineID})
+		}
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return err
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(tree)+1)
+	for _, agentID := range tree {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: root.ProjectID, AgentID: agentID})
+	}
+	if !isNilID(root.ParentAgentID) {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: root.ProjectID, AgentID: root.ParentAgentID})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return err
+	}
+	lockedTree, err := listActiveAgentTreeTx(ctx, qtx, root.ProjectID, root.ID)
+	if err != nil {
+		return err
+	}
+	if !sameAgentIDSet(tree, lockedTree) {
+		return fmt.Errorf("subagent tree changed during archive: %w", storeutil.ErrRetryTransaction)
+	}
+	return nil
+}
+
+type lockedAgentTree struct {
+	root AgentRecord
+	ids  []ID
+}
+
+// enterActiveAgentProjectTx takes the organization and project lifecycle
+// gates before an agent tree is locked, so archival and stop paths order
+// against project and organization deletion the same way ArchiveAgent does.
+func enterActiveAgentProjectTx(ctx context.Context, tx pgx.Tx, qtx *dbsqlc.Queries, projectID ID) error {
+	project, err := loadProjectTx(ctx, qtx, projectID)
+	if err != nil {
+		return err
+	}
+	return lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, project.ID)
+}
+
+func lockAgentTreeTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	projectID, agentID ID,
+) (lockedAgentTree, error) {
+	root, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	if err != nil {
+		return lockedAgentTree{}, err
+	}
+	tree, err := listActiveAgentTreeTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return lockedAgentTree{}, err
+	}
+	if err := lockAgentTreeForArchiveTx(ctx, tx, qtx, root, tree); err != nil {
+		return lockedAgentTree{}, err
+	}
+	root, err = loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	if err != nil {
+		return lockedAgentTree{}, err
+	}
+	return lockedAgentTree{root: root, ids: tree}, nil
+}
+
+func archiveLockedAgentTreeTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	txNotifications *notifications.TxNotifications,
+	locked lockedAgentTree,
+	actor *ActorParams,
+	notifyParentKind string,
+) ([]MachineRecord, error) {
+	root := locked.root
+	alreadyArchived := root.State == AgentStateArchived
+	var machines []MachineRecord
+	for index := len(locked.ids) - 1; index >= 0; index-- {
+		released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, root.ProjectID, locked.ids[index], actor)
+		if err != nil {
+			return nil, err
+		}
+		machines = append(machines, released...)
+	}
+	if notifyParentKind != "" && !alreadyArchived && !isNilID(root.ParentAgentID) {
+		if err := notifyParentAgentTx(ctx, txNotifications, tx, qtx, root, subagentMessage{
+			Kind:           notifyParentKind,
+			IdempotencyKey: notifyParentKind + ":" + root.ID.String(),
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return machines, nil
+}
+
+func archiveAgentTreeTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	txNotifications *notifications.TxNotifications,
+	projectID, agentID ID,
+	actor *ActorParams,
+	notifyParentKind string,
+) ([]MachineRecord, error) {
+	locked, err := lockAgentTreeTx(ctx, tx, qtx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return archiveLockedAgentTreeTx(ctx, tx, qtx, txNotifications, locked, actor, notifyParentKind)
 }

@@ -47,8 +47,8 @@ func (s *Store) ListToolCalls(
 	ctx context.Context,
 	input ListToolCallsInput,
 ) (ListToolCallsResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
-		return ListToolCallsResult{}, errors.New("project and agent are required")
+	if isNilID(input.ProjectID) || len(input.AgentIDs) == 0 {
+		return ListToolCallsResult{}, errors.New("project and at least one agent are required")
 	}
 	if input.Limit <= 0 {
 		return ListToolCallsResult{}, errors.New("limit must be positive")
@@ -77,7 +77,7 @@ func (s *Store) ListToolCalls(
 	}
 	params := dbsqlc.ListToolCallsForAgentParams{
 		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
+		AgentIds:  input.AgentIDs,
 		State:     string(input.State),
 		Type:      input.Type,
 		RowLimit:  int64(input.Limit) + 1,

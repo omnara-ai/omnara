@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
@@ -65,6 +67,15 @@ type Executor struct {
 	Now                      func() time.Time
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
+	AgentConfigOptions       agentconfig.CompileOptions
+	Log                      *slog.Logger
+}
+
+func (e Executor) logger() *slog.Logger {
+	if e.Log != nil {
+		return e.Log
+	}
+	return slog.Default()
 }
 
 func (e Executor) skillStore() SkillStore {
@@ -83,7 +94,9 @@ func (e Executor) skillStore() SkillStore {
 
 type machinePoolManager interface {
 	ProvisionMachine(ctx context.Context, orgID, machineID storage.ID) error
+	StartLaunchProvisioning(parent context.Context, logger *slog.Logger, orgID storage.ID, machineIDs []storage.ID)
 	DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error
+	DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error)
 	WakeMachine(ctx context.Context, orgID, machineID storage.ID) (bool, error)
 }
 
