@@ -58,11 +58,9 @@ RETURNING id`,
 				Tools: map[string]ToolSpec{tc.tool: {Permission: selection}},
 			}
 
-			// Persist the request exactly as the old worker did, bypassing the new input validator.
-			// run_command approval pins the binding UUID; inspect_machine pinned machine_ref.
-			authorizedInput := json.RawMessage(`{"mode":"inspect","machine_ref":"mchr-old123"}`)
+			legacyAuthorizationInput := json.RawMessage(`{"mode":"inspect","machine_ref":"mchr-old123"}`)
 			if tc.tool == "run_command" {
-				authorizedInput, err = runCommandAuthorizationInput(bindingID, resolvedRunCommandRequest{
+				legacyAuthorizationInput, err = runCommandAuthorizationInput(bindingID, resolvedRunCommandRequest{
 					Command: "pwd", Selector: processcmd.ShellDefault, IOMode: processcmd.IOModePipe,
 				})
 				require.NoError(t, err)
@@ -70,7 +68,7 @@ RETURNING id`,
 			descriptor, found := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), selection.Mode)
 			require.True(t, found)
 			request, err := permissionChallenge(
-				call, permissionModeContext{selection: selection, descriptor: descriptor}, authorizedInput,
+				call, permissionModeContext{selection: selection, descriptor: descriptor}, legacyAuthorizationInput,
 			)
 			require.NoError(t, err)
 			interaction, err := fixture.Store.Execution().CreatePermissionInteraction(
