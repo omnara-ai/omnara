@@ -158,7 +158,7 @@ skills:
 	}
 	for _, name := range []string{
 		"run_command", "write_process", "read_process", "stop_process", "list_processes",
-		"create_machine", "delete_machine", "list_machines", "inspect_machine", "upload_artifact", "download_artifact",
+		"create_machine", "delete_machine", "list_machines", "inspect_machine", "upload_file", "download_file",
 	} {
 		if !modelcontext.HasTool(last.ToolSpecs, name) || !modelcontext.HasTool(dispatchSpecs, name) {
 			t.Fatalf("implicit machine tool %s missing from prompt or dispatch", name)

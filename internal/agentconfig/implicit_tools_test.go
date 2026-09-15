@@ -96,8 +96,9 @@ func TestImplicitMachineTools(t *testing.T) {
 				if err != nil {
 					t.Fatalf("compile: %v", err)
 				}
-				if result.Source != source {
-					t.Fatal("compilation rewrote source")
+				repeated, err := Compile(SourceFormatYAML, []byte(result.Source), opts)
+				if err != nil || repeated.Source != result.Source || repeated.Hash != result.Hash {
+					t.Fatalf("normalization is not idempotent: %v", err)
 				}
 				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
 				if err != nil {

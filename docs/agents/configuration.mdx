@@ -123,7 +123,11 @@ tools:
 
 Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
 
-When `machine_sources` is nonempty, Omnara automatically enables `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_file`, and `download_file`. If any source is a machine pool, Omnara also enables `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly enable `skill`, and Slack conversations enable `send_integration_message`. You do not need to list these tools in your config or select them in the basic editor. Explicit tool permissions are preserved; set `enabled: false` in YAML to disable an automatic tool.
+When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_file`, and `download_file` to the saved config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. These defaults are applied in the builder and when compiling YAML or JSON submitted through the API. Explicit disables and permissions are preserved.
+
+In the builder, use **Tools → Other tools** to change permissions or select **Disabled**. Removing the last relevant machine source or skill in the builder also removes its associated tool entries. Compilation itself never removes explicit tools. While the relevant source remains, omitting a tool adds it back; set `enabled: false` to disable it.
+
+Slack's `send_integration_message` remains contextual: it is available in Slack conversations without being added to the saved config, unless explicitly disabled. The builder only shows this tool when it is explicitly listed in the config.
 
 ### Custom tools
 
@@ -136,6 +140,8 @@ The full example above defines `create_ticket` as a custom tool. When the agent 
 `mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to the [secret](/organization/secrets) required by the selected authentication type. [MCP servers](/tools/mcp) explains the full setup.
 
 ## Machines
+
+For new agents only, the builder preselects a cluster-managed pool granted to the project if one exists; otherwise, it starts without a machine source.
 
 `machine_sources` provides execution environments for tools such as `run_command`. Use a machine you connected yourself or let Omnara create one from a pool:
 
