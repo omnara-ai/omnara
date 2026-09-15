@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/grpc/codes"
 
@@ -399,13 +400,21 @@ func execWithRetry(
 }
 
 // tailForReason keeps the end of a command's output, which is where a shell
-// reports what failed, and bounds it for the lifecycle reason message.
+// reports what failed, and bounds it for the lifecycle reason message. The
+// reason is stored as Postgres text, which refuses NUL and invalid UTF-8, so
+// the output is made valid first and the cut lands on a character boundary;
+// a bootstrap failure must never become a failure to record the failure.
 func tailForReason(output string) string {
-	output = strings.TrimSpace(output)
-	if len(output) > reasonOutputLimit {
-		output = "..." + output[len(output)-reasonOutputLimit:]
+	output = strings.ToValidUTF8(strings.TrimSpace(output), "?")
+	output = strings.ReplaceAll(output, "\x00", "?")
+	if len(output) <= reasonOutputLimit {
+		return output
 	}
-	return output
+	cut := len(output) - reasonOutputLimit
+	for cut < len(output) && !utf8.RuneStart(output[cut]) {
+		cut++
+	}
+	return "..." + output[cut:]
 }
 
 // wakePokeCommand connects to the daemon's wake listener from inside the

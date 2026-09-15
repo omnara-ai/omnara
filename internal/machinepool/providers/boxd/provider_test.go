@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -307,6 +308,72 @@ func TestBoxdProviderProvisionConvergesAfterCreateConflict(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "machine limit reached") || api.execCalls != 0 {
 		t.Fatalf("create failure = error %v execs %d", err, api.execCalls)
+	}
+}
+
+func TestBoxdProviderProvisionKeepsTheGraceWhenTheNameIsHeldButUnseen(t *testing.T) {
+	// boxd says the name is taken, yet the lookup that follows does not see
+	// the holder. That is a resource that may well exist, so the error must
+	// not claim otherwise; cleanup then keeps its missing-resource grace
+	// period instead of finalizing the row and leaving the machine behind.
+	api := newFakeAPI()
+	api.createErr = apiError{Code: codes.AlreadyExists, Message: "name is already taken"}
+	result, err := newTestProvider(api).ProvisionMachine(
+		context.Background(),
+		uuid.New(),
+		uuid.New(),
+		testMachineProvisioning(t, "", ""),
+		"machine-token",
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "already taken") {
+		t.Fatalf("held name = %v, want the create error", err)
+	}
+	if errors.Is(err, providers.ErrResourceNotCreated) {
+		t.Fatalf("held name = %v, must not claim the resource was never created", err)
+	}
+	if result.ProviderResourceID != "" || api.execCalls != 0 || api.destroyCalls != 0 {
+		t.Fatalf("held name side effects = result %+v execs %d destroys %d", result, api.execCalls, api.destroyCalls)
+	}
+	// A refusal that does prove nothing exists still says so.
+	api = newFakeAPI()
+	api.createErr = apiError{Code: codes.InvalidArgument, Message: "sizing above the org ceiling"}
+	_, err = newTestProvider(api).ProvisionMachine(
+		context.Background(),
+		uuid.New(),
+		uuid.New(),
+		testMachineProvisioning(t, "", ""),
+		"machine-token",
+		nil,
+	)
+	if !errors.Is(err, providers.ErrResourceNotCreated) {
+		t.Fatalf("invalid argument = %v, want ErrResourceNotCreated", err)
+	}
+}
+
+func TestTailForReasonStaysValidText(t *testing.T) {
+	// The reason lands in a Postgres text column, which refuses NUL and
+	// invalid UTF-8. A tail cut on a byte count would split a multi-byte
+	// character and turn valid output into a write that fails.
+	long := strings.Repeat("€", reasonOutputLimit)
+	for name, input := range map[string]string{
+		"nul":            "curl: \x00 not found",
+		"invalid utf8":   "sh: \xe2\x82 bad",
+		"long multibyte": long,
+	} {
+		out := tailForReason(input)
+		if !utf8.ValidString(out) || strings.Contains(out, "\x00") {
+			t.Fatalf("%s: tail %q is not valid text", name, out)
+		}
+		if len(out) > reasonOutputLimit+len("...") {
+			t.Fatalf("%s: tail is %d bytes, want at most %d", name, len(out), reasonOutputLimit+len("..."))
+		}
+	}
+	if out := tailForReason(long); !strings.HasPrefix(out, "...€") || !strings.HasSuffix(out, "€") {
+		t.Fatalf("long multibyte tail = %q", out)
+	}
+	if out := tailForReason("sh: curl: not found\n"); out != "sh: curl: not found" {
+		t.Fatalf("short tail = %q", out)
 	}
 }
 

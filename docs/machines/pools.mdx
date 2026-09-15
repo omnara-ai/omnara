@@ -74,7 +74,7 @@ Every pool requires `max_total_machines`. Resource requirements then depend on t
 - **Unikraft:** CPU and memory defaults and maximums are required.
 - **Daytona:** CPU and memory maximums are required; defaults are optional because the snapshot defines the machine size.
 - **Modal:** CPU and memory defaults and maximums are required. Omnara expresses CPU in vCPU and converts it to Modal physical cores, where one physical core equals two vCPU.
-- **boxd:** CPU and memory maximums are required. Defaults are optional and must name a boxd size class (1 vCPU with 4 GB, 2 with 8 GB, or 4 with 16 GB); an omitted size uses the snapshot's captured size or the boxd org default.
+- **boxd:** CPU and memory maximums are required. Defaults are optional and must name a boxd size class (1 vCPU with 4 GB, 2 with 8 GB, or 4 with 16 GB); an omitted size uses the snapshot's captured size or the boxd org default. The dashboard offers the size classes as a picker, with **Snapshot or org default** leaving the size to boxd behind the per-machine limits you set.
 
 ## Grant a pool to a project
 

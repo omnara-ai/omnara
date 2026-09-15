@@ -2,6 +2,11 @@ import type { CreateMachinePoolRequest, MachinePool } from '@omnara/sdk'
 
 import { providerOptionStrings } from '@/lib/provider-options'
 
+export interface MachineSizeClass {
+  cpu: number
+  memoryMb: number
+}
+
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
@@ -38,6 +43,15 @@ interface MachinePoolProviderDefinition {
   resources: {
     cpu: MachinePoolResourceMode
     memoryMb: MachinePoolResourceMode
+  }
+  /**
+   * Set for providers that only offer fixed machine shapes. The form then
+   * picks one of these instead of free CPU and memory numbers, and
+   * providerDefault lets a pool leave the size to the provider entirely.
+   */
+  sizes?: {
+    classes: MachineSizeClass[]
+    providerDefault?: { label: string; description: string }
   }
 }
 
@@ -169,6 +183,18 @@ const boxd: MachinePoolProviderDefinition = {
     secretValuePlaceholder: 'bxd_...',
   },
   resources: { cpu: 'configured', memoryMb: 'configured' },
+  sizes: {
+    classes: [
+      { cpu: 1, memoryMb: 4096 },
+      { cpu: 2, memoryMb: 8192 },
+      { cpu: 4, memoryMb: 16384 },
+    ],
+    providerDefault: {
+      label: 'Snapshot or org default',
+      description:
+        'Machines take the size captured in the snapshot, or the boxd org default without one. Set the per-machine limits under Advanced to cap what that can be.',
+    },
+  },
 }
 
 export const machinePoolProviderDefinitions = {
