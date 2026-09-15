@@ -1,7 +1,10 @@
 import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { defaultAgentTools } from './agentTemplates'
+import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
+import { machinePool } from '@/test/fixtures'
+
+import { agentTemplateBasicConfig, agentTemplates, defaultAgentTools } from './agentTemplates'
 
 function catalogEntry(name: string, mode: string): ToolCatalogEntry {
   return {
@@ -38,3 +41,27 @@ describe('defaultAgentTools', () => {
     expect(tools[1]?.permission).not.toBe(webFetch.default_permission)
   })
 })
+
+it.each(agentTemplates)(
+  '$name leaves machine tools implicit with or without a pool',
+  (template) => {
+    const names = ['ask_question', 'web_search', 'web_fetch']
+    const permissions = {
+      default_permission: { mode: 'always_allow', parameters: {} },
+      permission_modes: [],
+    }
+    const catalog: ToolCatalog = {
+      built_in_tools: [...names, ...automaticallyAddedToolNames].map((name) =>
+        catalogEntry(name, 'always_allow'),
+      ),
+      custom_tool_permissions: permissions,
+      mcp_tool_permissions: permissions,
+    }
+    for (const pool of [undefined, machinePool({ management_kind: 'cluster' })]) {
+      const config = agentTemplateBasicConfig(template, catalog, pool)
+      expect(config.tools.map((tool) => tool.name)).toEqual(names)
+      expect(config.machineSources).toHaveLength(pool ? 1 : 0)
+      if (pool) expect(config.machineSources[0]?.name).toBe(pool.name)
+    }
+  },
+)

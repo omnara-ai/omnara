@@ -68,6 +68,7 @@ const (
 	operationConnectBYOMachine             operationID = "ConnectBYOMachine"
 	operationCreateAgent                   operationID = "CreateAgent"
 	operationCreateAgentConfig             operationID = "CreateAgentConfig"
+	operationResolveAgentConfigTools       operationID = "ResolveAgentConfigTools"
 	operationCreateAgentInput              operationID = "CreateAgentInput"
 	operationCreateAgentProfile            operationID = "CreateAgentProfile"
 	operationCreateBYOMachineDaemonToken   operationID = "CreateBYOMachineDaemonToken"
@@ -313,6 +314,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListProjectAvailableSkills: accountPolicy(projectScope(identitystore.ProjectActionRead)),
 
 	operationCreateAgentConfig:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationResolveAgentConfigTools:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationDeleteIntegrationInstall:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUpdateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),

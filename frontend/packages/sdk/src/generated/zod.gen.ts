@@ -657,6 +657,11 @@ export const zSlackSetup = z.object({
     expires_at: zTimestamp
 });
 
+export const zResolveAgentConfigToolsRequest = z.object({
+    source: z.string().min(1),
+    source_format: z.enum(['yaml', 'json'])
+});
+
 export const zCreateAgentConfigRequest = z.object({
     source: z.string().min(1),
     source_format: z.enum(['yaml', 'json'])
@@ -674,6 +679,16 @@ export const zUpdateAgentConfigRequest = z.object({
 export const zToolPermissionSelection = z.object({
     mode: z.string(),
     parameters: z.record(z.string(), z.unknown())
+});
+
+export const zResolvedAgentConfigTool = z.object({
+    name: z.string(),
+    enabled: z.boolean(),
+    permission: zToolPermissionSelection
+});
+
+export const zResolvedAgentConfigTools = z.object({
+    tools: z.array(zResolvedAgentConfigTool)
 });
 
 export const zToolPermissionMode = z.object({
@@ -3348,6 +3363,18 @@ export const zDeleteIntegrationInstallPath = z.object({
  * Integration install deleted.
  */
 export const zDeleteIntegrationInstallResponse = z.void();
+
+export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
+
+export const zResolveAgentConfigToolsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+/**
+ * Resolved config tools.
+ */
+export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
 
 export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
 

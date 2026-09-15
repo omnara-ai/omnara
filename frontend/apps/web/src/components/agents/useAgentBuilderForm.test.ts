@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
@@ -8,6 +9,7 @@ import {
   basicConfigValid,
   type BasicMcpServer,
   createBasicConfigSession,
+  emptyBasicConfig,
   mcpRuntimeToolNameError,
   mcpServerNameError,
   mcpToolEnabled,
@@ -147,6 +149,51 @@ function applyToSource(source: string, config: BasicConfig): string {
 }
 
 describe('createBasicConfigSession initialDraft', () => {
+  it.each([
+    `mcp:
+  external:
+    url: https://example.com/mcp
+    tools: &toolConfig
+      web_search: {}
+tools: *toolConfig
+`,
+    `tools: &toolConfig
+  web_search: {}
+mcp:
+  external:
+    url: https://example.com/mcp
+    default_enabled: false
+    tools: *toolConfig
+`,
+    `tools:
+  run_command: &shared {}
+  web_search: *shared
+`,
+    `<<: {tools: {run_command: {enabled: false}}}
+`,
+  ])('keeps shared or merged YAML in YAML mode: %s', (tools) => {
+    const source = `${minimalYaml}machine_sources: [{machine_pool_name: pool}]\n${tools}`
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).toBeNull()
+    expect(session.apply(fullConfig)).toBe(source)
+  })
+
+  it('does not serialize an unused builder draft for YAML-only source', () => {
+    const source = `tools: {run_command: {permission: {mode: &mode always_allow}}}
+instruction: *mode
+model: {provider_config: openai, name: primary}
+`
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).toBeNull()
+    expect(session.apply(emptyBasicConfig)).toBe(source)
+  })
+
+  it('does not add a default machine source to existing configs without one', () => {
+    const config = mustDeserialize(minimalYaml)
+    expect(config.machineSources).toEqual([])
+    expect(applyToSource(minimalYaml, config)).toBe(minimalYaml)
+  })
+
   it('round-trips a full builder-authored config', () => {
     const source = applyToSource('', fullConfig)
     const config = mustDeserialize(source)
@@ -373,7 +420,28 @@ machine_sources:
     expect(parse(applyToSource(source, config))).not.toHaveProperty('tools')
   })
 
-  it('rejects disabled tools', () => {
+  it.each([...automaticallyAddedToolNames])('round-trips explicitly disabled %s', (name) => {
+    const source = `${minimalYaml}tools:
+  ${name}:
+    enabled: false
+    permission:
+      mode: always_ask
+`
+    const config = mustDeserialize(source)
+    expect(config.tools).toEqual([
+      { name, enabled: false, permission: { mode: 'always_ask', parameters: {} } },
+    ])
+    expect(applyToSource(source, config)).toBe(source)
+    config.instruction = 'Changed instruction.'
+    expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name, 'enabled'], false)
+    config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
+    expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name], {
+      type: 'built_in',
+      permission: { mode: 'always_ask' },
+    })
+  })
+
+  it('rejects disabled tools outside the Other tools group', () => {
     const source = `${minimalYaml}tools:
   shell:
     enabled: false

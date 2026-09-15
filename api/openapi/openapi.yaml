@@ -2276,6 +2276,60 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agent-configs/tools:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    post:
+      operationId: resolveAgentConfigTools
+      tags: [Configs and Profiles]
+      summary: Resolve agent config tools
+      description: >-
+        Returns configured built-in and custom tools plus missing machine and skill
+        defaults, including disabled entries. Accepts YAML/JSON source. Source
+        previews validate tool-related fields only; they do not validate whether
+        the config can be saved or launched. Does not resolve contextual integration
+        tools, discover MCP tools, or
+        change any configuration.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveAgentConfigToolsRequest'
+      responses:
+        '200':
+          description: Resolved config tools.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedAgentConfigTools'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /orgs/{orgID}/projects/{projectID}/agent-configs:
     parameters:
       - name: orgID
@@ -8143,6 +8197,37 @@ components:
           format: uri
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    ResolveAgentConfigToolsRequest:
+      type: object
+      additionalProperties: false
+      required: [source, source_format]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        source_format:
+          type: string
+          enum: [yaml, json]
+    ResolvedAgentConfigTools:
+      type: object
+      additionalProperties: false
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResolvedAgentConfigTool'
+    ResolvedAgentConfigTool:
+      type: object
+      additionalProperties: false
+      required: [name, enabled, permission]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        permission:
+          $ref: '#/components/schemas/ToolPermissionSelection'
     CreateAgentConfigRequest:
       type: object
       additionalProperties: false

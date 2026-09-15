@@ -13,20 +13,7 @@ export interface AgentTemplate {
 
 const defaultAgentToolNames = ['web_search', 'web_fetch'] as const
 
-const templateToolNames = [
-  'run_command',
-  'write_process',
-  'read_process',
-  'stop_process',
-  'list_processes',
-  'list_machines',
-  'inspect_machine',
-  'ask_question',
-  'web_search',
-  'web_fetch',
-  'upload_artifact',
-  'download_artifact',
-] as const
+const templateToolNames = ['ask_question', ...defaultAgentToolNames] as const
 
 const generalAgent: AgentTemplate = {
   id: 'general',
@@ -79,16 +66,7 @@ export function agentTemplateConfig(
     providerConfig: defaultModel?.provider_config ?? '',
     modelName: defaultModel?.name ?? '',
     tools: catalogTools(catalog, templateToolNames),
-    machineSources: defaultPool
-      ? [
-          {
-            ...newMachineSource('pool'),
-            name: defaultPool.name,
-            provider: defaultPool.provider,
-            managementKind: defaultPool.management_kind,
-          },
-        ]
-      : [],
+    machineSources: defaultAgentMachineSources(defaultPool),
   }
 }
 
@@ -113,6 +91,19 @@ export function agentTemplateName(currentName: string, template: AgentTemplate) 
 
 export function defaultAgentTools(catalog?: ToolCatalog): BasicTool[] {
   return catalogTools(catalog, defaultAgentToolNames)
+}
+
+export function defaultAgentMachineSources(pool?: MachinePoolSummary) {
+  return pool
+    ? [
+        {
+          ...newMachineSource('pool'),
+          name: pool.name,
+          provider: pool.provider,
+          managementKind: pool.management_kind,
+        },
+      ]
+    : []
 }
 
 function catalogTools(catalog: ToolCatalog | undefined, names: readonly string[]): BasicTool[] {

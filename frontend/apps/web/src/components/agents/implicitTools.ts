@@ -1,0 +1,15 @@
+export const automaticallyAddedToolNames = new Set([
+  'run_command',
+  'write_process',
+  'read_process',
+  'stop_process',
+  'list_processes',
+  'list_machines',
+  'inspect_machine',
+  'upload_artifact',
+  'download_artifact',
+  'create_machine',
+  'delete_machine',
+  'skill',
+  'send_integration_message',
+])
