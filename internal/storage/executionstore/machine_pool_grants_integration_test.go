@@ -1077,7 +1077,6 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 		t.Fatalf("create project grant with secret_env: %v", err)
 	}
 
-	machineRef := "mchr-secr3t"
 	agentID := mustCreateAgent(t, ctx, store)
 	poolGrant, err := store.q.GetActiveProjectMachinePoolGrantForLaunch(
 		ctx,
@@ -1104,7 +1103,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve pool machine: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreatePoolMachineBindingTx(
+	binding, err := executionstore.IntegrationCreatePoolMachineBindingTx(
 		ctx,
 		store.q,
 		executionstore.IntegrationPoolMachineBindingInput{
@@ -1114,13 +1113,13 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 			Description:      "secret env machine",
 			PoolGrant:        poolGrant,
 			ResolvedMachine:  resolvedMachine,
-			MachineRef:       machineRef,
 			CreateToolCallID: NilID,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("create pool machine binding: %v", err)
 	}
-	record, err := executionstore.IntegrationPoolMachineByRefTx(ctx, store.q, testProjectID, agentID, machineRef)
+	record, err := executionstore.IntegrationPoolMachineByIDTx(ctx, store.q, testProjectID, agentID, binding.MachineID)
 	if err != nil {
 		t.Fatalf("load pool machine: %v", err)
 	}

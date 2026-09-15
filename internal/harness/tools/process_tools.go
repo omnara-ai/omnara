@@ -144,7 +144,7 @@ func runCommand(
 	if err != nil {
 		return nil, err
 	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineRef)
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}
@@ -242,7 +242,7 @@ func processToolMachineResolutionError(
 	err error,
 ) (transactionalPhaseResult, error) {
 	if !errors.Is(err, ErrNoActiveAgentMachineBinding) &&
-		!errors.Is(err, ErrMachineRefUnavailable) &&
+		!errors.Is(err, ErrMachineIDUnavailable) &&
 		!errors.Is(err, ErrMachineSelectionRequired) {
 		return nil, err
 	}

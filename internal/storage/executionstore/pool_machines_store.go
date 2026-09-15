@@ -78,7 +78,7 @@ type CreatePoolMachineResult struct {
 }
 
 type DeletePoolMachineInput struct {
-	MachineRef string
+	MachineID ID
 }
 
 func (t *toolCallTransaction) createPoolMachine(
@@ -249,10 +249,6 @@ func (t *toolCallTransaction) createPoolMachine(
 	); err != nil {
 		return CreatePoolMachineResult{}, err
 	}
-	machineRef, err := newMachineRef()
-	if err != nil {
-		return CreatePoolMachineResult{}, err
-	}
 	binding, err := createPoolMachineBindingTx(ctx, t.q, poolMachineBindingInput{
 		OrgID:            agent.OrgID,
 		ProjectID:        projectID,
@@ -260,13 +256,12 @@ func (t *toolCallTransaction) createPoolMachine(
 		Description:      currentSource.Contract.Description,
 		PoolGrant:        poolGrant,
 		ResolvedMachine:  resolvedMachine,
-		MachineRef:       machineRef,
 		CreateToolCallID: toolCallID,
 	})
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
-	status, err := poolMachineByRefTx(ctx, t.q, projectID, agentID, binding.MachineRef)
+	status, err := poolMachineByIDTx(ctx, t.q, projectID, agentID, binding.MachineID)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
@@ -277,13 +272,13 @@ func (t *toolCallTransaction) deletePoolMachine(
 	ctx context.Context,
 	input DeletePoolMachineInput,
 ) (PoolMachineRecord, error) {
-	if input.MachineRef == "" {
-		return PoolMachineRecord{}, errors.New("machine ref is required")
+	if isNilID(input.MachineID) {
+		return PoolMachineRecord{}, errors.New("machine ID is required")
 	}
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID
 	toolCallID := t.input.ToolCallID
-	record, replay, err := t.loadPoolMachineForDeletion(ctx, input.MachineRef)
+	record, replay, err := t.loadPoolMachineForDeletion(ctx, input.MachineID)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -308,7 +303,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineID)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -325,7 +320,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineID)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -338,7 +333,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	if err := t.lockOrAcceptExisting(ctx); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineID)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -386,9 +381,9 @@ func (t *toolCallTransaction) deletePoolMachine(
 
 func (t *toolCallTransaction) loadPoolMachineForDeletion(
 	ctx context.Context,
-	machineRef string,
+	machineID ID,
 ) (PoolMachineRecord, bool, error) {
-	record, err := poolMachineByRefTx(ctx, t.q, t.input.ProjectID, t.input.AgentID, machineRef)
+	record, err := poolMachineByIDTx(ctx, t.q, t.input.ProjectID, t.input.AgentID, machineID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PoolMachineRecord{}, false, storeerr.ErrNotFound
 	}
@@ -545,7 +540,7 @@ func poolMachineByCreateToolCallTx(
 	if err != nil {
 		return PoolMachineRecord{}, false, fmt.Errorf("load machine generated binding: %w", err)
 	}
-	record, err := poolMachineByRefTx(ctx, qtx, projectID, agentID, binding.MachineRef)
+	record, err := poolMachineByIDTx(ctx, qtx, projectID, agentID, binding.MachineID)
 	if err != nil {
 		return PoolMachineRecord{}, false, err
 	}
@@ -590,7 +585,7 @@ func (s *Store) GetPoolMachineByDeleteToolCall(
 	if err != nil {
 		return PoolMachineRecord{}, fmt.Errorf("load machine deletion binding: %w", err)
 	}
-	record, err := poolMachineByRefTx(ctx, s.q, projectID, agentID, binding.MachineRef)
+	record, err := poolMachineByIDTx(ctx, s.q, projectID, agentID, binding.MachineID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PoolMachineRecord{}, storeerr.ErrNotFound
 	}
@@ -600,11 +595,11 @@ func (s *Store) GetPoolMachineByDeleteToolCall(
 	return record, nil
 }
 
-func poolMachineByRefTx(
+func poolMachineByIDTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID, agentID ID,
-	machineRef string,
+	machineID ID,
 ) (PoolMachineRecord, error) {
 	rows, err := qtx.SelectPoolMachines(
 		ctx,
@@ -612,7 +607,7 @@ func poolMachineByRefTx(
 			ProjectID:       projectID,
 			AgentID:         agentID,
 			BindingKind:     string(MachineBindingKindPool),
-			MachineRef:      &machineRef,
+			MachineID:       &machineID,
 			IncludeReleased: true,
 		},
 	)
@@ -694,7 +689,6 @@ type poolMachineBindingInput struct {
 	Description      string
 	PoolGrant        dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	ResolvedMachine  ResolvedPoolMachine
-	MachineRef       string
 	CreateToolCallID ID
 }
 
@@ -763,7 +757,6 @@ func createPoolMachineBindingTx(
 		ProjectID:              input.ProjectID,
 		AgentID:                input.AgentID,
 		ProjectMachineGrantID:  grantRow.ID,
-		MachineRef:             input.MachineRef,
 		BindingKind:            MachineBindingKindPool,
 		Description:            input.Description,
 		Cwd:                    input.ResolvedMachine.BindingConfig.Cwd,
@@ -784,7 +777,6 @@ func poolMachineRecordFromSQLC(row dbsqlc.SelectPoolMachinesRow) PoolMachineReco
 		CreateToolCallID:       idFromSQLCPtr(row.CreateToolCallID),
 		DeleteToolCallID:       idFromSQLCPtr(row.DeleteToolCallID),
 		MachineID:              row.MachineID,
-		MachineRef:             row.MachineRef,
 		BindingKind:            AgentMachineBindingKind(row.BindingKind),
 		State:                  AgentMachineBindingState(row.State),
 		Description:            row.Description,

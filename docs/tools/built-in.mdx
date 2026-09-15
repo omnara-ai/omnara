@@ -65,7 +65,7 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | Input | Type | Notes |
 | --- | --- | --- |
 | `command`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
-| `machine_ref` | string | Which [machine binding](#picking-a-machine) to use; omit when the agent has exactly one |
+| `machine_id` | string | Public ID (`mch_...`) of the [machine](#picking-a-machine) to use; omit when the agent has exactly one |
 | `shell` | enum | `default`, `sh`, `bash`, `zsh`, `pwsh`, `powershell`, `cmd` |
 | `cwd` | string | Overrides the binding's working directory |
 | `wait_ms` | integer | 1–10000; how long to wait for early output or exit before returning |
@@ -90,10 +90,10 @@ Set `run_command` to `always_ask` to require approval before execution. The prom
 
 ### Picking a machine
 
-`machine_ref` chooses which attached machine runs the command:
+`machine_id` chooses which attached machine runs the command:
 
-- With one available machine, omit `machine_ref`.
-- With several, specify one.
+- With one available machine, omit `machine_id`.
+- With several, pass the public `machine_id` (`mch_...`) returned by `list_machines`.
 - With none, attach a machine in the [config](/agents/configuration#machines) or use [`create_machine`](#create_machine).
 
 If Omnara cannot choose a machine, the tool returns an error to the agent so it can inspect its machines and retry.
@@ -154,17 +154,17 @@ Creates a machine from an available pool. Specify `machine_pool_name` only when 
 
 ### `delete_machine`
 
-Deletes a pool-backed machine. Requires `machine_ref`.
+Deletes a pool-backed machine. Requires `machine_id`.
 
 ### `list_machines` / `inspect_machine`
 
-`list_machines` lists the agent's BYO and pool-backed machines. `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_ref` when the agent has more than one. Results identify the machine's `source_kind` and `binding_kind`; only pool bindings can be passed to `delete_machine`.
+`list_machines` lists the agent's BYO and pool-backed machines. `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Results identify the machine's `source_kind` and `binding_kind`; only pool bindings can be passed to `delete_machine`.
 
 ## Artifacts
 
 ### `upload_artifact`
 
-Use `upload_artifact` to make a regular file on an attached machine available for the user to view or download, such as a generated PDF, image, or report. Pass a relative, absolute, or `~`-relative `path`; provide `machine_ref` when the agent has more than one machine.
+Use `upload_artifact` to make a regular file on an attached machine available for the user to view or download, such as a generated PDF, image, or report. Pass a relative, absolute, or `~`-relative `path`; provide `machine_id` when the agent has more than one machine.
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
@@ -172,7 +172,7 @@ On success, the artifact appears in the conversation and the durable tool result
 
 ### `download_artifact`
 
-Use `download_artifact` to copy a conversation artifact to an attached machine. Pass the artifact's public `artifact_id` and the exact destination `path`; provide `machine_ref` when the agent has more than one machine. Relative and `~`-relative paths are supported, the parent directory must already exist, and an existing destination is replaced atomically.
+Use `download_artifact` to copy a conversation artifact to an attached machine. Pass the artifact's public `artifact_id` and the exact destination `path`; provide `machine_id` when the agent has more than one machine. Relative and `~`-relative paths are supported, the parent directory must already exist, and an existing destination is replaced atomically.
 
 Quick transfers return their terminal process result. If a transfer is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 

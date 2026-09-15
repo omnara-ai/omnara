@@ -88,15 +88,15 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			ioMode:   "pipe",
 		},
 		{
-			name:     "blank machine ref",
-			input:    json.RawMessage(`{"command":"echo ok","machine_ref":""}`),
+			name:     "blank machine ID",
+			input:    json.RawMessage(`{"command":"echo ok","machine_id":""}`),
 			command:  "echo ok",
 			selector: "default",
 			ioMode:   "pipe",
 		},
 		{
-			name:     "space padded machine ref",
-			input:    json.RawMessage(`{"command":"echo ok","machine_ref":" "}`),
+			name:     "space padded machine ID",
+			input:    json.RawMessage(`{"command":"echo ok","machine_id":" "}`),
 			command:  "echo ok",
 			selector: "default",
 			ioMode:   "pipe",
@@ -126,9 +126,9 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 		{name: "empty command", raw: json.RawMessage(`{"command":"  "}`), want: "command is required"},
 		{name: "unknown field", raw: json.RawMessage(`{"command":"echo ok","timeout_seconds":5}`), want: "unknown field"},
 		{
-			name: "null machine ref",
-			raw:  json.RawMessage(`{"command":"echo ok","machine_ref":null}`),
-			want: "machine_ref cannot be null",
+			name: "null machine ID",
+			raw:  json.RawMessage(`{"command":"echo ok","machine_id":null}`),
+			want: "machine_id cannot be null",
 		},
 		{
 			name: "unsupported selector",

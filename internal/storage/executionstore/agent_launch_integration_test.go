@@ -185,7 +185,7 @@ func getAgentMachineBindingForTest(
 	var row dbsqlc.AgentMachineBinding
 	err := store.pool.QueryRow(ctx, `
 		SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id,
-		       machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay,
+		       machine_id, binding_kind, state, description, cwd, env_overlay,
 		       secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 		FROM agent_machine_bindings
 		WHERE project_id = $1 AND agent_id = $2 AND id = $3
@@ -197,7 +197,6 @@ func getAgentMachineBindingForTest(
 		&row.CreateToolCallID,
 		&row.DeleteToolCallID,
 		&row.MachineID,
-		&row.MachineRef,
 		&row.BindingKind,
 		&row.State,
 		&row.Description,
@@ -220,7 +219,6 @@ func getAgentMachineBindingForTest(
 		CreateToolCallID:       idFromSQLCPtrForTest(row.CreateToolCallID),
 		DeleteToolCallID:       idFromSQLCPtrForTest(row.DeleteToolCallID),
 		MachineID:              row.MachineID,
-		MachineRef:             row.MachineRef,
 		BindingKind:            executionstore.AgentMachineBindingKind(row.BindingKind),
 		State:                  executionstore.AgentMachineBindingState(row.State),
 		Description:            row.Description,
@@ -814,7 +812,6 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               result.Agent.ID,
 			ProjectMachineGrantID: directGrant.ID,
-			MachineRef:            "mchr-arch01",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 		},
 	)
@@ -1870,9 +1867,9 @@ tools:
 		result.MachineBindings[1].Description != "Second machine" {
 		t.Fatalf("unexpected second binding: %+v", result.MachineBindings[1])
 	}
-	if result.MachineBindings[0].MachineRef == "" ||
-		result.MachineBindings[0].MachineRef == result.MachineBindings[1].MachineRef {
-		t.Fatalf("expected distinct machine refs, got %+v", result.MachineBindings)
+	if result.MachineBindings[0].MachineID == NilID ||
+		result.MachineBindings[0].MachineID == result.MachineBindings[1].MachineID {
+		t.Fatalf("expected distinct machine IDs, got %+v", result.MachineBindings)
 	}
 	replayed, err := store.Execution().LaunchAgent(
 		ctx,
@@ -1906,7 +1903,7 @@ tools:
 				OrgID:            testOrgID,
 				MachineID:        binding.MachineID,
 				DaemonTokenID:    token.Record.ID,
-				DaemonInstanceID: testID("daemon-launch-multi-" + binding.MachineRef),
+				DaemonInstanceID: testID("daemon-launch-multi-" + binding.MachineID.String()),
 				DaemonVersion:    "1.0.0",
 				LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
 			},
@@ -1918,8 +1915,8 @@ tools:
 	if err != nil {
 		t.Fatalf("list executable bindings: %v", err)
 	}
-	if len(executable) != 2 || executable[0].MachineRef != result.MachineBindings[0].MachineRef ||
-		executable[1].MachineRef != result.MachineBindings[1].MachineRef {
+	if len(executable) != 2 || executable[0].MachineID != result.MachineBindings[0].MachineID ||
+		executable[1].MachineID != result.MachineBindings[1].MachineID {
 		t.Fatalf("unexpected executable bindings: %+v", executable)
 	}
 }
@@ -2058,8 +2055,8 @@ tools:
 				binding,
 			)
 		}
-		if binding.MachineRef == "" || binding.MachineRef == result.MachineBindings[0].MachineRef {
-			t.Fatalf("unexpected pool machine ref at slot %d: %+v", slotIndex, binding)
+		if binding.MachineID == NilID || binding.MachineID == result.MachineBindings[0].MachineID {
+			t.Fatalf("unexpected pool machine ID at slot %d: %+v", slotIndex, binding)
 		}
 		if !sameJSON(binding.Metadata, json.RawMessage(`{}`)) {
 			t.Fatalf("pool binding metadata = %s, want empty object", binding.Metadata)
@@ -2405,7 +2402,7 @@ tools:
 		{cwd: "/workspace/second-pool", grantID: secondGrant.ID},
 		{cwd: "/workspace/second-pool", grantID: secondGrant.ID},
 	}
-	seenRefs := map[string]bool{}
+	seenMachines := map[ID]bool{}
 	for index, binding := range result.MachineBindings {
 		if binding.Cwd != want[index].cwd || binding.State != "attached" ||
 			result.ProvisionMachineIDs[index] != binding.MachineID {
@@ -2417,10 +2414,10 @@ tools:
 				want[index],
 			)
 		}
-		if binding.MachineRef == "" || seenRefs[binding.MachineRef] {
-			t.Fatalf("binding %d has missing or duplicate machine ref: %+v", index, result.MachineBindings)
+		if binding.MachineID == NilID || seenMachines[binding.MachineID] {
+			t.Fatalf("binding %d has missing or duplicate machine ID: %+v", index, result.MachineBindings)
 		}
-		seenRefs[binding.MachineRef] = true
+		seenMachines[binding.MachineID] = true
 		generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, binding.MachineID)
 		if generatedGrant.ProjectMachinePoolGrantID != want[index].grantID {
 			t.Fatalf(

@@ -57,7 +57,7 @@ func TestRunCommandRequestRejectsInvalidOptionalScalars(t *testing.T) {
 
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`{"command":"pwd","cwd":null}`),
-		json.RawMessage(`{"command":"pwd","machine_ref":null}`),
+		json.RawMessage(`{"command":"pwd","machine_id":null}`),
 		json.RawMessage(`{"command":"pwd","wait_ms":null}`),
 		json.RawMessage(`{"command":"pwd","io_mode":null}`),
 		json.RawMessage(`{"command":"pwd","tty":true}`),

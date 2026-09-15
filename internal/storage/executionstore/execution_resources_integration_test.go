@@ -69,7 +69,6 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-reply1",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -84,7 +83,6 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-reply1",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -107,7 +105,6 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-reply1",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -122,7 +119,6 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-other1",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -165,7 +161,6 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-obsv01",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 			Description:           "developer machine",
 			Cwd:                   "/workspace",
@@ -183,7 +178,7 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 		t.Fatalf("offline BYO observations = %+v, want one", observations)
 	}
 	offline := observations[0]
-	if offline.MachineRef != binding.MachineRef || offline.SourceKind != executionstore.MachineSourceKindBYO ||
+	if offline.MachineID != binding.MachineID || offline.SourceKind != executionstore.MachineSourceKindBYO ||
 		offline.BindingKind != executionstore.MachineBindingKindExplicit ||
 		offline.BindingState != executionstore.AgentMachineBindingStateAttached ||
 		offline.DisplayName != machine.Machine.DisplayName || offline.MachinePoolName != "" ||
@@ -216,12 +211,12 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	); err != nil {
 		t.Fatalf("register BYO daemon runtime: %v", err)
 	}
-	online, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+	online, err := executionstore.IntegrationGetAgentMachineObservationByMachineID(
 		ctx,
 		store.q,
 		testProjectID,
 		agentID,
-		binding.MachineRef,
+		binding.MachineID,
 	)
 	if err != nil {
 		t.Fatalf("inspect online BYO observation: %v", err)
@@ -245,12 +240,12 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	if len(observations) != 1 || !observations[0].ProjectGrantMissing {
 		t.Fatalf("revoked BYO observations = %+v, want one grant-missing binding", observations)
 	}
-	revoked, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+	revoked, err := executionstore.IntegrationGetAgentMachineObservationByMachineID(
 		ctx,
 		store.q,
 		testProjectID,
 		agentID,
-		binding.MachineRef,
+		binding.MachineID,
 	)
 	if err != nil {
 		t.Fatalf("inspect BYO observation after grant revoke: %v", err)
@@ -271,12 +266,12 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	); err != nil {
 		t.Fatalf("regrant BYO machine: %v", err)
 	}
-	regranted, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+	regranted, err := executionstore.IntegrationGetAgentMachineObservationByMachineID(
 		ctx,
 		store.q,
 		testProjectID,
 		agentID,
-		binding.MachineRef,
+		binding.MachineID,
 	)
 	if err != nil {
 		t.Fatalf("inspect BYO observation after regrant: %v", err)
@@ -303,12 +298,12 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	if len(observations) != 0 {
 		t.Fatalf("released BYO observations = %+v, want none", observations)
 	}
-	if _, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+	if _, err := executionstore.IntegrationGetAgentMachineObservationByMachineID(
 		ctx,
 		store.q,
 		testProjectID,
 		agentID,
-		binding.MachineRef,
+		binding.MachineID,
 	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("inspect released BYO observation error = %v, want not found", err)
 	}
@@ -338,7 +333,6 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               firstAgentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-hist00",
 			BindingKind:           "pool",
 		},
 	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
@@ -351,7 +345,6 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               firstAgentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-hist01",
 			BindingKind:           "explicit",
 		},
 	)
@@ -365,7 +358,6 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               secondAgentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-hist02",
 			BindingKind:           "explicit",
 		},
 	)
@@ -387,14 +379,13 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               firstAgentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-hist03",
 			BindingKind:           "explicit",
 		},
 	)
 	if err != nil {
 		t.Fatalf("reattach first agent: %v", err)
 	}
-	if rebound.ID == first.ID || rebound.MachineRef == first.MachineRef {
+	if rebound.ID == first.ID || rebound.MachineID != first.MachineID {
 		t.Fatalf("reattached binding reused history: first=%+v rebound=%+v", first, rebound)
 	}
 	released := getAgentMachineBindingForTest(t, ctx, store, testProjectID, firstAgentID, first.ID)
@@ -477,7 +468,6 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: sources[0].GrantID,
-			MachineRef:            "mchr-env001",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 			EnvOverlay:            envOverlay,
 			SecretEnvOverlay:      secretEnvOverlay,
@@ -547,7 +537,6 @@ func TestReleasedAgentMachineBindingRejectsReplay(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-rel001",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -590,7 +579,6 @@ func TestReleasedAgentMachineBindingRejectsReplay(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-rel001",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -702,7 +690,6 @@ func TestCreateProjectMachineGrantDoesNotMutateExistingBindings(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machine.GrantID,
-			MachineRef:            "mchr-rtg001",
 			BindingKind:           "explicit",
 			Description:           "primary",
 			Cwd:                   "/work",
@@ -718,7 +705,6 @@ func TestCreateProjectMachineGrantDoesNotMutateExistingBindings(t *testing.T) {
 			ProjectID:             otherProject.ID,
 			AgentID:               otherAgent.ID,
 			ProjectMachineGrantID: otherGrant.ID,
-			MachineRef:            "mchr-rtg002",
 			BindingKind:           "explicit",
 			Description:           "other",
 			Cwd:                   "/other",
@@ -797,7 +783,6 @@ func TestInsertAgentMachineBindingMapsUniqueConflicts(t *testing.T) {
 	}
 	agentID := mustCreateAgent(t, ctx, store)
 	first := createContextMachine(t, ctx, store, testID("agent_machine_binding_conflict_first"), user.ID, now)
-	second := createContextMachine(t, ctx, store, testID("agent_machine_binding_conflict_second"), user.ID, now)
 	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,
@@ -805,7 +790,6 @@ func TestInsertAgentMachineBindingMapsUniqueConflicts(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: first.GrantID,
-			MachineRef:            "mchr-dupe01",
 			BindingKind:           "explicit",
 		},
 	); err != nil {
@@ -817,15 +801,14 @@ func TestInsertAgentMachineBindingMapsUniqueConflicts(t *testing.T) {
 		executionstore.IntegrationInsertAgentMachineBindingInput{
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
-			ProjectMachineGrantID: second.GrantID,
-			MachineRef:            "mchr-dupe01",
+			ProjectMachineGrantID: first.GrantID,
 			BindingKind:           "explicit",
 		},
 	); !errors.Is(
 		err,
 		storeerr.ErrIdempotencyConflict,
 	) {
-		t.Fatalf("duplicate machine ref error = %v, want ErrIdempotencyConflict", err)
+		t.Fatalf("duplicate machine binding error = %v, want ErrIdempotencyConflict", err)
 	}
 }
 

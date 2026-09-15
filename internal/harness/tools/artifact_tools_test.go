@@ -18,12 +18,12 @@ import (
 
 func TestResolveUploadArtifactRequest(t *testing.T) {
 	resolved, err := resolveUploadArtifactRequest(json.RawMessage(
-		`{"path":"screenshots/latest.png","machine_ref":"  mchr_machine1  "}`,
+		`{"path":"screenshots/latest.png","machine_id":"  mch_aaaaaaaaaaaaaaaaaaaaaaaaae  "}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve upload_artifact: %v", err)
 	}
-	if resolved.Path != "screenshots/latest.png" || resolved.MachineRef != "mchr_machine1" {
+	if resolved.Path != "screenshots/latest.png" || resolved.MachineID != "mch_aaaaaaaaaaaaaaaaaaaaaaaaae" {
 		t.Fatalf("resolved upload_artifact = %+v", resolved)
 	}
 
@@ -34,7 +34,7 @@ func TestResolveUploadArtifactRequest(t *testing.T) {
 	}{
 		{name: "empty path", raw: `{"path":""}`, want: "path is required"},
 		{name: "nul path", raw: "{\"path\":\"bad\\u0000path\"}", want: "path cannot contain NUL"},
-		{name: "null machine ref", raw: `{"path":"a","machine_ref":null}`, want: "machine_ref cannot be null"},
+		{name: "null machine ID", raw: `{"path":"a","machine_id":null}`, want: "machine_id cannot be null"},
 		{name: "unknown field", raw: `{"path":"a","artifact_id":"art_x"}`, want: "unknown field"},
 	}
 	for _, test := range tests {
@@ -128,13 +128,13 @@ func TestResolveDownloadArtifactRequest(t *testing.T) {
 		t.Fatalf("encode artifact id: %v", err)
 	}
 	resolved, err := resolveDownloadArtifactRequest(json.RawMessage(
-		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_ref":"  mchr_machine1  "}`,
+		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_id":"  mch_aaaaaaaaaaaaaaaaaaaaaaaaae  "}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve download_artifact: %v", err)
 	}
 	if resolved.ArtifactID != artifactID || resolved.Path != "downloads/report.pdf" ||
-		resolved.MachineRef != "mchr_machine1" {
+		resolved.MachineID != "mch_aaaaaaaaaaaaaaaaaaaaaaaaae" {
 		t.Fatalf("resolved download_artifact = %+v", resolved)
 	}
 
@@ -151,9 +151,9 @@ func TestResolveDownloadArtifactRequest(t *testing.T) {
 			want: "path cannot contain NUL",
 		},
 		{
-			name: "null machine ref",
-			raw:  `{"artifact_id":"` + artifactID + `","path":"a","machine_ref":null}`,
-			want: "machine_ref cannot be null",
+			name: "null machine ID",
+			raw:  `{"artifact_id":"` + artifactID + `","path":"a","machine_id":null}`,
+			want: "machine_id cannot be null",
 		},
 		{name: "unknown field", raw: `{"artifact_id":"` + artifactID + `","path":"a","extra":true}`, want: "unknown field"},
 	}

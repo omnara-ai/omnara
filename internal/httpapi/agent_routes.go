@@ -1076,7 +1076,6 @@ func publicAgentMachineBindingResponse(
 		ProjectId:        projectID,
 		AgentId:          agentID,
 		MachineId:        machineID,
-		MachineRef:       record.MachineRef,
 		BindingKind:      openapi.AgentMachineBindingKind(record.BindingKind),
 		State:            openapi.AgentMachineBindingState(record.State),
 		Description:      record.Description,

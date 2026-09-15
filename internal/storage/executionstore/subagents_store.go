@@ -202,17 +202,12 @@ func shareParentMachineBindingsTx(
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	machineRefs, err := newMachineRefs(len(rows))
-	if err != nil {
-		return nil, err
-	}
 	bindings := make([]AgentMachineBindingRecord, 0, len(rows))
-	for index, row := range rows {
+	for _, row := range rows {
 		binding, err := insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput{
 			ProjectID:             projectID,
 			AgentID:               childAgentID,
 			ProjectMachineGrantID: row.ProjectMachineGrantID,
-			MachineRef:            machineRefs[index],
 			BindingKind:           MachineBindingKindExplicit,
 			Description:           row.Description,
 			Cwd:                   row.Cwd,

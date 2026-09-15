@@ -261,14 +261,9 @@ func (s *Store) launchAgentTx(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	machineRefs, err := newMachineRefs(len(bindingRequests))
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
 	result.MachineBindings = make([]AgentMachineBindingRecord, 0, len(bindingRequests))
-	for index, bindingRequest := range bindingRequests {
+	for _, bindingRequest := range bindingRequests {
 		source := bindingRequest.Source
-		machineRef := machineRefs[index]
 		switch {
 		case source.GrantID != NilID:
 			envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
@@ -281,7 +276,6 @@ func (s *Store) launchAgentTx(
 				ProjectID:             input.ProjectID,
 				AgentID:               agent.ID,
 				ProjectMachineGrantID: source.GrantID,
-				MachineRef:            machineRef,
 				BindingKind:           MachineBindingKindExplicit,
 				Description:           source.Contract.Description,
 				Cwd:                   source.BindingConfig.Cwd,
@@ -301,7 +295,6 @@ func (s *Store) launchAgentTx(
 				input.ProjectID,
 				agent.ID,
 				bindingRequest,
-				machineRef,
 			)
 			if err != nil {
 				return LaunchAgentResult{}, err

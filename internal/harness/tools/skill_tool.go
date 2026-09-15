@@ -142,10 +142,14 @@ func runSkillTool(
 		}
 		targets := make([]skills.BroadcastTarget, 0, len(bindings))
 		for _, b := range bindings {
+			machineID, err := publicid.Encode(publicid.KindMachine, b.MachineID)
+			if err != nil {
+				return nil, err
+			}
 			targets = append(targets, skills.BroadcastTarget{
-				OrgID:      b.OrgID,
-				MachineID:  b.MachineID,
-				MachineRef: b.MachineRef,
+				OrgID:           b.OrgID,
+				MachineID:       b.MachineID,
+				MachinePublicID: machineID,
 			})
 		}
 		outcomes, err := call.Executor.SkillBroadcaster.BroadcastAndAwait(
@@ -220,7 +224,7 @@ func wrapSkillContent(
 		writeXMLText(&b, SkillInstallPath(publicID, revisionPublicID))
 		b.WriteString("\nResolve relative paths in this skill against that directory.\n")
 		b.WriteString("\nInstalled on: ")
-		writeXMLText(&b, joinReadyMachineRefs(ready))
+		writeXMLText(&b, joinReadyMachineIDs(ready))
 		b.WriteString("\n")
 	}
 	if len(failed) > 0 {
@@ -241,10 +245,10 @@ func writeXMLText(b *strings.Builder, s string) {
 	}
 }
 
-func joinReadyMachineRefs(outcomes []skills.BroadcastOutcome) string {
+func joinReadyMachineIDs(outcomes []skills.BroadcastOutcome) string {
 	refs := make([]string, 0, len(outcomes))
 	for _, o := range outcomes {
-		refs = append(refs, o.Target.MachineRef)
+		refs = append(refs, o.Target.MachinePublicID)
 	}
 	return strings.Join(refs, ", ")
 }

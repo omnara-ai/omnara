@@ -1860,7 +1860,7 @@ tools:
 		"idem-live-explicit-readd",
 	)
 	rebound := bindingForMachine(firstMachine.ID)
-	if rebound.ID == firstBinding.ID || rebound.MachineRef == firstBinding.MachineRef {
+	if rebound.ID == firstBinding.ID || rebound.MachineID != firstBinding.MachineID {
 		t.Fatalf("re-added explicit source reused binding history: old=%+v new=%+v", firstBinding, rebound)
 	}
 	assertCurrentAgentReplay("after reattachment")

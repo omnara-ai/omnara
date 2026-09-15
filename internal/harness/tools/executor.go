@@ -223,7 +223,7 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 		body["next_action"] = toolcatalog.ToolNameListMachines
 	}
 	if errors.Is(cause, ErrMachineSelectionRequired) {
-		body["error"] = "machine_ref is required when multiple machines are available"
+		body["error"] = "machine_id is required when multiple machines are available"
 		body["error_code"] = ErrMachineSelectionRequired.Error()
 		body["next_action"] = toolcatalog.ToolNameListMachines
 		content, marshalErr := structuredToolResultContent(body)
@@ -232,15 +232,15 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 		}
 		return machineUnavailableResult{Cause: ErrMachineSelectionRequired, Content: content}, nil
 	}
-	if errors.Is(cause, ErrMachineRefUnavailable) {
-		body["error"] = "machine_ref is unavailable"
-		body["error_code"] = ErrMachineRefUnavailable.Error()
+	if errors.Is(cause, ErrMachineIDUnavailable) {
+		body["error"] = "machine_id is unavailable"
+		body["error_code"] = ErrMachineIDUnavailable.Error()
 		body["next_action"] = toolcatalog.ToolNameListMachines
 		content, marshalErr := structuredToolResultContent(body)
 		if marshalErr != nil {
 			return machineUnavailableResult{}, marshalErr
 		}
-		return machineUnavailableResult{Cause: ErrMachineRefUnavailable, Content: content}, nil
+		return machineUnavailableResult{Cause: ErrMachineIDUnavailable, Content: content}, nil
 	}
 	content, marshalErr := structuredToolResultContent(body)
 	if marshalErr != nil {

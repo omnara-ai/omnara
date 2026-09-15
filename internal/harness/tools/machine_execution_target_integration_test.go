@@ -79,7 +79,7 @@ func (providers toolsTestMachinePoolProviders) BuildMachineProvisioningIntent(
 	return machineProvisioning, nil
 }
 
-func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
+func TestResolveMachineExecutionTargetUsesMachineIDSelection(t *testing.T) {
 	ctx := context.Background()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 	store := storage.NewStore(
@@ -140,18 +140,20 @@ func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
 	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, ""); !errors.Is(err, ErrMachineSelectionRequired) {
 		t.Fatalf("omitted selector with multiple bindings error = %v, want %v", err, ErrMachineSelectionRequired)
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, firstAgentBinding.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(
+		ctx, turn, machinePublicIDForTest(t, firstAgentBinding.MachineID),
+	)
 	if err != nil {
 		t.Fatalf("resolve explicit first binding: %v", err)
 	}
 	if binding.ID != firstAgentBinding.ID || binding.Cwd != "/first" {
 		t.Fatalf("resolved wrong explicit binding: %+v want %s", binding, firstAgentBinding.ID)
 	}
-	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, "mchr-missing"); !errors.Is(
+	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, "mch_aaaaaaaaaaaaaaaaaaaaaaaaae"); !errors.Is(
 		err,
-		ErrMachineRefUnavailable,
+		ErrMachineIDUnavailable,
 	) {
-		t.Fatalf("unavailable selector error = %v, want %v", err, ErrMachineRefUnavailable)
+		t.Fatalf("unavailable selector error = %v, want %v", err, ErrMachineIDUnavailable)
 	}
 	singleLaunch := createToolsRuntimeAgentWithMachineSources(
 		t,
@@ -174,7 +176,7 @@ func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve omitted single binding: %v", err)
 	}
-	if binding.ID != singleBinding.ID || binding.MachineRef == "" {
+	if binding.ID != singleBinding.ID || binding.MachineID == storage.NilID {
 		t.Fatalf("resolved wrong single binding: %+v want %s", binding, singleBinding.ID)
 	}
 	_ = secondAgentBinding
@@ -241,7 +243,7 @@ tools:
 		launch.MachineBindings[0].BindingKind != executionstore.MachineBindingKindExplicit {
 		t.Fatalf("BYO observation launch bindings = %+v", launch.MachineBindings)
 	}
-	machineRef := launch.MachineBindings[0].MachineRef
+	machineID := machinePublicIDForTest(t, launch.MachineBindings[0].MachineID)
 
 	listCall := model.ToolCall{ID: "call_observe-byo-list", Name: "list_machines", Input: json.RawMessage(`{}`)}
 	inspectCall := model.ToolCall{ID: "call_observe-byo-inspect", Name: "inspect_machine", Input: json.RawMessage(`{}`)}
@@ -259,7 +261,7 @@ tools:
 	staleInspectCall := model.ToolCall{
 		ID:    "call_observe-byo-stale-inspect",
 		Name:  "inspect_machine",
-		Input: json.RawMessage(`{"machine_ref":"mchr-missing"}`),
+		Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`),
 	}
 	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
 		t,
@@ -328,7 +330,7 @@ tools:
 	if !ok {
 		t.Fatalf("list_machines entry = %+v", machines[0])
 	}
-	assertBYOMachineObservationResult(t, listed, machineRef, byo.DisplayName)
+	assertBYOMachineObservationResult(t, listed, machineID, byo.DisplayName)
 
 	interaction, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
 		ctx,
@@ -372,7 +374,7 @@ tools:
 		t.Fatalf("dispatch inspect_machine: %v", err)
 	}
 	inspected := toolResultMapFromTestParts(t, inspectResult.ContentParts)
-	assertBYOMachineObservationResult(t, inspected, machineRef, byo.DisplayName)
+	assertBYOMachineObservationResult(t, inspected, machineID, byo.DisplayName)
 
 	if _, err := storagetest.ExecuteToolCallCommand[executionstore.CreatePoolMachineResult](
 		ctx,
@@ -404,7 +406,7 @@ tools:
 	}
 	mixedBody := toolResultMapFromTestParts(t, mixedResult.ContentParts)
 	if mixedBody["error_code"] != ErrMachineSelectionRequired.Error() ||
-		mixedBody["error"] != "machine_ref is required when multiple machines are available" ||
+		mixedBody["error"] != "machine_id is required when multiple machines are available" ||
 		mixedBody["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("mixed-source inspect_machine result = %+v", mixedBody)
 	}
@@ -428,8 +430,8 @@ tools:
 		t.Fatalf("dispatch stale inspect_machine: %v", err)
 	}
 	staleBody := toolResultMapFromTestParts(t, staleResult.ContentParts)
-	if staleBody["error_code"] != ErrMachineRefUnavailable.Error() ||
-		staleBody["error"] != "machine_ref is unavailable" ||
+	if staleBody["error_code"] != ErrMachineIDUnavailable.Error() ||
+		staleBody["error"] != "machine_id is unavailable" ||
 		staleBody["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("stale inspect_machine result = %+v", staleBody)
 	}
@@ -438,10 +440,10 @@ tools:
 func assertBYOMachineObservationResult(
 	t *testing.T,
 	result map[string]any,
-	machineRef, displayName string,
+	machineID, displayName string,
 ) {
 	t.Helper()
-	if result["machine_ref"] != machineRef || result["source_kind"] != "byo" ||
+	if result["machine_id"] != machineID || result["source_kind"] != "byo" ||
 		result["binding_kind"] != "explicit" || result["binding_state"] != "attached" ||
 		result["display_name"] != displayName || result["cwd"] != "/checkout" ||
 		result["connection_state"] != "online" || result["executable"] != true {
@@ -471,19 +473,16 @@ func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 		"approved-target-second",
 		fixture.Now.Add(6*time.Second),
 	)
-	firstRef := "mchr-aprvd1"
-	secondRef := "mchr-aprvd2"
 	if _, err := fixture.Pool.Exec(
 		ctx,
 		`INSERT INTO agent_machine_bindings(
-		   org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at
+		   org_id, project_id, agent_id, machine_id, binding_kind, state, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, 'explicit', 'attached', $6, $6)`,
+		 VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)`,
 		toolsTestOrgID,
 		toolsTestProjectID,
 		fixture.Launch.Agent.ID,
 		first.MachineID,
-		firstRef,
 		fixture.Now.Add(7*time.Second),
 	); err != nil {
 		t.Fatalf("attach first machine: %v", err)
@@ -574,14 +573,13 @@ func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	if _, err := fixture.Pool.Exec(
 		ctx,
 		`INSERT INTO agent_machine_bindings(
-		   org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at
+		   org_id, project_id, agent_id, machine_id, binding_kind, state, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, 'explicit', 'attached', $6, $6)`,
+		 VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)`,
 		toolsTestOrgID,
 		toolsTestProjectID,
 		fixture.Launch.Agent.ID,
 		second.MachineID,
-		secondRef,
 		fixture.Now.Add(11*time.Second),
 	); err != nil {
 		t.Fatalf("attach replacement machine target: %v", err)
@@ -826,7 +824,7 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 		t.Fatalf("decode result content: %v; raw=%s", unmarshalErr, parts[0].Value)
 	}
 	if body["error_code"] != ErrMachineSelectionRequired.Error() ||
-		body["error"] != "machine_ref is required when multiple machines are available" ||
+		body["error"] != "machine_id is required when multiple machines are available" ||
 		body["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("unexpected structured machine selection result: %+v", body)
 	}
@@ -1441,7 +1439,7 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 	call := model.ToolCall{
 		ID:    "call_delete_replay",
 		Name:  "delete_machine",
-		Input: json.RawMessage(`{"machine_ref":"` + created.Machine.Binding.MachineRef + `"}`),
+		Input: json.RawMessage(`{"machine_id":"` + machinePublicIDForTest(t, created.Machine.Binding.MachineID) + `"}`),
 	}
 	providerResponse, err := model.NewResponseEnvelopeForStorage(
 		"tools-test",

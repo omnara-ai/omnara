@@ -44,7 +44,7 @@ func TestDefaultCatalogIncludesRuntimeDiscoveryGuidance(t *testing.T) {
 	}{
 		{
 			name:        ToolNameListMachines,
-			description: []string{"machine_ref", "availability"},
+			description: []string{"machine_id", "availability"},
 		},
 		{name: ToolNameRunCommand, schema: []string{ToolNameListMachines}},
 		{name: ToolNameInspectMachine, schema: []string{ToolNameListMachines}},

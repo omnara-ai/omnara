@@ -203,7 +203,6 @@ type IntegrationInsertAgentMachineBindingInput struct {
 	AgentID                ID
 	CreateToolCallID       ID
 	ProjectMachineGrantID  ID
-	MachineRef             string
 	BindingKind            AgentMachineBindingKind
 	Description            string
 	Cwd                    string
@@ -233,7 +232,6 @@ type IntegrationPoolMachineBindingInput struct {
 	Description      string
 	PoolGrant        dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	ResolvedMachine  ResolvedPoolMachine
-	MachineRef       string
 	CreateToolCallID ID
 }
 
@@ -324,13 +322,13 @@ func IntegrationInsertAgentMachineBindingTx(
 	return insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput(input))
 }
 
-func IntegrationGetAgentMachineObservationByRef(
+func IntegrationGetAgentMachineObservationByMachineID(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID, agentID ID,
-	machineRef string,
+	machineID ID,
 ) (AgentMachineObservationRecord, error) {
-	return getAgentMachineObservationByRef(ctx, qtx, projectID, agentID, machineRef)
+	return getAgentMachineObservationByMachineID(ctx, qtx, projectID, agentID, machineID)
 }
 
 func IntegrationListPoolMachinesTx(
@@ -341,13 +339,13 @@ func IntegrationListPoolMachinesTx(
 	return listPoolMachinesTx(ctx, qtx, projectID, agentID)
 }
 
-func IntegrationPoolMachineByRefTx(
+func IntegrationPoolMachineByIDTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID, agentID ID,
-	machineRef string,
+	machineID ID,
 ) (PoolMachineRecord, error) {
-	return poolMachineByRefTx(ctx, qtx, projectID, agentID, machineRef)
+	return poolMachineByIDTx(ctx, qtx, projectID, agentID, machineID)
 }
 
 func IntegrationCreatePoolMachineBindingTx(

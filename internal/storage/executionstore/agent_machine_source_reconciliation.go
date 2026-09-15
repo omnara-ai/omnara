@@ -122,10 +122,6 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 		if source.MachineID != NilID {
 			current, exists := currentMachines[source.MachineID]
 			if !exists {
-				machineRef, err := newMachineRef()
-				if err != nil {
-					return nil, err
-				}
 				envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
 					source.BindingConfig.EnvironmentOverlay,
 				)
@@ -136,7 +132,6 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 					ProjectID:             projectID,
 					AgentID:               agentID,
 					ProjectMachineGrantID: source.GrantID,
-					MachineRef:            machineRef,
 					BindingKind:           MachineBindingKindExplicit,
 					Description:           source.Contract.Description,
 					Cwd:                   source.BindingConfig.Cwd,

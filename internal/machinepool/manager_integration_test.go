@@ -2097,9 +2097,9 @@ VALUES ($1, $2, $3, $4, 'pool', $5, '{}'::jsonb, $6, $6)
 `, grantID, orgID, projectID, machineID, poolGrantID, now)
 
 	exec("insert cleanup binding", `
-INSERT INTO agent_machine_bindings(id, org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state,
+INSERT INTO agent_machine_bindings(id, org_id, project_id, agent_id, machine_id, binding_kind, state,
     metadata, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, 'mchr-abcd23', 'pool', 'attached', '{}'::jsonb, $6, $6)
+VALUES ($1, $2, $3, $4, $5, 'pool', 'attached', '{}'::jsonb, $6, $6)
 `, bindingID, orgID, projectID, agentID, machineID, now)
 
 	if err := tx.Commit(ctx); err != nil {

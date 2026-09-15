@@ -3538,7 +3538,6 @@ func TestProcessAndActionReplayByToolCall(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               fixture.AgentID,
 			ProjectMachineGrantID: otherGrant.ID,
-			MachineRef:            "mchr-repl42",
 			BindingKind:           "explicit",
 			Cwd:                   "/work",
 		},

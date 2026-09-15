@@ -9293,7 +9293,7 @@ components:
     AgentMachineBinding:
       type: object
       additionalProperties: false
-      required: [id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, created_at, updated_at]
+      required: [id, project_id, agent_id, machine_id, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentMachineBindingID'
@@ -9303,8 +9303,6 @@ components:
           $ref: '#/components/schemas/AgentID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
-        machine_ref:
-          type: string
         binding_kind:
           $ref: '#/components/schemas/AgentMachineBindingKind'
         state:

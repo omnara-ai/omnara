@@ -704,8 +704,8 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 	if command := schema.Properties["command"]; command.Type != "string" {
 		t.Fatalf("run_command command schema = %+v", command)
 	}
-	if machineRef := schema.Properties["machine_ref"]; machineRef.Type != "string" {
-		t.Fatalf("run_command machine_ref schema = %+v", machineRef)
+	if machineID := schema.Properties["machine_id"]; machineID.Type != "string" {
+		t.Fatalf("run_command machine_id schema = %+v", machineID)
 	}
 	wantSelectors := []string{"default", "sh", "bash", "zsh", "pwsh", "powershell", "cmd"}
 	if got := schema.Properties["shell"].Enum; !sameStringSliceForAgentConfig(got, wantSelectors) {

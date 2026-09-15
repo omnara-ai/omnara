@@ -1265,7 +1265,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		ToolCallID:    toolCalls["delete"],
 		RuntimeLockID: lock.ID,
 	}, executionstore.DeletePoolMachineInput{
-		MachineRef: created.Machine.Binding.MachineRef,
+		MachineID: created.Machine.Binding.MachineID,
 	})
 	if err != nil {
 		t.Fatalf("delete pool machine: %v", err)
@@ -1300,7 +1300,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		ToolCallID:    toolCalls["delete"],
 		RuntimeLockID: lock.ID,
 	}, executionstore.DeletePoolMachineInput{
-		MachineRef: created.Machine.Binding.MachineRef,
+		MachineID: created.Machine.Binding.MachineID,
 	})
 	if err != nil {
 		t.Fatalf("replay delete pool machine: %v", err)
@@ -1495,7 +1495,7 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 		ToolCallID:    toolCalls["delete"],
 		RuntimeLockID: lock.ID,
 	}, executionstore.DeletePoolMachineInput{
-		MachineRef: created.Machine.Binding.MachineRef,
+		MachineID: created.Machine.Binding.MachineID,
 	})
 	if err != nil {
 		t.Fatalf("delete provisioning pool machine: %v", err)
@@ -1710,7 +1710,6 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               explicitAgent.ID,
 			ProjectMachineGrantID: generatedGrant.ID,
-			MachineRef:            "mchr-exp001",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 		},
 	)
@@ -1725,7 +1724,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list explicit pool-backed machine observations: %v", err)
 	}
-	if len(explicitObservations) != 1 || explicitObservations[0].MachineRef != explicitBinding.MachineRef ||
+	if len(explicitObservations) != 1 || explicitObservations[0].MachineID != explicitBinding.MachineID ||
 		explicitObservations[0].SourceKind != executionstore.MachineSourceKindPool ||
 		explicitObservations[0].BindingKind != executionstore.MachineBindingKindExplicit {
 		t.Fatalf("explicit pool-backed machine observations = %+v", explicitObservations)
@@ -1766,7 +1765,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 		ToolCallID:    explicitToolCalls["delete"],
 		RuntimeLockID: explicitLock.ID,
 	}, executionstore.DeletePoolMachineInput{
-		MachineRef: explicitBinding.MachineRef,
+		MachineID: explicitBinding.MachineID,
 	}); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("delete explicit pool-backed machine as pool machine error = %v, want not found", err)
 	}
@@ -1795,7 +1794,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 		ToolCallID:    toolCalls["delete"],
 		RuntimeLockID: lock.ID,
 	}, executionstore.DeletePoolMachineInput{
-		MachineRef: created.Machine.Binding.MachineRef,
+		MachineID: created.Machine.Binding.MachineID,
 	}); err != nil {
 		t.Fatalf("delete generated pool machine: %v", err)
 	}
@@ -1855,12 +1854,12 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	if len(poolObservations) != 0 {
 		t.Fatalf("released pool machine observations = %+v, want none", poolObservations)
 	}
-	releasedPoolObservation, err := executionstore.IntegrationGetAgentMachineObservationByRef(
+	releasedPoolObservation, err := executionstore.IntegrationGetAgentMachineObservationByMachineID(
 		ctx,
 		store.q,
 		testProjectID,
 		poolAgent.ID,
-		created.Machine.Binding.MachineRef,
+		created.Machine.Binding.MachineID,
 	)
 	if err != nil {
 		t.Fatalf("inspect released pool machine: %v", err)

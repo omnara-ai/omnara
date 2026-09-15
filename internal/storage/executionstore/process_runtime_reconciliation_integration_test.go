@@ -397,7 +397,6 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 			ProjectID:             testProjectID,
 			AgentID:               firstAgent,
 			ProjectMachineGrantID: grant.ID,
-			MachineRef:            "mchr-actv01",
 			BindingKind:           "explicit",
 		},
 	); err != nil {
@@ -410,7 +409,6 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 			ProjectID:             testProjectID,
 			AgentID:               secondAgent,
 			ProjectMachineGrantID: grant.ID,
-			MachineRef:            "mchr-actv02",
 			BindingKind:           "explicit",
 		},
 	); err != nil {

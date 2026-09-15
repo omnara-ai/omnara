@@ -34,8 +34,8 @@ const (
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_ref values and current availability."
-	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
+	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_id values and current availability."
+	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
 	sendIntegrationMessageToolDescription = "Send a user-visible message to the current integration target. " +
@@ -83,13 +83,13 @@ func buildDefaultCatalog() (Catalog, error) {
 		"enum":        []string{"default", "sh", "bash", "zsh", "pwsh", "powershell", "cmd"},
 		"description": "Shell family to use. Omit unless a specific shell is required.",
 	}
-	machineRef := map[string]any{
+	machineID := map[string]any{
 		"type":        "string",
-		"description": "Exact machine_ref returned by list_machines. Omit it when the target is unambiguous.",
+		"description": "Public machine_id (mch_...) returned by list_machines. Omit it when the target is unambiguous.",
 	}
-	deleteMachineRef := map[string]any{
+	deleteMachineID := map[string]any{
 		"type":        "string",
-		"description": "Exact machine_ref of the pool-backed machine to delete. Use list_machines first if you need the ref.",
+		"description": "Public machine_id (mch_...) of the pool-backed machine to delete. Use list_machines first if you need the ID.",
 	}
 	machinePoolName := map[string]any{
 		"type":        "string",
@@ -111,8 +111,8 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": "Shell command to run. Once execution is granted, the result includes a process_id " +
 					"that can be used with the process tools, even if the command has already ended.",
 			},
-			"machine_ref": machineRef,
-			"shell":       shellSelector,
+			"machine_id": machineID,
+			"shell":      shellSelector,
 			"cwd": map[string]any{
 				"type":        "string",
 				"description": "Working directory. Omit to use the assigned machine default; do not guess /.",
@@ -225,8 +225,8 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameDeleteMachine], err = toolEntry(
 		ToolNameDeleteMachine,
 		deleteMachineToolDescription,
-		[]string{"machine_ref"},
-		map[string]any{"machine_ref": deleteMachineRef},
+		[]string{"machine_id"},
+		map[string]any{"machine_id": deleteMachineID},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -242,7 +242,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameInspectMachine,
 		inspectMachineToolDescription,
 		nil,
-		map[string]any{"machine_ref": machineRef},
+		map[string]any{"machine_id": machineID},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -261,10 +261,10 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineRef); err != nil {
+	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineID); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameDownloadArtifact], err = downloadArtifactTool(machineRef); err != nil {
+	if entries[ToolNameDownloadArtifact], err = downloadArtifactTool(machineID); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -491,7 +491,7 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
-func uploadArtifactTool(machineRef map[string]any) (Entry, error) {
+func uploadArtifactTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
 		ToolNameUploadArtifact,
 		uploadArtifactToolDescription,
@@ -503,12 +503,12 @@ func uploadArtifactTool(machineRef map[string]any) (Entry, error) {
 				"description": "Path to a regular file on the selected machine. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
-			"machine_ref": machineRef,
+			"machine_id": machineID,
 		},
 	)
 }
 
-func downloadArtifactTool(machineRef map[string]any) (Entry, error) {
+func downloadArtifactTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
 		ToolNameDownloadArtifact,
 		downloadArtifactToolDescription,
@@ -525,7 +525,7 @@ func downloadArtifactTool(machineRef map[string]any) (Entry, error) {
 				"description": "Destination path on the selected machine. The parent directory must exist. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
-			"machine_ref": machineRef,
+			"machine_id": machineID,
 		},
 	)
 }

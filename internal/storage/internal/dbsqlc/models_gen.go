@@ -99,7 +99,6 @@ type AgentMachineBinding struct {
 	CreateToolCallID       *uuid.UUID
 	DeleteToolCallID       *uuid.UUID
 	MachineID              uuid.UUID
-	MachineRef             string
 	BindingKind            string
 	State                  string
 	Description            string

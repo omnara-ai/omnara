@@ -237,7 +237,7 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 			fixture.store,
 			fixture.transaction(fixture.deleteToolCallID),
 			executionstore.DeletePoolMachineForToolCall(
-				executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+				executionstore.DeletePoolMachineInput{MachineID: created.Machine.Binding.MachineID},
 				acceptedPoolMachineCompletionForTest,
 			),
 		)
@@ -279,7 +279,6 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               secondAgentID,
 			ProjectMachineGrantID: fixture.GrantID,
-			MachineRef:            testMachineRef("terminal-agent-order-second"),
 			BindingKind:           "explicit",
 			Cwd:                   "/work",
 		},
@@ -433,7 +432,7 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 		fixture.store,
 		fixture.transaction(fixture.deleteToolCallID),
 		executionstore.DeletePoolMachineForToolCall(
-			executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+			executionstore.DeletePoolMachineInput{MachineID: created.Machine.Binding.MachineID},
 			acceptedPoolMachineCompletionForTest,
 		),
 	)
@@ -633,7 +632,6 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               fixture.agent.ID,
 			ProjectMachineGrantID: grant.ID,
-			MachineRef:            "mchr-prjdel",
 			BindingKind:           executionstore.MachineBindingKindExplicit,
 		},
 	)
@@ -1347,7 +1345,7 @@ func TestPoolMachineToolOperationsEnterProjectLifecycle(t *testing.T) {
 						fixture.store,
 						fixture.transaction(fixture.deleteToolCallID),
 						executionstore.DeletePoolMachineForToolCall(
-							executionstore.DeletePoolMachineInput{MachineRef: created.Machine.Binding.MachineRef},
+							executionstore.DeletePoolMachineInput{MachineID: created.Machine.Binding.MachineID},
 							acceptedPoolMachineCompletionForTest,
 						),
 					)

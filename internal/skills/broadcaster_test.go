@@ -196,9 +196,9 @@ func TestBroadcastAndAwaitRetriesWakeAcrossSleepTransition(t *testing.T) {
 		"skr_test",
 		testArchiveDigest,
 		[]BroadcastTarget{{
-			OrgID:      orgID,
-			MachineID:  machineID,
-			MachineRef: "mchr-Z",
+			OrgID:           orgID,
+			MachineID:       machineID,
+			MachinePublicID: "mch_Z",
 		}},
 		time.Second,
 	)
@@ -253,7 +253,7 @@ func TestBroadcastAndAwaitDoesNotRetryOfflineTargetWithoutWake(t *testing.T) {
 		"skl_test",
 		"skr_test",
 		testArchiveDigest,
-		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachineRef: "mchr-Z"}},
+		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachinePublicID: "mch_Z"}},
 		time.Second,
 	)
 	if err != nil {
@@ -362,8 +362,8 @@ func TestBroadcastAndAwaitHappyPathMatchesReportsToTargets(t *testing.T) {
 		"skr_test",
 		testArchiveDigest,
 		[]BroadcastTarget{
-			{OrgID: orgID, MachineID: machineA, MachineRef: "mchr-A"},
-			{OrgID: orgID, MachineID: machineB, MachineRef: "mchr-B"},
+			{OrgID: orgID, MachineID: machineA, MachinePublicID: "mch_A"},
+			{OrgID: orgID, MachineID: machineB, MachinePublicID: "mch_B"},
 		},
 		2*time.Second,
 	)
@@ -434,8 +434,8 @@ func TestBroadcastAndAwaitPartialTimeoutFoldsUnreporters(t *testing.T) {
 		"skr_test",
 		testArchiveDigest,
 		[]BroadcastTarget{
-			{OrgID: orgID, MachineID: machineA, MachineRef: "mchr-A"},
-			{OrgID: orgID, MachineID: machineB, MachineRef: "mchr-B"},
+			{OrgID: orgID, MachineID: machineA, MachinePublicID: "mch_A"},
+			{OrgID: orgID, MachineID: machineB, MachinePublicID: "mch_B"},
 		},
 		120*time.Millisecond,
 	)
@@ -482,7 +482,7 @@ func TestBroadcastAndAwaitTranslatesDaemonOffline(t *testing.T) {
 		"skl_test",
 		"skr_test",
 		testArchiveDigest,
-		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachineRef: "mchr-Z"}},
+		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachinePublicID: "mch_Z"}},
 		200*time.Millisecond,
 	)
 	if err != nil {
@@ -504,7 +504,7 @@ func TestBroadcastAndAwaitTransportErrorBecomesPerMachineFailure(t *testing.T) {
 		"skl_test",
 		"skr_test",
 		testArchiveDigest,
-		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachineRef: "mchr-Q"}},
+		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachinePublicID: "mch_Q"}},
 		200*time.Millisecond,
 	)
 	if err != nil {

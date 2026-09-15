@@ -50,9 +50,9 @@ type MachineWaker interface {
 
 // BroadcastTarget identifies a single machine for a skill offer.
 type BroadcastTarget struct {
-	OrgID      uuid.UUID
-	MachineID  uuid.UUID
-	MachineRef string
+	OrgID           uuid.UUID
+	MachineID       uuid.UUID
+	MachinePublicID string
 }
 
 // BroadcastOutcome is one machine's terminal skill install state.

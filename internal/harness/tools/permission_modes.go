@@ -8,6 +8,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -301,12 +302,12 @@ func inspectMachinePermissionChallenge(
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	input, err := resolveMachineRefRequest(call.Input, true)
+	input, err := resolveMachineIDRequest(call.Input, true)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	machineRef := input.MachineRef
-	if machineRef == "" {
+	machineID := input.MachineID
+	if machineID == "" {
 		if executor.Store == nil {
 			return toolpermission.Request{}, fmt.Errorf("tool executor store is required")
 		}
@@ -322,11 +323,14 @@ func inspectMachinePermissionChallenge(
 		if err != nil {
 			return toolpermission.Request{}, executor.machinePreparationError(err)
 		}
-		machineRef = machine.MachineRef
+		machineID, err = publicid.Encode(publicid.KindMachine, machine.MachineID)
+		if err != nil {
+			return toolpermission.Request{}, err
+		}
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,
-		machineRef,
+		machineID,
 	)
 	if err != nil {
 		return toolpermission.Request{}, err
@@ -381,9 +385,13 @@ func runCommandPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := runCommandAuthorizationInput(binding.ID, resolved)
 	if err != nil {
@@ -391,7 +399,7 @@ func runCommandPermissionChallenge(
 	}
 	contextItems := []interactionform.ContextItem{
 		{Label: "Command", Value: resolved.Command},
-		{Label: "Machine", Value: binding.MachineRef},
+		{Label: "Machine", Value: machineID},
 		{Label: "Shell", Value: string(resolved.Selector)},
 	}
 	if resolved.Cwd != "" {
@@ -414,9 +422,13 @@ func uploadArtifactPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Path)
 	if err != nil {
@@ -427,7 +439,7 @@ func uploadArtifactPermissionChallenge(
 		mode,
 		authorizationInput,
 		interactionform.ContextItem{Label: "Path", Value: resolved.Path},
-		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
+		interactionform.ContextItem{Label: "Machine", Value: machineID},
 	)
 }
 
@@ -442,9 +454,13 @@ func downloadArtifactPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := downloadArtifactAuthorizationInput(
 		binding.ID,
@@ -460,7 +476,7 @@ func downloadArtifactPermissionChallenge(
 		authorizationInput,
 		interactionform.ContextItem{Label: "Artifact", Value: resolved.ArtifactID},
 		interactionform.ContextItem{Label: "Destination", Value: resolved.Path},
-		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
+		interactionform.ContextItem{Label: "Machine", Value: machineID},
 	)
 }
 

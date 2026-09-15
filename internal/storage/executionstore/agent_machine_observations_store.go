@@ -12,7 +12,7 @@ import (
 )
 
 type AgentMachineObservationRecord struct {
-	MachineRef             string                   `json:"machine_ref"`
+	MachineID              ID                       `json:"machine_id"`
 	SourceKind             MachineSourceKind        `json:"source_kind"`
 	BindingKind            AgentMachineBindingKind  `json:"binding_kind"`
 	BindingState           AgentMachineBindingState `json:"binding_state"`
@@ -55,34 +55,34 @@ func (r *ToolCallReader) ListAgentMachineObservations(
 	)
 }
 
-func (r *ToolCallReader) GetAgentMachineObservationByRef(
+func (r *ToolCallReader) GetAgentMachineObservationByMachineID(
 	ctx context.Context,
-	machineRef string,
+	machineID ID,
 ) (AgentMachineObservationRecord, error) {
-	if machineRef == "" {
-		return AgentMachineObservationRecord{}, errors.New("machine ref is required")
+	if isNilID(machineID) {
+		return AgentMachineObservationRecord{}, errors.New("machine ID is required")
 	}
-	return getAgentMachineObservationByRef(
+	return getAgentMachineObservationByMachineID(
 		ctx,
 		r.transaction.q,
 		r.transaction.input.ProjectID,
 		r.transaction.input.AgentID,
-		machineRef,
+		machineID,
 	)
 }
 
-func getAgentMachineObservationByRef(
+func getAgentMachineObservationByMachineID(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, agentID ID,
-	machineRef string,
+	machineID ID,
 ) (AgentMachineObservationRecord, error) {
 	records, err := selectAgentMachineObservations(
 		ctx,
 		q,
 		projectID,
 		agentID,
-		&machineRef,
+		&machineID,
 		true,
 	)
 	if err != nil {
@@ -98,7 +98,7 @@ func selectAgentMachineObservations(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, agentID ID,
-	machineRef *string,
+	machineID *ID,
 	includeReleasedPool bool,
 ) ([]AgentMachineObservationRecord, error) {
 	rows, err := q.SelectAgentMachineObservations(
@@ -106,7 +106,7 @@ func selectAgentMachineObservations(
 		dbsqlc.SelectAgentMachineObservationsParams{
 			ProjectID:           projectID,
 			AgentID:             agentID,
-			MachineRef:          machineRef,
+			MachineID:           machineID,
 			IncludeReleasedPool: includeReleasedPool,
 		},
 	)
@@ -116,7 +116,7 @@ func selectAgentMachineObservations(
 	records := make([]AgentMachineObservationRecord, 0, len(rows))
 	for _, row := range rows {
 		records = append(records, AgentMachineObservationRecord{
-			MachineRef:             row.MachineRef,
+			MachineID:              row.MachineID,
 			SourceKind:             MachineSourceKind(row.SourceKind),
 			BindingKind:            AgentMachineBindingKind(row.BindingKind),
 			BindingState:           AgentMachineBindingState(row.BindingState),

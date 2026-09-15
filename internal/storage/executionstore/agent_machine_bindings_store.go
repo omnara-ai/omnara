@@ -2,11 +2,9 @@ package executionstore
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -96,7 +94,6 @@ type AgentMachineBindingRecord struct {
 	CreateToolCallID       ID                       `json:"create_tool_call_id,omitempty"`
 	DeleteToolCallID       ID                       `json:"delete_tool_call_id,omitempty"`
 	MachineID              ID                       `json:"machine_id"`
-	MachineRef             string                   `json:"machine_ref"`
 	BindingKind            AgentMachineBindingKind  `json:"binding_kind"`
 	State                  AgentMachineBindingState `json:"state"`
 	Description            string                   `json:"description,omitempty"`
@@ -114,7 +111,6 @@ type insertAgentMachineBindingInput struct {
 	AgentID                ID
 	CreateToolCallID       ID
 	ProjectMachineGrantID  ID
-	MachineRef             string
 	BindingKind            AgentMachineBindingKind
 	Description            string
 	Cwd                    string
@@ -122,36 +118,4 @@ type insertAgentMachineBindingInput struct {
 	SecretEnvOverlay       json.RawMessage
 	DeleteAfterIdleMinutes *int
 	Metadata               json.RawMessage
-}
-
-const shortRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"
-
-func newMachineRef() (string, error) {
-	var buf [6]byte
-	if _, err := io.ReadFull(rand.Reader, buf[:]); err != nil {
-		return "", fmt.Errorf("generate machine ref: %w", err)
-	}
-	out := make([]byte, 0, 11)
-	out = append(out, "mchr-"...)
-	for _, value := range buf {
-		out = append(out, shortRefAlphabet[int(value)%len(shortRefAlphabet)])
-	}
-	return string(out), nil
-}
-
-func newMachineRefs(count int) ([]string, error) {
-	refs := make([]string, 0, count)
-	seen := make(map[string]struct{}, count)
-	for len(refs) < count {
-		ref, err := newMachineRef()
-		if err != nil {
-			return nil, err
-		}
-		if _, exists := seen[ref]; exists {
-			continue
-		}
-		seen[ref] = struct{}{}
-		refs = append(refs, ref)
-	}
-	return refs, nil
 }

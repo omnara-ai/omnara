@@ -50,13 +50,13 @@ func TestMachineUnavailableToolResultGuidesKnownResolutionFailures(t *testing.T)
 			name:      "selection required",
 			cause:     ErrMachineSelectionRequired,
 			errorCode: ErrMachineSelectionRequired.Error(),
-			message:   "machine_ref is required when multiple machines are available",
+			message:   "machine_id is required when multiple machines are available",
 		},
 		{
 			name:      "ref unavailable",
-			cause:     ErrMachineRefUnavailable,
-			errorCode: ErrMachineRefUnavailable.Error(),
-			message:   "machine_ref is unavailable",
+			cause:     ErrMachineIDUnavailable,
+			errorCode: ErrMachineIDUnavailable.Error(),
+			message:   "machine_id is unavailable",
 		},
 	}
 	for _, test := range tests {

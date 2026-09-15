@@ -340,9 +340,6 @@ func insertAgentMachineBindingTx(
 	qtx *dbsqlc.Queries,
 	input insertAgentMachineBindingInput,
 ) (AgentMachineBindingRecord, error) {
-	if input.MachineRef == "" {
-		return AgentMachineBindingRecord{}, errors.New("launch agent machine ref is required")
-	}
 	row, err := qtx.InsertAgentMachineBinding(
 		ctx,
 		dbsqlc.InsertAgentMachineBindingParams{
@@ -350,7 +347,6 @@ func insertAgentMachineBindingTx(
 			AgentID:                input.AgentID,
 			CreateToolCallID:       sqlcIDFromNil(input.CreateToolCallID),
 			ProjectMachineGrantID:  input.ProjectMachineGrantID,
-			MachineRef:             input.MachineRef,
 			BindingKind:            string(input.BindingKind),
 			Description:            input.Description,
 			Cwd:                    input.Cwd,
@@ -377,7 +373,6 @@ func allocateNewPoolMachineForAgentTx(
 	qtx *dbsqlc.Queries,
 	orgID, projectID, agentID ID,
 	binding launchMachineBindingRequest,
-	machineRef string,
 ) (AgentMachineBindingRecord, error) {
 	source := binding.Source
 	poolGrant := source.PoolGrantForLaunch
@@ -446,7 +441,6 @@ func allocateNewPoolMachineForAgentTx(
 		ProjectID:              projectID,
 		AgentID:                agentID,
 		ProjectMachineGrantID:  grantRow.ID,
-		MachineRef:             machineRef,
 		BindingKind:            MachineBindingKindPool,
 		Description:            source.Contract.Description,
 		Cwd:                    source.BindingConfig.Cwd,

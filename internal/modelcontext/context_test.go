@@ -168,7 +168,7 @@ func TestBuildPreservesCanonicalAgentInputTextVerbatim(t *testing.T) {
 		`"interaction_id":"int_internal","model_call_context_id":"mcc_internal",` +
 		`"provider_metadata":{"raw":true},"provider_operation_id":"pop_internal",` +
 		`"machine_connection_id":"mcn_internal","machine_connection_generation":7,` +
-		`"agent_machine_binding_id":"smb_internal","machine_ref":"mchr-abc234",` +
+		`"agent_machine_binding_id":"smb_internal","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae",` +
 		`"connector_installation_id":"cin_internal","payload":{"raw":"payload raw value",` +
 		`"visible":true,"process_id":"prc_internal","lease_id":"lse_internal"},` +
 		`"runtime_lock_id":"lock_internal","turn_id":"Q2"}`

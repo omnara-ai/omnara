@@ -1790,7 +1790,6 @@ func (f providerRuntimeStorageFixture) createProcessFixture(
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machineGrant.ID,
-			MachineRef:            testMachineRef(seed),
 			BindingKind:           executionstore.MachineBindingKindPool,
 			Cwd:                   "/work",
 		},

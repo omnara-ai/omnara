@@ -325,7 +325,6 @@ WHERE org_id = $1 AND machine_id = $2 AND source_kind = 'pool'
 			ProjectID:             testProjectID,
 			AgentID:               secondAgentID,
 			ProjectMachineGrantID: machineGrantID,
-			MachineRef:            "mchr-idl002",
 			BindingKind:           executionstore.MachineBindingKindPool,
 		},
 	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {

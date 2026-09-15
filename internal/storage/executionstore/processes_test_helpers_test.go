@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"strings"
 	"testing"
 	"time"
@@ -279,10 +278,6 @@ func (p *recordingPostCommitPublisher) hasProcessTermination(machineID, processI
 	return false
 }
 
-func testMachineRef(value string) string {
-	return fmt.Sprintf("mchr-%06x", crc32.ChecksumIEEE([]byte(value))&0xffffff)
-}
-
 func mustEnsureOmnaraActor(
 	t *testing.T,
 	ctx context.Context,
@@ -474,7 +469,6 @@ func newProcessDaemonFixtureInStore(
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: grant.ID,
-			MachineRef:            testMachineRef(testName),
 			BindingKind:           "explicit",
 			Cwd:                   "/work",
 		},
@@ -550,7 +544,6 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: grant.ID,
-			MachineRef:            testMachineRef(testName),
 			BindingKind:           "explicit",
 			Cwd:                   "/work",
 		},

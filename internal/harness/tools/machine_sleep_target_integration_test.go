@@ -101,7 +101,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 
 	executor := Executor{Store: store}
 	turn := Turn{ProjectID: toolsTestProjectID, AgentID: agent.ID}
-	resolved, err := executor.ResolveMachineExecutionTarget(ctx, turn, agentBinding.MachineRef)
+	resolved, err := executor.ResolveMachineExecutionTarget(ctx, turn, machinePublicIDForTest(t, agentBinding.MachineID))
 	if err != nil {
 		t.Fatalf("resolve asleep machine execution target: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	}
 
 	input := json.RawMessage(
-		`{"command":"pwd","machine_ref":"` + agentBinding.MachineRef + `","wait_ms":750}`,
+		`{"command":"pwd","machine_id":"` + machinePublicIDForTest(t, agentBinding.MachineID) + `","wait_ms":750}`,
 	)
 	toolCallID, lock, admitted, modelContext := createMachineToolCallForDirectStoreTest(
 		t,

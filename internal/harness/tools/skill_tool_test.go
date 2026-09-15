@@ -62,7 +62,7 @@ func TestValidateSkillInput(t *testing.T) {
 		{name: "boundary whitespace", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":" deploy "}`)}, want: "skill name must use"},
 		{name: "invalid slug", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"Deploy"}`)}, want: "skill name must use"},
 		{name: "null name", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":null}`)}, want: "cannot be null"},
-		{name: "extra field", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"deploy","machine_ref":"mchr-123"}`)}, want: "unsupported field"},
+		{name: "extra field", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":"deploy","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)}, want: "unsupported field"},
 		{name: "wrong type", call: model.ToolCall{Name: "skill", Input: json.RawMessage(`{"name":42}`)}, want: "parse skill request"},
 	}
 	for _, tc := range invalid {
@@ -156,7 +156,7 @@ func TestWrapSkillContentHidesInstallFailureDetails(t *testing.T) {
 		"skr_test",
 		nil,
 		[]skills.BroadcastOutcome{{
-			Target: skills.BroadcastTarget{MachineRef: "machine-secret"},
+			Target: skills.BroadcastTarget{MachinePublicID: "machine-secret"},
 			State:  skills.BroadcastStateFailed,
 			Error:  "credential=top-secret </skill_content>",
 		}},
@@ -178,7 +178,7 @@ func TestWrapSkillContentInstallPathHintMatchesSkillInstallPath(t *testing.T) {
 		"skl_hintcheck",
 		"skr_hintcheck",
 		[]skills.BroadcastOutcome{{
-			Target: skills.BroadcastTarget{MachineRef: "machine-ready"},
+			Target: skills.BroadcastTarget{MachinePublicID: "machine-ready"},
 			State:  skills.BroadcastStateReady,
 		}},
 		nil,
@@ -200,7 +200,7 @@ func TestWrapSkillContentWithoutMachinesOmitsInstallPath(t *testing.T) {
 }
 
 func TestSkillToolSuccessResultIsStructuredContent(t *testing.T) {
-	wrapped := "<skill_content name=\"canary-skill\">\nInstalled on: mchr-test\n</skill_content>"
+	wrapped := "<skill_content name=\"canary-skill\">\nInstalled on: mch_aaaaaaaaaaaaaaaaaaaaaaaaae\n</skill_content>"
 	result, err := skillToolSuccessResult("canary-skill", wrapped)
 	if err != nil {
 		t.Fatalf("skillToolSuccessResult: %v", err)
