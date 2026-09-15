@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -32,7 +33,7 @@ func sameModelProviderConfigIntent(record ModelProviderConfigRecord, input Creat
 		record.RequestTimeoutMS == input.RequestTimeoutMS &&
 		record.IdleTimeoutMS == input.IdleTimeoutMS &&
 		record.AuthKind == input.AuthKind &&
-		storeutil.SameJSON(storeutil.NormalizeJSON(record.AuthOptions), storeutil.NormalizeJSON(input.AuthOptions)) &&
+		jsoncanonical.Equal(storeutil.NormalizeJSON(record.AuthOptions), storeutil.NormalizeJSON(input.AuthOptions)) &&
 		record.CredentialSecretID == input.CredentialSecretID
 }
 
@@ -50,7 +51,7 @@ func sameConfiguredModelIntent(record ConfiguredModelRecord, input CreateConfigu
 		slices.Equal(record.SupportedReasoningEfforts, input.SupportedReasoningEfforts) &&
 		slices.Equal(record.InputModalities, input.InputModalities) &&
 		slices.Equal(record.OutputModalities, input.OutputModalities) &&
-		storeutil.SameJSON(
+		jsoncanonical.Equal(
 			storeutil.NormalizeJSON(record.APIVariantOptions),
 			storeutil.NormalizeJSON(input.APIVariantOptions),
 		)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -475,7 +476,7 @@ func configuredModelBehaviorChanged(current ConfiguredModelRecord, update config
 		!slices.Equal(current.SupportedReasoningEfforts, update.SupportedReasoningEfforts) ||
 		!slices.Equal(current.InputModalities, update.InputModalities) ||
 		!slices.Equal(current.OutputModalities, update.OutputModalities) ||
-		!storeutil.SameJSON(
+		!jsoncanonical.Equal(
 			storeutil.NormalizeJSON(current.APIVariantOptions),
 			storeutil.NormalizeJSON(update.APIVariantOptions),
 		)
