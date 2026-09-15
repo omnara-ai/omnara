@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
@@ -17,14 +18,14 @@ func TestValidateClusterMachinePoolUpdate(t *testing.T) {
 	text := "changed"
 	flag := true
 	maxMachines := int32(2)
-	secretID := ID{1}
+	secretID := uuid.UUID{1}
 	tests := []struct {
 		field     string
 		input     UpdateMachinePoolInput
 		protected bool
 	}{
-		{field: "OrgID", input: UpdateMachinePoolInput{OrgID: ID{1}}},
-		{field: "ID", input: UpdateMachinePoolInput{ID: ID{1}}},
+		{field: "OrgID", input: UpdateMachinePoolInput{OrgID: uuid.UUID{1}}},
+		{field: "ID", input: UpdateMachinePoolInput{ID: uuid.UUID{1}}},
 		{field: "Name", input: UpdateMachinePoolInput{Name: &text}, protected: true},
 		{field: "Description", input: UpdateMachinePoolInput{Description: &text}, protected: true},
 		{

@@ -439,7 +439,7 @@ func artifactPreparationRuntime(
 	ctx := t.Context()
 	user := mustCreateProjectRoleUser(t, ctx, store, "artifact-runtime@example.com", "Artifact Runtime", "admin")
 	app, err := store.Integrations().CreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
-		OrgID: testOrgID, Provider: "discord", ConnectorKey: "chat_sdk_v1",
+		OrgID: testOrgID, Provider: "discord", ConnectorKey: channelconnector.BuiltInConnectorKey,
 		ProviderAppRef: "artifact-runtime", DisplayName: "Artifact Runtime",
 		State: integrationstore.IntegrationAppStateActive,
 	})
@@ -460,7 +460,7 @@ func artifactPreparationRuntime(
 		ctx,
 		integrationstore.ClaimIntegrationRuntimeUnitsInput{
 			LeaseOwner: "artifact-preparation-test", LeaseDuration: time.Minute, Limit: 1,
-			Capability: channelconnector.Capability{ConnectorKey: "chat_sdk_v1", Provider: app.Provider},
+			Capability: channelconnector.Capability{ConnectorKey: app.ConnectorKey, Provider: app.Provider},
 		},
 	)
 	require.NoError(t, err)
@@ -472,11 +472,11 @@ func artifactPreparationRuntime(
 	}
 }
 
-func TestPreparedArtifactRuntimeProofRevalidatedInsideTransaction(t *testing.T) {
+func TestCreateArtifactRuntimeProofRevalidatedAfterUpload(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
 		"valid copied proof", "wrong app", "wrong installation", "wrong project", "wrong token", "wrong generation",
-		"expired after upload", "installation disabled after upload",
+		"expired after upload", "runtime released after upload", "installation disabled after upload",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
@@ -490,8 +490,9 @@ func TestPreparedArtifactRuntimeProofRevalidatedInsideTransaction(t *testing.T) 
 			case "wrong installation":
 				other, err := store.Integrations().UpsertIntegrationInstall(ctx, integrationstore.UpsertIntegrationInstallInput{
 					OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: install.IntegrationAppID,
-					InstalledBy: install.InstalledBy, Provider: install.Provider, IntegrationKind: integrationstore.IntegrationKindManaged,
-					ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
+					InstalledBy: install.InstalledBy, Provider: install.Provider,
+					IntegrationKind: integrationstore.IntegrationKindManaged,
+					ConnectionMode:  "gateway", State: integrationstore.IntegrationInstallStateActive,
 					ProviderTenantID: "other-artifact-tenant", ProviderAccountRef: "bot",
 				})
 				require.NoError(t, err)
@@ -503,34 +504,43 @@ func TestPreparedArtifactRuntimeProofRevalidatedInsideTransaction(t *testing.T) 
 			case "wrong generation":
 				proof.LeaseGeneration++
 			}
-			prepared, err := store.Artifacts().PrepareArtifactWithIntegrationRuntimeLease(ctx, input, installID, &proof)
-			require.NoError(t, err)
-			require.Len(t, blobs.putKeys, 1)
-			switch scenario {
-			case "valid copied proof":
-				proof.LeaseGeneration++
-				proof.LeaseToken = testID("caller-mutated-proof")
-			case "expired after upload":
-				_, err := store.pool.Exec(ctx, `UPDATE integration_runtime_units
+			blobs.afterPut = func() {
+				switch scenario {
+				case "valid copied proof":
+					proof.LeaseGeneration++
+					proof.LeaseToken = testID("caller-mutated-proof")
+				case "expired after upload":
+					_, err := store.pool.Exec(ctx, `UPDATE integration_runtime_units
 SET leased_at = statement_timestamp() - interval '3 minutes',
     renewed_at = statement_timestamp() - interval '2 minutes',
     lease_expires_at = statement_timestamp() - interval '1 minute'
 WHERE id = $1`, proof.UnitID)
-				require.NoError(t, err)
-			case "installation disabled after upload":
-				_, err := store.pool.Exec(ctx, `UPDATE integration_installs SET state = 'disabled' WHERE id = $1`, install.ID)
-				require.NoError(t, err)
+					require.NoError(t, err)
+				case "runtime released after upload":
+					_, err := store.Integrations().ReleaseIntegrationRuntimeUnit(ctx,
+						integrationstore.ReleaseIntegrationRuntimeUnitInput{
+							ID: proof.UnitID, LeaseToken: proof.LeaseToken, LeaseGeneration: proof.LeaseGeneration,
+							Capabilities: []channelconnector.Capability{{
+								ConnectorKey: channelconnector.BuiltInConnectorKey, Provider: install.Provider,
+							}},
+						})
+					require.NoError(t, err)
+				case "installation disabled after upload":
+					disabled, err := store.Integrations().DisableIntegrationInstall(ctx,
+						integrationstore.DisableIntegrationInstallInput{
+							ProjectID: testProjectID, ID: install.ID, ExpectedOAuthFlowID: &install.LastOAuthFlowID,
+						})
+					require.NoError(t, err)
+					require.True(t, disabled)
+				}
 			}
-			tx := integrationdb.BeginTx(t, ctx, store.pool)
-			record, err := store.Artifacts().PersistPreparedArtifact(ctx, tx, prepared)
+			record, err := store.Artifacts().CreateArtifactWithIntegrationRuntimeLease(ctx, input, installID, &proof)
+			require.Len(t, blobs.putKeys, 1)
 			if scenario == "valid copied proof" {
 				require.NoError(t, err)
-				require.NoError(t, tx.Commit(ctx))
-				require.NoError(t,
-					store.Artifacts().FinishPreparedArtifacts(ctx, artifactstore.ArtifactTransactionCommitted, prepared),
-				)
 				_, err := store.Artifacts().GetArtifact(ctx, input.ProjectID, input.AgentID, record.ID)
 				require.NoError(t, err)
+				require.Equal(t, blobstore.ContentDigest(input.Content), record.Digest)
 				require.Empty(t, blobs.deleteKeys)
 			} else {
 				if scenario == "wrong project" {
@@ -538,12 +548,8 @@ WHERE id = $1`, proof.UnitID)
 				} else {
 					require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 				}
-				require.Empty(t, blobs.deleteKeys)
-				require.NoError(t, tx.Rollback(ctx))
-				require.NoError(t,
-					store.Artifacts().FinishPreparedArtifacts(ctx, artifactstore.ArtifactTransactionRolledBack, prepared),
-				)
 				require.Equal(t, blobs.putKeys, blobs.deleteKeys)
+				require.Empty(t, blobs.content, "the production creator compensates after a failed lease fence")
 				var count int
 				require.NoError(t, store.pool.QueryRow(ctx, `SELECT count(*) FROM artifacts`).Scan(&count))
 				require.Zero(t, count)
@@ -552,41 +558,56 @@ WHERE id = $1`, proof.UnitID)
 	}
 }
 
-func TestPreparedArtifactHoldsRuntimeFenceUntilCallerCommit(t *testing.T) {
+func TestCreateArtifactHoldsRuntimeFenceUntilCommit(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	store, blobs, input := artifactPreparationFixture(t)
 	install, proof := artifactPreparationRuntime(t, store)
-	prepared, err := store.Artifacts().PrepareArtifactWithIntegrationRuntimeLease(ctx, input, install.ID, &proof)
+	insertBlocker := integrationdb.BeginTx(t, ctx, store.pool)
+	var blockingPID int32
+	require.NoError(t, insertBlocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockingPID))
+	_, err := insertBlocker.Exec(ctx, `LOCK TABLE artifacts IN SHARE MODE`)
 	require.NoError(t, err)
-	tx := integrationdb.BeginTx(t, ctx, store.pool)
-	record, err := store.Artifacts().PersistPreparedArtifact(ctx, tx, prepared)
-	require.NoError(t, err)
+	type result struct {
+		record artifactstore.ArtifactRecord
+		err    error
+	}
+	created := make(chan result, 1)
+	go func() {
+		record, err := store.Artifacts().CreateArtifactWithIntegrationRuntimeLease(ctx, input, install.ID, &proof)
+		created <- result{record: record, err: err}
+	}()
+	// Creation has uploaded and taken the runtime fence before reaching INSERT.
+	// Keep it in that transaction while a real runtime release attempts to write.
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, store.pool, "-- name: InsertArtifact ", blockingPID)
 	revoked := integrationdb.RunAsyncError(func() error {
-		_, err := store.pool.Exec(ctx, `-- name: ArtifactPreparationRevokeRuntime :exec
-UPDATE integration_runtime_units SET lease_generation = lease_generation + 1 WHERE id = $1`, proof.UnitID)
+		_, err := store.Integrations().ReleaseIntegrationRuntimeUnit(ctx,
+			integrationstore.ReleaseIntegrationRuntimeUnitInput{
+				ID: proof.UnitID, LeaseToken: proof.LeaseToken, LeaseGeneration: proof.LeaseGeneration,
+				Capabilities: []channelconnector.Capability{{
+					ConnectorKey: channelconnector.BuiltInConnectorKey, Provider: install.Provider,
+				}},
+			})
 		return err
 	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, store.pool, "ArtifactPreparationRevokeRuntime", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, store.pool, "ReleaseIntegrationRuntimeUnit", 1)
 	select {
 	case err := <-revoked:
-		t.Fatalf("runtime fence released before caller commit: %v", err)
+		t.Fatalf("runtime fence released before artifact commit: %v", err)
 	default:
 	}
-	require.NoError(t, tx.Commit(ctx))
-	select {
-	case err := <-revoked:
-		require.NoError(t, err)
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	}
-	require.NoError(t,
-		store.Artifacts().FinishPreparedArtifacts(ctx, artifactstore.ArtifactTransactionCommitted, prepared),
-	)
+	require.NoError(t, insertBlocker.Commit(ctx))
+	artifact := integrationdb.Await(t, created, "artifact commit before runtime release")
+	require.NoError(t, artifact.err)
+	require.NoError(t, integrationdb.Await(t, revoked, "runtime release after artifact commit"))
 	require.Empty(t, blobs.deleteKeys)
-	_, err = store.Artifacts().GetArtifact(ctx, input.ProjectID, input.AgentID, record.ID)
+	_, err = store.Artifacts().GetArtifact(ctx, input.ProjectID, input.AgentID, artifact.record.ID)
 	require.NoError(t, err)
+	current, err := store.Integrations().IntegrationRuntimeLeaseIsCurrent(ctx,
+		proof.IntegrationAppID, proof.UnitID, install.ID, proof.LeaseToken, proof.LeaseGeneration)
+	require.NoError(t, err)
+	require.False(t, current)
 }
 
 // Keep pgx's closed-transaction sentinel in this test's contract: persistence

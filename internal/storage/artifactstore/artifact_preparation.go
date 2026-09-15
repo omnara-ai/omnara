@@ -20,7 +20,7 @@ import (
 // Content bytes are not retained after upload.
 type PreparedArtifact struct {
 	store     *Store
-	id        ID
+	id        uuid.UUID
 	key       string
 	input     CreateArtifactInput
 	attempted bool
@@ -47,13 +47,13 @@ const (
 // persist. After this succeeds the caller must settle the upload using
 // FinishPreparedArtifacts, even if it never begins a transaction.
 func (s *Store) PrepareArtifact(ctx context.Context, input CreateArtifactInput) (*PreparedArtifact, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return nil, errors.New("project id and agent id are required")
 	}
 	if err := integrationstore.ValidateIntegrationRuntimeLeaseProof(input.runtimeLease); err != nil {
 		return nil, err
 	}
-	if input.runtimeLease != nil && isNilID(input.integrationInstallID) {
+	if input.runtimeLease != nil && input.integrationInstallID == uuid.Nil {
 		return nil, errors.New("runtime artifact integration installation is required")
 	}
 	if input.ContentType == "" {
@@ -91,23 +91,6 @@ func (s *Store) PrepareArtifact(ctx context.Context, input CreateArtifactInput) 
 	input.Digest = metadata.Digest
 	input.SizeBytes = &metadata.SizeBytes
 	return &PreparedArtifact{store: s, id: artifactID, key: key, input: input}, nil
-}
-
-// PrepareArtifactWithIntegrationRuntimeLease copies the proof for validation
-// inside PersistPreparedArtifact's transaction. Preparation itself does not
-// establish that the lease is current; it may expire before persistence.
-func (s *Store) PrepareArtifactWithIntegrationRuntimeLease(
-	ctx context.Context,
-	input CreateArtifactInput,
-	integrationInstallID ID,
-	proof *integrationstore.IntegrationRuntimeLeaseProof,
-) (*PreparedArtifact, error) {
-	if proof == nil {
-		return nil, errors.New("runtime lease proof is required")
-	}
-	input.integrationInstallID = integrationInstallID
-	input.runtimeLease = proof
-	return s.PrepareArtifact(ctx, input)
 }
 
 // PersistPreparedArtifact performs only database work in the caller's tx. The

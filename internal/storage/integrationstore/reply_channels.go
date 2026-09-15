@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -24,10 +25,9 @@ func (s *Store) RegisterReplyChannelTx(
 	prepared IntegrationTargetBindingRecord,
 	target CreateIntegrationTargetInput,
 ) (ReplyChannelRegistration, error) {
-	if (!isNilID(target.ProjectID) && target.ProjectID != prepared.ProjectID) ||
-		(!isNilID(target.IntegrationInstallID) && target.IntegrationInstallID != prepared.IntegrationInstallID) ||
-		target.ParentChannelID != prepared.IntegrationTargetID ||
-		isNilID(target.ChannelDefinitionID) {
+	if (target.ProjectID != uuid.Nil && target.ProjectID != prepared.ProjectID) ||
+		(target.IntegrationInstallID != uuid.Nil && target.IntegrationInstallID != prepared.IntegrationInstallID) ||
+		target.ParentChannelID != prepared.IntegrationTargetID || target.ChannelDefinitionID == uuid.Nil {
 		return ReplyChannelRegistration{}, storeerr.InvalidRequest(errors.New("reply channel is outside the pinned scope"))
 	}
 	live, err := s.RecheckChannelBindingTx(ctx, tx, PrepareChannelBindingInput{

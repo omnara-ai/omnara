@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -59,14 +60,14 @@ func TestPublicAgentChannelSetupAndDiscovery(t *testing.T) {
 		mustPublicHTTPID(t, publicid.KindIntegrationBinding, bindingID))
 	require.NoError(t, err)
 	require.Equal(t, "api", record.Source)
-	require.Equal(t, integrationstore.NilID, record.IntegrationRouteID)
+	require.Equal(t, uuid.Nil, record.IntegrationRouteID)
 	require.Equal(t, &integrationstore.ChannelGrants{ReceiveAllowed: true, SendAllowed: true}, record.ReplyChannelGrants)
 	post(agentPath+"/channel-bindings", workflowHTTPJSON(t, map[string]any{
 		"channel_id": childID, "grants": openapi.ChannelGrants{Read: true},
 	}), http.StatusOK)
 	current, err := project.Store.Execution().GetAgentCurrentChannelID(ctx, project.ProjectUUID, launch.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.NilID, current, "binding setup does not choose a current channel")
+	require.Equal(t, uuid.Nil, current, "binding setup does not choose a current channel")
 	// Seed an existing persistent selection. Setup/discovery must preserve it,
 	// including replacement and later revocation of its binding.
 	_, err = pool.Exec(ctx, `UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,

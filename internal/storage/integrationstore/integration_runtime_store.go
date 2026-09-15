@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/registryname"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -24,7 +26,7 @@ func (s *Store) UpsertIntegrationRuntimeUnit(
 		return IntegrationRuntimeUnitRecord{}, err
 	}
 	var row dbsqlc.IntegrationRuntimeUnit
-	if isNilID(input.IntegrationInstallID) {
+	if input.IntegrationInstallID == uuid.Nil {
 		row, err = s.q.UpsertIntegrationAppRuntimeUnit(
 			ctx,
 			dbsqlc.UpsertIntegrationAppRuntimeUnitParams{
@@ -38,7 +40,7 @@ func (s *Store) UpsertIntegrationRuntimeUnit(
 		row, err = s.q.UpsertIntegrationInstallRuntimeUnit(
 			ctx,
 			dbsqlc.UpsertIntegrationInstallRuntimeUnitParams{
-				OrgID: input.OrgID, IntegrationAppID: sqlcIDFromNil(input.IntegrationAppID),
+				OrgID: input.OrgID, IntegrationAppID: storeutil.IDFromNil(input.IntegrationAppID),
 				ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
 				UnitKey: input.UnitKey, RuntimeKind: input.RuntimeKind,
 				DesiredState: string(input.DesiredState), SpecRevision: int32(input.SpecRevision),
@@ -127,7 +129,7 @@ func (s *Store) ReleaseIntegrationRuntimeUnit(
 	ctx context.Context,
 	input ReleaseIntegrationRuntimeUnitInput,
 ) (IntegrationRuntimeUnitRecord, error) {
-	if isNilID(input.ID) || isNilID(input.LeaseToken) || input.LeaseGeneration <= 0 {
+	if input.ID == uuid.Nil || input.LeaseToken == uuid.Nil || input.LeaseGeneration <= 0 {
 		return IntegrationRuntimeUnitRecord{}, storeerr.InvalidRequest(errors.New(
 			"runtime unit, lease token, and positive lease generation are required",
 		))
@@ -185,11 +187,11 @@ func (s *Store) ReleaseIntegrationRuntimeUnit(
 
 func (s *Store) IntegrationRuntimeLeaseIsCurrent(
 	ctx context.Context,
-	integrationAppID, id, integrationInstallID, leaseToken ID,
+	integrationAppID, id, integrationInstallID, leaseToken uuid.UUID,
 	leaseGeneration int64,
 ) (bool, error) {
-	if isNilID(integrationAppID) || isNilID(id) || isNilID(integrationInstallID) ||
-		isNilID(leaseToken) || leaseGeneration <= 0 {
+	if integrationAppID == uuid.Nil || id == uuid.Nil || integrationInstallID == uuid.Nil ||
+		leaseToken == uuid.Nil || leaseGeneration <= 0 {
 		return false, errors.New(
 			"integration app, runtime unit, installation, lease token, and positive lease generation are required",
 		)
@@ -212,8 +214,8 @@ func ValidateIntegrationRuntimeLeaseProof(proof *IntegrationRuntimeLeaseProof) e
 	if proof == nil {
 		return nil
 	}
-	if isNilID(proof.IntegrationAppID) || isNilID(proof.UnitID) ||
-		isNilID(proof.LeaseToken) || proof.LeaseGeneration <= 0 {
+	if proof.IntegrationAppID == uuid.Nil || proof.UnitID == uuid.Nil ||
+		proof.LeaseToken == uuid.Nil || proof.LeaseGeneration <= 0 {
 		return storeerr.InvalidRequest(errors.New(
 			"runtime integration app, unit, lease token, and positive generation are required",
 		))
@@ -229,7 +231,7 @@ func LockIntegrationRuntimeLeaseForMutation(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	proof *IntegrationRuntimeLeaseProof,
-	projectID, integrationInstallID ID,
+	projectID, integrationInstallID uuid.UUID,
 ) error {
 	if proof == nil {
 		return nil
@@ -237,7 +239,7 @@ func LockIntegrationRuntimeLeaseForMutation(
 	if err := ValidateIntegrationRuntimeLeaseProof(proof); err != nil {
 		return err
 	}
-	if isNilID(projectID) || isNilID(integrationInstallID) {
+	if projectID == uuid.Nil || integrationInstallID == uuid.Nil {
 		return errors.New("runtime mutation project and integration installation are required")
 	}
 	current, err := qtx.LockIntegrationRuntimeLeaseForMutation(
@@ -263,12 +265,12 @@ func LockIntegrationRuntimeLeaseForMutation(
 func normalizeUpsertIntegrationRuntimeUnitInput(
 	input UpsertIntegrationRuntimeUnitInput,
 ) (UpsertIntegrationRuntimeUnitInput, error) {
-	if isNilID(input.OrgID) || isNilID(input.IntegrationAppID) {
+	if input.OrgID == uuid.Nil || input.IntegrationAppID == uuid.Nil {
 		return UpsertIntegrationRuntimeUnitInput{}, errors.New(
 			"org and integration app are required",
 		)
 	}
-	if isNilID(input.ProjectID) != isNilID(input.IntegrationInstallID) {
+	if input.ProjectID == uuid.Nil != (input.IntegrationInstallID == uuid.Nil) {
 		return UpsertIntegrationRuntimeUnitInput{}, errors.New(
 			"runtime project and installation must either both be set or both be omitted",
 		)
@@ -302,7 +304,7 @@ func normalizeUpsertIntegrationRuntimeUnitInput(
 func normalizeHeartbeatIntegrationRuntimeUnitInput(
 	input HeartbeatIntegrationRuntimeUnitInput,
 ) (HeartbeatIntegrationRuntimeUnitInput, error) {
-	if isNilID(input.ID) || isNilID(input.LeaseToken) || input.LeaseGeneration <= 0 {
+	if input.ID == uuid.Nil || input.LeaseToken == uuid.Nil || input.LeaseGeneration <= 0 {
 		return HeartbeatIntegrationRuntimeUnitInput{}, storeerr.InvalidRequest(errors.New(
 			"runtime unit, lease token, and positive lease generation are required",
 		))
@@ -340,8 +342,8 @@ func integrationRuntimeUnitRecordFromSQLC(
 		ID:                            row.ID,
 		OrgID:                         row.OrgID,
 		IntegrationAppID:              row.IntegrationAppID,
-		ProjectID:                     idFromSQLCPtr(row.ProjectID),
-		IntegrationInstallID:          idFromSQLCPtr(row.IntegrationInstallID),
+		ProjectID:                     storeutil.IDFromPtr(row.ProjectID),
+		IntegrationInstallID:          storeutil.IDFromPtr(row.IntegrationInstallID),
 		Provider:                      row.Provider,
 		ConnectorKey:                  row.ConnectorKey,
 		UnitKey:                       row.UnitKey,
@@ -351,7 +353,7 @@ func integrationRuntimeUnitRecordFromSQLC(
 		Configuration:                 row.Configuration,
 		Status:                        IntegrationRuntimeStatus(row.Status),
 		LeaseOwner:                    stringFromPtr(row.LeaseOwner),
-		LeaseToken:                    idFromSQLCPtr(row.LeaseToken),
+		LeaseToken:                    storeutil.IDFromPtr(row.LeaseToken),
 		LeaseGeneration:               row.LeaseGeneration,
 		LeasedAt:                      row.LeasedAt,
 		RenewedAt:                     row.RenewedAt,

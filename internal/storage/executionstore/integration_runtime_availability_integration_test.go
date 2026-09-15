@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -159,7 +160,7 @@ func claimOnlyIntegrationRuntime(
 	ctx context.Context,
 	store *Store,
 	owner string,
-	wantID integrationstore.ID,
+	wantID uuid.UUID,
 ) integrationstore.IntegrationRuntimeUnitRecord {
 	t.Helper()
 	claims := claimIntegrationRuntimes(t, ctx, store, owner, 1)
@@ -209,7 +210,7 @@ func assertRunningIntegrationRuntime(
 	pool interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
 	},
-	unitID integrationstore.ID,
+	unitID uuid.UUID,
 ) {
 	t.Helper()
 	var desiredState, status string
@@ -248,19 +249,19 @@ func assertIntegrationRuntimeLeaseFenced(
 	}
 }
 
-func leasingIDs(claims []integrationstore.IntegrationRuntimeUnitRecord) []integrationstore.ID {
-	ids := make([]integrationstore.ID, 0, len(claims))
+func leasingIDs(claims []integrationstore.IntegrationRuntimeUnitRecord) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(claims))
 	for _, claim := range claims {
 		ids = append(ids, claim.ID)
 	}
 	return ids
 }
 
-func runtimeClaimsContain(ids []integrationstore.ID, expected ...integrationstore.ID) bool {
+func runtimeClaimsContain(ids []uuid.UUID, expected ...uuid.UUID) bool {
 	if len(ids) != len(expected) {
 		return false
 	}
-	seen := make(map[integrationstore.ID]bool, len(ids))
+	seen := make(map[uuid.UUID]bool, len(ids))
 	for _, id := range ids {
 		seen[id] = true
 	}

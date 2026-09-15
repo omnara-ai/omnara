@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -19,7 +20,7 @@ import (
 // operation caller's responsibility.
 func (s *Store) OpenArtifactBlob(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (io.ReadCloser, ArtifactRecord, error) {
 	record, err := s.GetArtifact(ctx, projectID, agentID, id)
 	if err != nil {

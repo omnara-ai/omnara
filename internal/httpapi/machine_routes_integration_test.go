@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
@@ -653,7 +654,7 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 	if err != nil {
 		t.Fatalf("create machine pool grant: %v", err)
 	}
-	var poolMachineUUID storage.ID
+	var poolMachineUUID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 			INSERT INTO machines(
 				org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
@@ -669,7 +670,7 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 		`, project.OrgUUID, machinePool.ID, machinePool.Provider, now).Scan(&poolMachineUUID); err != nil {
 		t.Fatalf("insert pool machine: %v", err)
 	}
-	var poolMachineGrantID storage.ID
+	var poolMachineGrantID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO project_machine_grants(
 			org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
@@ -1394,7 +1395,7 @@ func TestMachineDaemonRuntimeRegistrationReturnsUnavailableWhileProvisioning(t *
 	store := newIntegrationStore(pool)
 	now := time.Now().UTC()
 
-	var machinePoolID storage.ID
+	var machinePoolID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO machine_pools(
 			org_id, name, management_kind, provider, default_machine_memory_mb,
@@ -1407,7 +1408,7 @@ func TestMachineDaemonRuntimeRegistrationReturnsUnavailableWhileProvisioning(t *
 	`, project.OrgUUID, now).Scan(&machinePoolID); err != nil {
 		t.Fatalf("insert machine pool fixture: %v", err)
 	}
-	var machineID storage.ID
+	var machineID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO machines(
 			org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
@@ -2635,15 +2636,15 @@ func TestMachineDaemonLateStorageExhaustionSettlesAcceptedAction(t *testing.T) {
 }
 
 type daemonProcessFixture struct {
-	OrgUUID      storage.ID
-	AgentUUID    storage.ID
-	ProcessUUID  storage.ID
-	MachineUUID  storage.ID
-	BindingUUID  storage.ID
-	RuntimeUUID  storage.ID
-	TokenUUID    storage.ID
+	OrgUUID      uuid.UUID
+	AgentUUID    uuid.UUID
+	ProcessUUID  uuid.UUID
+	MachineUUID  uuid.UUID
+	BindingUUID  uuid.UUID
+	RuntimeUUID  uuid.UUID
+	TokenUUID    uuid.UUID
 	RuntimeLock  executionstore.AgentRuntimeLockRecord
-	ToolCallUUID storage.ID
+	ToolCallUUID uuid.UUID
 	ToolCall     executionstore.ToolCallRecord
 	ToolCalls    map[string]executionstore.ToolCallRecord
 	Token        string
@@ -2733,7 +2734,7 @@ func acceptDaemonProcessOfferForTest(
 	ctx context.Context,
 	store *storage.Store,
 	authority executionstore.DaemonRuntimeAuthority,
-	processID storage.ID,
+	processID uuid.UUID,
 ) (executionstore.DaemonProcessOffer, bool, error) {
 	offers, err := store.Execution().ListDaemonProcessOffers(
 		ctx,
@@ -2746,7 +2747,7 @@ func acceptDaemonProcessOfferForTest(
 		return executionstore.DaemonProcessOffer{}, false, err
 	}
 	for _, offer := range offers {
-		if processID != storage.NilID && offer.Process.ID != processID {
+		if processID != uuid.Nil && offer.Process.ID != processID {
 			continue
 		}
 		return store.Execution().AcceptDaemonProcess(
@@ -2764,7 +2765,7 @@ func acceptDaemonProcessActionOfferForTest(
 	ctx context.Context,
 	store *storage.Store,
 	authority executionstore.DaemonRuntimeAuthority,
-	processID, actionID storage.ID,
+	processID, actionID uuid.UUID,
 ) (executionstore.DaemonProcessActionGrant, bool, error) {
 	offers, err := store.Execution().ListDaemonProcessActionOffers(
 		ctx,
@@ -2777,10 +2778,10 @@ func acceptDaemonProcessActionOfferForTest(
 		return executionstore.DaemonProcessActionGrant{}, false, err
 	}
 	for _, offer := range offers {
-		if processID != storage.NilID && offer.ProcessID != processID {
+		if processID != uuid.Nil && offer.ProcessID != processID {
 			continue
 		}
-		if actionID != storage.NilID && offer.ID != actionID {
+		if actionID != uuid.Nil && offer.ID != actionID {
 			continue
 		}
 		return store.Execution().AcceptDaemonProcessAction(
@@ -2893,7 +2894,7 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 	name string,
 	toolName string,
 	additionalToolCalls []model.ToolCall,
-	primaryToolInputBuilder func(storage.ID) json.RawMessage,
+	primaryToolInputBuilder func(uuid.UUID) json.RawMessage,
 ) daemonProcessFixture {
 	t.Helper()
 	_, err := storagetest.CreateVerifiedUser(
@@ -3009,13 +3010,13 @@ func createHTTPProcessToolCallBatch(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, producerID storage.ID,
+	orgID, projectID, producerID uuid.UUID,
 	now time.Time,
 	name string,
 	toolName string,
 	machineName string,
 	additionalToolCalls []model.ToolCall,
-	primaryToolInputBuilder func(storage.ID) json.RawMessage,
+	primaryToolInputBuilder func(uuid.UUID) json.RawMessage,
 ) (
 	executionstore.AgentRecord,
 	executionstore.ToolCallRecord,
@@ -3072,13 +3073,16 @@ func createHTTPProcessToolCallBatch(
 		projectID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		launch.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)
 	modelContext := modelCall.Context
 	providerResponseID := "resp_" + name
 	primaryToolInput := json.RawMessage(`{}`)
+	if toolName == "upload_file" {
+		primaryToolInput = json.RawMessage(`{"path":"/artifacts","source":"report.pdf"}`)
+	}
 	if primaryToolInputBuilder != nil {
 		primaryToolInput = primaryToolInputBuilder(agent.ID)
 	}

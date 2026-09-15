@@ -177,22 +177,27 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 }
 
-func TestChannelSendPermissionIsAlwaysAllowOnly(t *testing.T) {
+func TestChannelToolsAreAlwaysAllowAndCannotBeConfigured(t *testing.T) {
 	t.Parallel()
 	catalog, err := toolcatalog.Default()
 	require.NoError(t, err)
-	entry, ok := catalog.Lookup(toolcatalog.ToolNameSendChannelMessage)
-	require.True(t, ok, "send_channel_message catalog entry is required")
-	require.Len(t, entry.PermissionModes, 1)
-	require.Equal(t, toolpermission.ModeAlwaysAllow, entry.PermissionModes[0].Name)
-	// Channel grants control exposure; even an allowed permission mode does not
-	// turn this into a configurable profile tool.
-	for _, mode := range []string{"always_allow", "always_ask"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, name := range []string{
+		toolcatalog.ToolNameListChannels, toolcatalog.ToolNameGetChannel, toolcatalog.ToolNameReadChannel,
+		toolcatalog.ToolNameSendChannelMessage, toolcatalog.ToolNameSetCurrentChannel,
+	} {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			source := fmt.Sprintf("tools:\n  send_channel_message:\n    permission:\n      mode: %s\n", mode)
-			_, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
-			require.ErrorContains(t, err, "managed by live channel bindings")
+			entry, ok := catalog.Lookup(name)
+			require.True(t, ok)
+			require.Equal(t, toolpermission.ModeAlwaysAllow, entry.DefaultPermission.Mode)
+			require.Len(t, entry.PermissionModes, 1)
+			require.Equal(t, toolpermission.ModeAlwaysAllow, entry.PermissionModes[0].Name)
+			// Grants control exposure; even an allowed mode cannot configure a channel tool.
+			for _, mode := range []string{"always_allow", "always_ask", "always_deny"} {
+				source := fmt.Sprintf("tools:\n  %s:\n    permission:\n      mode: %s\n", name, mode)
+				_, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
+				require.ErrorContains(t, err, "managed by live channel bindings")
+			}
 		})
 	}
 }
@@ -700,8 +705,8 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 	if command := schema.Properties["command"]; command.Type != "string" {
 		t.Fatalf("run_command command schema = %+v", command)
 	}
-	if machineRef := schema.Properties["machine_ref"]; machineRef.Type != "string" {
-		t.Fatalf("run_command machine_ref schema = %+v", machineRef)
+	if machineID := schema.Properties["machine_id"]; machineID.Type != "string" {
+		t.Fatalf("run_command machine_id schema = %+v", machineID)
 	}
 	wantSelectors := []string{"default", "sh", "bash", "zsh", "pwsh", "powershell", "cmd"}
 	if got := schema.Properties["shell"].Enum; !sameStringSliceForAgentConfig(got, wantSelectors) {

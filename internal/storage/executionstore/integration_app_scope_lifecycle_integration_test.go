@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -90,7 +91,7 @@ func TestIntegrationAppAndInstallCredentialsFollowOwnerScopeAndKind(t *testing.T
 	}
 	createSecret := func(
 		name, ownerKind string,
-		ownerProjectID integrationstore.ID,
+		ownerProjectID uuid.UUID,
 		material secrets.Material,
 	) secretstore.SecretRecord {
 		t.Helper()
@@ -112,9 +113,7 @@ func TestIntegrationAppAndInstallCredentialsFollowOwnerScopeAndKind(t *testing.T
 	}
 	orgCredential := createSecret(
 		"organization connector credential",
-		secretstore.SecretOwnerOrg,
-		NilID,
-		integrationMaterial("org"),
+		secretstore.SecretOwnerOrg, uuid.Nil, integrationMaterial("org"),
 	)
 	projectAppCredential := createSecret(
 		"project app connector credential",
@@ -143,8 +142,8 @@ func TestIntegrationAppAndInstallCredentialsFollowOwnerScopeAndKind(t *testing.T
 
 	for _, test := range []struct {
 		name           string
-		ownerProjectID integrationstore.ID
-		credentialID   integrationstore.ID
+		ownerProjectID uuid.UUID
+		credentialID   uuid.UUID
 	}{
 		{
 			name: "shared app with project credential", credentialID: projectAppCredential.ID,
@@ -197,8 +196,8 @@ func TestIntegrationAppAndInstallCredentialsFollowOwnerScopeAndKind(t *testing.T
 		State:            integrationstore.IntegrationInstallStateActive,
 		ProviderTenantID: "credential-scope-tenant", ProviderAccountRef: "credential-scope-account",
 	}
-	for name, credentialID := range map[string]integrationstore.ID{
-		"missing":               NilID,
+	for name, credentialID := range map[string]uuid.UUID{
+		"missing":               uuid.Nil,
 		"organization owned":    orgCredential.ID,
 		"another project owned": otherProjectCredential.ID,
 		"wrong kind":            wrongKindCredential.ID,
@@ -249,7 +248,7 @@ func TestProjectDeletionPreservesSharedIntegrationAppAndOtherProject(t *testing.
 	if err != nil {
 		t.Fatalf("create shared app: %v", err)
 	}
-	createInstall := func(projectID integrationstore.ID, suffix string) integrationstore.IntegrationInstallRecord {
+	createInstall := func(projectID uuid.UUID, suffix string) integrationstore.IntegrationInstallRecord {
 		t.Helper()
 		install, err := store.Integrations().UpsertIntegrationInstall(
 			ctx,
@@ -282,7 +281,7 @@ func TestProjectDeletionPreservesSharedIntegrationAppAndOtherProject(t *testing.
 		t.Fatalf("create shared app runtime: %v", err)
 	}
 	createInstallRuntime := func(
-		projectID, installID integrationstore.ID,
+		projectID, installID uuid.UUID,
 		suffix string,
 	) integrationstore.IntegrationRuntimeUnitRecord {
 		t.Helper()
@@ -342,7 +341,7 @@ WHERE app.id = $1
 		)
 	}
 	assertRuntimeLifecycle := func(
-		unitID integrationstore.ID,
+		unitID uuid.UUID,
 		wantDesired string,
 		wantDeleted bool,
 	) {

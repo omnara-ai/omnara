@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -124,11 +125,11 @@ func (e AgentExecutor) postIntegrationRuntimeError(
 }
 
 func validateModelWorkExecution(input ModelWorkExecution) error {
-	if input.OrgID == storage.NilID ||
-		input.ProjectID == storage.NilID ||
-		input.AgentID == storage.NilID ||
-		input.TurnID == storage.NilID ||
-		input.RuntimeLockID == storage.NilID ||
+	if input.OrgID == uuid.Nil ||
+		input.ProjectID == uuid.Nil ||
+		input.AgentID == uuid.Nil ||
+		input.TurnID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil ||
 		len(input.InputIDs) == 0 ||
 		input.OpeningEventSequence <= 0 {
 		return errors.New(
@@ -137,21 +138,21 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 	}
 	switch input.Kind {
 	case executionstore.ModelWorkStart:
-		if input.ModelCallContextID != storage.NilID ||
-			input.SourceModelCallContextID != storage.NilID ||
-			input.SourceModelOutputID != storage.NilID {
+		if input.ModelCallContextID != uuid.Nil ||
+			input.SourceModelCallContextID != uuid.Nil ||
+			input.SourceModelOutputID != uuid.Nil {
 			return errors.New("start model work cannot have context or output identity")
 		}
 	case executionstore.ModelWorkResume:
-		if input.ModelCallContextID == storage.NilID ||
-			input.SourceModelCallContextID != storage.NilID ||
-			input.SourceModelOutputID != storage.NilID {
+		if input.ModelCallContextID == uuid.Nil ||
+			input.SourceModelCallContextID != uuid.Nil ||
+			input.SourceModelOutputID != uuid.Nil {
 			return errors.New("resume model work requires only its active context")
 		}
 	case executionstore.ModelWorkContinue:
-		if input.ModelCallContextID != storage.NilID ||
-			input.SourceModelCallContextID == storage.NilID ||
-			input.SourceModelOutputID == storage.NilID {
+		if input.ModelCallContextID != uuid.Nil ||
+			input.SourceModelCallContextID == uuid.Nil ||
+			input.SourceModelOutputID == uuid.Nil {
 			return errors.New("continue model work requires its source context and source output")
 		}
 	default:

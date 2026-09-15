@@ -20,7 +20,7 @@ import (
 
 func managedInstallationSetupFixture(
 	t *testing.T,
-) (*Store, integrationstore.UpsertIntegrationInstallInput, integrationstore.ID) {
+) (*Store, integrationstore.UpsertIntegrationInstallInput, uuid.UUID) {
 	t.Helper()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
@@ -35,7 +35,7 @@ func managedInstallationSetupFixture(
 		State:                      integrationstore.IntegrationAppStateActive,
 	})
 	require.NoError(t, err)
-	credentials := make([]integrationstore.ID, 2)
+	credentials := make([]uuid.UUID, 2)
 	for i, name := range []string{"initial-credential", "replacement-credential"} {
 		secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID,

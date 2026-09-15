@@ -3,11 +3,11 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -86,7 +86,7 @@ func (s strictOpenAPIServer) DeleteProject(
 	}
 	logent.Project(ctx, project)
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	machines, err := s.server.store.Organizations().DeleteProject(ctx, project.OrgID, project.ID, principal)

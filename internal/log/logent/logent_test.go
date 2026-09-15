@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -604,6 +603,6 @@ func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	return records
 }
 
-func testID(seed byte) storage.ID {
+func testID(seed byte) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte{seed})
 }

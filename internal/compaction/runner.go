@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelretry"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -442,7 +442,7 @@ func (r Runner) run(
 func validateInitialCompactionClaim(input RunInput, claim executionstore.ModelCallClaim) error {
 	contextRow := claim.Context
 	matchesRequest := claim.Created &&
-		contextRow.ID != storage.NilID &&
+		contextRow.ID != uuid.Nil &&
 		contextRow.ProjectID == input.Plan.ProjectID &&
 		contextRow.AgentID == input.Plan.AgentID &&
 		contextRow.OperationKind == executionstore.ModelCallOperationCompaction &&
@@ -490,15 +490,15 @@ func (r Runner) validate(input RunInput) error {
 	if r.ContextBuilder == nil {
 		return errors.New("normal model context builder is required")
 	}
-	if input.Plan.ProjectID == storage.NilID || input.Plan.AgentID == storage.NilID ||
+	if input.Plan.ProjectID == uuid.Nil || input.Plan.AgentID == uuid.Nil ||
 		input.Plan.InputEventSequence <= 0 || input.Plan.EventSequenceStart <= 0 ||
 		input.Plan.EventSequenceEnd < input.Plan.EventSequenceStart ||
 		input.Plan.EventSequenceEnd > input.Plan.InputEventSequence {
 		return errors.New("valid cumulative compaction plan is required")
 	}
-	if input.TurnID == storage.NilID || len(input.OpeningInputIDs) == 0 ||
-		input.RuntimeLockID == storage.NilID ||
-		input.ParentModelCallContextID == storage.NilID {
+	if input.TurnID == uuid.Nil || len(input.OpeningInputIDs) == 0 ||
+		input.RuntimeLockID == uuid.Nil ||
+		input.ParentModelCallContextID == uuid.Nil {
 		return errors.New(
 			"turn, opening input ids, runtime lock, and parent model context are required",
 		)

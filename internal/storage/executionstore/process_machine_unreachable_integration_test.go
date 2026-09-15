@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -387,9 +388,9 @@ func TestDeleteMachineResolvesTerminalProcessActions(t *testing.T) {
 		},
 	}
 	type seededAction struct {
-		processID  ID
-		actionID   ID
-		toolCallID ID
+		processID  uuid.UUID
+		actionID   uuid.UUID
+		toolCallID uuid.UUID
 		wantState  executionstore.ProcessActionState
 	}
 	inputs := make([]terminalProcessActionTestInput, len(cases))
@@ -573,8 +574,8 @@ func TestMachineUnreachableResolvesTerminalProcessActions(t *testing.T) {
 		},
 	}
 	type seededAction struct {
-		actionID   ID
-		toolCallID ID
+		actionID   uuid.UUID
+		toolCallID uuid.UUID
 		wantState  executionstore.ProcessActionState
 	}
 	inputs := make([]terminalProcessActionTestInput, len(cases))
@@ -918,8 +919,8 @@ func TestMachineUnreachableResolvesAcceptedActionsInSequence(t *testing.T) {
 		t.Fatalf("machine-unreachable action expiry count=%d err=%v", expired, err)
 	}
 	for _, expected := range []struct {
-		toolCallID ID
-		actionID   ID
+		toolCallID uuid.UUID
+		actionID   uuid.UUID
 		state      executionstore.ProcessActionState
 	}{
 		{

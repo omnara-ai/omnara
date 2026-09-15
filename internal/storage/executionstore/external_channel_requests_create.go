@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -19,7 +21,7 @@ import (
 // across worker restarts; applying the command again never extends its deadline.
 func CreateExternalChannelRequestForToolCall(input CreateExternalChannelRequestInput) ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, t *toolCallTransaction) (any, error) {
-		if isNilID(input.TurnID) || isNilID(input.ChannelID) ||
+		if input.TurnID == uuid.Nil || input.ChannelID == uuid.Nil ||
 			(input.Operation != channelconnector.OperationSend && input.Operation != channelconnector.OperationRead) {
 			return nil, storeerr.InvalidRequest(errors.New("channel, turn and builtin operation are required"))
 		}
@@ -79,7 +81,7 @@ func (s *Store) CreateExternalChannelPresentation(
 	ctx context.Context,
 	input CreateExternalChannelPresentationInput,
 ) (ExternalChannelRequestRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.InteractionID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.InteractionID == uuid.Nil {
 		return ExternalChannelRequestRecord{}, storeerr.InvalidRequest(errors.New("canonical interaction is required"))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -96,18 +98,19 @@ func (s *Store) CreateExternalChannelPresentation(
 	}
 	request := ExternalChannelRequestRecord{
 		ProjectID: input.ProjectID, AgentID: input.AgentID, TurnID: interaction.TurnID,
-		InteractionID: input.InteractionID, IntegrationTargetID: idFromSQLCPtr(interaction.IntegrationTargetID),
+		InteractionID: input.InteractionID, IntegrationTargetID: storeutil.IDFromPtr(interaction.IntegrationTargetID),
 		Operation: channelconnector.OperationInteraction, Payload: input.Payload,
 	}
-	return s.createExternalChannelNoticeOrPresentationTx(ctx, tx, request, NilID, input.Timeout)
+	return s.createExternalChannelNoticeOrPresentationTx(ctx, tx, request, uuid.Nil, input.Timeout)
 }
 
 func (s *Store) CreateExternalChannelNotice(
 	ctx context.Context,
 	input CreateExternalChannelNoticeInput,
 ) (ExternalChannelRequestRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.TurnID) ||
-		isNilID(input.ChannelID) || isNilID(input.RuntimeLockID) || input.NoticeKey == "" || len(input.NoticeKey) > 128 {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.TurnID == uuid.Nil ||
+		input.ChannelID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.NoticeKey == "" || len(input.NoticeKey) > 128 {
 		return ExternalChannelRequestRecord{}, storeerr.InvalidRequest(errors.New("runtime notice owner is required"))
 	}
 	if err := dbsafe.Text(input.NoticeKey); err != nil {
@@ -129,7 +132,7 @@ func (s *Store) createExternalChannelNoticeOrPresentationTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	request ExternalChannelRequestRecord,
-	runtimeLockID ID,
+	runtimeLockID uuid.UUID,
 	timeout time.Duration,
 ) (ExternalChannelRequestRecord, error) {
 	var err error
@@ -166,7 +169,7 @@ func (s *Store) createExternalChannelNoticeOrPresentationTx(
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return ExternalChannelRequestRecord{}, err
 	}
-	if !isNilID(runtimeLockID) {
+	if runtimeLockID != uuid.Nil {
 		if err := ensureRuntimeLockActiveTx(ctx, tx, request.ProjectID, request.AgentID, runtimeLockID); err != nil {
 			return ExternalChannelRequestRecord{}, err
 		}

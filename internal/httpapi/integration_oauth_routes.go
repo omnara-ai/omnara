@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
@@ -21,7 +22,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -40,18 +40,18 @@ const (
 var errIntegrationOAuthStateTooLarge = errors.New("integration oauth state exceeds maximum size")
 
 type integrationOAuthState struct {
-	FlowID            storage.ID `json:"flow_id"`
-	OrgID             storage.ID `json:"org_id"`
-	ProjectID         storage.ID `json:"project_id"`
-	AgentProfileID    storage.ID `json:"agent_profile_id"`
-	InstalledByUserID storage.ID `json:"installed_by_user_id"`
-	Provider          string     `json:"provider"`
-	ClientID          string     `json:"client_id"`
-	ClientSecret      string     `json:"client_secret"`
-	SigningSecret     string     `json:"signing_secret"`
-	BotDisplayName    string     `json:"bot_display_name,omitempty"`
-	ExpiresAt         time.Time  `json:"expires_at"`
-	ReturnTo          string     `json:"return_to,omitempty"`
+	FlowID            uuid.UUID `json:"flow_id"`
+	OrgID             uuid.UUID `json:"org_id"`
+	ProjectID         uuid.UUID `json:"project_id"`
+	AgentProfileID    uuid.UUID `json:"agent_profile_id"`
+	InstalledByUserID uuid.UUID `json:"installed_by_user_id"`
+	Provider          string    `json:"provider"`
+	ClientID          string    `json:"client_id"`
+	ClientSecret      string    `json:"client_secret"`
+	SigningSecret     string    `json:"signing_secret"`
+	BotDisplayName    string    `json:"bot_display_name,omitempty"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	ReturnTo          string    `json:"return_to,omitempty"`
 }
 
 func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	if principal.BrowserSessionID == storage.NilID {
+	if principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "browser session required")
 		return
 	}
@@ -231,7 +231,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 
 func (s *Server) createSlackIntegrationCredentialSecret(
 	ctx context.Context,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	actor identitystore.PrincipalRecord,
 	payload secrets.Payload,
 ) (secretstore.SecretRecord, error) {
@@ -252,11 +252,11 @@ func (s *Server) createSlackIntegrationCredentialSecret(
 
 func (s *Server) cleanupIntegrationOAuthSecret(
 	ctx context.Context,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	actor identitystore.PrincipalRecord,
-	secretID storage.ID,
+	secretID uuid.UUID,
 ) {
-	if secretID == storage.NilID {
+	if secretID == uuid.Nil {
 		return
 	}
 	if _, err := s.store.Secrets().DeleteSecret(
@@ -301,9 +301,9 @@ func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) e
 		now.After(state.ExpiresAt) {
 		return errors.New("invalid oauth state")
 	}
-	if state.FlowID == storage.NilID || state.OrgID == storage.NilID || state.ProjectID == storage.NilID ||
-		state.AgentProfileID == storage.NilID ||
-		state.InstalledByUserID == storage.NilID {
+	if state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
+		state.AgentProfileID == uuid.Nil ||
+		state.InstalledByUserID == uuid.Nil {
 		return errors.New("invalid oauth state")
 	}
 	return nil

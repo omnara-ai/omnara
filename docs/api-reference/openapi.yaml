@@ -3658,6 +3658,23 @@ paths:
           description: Return only agents launched from this agent profile.
           schema:
             $ref: '#/components/schemas/AgentProfileID'
+        - name: parent_agent_id
+          in: query
+          description: Return only subagents spawned by this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: include_subagents
+          in: query
+          description: >-
+            Include subagents alongside top-level agents. Defaults to false, so
+            only agents without a parent are returned unless parent_agent_id is set.
+          schema:
+            type: boolean
+        - name: include_archived
+          in: query
+          description: Include archived agents. Defaults to false.
+          schema:
+            type: boolean
         - name: sort
           in: query
           schema:
@@ -3666,7 +3683,7 @@ paths:
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Active agents in the project, newest first.
+          description: Agents in the project, newest first.
           content:
             application/json:
               schema:
@@ -3948,6 +3965,14 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ToolCallType'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also return tool calls from this agent's subagents at every depth.
+            Each row's agent_id says which agent made the call.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -4313,10 +4338,11 @@ paths:
             `model_output`, `tool_result`, or `context_checkpoint` as the
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
-            Best-effort tool lifecycle updates use `tool_call_update`, model
-            previews use `model_output_delta`, and stream-closing errors use
-            `error`; none carries an SSE `id`, so reconnects resume from the
-            last durable event. The response closes after every `error` frame.
+            Best-effort tool lifecycle updates use `tool_call_update` and
+            cover this agent and every subagent beneath it, model previews
+            use `model_output_delta`, and stream-closing errors use `error`;
+            none carries an SSE `id`, so reconnects resume from the last
+            durable event. The response closes after every `error` frame.
             Raw clients reconnect when the error's stable code is
             `service_unavailable` and treat other current codes as terminal.
             Heartbeats are SSE comments and carry no JSON payload.
@@ -4426,6 +4452,12 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionState'
+        - name: include_subagents
+          in: query
+          required: false
+          description: Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -11560,11 +11592,35 @@ components:
           $ref: '#/components/schemas/AgentConfigID'
         model:
           $ref: '#/components/schemas/AgentModel'
+        parent_agent_id:
+          description: Set when this agent is a subagent spawned by another agent.
+          $ref: '#/components/schemas/AgentID'
+        subagent_key:
+          description: The `subagents` key this agent was spawned from.
+          type: string
+        activity:
+          description: Current activity, present on list responses.
+          $ref: '#/components/schemas/AgentActivity'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         archived_at:
+          $ref: '#/components/schemas/Timestamp'
+    AgentActivity:
+      type: object
+      additionalProperties: false
+      required: [state, last_activity_at]
+      properties:
+        state:
+          description: >-
+            running while the agent has work in progress, waiting_on_interaction
+            while it has an open question or permission request, idle otherwise,
+            and archived once the agent is archived.
+          type: string
+          enum: [running, idle, waiting_on_interaction, archived]
+        last_activity_at:
+          description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'
     AgentModel:
       type: object
@@ -11946,7 +12002,7 @@ components:
     AgentMachineBinding:
       type: object
       additionalProperties: false
-      required: [id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, created_at, updated_at]
+      required: [id, project_id, agent_id, machine_id, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentMachineBindingID'
@@ -11956,8 +12012,6 @@ components:
           $ref: '#/components/schemas/AgentID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
-        machine_ref:
-          type: string
         binding_kind:
           $ref: '#/components/schemas/AgentMachineBindingKind'
         state:
@@ -12139,10 +12193,12 @@ components:
       description: A model-emitted tool call together with its current lifecycle state.
       type: object
       additionalProperties: false
-      required: [id, turn_id, provider_call_id, name, input, type, state, created_at]
+      required: [id, agent_id, turn_id, provider_call_id, name, input, type, state, created_at]
       properties:
         id:
           $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         provider_call_id:
@@ -12162,13 +12218,21 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
     ToolCallUpdate:
-      description: An ephemeral notification that a tool call entered a lifecycle state.
+      description: >-
+        An ephemeral notification that a tool call entered a lifecycle state.
+        Sent for the streamed agent and for every subagent beneath it, so
+        questions, permission requests, and custom tool calls anywhere in the
+        tree surface here; query the list endpoints with `include_subagents`
+        for the current rows.
       type: object
       additionalProperties: false
       required: [tool_call_id, state]
       properties:
         tool_call_id:
           $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
+          $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
     ListToolCallsResponse:
@@ -12885,6 +12949,11 @@ components:
         tool_name:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+        agent_name:
+          $ref: '#/components/schemas/AgentName'
+        subagent_key:
+          type: string
+          description: Present when the interaction belongs to a subagent of the listed agent.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

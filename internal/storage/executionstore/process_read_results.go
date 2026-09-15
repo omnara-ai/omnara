@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -157,9 +158,9 @@ func decodeProcessReadObservation(
 func inspectPublishedProcessReadObservationTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
-	agentID ID,
-	toolCallID ID,
+	projectID uuid.UUID,
+	agentID uuid.UUID,
+	toolCallID uuid.UUID,
 	raw json.RawMessage,
 ) (toolCallResultPublication, error) {
 	result, err := qtx.GetToolCallResultByToolCall(

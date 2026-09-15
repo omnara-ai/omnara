@@ -24,7 +24,7 @@ var emptyParametersSchema = json.RawMessage(
 
 type Selection struct {
 	Mode       string          `json:"mode"`
-	Parameters json.RawMessage `json:"parameters"`
+	Parameters json.RawMessage `json:"parameters,omitempty"`
 }
 
 type ModeDescriptor struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -18,7 +19,7 @@ func lockIntegrationInputAgentTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	install integrationstore.IntegrationInstallRecord,
-	agentID ID,
+	agentID uuid.UUID,
 ) error {
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, install.ProjectID); err != nil {
 		return err

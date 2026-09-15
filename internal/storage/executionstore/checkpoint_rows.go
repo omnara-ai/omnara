@@ -3,16 +3,17 @@ package executionstore
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 type contextCheckpointFields struct {
-	id                             ID
-	projectID                      ID
-	agentID                        ID
+	id                             uuid.UUID
+	projectID                      uuid.UUID
+	agentID                        uuid.UUID
 	summarizedThroughEventSequence int64
-	producerModelCallContextID     ID
-	checkpointEventID              ID
+	producerModelCallContextID     uuid.UUID
+	checkpointEventID              uuid.UUID
 	summary                        string
 	createdAt                      time.Time
 	checkpointEventSequence        int64

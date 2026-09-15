@@ -30,7 +30,7 @@ func TestPostgresIntegrationChannelsMigrationPreservesSlackConversations(t *test
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 34))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
 	fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
 	deletedProject := seedLegacyChannelMigrationFixture(t, ctx, db)
 	deletedOrg := seedLegacyChannelMigrationFixture(t, ctx, db)
@@ -230,7 +230,7 @@ func TestPostgresIntegrationChannelsMigrationRejectsUnsupportedLegacyShape(t *te
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			defer func() { _ = db.Close() }()
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 34))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
 			fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
 			if kind == "fixed_agent" {
 				_, err := db.ExecContext(ctx,
@@ -312,7 +312,7 @@ model:
 		t.Fatalf("compile migration fixture agent config: %v", err)
 	}
 	// Freeze the actual pre-cutover builtin shape; the current compiler correctly
-	// rejects these names, and migration 36 must repair their stored definitions.
+	// rejects these names, and migration 39 must repair their stored definitions.
 	source += `tools:
   send_integration_message: {permission: {mode: always_allow}}
   set_integration_target: {enabled: false}

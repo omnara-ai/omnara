@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -212,7 +212,7 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 			parentContext.AttemptNumber,
 		)
 	}
-	var recoveredCompactionContextID storage.ID
+	var recoveredCompactionContextID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT id
 FROM model_call_contexts
@@ -252,7 +252,7 @@ LIMIT 1
 	if err != nil {
 		t.Fatalf("claim normal work after recovered compaction: %v", err)
 	}
-	if !found || finalClaim.Kind != executionstore.AgentWorkModel || finalClaim.Model.ModelCallContextID != storage.NilID {
+	if !found || finalClaim.Kind != executionstore.AgentWorkModel || finalClaim.Model.ModelCallContextID != uuid.Nil {
 		t.Fatalf("post-compaction work = %+v found=%v, want a fresh normal call", finalClaim, found)
 	}
 	finalTurn := modelWorkExecutionFromClaimForKernelTest(finalClaim, recoveryNow.Add(2*time.Second))
@@ -362,7 +362,7 @@ func TestAgentExecutorSteeringPreemptsCompactionCreatedFromInFlightOverflow(t *t
 	if steeringErr != nil {
 		t.Fatalf("create in-flight steering input: %v", steeringErr)
 	}
-	if steeringInput.ID == storage.NilID || modelClient.respondedCount() != 1 {
+	if steeringInput.ID == uuid.Nil || modelClient.respondedCount() != 1 {
 		t.Fatalf(
 			"in-flight steering id=%s provider requests=%d, want steering and no stale compaction request",
 			steeringInput.ID,
@@ -413,7 +413,7 @@ func TestAgentExecutorSteeringPreemptsCompactionCreatedFromInFlightOverflow(t *t
 	if err != nil {
 		t.Fatalf("claim in-flight steering continuation: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID != storage.NilID ||
+	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID != uuid.Nil ||
 		len(claim.Model.InputIDs) != 2 || claim.Model.InputIDs[0] != overflowTurn.InputIDs[0] ||
 		claim.Model.InputIDs[1] != steeringInput.ID {
 		t.Fatalf(
@@ -574,7 +574,7 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 	if changeErr != nil {
 		t.Fatalf("change config during truncated compaction: %v", changeErr)
 	}
-	if changeResult.AgentConfig.ID == storage.NilID || oldModel.respondedCount() != 2 {
+	if changeResult.AgentConfig.ID == uuid.Nil || oldModel.respondedCount() != 2 {
 		t.Fatalf(
 			"changed config=%s old provider requests=%d, want config change after one compaction request",
 			changeResult.AgentConfig.ID,
@@ -608,7 +608,7 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 	if err != nil {
 		t.Fatalf("claim changed-config continuation: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID != storage.NilID {
+	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID != uuid.Nil {
 		t.Fatalf("changed-config continuation = %+v found=%v, want fresh model work", claim, found)
 	}
 	changedTurn := modelWorkExecutionFromClaimForKernelTest(claim, currentNow)
@@ -623,7 +623,7 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 		)
 	}
 	var compactionCount, sourceAdjustedCompactions int
-	var freshConfigID storage.ID
+	var freshConfigID uuid.UUID
 	var freshAttempt int
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT count(*),
@@ -747,7 +747,7 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 	if retryModel.respondedCount() != 2 {
 		t.Fatalf("prepared requests = %d, want normal overflow and compaction retry", retryModel.respondedCount())
 	}
-	var blockedContextID, compactionContextID storage.ID
+	var blockedContextID, compactionContextID uuid.UUID
 	var compactionRetryAt time.Time
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT parent.id, compaction.id, compaction.retry_at
@@ -844,7 +844,7 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 	if err != nil {
 		t.Fatalf("claim steering input during compaction retry: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID != storage.NilID ||
+	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID != uuid.Nil ||
 		len(claim.Model.InputIDs) != 2 || claim.Model.InputIDs[0] != overflowTurn.InputIDs[0] ||
 		claim.Model.InputIDs[1] != newInput.ID {
 		t.Fatalf(

@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -85,7 +86,7 @@ func (s *Store) createSkillRevisionForIdentity(
 			}
 			return SkillRecord{}, err
 		}
-		if !isNilUUID(insertResult.retrySkillID) {
+		if insertResult.retrySkillID != uuid.Nil {
 			cleanupBlob()
 			skillID = insertResult.retrySkillID
 			identityExists = true
@@ -110,7 +111,7 @@ func (s *Store) CreateSkillRevisionForSkill(
 	ctx context.Context,
 	input CreateSkillRevisionForSkillInput,
 ) (SkillRecord, error) {
-	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) {
+	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil {
 		return SkillRecord{}, invalidSkillRequest("org and skill are required")
 	}
 	record, err := s.getSkill(ctx, input.OrgID, input.SkillID)
@@ -156,7 +157,7 @@ func (s *Store) insertSkillRevision(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if isNilUUID(input.OwnerProjectID) {
+	if input.OwnerProjectID == uuid.Nil {
 		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 			return skillRevisionInsertResult{}, err
 		}
@@ -204,8 +205,8 @@ func (s *Store) insertSkillRevision(
 				dbsqlc.CountActiveSkillsForOwnerParams{
 					OrgID:          input.OrgID,
 					OwnerKind:      input.OwnerKind,
-					OwnerProjectID: sqlcUUIDFromNil(input.OwnerProjectID),
-					OwnerUserID:    sqlcUUIDFromNil(input.OwnerUserID),
+					OwnerProjectID: storeutil.IDFromNil(input.OwnerProjectID),
+					OwnerUserID:    storeutil.IDFromNil(input.OwnerUserID),
 				},
 			)
 			if err != nil {
@@ -222,8 +223,8 @@ func (s *Store) insertSkillRevision(
 				ID:             skillID,
 				OrgID:          input.OrgID,
 				OwnerKind:      input.OwnerKind,
-				OwnerProjectID: sqlcUUIDFromNil(input.OwnerProjectID),
-				OwnerUserID:    sqlcUUIDFromNil(input.OwnerUserID),
+				OwnerProjectID: storeutil.IDFromNil(input.OwnerProjectID),
+				OwnerUserID:    storeutil.IDFromNil(input.OwnerUserID),
 				Name:           input.Name,
 			}); err != nil {
 				return skillRevisionInsertResult{}, fmt.Errorf("insert skill: %w", err)
@@ -233,7 +234,7 @@ func (s *Store) insertSkillRevision(
 	if err := lockSkillTx(ctx, qtx, input.OrgID, skillID); err != nil {
 		return skillRevisionInsertResult{}, err
 	}
-	if !isNilUUID(baseRevisionID) {
+	if baseRevisionID != uuid.Nil {
 		latest, err := qtx.GetLatestSkillRevisionID(ctx, dbsqlc.GetLatestSkillRevisionIDParams{SkillID: skillID})
 		if err != nil {
 			return skillRevisionInsertResult{}, fmt.Errorf("get latest skill revision: %w", err)
@@ -277,8 +278,8 @@ func skillIdentityLookupParams(input CreateSkillInput) dbsqlc.GetSkillIDByNamePa
 		OrgID:          input.OrgID,
 		OwnerKind:      input.OwnerKind,
 		Name:           input.Name,
-		OwnerProjectID: sqlcUUIDFromNil(input.OwnerProjectID),
-		OwnerUserID:    sqlcUUIDFromNil(input.OwnerUserID),
+		OwnerProjectID: storeutil.IDFromNil(input.OwnerProjectID),
+		OwnerUserID:    storeutil.IDFromNil(input.OwnerUserID),
 	}
 }
 

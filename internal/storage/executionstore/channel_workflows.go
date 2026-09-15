@@ -25,9 +25,9 @@ import (
 var ErrChannelWorkflowAgentChanged = errors.New("channel workflow agent changed during preparation")
 
 type ChannelWorkflowIdentity struct {
-	ProjectID            ID
-	IntegrationInstallID ID
-	IntegrationRouteID   ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationRouteID   uuid.UUID
 	InstanceKey          string
 	Capabilities         []channelconnector.Capability
 }
@@ -35,13 +35,13 @@ type ChannelWorkflowIdentity struct {
 type PreparedChannelWorkflow struct {
 	store      *Store
 	identity   ChannelWorkflowIdentity
-	agentID    ID
+	agentID    uuid.UUID
 	exists     bool
 	canLaunch  bool
 	inputScope string
 }
 
-func (p PreparedChannelWorkflow) AgentID() ID { return p.agentID }
+func (p PreparedChannelWorkflow) AgentID() uuid.UUID { return p.agentID }
 
 type DeliverChannelWorkflowInput struct {
 	Prepared               PreparedChannelWorkflow
@@ -87,7 +87,8 @@ func (s *Store) PrepareChannelWorkflow(
 func (s *Store) resolveChannelWorkflow(
 	ctx context.Context, identity ChannelWorkflowIdentity,
 ) (PreparedChannelWorkflow, error) {
-	if isNilID(identity.ProjectID) || isNilID(identity.IntegrationInstallID) || isNilID(identity.IntegrationRouteID) ||
+	if identity.ProjectID == uuid.Nil || identity.IntegrationInstallID == uuid.Nil ||
+		identity.IntegrationRouteID == uuid.Nil ||
 		strings.TrimSpace(identity.InstanceKey) == "" || len(identity.InstanceKey) > 512 {
 		return PreparedChannelWorkflow{}, storeerr.InvalidRequest(
 			errors.New("project, connection, behavior and bounded instance key are required"))
@@ -138,8 +139,8 @@ func (s *Store) DeliverChannelWorkflow(
 	outcome := artifactstore.ArtifactTransactionRolledBack
 	defer func() { s.finishInputContent(ctx, input.Content, outcome) }()
 	prepared := input.Prepared
-	if prepared.store != s || isNilID(prepared.agentID) || isNilID(input.Receipt.ReceiptID) ||
-		isNilID(input.Receipt.LeaseToken) || input.Receipt.LeaseGeneration <= 0 {
+	if prepared.store != s || prepared.agentID == uuid.Nil || input.Receipt.ReceiptID == uuid.Nil ||
+		input.Receipt.LeaseToken == uuid.Nil || input.Receipt.LeaseGeneration <= 0 {
 		return ChannelInputResult{}, storeerr.InvalidRequest(
 			errors.New("prepared workflow and current receipt lease are required"))
 	}
@@ -281,7 +282,7 @@ func (s *Store) DeliverChannelWorkflow(
 			return ChannelInputResult{}, profileErr
 		}
 		var launch LaunchAgentResult
-		launch, err = s.launchAgentTx(ctx, tx, notifications, project, LaunchAgentInput{
+		launch, err = s.launchAgentTx(ctx, tx, q, notifications, LaunchAgentInput{
 			ProjectID: identity.ProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
 			LaunchedBy: install.InstalledBy, preparedAgentID: prepared.agentID,
 		})
@@ -359,13 +360,13 @@ func integrationWorkflowAgent(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	identity ChannelWorkflowIdentity,
-) (ID, bool, error) {
+) (uuid.UUID, bool, error) {
 	id, err := q.GetIntegrationWorkflowAgent(ctx, dbsqlc.GetIntegrationWorkflowAgentParams{
 		ProjectID: identity.ProjectID, IntegrationInstallID: identity.IntegrationInstallID,
 		IntegrationRouteID: identity.IntegrationRouteID, InstanceKey: identity.InstanceKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NilID, false, nil
+		return uuid.Nil, false, nil
 	}
 	return id, err == nil, err
 }

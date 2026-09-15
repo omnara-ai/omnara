@@ -3,10 +3,10 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
@@ -73,10 +73,10 @@ func (s strictOpenAPIServer) ListIntegrationInstalls(
 		filters.OAuthFlowID = id
 	}
 	extra := struct{ AgentProfileID, OAuthFlowID string }{}
-	if filters.AgentProfileID != storage.NilID {
+	if filters.AgentProfileID != uuid.Nil {
 		extra.AgentProfileID = filters.AgentProfileID.String()
 	}
-	if filters.OAuthFlowID != storage.NilID {
+	if filters.OAuthFlowID != uuid.Nil {
 		extra.OAuthFlowID = filters.OAuthFlowID.String()
 	}
 	scopeKey := scope.project.OrgID.String() + "/" + scope.project.ID.String()

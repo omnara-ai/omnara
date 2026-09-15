@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -11,17 +12,17 @@ import (
 )
 
 type IntegrationEventOutcomeKey struct {
-	ProjectID            ID
-	IntegrationInstallID ID
-	ReceiptID            ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ReceiptID            uuid.UUID
 	DeliveryKey          string
 }
 
 // IntegrationEventOutcome retains only the canonical input. Its immutable
 // origin is authoritative even after the destination or binding is retired.
 type IntegrationEventOutcome struct {
-	AgentID      ID
-	AgentInputID ID
+	AgentID      uuid.UUID
+	AgentInputID uuid.UUID
 }
 
 // GetIntegrationEventOutcomeTx reads replay before mutable recipient checks.
@@ -59,7 +60,7 @@ func (s *Store) CreateIntegrationEventOutcomeTx(
 	if err := validateIntegrationEventOutcomeKey(tx, key); err != nil {
 		return err
 	}
-	if isNilID(outcome.AgentID) || isNilID(outcome.AgentInputID) {
+	if outcome.AgentID == uuid.Nil || outcome.AgentInputID == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("canonical agent and input are required"))
 	}
 	if err := s.q.WithTx(tx).InsertIntegrationEventOutcome(ctx, dbsqlc.InsertIntegrationEventOutcomeParams{
@@ -84,7 +85,7 @@ func (s *Store) CreateIntegrationEventOutcomeTx(
 }
 
 func validateIntegrationEventOutcomeKey(tx pgx.Tx, key IntegrationEventOutcomeKey) error {
-	if tx == nil || isNilID(key.ProjectID) || isNilID(key.IntegrationInstallID) || isNilID(key.ReceiptID) ||
+	if tx == nil || key.ProjectID == uuid.Nil || key.IntegrationInstallID == uuid.Nil || key.ReceiptID == uuid.Nil ||
 		key.DeliveryKey == "" || len(key.DeliveryKey) > 512 {
 		return storeerr.InvalidRequest(
 			errors.New("transaction, project, connection, receipt and bounded delivery key are required"))

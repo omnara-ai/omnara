@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -15,7 +16,7 @@ func (t *toolCallTransaction) createProcessAction(
 	ctx context.Context,
 	input CreateProcessActionInput,
 ) (ProcessActionRecord, error) {
-	if isNilID(input.ProcessID) || input.ActionKind == "" {
+	if input.ProcessID == uuid.Nil || input.ActionKind == "" {
 		return ProcessActionRecord{}, errors.New("process and kind are required")
 	}
 	if !input.ActionKind.Valid() {
@@ -211,7 +212,7 @@ func (s *Store) AcceptDaemonProcess(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonProcessOffer{}, false, err
 	}
-	if isNilID(input.ProcessID) {
+	if input.ProcessID == uuid.Nil {
 		return DaemonProcessOffer{}, false, errors.New("process is required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -284,7 +285,7 @@ func (s *Store) AcceptDaemonProcess(
 func (s *Store) GetDaemonProcessForMachineReport(
 	ctx context.Context,
 	authority DaemonRuntimeAuthority,
-	processID ID,
+	processID uuid.UUID,
 ) (ProcessRecord, bool, error) {
 	if err := validateDaemonRuntimeAuthority(authority); err != nil {
 		return ProcessRecord{}, false, err
@@ -348,7 +349,7 @@ func (s *Store) AcceptDaemonProcessAction(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonProcessActionGrant{}, false, err
 	}
-	if isNilID(input.ProcessID) || isNilID(input.ID) {
+	if input.ProcessID == uuid.Nil || input.ID == uuid.Nil {
 		return DaemonProcessActionGrant{}, false, errors.New("process and action are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -448,7 +449,7 @@ func (s *Store) AcceptDaemonProcessAction(
 func (s *Store) GetProcessActionForDaemonReport(
 	ctx context.Context,
 	authority DaemonRuntimeAuthority,
-	processID, actionID ID,
+	processID, actionID uuid.UUID,
 ) (ProcessActionRecord, bool, error) {
 	if err := validateDaemonRuntimeAuthority(authority); err != nil {
 		return ProcessActionRecord{}, false, err
@@ -478,7 +479,7 @@ func (s *Store) GetProcessActionForDaemonReport(
 
 func (s *Store) GetProcessActionByToolCall(
 	ctx context.Context,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 ) (ProcessActionRecord, bool, error) {
 	row, err := s.q.GetProcessActionByToolCall(
 		ctx,

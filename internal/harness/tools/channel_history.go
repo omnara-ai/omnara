@@ -6,10 +6,10 @@ import (
 	"errors"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 // channelHistoryRequest is parsed execution input, not a replacement for the
 // original tool arguments. ProviderCursor is decoded only after checking scope.
 type channelHistoryRequest struct {
-	ChannelID      integrationstore.ID
+	ChannelID      uuid.UUID
 	Limit          int
 	ProviderCursor string
 }
@@ -65,7 +65,7 @@ func resolveChannelHistoryRequest(raw json.RawMessage, turn Turn) (channelHistor
 			return channelHistoryRequest{}, errors.New("read_channel request contains an unsupported field")
 		}
 	}
-	if request.ChannelID == integrationstore.NilID {
+	if request.ChannelID == uuid.Nil {
 		return channelHistoryRequest{}, errors.New("read_channel channel_id is required")
 	}
 	if cursor != "" {
@@ -86,7 +86,7 @@ type channelHistoryCursor struct {
 	ProviderCursor string `json:"provider_cursor"`
 }
 
-func decodeChannelHistoryCursor(raw string, turn Turn, channelID integrationstore.ID) (string, error) {
+func decodeChannelHistoryCursor(raw string, turn Turn, channelID uuid.UUID) (string, error) {
 	invalid := errors.New("invalid read_channel cursor")
 	if raw == "" || len(raw) > maxChannelHistoryCursorBytes {
 		return "", invalid

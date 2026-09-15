@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 )
 
@@ -15,13 +16,13 @@ const (
 )
 
 type CreateIntegrationAppInput struct {
-	OrgID                      ID
-	OwnerProjectID             ID
+	OrgID                      uuid.UUID
+	OwnerProjectID             uuid.UUID
 	Provider                   string
 	ProviderAppRef             string
 	DisplayName                string
 	ConnectorKey               string
-	CredentialSecretID         ID
+	CredentialSecretID         uuid.UUID
 	InstallationCredentialKind string
 	ProviderConfig             json.RawMessage
 	ProviderMetadata           json.RawMessage
@@ -29,14 +30,14 @@ type CreateIntegrationAppInput struct {
 }
 
 type IntegrationAppRecord struct {
-	ID                         ID                  `json:"id"`
-	OrgID                      ID                  `json:"org_id"`
-	OwnerProjectID             ID                  `json:"owner_project_id,omitempty"`
+	ID                         uuid.UUID           `json:"id"`
+	OrgID                      uuid.UUID           `json:"org_id"`
+	OwnerProjectID             uuid.UUID           `json:"owner_project_id,omitempty"`
 	Provider                   string              `json:"provider"`
 	ProviderAppRef             string              `json:"provider_app_ref"`
 	DisplayName                string              `json:"display_name"`
 	ConnectorKey               string              `json:"connector_key"`
-	CredentialSecretID         ID                  `json:"credential_secret_id,omitempty"`
+	CredentialSecretID         uuid.UUID           `json:"credential_secret_id,omitempty"`
 	InstallationCredentialKind string              `json:"installation_credential_kind,omitempty"`
 	ProviderConfig             json.RawMessage     `json:"provider_config"`
 	ProviderMetadata           json.RawMessage     `json:"provider_metadata"`
@@ -58,9 +59,9 @@ const (
 )
 
 type CreateIntegrationRouteInput struct {
-	AgentProfileID       ID
-	ProjectID            ID
-	IntegrationInstallID ID
+	AgentProfileID       uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	DeploymentKey        string
 	BehaviorKey          string
 	Configuration        json.RawMessage
@@ -68,10 +69,10 @@ type CreateIntegrationRouteInput struct {
 }
 
 type IntegrationRouteRecord struct {
-	AgentProfileID       ID                    `json:"agent_profile_id,omitempty"`
-	ID                   ID                    `json:"id"`
-	ProjectID            ID                    `json:"project_id"`
-	IntegrationInstallID ID                    `json:"integration_install_id"`
+	AgentProfileID       uuid.UUID             `json:"agent_profile_id,omitempty"`
+	ID                   uuid.UUID             `json:"id"`
+	ProjectID            uuid.UUID             `json:"project_id"`
+	IntegrationInstallID uuid.UUID             `json:"integration_install_id"`
 	DeploymentKey        string                `json:"deployment_key"`
 	BehaviorKey          string                `json:"behavior_key"`
 	Configuration        json.RawMessage       `json:"configuration"`
@@ -89,11 +90,11 @@ type ChannelGrants struct {
 }
 
 type CreateIntegrationTargetBindingInput struct {
-	ProjectID            ID
-	AgentID              ID
-	IntegrationInstallID ID
-	IntegrationTargetID  ID
-	IntegrationRouteID   ID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationTargetID  uuid.UUID
+	IntegrationRouteID   uuid.UUID
 	ReceiveAllowed       bool
 	ReadAllowed          bool
 	SendAllowed          bool
@@ -103,12 +104,12 @@ type CreateIntegrationTargetBindingInput struct {
 }
 
 type IntegrationTargetBindingRecord struct {
-	ID                   ID              `json:"id"`
-	ProjectID            ID              `json:"project_id"`
-	AgentID              ID              `json:"agent_id"`
-	IntegrationInstallID ID              `json:"integration_install_id"`
-	IntegrationTargetID  ID              `json:"integration_target_id"`
-	IntegrationRouteID   ID              `json:"integration_route_id,omitempty"`
+	ID                   uuid.UUID       `json:"id"`
+	ProjectID            uuid.UUID       `json:"project_id"`
+	AgentID              uuid.UUID       `json:"agent_id"`
+	IntegrationInstallID uuid.UUID       `json:"integration_install_id"`
+	IntegrationTargetID  uuid.UUID       `json:"integration_target_id"`
+	IntegrationRouteID   uuid.UUID       `json:"integration_route_id,omitempty"`
 	ReceiveAllowed       bool            `json:"receive_allowed"`
 	ReadAllowed          bool            `json:"read_allowed"`
 	SendAllowed          bool            `json:"send_allowed"`
@@ -127,9 +128,9 @@ type AgentChannelToolEligibility struct {
 
 type AgentChannelTarget struct {
 	IntegrationKind      IntegrationKind         `json:"integration_kind"`
-	ParentChannelID      ID                      `json:"parent_channel_id,omitempty"`
-	ID                   ID                      `json:"id"`
-	IntegrationInstallID ID                      `json:"integration_install_id"`
+	ParentChannelID      uuid.UUID               `json:"parent_channel_id,omitempty"`
+	ID                   uuid.UUID               `json:"id"`
+	IntegrationInstallID uuid.UUID               `json:"integration_install_id"`
 	TargetRef            string                  `json:"target_ref"`
 	ProviderRef          string                  `json:"provider_ref"`
 	ProviderRefKind      string                  `json:"provider_ref_kind"`
@@ -146,11 +147,11 @@ type AgentChannelTarget struct {
 
 type AgentChannelTargetCursor struct {
 	CreatedAt time.Time
-	ID        ID
+	ID        uuid.UUID
 }
 
 type ListAgentChannelTargetsInput struct {
-	ParentChannelID ID
+	ParentChannelID uuid.UUID
 	Limit           int
 	After           *AgentChannelTargetCursor
 }
@@ -177,10 +178,10 @@ const (
 )
 
 type UpsertIntegrationRuntimeUnitInput struct {
-	OrgID                ID
-	IntegrationAppID     ID
-	ProjectID            ID
-	IntegrationInstallID ID
+	OrgID                uuid.UUID
+	IntegrationAppID     uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	UnitKey              string
 	RuntimeKind          string
 	DesiredState         IntegrationRuntimeDesiredState
@@ -189,11 +190,11 @@ type UpsertIntegrationRuntimeUnitInput struct {
 }
 
 type IntegrationRuntimeUnitRecord struct {
-	ID                            ID                             `json:"id"`
-	OrgID                         ID                             `json:"org_id"`
-	IntegrationAppID              ID                             `json:"integration_app_id"`
-	ProjectID                     ID                             `json:"project_id,omitempty"`
-	IntegrationInstallID          ID                             `json:"integration_install_id,omitempty"`
+	ID                            uuid.UUID                      `json:"id"`
+	OrgID                         uuid.UUID                      `json:"org_id"`
+	IntegrationAppID              uuid.UUID                      `json:"integration_app_id"`
+	ProjectID                     uuid.UUID                      `json:"project_id,omitempty"`
+	IntegrationInstallID          uuid.UUID                      `json:"integration_install_id,omitempty"`
 	Provider                      string                         `json:"provider"`
 	ConnectorKey                  string                         `json:"connector_key"`
 	UnitKey                       string                         `json:"unit_key"`
@@ -203,7 +204,7 @@ type IntegrationRuntimeUnitRecord struct {
 	Configuration                 json.RawMessage                `json:"configuration"`
 	Status                        IntegrationRuntimeStatus       `json:"status"`
 	LeaseOwner                    string                         `json:"lease_owner,omitempty"`
-	LeaseToken                    ID                             `json:"lease_token,omitempty"`
+	LeaseToken                    uuid.UUID                      `json:"lease_token,omitempty"`
 	LeaseGeneration               int64                          `json:"lease_generation"`
 	LeasedAt                      *time.Time                     `json:"leased_at,omitempty"`
 	RenewedAt                     *time.Time                     `json:"renewed_at,omitempty"`
@@ -223,9 +224,9 @@ type IntegrationRuntimeUnitRecord struct {
 // connector runtime. Stores use it as a transaction-local fence before
 // committing mutations that originate from that runtime.
 type IntegrationRuntimeLeaseProof struct {
-	IntegrationAppID ID
-	UnitID           ID
-	LeaseToken       ID
+	IntegrationAppID uuid.UUID
+	UnitID           uuid.UUID
+	LeaseToken       uuid.UUID
 	LeaseGeneration  int64
 }
 
@@ -237,8 +238,8 @@ type ClaimIntegrationRuntimeUnitsInput struct {
 }
 
 type HeartbeatIntegrationRuntimeUnitInput struct {
-	ID                ID
-	LeaseToken        ID
+	ID                uuid.UUID
+	LeaseToken        uuid.UUID
 	LeaseGeneration   int64
 	LeaseDuration     time.Duration
 	WriteCheckpoint   bool
@@ -248,8 +249,8 @@ type HeartbeatIntegrationRuntimeUnitInput struct {
 }
 
 type ReleaseIntegrationRuntimeUnitInput struct {
-	ID                ID
-	LeaseToken        ID
+	ID                uuid.UUID
+	LeaseToken        uuid.UUID
 	LeaseGeneration   int64
 	WriteCheckpoint   bool
 	CheckpointVersion int

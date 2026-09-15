@@ -2,10 +2,12 @@ package modelcontext
 
 import (
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,5 +51,61 @@ func TestImplicitChannelToolkitTracksIndependentReadAndSendGrants(t *testing.T) 
 				require.Equal(t, enabled, seen[name], name)
 			}
 		})
+	}
+}
+
+func TestChannelEligibilityPreservesSubagentsAndFileToolsFromPinnedConfig(t *testing.T) {
+	t.Parallel()
+	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
+instruction: Use configured tools and independent channel grants.
+model:
+  provider_config: test
+  name: test
+tools:
+  upload_file: {}
+  download_file: {}
+  spawn_agent:
+    permission:
+      mode: always_ask
+  stop_agent:
+    enabled: false
+subagents:
+  fork:
+    type: self
+`), agentconfig.CompileOptions{
+		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+			return agentconfig.ResolvedModelSelection{ConfiguredModelID: testIDN(100).String()}, nil
+		},
+	})
+	require.NoError(t, err)
+	for name := range compiled.Compiled.Tools {
+		require.False(t, toolcatalog.IsBindingManagedTool(name), "channel eligibility is not compiled into the config")
+	}
+	for _, eligibility := range []integrationstore.AgentChannelToolEligibility{
+		{List: true, Read: true, Send: true}, {}, {List: true},
+	} {
+		// Reconstruct the same pinned config independently for each live grant
+		// state. Revocation must not retain channel tools from the previous turn.
+		contract, err := agentconfig.RuntimeContractFromCompiled(
+			compiled.CanonicalJSON, compiled.CompilerVersion, compiled.Hash)
+		require.NoError(t, err)
+		contract, err = WithImplicitChannelTools(contract, eligibility)
+		require.NoError(t, err)
+		specs, err := RuntimeContractToolSpecs(t.Context(), nil, testProjectID, testAgentID, contract, time.Time{})
+		require.NoError(t, err)
+		require.Equal(t, eligibility.List, HasTool(specs, toolcatalog.ToolNameListChannels))
+		require.Equal(t, eligibility.Send, HasTool(specs, toolcatalog.ToolNameSendChannelMessage))
+		require.Equal(t, eligibility.Read, HasTool(specs, toolcatalog.ToolNameReadChannel))
+		require.True(t, HasTool(specs, toolcatalog.ToolNameUploadFile))
+		require.True(t, HasTool(specs, toolcatalog.ToolNameDownloadFile))
+		for _, name := range toolcatalog.SubagentToolNames() {
+			require.Equal(t, name != toolcatalog.ToolNameStopAgent, HasTool(specs, name), name)
+		}
+		for _, spec := range specs {
+			if spec.Name == toolcatalog.ToolNameSpawnAgent {
+				require.Equal(t, toolpermission.ModeAlwaysAsk, spec.Permission.Mode)
+				require.Contains(t, string(spec.InputSchema), `"enum":["fork"]`)
+			}
+		}
 	}
 }

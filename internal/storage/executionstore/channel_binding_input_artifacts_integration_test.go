@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
-func (f boundChannelInputFixture) media(t *testing.T, agentID ID, key string) executionstore.PreparedInputContent {
+func (f boundChannelInputFixture) media(
+	t *testing.T, agentID uuid.UUID, key string,
+) executionstore.PreparedInputContent {
 	t.Helper()
 	prepared, err := f.store.Artifacts().PrepareArtifact(t.Context(), artifactstore.CreateArtifactInput{
 		ProjectID: testProjectID, AgentID: agentID, ContentType: "image/png", Filename: "photo.png",
@@ -31,7 +35,7 @@ func (f boundChannelInputFixture) media(t *testing.T, agentID ID, key string) ex
 func TestBoundChannelInputArtifactCommitAndUnusedReplayCleanup(t *testing.T) {
 	t.Parallel()
 	blobs := &workflowArtifactBlobs{content: make(map[string][]byte)}
-	f := newBoundChannelInputFixture(t, WithBlobStore(blobs))
+	f := newBoundChannelInputFixture(t, storage.WithBlobStore(blobs))
 	input := f.event(t, "media")
 	before := f.rows(t)
 	input.Content = f.media(t, input.Prepared.AgentID(), "original-upload")
@@ -48,7 +52,7 @@ func TestBoundChannelInputArtifactCommitAndUnusedReplayCleanup(t *testing.T) {
 	require.Len(t, blocks, 2)
 	require.Equal(t, "media_ref", blocks[1].Type)
 	require.JSONEq(t, `{"provider_filename":"photo.png"}`, string(blocks[1].Metadata))
-	artifactID, err := ParseID(blocks[1].ArtifactID)
+	artifactID, err := uuid.Parse(blocks[1].ArtifactID)
 	require.NoError(t, err)
 	content, record, err := f.store.Artifacts().GetArtifactBlob(t.Context(), testProjectID, f.binding.AgentID, artifactID)
 	require.NoError(t, err)
@@ -77,7 +81,7 @@ func TestBoundChannelInputArtifactCommitAndUnusedReplayCleanup(t *testing.T) {
 func TestBoundChannelInputLateFailureRollsBackArtifactsInputActorAndOutcome(t *testing.T) {
 	t.Parallel()
 	blobs := &workflowArtifactBlobs{content: make(map[string][]byte)}
-	f := newBoundChannelInputFixture(t, WithBlobStore(blobs))
+	f := newBoundChannelInputFixture(t, storage.WithBlobStore(blobs))
 	input := f.event(t, "late-failure")
 	input.Content = f.media(t, input.Prepared.AgentID(), "failed-upload")
 	before := f.rows(t)
@@ -105,7 +109,7 @@ func TestBoundChannelInputLateFailureRollsBackArtifactsInputActorAndOutcome(t *t
 func TestBoundChannelInputRejectsAnotherAgentsPreparedArtifact(t *testing.T) {
 	t.Parallel()
 	blobs := &workflowArtifactBlobs{content: make(map[string][]byte)}
-	f := newBoundChannelInputFixture(t, WithBlobStore(blobs))
+	f := newBoundChannelInputFixture(t, storage.WithBlobStore(blobs))
 	otherAgent := mustCreateAgent(t, t.Context(), f.store)
 	input := f.event(t, "wrong-artifact-owner")
 	input.Content = f.media(t, otherAgent, "foreign-upload")
@@ -122,7 +126,7 @@ func TestBoundChannelInputRejectsAnotherAgentsPreparedArtifact(t *testing.T) {
 func TestBoundChannelInputLeaseExpiryAtOutcomeRollsBackPreparedMedia(t *testing.T) {
 	t.Parallel()
 	blobs := &workflowArtifactBlobs{content: make(map[string][]byte)}
-	f := newBoundChannelInputFixture(t, WithBlobStore(blobs))
+	f := newBoundChannelInputFixture(t, storage.WithBlobStore(blobs))
 	input := f.event(t, "expires-before-commit")
 	input.Content = f.media(t, input.Prepared.AgentID(), "expires-upload")
 	before := f.rows(t)

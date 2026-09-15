@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
@@ -726,7 +726,7 @@ ORDER BY context.input_event_sequence, context.attempt_number
 		sequence          int64
 		apiFormat         string
 		providerModelSlug string
-		configID          storage.ID
+		configID          uuid.UUID
 	}
 	var contexts []contextConfig
 	for rows.Next() {
@@ -919,7 +919,7 @@ tools:
 	if err := scope.Err(); err != nil {
 		t.Fatalf("execute custom tool work: %v", err)
 	}
-	var callID storage.ID
+	var callID uuid.UUID
 	var callName, callType, callState string
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT call.id, call.name, call.type, call.state
@@ -944,7 +944,7 @@ WHERE call.project_id = $1
 			callState,
 		)
 	}
-	var fallbackCallID storage.ID
+	var fallbackCallID uuid.UUID
 	var fallbackName, fallbackType, fallbackState string
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT call.id, call.name, call.type, call.state

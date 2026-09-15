@@ -11,7 +11,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
@@ -37,8 +38,7 @@ type channelOperationToolResult struct {
 func (e Executor) prepareChannelOperation(
 	ctx context.Context,
 	call asyncToolContext,
-	channelID storage.ID,
-	kind channelconnector.OperationKind,
+	channelID uuid.UUID, kind channelconnector.OperationKind,
 ) (preparedChannelOperation, error) {
 	if e.ChannelOperations == nil {
 		return preparedChannelOperation{}, errors.New("managed channel operations are not configured")
@@ -75,7 +75,7 @@ func newChannelOperationRequest(
 	}
 	for _, field := range []struct {
 		kind publicid.Kind
-		id   storage.ID
+		id   uuid.UUID
 		out  *string
 	}{
 		{publicid.KindProject, access.ProjectID, &request.Scope.ProjectID},

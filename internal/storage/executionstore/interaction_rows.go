@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func agentInteractionRecordFromSQLC(row dbsqlc.AgentInteractionReadProjection) AgentInteractionRecord {
@@ -13,13 +14,13 @@ func agentInteractionRecordFromSQLC(row dbsqlc.AgentInteractionReadProjection) A
 		ModelCallContextID:  row.ModelCallContextID,
 		ToolCallID:          row.ToolCallID,
 		ProviderCallID:      row.ProviderCallID,
-		IntegrationTargetID: idFromSQLCPtr(row.IntegrationTargetID),
+		IntegrationTargetID: storeutil.IDFromPtr(row.IntegrationTargetID),
 		InteractionKind:     AgentInteractionKind(row.InteractionKind),
 		State:               AgentInteractionState(row.State),
 		Request:             row.Request,
 		Resolution:          row.Resolution,
-		ResolvedByInputID:   idFromSQLCPtr(row.ResolvedByInputID),
+		ResolvedByInputID:   storeutil.IDFromPtr(row.ResolvedByInputID),
 		CreatedAt:           row.CreatedAt,
-		ResolvedAt:          nullableTimeToZero(row.ResolvedAt),
+		ResolvedAt:          storeutil.TimeOrZero(row.ResolvedAt),
 	}
 }

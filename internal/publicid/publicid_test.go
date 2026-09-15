@@ -65,10 +65,20 @@ func TestDecodeRejectsWrongPrefix(t *testing.T) {
 }
 
 func TestDecodeRejectsMalformed(t *testing.T) {
-	for _, value := range []string{"", "agt", "agt_", "_abc", "agt_short", "agt_!!!!!!!!!!!!!!!!!!!!!!!!!!"} {
-		if _, err := Decode(KindAgent, value); !errors.Is(err, ErrMalformed) {
-			t.Fatalf("Decode(%q) error = %v, want malformed", value, err)
-		}
+	for _, value := range []string{
+		"", "agt", "agt_", "_abc", "agt_short", "agt_!!!!!!!!!!!!!!!!!!!!!!!!!!",
+		"agt_AAAAAAAAAAAAAAAAAAAAAAAAAE",
+		"agt_Aaaaaaaaaaaaaaaaaaaaaaaaae",
+		"agt_aaaaaaaaaaaaaaaaaaaaaaaaaf",
+		"agt_aaaaaaaaaaaaaaaaaaaaaaaaag",
+		"agt_aaaaaaaaaaaaaaaaaaaaaaaaah",
+		"agt_aaaaaaaaaaaaaaaaaaaaaaaaae ",
+	} {
+		t.Run(value, func(t *testing.T) {
+			if _, err := Decode(KindAgent, value); !errors.Is(err, ErrMalformed) {
+				t.Fatalf("Decode(%q) error = %v, want malformed", value, err)
+			}
+		})
 	}
 }
 

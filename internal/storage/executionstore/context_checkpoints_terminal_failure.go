@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -14,10 +15,10 @@ import (
 )
 
 type RecordTerminalCompactionFailureInput struct {
-	ProjectID               ID
-	AgentID                 ID
-	RuntimeLockID           ID
-	ModelCallContextID      ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	RuntimeLockID           uuid.UUID
+	ModelCallContextID      uuid.UUID
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
 	ServedProviderModelSlug string
@@ -36,8 +37,8 @@ func (s *Store) RecordTerminalCompactionFailure(
 	ctx context.Context,
 	input RecordTerminalCompactionFailureInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil ||
 		input.ErrorKind == "" || input.ErrorMessage == "" {
 		return errors.New("project, agent, runtime, compaction context, and error are required")
 	}

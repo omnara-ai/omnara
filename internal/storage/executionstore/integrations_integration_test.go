@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,7 +67,7 @@ func TestIntegrationInstallRoutesIdentityAndOAuthReplay(t *testing.T) {
 
 	standaloneInput := slackIntegrationInstallInput(
 		createSlackIntegrationApp(t, ctx, store, testProjectID, "A_STANDALONE"),
-		NilID, admin.ID, credentialID, "A_STANDALONE", "T_SHARED",
+		uuid.Nil, admin.ID, credentialID, "A_STANDALONE", "T_SHARED",
 	)
 	standaloneInput.IntegrationKind = integrationstore.IntegrationKindManaged
 	standaloneInstall, err := store.Integrations().UpsertIntegrationInstall(ctx, standaloneInput)
@@ -89,20 +90,20 @@ func TestIntegrationInstallRoutesIdentityAndOAuthReplay(t *testing.T) {
 	}
 	missingCredential := standaloneInput
 	missingCredential.ProviderAccountRef = "A_MISSING_CREDENTIAL"
-	missingCredential.CredentialSecretID = NilID
+	missingCredential.CredentialSecretID = uuid.Nil
 	if _, err := store.Integrations().UpsertIntegrationInstall(ctx, missingCredential); err == nil {
 		t.Fatal("slack install without a credential secret succeeded")
 	}
 
 	missingApp := standaloneInput
-	missingApp.IntegrationAppID = NilID
+	missingApp.IntegrationAppID = uuid.Nil
 	_, err = store.Integrations().UpsertIntegrationInstall(ctx, missingApp)
 	require.Error(t, err, "managed connections require a real app")
 	otherProfile := createIntegrationTestProfile(t, ctx, store, "different-route-profile")
 	repointed := profileInput
 	changedRoute := *profileInput.InitialRoute
 	changedRoute.AgentProfileID = otherProfile.ID
-	repointed.InitialRoute, repointed.OAuthFlowID = &changedRoute, NilID
+	repointed.InitialRoute, repointed.OAuthFlowID = &changedRoute, uuid.Nil
 	_, err = store.Integrations().UpsertIntegrationInstall(ctx, repointed)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "setup cannot replace an existing route's profile")
 	rotatedCredentialID := createIntegrationCredential(
@@ -134,7 +135,7 @@ func TestIntegrationInstallRoutesIdentityAndOAuthReplay(t *testing.T) {
 	assertJSONRawEqual(t, updated.Metadata, `{"team_name":"Renamed"}`)
 	withoutFlow := rotated
 	withoutFlow.DisplayName = "Omnara Prime"
-	withoutFlow.OAuthFlowID = NilID
+	withoutFlow.OAuthFlowID = uuid.Nil
 	preserved, err := store.Integrations().UpsertIntegrationInstall(ctx, withoutFlow)
 	if err != nil {
 		t.Fatalf("update install without oauth flow: %v", err)
@@ -218,7 +219,7 @@ func TestIntegrationInstallAuthorizationAndSlackIdentityScope(t *testing.T) {
 	profile := createIntegrationTestProfile(t, ctx, store, "install-scope-profile")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "install-scope")
 
-	outsider, err := store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{
+	outsider, err := store.Identity().CreateVerifiedUser(ctx, storagetest.CreateVerifiedUserInput{
 		Email:       "install-scope-outsider@example.com",
 		DisplayName: "Integration Outsider",
 	})
@@ -398,7 +399,7 @@ func TestIntegrationInstallDeletionWaitsForTargetCreation(t *testing.T) {
 	)
 	installInput := slackIntegrationInstallInput(
 		createSlackIntegrationApp(t, ctx, store, testProjectID, "A_TARGET_INSTALL_DELETE_"+label),
-		NilID, admin.ID, credentialID, "A_TARGET_INSTALL_DELETE_"+label, "T_TARGET_INSTALL_DELETE_"+label,
+		uuid.Nil, admin.ID, credentialID, "A_TARGET_INSTALL_DELETE_"+label, "T_TARGET_INSTALL_DELETE_"+label,
 	)
 	installInput.IntegrationKind = integrationstore.IntegrationKindManaged
 	install := mustCreateIntegrationInstall(t, ctx, store, installInput)
@@ -580,7 +581,7 @@ func TestIntegrationTargetRetriesGeneratedReferenceCollisionInTransaction(t *tes
 	)
 	installInput := slackIntegrationInstallInput(
 		createSlackIntegrationApp(t, ctx, store, testProjectID, "A_TARGET_REF_COLLISION"),
-		NilID, admin.ID, credentialID, "A_TARGET_REF_COLLISION", "T_TARGET_REF_COLLISION",
+		uuid.Nil, admin.ID, credentialID, "A_TARGET_REF_COLLISION", "T_TARGET_REF_COLLISION",
 	)
 	installInput.IntegrationKind = integrationstore.IntegrationKindManaged
 	install := mustCreateIntegrationInstall(t, ctx, store, installInput)
@@ -644,7 +645,7 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 			)
 			installInput := slackIntegrationInstallInput(
 				createSlackIntegrationApp(t, ctx, store, testProjectID, "A_INSTALL_SCOPE_DELETE_"+scope),
-				NilID, admin.ID, credentialID, "A_INSTALL_SCOPE_DELETE_"+scope, "T_INSTALL_SCOPE_DELETE_"+scope,
+				uuid.Nil, admin.ID, credentialID, "A_INSTALL_SCOPE_DELETE_"+scope, "T_INSTALL_SCOPE_DELETE_"+scope,
 			)
 			installInput.IntegrationKind = integrationstore.IntegrationKindManaged
 			install := mustCreateIntegrationInstall(t, ctx, store, installInput)
@@ -662,7 +663,7 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create unbound integration target: %v", err)
 			}
-			var boundTargetID *ID
+			var boundTargetID *uuid.UUID
 			if err := pool.QueryRow(
 				ctx,
 				`SELECT integration_target_id FROM agents WHERE project_id = $1 AND id = $2`,
@@ -922,7 +923,7 @@ func TestIntegrationTargetProviderRefReusableAfterTargetDeletion(t *testing.T) {
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "target-reuse")
 	input := slackIntegrationInstallInput(
 		createSlackIntegrationApp(t, ctx, store, testProjectID, "A_TARGET_REUSE"),
-		NilID, admin.ID, credentialID, "A_TARGET_REUSE", "T_TARGET_REUSE",
+		uuid.Nil, admin.ID, credentialID, "A_TARGET_REUSE", "T_TARGET_REUSE",
 	)
 	input.IntegrationKind = integrationstore.IntegrationKindManaged
 	install := mustCreateIntegrationInstall(t, ctx, store, input)
@@ -1041,7 +1042,7 @@ func TestIntegrationTargetSelectionValidation(t *testing.T) {
 		store.q,
 		testProjectID,
 		firstAgent.ID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("clear selection target: %v", err)
 	}
@@ -1145,7 +1146,7 @@ func TestSlackActorIdentityAcrossInstallsAndConcurrency(t *testing.T) {
 		{providerAccountRef: "A_IDENTITY_TWO", providerTenantID: "T_SHARED", targetRef: "D_IDENTITY_TWO"},
 		{providerAccountRef: "A_IDENTITY_OTHER", providerTenantID: "T_OTHER", targetRef: "D_IDENTITY_OTHER"},
 	}
-	producerIDs := make([]ID, 0, len(testCases))
+	producerIDs := make([]uuid.UUID, 0, len(testCases))
 	for index, testCase := range testCases {
 		install := mustCreateIntegrationInstall(t, ctx, store, slackIntegrationInstallInput(
 			createSlackIntegrationApp(t, ctx, store, testProjectID, testCase.providerAccountRef),
@@ -1202,7 +1203,7 @@ func TestSlackActorIdentityAcrossInstallsAndConcurrency(t *testing.T) {
 	}
 
 	const concurrentCalls = 8
-	ids := make(chan ID, concurrentCalls)
+	ids := make(chan uuid.UUID, concurrentCalls)
 	errs := make(chan error, concurrentCalls)
 	var wg sync.WaitGroup
 	for range concurrentCalls {
@@ -1229,9 +1230,9 @@ func TestSlackActorIdentityAcrossInstallsAndConcurrency(t *testing.T) {
 	for err := range errs {
 		t.Fatalf("concurrent actor upsert: %v", err)
 	}
-	var concurrentID ID
+	var concurrentID uuid.UUID
 	for id := range ids {
-		if concurrentID == NilID {
+		if concurrentID == uuid.Nil {
 			concurrentID = id
 		}
 		if id != concurrentID {
@@ -1544,7 +1545,7 @@ func TestIntegrationInputAdmissionSerializesWithInstallDisableAndDeletion(t *tes
 			if !errors.Is(outcome.Err, tc.wantErr) {
 				t.Fatalf("input admission error = %v, want %v", outcome.Err, tc.wantErr)
 			}
-			if tc.inputWins && outcome.Value.ID == NilID {
+			if tc.inputWins && outcome.Value.ID == uuid.Nil {
 				t.Fatal("successful input admission returned no input")
 			}
 			if changeDone != nil {
@@ -1651,7 +1652,7 @@ func createIntegrationProjectAdmin(
 	email string,
 ) identitystore.UserRecord {
 	t.Helper()
-	user, err := store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{
+	user, err := store.Identity().CreateVerifiedUser(ctx, storagetest.CreateVerifiedUserInput{
 		Email:       email,
 		DisplayName: "Integration Admin",
 	})
@@ -1700,7 +1701,7 @@ func createIntegrationBoundAgent(
 	ctx context.Context,
 	store *Store,
 	profile executionstore.AgentProfileRecord,
-	userID ID,
+	userID uuid.UUID,
 	key string,
 ) executionstore.AgentRecord {
 	t.Helper()
@@ -1722,7 +1723,7 @@ func createIntegrationAgentFixture(
 	ctx context.Context,
 	store *Store,
 	label string,
-) (identitystore.UserRecord, executionstore.AgentRecord, ID) {
+) (identitystore.UserRecord, executionstore.AgentRecord, uuid.UUID) {
 	t.Helper()
 	admin := createIntegrationProjectAdmin(t, ctx, store, label+"@example.com")
 	profile := createIntegrationTestProfile(t, ctx, store, label+"-profile")
@@ -1735,9 +1736,9 @@ func createIntegrationCredential(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID, createdByUserID ID,
+	projectID, createdByUserID uuid.UUID,
 	label string,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:          testOrgID,
@@ -1757,7 +1758,7 @@ func createIntegrationCredential(
 }
 
 func slackIntegrationInstallInput(
-	appID, routeProfileID, installedByUserID, credentialSecretID ID,
+	appID, routeProfileID, installedByUserID, credentialSecretID uuid.UUID,
 	providerAccountRef, providerTenantID string,
 ) integrationstore.UpsertIntegrationInstallInput {
 	input := integrationstore.UpsertIntegrationInstallInput{
@@ -1770,7 +1771,7 @@ func slackIntegrationInstallInput(
 		ProviderIdentity: json.RawMessage(fmt.Sprintf(`{"bot_user_id":%q}`, "B_"+providerAccountRef)),
 		Metadata:         json.RawMessage(`{"team_name":"Acme"}`),
 	}
-	if routeProfileID != NilID {
+	if routeProfileID != uuid.Nil {
 		input.InitialRoute = &integrationstore.CreateIntegrationRouteInput{
 			AgentProfileID: routeProfileID, DeploymentKey: "slack", BehaviorKey: "slack_conversation",
 			State: integrationstore.IntegrationRouteStateActive, Configuration: json.RawMessage(`{}`),
@@ -1779,7 +1780,9 @@ func slackIntegrationInstallInput(
 	return input
 }
 
-func createSlackIntegrationApp(t *testing.T, ctx context.Context, store *Store, projectID ID, appRef string) ID {
+func createSlackIntegrationApp(
+	t *testing.T, ctx context.Context, store *Store, projectID uuid.UUID, appRef string,
+) uuid.UUID {
 	t.Helper()
 	app, err := store.Integrations().GetOrCreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
 		OrgID: testOrgID, OwnerProjectID: projectID, Provider: integrationstore.IntegrationProviderSlack,
@@ -1792,7 +1795,7 @@ func createSlackIntegrationApp(t *testing.T, ctx context.Context, store *Store, 
 
 func createSlackIntegrationDefinition(
 	t *testing.T, ctx context.Context, store *Store, install integrationstore.IntegrationInstallRecord,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
@@ -1809,7 +1812,7 @@ func createSlackIntegrationDefinition(
 }
 
 func bindIntegrationTestTarget(
-	t *testing.T, ctx context.Context, store *Store, agentID ID, target integrationstore.IntegrationTargetRecord,
+	t *testing.T, ctx context.Context, store *Store, agentID uuid.UUID, target integrationstore.IntegrationTargetRecord,
 ) integrationstore.IntegrationTargetBindingRecord {
 	t.Helper()
 	binding, err := store.Integrations().CreateIntegrationTargetBinding(ctx,
@@ -1821,7 +1824,7 @@ func bindIntegrationTestTarget(
 	return binding
 }
 
-func integrationOAuthFlowID(sequence int) ID {
+func integrationOAuthFlowID(sequence int) uuid.UUID {
 	return uuid.MustParse(fmt.Sprintf("018f0000-0000-7000-8000-%012x", sequence))
 }
 
@@ -1840,8 +1843,8 @@ func mustCreateIntegrationInstall(
 }
 
 func createExternalIntegrationTestConnection(
-	t *testing.T, ctx context.Context, store *Store, userID ID,
-) (integrationstore.IntegrationInstallRecord, ID) {
+	t *testing.T, ctx context.Context, store *Store, userID uuid.UUID,
+) (integrationstore.IntegrationInstallRecord, uuid.UUID) {
 	t.Helper()
 	install, err := store.Integrations().CreateExternalIntegrationInstall(ctx, externalConnectionInput(userID))
 	require.NoError(t, err)

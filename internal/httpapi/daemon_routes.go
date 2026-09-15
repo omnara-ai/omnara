@@ -161,7 +161,7 @@ func (s *Server) applyDaemonReportedEventForProcess(
 	case daemonprotocol.EventProcessActionApplied,
 		daemonprotocol.EventProcessActionFailed,
 		daemonprotocol.EventProcessActionUnknown:
-		actionID, err := parsePublicID(publicid.KindProcessAction, body.ProcessActionID)
+		actionID, err := publicid.Decode(publicid.KindProcessAction, body.ProcessActionID)
 		if err != nil {
 			return false, fmt.Errorf(
 				"%w: invalid process_action_id: %w",
@@ -237,7 +237,7 @@ func (s *Server) applyDaemonReportedEventForMachineWithContext(
 	body daemonReportedEvent,
 	missingProcessErr error,
 ) (bool, error) {
-	processID, err := parsePublicID(publicid.KindProcess, body.ProcessID)
+	processID, err := publicid.Decode(publicid.KindProcess, body.ProcessID)
 	if err != nil {
 		return false, fmt.Errorf("%w: invalid process_id: %w", errDaemonReportValidation, err)
 	}

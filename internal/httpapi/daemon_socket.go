@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -23,16 +22,16 @@ type daemonSocket struct {
 	server            *Server
 	wire              *daemonprotocol.BackendSocket
 	connectionID      uuid.UUID
-	orgID             storage.ID
-	machineID         storage.ID
-	runtimeID         storage.ID
-	tokenID           storage.ID
+	orgID             uuid.UUID
+	machineID         uuid.UUID
+	runtimeID         uuid.UUID
+	tokenID           uuid.UUID
 	send              chan daemonSocketOutbound
 	workMu            sync.Mutex
 	drainQueued       bool
 	drainRunning      bool
-	acceptedProcesses map[storage.ID]struct{}
-	acceptedActions   map[storage.ID]struct{}
+	acceptedProcesses map[uuid.UUID]struct{}
+	acceptedActions   map[uuid.UUID]struct{}
 	leaseRenewAfter   time.Time
 	observedPlatform  string
 	drainAfterRenewal bool
@@ -60,7 +59,7 @@ func newDaemonSocket(
 	server *Server,
 	wire *daemonprotocol.BackendSocket,
 	connectionID uuid.UUID,
-	orgID, machineID, runtimeID, tokenID storage.ID,
+	orgID, machineID, runtimeID, tokenID uuid.UUID,
 	drainAfterRenewal bool,
 ) *daemonSocket {
 	return &daemonSocket{
@@ -73,8 +72,8 @@ func newDaemonSocket(
 		tokenID:           tokenID,
 		send:              make(chan daemonSocketOutbound, daemonSocketQueueSize),
 		done:              make(chan struct{}),
-		acceptedProcesses: map[storage.ID]struct{}{},
-		acceptedActions:   map[storage.ID]struct{}{},
+		acceptedProcesses: map[uuid.UUID]struct{}{},
+		acceptedActions:   map[uuid.UUID]struct{}{},
 		drainAfterRenewal: drainAfterRenewal,
 	}
 }
@@ -299,7 +298,7 @@ func (s *daemonSocket) handleSkillReport(ctx context.Context, msg daemonprotocol
 	return nil
 }
 
-func encodeSkillReportReply(machineID storage.ID, report daemonprotocol.SkillReport) ([]byte, error) {
+func encodeSkillReportReply(machineID uuid.UUID, report daemonprotocol.SkillReport) ([]byte, error) {
 	machinePublicID, err := publicID(publicid.KindMachine, machineID)
 	if err != nil {
 		return nil, err

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,7 +74,7 @@ func TestSlackGatewaySavedReceiptToAgentJourney(t *testing.T) {
 	requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "",
 		http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
 	drain(1)
-	var agentID, targetID, bindingID storage.ID
+	var agentID, targetID, bindingID uuid.UUID
 	var state string
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT input.agent_id,input.integration_target_id,input.integration_target_binding_id,receipt.state
@@ -85,9 +85,9 @@ JOIN agent_inputs input ON input.project_id=outcome.project_id AND input.agent_i
 WHERE receipt.integration_install_id=$1 AND receipt.event_id='gateway-mention'`,
 		f.Install.ID).Scan(&agentID, &targetID, &bindingID, &state))
 	require.Equal(t, "completed", state)
-	require.NotEqual(t, storage.NilID, agentID)
-	require.NotEqual(t, storage.NilID, targetID)
-	require.NotEqual(t, storage.NilID, bindingID)
+	require.NotEqual(t, uuid.Nil, agentID)
+	require.NotEqual(t, uuid.Nil, targetID)
+	require.NotEqual(t, uuid.Nil, bindingID)
 	// A distinct Slack callback for the same provider message reuses its input.
 	var callback map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &callback))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -16,7 +17,7 @@ import (
 func (s *Store) GetActiveReceiveBindingForTargetTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, integrationTargetID ID,
+	projectID, agentID, integrationTargetID uuid.UUID,
 ) (IntegrationTargetBindingRecord, error) {
 	if tx == nil {
 		return IntegrationTargetBindingRecord{}, errors.New("transaction is required")

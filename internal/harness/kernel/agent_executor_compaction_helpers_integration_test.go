@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func (f kernelFixture) admitSteeringInputsTurn(
 	t *testing.T,
 	ctx context.Context,
-	agentID, userID storage.ID,
+	agentID, userID uuid.UUID,
 	texts []string,
 	now time.Time,
 ) ModelWorkExecution {

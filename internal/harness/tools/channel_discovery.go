@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -27,10 +28,10 @@ type channelDescription struct {
 	SendParamsSchema json.RawMessage                      `json:"send_params_schema"`
 }
 
-func parseGetChannelRequest(raw json.RawMessage) (integrationstore.ID, error) {
+func parseGetChannelRequest(raw json.RawMessage) (uuid.UUID, error) {
 	var input getChannelRequest
 	if err := decodeSingleStrictJSON(raw, &input, "get_channel request"); err != nil {
-		return integrationstore.NilID, err
+		return uuid.Nil, err
 	}
 	return publicid.Decode(publicid.KindIntegrationTarget, input.ChannelID)
 }
@@ -69,7 +70,7 @@ func describeChannel(access integrationstore.ChannelAccess) (channelDescription,
 		return channelDescription{}, err
 	}
 	parent := ""
-	if access.ParentChannelID != integrationstore.NilID {
+	if access.ParentChannelID != uuid.Nil {
 		parent, err = publicid.Encode(publicid.KindIntegrationTarget, access.ParentChannelID)
 		if err != nil {
 			return channelDescription{}, err

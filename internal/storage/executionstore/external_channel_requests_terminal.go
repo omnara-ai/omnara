@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -69,7 +70,7 @@ func (s *Store) expireExternalChannelRequest(
 	}
 	request = externalChannelRequestRecord(row)
 	notifications := s.newTxNotifications()
-	if !isNilID(request.ToolCallID) {
+	if request.ToolCallID != uuid.Nil {
 		completion, err := externalChannelTimeoutCompletion(request)
 		if err != nil {
 			return false, err
@@ -89,7 +90,9 @@ func (s *Store) expireExternalChannelRequest(
 // cancelExternalChannelRequestsForInstallationTx is called only after the
 // installation owner has locked all affected agents. It must not acquire an
 // installation gate or cancel an unrelated turn/channel operation.
-func cancelExternalChannelRequestsForInstallationTx(ctx context.Context, tx pgx.Tx, projectID, installID ID) error {
+func cancelExternalChannelRequestsForInstallationTx(
+	ctx context.Context, tx pgx.Tx, projectID, installID uuid.UUID,
+) error {
 	rows, err := dbsqlc.New(tx).CancelExternalChannelRequestsForInstallation(ctx,
 		dbsqlc.CancelExternalChannelRequestsForInstallationParams{
 			ProjectID: projectID, IntegrationInstallID: installID, Reason: "connection_deleted",
@@ -99,7 +102,7 @@ func cancelExternalChannelRequestsForInstallationTx(ctx context.Context, tx pgx.
 	}
 	for _, row := range rows {
 		request := externalChannelRequestRecord(row)
-		if isNilID(request.ToolCallID) {
+		if request.ToolCallID == uuid.Nil {
 			continue
 		}
 		completion, err := externalChannelTerminalCompletion(request, ToolResultOutcomeCanceled,
@@ -123,7 +126,7 @@ func finishExternalChannelToolTx(
 	request ExternalChannelRequestRecord,
 	completion ToolCallCompletionInput,
 ) (ToolCallRecord, error) {
-	if isNilID(request.ToolCallID) || !isNilID(request.InteractionID) || request.NoticeKey != "" {
+	if request.ToolCallID == uuid.Nil || request.InteractionID != uuid.Nil || request.NoticeKey != "" {
 		return ToolCallRecord{}, storeerr.ErrInvalidToolCallDisposition
 	}
 	q := dbsqlc.New(tx)

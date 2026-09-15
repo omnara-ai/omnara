@@ -3,11 +3,11 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -120,7 +120,7 @@ func (s strictOpenAPIServer) PutActor(
 }
 
 func putActorInputFromParams(
-	projectID storage.ID,
+	projectID uuid.UUID,
 	params openapi.ExternalActorParams,
 ) executionstore.PutActorInput {
 	input := executionstore.PutActorInput{
@@ -173,7 +173,7 @@ func requestActorParams(
 }
 
 func publicActorFromRecord(
-	orgID storage.ID,
+	orgID uuid.UUID,
 	record executionstore.ActorRecord,
 ) (openapi.Actor, error) {
 	id, err := publicID(publicid.KindActor, record.ID)

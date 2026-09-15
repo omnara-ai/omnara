@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -13,7 +14,7 @@ import (
 func (s *Store) lockConnectorIntegrationAuthority(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, installID ID,
+	projectID, installID uuid.UUID,
 	capabilities []channelconnector.Capability,
 ) (dbsqlc.LockConnectorIntegrationAuthorityRow, error) {
 	keys, providers, err := normalizedCapabilityColumns(capabilities)
@@ -37,7 +38,7 @@ func (s *Store) lockConnectorIntegrationAuthority(
 func (s *Store) LockConnectorInstallationTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, installID ID,
+	projectID, installID uuid.UUID,
 	capabilities []channelconnector.Capability,
 ) (IntegrationInstallRecord, error) {
 	if tx == nil {

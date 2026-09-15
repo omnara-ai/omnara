@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
@@ -25,16 +26,16 @@ const (
 )
 
 type ExternalChannelRequestRecord struct {
-	ID                         ID
-	ProjectID                  ID
-	AgentID                    ID
-	TurnID                     ID
-	ToolCallID                 ID
-	InteractionID              ID
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	TurnID                     uuid.UUID
+	ToolCallID                 uuid.UUID
+	InteractionID              uuid.UUID
 	NoticeKey                  string
-	IntegrationInstallID       ID
-	IntegrationTargetID        ID
-	IntegrationTargetBindingID ID
+	IntegrationInstallID       uuid.UUID
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
 	Operation                  channelconnector.OperationKind
 	CreatesReplyChannel        bool
 	Payload                    json.RawMessage
@@ -51,8 +52,8 @@ type ExternalChannelRequestRecord struct {
 // the original tool input remain owned by the real tool call. The store chooses
 // one live binding and preserves that binding's immutable grant identity.
 type CreateExternalChannelRequestInput struct {
-	TurnID              ID
-	ChannelID           ID
+	TurnID              uuid.UUID
+	ChannelID           uuid.UUID
 	Operation           channelconnector.OperationKind
 	CreatesReplyChannel bool
 	Payload             json.RawMessage
@@ -60,19 +61,19 @@ type CreateExternalChannelRequestInput struct {
 }
 
 type CreateExternalChannelPresentationInput struct {
-	ProjectID     ID
-	AgentID       ID
-	InteractionID ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	InteractionID uuid.UUID
 	Payload       json.RawMessage
 	Timeout       time.Duration
 }
 
 type CreateExternalChannelNoticeInput struct {
-	ProjectID     ID
-	AgentID       ID
-	TurnID        ID
-	RuntimeLockID ID
-	ChannelID     ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	TurnID        uuid.UUID
+	RuntimeLockID uuid.UUID
+	ChannelID     uuid.UUID
 	NoticeKey     string
 	Payload       json.RawMessage
 	Timeout       time.Duration
@@ -80,12 +81,12 @@ type CreateExternalChannelNoticeInput struct {
 
 type ExternalChannelRequestCursor struct {
 	CreatedAt time.Time
-	ID        ID
+	ID        uuid.UUID
 }
 
 type ListExternalChannelRequestsInput struct {
-	ProjectID            ID
-	IntegrationInstallID ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	Limit                int32
 	After                *ExternalChannelRequestCursor
 }
@@ -96,9 +97,9 @@ type ListExternalChannelRequestsResult struct {
 }
 
 type CompleteExternalChannelRequestInput struct {
-	ProjectID            ID
-	IntegrationInstallID ID
-	ID                   ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ID                   uuid.UUID
 	Result               channelconnector.OperationResult
 }
 

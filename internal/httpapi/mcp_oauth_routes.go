@@ -23,7 +23,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -39,10 +38,10 @@ const (
 )
 
 type mcpOAuthOwner struct {
-	OrgID          storage.ID
+	OrgID          uuid.UUID
 	OwnerKind      string
-	OwnerProjectID storage.ID
-	OwnerUserID    storage.ID
+	OwnerProjectID uuid.UUID
+	OwnerUserID    uuid.UUID
 }
 
 func userPrincipalFromContext(ctx context.Context) (identitystore.PrincipalRecord, *apierror.ResponseError) {
@@ -55,12 +54,12 @@ func userPrincipalFromContext(ctx context.Context) (identitystore.PrincipalRecor
 }
 
 type mcpOAuthFlowData struct {
-	FlowID          storage.ID            `json:"flow_id"`
-	OrgID           storage.ID            `json:"org_id"`
+	FlowID          uuid.UUID             `json:"flow_id"`
+	OrgID           uuid.UUID             `json:"org_id"`
 	OwnerKind       string                `json:"owner_kind"`
-	OwnerProjectID  storage.ID            `json:"owner_project_id"`
-	OwnerUserID     storage.ID            `json:"owner_user_id"`
-	CreatedByUserID storage.ID            `json:"created_by_user_id"`
+	OwnerProjectID  uuid.UUID             `json:"owner_project_id"`
+	OwnerUserID     uuid.UUID             `json:"owner_user_id"`
+	CreatedByUserID uuid.UUID             `json:"created_by_user_id"`
 	SecretName      string                `json:"secret_name"`
 	Metadata        resourcemeta.Metadata `json:"metadata,omitempty"`
 	ReturnTo        string                `json:"return_to,omitempty"`
@@ -371,7 +370,7 @@ func (s *Server) saveMCPOAuthSecret(
 	flow mcp.OAuthFlowState,
 	flowData mcpOAuthFlowData,
 	token mcp.OAuthTokenSet,
-) (storage.ID, error) {
+) (uuid.UUID, error) {
 	material := secrets.OAuthTokenSetMaterial{
 		AccessToken:         token.AccessToken,
 		AccessTokenLifetime: token.AccessTokenLifetime(),
@@ -406,7 +405,7 @@ func (s *Server) saveMCPOAuthSecret(
 	if errors.Is(err, storeerr.ErrNotFound) {
 		metadata, err := mcpOAuthSecretMetadata(nil, flowData.Metadata, flow.EndpointURL)
 		if err != nil {
-			return storage.NilID, err
+			return uuid.Nil, err
 		}
 		record, _, err := s.store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 			OrgID:          flowData.OrgID,
@@ -420,19 +419,19 @@ func (s *Server) saveMCPOAuthSecret(
 			MCPOAuthFlowID: flowData.FlowID,
 		})
 		if err != nil {
-			return storage.NilID, err
+			return uuid.Nil, err
 		}
 		return record.ID, nil
 	}
 	if err != nil {
-		return storage.NilID, err
+		return uuid.Nil, err
 	}
 	if existing.Kind != secretstore.SecretKindOAuthTokenSet {
-		return storage.NilID, fmt.Errorf("secret %q already exists with kind %q", flowData.SecretName, existing.Kind)
+		return uuid.Nil, fmt.Errorf("secret %q already exists with kind %q", flowData.SecretName, existing.Kind)
 	}
 	metadata, err := mcpOAuthSecretMetadata(existing.Metadata, flowData.Metadata, flow.EndpointURL)
 	if err != nil {
-		return storage.NilID, err
+		return uuid.Nil, err
 	}
 	if _, _, err := s.store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
 		OrgID:          flowData.OrgID,
@@ -442,7 +441,7 @@ func (s *Server) saveMCPOAuthSecret(
 		SecretMetadata: metadata,
 		MCPOAuthFlowID: flowData.FlowID,
 	}); err != nil {
-		return storage.NilID, err
+		return uuid.Nil, err
 	}
 	return existing.ID, nil
 }

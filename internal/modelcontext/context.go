@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -152,7 +152,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		if err != nil {
 			return Bundle{}, err
 		}
-		if id != storage.NilID {
+		if id != uuid.Nil {
 			bundle.CurrentChannelID, err = publicid.Encode(publicid.KindIntegrationTarget, id)
 			if err != nil {
 				return Bundle{}, err
@@ -262,7 +262,7 @@ func defaultSystemPromptForContract(
 func loadSkillCatalog(
 	ctx context.Context,
 	store SkillStore,
-	projectID storage.ID,
+	projectID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 ) ([]skillstore.SkillRecord, error) {
 	if len(contract.Skills) == 0 {

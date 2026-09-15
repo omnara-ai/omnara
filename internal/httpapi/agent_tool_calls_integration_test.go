@@ -88,7 +88,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		project.ProjectUUID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)

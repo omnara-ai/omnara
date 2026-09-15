@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelretry"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -305,13 +305,13 @@ func loadContextEventsForCompaction(
 	store interface {
 		ListCompactionSourceEvents(
 			context.Context,
-			storage.ID,
-			storage.ID,
+			uuid.UUID,
+			uuid.UUID,
 			int64,
 			int32,
 		) ([]executionstore.CompactionSourceEventRecord, error)
 	},
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	afterSequence, watermark int64,
 ) ([]executionstore.CompactionSourceEventRecord, error) {
 	var records []executionstore.CompactionSourceEventRecord

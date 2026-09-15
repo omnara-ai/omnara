@@ -15,7 +15,7 @@ import (
 )
 
 func newChannelToolConfigMigration() *goose.Migration {
-	return goose.NewGoMigration(36, &goose.GoFunc{RunTx: upMigrateChannelToolConfigs}, nil)
+	return goose.NewGoMigration(39, &goose.GoFunc{RunTx: upMigrateChannelToolConfigs}, nil)
 }
 
 // The offline Slack cutover deliberately migrates saved configs in place. Their

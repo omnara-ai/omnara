@@ -38,8 +38,8 @@ const (
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_ref values and current availability."
-	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
+	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_id values and current availability."
+	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
 	sendChannelMessageToolDescription = "Send one message through a channel bound to this agent. " +
@@ -55,11 +55,12 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	uploadArtifactToolDescription = "Create an artifact from a regular file on an attached machine. " +
-		"The file must be non-empty and at most 10 MiB. " +
-		"The result includes artifact metadata after a successful upload."
-	downloadArtifactToolDescription = "Copy an existing artifact to an attached machine. " +
-		"The result includes a process_id; use the process tools to inspect the transfer if it is still running."
+	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
+		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
+		"Successful uploads return the created file's path."
+	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
+		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
+		"If the download is still running after the initial wait, use the returned process_id with the process tools."
 )
 
 type Catalog struct {
@@ -86,13 +87,13 @@ func buildDefaultCatalog() (Catalog, error) {
 		"enum":        []string{"default", "sh", "bash", "zsh", "pwsh", "powershell", "cmd"},
 		"description": "Shell family to use. Omit unless a specific shell is required.",
 	}
-	machineRef := map[string]any{
+	machineID := map[string]any{
 		"type":        "string",
-		"description": "Exact machine_ref returned by list_machines. Omit it when the target is unambiguous.",
+		"description": "Public machine_id (mch_...) returned by list_machines. Omit it when the target is unambiguous.",
 	}
-	deleteMachineRef := map[string]any{
+	deleteMachineID := map[string]any{
 		"type":        "string",
-		"description": "Exact machine_ref of the pool-backed machine to delete. Use list_machines first if you need the ref.",
+		"description": "Public machine_id (mch_...) of the pool-backed machine to delete. Use list_machines first if you need the ID.",
 	}
 	machinePoolName := map[string]any{
 		"type":        "string",
@@ -114,8 +115,8 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": "Shell command to run. Once execution is granted, the result includes a process_id " +
 					"that can be used with the process tools, even if the command has already ended.",
 			},
-			"machine_ref": machineRef,
-			"shell":       shellSelector,
+			"machine_id": machineID,
+			"shell":      shellSelector,
 			"cwd": map[string]any{
 				"type":        "string",
 				"description": "Working directory. Omit to use the assigned machine default; do not guess /.",
@@ -228,8 +229,8 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameDeleteMachine], err = toolEntry(
 		ToolNameDeleteMachine,
 		deleteMachineToolDescription,
-		[]string{"machine_ref"},
-		map[string]any{"machine_ref": deleteMachineRef},
+		[]string{"machine_id"},
+		map[string]any{"machine_id": deleteMachineID},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -245,7 +246,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameInspectMachine,
 		inspectMachineToolDescription,
 		nil,
-		map[string]any{"machine_ref": machineRef},
+		map[string]any{"machine_id": machineID},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -264,30 +265,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameSetCurrentChannel], err = channelSetCurrentTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameListChannels], err = toolEntry(
-		ToolNameListChannels,
-		listChannelsToolDescription,
-		nil,
-		map[string]any{
-			"parent_channel_id": map[string]any{
-				"type":        "string",
-				"pattern":     `^itgt_[a-z2-7]{26}$`,
-				"description": "Return only directly bound children of this channel. Omit to list all bound channels.",
-			},
-			"cursor": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"maxLength":   1024,
-				"description": "Opaque next_cursor from a previous list_channels result.",
-			},
-			"limit": map[string]any{
-				"type":        "integer",
-				"minimum":     1,
-				"maximum":     MaxListChannelsPageSize,
-				"description": "Maximum channels to return. Defaults to 50.",
-			},
-		},
-	); err != nil {
+	if entries[ToolNameListChannels], err = channelListTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
@@ -296,13 +274,28 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineRef); err != nil {
+	if entries[ToolNameUploadFile], err = uploadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameDownloadArtifact], err = downloadArtifactTool(machineRef); err != nil {
+	if entries[ToolNameDownloadFile], err = downloadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSpawnAgent], err = spawnAgentTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameReadAgent], err = readAgentTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSendAgentMessage], err = sendAgentMessageTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameStopAgent], err = stopAgentTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameListAgents], err = listAgentsTool(); err != nil {
 		return Catalog{}, err
 	}
 	for _, entry := range entries {
@@ -385,6 +378,38 @@ func askQuestionTool() (Entry, error) {
 	return entry, nil
 }
 
+func channelListTool() (Entry, error) {
+	entry, err := toolEntry(
+		ToolNameListChannels,
+		listChannelsToolDescription,
+		nil,
+		map[string]any{
+			"parent_channel_id": map[string]any{
+				"type":        "string",
+				"pattern":     `^itgt_[a-z2-7]{26}$`,
+				"description": "Return only directly bound children of this channel. Omit to list all bound channels.",
+			},
+			"cursor": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   1024,
+				"description": "Opaque next_cursor from a previous list_channels result.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     MaxListChannelsPageSize,
+				"description": "Maximum channels to return. Defaults to 50.",
+			},
+		},
+	)
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
+	return entry, nil
+}
+
 func channelSendTool() (Entry, error) {
 	entry, err := toolEntry(
 		ToolNameSendChannelMessage,
@@ -406,7 +431,8 @@ func channelSendTool() (Entry, error) {
 						"type": "array", "minItems": 1, "maxItems": channelconnector.MaxOperationArtifacts,
 						"uniqueItems": true,
 						"items":       map[string]any{"type": "string", "pattern": `^art_[a-z2-7]{26}$`},
-						"description": "Exact artifact IDs available to this agent; omit for text-only messages.",
+						"description": "Exact artifact IDs available to this agent; use the final component of upload_file paths. " +
+							"Omit for text-only messages.",
 					},
 				},
 			},
@@ -573,41 +599,49 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
-func uploadArtifactTool(machineRef map[string]any) (Entry, error) {
+func uploadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameUploadArtifact,
-		uploadArtifactToolDescription,
-		[]string{"path"},
+		ToolNameUploadFile,
+		uploadFileToolDescription,
+		[]string{"path", "source"},
 		map[string]any{
 			"path": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Destination path in Omnara's virtual filesystem. Currently supports /artifacts, which creates a new artifact.",
+				"enum":        []string{ArtifactVFSRoot},
+			},
+			"source": map[string]any{
 				"type":      "string",
 				"minLength": 1,
 				"description": "Path to a regular file on the selected machine. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
-			"machine_ref": machineRef,
+			"machine_id": machineID,
 		},
 	)
 }
 
-func downloadArtifactTool(machineRef map[string]any) (Entry, error) {
+func downloadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameDownloadArtifact,
-		downloadArtifactToolDescription,
-		[]string{"artifact_id", "path"},
+		ToolNameDownloadFile,
+		downloadFileToolDescription,
+		[]string{"path", "destination"},
 		map[string]any{
-			"artifact_id": map[string]any{
+			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Public artifact_id provided alongside a conversation attachment.",
+				"description": "Source path in Omnara's virtual filesystem. Currently supports /artifacts/<artifact_id>.",
+				"pattern":     "^" + ArtifactVFSRoot + "/art_[a-z2-7]{26}$",
 			},
-			"path": map[string]any{
+			"destination": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Destination path on the selected machine. The parent directory must exist. " +
+				"description": "Destination path on the selected machine. " +
+					"The parent directory must exist; an existing destination is replaced atomically. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
-			"machine_ref": machineRef,
+			"machine_id": machineID,
 		},
 	)
 }

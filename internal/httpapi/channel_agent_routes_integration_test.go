@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -55,14 +55,14 @@ func TestPublicChannelLaunchRequiresManagementOnlyForGrants(t *testing.T) {
 		ctx, project.ProjectUUID, agentID, channel.ID)
 	require.NoError(t, err)
 	require.Equal(t, "api", binding.Source)
-	require.Equal(t, storage.NilID, binding.IntegrationRouteID)
+	require.Equal(t, uuid.Nil, binding.IntegrationRouteID)
 	require.True(t, binding.SendAllowed)
 	require.False(t, binding.ReadAllowed)
 	require.NotNil(t, binding.ReplyChannelGrants)
 	require.True(t, binding.ReplyChannelGrants.ReceiveAllowed)
 	current, err := project.Store.Execution().GetAgentCurrentChannelID(ctx, project.ProjectUUID, agentID)
 	require.NoError(t, err)
-	require.Equal(t, storage.NilID, current, "launch grants do not select a current channel")
+	require.Equal(t, uuid.Nil, current, "launch grants do not select a current channel")
 	requestJSONWithHeaders(t, handler, http.MethodDelete, path+"/"+channelReceiptString(t, agent, "id")+
 		"/channel-bindings/"+testPublicID(t, publicid.KindIntegrationBinding, binding.ID), "", "",
 		http.StatusNoContent, authHeaders(token))
@@ -117,7 +117,7 @@ func TestPublicChannelInputReplayPreservesAcceptedOrigin(t *testing.T) {
 		http.StatusCreated, authHeaders(token))
 	acceptedInput := testutil.RequireType[map[string]any](t, accepted["agent_input"])
 	inputID := mustPublicHTTPID(t, publicid.KindAgentInput, channelReceiptString(t, acceptedInput, "id"))
-	var savedChannel, savedBinding storage.ID
+	var savedChannel, savedBinding uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx, `SELECT integration_target_id, integration_target_binding_id
 		FROM agent_inputs WHERE project_id=$1 AND id=$2`, project.ProjectUUID, inputID).Scan(&savedChannel, &savedBinding))
 	require.Equal(t, channel.ID, savedChannel)
@@ -130,7 +130,7 @@ func TestPublicChannelInputReplayPreservesAcceptedOrigin(t *testing.T) {
 	require.Equal(t, "customer-alice", actor["provider_user_id"])
 	current, err := project.Store.Execution().GetAgentCurrentChannelID(ctx, project.ProjectUUID, launch.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, storage.NilID, current, "queueing an input does not redirect the agent")
+	require.Equal(t, uuid.Nil, current, "queueing an input does not redirect the agent")
 	work, found, err := project.Store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
 	require.NoError(t, err)
 	require.True(t, found)

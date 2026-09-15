@@ -21,4 +21,3 @@ WHERE app.state = 'active' AND app.deleted_at IS NULL
       AND (sqlc.arg(providers)::text[])[capability.index] = app.provider
   )
 FOR SHARE OF app;
-

@@ -39,9 +39,9 @@ do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
 may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
 for connection-pool defaults.
 
-### Channel toolkit cutover (migration36)
+### Channel toolkit cutover (migration39)
 
-Run this cutover offline, with application writers stopped. Migration36 removes
+Run this cutover offline, with application writers stopped. Migration39 removes
 only the retired builtin declarations `send_integration_message` and
 `set_integration_target` from saved config source, definition, and compiled JSON,
 and recomputes the source and effective-definition hashes. Config IDs and all
@@ -60,8 +60,8 @@ tools are unsupported. There are no runtime aliases or historical fallback reade
 Like migration26, this is a one-time transactional exception to config
 immutability: the config trigger is disabled for the updates and restored in the
 same transaction. Existing uniqueness constraints remain enforced. If configs
-converge on a duplicate, migration36's config updates and trigger changes roll
-back. Goose commits each migration separately: migration35 remains applied, so
+converge on a duplicate, migration39's config updates and trigger changes roll
+back. Goose commits each migration separately: migration38 remains applied, so
 the old release cannot restart against that partially upgraded database. Keep
 services stopped while repairing the observed duplicates and retrying the new
 release's migrator, or restore the entire pre-upgrade backup before reopening

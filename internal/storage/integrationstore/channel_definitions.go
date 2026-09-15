@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
@@ -39,9 +40,9 @@ type ChannelCapabilities struct {
 }
 
 type ChannelDefinition struct {
-	ID                   ID
-	ProjectID            ID
-	IntegrationInstallID ID
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	ImplementationKey    string
 	Kind                 ChannelKind
 	Description          string
@@ -52,8 +53,8 @@ type ChannelDefinition struct {
 }
 
 type PublishChannelDefinitionInput struct {
-	ProjectID             ID
-	IntegrationInstallID  ID
+	ProjectID             uuid.UUID
+	IntegrationInstallID  uuid.UUID
 	ImplementationKey     string
 	Kind                  ChannelKind
 	Description           string
@@ -126,8 +127,11 @@ func upsertChannelDefinition(
 	return channelDefinitionFromSQLC(row)
 }
 
-func (s *Store) GetChannelDefinition(ctx context.Context, projectID, installID, id ID) (ChannelDefinition, error) {
-	if isNilID(projectID) || isNilID(installID) || isNilID(id) {
+func (s *Store) GetChannelDefinition(
+	ctx context.Context,
+	projectID, installID, id uuid.UUID,
+) (ChannelDefinition, error) {
+	if projectID == uuid.Nil || installID == uuid.Nil || id == uuid.Nil {
 		return ChannelDefinition{}, storeerr.InvalidRequest(errors.New("project, connection, and definition are required"))
 	}
 	row, err := s.q.GetChannelDefinition(ctx, dbsqlc.GetChannelDefinitionParams{
@@ -140,7 +144,7 @@ func (s *Store) GetChannelDefinition(ctx context.Context, projectID, installID, 
 }
 
 func normalizeChannelDefinition(input PublishChannelDefinitionInput) (PublishChannelDefinitionInput, error) {
-	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) {
+	if input.ProjectID == uuid.Nil || input.IntegrationInstallID == uuid.Nil {
 		return input, errors.New("project and connection are required")
 	}
 	if !registryname.Valid(input.ImplementationKey) {

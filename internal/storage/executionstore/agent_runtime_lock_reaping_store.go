@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -75,7 +76,7 @@ func (s *Store) ReapExpiredAgentRuntimeLocks(ctx context.Context, batchSize int3
 
 func (s *Store) reapExpiredAgentRuntimeLock(
 	ctx context.Context,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -105,19 +106,19 @@ func reapExpiredAgentRuntimeLockTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	retryBackoff func(int, string) time.Duration,
 ) (bool, error) {
 	qtx := dbsqlc.New(tx)
-	_, err := qtx.TryLockAgentForRuntimeLockReap(
-		ctx,
-		dbsqlc.TryLockAgentForRuntimeLockReapParams{ProjectID: projectID, AgentID: agentID},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	lockedAgent, err := tryLockAgentWithParentTx(ctx, tx, qtx, projectID, agentID)
+	if errors.Is(err, storeerr.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("lock agent for expired runtime lock reap: %w", err)
+	}
+	if !lockedAgent {
+		return false, nil
 	}
 	locked, err := qtx.LockExpiredAgentRuntimeLockForReap(
 		ctx,

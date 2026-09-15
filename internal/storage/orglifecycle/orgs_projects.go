@@ -19,8 +19,8 @@ import (
 )
 
 type CreateOrgForUserInput struct {
-	OrgID                         ID
-	UserID                        ID
+	OrgID                         uuid.UUID
+	UserID                        uuid.UUID
 	Name                          string
 	IdempotencyKey                string
 	DefaultMachinePools           []executionstore.DefaultMachinePoolTemplate
@@ -31,7 +31,7 @@ func (s *Service) CreateOrgForUser(
 	ctx context.Context,
 	input CreateOrgForUserInput,
 ) (identitystore.CreateOrgForUserRecord, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return identitystore.CreateOrgForUserRecord{}, errors.New("user id is required")
 	}
 	if input.Name == "" {
@@ -42,7 +42,7 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		orgID, err := uuid.NewV7()
 		if err != nil {
 			return identitystore.CreateOrgForUserRecord{}, fmt.Errorf("generate org id: %w", err)
@@ -105,7 +105,7 @@ func (s *Service) CreateOrgForUser(
 func deleteProjectRelationshipsTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 ) error {
 	hasActiveAgents, err := q.ProjectHasActiveAgentsForDeletion(
 		ctx,
@@ -163,7 +163,7 @@ func deleteProjectRelationshipsTx(
 func deleteProjectOwnedContentTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 ) ([]skillops.ArchiveRef, error) {
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, &projectID)
 	if err != nil {
@@ -201,8 +201,8 @@ func (s *Service) teardownProjectAgentsTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	txNotifications *notifications.TxNotifications,
-	projectID ID,
-	agentIDs []ID,
+	projectID uuid.UUID,
+	agentIDs []uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
 	machines := make([]executionstore.MachineRecord, 0)
@@ -217,17 +217,17 @@ func (s *Service) teardownProjectAgentsTx(
 }
 
 type organizationMachineLifecyclePlan struct {
-	agentIDsByProject map[ID][]ID
-	poolIDs           []ID
-	byoMachineIDs     []ID
+	agentIDsByProject map[uuid.UUID][]uuid.UUID
+	poolIDs           []uuid.UUID
+	byoMachineIDs     []uuid.UUID
 }
 
 func prelockProjectMachineLifecycleTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	q *dbsqlc.Queries,
-	orgID, projectID ID,
-) ([]ID, error) {
+	orgID, projectID uuid.UUID,
+) ([]uuid.UUID, error) {
 	agentIDs, err := q.ListActiveAgentIDsForProjectDeletion(
 		ctx,
 		dbsqlc.ListActiveAgentIDsForProjectDeletionParams{ProjectID: projectID},
@@ -264,7 +264,7 @@ func prelockProjectMachineLifecycleTx(
 	if err != nil {
 		return nil, fmt.Errorf("reload project pool grants for lifecycle: %w", err)
 	}
-	grantIDs := make([]ID, 0, len(grantRows))
+	grantIDs := make([]uuid.UUID, 0, len(grantRows))
 	for _, grantRow := range grantRows {
 		grantIDs = append(grantIDs, grantRow.ID)
 	}
@@ -295,7 +295,7 @@ func prelockOrganizationMachineLifecycleTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	q *dbsqlc.Queries,
-	orgID ID,
+	orgID uuid.UUID,
 ) (organizationMachineLifecyclePlan, error) {
 	agentRows, err := q.ListActiveAgentRefsForOrganizationDeletion(
 		ctx,
@@ -358,7 +358,7 @@ func prelockOrganizationMachineLifecycleTx(
 			err,
 		)
 	}
-	grantIDs := make([]ID, 0, len(grantRows))
+	grantIDs := make([]uuid.UUID, 0, len(grantRows))
 	for _, grantRow := range grantRows {
 		grantIDs = append(grantIDs, grantRow.ID)
 	}
@@ -404,9 +404,9 @@ func prelockOrganizationMachineLifecycleTx(
 
 func organizationAgentLifecycleRefs(
 	rows []dbsqlc.ListActiveAgentRefsForOrganizationDeletionRow,
-) ([]lifecyclelock.AgentRef, map[ID][]ID) {
+) ([]lifecyclelock.AgentRef, map[uuid.UUID][]uuid.UUID) {
 	refs := make([]lifecyclelock.AgentRef, 0, len(rows))
-	idsByProject := make(map[ID][]ID)
+	idsByProject := make(map[uuid.UUID][]uuid.UUID)
 	for _, row := range rows {
 		refs = append(refs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
 		idsByProject[row.ProjectID] = append(idsByProject[row.ProjectID], row.AgentID)
@@ -416,13 +416,13 @@ func organizationAgentLifecycleRefs(
 
 func (s *Service) DeleteProject(
 	ctx context.Context,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	deletedBy identitystore.PrincipalRecord,
 ) ([]executionstore.MachineRecord, error) {
-	if isNilID(orgID) || isNilID(projectID) {
+	if orgID == uuid.Nil || projectID == uuid.Nil {
 		return nil, errors.New("org and project are required")
 	}
-	if isNilID(deletedBy.ID) {
+	if deletedBy.ID == uuid.Nil {
 		return nil, errors.New("actor is required")
 	}
 	actor, err := executionstore.OmnaraActorParams(orgID, deletedBy)
@@ -436,7 +436,7 @@ func (s *Service) DeleteProject(
 
 func (s *Service) deleteProjectOnce(
 	ctx context.Context,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -502,13 +502,13 @@ func (s *Service) deleteProjectOnce(
 
 func (s *Service) DeleteOrganization(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	deletedBy identitystore.PrincipalRecord,
 ) ([]executionstore.MachineRecord, error) {
-	if isNilID(orgID) {
+	if orgID == uuid.Nil {
 		return nil, errors.New("org is required")
 	}
-	if isNilID(deletedBy.ID) {
+	if deletedBy.ID == uuid.Nil {
 		return nil, errors.New("actor is required")
 	}
 	actor, err := executionstore.OmnaraActorParams(orgID, deletedBy)
@@ -523,7 +523,7 @@ func (s *Service) DeleteOrganization(
 //nolint:lll // Keeping generated query parameters inline makes the transaction's cascade order auditable.
 func (s *Service) deleteOrganizationOnce(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

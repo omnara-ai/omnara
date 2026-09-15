@@ -4,47 +4,47 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 type ExecutionStore interface {
 	CaptureAgentConfigForEventWatermark(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		watermark int64,
 	) (executionstore.AgentConfigSnapshotRecord, error)
 	ListCompactionSourceEvents(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		afterSequence int64,
 		limit int32,
 	) ([]executionstore.CompactionSourceEventRecord, error)
 	ListCompactionAtomicGroups(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		lastCheckpointEnd int64,
 		inputEventSequence int64,
 	) ([]executionstore.CompactionAtomicGroupRecord, error)
 	GetLatestApplicableContextCheckpoint(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		maxEventSequence int64,
 	) (executionstore.ContextCheckpointRecord, bool, error)
 	GetContextCheckpointByProducerContext(
 		ctx context.Context,
-		projectID, agentID, modelCallContextID storage.ID,
+		projectID, agentID, modelCallContextID uuid.UUID,
 	) (executionstore.ContextCheckpointRecord, bool, error)
 	CountConsecutiveContextCheckpointLineage(
 		ctx context.Context,
-		projectID, agentID storage.ID,
+		projectID, agentID uuid.UUID,
 		inputEventSequence int64,
 	) (int, error)
 	GetProviderReplaySuppressionCutoff(
 		ctx context.Context,
-		projectID, agentID, modelCallContextID storage.ID,
+		projectID, agentID, modelCallContextID uuid.UUID,
 	) (int64, error)
 	ClaimCompactionModelCall(
 		ctx context.Context,
@@ -95,11 +95,11 @@ type Runner struct {
 
 type RunInput struct {
 	Plan                     Plan
-	TurnID                   storage.ID
-	OpeningInputIDs          []storage.ID
+	TurnID                   uuid.UUID
+	OpeningInputIDs          []uuid.UUID
 	OpeningEventSequence     int64
-	RuntimeLockID            storage.ID
-	ParentModelCallContextID storage.ID
+	RuntimeLockID            uuid.UUID
+	ParentModelCallContextID uuid.UUID
 }
 
 type RunState string
@@ -112,7 +112,7 @@ const (
 
 type RunResult struct {
 	State              RunState
-	ModelCallContextID storage.ID
+	ModelCallContextID uuid.UUID
 	Checkpoint         *executionstore.ContextCheckpointRecord
 	RetryAt            *time.Time
 }

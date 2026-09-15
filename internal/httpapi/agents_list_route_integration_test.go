@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -212,6 +213,38 @@ func TestListAgents(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 
+	firstPage := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		agentsPath+"?limit=1",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	topLevelCursor := testutil.RequireType[string](t, firstPage["next_cursor"])
+	parentAgentID, err := publicid.Encode(publicid.KindAgent, agents[0].ID)
+	if err != nil {
+		t.Fatalf("encode parent agent id: %v", err)
+	}
+	for _, query := range []string{
+		"?include_subagents=true&cursor=",
+		"?parent_agent_id=" + parentAgentID + "&cursor=",
+		"?agent_profile_id=aprf_abcdefghijklmnopqrstuvwxyz&cursor=",
+	} {
+		requestJSONWithHeaders(
+			t,
+			handler,
+			http.MethodGet,
+			agentsPath+query+topLevelCursor,
+			"",
+			"",
+			http.StatusBadRequest,
+			authHeaders(project.AdminToken),
+		)
+	}
+
 	otherOrg := bootstrapPublicHTTPProject(t, handler, "list-agents-other-org")
 	requestJSONWithHeaders(
 		t,
@@ -223,6 +256,73 @@ func TestListAgents(t *testing.T) {
 		http.StatusNotFound,
 		authHeaders(otherOrg.AdminToken),
 	)
+}
+
+func TestListAgentsChildrenWithActivity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "list-agent-children")
+	parentLaunch := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-agent-children",
+	)
+	parent := parentLaunch.Agent
+	active := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "active-child", "worker")
+	archived := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "archived-child", "worker")
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, project.ProjectUUID, archived.ID, httpUserPrincipal(project.AdminUserUUID),
+	); err != nil {
+		t.Fatalf("archive child: %v", err)
+	}
+	parentPublicID := testPublicID(t, publicid.KindAgent, parent.ID)
+	activePublicID := testPublicID(t, publicid.KindAgent, active.ID)
+	archivedPublicID := testPublicID(t, publicid.KindAgent, archived.ID)
+	childrenPath := project.ProjectPath + "/agents?sort=created_at&parent_agent_id=" + parentPublicID
+
+	listed := requestJSONWithHeaders(
+		t, handler, http.MethodGet, childrenPath, "", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	rows := testutil.RequireType[[]any](t, listed["data"])
+	if len(rows) != 1 {
+		t.Fatalf("children without archived = %+v, want the active child only", rows)
+	}
+	activeRow := testutil.RequireType[map[string]any](t, rows[0])
+	activity := testutil.RequireType[map[string]any](t, activeRow["activity"])
+	if activeRow["id"] != activePublicID || activeRow["subagent_key"] != "worker" ||
+		activeRow["parent_agent_id"] != parentPublicID || activity["state"] != "idle" {
+		t.Fatalf("active child row = %+v, want an idle worker under the parent", activeRow)
+	}
+	if _, ok := activity["last_activity_at"].(string); !ok {
+		t.Fatalf("active child activity = %+v, want last_activity_at", activity)
+	}
+
+	withArchived := requestJSONWithHeaders(
+		t, handler, http.MethodGet, childrenPath+"&include_archived=true", "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	rows = testutil.RequireType[[]any](t, withArchived["data"])
+	if len(rows) != 2 {
+		t.Fatalf("children with archived = %+v, want both children", rows)
+	}
+	archivedRow := testutil.RequireType[map[string]any](t, rows[1])
+	archivedActivity := testutil.RequireType[map[string]any](t, archivedRow["activity"])
+	if archivedRow["id"] != archivedPublicID || archivedRow["state"] != "archived" ||
+		archivedActivity["state"] != "archived" {
+		t.Fatalf("archived child row = %+v, want an archived worker", archivedRow)
+	}
+
+	detail := requestJSONWithHeaders(
+		t, handler, http.MethodGet, project.ProjectPath+"/agents/"+parentPublicID, "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if _, ok := detail["subagents"]; ok {
+		t.Fatalf("get agent still embeds subagents: %+v", detail)
+	}
+	if _, ok := testutil.RequireType[map[string]any](t, detail["agent"])["activity"]; ok {
+		t.Fatalf("get agent reports activity: %+v", detail)
+	}
 }
 
 func TestListAgentsByProfile(t *testing.T) {
@@ -335,13 +435,13 @@ func seedListAgentAt(
 	pool *pgxpool.Pool,
 	store *storage.Store,
 	project publicHTTPProject,
-	configID storage.ID,
+	configID uuid.UUID,
 	name string,
 	idempotencyKey string,
 	createdAt time.Time,
 ) executionstore.AgentRecord {
 	t.Helper()
-	var id storage.ID
+	var id uuid.UUID
 	if err := pool.QueryRow(ctx, `
 INSERT INTO agents (
     org_id, project_id, state, name, current_config_id,

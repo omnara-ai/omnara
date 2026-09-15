@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -19,7 +20,7 @@ type PreparedChannelOutput struct {
 	binding               integrationstore.IntegrationTargetBindingRecord
 	access                integrationstore.ChannelAccess
 	interaction           AgentInteractionRecord
-	turnID, runtimeLockID ID
+	turnID, runtimeLockID uuid.UUID
 }
 
 func (p PreparedChannelOutput) Access() integrationstore.ChannelAccess {
@@ -32,13 +33,13 @@ func (p PreparedChannelOutput) Access() integrationstore.ChannelAccess {
 // PrepareChannelPresentation derives the destination and form owner from the
 // canonical open interaction. A worker runtime is not its durable authority.
 func (s *Store) PrepareChannelPresentation(
-	ctx context.Context, projectID, agentID, interactionID ID,
+	ctx context.Context, projectID, agentID, interactionID uuid.UUID,
 ) (PreparedChannelOutput, error) {
 	interaction, found, err := s.GetAgentInteraction(ctx, projectID, agentID, interactionID)
 	if err != nil {
 		return PreparedChannelOutput{}, err
 	}
-	if !found || interaction.State != AgentInteractionStateOpen || isNilID(interaction.IntegrationTargetID) {
+	if !found || interaction.State != AgentInteractionStateOpen || interaction.IntegrationTargetID == uuid.Nil {
 		return PreparedChannelOutput{}, storeerr.ErrNotFound
 	}
 	return s.prepareChannelOutput(ctx, PreparedChannelOutput{
@@ -50,21 +51,22 @@ func (s *Store) PrepareChannelPresentation(
 	})
 }
 
-type PrepareChannelNoticeInput struct{ ProjectID, AgentID, TurnID, RuntimeLockID ID }
+type PrepareChannelNoticeInput struct{ ProjectID, AgentID, TurnID, RuntimeLockID uuid.UUID }
 
 // PrepareChannelNotice selects the current channel under the live runtime owner.
 // It does not acquire delegation to create or bind a continuation channel.
 func (s *Store) PrepareChannelNotice(
 	ctx context.Context, input PrepareChannelNoticeInput,
 ) (PreparedChannelOutput, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.TurnID) || isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.TurnID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return PreparedChannelOutput{}, storeerr.InvalidRequest(errors.New("runtime notice owner is required"))
 	}
 	channelID, err := s.GetAgentCurrentChannelID(ctx, input.ProjectID, input.AgentID)
 	if err != nil {
 		return PreparedChannelOutput{}, err
 	}
-	if isNilID(channelID) {
+	if channelID == uuid.Nil {
 		return PreparedChannelOutput{}, storeerr.ErrNotFound
 	}
 	return s.prepareChannelOutput(ctx, PreparedChannelOutput{
@@ -113,7 +115,7 @@ func (s *Store) prepareChannelOutput(
 func (s *Store) RecheckChannelOutput(
 	ctx context.Context, prepared PreparedChannelOutput,
 ) (integrationstore.ChannelAccess, error) {
-	if prepared.store != s || isNilID(prepared.binding.ID) {
+	if prepared.store != s || prepared.binding.ID == uuid.Nil {
 		return integrationstore.ChannelAccess{}, storeerr.ErrUnauthorized
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -138,7 +140,7 @@ func (s *Store) checkChannelOutputOwnerTx(
 	ctx context.Context, tx pgx.Tx, p PreparedChannelOutput,
 ) (integrationstore.ChannelAccess, error) {
 	q := s.q.WithTx(tx)
-	if !isNilID(p.interaction.ID) {
+	if p.interaction.ID != uuid.Nil {
 		row, err := q.GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
 			ProjectID: p.input.ProjectID, AgentID: p.input.AgentID, ID: p.interaction.ID,
 		})

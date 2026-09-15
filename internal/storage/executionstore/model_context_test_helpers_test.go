@@ -5,9 +5,16 @@ package executionstore_test
 import (
 	"context"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
-func currentModelRevisionForConfig(t *testing.T, ctx context.Context, store *Store, projectID, agentConfigID ID) ID {
+func currentModelRevisionForConfig(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	projectID, agentConfigID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	config, found, err := store.Execution().GetAgentConfig(ctx, projectID, agentConfigID)
 	if err != nil || !found {
@@ -24,7 +31,7 @@ func modelProviderSlugForContext(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 ) string {
 	t.Helper()
 	modelContext, found, err := store.Execution().GetModelCallContext(

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -35,7 +36,7 @@ VALUES
 	result, err := store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       testOrgID,
 		DisplayName: "Connected Machine",
-		ProjectIDs:  []ID{secondProjectID, testProjectID},
+		ProjectIDs:  []uuid.UUID{secondProjectID, testProjectID},
 		TokenName:   "web-console",
 	})
 	if err != nil {
@@ -53,7 +54,7 @@ VALUES
 	if len(result.ProjectGrants) != 2 {
 		t.Fatalf("project grants = %d, want 2", len(result.ProjectGrants))
 	}
-	for index, projectID := range []ID{secondProjectID, testProjectID} {
+	for index, projectID := range []uuid.UUID{secondProjectID, testProjectID} {
 		grant := result.ProjectGrants[index]
 		if grant.ProjectID != projectID || grant.MachineID != result.Machine.ID || !grant.Created {
 			t.Fatalf("unexpected project grant %d: %+v", index, grant)
@@ -79,7 +80,7 @@ VALUES
 	withoutGrants, err := store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       testOrgID,
 		DisplayName: "Connected Without Grants",
-		ProjectIDs:  []ID{},
+		ProjectIDs:  []uuid.UUID{},
 		TokenName:   "web-console",
 	})
 	if err != nil {
@@ -112,7 +113,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_machine_connection_grant()
 	_, err := store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       testOrgID,
 		DisplayName: "Rolled Back Machine",
-		ProjectIDs:  []ID{testProjectID},
+		ProjectIDs:  []uuid.UUID{testProjectID},
 		TokenName:   tokenName,
 	})
 	if err == nil {
@@ -159,7 +160,7 @@ func TestConnectBYOMachineRejectsInvalidProjectSelections(t *testing.T) {
 		TokenName:   "web-console",
 	}
 	duplicateInput := baseInput
-	duplicateInput.ProjectIDs = []ID{testProjectID, testProjectID}
+	duplicateInput.ProjectIDs = []uuid.UUID{testProjectID, testProjectID}
 	if _, err := store.Execution().ConnectBYOMachine(ctx, duplicateInput); !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("duplicate project IDs error = %v, want ErrInvalidRequest", err)
 	}
@@ -172,7 +173,7 @@ VALUES ($1, $2, 'Deleted Machine Connection Project', 'machine-connection-delete
 		t.Fatalf("seed deleted project: %v", err)
 	}
 	deletedInput := baseInput
-	deletedInput.ProjectIDs = []ID{deletedProjectID}
+	deletedInput.ProjectIDs = []uuid.UUID{deletedProjectID}
 	if _, err := store.Execution().ConnectBYOMachine(ctx, deletedInput); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("deleted project error = %v, want ErrNotFound", err)
 	}
@@ -258,7 +259,7 @@ func TestConnectBYOMachineSerializesWithScopeDeletion(t *testing.T) {
 				executionstore.ConnectBYOMachineInput{
 					OrgID:       testOrgID,
 					DisplayName: "Connected Before Project Deletion",
-					ProjectIDs:  []ID{testProjectID},
+					ProjectIDs:  []uuid.UUID{testProjectID},
 					TokenName:   "connection-wins",
 				},
 			)
@@ -361,7 +362,7 @@ WHERE machine.org_id = $1 AND machine.id = $4
 				executionstore.ConnectBYOMachineInput{
 					OrgID:       testOrgID,
 					DisplayName: "Rejected Project Connection",
-					ProjectIDs:  []ID{testProjectID},
+					ProjectIDs:  []uuid.UUID{testProjectID},
 					TokenName:   "deletion-wins",
 				},
 			)

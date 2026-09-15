@@ -26,7 +26,7 @@ type DeleteSkillInput struct {
 }
 
 func (s *Store) DeleteSkill(ctx context.Context, input DeleteSkillInput) error {
-	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) || isNilUUID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return invalidSkillRequest("org, skill, and actor are required")
 	}
 	row, err := s.q.GetSkillForOrg(ctx, dbsqlc.GetSkillForOrgParams{

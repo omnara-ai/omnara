@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -53,7 +55,7 @@ func TestQueuedProcessFailureSkipsCompletedToolCall(t *testing.T) {
 		ID:              process.ID,
 		OrgID:           fixture.OrgID,
 		MachineID:       fixture.MachineID,
-		StateReasonCode: sqlcTextFromEmpty(executionstore.ProcessToolReasonMachineUnreachable),
+		StateReasonCode: storeutil.TextFromEmpty(executionstore.ProcessToolReasonMachineUnreachable),
 	}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("mark queued process with completed tool call err=%v, want no rows", err)
 	}
@@ -192,7 +194,7 @@ func TestDaemonProcessFailureBeforeStartHasNoSourceTimes(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
@@ -354,7 +356,7 @@ func TestDuplicateDaemonProcessFinishedReportReplaysTerminalState(t *testing.T) 
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -426,7 +428,7 @@ func TestCompleteDaemonProcessRejectsReversedSourceTimes(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")

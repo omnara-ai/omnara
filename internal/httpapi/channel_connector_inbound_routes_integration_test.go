@@ -78,7 +78,7 @@ func newChannelReceiptHTTPFixture(t *testing.T) channelReceiptHTTPFixture {
 func (f channelReceiptHTTPFixture) createInstall(
 	t *testing.T,
 	app integrationstore.IntegrationAppRecord,
-	projectID integrationstore.ID,
+	projectID uuid.UUID,
 	ref string,
 ) integrationstore.IntegrationInstallRecord {
 	t.Helper()

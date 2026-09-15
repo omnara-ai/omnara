@@ -27,9 +27,9 @@ func TestPostgresChannelToolConfigMigrationPreservesPinnedReferences(t *testing.
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 34))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
 	fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 35))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 38))
 	unchangedSource := "instruction: Unchanged config.\n" +
 		"model: {provider_config: migration provider, name: migration model}\n"
 	unchangedCompiled, err := agentconfig.Compile(
@@ -113,9 +113,9 @@ func TestPostgresChannelToolConfigMigrationRollsBackDuplicates(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 34))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
 	fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 35))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 38))
 	var configID, source string
 	var compiled []byte
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT config.id::text, config.source,
@@ -154,7 +154,7 @@ JOIN agents agent ON agent.current_config_id = config.id WHERE agent.id = $1`, f
 	assertChannelConfigImmutabilityRestored(t, ctx, db, configID)
 	var applied bool
 	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id = 36 AND is_applied)`).Scan(&applied))
+		`SELECT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id = 39 AND is_applied)`).Scan(&applied))
 	require.False(t, applied)
 }
 

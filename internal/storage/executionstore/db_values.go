@@ -5,34 +5,6 @@ import (
 	"time"
 )
 
-func sqlcTextFromEmpty(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func sqlcIDFromNil(value ID) *ID {
-	if isNilID(value) {
-		return nil
-	}
-	return &value
-}
-
-func idFromSQLCPtr(value *ID) ID {
-	if value == nil {
-		return NilID
-	}
-	return *value
-}
-
-func nullableTimeToZero(value *time.Time) time.Time {
-	if value == nil {
-		return time.Time{}
-	}
-	return *value
-}
-
 func canonicalSourceTime(value time.Time) time.Time {
 	return time.UnixMicro(value.UnixMicro()).UTC()
 }

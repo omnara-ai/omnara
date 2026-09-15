@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -14,31 +15,31 @@ import (
 // Attribution retains the account subject, not the browser session or token
 // that authenticated a user. A deployment connector is never an account.
 func normalizeIntegrationInstaller(
-	orgID ID,
+	orgID uuid.UUID,
 	principal identitystore.PrincipalRecord,
 ) (identitystore.PrincipalRecord, error) {
 	if !identitystore.IsAccountPrincipal(principal) ||
-		(!isNilID(principal.OrgID) && principal.OrgID != orgID) ||
+		(principal.OrgID != uuid.Nil && principal.OrgID != orgID) ||
 		principal.ChannelConnectorID != "" || len(principal.ChannelConnectorCapabilities) != 0 ||
-		!isNilID(principal.MachineDaemonTokenID) {
+		principal.MachineDaemonTokenID != uuid.Nil {
 		return identitystore.PrincipalRecord{}, storeerr.ErrUnauthorized
 	}
 	if principal.Type == identitystore.PrincipalTypeUser {
-		if !isNilID(principal.OrgAPIKeyID) {
+		if principal.OrgAPIKeyID != uuid.Nil {
 			return identitystore.PrincipalRecord{}, storeerr.ErrUnauthorized
 		}
 		return identitystore.NewUserPrincipal(principal.ID), nil
 	}
-	if (!isNilID(principal.OrgAPIKeyID) && principal.OrgAPIKeyID != principal.ID) ||
-		!isNilID(principal.PersonalAccessTokenID) || !isNilID(principal.BrowserSessionID) ||
-		!isNilID(principal.OAuthAccessTokenID) {
+	if (principal.OrgAPIKeyID != uuid.Nil && principal.OrgAPIKeyID != principal.ID) ||
+		principal.PersonalAccessTokenID != uuid.Nil || principal.BrowserSessionID != uuid.Nil ||
+		principal.OAuthAccessTokenID != uuid.Nil {
 		return identitystore.PrincipalRecord{}, storeerr.ErrUnauthorized
 	}
 	return identitystore.NewOrgAPIKeyPrincipal(orgID, principal.ID), nil
 }
 
 // The exclusive principal constraint guarantees exactly one reference.
-func integrationInstallerPrincipal(orgID ID, userID, orgAPIKeyID *ID) identitystore.PrincipalRecord {
+func integrationInstallerPrincipal(orgID uuid.UUID, userID, orgAPIKeyID *uuid.UUID) identitystore.PrincipalRecord {
 	if userID != nil {
 		return identitystore.NewUserPrincipal(*userID)
 	}
@@ -48,7 +49,7 @@ func integrationInstallerPrincipal(orgID ID, userID, orgAPIKeyID *ID) identityst
 func validateIntegrationInstaller(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	principal identitystore.PrincipalRecord,
 ) error {
 	userID, orgAPIKeyID := identitystore.AccountPrincipalIDs(principal)

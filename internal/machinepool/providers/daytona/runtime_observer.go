@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 const daytonaRuntimeListPageSize = 100
@@ -112,7 +112,7 @@ func daytonaObservationsForMatches(
 	matches map[string][]sandbox,
 ) []providers.RuntimeObservation {
 	resourceCounts := make(map[string]int, len(targets))
-	machineCounts := make(map[storage.ID]int, len(targets))
+	machineCounts := make(map[uuid.UUID]int, len(targets))
 	for _, target := range targets {
 		resourceCounts[target.ProviderResourceID]++
 		machineCounts[target.MachineID]++
@@ -169,7 +169,7 @@ func daytonaRuntimeState(value sandboxState) providers.RuntimeState {
 }
 
 func validRuntimeTarget(target providers.RuntimeTarget) bool {
-	return target.InstallationID != storage.NilID && target.MachineID != storage.NilID &&
+	return target.InstallationID != uuid.Nil && target.MachineID != uuid.Nil &&
 		target.ProviderResourceID != "" &&
 		target.ProviderResourceID == strings.TrimSpace(target.ProviderResourceID)
 }

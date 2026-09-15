@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -79,8 +80,8 @@ func TestOpenArtifactBlobAuthorizesBeforeStreaming(t *testing.T) {
 	})
 	artifacts := artifactstore.New(pool, blobs)
 	for _, scope := range []struct {
-		projectID ID
-		agentID   ID
+		projectID uuid.UUID
+		agentID   uuid.UUID
 	}{
 		{testProjectID, otherAgentID},
 		{otherProjectID, record.AgentID},

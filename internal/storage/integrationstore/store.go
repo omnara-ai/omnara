@@ -13,23 +13,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type ID = uuid.UUID
-
-var NilID = uuid.Nil
-
 type InstallBinding struct {
-	OrgID          ID
-	ProjectID      ID
-	AgentProfileID ID
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentProfileID uuid.UUID
 }
 
 type Access interface {
 	ValidateInstallBinding(context.Context, pgx.Tx, InstallBinding) error
-	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, ID, ID) error
+	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
 }
 
 type Store struct {
@@ -53,7 +48,7 @@ func New(pool *pgxpool.Pool, access Access) *Store {
 func lockIntegrationInstallLifecycleShared(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, installID ID,
+	projectID, installID uuid.UUID,
 ) (IntegrationInstallRecord, error) {
 	q := dbsqlc.New(tx)
 	install, err := getIntegrationInstall(ctx, q, projectID, installID)
@@ -70,22 +65,6 @@ func lockIntegrationInstallLifecycleShared(
 		return IntegrationInstallRecord{}, fmt.Errorf("lock integration install lifecycle: %w", err)
 	}
 	return getIntegrationInstall(ctx, q, projectID, installID)
-}
-
-func isNilID(id ID) bool {
-	return id == NilID
-}
-
-func sqlcTextFromEmpty(value string) *string {
-	return storeutil.TextFromEmpty(value)
-}
-
-func sqlcIDFromNil(value ID) *ID {
-	return storeutil.IDFromNil(value)
-}
-
-func idFromSQLCPtr(value *ID) ID {
-	return storeutil.IDFromPtr(value)
 }
 
 func normalizedJSONObject(value json.RawMessage, fieldName string) (json.RawMessage, error) {

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -87,20 +87,6 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			waitMs:   processaction.MaxWaitMilliseconds,
 			ioMode:   "pipe",
 		},
-		{
-			name:     "blank machine ref",
-			input:    json.RawMessage(`{"command":"echo ok","machine_ref":""}`),
-			command:  "echo ok",
-			selector: "default",
-			ioMode:   "pipe",
-		},
-		{
-			name:     "space padded machine ref",
-			input:    json.RawMessage(`{"command":"echo ok","machine_ref":" "}`),
-			command:  "echo ok",
-			selector: "default",
-			ioMode:   "pipe",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,9 +112,9 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 		{name: "empty command", raw: json.RawMessage(`{"command":"  "}`), want: "command is required"},
 		{name: "unknown field", raw: json.RawMessage(`{"command":"echo ok","timeout_seconds":5}`), want: "unknown field"},
 		{
-			name: "null machine ref",
-			raw:  json.RawMessage(`{"command":"echo ok","machine_ref":null}`),
-			want: "machine_ref cannot be null",
+			name: "null machine ID",
+			raw:  json.RawMessage(`{"command":"echo ok","machine_id":null}`),
+			want: "machine_id cannot be null",
 		},
 		{
 			name: "unsupported selector",
@@ -192,7 +178,7 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve command: %v", err)
 	}
-	bindingID := storage.ID{1}
+	bindingID := uuid.UUID{1}
 	authorizationInput, err := runCommandAuthorizationInput(bindingID, resolved)
 	if err != nil {
 		t.Fatalf("build command authorization: %v", err)
@@ -233,7 +219,7 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 		t.Fatalf("marshal permission request: %v", err)
 	}
 	action := executionstore.AgentInteractionRecord{
-		ToolCallID:      storage.NilID,
+		ToolCallID:      uuid.Nil,
 		ProviderCallID:  "call_1",
 		InteractionKind: "permission",
 		Request:         requestJSON,
@@ -241,7 +227,7 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 	if !toolCallPermissionMatches(
 		action,
 		call,
-		storage.NilID,
+		uuid.Nil,
 		selection,
 	) {
 		t.Fatal("expected raw tool approval to match")
@@ -249,20 +235,20 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 	if !toolCallAuthorizationMatches(
 		action,
 		call,
-		storage.NilID,
+		uuid.Nil,
 		selection,
 		authorizationInput,
 	) {
 		t.Fatal("expected approved machine binding to match authorization input")
 	}
-	otherBindingInput, err := runCommandAuthorizationInput(storage.ID{2}, resolved)
+	otherBindingInput, err := runCommandAuthorizationInput(uuid.UUID{2}, resolved)
 	if err != nil {
 		t.Fatalf("build command authorization for another binding: %v", err)
 	}
 	if toolCallAuthorizationMatches(
 		action,
 		call,
-		storage.NilID,
+		uuid.Nil,
 		selection,
 		otherBindingInput,
 	) {

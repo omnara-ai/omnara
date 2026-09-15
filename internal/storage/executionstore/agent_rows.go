@@ -3,7 +3,9 @@ package executionstore
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
@@ -21,6 +23,8 @@ func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -44,6 +48,8 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -67,6 +73,8 @@ func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 }
 
@@ -85,6 +93,8 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -108,6 +118,8 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
 		Provider:         row.IntegrationTargetProvider,
@@ -138,6 +150,8 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
 		Provider:         row.IntegrationTargetProvider,
@@ -170,6 +184,8 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.ArchivedAt,
+		row.ParentAgentID,
+		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
 		Provider:         row.IntegrationTargetProvider,
@@ -186,33 +202,37 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 }
 
 func agentRecordFromSQLC(
-	id ID,
-	orgID ID,
-	projectID ID,
+	id uuid.UUID,
+	orgID uuid.UUID,
+	projectID uuid.UUID,
 	state string,
 	name string,
-	agentProfileID *ID,
-	currentConfigID ID,
-	integrationTargetID *ID,
+	agentProfileID *uuid.UUID,
+	currentConfigID uuid.UUID,
+	integrationTargetID *uuid.UUID,
 	idempotencyKey string,
 	nextEventSequence int64,
 	createdAt time.Time,
 	updatedAt time.Time,
 	archivedAt *time.Time,
+	parentAgentID *uuid.UUID,
+	subagentKey string,
 ) AgentRecord {
 	return AgentRecord{
 		ID:                  id,
 		OrgID:               orgID,
 		ProjectID:           projectID,
-		AgentProfileID:      idFromSQLCPtr(agentProfileID),
+		AgentProfileID:      storeutil.IDFromPtr(agentProfileID),
 		State:               AgentState(state),
 		Name:                name,
 		CurrentConfigID:     currentConfigID,
-		IntegrationTargetID: idFromSQLCPtr(integrationTargetID),
+		IntegrationTargetID: storeutil.IDFromPtr(integrationTargetID),
 		IdempotencyKey:      idempotencyKey,
 		NextEventSequence:   nextEventSequence,
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
 		ArchivedAt:          archivedAt,
+		ParentAgentID:       storeutil.IDFromPtr(parentAgentID),
+		SubagentKey:         subagentKey,
 	}
 }

@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -80,7 +82,7 @@ func newChannelWorkflowArtifactFixture(
 	blobs := &workflowArtifactBlobs{content: make(map[string][]byte)}
 	// Reuse the canonical workflow's real installer, profile, route, definition,
 	// and receipt fixtures; supply the same blob store to both capability stores.
-	f.Store = newSecretIntegrationStore(f.Store.pool, WithBlobStore(blobs))
+	f.Store = newSecretIntegrationStore(f.Store.pool, storage.WithBlobStore(blobs))
 	return f, blobs
 }
 
@@ -117,10 +119,10 @@ func requireWorkflowArtifactInput(
 	f channelWorkflowFixture,
 	result executionstore.ChannelInputResult,
 	wantContent []byte,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	blocks, err := f.Store.q.ListContentBlocksForAgentInputs(ctx, dbsqlc.ListContentBlocksForAgentInputsParams{
-		ProjectID: f.Identity.ProjectID, AgentID: result.AgentInput.AgentID, AgentInputIds: []ID{result.AgentInput.ID},
+		ProjectID: f.Identity.ProjectID, AgentID: result.AgentInput.AgentID, AgentInputIds: []uuid.UUID{result.AgentInput.ID},
 	})
 	require.NoError(t, err)
 	require.Len(t, blocks, 2)
@@ -154,7 +156,7 @@ func requireWorkflowArtifactInput(
 	return artifactID
 }
 
-func requireWorkflowArtifactRowsAbsent(t *testing.T, ctx context.Context, f channelWorkflowFixture, agentID ID) {
+func requireWorkflowArtifactRowsAbsent(t *testing.T, ctx context.Context, f channelWorkflowFixture, agentID uuid.UUID) {
 	t.Helper()
 	for _, table := range []string{
 		"integration_workflows", "artifacts", "agent_inputs", "content_blocks", "agent_wakeups",

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
 
@@ -20,7 +22,7 @@ func secretFromGet(row dbsqlc.GetSecretRow) SecretRecord {
 		row.Name,
 		secrets.Kind(row.Kind),
 		row.Metadata,
-		idFromSQLCPtr(row.CurrentVersionID),
+		storeutil.IDFromPtr(row.CurrentVersionID),
 		row.CurrentVersionNumber,
 		row.PayloadKeys,
 		row.CreatedAt,
@@ -35,13 +37,16 @@ func secretFromGetByOwnerName(row dbsqlc.GetSecretByOwnerNameRow) SecretRecord {
 func secretFromListVisible(row dbsqlc.ListVisibleOwnedSecretsRow) SecretRecord {
 	return secretRecord(
 		row.ID, row.OrgID, management.Kind(row.ManagementKind), row.OwnerKind, row.OwnerProjectID, row.OwnerUserID,
-		row.Name, secrets.Kind(row.Kind), row.Metadata, idFromSQLCPtr(row.CurrentVersionID),
+		row.Name, secrets.Kind(row.Kind), row.Metadata, storeutil.IDFromPtr(row.CurrentVersionID),
 		row.CurrentVersionNumber,
 		row.PayloadKeys, row.CreatedAt, row.UpdatedAt,
 	)
 }
 
-func secretAccessFromListProject(row dbsqlc.ListProjectAvailableSecretsRow, projectID ID) ProjectSecretAccessRecord {
+func secretAccessFromListProject(
+	row dbsqlc.ListProjectAvailableSecretsRow,
+	projectID uuid.UUID,
+) ProjectSecretAccessRecord {
 	secret := secretRecord(
 		row.ID,
 		row.OrgID,
@@ -52,7 +57,7 @@ func secretAccessFromListProject(row dbsqlc.ListProjectAvailableSecretsRow, proj
 		row.Name,
 		secrets.Kind(row.Kind),
 		row.Metadata,
-		idFromSQLCPtr(row.CurrentVersionID),
+		storeutil.IDFromPtr(row.CurrentVersionID),
 		row.CurrentVersionNumber,
 		row.PayloadKeys,
 		row.CreatedAt,
@@ -61,7 +66,10 @@ func secretAccessFromListProject(row dbsqlc.ListProjectAvailableSecretsRow, proj
 	return projectSecretAccess(secret, projectID, row.GrantID)
 }
 
-func secretAccessFromProjectAvailable(row dbsqlc.GetProjectAvailableSecretRow, projectID ID) ProjectSecretAccessRecord {
+func secretAccessFromProjectAvailable(
+	row dbsqlc.GetProjectAvailableSecretRow,
+	projectID uuid.UUID,
+) ProjectSecretAccessRecord {
 	secret := secretRecord(
 		row.ID,
 		row.OrgID,
@@ -72,7 +80,7 @@ func secretAccessFromProjectAvailable(row dbsqlc.GetProjectAvailableSecretRow, p
 		row.Name,
 		secrets.Kind(row.Kind),
 		row.Metadata,
-		idFromSQLCPtr(row.CurrentVersionID),
+		storeutil.IDFromPtr(row.CurrentVersionID),
 		row.CurrentVersionNumber,
 		row.PayloadKeys,
 		row.CreatedAt,
@@ -81,7 +89,7 @@ func secretAccessFromProjectAvailable(row dbsqlc.GetProjectAvailableSecretRow, p
 	return projectSecretAccess(secret, projectID, row.GrantID)
 }
 
-func projectSecretAccess(secret SecretRecord, projectID ID, grantID *ID) ProjectSecretAccessRecord {
+func projectSecretAccess(secret SecretRecord, projectID uuid.UUID, grantID *uuid.UUID) ProjectSecretAccessRecord {
 	availability := SecretAvailability{Source: SecretAvailabilityDirect, ProjectID: projectID}
 	if grantID != nil {
 		availability.Source = SecretAvailabilityGrant
@@ -91,14 +99,14 @@ func projectSecretAccess(secret SecretRecord, projectID ID, grantID *ID) Project
 }
 
 func secretRecord(
-	id, orgID ID,
+	id, orgID uuid.UUID,
 	managementKind management.Kind,
 	ownerKind string,
-	ownerProjectID, ownerUserID *ID,
+	ownerProjectID, ownerUserID *uuid.UUID,
 	name string,
 	kind secrets.Kind,
 	metadata json.RawMessage,
-	currentVersionID ID,
+	currentVersionID uuid.UUID,
 	currentVersionNumber int32,
 	payloadKeys []string,
 	createdAt, updatedAt time.Time,
@@ -108,8 +116,8 @@ func secretRecord(
 		OrgID:                orgID,
 		ManagementKind:       managementKind,
 		OwnerKind:            ownerKind,
-		OwnerProjectID:       idFromSQLCPtr(ownerProjectID),
-		OwnerUserID:          idFromSQLCPtr(ownerUserID),
+		OwnerProjectID:       storeutil.IDFromPtr(ownerProjectID),
+		OwnerUserID:          storeutil.IDFromPtr(ownerUserID),
 		Name:                 name,
 		Kind:                 kind,
 		Metadata:             metadata,

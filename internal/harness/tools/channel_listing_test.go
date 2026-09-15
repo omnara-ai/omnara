@@ -35,7 +35,7 @@ func TestChannelListCursorBindsAgentAndParentFilter(t *testing.T) {
 	require.Equal(t, parent, request.ParentChannelID)
 	require.Equal(t, last.ID, page.After.ID)
 	require.True(t, last.CreatedAt.Equal(page.After.CreatedAt))
-	require.NotEqual(t, integrationstore.NilID, page.ParentChannelID)
+	require.NotEqual(t, uuid.Nil, page.ParentChannelID)
 	authorization, err := marshalJSON(request)
 	require.NoError(t, err)
 	require.JSONEq(t, string(input), string(authorization), "parsed state must not change the permission request")

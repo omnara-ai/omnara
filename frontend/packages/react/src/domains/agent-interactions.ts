@@ -10,8 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useOmnaraClient } from '../omnara-client'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
-const openInteractionsQuery = { state: 'open', limit: 100 } as const
-const activeAgentRefetchIntervalMs = 1000
+const openInteractionsQuery = { state: 'open', limit: 100, include_subagents: true } as const
 
 /** The query key for an agent's open interactions, shared by everything that
  * reads or invalidates them (the hook, the resolve mutation, and the chat
@@ -24,25 +23,19 @@ export function openAgentInteractionsQueryKey(
 }
 
 /**
- * Open interactions for an agent. Interaction rows may be created after the
- * corresponding tool-call event, so active agents are polled in addition to
- * the immediate refreshes triggered by chat events.
+ * Open interactions for an agent and its subagents. The chat session refreshes
+ * this query from stream frames: tool-call events and tool_call_update frames,
+ * which the stream sends for the agent and every subagent beneath it.
  */
-export function useAgentInteractions(
-  orgID: string,
-  projectID: string,
-  agentID: string,
-  agentActive: boolean,
-) {
+export function useAgentInteractions(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
-  return useQuery({
-    ...listAgentInteractionsOptions({
+  return useQuery(
+    listAgentInteractionsOptions({
       path: { orgID, projectID, agentID },
       query: openInteractionsQuery,
       client,
     }),
-    refetchInterval: agentActive ? activeAgentRefetchIntervalMs : false,
-  })
+  )
 }
 
 export function useResolveAgentInteraction(orgID: string, projectID: string, agentID: string) {
@@ -53,13 +46,15 @@ export function useResolveAgentInteraction(orgID: string, projectID: string, age
     mutationFn: async ({
       interactionID,
       body,
+      targetAgentID = agentID,
     }: {
       interactionID: string
       body: Parameters<typeof sdk.resolveAgentInteraction>[0]['body']
+      targetAgentID?: string
     }) => {
       const { data } = await sdk.resolveAgentInteraction({
         client,
-        path: { orgID, projectID, agentID, interactionID },
+        path: { orgID, projectID, agentID: targetAgentID, interactionID },
         body,
       })
       return data

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -18,7 +20,7 @@ func TestManagedWorkAdmissionGatesNewPoolMachineCreation(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -97,7 +99,7 @@ tools:
 			{Label: "denied", Name: "create_machine", Input: json.RawMessage(`{}`)},
 		},
 	)
-	transaction := func(toolCallID ID) executionstore.ExecuteToolCallInput {
+	transaction := func(toolCallID uuid.UUID) executionstore.ExecuteToolCallInput {
 		return executionstore.ExecuteToolCallInput{
 			ProjectID:     testProjectID,
 			AgentID:       agent.ID,
@@ -170,7 +172,7 @@ func TestManagedWorkAdmissionGatesInitialPoolAllocation(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -311,7 +313,7 @@ func TestManagedWorkAdmissionGatesNewProcessesOnManagedMachines(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	machinePool := createDefaultMachinePoolForTest(
 		t,
 		ctx,
@@ -346,7 +348,7 @@ func TestManagedWorkAdmissionGatesNewProcessesOnManagedMachines(t *testing.T) {
 			builtInProcessToolCallBatchItem("process-admission-second", "run_command"),
 		},
 	)
-	transaction := func(toolCallID ID) executionstore.ExecuteToolCallInput {
+	transaction := func(toolCallID uuid.UUID) executionstore.ExecuteToolCallInput {
 		return executionstore.ExecuteToolCallInput{
 			ProjectID:     testProjectID,
 			AgentID:       fixture.AgentID,
@@ -449,7 +451,7 @@ func TestManagedWorkAdmissionDoesNotGateTenantPoolProcesses(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	machinePool := createLaunchTestMachinePool(
 		t,
 		ctx,

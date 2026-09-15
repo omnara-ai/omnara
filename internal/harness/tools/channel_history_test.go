@@ -11,11 +11,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+
 	"github.com/stretchr/testify/require"
 )
 
-func historyTestScope(t *testing.T) (Turn, integrationstore.ID, string) {
+func historyTestScope(t *testing.T) (Turn, uuid.UUID, string) {
 	t.Helper()
 	turn := Turn{ProjectID: uuid.New(), AgentID: uuid.New()}
 	channelID := uuid.New()
@@ -121,7 +121,7 @@ func TestChannelHistoryCursorScopesPaginationAndPreservesOpaqueBytes(t *testing.
 	for _, tt := range []struct {
 		name    string
 		turn    Turn
-		channel integrationstore.ID
+		channel uuid.UUID
 	}{
 		{"project", Turn{ProjectID: uuid.New(), AgentID: turn.AgentID}, channelID},
 		{"agent", Turn{ProjectID: turn.ProjectID, AgentID: uuid.New()}, channelID},
@@ -247,11 +247,11 @@ func TestChannelHistoryCursorRequiresRealScopeIDs(t *testing.T) {
 	turn, channelID, _ := historyTestScope(t)
 	for _, scope := range []struct {
 		turn      Turn
-		channelID integrationstore.ID
+		channelID uuid.UUID
 	}{
 		{Turn{AgentID: turn.AgentID}, channelID},
 		{Turn{ProjectID: turn.ProjectID}, channelID},
-		{turn, integrationstore.NilID},
+		{turn, uuid.Nil},
 	} {
 		cursor, err := encodeChannelHistoryCursor("next", scope.turn, scope.channelID)
 		require.EqualError(t, err, "invalid read_channel cursor scope")
@@ -265,7 +265,7 @@ func TestChannelHistoryCursorRequiresRealScopeIDs(t *testing.T) {
 // This wrapper records pagination scope; it is not an authorization credential.
 // The eventual reader must recheck live grants and keep provider pagination tied
 // to the authorized destination. Neither layer may use a cursor to select a URL.
-func encodeChannelHistoryCursor(providerCursor string, turn Turn, channelID integrationstore.ID) (string, error) {
+func encodeChannelHistoryCursor(providerCursor string, turn Turn, channelID uuid.UUID) (string, error) {
 	if providerCursor == "" {
 		return "", nil
 	}

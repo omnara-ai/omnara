@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -21,7 +23,7 @@ type boundChannelInputFixture struct {
 	binding  integrationstore.IntegrationTargetBindingRecord
 }
 
-func newBoundChannelInputFixture(t *testing.T, options ...Option) boundChannelInputFixture {
+func newBoundChannelInputFixture(t *testing.T, options ...storage.Option) boundChannelInputFixture {
 	t.Helper()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
@@ -101,7 +103,7 @@ func TestBoundChannelInputAdmitsExistingReceiveOnlyAgentWithoutWorkflow(t *testi
 	require.True(t, f.binding.ReceiveAllowed)
 	require.False(t, f.binding.ReadAllowed)
 	require.False(t, f.binding.SendAllowed)
-	require.Equal(t, NilID, f.binding.IntegrationRouteID)
+	require.Equal(t, uuid.Nil, f.binding.IntegrationRouteID)
 	input := f.event(t, "existing-agent")
 	require.Equal(t, before, f.rows(t), "preparing the recipient must not create durable associations")
 	input.Metadata = json.RawMessage(`{"provider_message":"message-1"}`)

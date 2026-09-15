@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -21,7 +22,7 @@ func (s *Store) CreateExternalIntegrationInstall(
 	ctx context.Context,
 	input CreateExternalIntegrationInstallInput,
 ) (IntegrationInstallRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return IntegrationInstallRecord{}, storeerr.InvalidRequest(errors.New("organization and project are required"))
 	}
 	var err error

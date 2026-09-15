@@ -4,12 +4,13 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 )
 
 type OrgRecord struct {
-	ID             ID        `json:"id"`
+	ID             uuid.UUID `json:"id"`
 	Name           string    `json:"name"`
 	IdempotencyKey string    `json:"-"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -25,28 +26,28 @@ type CreateOrgForUserRecord struct {
 }
 
 type ProvisionOrganizationInput struct {
-	OrgID          ID
-	UserID         ID
+	OrgID          uuid.UUID
+	UserID         uuid.UUID
 	Name           string
 	IdempotencyKey string
 }
 
 type GetOrgCreationReplayInput struct {
-	UserID         ID
+	UserID         uuid.UUID
 	Name           string
 	IdempotencyKey string
 }
 
 type CreateProjectForPrincipalInput struct {
-	OrgID          ID
+	OrgID          uuid.UUID
 	Creator        PrincipalRecord
 	Name           string
 	IdempotencyKey string
 }
 
 type ProjectRecord struct {
-	ID             ID        `json:"id"`
-	OrgID          ID        `json:"org_id"`
+	ID             uuid.UUID `json:"id"`
+	OrgID          uuid.UUID `json:"org_id"`
 	Name           string    `json:"name"`
 	IdempotencyKey string    `json:"-"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -93,22 +94,22 @@ type CreateUserInput struct {
 }
 
 type UserRecord struct {
-	ID          ID        `json:"id"`
+	ID          uuid.UUID `json:"id"`
 	DisplayName string    `json:"display_name"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type CreateUserEmailInput struct {
-	UserID    ID
+	UserID    uuid.UUID
 	Email     string
 	Verified  bool
 	IsPrimary bool
 }
 
 type UserEmailRecord struct {
-	ID              ID         `json:"id"`
-	UserID          ID         `json:"user_id"`
+	ID              uuid.UUID  `json:"id"`
+	UserID          uuid.UUID  `json:"user_id"`
 	Email           string     `json:"email"`
 	NormalizedEmail string     `json:"normalized_email"`
 	VerifiedAt      *time.Time `json:"verified_at,omitempty"`
@@ -161,7 +162,7 @@ type CompletePasswordResetInput struct {
 }
 
 type ChangePasswordInput struct {
-	UserID           ID
+	UserID           uuid.UUID
 	CurrentPassword  string
 	PasswordHash     string
 	SessionToken     string
@@ -178,8 +179,8 @@ type PasswordLoginSessionInput struct {
 }
 
 type CreateUserAuthIdentityInput struct {
-	UserID          ID
-	AuthConnectorID ID
+	UserID          uuid.UUID
+	AuthConnectorID uuid.UUID
 	Issuer          string
 	Subject         string
 	EmailAtLink     string
@@ -187,9 +188,9 @@ type CreateUserAuthIdentityInput struct {
 }
 
 type UserAuthIdentityRecord struct {
-	ID              ID        `json:"id"`
-	UserID          ID        `json:"user_id"`
-	AuthConnectorID ID        `json:"auth_connector_id"`
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	AuthConnectorID uuid.UUID `json:"auth_connector_id"`
 	Issuer          string    `json:"issuer"`
 	Subject         string    `json:"subject"`
 	EmailAtLink     string    `json:"email_at_link"`
@@ -198,7 +199,7 @@ type UserAuthIdentityRecord struct {
 }
 
 type ResolveAuthIdentityInput struct {
-	AuthConnectorID ID
+	AuthConnectorID uuid.UUID
 	Issuer          string
 	Subject         string
 	Email           string
@@ -222,7 +223,7 @@ type CreateAuthConnectorInput struct {
 }
 
 type AuthConnectorRecord struct {
-	ID               ID
+	ID               uuid.UUID
 	Slug             string
 	Kind             string
 	DisplayName      string
@@ -240,7 +241,7 @@ type AuthConnectorRecord struct {
 }
 
 type AuthConnectorSummaryRecord struct {
-	ID          ID
+	ID          uuid.UUID
 	Slug        string
 	Kind        string
 	DisplayName string
@@ -283,8 +284,8 @@ type DeviceAuthFlowPollInput struct {
 }
 
 type CreateOAuthAuthorizationCodeInput struct {
-	UserID           ID
-	BrowserSessionID ID
+	UserID           uuid.UUID
+	BrowserSessionID uuid.UUID
 	ClientID         string
 	ClientName       string
 	RedirectURI      string
@@ -337,8 +338,8 @@ type DeviceAuthFlowPendingRecord struct {
 
 type ApproveDeviceAuthFlowInput struct {
 	UserCode                 string
-	UserID                   ID
-	ApprovedBrowserSessionID ID
+	UserID                   uuid.UUID
+	ApprovedBrowserSessionID uuid.UUID
 }
 
 type DenyDeviceAuthFlowInput struct {
@@ -346,14 +347,14 @@ type DenyDeviceAuthFlowInput struct {
 }
 
 type CreateOrgInvitationInput struct {
-	OrgID ID
+	OrgID uuid.UUID
 	Email string
 	Role  string
 }
 
 type OrgInvitationRecord struct {
-	ID              ID        `json:"id"`
-	OrgID           ID        `json:"org_id"`
+	ID              uuid.UUID `json:"id"`
+	OrgID           uuid.UUID `json:"org_id"`
 	Email           string    `json:"email"`
 	NormalizedEmail string    `json:"normalized_email"`
 	OrgRole         string    `json:"org_role"`
@@ -366,47 +367,47 @@ type OrgInvitationWithOrgNameRecord struct {
 }
 
 type AcceptOrgInvitationInput struct {
-	ID     ID
-	UserID ID
+	ID     uuid.UUID
+	UserID uuid.UUID
 }
 
 type DeclineOrgInvitationInput struct {
-	ID     ID
-	UserID ID
+	ID     uuid.UUID
+	UserID uuid.UUID
 }
 
 type AddProjectMembershipInput struct {
-	OrgID     ID
-	ProjectID ID
-	UserID    ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	UserID    uuid.UUID
 	Role      string
 }
 
 type AddOrgMembershipInput struct {
-	OrgID  ID
-	UserID ID
+	OrgID  uuid.UUID
+	UserID uuid.UUID
 	Role   string
 }
 
 type OrgMembershipRecord struct {
-	ID          ID        `json:"id"`
-	OrgID       ID        `json:"org_id"`
-	UserID      ID        `json:"user_id,omitempty"`
-	OrgAPIKeyID ID        `json:"org_api_key_id,omitempty"`
+	ID          uuid.UUID `json:"id"`
+	OrgID       uuid.UUID `json:"org_id"`
+	UserID      uuid.UUID `json:"user_id,omitempty"`
+	OrgAPIKeyID uuid.UUID `json:"org_api_key_id,omitempty"`
 	Role        string    `json:"role"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 // UserOrgMembershipRecord is a user's organization membership read projection.
 type UserOrgMembershipRecord struct {
-	OrgID     ID        `json:"org_id"`
+	OrgID     uuid.UUID `json:"org_id"`
 	OrgName   string    `json:"org_name"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 type OrgMemberRecord struct {
-	UserID      ID        `json:"user_id"`
+	UserID      uuid.UUID `json:"user_id"`
 	DisplayName string    `json:"display_name"`
 	Email       string    `json:"email"`
 	Role        string    `json:"role"`
@@ -414,46 +415,46 @@ type OrgMemberRecord struct {
 }
 
 type ProjectMembershipRecord struct {
-	OrgID           ID        `json:"org_id"`
-	ProjectID       ID        `json:"project_id"`
-	OrgMembershipID ID        `json:"org_membership_id"`
+	OrgID           uuid.UUID `json:"org_id"`
+	ProjectID       uuid.UUID `json:"project_id"`
+	OrgMembershipID uuid.UUID `json:"org_membership_id"`
 	Role            string    `json:"role"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
 type UpdateOrgMemberRoleInput struct {
-	OrgID  ID
-	UserID ID
+	OrgID  uuid.UUID
+	UserID uuid.UUID
 	Role   string
 }
 
 type RemoveOrgMemberInput struct {
-	OrgID  ID
-	UserID ID
+	OrgID  uuid.UUID
+	UserID uuid.UUID
 }
 
 type RemoveProjectMembershipInput struct {
-	OrgID     ID
-	ProjectID ID
-	UserID    ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	UserID    uuid.UUID
 }
 
 type ProjectMembershipGrantRecord struct {
-	ProjectID   ID        `json:"project_id"`
+	ProjectID   uuid.UUID `json:"project_id"`
 	ProjectName string    `json:"project_name"`
 	Role        string    `json:"role"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 type CreatePersonalAccessTokenInput struct {
-	UserID         ID
+	UserID         uuid.UUID
 	ActorPrincipal PrincipalRecord
 	Name           string
 }
 
 type PersonalAccessTokenRecord struct {
-	ID         ID         `json:"id"`
-	UserID     ID         `json:"user_id"`
+	ID         uuid.UUID  `json:"id"`
+	UserID     uuid.UUID  `json:"user_id"`
 	Name       string     `json:"name"`
 	TokenID    string     `json:"token_id"`
 	TokenHash  string     `json:"-"`
@@ -463,21 +464,21 @@ type PersonalAccessTokenRecord struct {
 }
 
 type CreateOrgAPIKeyInput struct {
-	OrgID           ID
+	OrgID           uuid.UUID
 	ActorPrincipal  PrincipalRecord
-	CreatedByUserID ID
+	CreatedByUserID uuid.UUID
 	Name            string
 	OrgRole         string
 }
 
 type OrgAPIKeyRecord struct {
-	ID              ID         `json:"id"`
-	OrgID           ID         `json:"org_id"`
+	ID              uuid.UUID  `json:"id"`
+	OrgID           uuid.UUID  `json:"org_id"`
 	Name            string     `json:"name"`
 	TokenID         string     `json:"token_id"`
 	TokenHash       string     `json:"-"`
 	OrgRole         string     `json:"org_role"`
-	CreatedByUserID ID         `json:"created_by_user_id"`
+	CreatedByUserID uuid.UUID  `json:"created_by_user_id"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
@@ -488,22 +489,22 @@ type OrgAPIKeyRecord struct {
 // the subject; credential-specific IDs record how it authenticated.
 type PrincipalRecord struct {
 	Type                         string
-	ID                           ID
-	OrgID                        ID
-	PersonalAccessTokenID        ID
-	OrgAPIKeyID                  ID
-	BrowserSessionID             ID
-	MachineDaemonTokenID         ID
+	ID                           uuid.UUID
+	OrgID                        uuid.UUID
+	PersonalAccessTokenID        uuid.UUID
+	OrgAPIKeyID                  uuid.UUID
+	BrowserSessionID             uuid.UUID
+	MachineDaemonTokenID         uuid.UUID
 	ChannelConnectorID           string
 	ChannelConnectorCapabilities []channelconnector.Capability
-	OAuthAccessTokenID           ID
+	OAuthAccessTokenID           uuid.UUID
 }
 
-func NewUserPrincipal(userID ID) PrincipalRecord {
+func NewUserPrincipal(userID uuid.UUID) PrincipalRecord {
 	return PrincipalRecord{Type: PrincipalTypeUser, ID: userID}
 }
 
-func NewPersonalAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
+func NewPersonalAccessTokenPrincipal(userID, tokenID uuid.UUID) PrincipalRecord {
 	return PrincipalRecord{
 		Type:                  PrincipalTypeUser,
 		ID:                    userID,
@@ -511,7 +512,7 @@ func NewPersonalAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
 	}
 }
 
-func NewOAuthAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
+func NewOAuthAccessTokenPrincipal(userID, tokenID uuid.UUID) PrincipalRecord {
 	return PrincipalRecord{
 		Type:               PrincipalTypeUser,
 		ID:                 userID,
@@ -519,7 +520,7 @@ func NewOAuthAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
 	}
 }
 
-func NewBrowserSessionPrincipal(userID, sessionID ID) PrincipalRecord {
+func NewBrowserSessionPrincipal(userID, sessionID uuid.UUID) PrincipalRecord {
 	return PrincipalRecord{
 		Type:             PrincipalTypeUser,
 		ID:               userID,
@@ -527,7 +528,7 @@ func NewBrowserSessionPrincipal(userID, sessionID ID) PrincipalRecord {
 	}
 }
 
-func NewOrgAPIKeyPrincipal(orgID, keyID ID) PrincipalRecord {
+func NewOrgAPIKeyPrincipal(orgID, keyID uuid.UUID) PrincipalRecord {
 	return PrincipalRecord{
 		Type:        PrincipalTypeOrgAPIKey,
 		ID:          keyID,
@@ -536,7 +537,7 @@ func NewOrgAPIKeyPrincipal(orgID, keyID ID) PrincipalRecord {
 	}
 }
 
-func NewMachineDaemonPrincipal(orgID, machineID, tokenID ID) PrincipalRecord {
+func NewMachineDaemonPrincipal(orgID, machineID, tokenID uuid.UUID) PrincipalRecord {
 	return PrincipalRecord{
 		Type:                 PrincipalTypeMachineDaemon,
 		ID:                   machineID,
@@ -555,8 +556,8 @@ func NewChannelConnectorPrincipal(
 	}
 }
 
-func AccountPrincipalIDs(principal PrincipalRecord) (userID, orgAPIKeyID *ID) {
-	if isNilID(principal.ID) {
+func AccountPrincipalIDs(principal PrincipalRecord) (userID, orgAPIKeyID *uuid.UUID) {
+	if principal.ID == uuid.Nil {
 		return nil, nil
 	}
 	id := principal.ID
@@ -577,8 +578,8 @@ func IsAccountPrincipal(principal PrincipalRecord) bool {
 
 type AuthorizeProjectInput struct {
 	Principal PrincipalRecord
-	OrgID     ID
-	ProjectID ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
 	Action    string
 }
 
@@ -592,6 +593,6 @@ const (
 
 type AuthorizeOrgInput struct {
 	Principal PrincipalRecord
-	OrgID     ID
+	OrgID     uuid.UUID
 	Action    string
 }

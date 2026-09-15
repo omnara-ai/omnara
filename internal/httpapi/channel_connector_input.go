@@ -5,14 +5,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 // Shared transport fields have the same validation for workflow and bound input.
@@ -71,7 +72,7 @@ func channelInputReceipt(receipt openapi.ChannelEventLease) (executionstore.Chan
 	lease := executionstore.ChannelEventLease{
 		ReceiptID: id, LeaseToken: receipt.LeaseToken, LeaseGeneration: receipt.LeaseGeneration,
 	}
-	if lease.LeaseToken == integrationstore.NilID || lease.LeaseGeneration <= 0 {
+	if lease.LeaseToken == uuid.Nil || lease.LeaseGeneration <= 0 {
 		return lease, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "current receipt lease is required")
 	}
 	return lease, nil
@@ -100,7 +101,7 @@ func publicChannelInputResult(
 	}
 	for _, field := range []struct {
 		kind publicid.Kind
-		id   integrationstore.ID
+		id   uuid.UUID
 		out  *string
 	}{
 		{publicid.KindAgent, result.AgentInput.AgentID, &response.AgentId},
@@ -113,7 +114,7 @@ func publicChannelInputResult(
 		}
 		*field.out = id
 	}
-	if result.BindingID != integrationstore.NilID {
+	if result.BindingID != uuid.Nil {
 		id, err := publicID(publicid.KindIntegrationBinding, result.BindingID)
 		if err != nil {
 			return response, err
@@ -131,7 +132,7 @@ func publicChannelInputResult(
 		}
 		response.CanceledInteractionIds = &ids
 	}
-	blocks, err := publicAgentInputContentBlocks(result.ContentBlocks)
+	blocks, err := publicevents.AgentInputContentBlocks(result.ContentBlocks)
 	response.ContentBlocks = blocks
 	return response, err
 }

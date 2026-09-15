@@ -15,9 +15,9 @@ import (
 )
 
 type CancelQueuedBacklogInputInput struct {
-	ProjectID ID
-	AgentID   ID
-	InputID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	InputID   uuid.UUID
 }
 
 type MoveQueuedBacklogInputPosition string
@@ -30,15 +30,15 @@ const (
 )
 
 type MoveQueuedBacklogInputInput struct {
-	ProjectID     ID
-	AgentID       ID
-	InputID       ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	InputID       uuid.UUID
 	Position      MoveQueuedBacklogInputPosition
-	AnchorInputID ID
+	AnchorInputID uuid.UUID
 }
 
 type ClaimNextAgentWorkInput struct {
-	WorkerProcessID ID
+	WorkerProcessID uuid.UUID
 	LeaseDuration   time.Duration
 }
 
@@ -60,26 +60,26 @@ const (
 
 type ClaimedModelWork struct {
 	Kind                     ModelWorkKind
-	ModelCallContextID       ID
-	SourceModelCallContextID ID
-	SourceModelOutputID      ID
-	TurnID                   ID
-	InputIDs                 []ID
+	ModelCallContextID       uuid.UUID
+	SourceModelCallContextID uuid.UUID
+	SourceModelOutputID      uuid.UUID
+	TurnID                   uuid.UUID
+	InputIDs                 []uuid.UUID
 	OpeningEventSequence     int64
 	AdmittedInputTurn        AdmittedAgentInputTurn
 }
 
 type ClaimedToolWork struct {
-	TurnID             ID
-	ModelCallContextID ID
-	ModelOutputID      ID
-	SourceEventID      ID
+	TurnID             uuid.UUID
+	ModelCallContextID uuid.UUID
+	ModelOutputID      uuid.UUID
+	SourceEventID      uuid.UUID
 }
 
 type ClaimedAgentWork struct {
-	OrgID       ID
-	ProjectID   ID
-	AgentID     ID
+	OrgID       uuid.UUID
+	ProjectID   uuid.UUID
+	AgentID     uuid.UUID
 	Kind        AgentWorkKind
 	RuntimeLock AgentRuntimeLockRecord
 	Model       ClaimedModelWork
@@ -87,8 +87,8 @@ type ClaimedAgentWork struct {
 }
 
 type admitAgentInputAndOpenTurnInput struct {
-	ProjectID ID
-	AgentID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
 }
 
 type AdmittedAgentInputTurn struct {
@@ -98,7 +98,7 @@ type AdmittedAgentInputTurn struct {
 }
 
 func (s *Store) ClaimNextAgentWork(ctx context.Context, input ClaimNextAgentWorkInput) (ClaimedAgentWork, bool, error) {
-	if isNilID(input.WorkerProcessID) {
+	if input.WorkerProcessID == uuid.Nil {
 		return ClaimedAgentWork{}, false, errors.New("worker process id is required")
 	}
 	if err := validateAgentRuntimeLockLeaseDuration(input.LeaseDuration); err != nil {
@@ -355,7 +355,7 @@ func (s *Store) reconcileClaimedWakeupTx(
 func consumeClaimedAgentWakeupTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) error {
 	changed, err := qtx.ConsumeAgentWakeup(
 		ctx,
@@ -371,26 +371,26 @@ func consumeClaimedAgentWakeupTx(
 }
 
 func validateClaimedModelWork(work ClaimedModelWork) error {
-	if work.TurnID == NilID || len(work.InputIDs) == 0 || work.OpeningEventSequence <= 0 {
+	if work.TurnID == uuid.Nil || len(work.InputIDs) == 0 || work.OpeningEventSequence <= 0 {
 		return errors.New("claimed model work requires a turn, opening inputs, and opening event sequence")
 	}
 	switch work.Kind {
 	case ModelWorkStart:
-		if work.ModelCallContextID != NilID ||
-			work.SourceModelCallContextID != NilID ||
-			work.SourceModelOutputID != NilID {
+		if work.ModelCallContextID != uuid.Nil ||
+			work.SourceModelCallContextID != uuid.Nil ||
+			work.SourceModelOutputID != uuid.Nil {
 			return errors.New("start model work has invalid source identity")
 		}
 	case ModelWorkResume:
-		if work.ModelCallContextID == NilID ||
-			work.SourceModelCallContextID != NilID ||
-			work.SourceModelOutputID != NilID {
+		if work.ModelCallContextID == uuid.Nil ||
+			work.SourceModelCallContextID != uuid.Nil ||
+			work.SourceModelOutputID != uuid.Nil {
 			return errors.New("resume model work requires only its active context")
 		}
 	case ModelWorkContinue:
-		if work.ModelCallContextID != NilID ||
-			work.SourceModelCallContextID == NilID ||
-			work.SourceModelOutputID == NilID {
+		if work.ModelCallContextID != uuid.Nil ||
+			work.SourceModelCallContextID == uuid.Nil ||
+			work.SourceModelOutputID == uuid.Nil {
 			return errors.New("continue model work requires its source context and source output")
 		}
 	default:
@@ -412,9 +412,9 @@ func latestEventSequence(events []events.Event) int64 {
 func modelCallOpeningInputSet(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, turnID ID,
+	projectID, agentID, turnID uuid.UUID,
 	inputEventSequence int64,
-) ([]ID, int64, error) {
+) ([]uuid.UUID, int64, error) {
 	rows, err := qtx.ListModelCallOpeningContentInputs(
 		ctx,
 		dbsqlc.ListModelCallOpeningContentInputsParams{
@@ -433,7 +433,7 @@ func modelCallOpeningInputSet(
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
-	inputIDs := make([]ID, 0, len(rows))
+	inputIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		inputIDs = append(inputIDs, row.InputID)
 	}
@@ -444,7 +444,7 @@ func (s *Store) ListQueuedBacklogInputs(
 	ctx context.Context,
 	input ListQueuedBacklogInputsInput,
 ) (ListQueuedBacklogInputsResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return ListQueuedBacklogInputsResult{}, errors.New("project id and agent id are required")
 	}
 	if input.Limit <= 0 {
@@ -475,7 +475,7 @@ func (s *Store) ListQueuedBacklogInputs(
 		rows = rows[:input.Limit]
 	}
 	result.Inputs = make([]AgentInputRecord, 0, len(rows))
-	inputIDs := make([]ID, 0, len(rows))
+	inputIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		record := agentInputRecordFromBacklogSQLC(row)
 		result.Inputs = append(result.Inputs, record)
@@ -494,7 +494,7 @@ func (s *Store) ListQueuedBacklogInputs(
 func selectLockedSteeringAgentInputsForAdmissionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentInputRecord, error) {
 	steeringRows, err := qtx.ListSteeringAgentInputsForAdmission(
 		ctx,
@@ -513,7 +513,7 @@ func selectLockedSteeringAgentInputsForAdmissionTx(
 func selectLockedQueuedAgentInputForAdmissionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentInputRecord, error) {
 	row, err := qtx.GetNextQueuedAgentInputForAdmission(
 		ctx,
@@ -596,7 +596,7 @@ func admitLockedAgentInputsAndOpenTurnTx(
 	// Inputs are now visible in this turn. Select the final channel in that
 	// same order; enqueue and replay never change the current destination.
 	for i := len(admittedInputs) - 1; i >= 0; i-- {
-		if channelID := admittedInputs[i].IntegrationTargetID; !isNilID(channelID) {
+		if channelID := admittedInputs[i].IntegrationTargetID; channelID != uuid.Nil {
 			if err := qtx.SetAgentCurrentChannelFromInput(ctx, dbsqlc.SetAgentCurrentChannelFromInputParams{
 				ProjectID: input.ProjectID, AgentID: input.AgentID, ChannelID: channelID,
 			}); err != nil {
@@ -638,7 +638,7 @@ func (s *Store) CancelQueuedBacklogInput(
 	ctx context.Context,
 	input CancelQueuedBacklogInputInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.InputID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.InputID == uuid.Nil {
 		return errors.New("project id, agent id, and input id are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -684,16 +684,16 @@ func (s *Store) MoveQueuedBacklogInput(
 	ctx context.Context,
 	input MoveQueuedBacklogInputInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.InputID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.InputID == uuid.Nil {
 		return errors.New("project id, agent id, and input id are required")
 	}
 	switch input.Position {
 	case MoveQueuedBacklogInputToFront, MoveQueuedBacklogInputToBack:
-		if !isNilID(input.AnchorInputID) {
+		if input.AnchorInputID != uuid.Nil {
 			return errors.New("front/back moves do not accept an anchor input id")
 		}
 	case MoveQueuedBacklogInputBefore, MoveQueuedBacklogInputAfter:
-		if isNilID(input.AnchorInputID) {
+		if input.AnchorInputID == uuid.Nil {
 			return errors.New("before/after moves require an anchor input id")
 		}
 		if input.AnchorInputID == input.InputID {

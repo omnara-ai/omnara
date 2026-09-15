@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -30,7 +31,7 @@ func startQueuedExpiryProcessForTool(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolID ID,
+	toolID uuid.UUID,
 ) executionstore.ProcessRecord {
 	t.Helper()
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
@@ -45,7 +46,7 @@ func startQueuedExpiryProcessForTool(
 	return process
 }
 
-func ageQueuedExpiryProcess(t *testing.T, ctx context.Context, fixture processDaemonFixture, processID ID) {
+func ageQueuedExpiryProcess(t *testing.T, ctx context.Context, fixture processDaemonFixture, processID uuid.UUID) {
 	t.Helper()
 	_, err := fixture.Store.pool.Exec(
 		ctx,
@@ -65,7 +66,7 @@ func TestProcessOffersSkipExpiredQueueWithoutMaintenance(t *testing.T) {
 		builtInProcessToolCallBatchItem("expired3", "run_command"),
 		builtInProcessToolCallBatchItem("fresh", "run_command"),
 	})
-	var freshID ID
+	var freshID uuid.UUID
 	for index, toolID := range ids {
 		process := startQueuedExpiryProcessForTool(t, ctx, fixture, toolID)
 		if index < len(ids)-1 {

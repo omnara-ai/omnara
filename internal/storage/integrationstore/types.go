@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -18,8 +19,8 @@ const (
 )
 
 type CreateExternalIntegrationInstallInput struct {
-	OrgID       ID
-	ProjectID   ID
+	OrgID       uuid.UUID
+	ProjectID   uuid.UUID
 	InstalledBy identitystore.PrincipalRecord
 	DisplayName string
 	Metadata    json.RawMessage
@@ -33,9 +34,9 @@ const (
 )
 
 type UpsertIntegrationInstallInput struct {
-	OrgID              ID
-	ProjectID          ID
-	IntegrationAppID   ID
+	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
+	IntegrationAppID   uuid.UUID
 	InstalledBy        identitystore.PrincipalRecord
 	Provider           string
 	IntegrationKind    IntegrationKind
@@ -44,21 +45,21 @@ type UpsertIntegrationInstallInput struct {
 	ProviderTenantID   string
 	ProviderAccountRef string
 	DisplayName        string
-	CredentialSecretID ID
+	CredentialSecretID uuid.UUID
 	ProviderConfig     json.RawMessage
 	ProviderIdentity   json.RawMessage
 	Metadata           json.RawMessage
-	OAuthFlowID        ID
+	OAuthFlowID        uuid.UUID
 	// InitialRoute, when present, commits with installation credentials and
 	// OAuth redemption. Its project and installation are derived internally.
 	InitialRoute *CreateIntegrationRouteInput
 }
 
 type IntegrationInstallRecord struct {
-	ID                    ID                            `json:"id"`
-	OrgID                 ID                            `json:"org_id"`
-	ProjectID             ID                            `json:"project_id"`
-	IntegrationAppID      ID                            `json:"integration_app_id"`
+	ID                    uuid.UUID                     `json:"id"`
+	OrgID                 uuid.UUID                     `json:"org_id"`
+	ProjectID             uuid.UUID                     `json:"project_id"`
+	IntegrationAppID      uuid.UUID                     `json:"integration_app_id"`
 	InstalledBy           identitystore.PrincipalRecord `json:"-"`
 	Provider              string                        `json:"provider"`
 	IntegrationKind       IntegrationKind               `json:"integration_kind"`
@@ -67,37 +68,37 @@ type IntegrationInstallRecord struct {
 	ProviderTenantID      string                        `json:"provider_tenant_id,omitempty"`
 	ProviderAccountRef    string                        `json:"provider_account_ref"`
 	DisplayName           string                        `json:"display_name"`
-	CredentialSecretID    ID                            `json:"credential_secret_id,omitempty"`
+	CredentialSecretID    uuid.UUID                     `json:"credential_secret_id,omitempty"`
 	ProviderConfig        json.RawMessage               `json:"provider_config"`
 	ProviderIdentity      json.RawMessage               `json:"provider_identity"`
 	Metadata              json.RawMessage               `json:"metadata"`
 	ConfigurationRevision int64                         `json:"configuration_revision"`
-	LastOAuthFlowID       ID                            `json:"last_oauth_flow_id,omitempty"`
+	LastOAuthFlowID       uuid.UUID                     `json:"last_oauth_flow_id,omitempty"`
 	CreatedAt             time.Time                     `json:"created_at"`
 	UpdatedAt             time.Time                     `json:"updated_at"`
 	Created               bool                          `json:"-"`
 }
 
 type CreateIntegrationTargetInput struct {
-	ProjectID            ID
-	IntegrationInstallID ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	ProviderRef          string
-	ChannelDefinitionID  ID `json:"channel_definition_id"`
-	ParentChannelID      ID `json:"parent_channel_id,omitempty"`
+	ChannelDefinitionID  uuid.UUID `json:"channel_definition_id"`
+	ParentChannelID      uuid.UUID `json:"parent_channel_id,omitempty"`
 	ProviderRefKind      string
 	DisplayName          string
 	ProviderMetadata     json.RawMessage
 }
 
 type IntegrationTargetRecord struct {
-	ID                   ID              `json:"id"`
-	OrgID                ID              `json:"org_id"`
-	ProjectID            ID              `json:"project_id"`
-	IntegrationInstallID ID              `json:"integration_install_id"`
+	ID                   uuid.UUID       `json:"id"`
+	OrgID                uuid.UUID       `json:"org_id"`
+	ProjectID            uuid.UUID       `json:"project_id"`
+	IntegrationInstallID uuid.UUID       `json:"integration_install_id"`
 	TargetRef            string          `json:"target_ref"`
 	ProviderRef          string          `json:"provider_ref"`
-	ChannelDefinitionID  ID              `json:"channel_definition_id"`
-	ParentChannelID      ID              `json:"parent_channel_id,omitempty"`
+	ChannelDefinitionID  uuid.UUID       `json:"channel_definition_id"`
+	ParentChannelID      uuid.UUID       `json:"parent_channel_id,omitempty"`
 	ProviderRefKind      string          `json:"provider_ref_kind"`
 	DisplayName          string          `json:"display_name"`
 	ProviderMetadata     json.RawMessage `json:"provider_metadata"`
@@ -107,8 +108,8 @@ type IntegrationTargetRecord struct {
 }
 
 type IntegrationTargetSummary struct {
-	ID                   ID                      `json:"id"`
-	IntegrationInstallID ID                      `json:"integration_install_id"`
+	ID                   uuid.UUID               `json:"id"`
+	IntegrationInstallID uuid.UUID               `json:"integration_install_id"`
 	TargetRef            string                  `json:"target_ref"`
 	Provider             string                  `json:"provider"`
 	InstallState         IntegrationInstallState `json:"install_state"`

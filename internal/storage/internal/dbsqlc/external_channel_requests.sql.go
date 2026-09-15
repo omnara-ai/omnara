@@ -605,9 +605,9 @@ func (q *Queries) ListExpiredExternalChannelRequests(ctx context.Context, arg Li
 }
 
 const listPendingExternalChannelRequests = `-- name: ListPendingExternalChannelRequests :many
-SELECT request.id, request.project_id, request.agent_id, request.turn_id, request.integration_install_id, 
-  request.integration_target_id, request.integration_target_binding_id, request.tool_call_id, request.interaction_id, 
-  request.notice_key, request.operation, request.payload, request.deadline_at, request.created_at, 
+SELECT request.id, request.project_id, request.agent_id, request.turn_id, request.integration_install_id,
+  request.integration_target_id, request.integration_target_binding_id, request.tool_call_id, request.interaction_id,
+  request.notice_key, request.operation, request.payload, request.deadline_at, request.created_at,
   request.state, request.result, request.state_reason_code, request.terminal_at
 FROM external_channel_requests request
 JOIN integration_installs install

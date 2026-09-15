@@ -5,6 +5,8 @@ package executionstore_test
 import (
 	"context"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestSemanticReadProjectionsDeriveOwningScope(t *testing.T) {
@@ -20,7 +22,7 @@ func TestSemanticReadProjectionsDeriveOwningScope(t *testing.T) {
 	)
 	interaction := createQuestionInteractionForTest(t, ctx, fixture, toolCallID)
 
-	var eventID, eventOrgID ID
+	var eventID, eventOrgID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT projection.id, projection.org_id
 FROM agent_event_read_projection projection
@@ -37,7 +39,7 @@ LIMIT 1
 	projections := []struct {
 		name  string
 		query string
-		id    ID
+		id    uuid.UUID
 	}{
 		{
 			name: "event",
@@ -61,7 +63,7 @@ WHERE agent_id = $1 AND id = $2`,
 	for _, projection := range projections {
 		t.Run(projection.name, func(t *testing.T) {
 			t.Parallel()
-			var projectID ID
+			var projectID uuid.UUID
 			if err := fixture.Store.pool.QueryRow(
 				ctx,
 				projection.query,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -17,8 +18,7 @@ func bindIntegrationToolTarget(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentID storage.ID,
-	target integrationstore.IntegrationTargetRecord,
+	agentID uuid.UUID, target integrationstore.IntegrationTargetRecord,
 ) {
 	t.Helper()
 	_, err := store.Integrations().CreateIntegrationTargetBinding(ctx,
@@ -35,10 +35,9 @@ func bindIntegrationToolTarget(
 func seedIntegrationToolCurrentChannel(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, channelID storage.ID,
-) error {
+	projectID, agentID, channelID uuid.UUID) error {
 	var channel any
-	if channelID != storage.NilID {
+	if channelID != uuid.Nil {
 		channel = channelID
 	}
 	tag, err := pool.Exec(ctx, `UPDATE agents SET integration_target_id = $3::uuid

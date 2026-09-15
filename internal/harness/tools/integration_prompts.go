@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -74,7 +74,7 @@ func (e Executor) enqueueIntegrationPromptCopy(
 func (e Executor) copyPermissionPromptToIntegration(
 	ctx context.Context,
 	turn Turn,
-	interactionID storage.ID,
+	interactionID uuid.UUID,
 ) error {
 	current, found, err := e.Store.Execution().GetAgentInteraction(
 		ctx,

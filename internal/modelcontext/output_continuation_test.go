@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +71,7 @@ func TestCheckpointOutputLimitNoticeUsesFixedBoundary(t *testing.T) {
 			}
 			input := BuildInput{
 				ProjectID: testProjectID, AgentID: testAgentID, TurnID: testTurnID,
-				OpeningInputIDs: []storage.ID{testInputID}, Now: time.Now(),
+				OpeningInputIDs: []uuid.UUID{testInputID}, Now: time.Now(),
 			}
 			if override {
 				input.CheckpointOverride = &CheckpointRef{

@@ -152,7 +152,7 @@ func TestPreparedArtifactInvalidBatchPreservesUnknownAndCommittedUploads(t *test
 	}
 }
 
-func TestPrepareArtifactRuntimeProofMustBeStructurallyValidBeforeUpload(t *testing.T) {
+func TestCreateArtifactRuntimeProofMustBeStructurallyValidBeforeUpload(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	blobs := &preparationBlobStore{}
@@ -160,16 +160,16 @@ func TestPrepareArtifactRuntimeProofMustBeStructurallyValidBeforeUpload(t *testi
 	input := CreateArtifactInput{
 		ProjectID: uuid.New(), AgentID: uuid.New(), ContentType: "image/png", Content: []byte("image"),
 	}
-	_, err := store.PrepareArtifactWithIntegrationRuntimeLease(ctx, input, uuid.New(), nil)
+	_, err := store.CreateArtifactWithIntegrationRuntimeLease(ctx, input, uuid.New(), nil)
 	require.Error(t, err)
-	_, err = store.PrepareArtifactWithIntegrationRuntimeLease(
+	_, err = store.CreateArtifactWithIntegrationRuntimeLease(
 		ctx, input, uuid.New(), &integrationstore.IntegrationRuntimeLeaseProof{},
 	)
 	require.Error(t, err)
 	proof := &integrationstore.IntegrationRuntimeLeaseProof{
 		IntegrationAppID: uuid.New(), UnitID: uuid.New(), LeaseToken: uuid.New(), LeaseGeneration: 1,
 	}
-	_, err = store.PrepareArtifactWithIntegrationRuntimeLease(ctx, input, NilID, proof)
+	_, err = store.CreateArtifactWithIntegrationRuntimeLease(ctx, input, uuid.Nil, proof)
 	require.Error(t, err)
 	require.Empty(t, blobs.puts)
 }

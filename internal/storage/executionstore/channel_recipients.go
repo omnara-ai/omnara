@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -13,24 +14,24 @@ import (
 )
 
 type LookupChannelRecipientsInput struct {
-	ProjectID            ID
-	IntegrationInstallID ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	ProviderRef          string
 	Receipt              ChannelEventLease
 	InputKeys            []string
-	AfterAgentID         ID
+	AfterAgentID         uuid.UUID
 	Limit                int32
 	Capabilities         []channelconnector.Capability
 }
 
 type ChannelRecipient struct {
-	AgentID   ID
-	BindingID ID
+	AgentID   uuid.UUID
+	BindingID uuid.UUID
 	InputKeys []string
 }
 
 type LookupChannelRecipientsResult struct {
-	ChannelID                ID
+	ChannelID                uuid.UUID
 	HasReceiveBindingHistory bool
 	WorkflowStarted          bool
 	Recipients               []ChannelRecipient
@@ -43,8 +44,8 @@ type LookupChannelRecipientsResult struct {
 func (s *Store) LookupChannelRecipients(
 	ctx context.Context, input LookupChannelRecipientsInput,
 ) (LookupChannelRecipientsResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) ||
-		isNilID(input.Receipt.ReceiptID) || isNilID(input.Receipt.LeaseToken) || input.Receipt.LeaseGeneration <= 0 ||
+	if input.ProjectID == uuid.Nil || input.IntegrationInstallID == uuid.Nil ||
+		input.Receipt.ReceiptID == uuid.Nil || input.Receipt.LeaseToken == uuid.Nil || input.Receipt.LeaseGeneration <= 0 ||
 		strings.TrimSpace(input.ProviderRef) == "" || len(input.ProviderRef) > 512 || input.Limit < 1 || input.Limit > 100 {
 		return LookupChannelRecipientsResult{}, storeerr.InvalidRequest(
 			errors.New("project, installation, current receipt lease, bounded provider reference and limit are required"))
@@ -77,7 +78,7 @@ func (s *Store) LookupChannelRecipients(
 		ChannelID: routing.ChannelID, HasReceiveBindingHistory: routing.HasReceiveBindingHistory,
 		WorkflowStarted: routing.WorkflowStarted, Recipients: []ChannelRecipient{},
 	}
-	if isNilID(routing.ChannelID) {
+	if routing.ChannelID == uuid.Nil {
 		return result, nil
 	}
 	bindings, err := s.integrations.ListChannelReceiveBindings(ctx, input.ProjectID, input.IntegrationInstallID,
@@ -89,7 +90,7 @@ func (s *Store) LookupChannelRecipients(
 	if result.HasMore {
 		bindings = bindings[:input.Limit]
 	}
-	agentIDs := make([]ID, len(bindings))
+	agentIDs := make([]uuid.UUID, len(bindings))
 	for i, binding := range bindings {
 		agentIDs[i] = binding.AgentID
 	}
@@ -100,7 +101,7 @@ func (s *Store) LookupChannelRecipients(
 	if err != nil {
 		return LookupChannelRecipientsResult{}, err
 	}
-	byAgent := make(map[ID][]string, len(bindings))
+	byAgent := make(map[uuid.UUID][]string, len(bindings))
 	for _, key := range keys {
 		byAgent[key.AgentID] = append(byAgent[key.AgentID], key.InputIdempotencyKey)
 	}

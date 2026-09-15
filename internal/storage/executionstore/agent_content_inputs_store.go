@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -17,10 +18,10 @@ func (s *Store) CreateAgentContentInput(
 	ctx context.Context,
 	input CreateAgentContentInputInput,
 ) (AgentInputRecord, json.RawMessage, bool, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("project id is required")
 	}
-	if isNilID(input.AgentID) {
+	if input.AgentID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("agent id is required")
 	}
 	exists, err := s.q.AgentExistsInProject(
@@ -61,7 +62,7 @@ func (s *Store) CreateAgentContentInput(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	if !isNilID(input.ChannelID) {
+	if input.ChannelID != uuid.Nil {
 		var replay *createAgentContentInputTxResult
 		input, replay, err = s.resolveExternalInputChannelTx(ctx, tx, qtx, input)
 		if err != nil {
@@ -127,7 +128,7 @@ type createAgentContentInputTxResult struct {
 	agentInput             AgentInputRecord
 	contentBlocks          json.RawMessage
 	created                bool
-	canceledInteractionIDs []ID
+	canceledInteractionIDs []uuid.UUID
 }
 
 // Inputs are immutable: a public retry retains its original binding even after
@@ -162,7 +163,7 @@ func replayAgentContentInputTx(
 				qtx,
 				existingInput.ProjectID,
 				existingInput.AgentID,
-				[]ID{existingInput.ID},
+				[]uuid.UUID{existingInput.ID},
 			)
 			if err != nil {
 				return createAgentContentInputTxResult{}, false, err
@@ -172,7 +173,7 @@ func replayAgentContentInputTx(
 				existingInput.DeliveryMode != input.DeliveryMode ||
 				existingInput.ActorID != existingActorID ||
 				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
-				(isNilID(input.ChannelID) && existingInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID) ||
+				(input.ChannelID == uuid.Nil && existingInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID) ||
 				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
 				!sameJSON(existingContentBlocks, input.ContentBlocks) {
 				return createAgentContentInputTxResult{}, false, storeerr.ErrIdempotencyConflict
@@ -301,10 +302,10 @@ func createAgentInputContentBlocksTx(
 func agentInputContentBlocks(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
-	inputIDs []ID,
-) (map[ID]json.RawMessage, error) {
-	contentBlocks := make(map[ID]json.RawMessage, len(inputIDs))
+	projectID, agentID uuid.UUID,
+	inputIDs []uuid.UUID,
+) (map[uuid.UUID]json.RawMessage, error) {
+	contentBlocks := make(map[uuid.UUID]json.RawMessage, len(inputIDs))
 	if len(inputIDs) == 0 {
 		return contentBlocks, nil
 	}
@@ -316,7 +317,7 @@ func agentInputContentBlocks(
 	if err != nil {
 		return nil, fmt.Errorf("list agent input content blocks: %w", err)
 	}
-	blocksByInput := make(map[ID][]CreateContentBlockInput, len(inputIDs))
+	blocksByInput := make(map[uuid.UUID][]CreateContentBlockInput, len(inputIDs))
 	for _, row := range rows {
 		metadata, err := resourcemeta.FromJSON(row.Metadata)
 		if err != nil {
@@ -347,12 +348,12 @@ func agentInputContentBlocks(
 type CreateAgentContentInputInput struct {
 	// ChannelID is an external API origin. Core resolves its live receive binding;
 	// provider workflows instead supply their verified target and binding below.
-	ChannelID                  ID
-	ProjectID                  ID
-	AgentID                    ID
+	ChannelID                  uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
 	Actor                      *ActorParams
-	IntegrationTargetID        ID
-	IntegrationTargetBindingID ID
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
 	ContentBlocks              json.RawMessage
 	Metadata                   json.RawMessage
 	DeliveryMode               AgentInputDeliveryMode

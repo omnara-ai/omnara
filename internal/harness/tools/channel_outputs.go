@@ -8,7 +8,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -26,7 +27,7 @@ func (e Executor) postIntegrationPromptToPinnedChannel(
 		return err
 	}
 	if !found || current.State != executionstore.AgentInteractionStateOpen ||
-		current.IntegrationTargetID == storage.NilID {
+		current.IntegrationTargetID == uuid.Nil {
 		return nil
 	}
 	if current.TurnID != turn.TurnID {
@@ -129,7 +130,7 @@ func (e Executor) PostIntegrationRuntimeMessage(ctx context.Context, turn Turn, 
 	if err != nil {
 		return err
 	}
-	if channelID == storage.NilID {
+	if channelID == uuid.Nil {
 		return nil
 	}
 	access, err := e.Store.Integrations().GetAgentChannelAccess(ctx, turn.ProjectID, turn.AgentID, channelID)

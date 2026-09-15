@@ -294,7 +294,7 @@ channel-gateway-test-bundle: web-install
 	cd frontend && pnpm --filter @omnara/channel-gateway build:journey
 
 test-channel-journey: channel-gateway-test-bundle ## Run the Go API, Postgres, and Slack gateway journey against a local fake Slack API
-	$(TEST_INFRA_ENV) OMNARA_TEST_SLACK_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/slack-journey.cjs" $(GO) test -count=1 -tags=integration -run '^TestSlackGatewaySavedReceiptToAgentJourney$$' ./internal/httpapi
+	$(TEST_INFRA_ENV) OMNARA_TEST_SLACK_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/slack-journey.cjs" $(GO) test -count=1 -tags=integration -run '^TestSlackGateway(SavedReceiptToAgent|AgentStartedThread)Journey$$' ./internal/httpapi
 
 test-integration-runtime:
 	$(MAKE) test-integration INTEGRATION_PACKAGES="$(INTEGRATION_RUNTIME_PACKAGES)"

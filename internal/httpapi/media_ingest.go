@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -33,9 +33,9 @@ type mediaIngestError struct {
 func (e mediaIngestError) Error() string { return e.message }
 
 type mediaIngestContext struct {
-	ProjectID            storage.ID
-	AgentID              storage.ID
-	IntegrationInstallID storage.ID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	IntegrationInstallID uuid.UUID
 	IdempotencyKey       string
 	RuntimeLease         *integrationstore.IntegrationRuntimeLeaseProof
 }

@@ -37,7 +37,7 @@ func (a *blockingDeleteInstallAccess) ValidateInstallBinding(
 func (a *blockingDeleteInstallAccess) ClearInstallTargetsFromAgents(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, installID ID,
+	projectID, installID uuid.UUID,
 ) error {
 	close(a.reachedClear)
 	select {
@@ -172,7 +172,7 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 		return rows[0]
 	}
 	first := claim("gateway-a")
-	if first.ID != unit.ID || first.LeaseToken == NilID || first.LeaseGeneration != 1 ||
+	if first.ID != unit.ID || first.LeaseToken == uuid.Nil || first.LeaseGeneration != 1 ||
 		first.LeaseSpecRevision != unit.SpecRevision ||
 		first.LeaseAppConfigurationRevision != app.ConfigurationRevision ||
 		first.LeaseInstallConfigRevision != 0 {
@@ -1293,7 +1293,7 @@ func TestChannelFoundationReceiveBindingLimitIsWriteSafe(t *testing.T) {
 		t.Fatalf("create binding-limit target: %v", err)
 	}
 	bindingInput := func(
-		agentID ID,
+		agentID uuid.UUID,
 		receiveAllowed, sendAllowed bool,
 		source string,
 	) integrationstore.CreateIntegrationTargetBindingInput {
@@ -1322,7 +1322,7 @@ func TestChannelFoundationReceiveBindingLimitIsWriteSafe(t *testing.T) {
 	}
 
 	type createResult struct {
-		agentID ID
+		agentID uuid.UUID
 		binding integrationstore.IntegrationTargetBindingRecord
 		err     error
 	}
@@ -1474,7 +1474,7 @@ func createChannelLifecycleFixture(
 
 func createChannelTestDefinition(
 	t *testing.T, ctx context.Context, store *Store, install integrationstore.IntegrationInstallRecord,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
@@ -1496,7 +1496,7 @@ func assertChannelLifecycleRowsDeleted(
 	pool interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
 	},
-	appID, installID integrationstore.ID,
+	appID, installID uuid.UUID,
 ) {
 	t.Helper()
 	var appDeleted, installDeleted bool
@@ -1522,7 +1522,7 @@ func assertChannelRuntimeUnitDeleted(
 	pool interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
 	},
-	unitID integrationstore.ID,
+	unitID uuid.UUID,
 ) {
 	t.Helper()
 	var desiredState, status string

@@ -115,7 +115,7 @@ var kindPrefixes = map[Kind]string{
 	KindIntegrationOAuthFlow:    "ioaf",
 }
 
-var encoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+var encoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
 var (
 	ErrMalformed = errors.New("malformed public id")
@@ -147,7 +147,7 @@ func Encode(kind Kind, id uuid.UUID) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unknown public id kind: %s", kind)
 	}
-	return prefix + "_" + strings.ToLower(encoding.EncodeToString(id[:])), nil
+	return prefix + "_" + encoding.EncodeToString(id[:]), nil
 }
 
 func Decode(kind Kind, value string) (uuid.UUID, error) {
@@ -165,8 +165,8 @@ func Decode(kind Kind, value string) (uuid.UUID, error) {
 	if len(token) != 26 {
 		return uuid.Nil, ErrMalformed
 	}
-	raw, err := encoding.DecodeString(strings.ToUpper(token))
-	if err != nil || len(raw) != 16 {
+	raw, err := encoding.DecodeString(token)
+	if err != nil || len(raw) != 16 || encoding.EncodeToString(raw) != token {
 		return uuid.Nil, ErrMalformed
 	}
 	id, err := uuid.FromBytes(raw)

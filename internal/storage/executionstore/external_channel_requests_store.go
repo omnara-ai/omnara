@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func externalChannelRequestRecord(row dbsqlc.ExternalChannelRequest) ExternalChannelRequestRecord {
 	request := ExternalChannelRequestRecord{
 		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, TurnID: row.TurnID,
-		ToolCallID: idFromSQLCPtr(row.ToolCallID), InteractionID: idFromSQLCPtr(row.InteractionID),
+		ToolCallID: storeutil.IDFromPtr(row.ToolCallID), InteractionID: storeutil.IDFromPtr(row.InteractionID),
 		NoticeKey: stringFromSQLCText(row.NoticeKey), IntegrationInstallID: row.IntegrationInstallID,
 		IntegrationTargetID: row.IntegrationTargetID, IntegrationTargetBindingID: row.IntegrationTargetBindingID,
 		Operation: channelconnector.OperationKind(row.Operation),
@@ -40,8 +42,8 @@ func insertExternalChannelRequest(
 ) (ExternalChannelRequestRecord, error) {
 	row, err := q.InsertExternalChannelRequest(ctx, dbsqlc.InsertExternalChannelRequestParams{
 		ProjectID: request.ProjectID, AgentID: request.AgentID, TurnID: request.TurnID,
-		ToolCallID: sqlcIDFromNil(request.ToolCallID), InteractionID: sqlcIDFromNil(request.InteractionID),
-		NoticeKey: sqlcTextFromEmpty(request.NoticeKey), IntegrationInstallID: request.IntegrationInstallID,
+		ToolCallID: storeutil.IDFromNil(request.ToolCallID), InteractionID: storeutil.IDFromNil(request.InteractionID),
+		NoticeKey: storeutil.TextFromEmpty(request.NoticeKey), IntegrationInstallID: request.IntegrationInstallID,
 		IntegrationTargetID: request.IntegrationTargetID, IntegrationTargetBindingID: request.IntegrationTargetBindingID,
 		Operation: string(request.Operation),
 		Payload:   request.Payload, DeadlineMicroseconds: timeout.Microseconds(),
@@ -59,8 +61,8 @@ func externalChannelRequestByOwner(
 ) (ExternalChannelRequestRecord, error) {
 	row, err := q.GetExternalChannelRequestByOwner(ctx, dbsqlc.GetExternalChannelRequestByOwnerParams{
 		ProjectID: request.ProjectID, AgentID: request.AgentID, TurnID: request.TurnID,
-		ToolCallID: sqlcIDFromNil(request.ToolCallID), InteractionID: sqlcIDFromNil(request.InteractionID),
-		NoticeKey: sqlcTextFromEmpty(request.NoticeKey),
+		ToolCallID: storeutil.IDFromNil(request.ToolCallID), InteractionID: storeutil.IDFromNil(request.InteractionID),
+		NoticeKey: storeutil.TextFromEmpty(request.NoticeKey),
 	})
 	if err != nil {
 		return ExternalChannelRequestRecord{}, err
@@ -70,9 +72,9 @@ func externalChannelRequestByOwner(
 
 func (s *Store) GetExternalChannelRequest(
 	ctx context.Context,
-	projectID, installID, requestID ID,
+	projectID, installID, requestID uuid.UUID,
 ) (ExternalChannelRequestRecord, error) {
-	if isNilID(projectID) || isNilID(installID) || isNilID(requestID) {
+	if projectID == uuid.Nil || installID == uuid.Nil || requestID == uuid.Nil {
 		return ExternalChannelRequestRecord{}, storeerr.InvalidRequest(
 			errors.New("project, connection and request are required"))
 	}
@@ -91,7 +93,7 @@ func (s *Store) ListPendingExternalChannelRequests(
 	ctx context.Context,
 	input ListExternalChannelRequestsInput,
 ) (ListExternalChannelRequestsResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) || input.Limit < 1 || input.Limit > 100 {
+	if input.ProjectID == uuid.Nil || input.IntegrationInstallID == uuid.Nil || input.Limit < 1 || input.Limit > 100 {
 		return ListExternalChannelRequestsResult{}, storeerr.InvalidRequest(
 			errors.New("connection and limit 1..100 are required"))
 	}
@@ -99,7 +101,7 @@ func (s *Store) ListPendingExternalChannelRequests(
 		ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID, RowLimit: input.Limit + 1,
 	}
 	if input.After != nil {
-		if input.After.CreatedAt.IsZero() || isNilID(input.After.ID) {
+		if input.After.CreatedAt.IsZero() || input.After.ID == uuid.Nil {
 			return ListExternalChannelRequestsResult{}, storeerr.InvalidRequest(errors.New("invalid request cursor"))
 		}
 		params.CursorCreatedAt = &input.After.CreatedAt
@@ -188,7 +190,7 @@ func validateExternalChannelAccess(
 			return externalChannelRequestError(err)
 		}
 		if interaction.State != string(AgentInteractionStateOpen) || interaction.TurnID != request.TurnID ||
-			idFromSQLCPtr(interaction.IntegrationTargetID) != request.IntegrationTargetID {
+			storeutil.IDFromPtr(interaction.IntegrationTargetID) != request.IntegrationTargetID {
 			return storeerr.ErrStateTransitionConflict
 		}
 		if (interaction.InteractionKind == string(AgentInteractionKindQuestion) && access.Capabilities.Questions) ||

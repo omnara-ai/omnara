@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -24,8 +25,8 @@ const (
 )
 
 type MCPConnectionRecord struct {
-	ID                 ID                 `json:"id"`
-	AgentID            ID                 `json:"agent_id"`
+	ID                 uuid.UUID          `json:"id"`
+	AgentID            uuid.UUID          `json:"agent_id"`
 	ServerKey          string             `json:"server_key"`
 	EndpointURL        string             `json:"endpoint_url"`
 	ConfigHash         string             `json:"config_hash"`
@@ -39,7 +40,7 @@ type MCPConnectionRecord struct {
 	InitializeError    string             `json:"initialize_error"`
 	Generation         int64              `json:"generation"`
 	RequestSequence    int64              `json:"request_sequence"`
-	CatalogID          *ID                `json:"catalog_id,omitempty"`
+	CatalogID          *uuid.UUID         `json:"catalog_id,omitempty"`
 	CatalogRevision    int64              `json:"catalog_revision"`
 	CreatedAt          time.Time          `json:"created_at"`
 	UpdatedAt          time.Time          `json:"updated_at"`
@@ -47,7 +48,7 @@ type MCPConnectionRecord struct {
 
 func (r MCPConnectionRecord) UsesCatalog() bool { return r.CatalogID != nil }
 
-func (r MCPConnectionRecord) withCatalog(catalogs map[ID]MCPServerCatalogRecord) MCPConnectionRecord {
+func (r MCPConnectionRecord) withCatalog(catalogs map[uuid.UUID]MCPServerCatalogRecord) MCPConnectionRecord {
 	if r.CatalogID == nil {
 		return r
 	}
@@ -71,7 +72,7 @@ func (r MCPConnectionRecord) withCatalog(catalogs map[ID]MCPServerCatalogRecord)
 
 func (s *Store) attachMCPConnectionCatalogs(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	connections []MCPConnectionRecord,
 ) ([]MCPConnectionRecord, error) {
 	needsCatalog := false
@@ -97,7 +98,7 @@ func (s *Store) attachMCPConnectionCatalogs(
 
 func (s *Store) attachMCPConnectionCatalog(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	connection MCPConnectionRecord,
 ) (MCPConnectionRecord, error) {
 	attached, err := s.attachMCPConnectionCatalogs(ctx, projectID, agentID, []MCPConnectionRecord{connection})
@@ -109,10 +110,10 @@ func (s *Store) attachMCPConnectionCatalog(
 
 func (s *Store) ReconcileAgentMCPConnections(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	servers []agentconfig.RuntimeMCPServer,
 ) ([]MCPConnectionRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	desired := make(map[string]string, len(servers))
@@ -199,10 +200,10 @@ func (s *Store) ReconcileAgentMCPConnections(
 
 func (s *Store) GetMCPConnection(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	serverKey string,
 ) (MCPConnectionRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || serverKey == "" {
+	if projectID == uuid.Nil || agentID == uuid.Nil || serverKey == "" {
 		return MCPConnectionRecord{}, false, errors.New(
 			"project, agent, and server key are required",
 		)
@@ -226,9 +227,9 @@ func (s *Store) GetMCPConnection(
 
 func (s *Store) ListAgentMCPConnections(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]MCPConnectionRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	rows, err := s.q.ListAgentMCPConnections(
@@ -247,9 +248,9 @@ func (s *Store) ListAgentMCPConnections(
 
 func (s *Store) GetMCPConnectionByID(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (MCPConnectionRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return MCPConnectionRecord{}, false, errors.New(
 			"project, agent, and connection id are required",
 		)
@@ -272,26 +273,26 @@ func (s *Store) GetMCPConnectionByID(
 }
 
 type MarkMCPConnectionReadyInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ID                 ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
 	GenerationObserved int64
 	MCPSessionID       string
 	ProtocolVersion    string
-	CatalogID          ID
+	CatalogID          uuid.UUID
 }
 
 func (s *Store) MarkMCPConnectionReady(
 	ctx context.Context,
 	input MarkMCPConnectionReadyInput,
 ) (MCPConnectionRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return MCPConnectionRecord{}, errors.New("project, agent, and connection id are required")
 	}
 	if input.GenerationObserved <= 0 {
 		return MCPConnectionRecord{}, errors.New("observed generation must be positive")
 	}
-	if isNilID(input.CatalogID) || input.ProtocolVersion == "" {
+	if input.CatalogID == uuid.Nil || input.ProtocolVersion == "" {
 		return MCPConnectionRecord{}, errors.New("catalog id and protocol version are required")
 	}
 	row, err := s.q.MarkMCPConnectionReady(ctx, dbsqlc.MarkMCPConnectionReadyParams{
@@ -313,20 +314,20 @@ func (s *Store) MarkMCPConnectionReady(
 }
 
 type SetMCPConnectionCatalogInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ID                 ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
 	GenerationObserved int64
 	MCPSessionID       string
 	ProtocolVersion    string
-	CatalogID          ID
+	CatalogID          uuid.UUID
 }
 
 func (s *Store) SetMCPConnectionCatalog(
 	ctx context.Context,
 	input SetMCPConnectionCatalogInput,
 ) (MCPConnectionRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) || isNilID(input.CatalogID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil || input.CatalogID == uuid.Nil {
 		return MCPConnectionRecord{}, errors.New("project, agent, connection id, and catalog id are required")
 	}
 	if input.GenerationObserved <= 0 {
@@ -355,9 +356,9 @@ func (s *Store) SetMCPConnectionCatalog(
 
 func (s *Store) BeginMCPConnectionInitialization(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (MCPConnectionRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return MCPConnectionRecord{}, false, errors.New(
 			"project, agent, and connection id are required",
 		)
@@ -384,11 +385,11 @@ func (s *Store) BeginMCPConnectionInitialization(
 
 func (s *Store) MarkMCPConnectionFailed(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 	generationObserved int64,
 	initializeError string,
 ) (MCPConnectionRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return MCPConnectionRecord{}, errors.New("project, agent, and connection id are required")
 	}
 	if generationObserved <= 0 {
@@ -415,10 +416,10 @@ func (s *Store) MarkMCPConnectionFailed(
 
 func (s *Store) MarkMCPConnectionExpired(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 	generationObserved int64,
 ) (MCPConnectionRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return MCPConnectionRecord{}, false, errors.New(
 			"project, agent, and connection id are required",
 		)
@@ -446,9 +447,9 @@ func (s *Store) MarkMCPConnectionExpired(
 
 func (s *Store) NextMCPRequestSequence(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (int64, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return 0, errors.New("project, agent, and connection id are required")
 	}
 	seq, err := s.q.NextMCPRequestSequence(

@@ -356,5 +356,5 @@ func TestManagedChannelCompletionRollsBackChildWhenToolSettlementFails(t *testin
 	call, err := f.Store.Execution().GetToolCall(ctx, testProjectID, f.AgentID, f.input.ToolCallID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateRunning, call.State)
-	require.Equal(t, NilID, call.ToolCallResultID)
+	require.Equal(t, uuid.Nil, call.ToolCallResultID)
 }

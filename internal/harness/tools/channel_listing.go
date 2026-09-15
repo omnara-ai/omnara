@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
@@ -35,7 +36,7 @@ type channelListCursor struct {
 	AgentID         string    `json:"agent_id"`
 	ParentChannelID string    `json:"parent_channel_id,omitempty"`
 
-	targetID integrationstore.ID
+	targetID uuid.UUID
 }
 
 type channelListItem struct {
@@ -95,7 +96,7 @@ func listChannels(
 			name = target.Provider + " " + target.ProviderRefKind
 		}
 		parentID := ""
-		if target.ParentChannelID != integrationstore.NilID {
+		if target.ParentChannelID != uuid.Nil {
 			parentID, err = publicid.Encode(publicid.KindIntegrationTarget, target.ParentChannelID)
 			if err != nil {
 				return nil, err

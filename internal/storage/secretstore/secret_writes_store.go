@@ -68,8 +68,8 @@ func (s *Store) CreateSecret(
 		dbsqlc.CountActiveTenantSecretsForOwnerParams{
 			OrgID:          input.OrgID,
 			OwnerKind:      input.OwnerKind,
-			OwnerProjectID: sqlcIDFromNil(input.OwnerProjectID),
-			OwnerUserID:    sqlcIDFromNil(input.OwnerUserID),
+			OwnerProjectID: storeutil.IDFromNil(input.OwnerProjectID),
+			OwnerUserID:    storeutil.IDFromNil(input.OwnerUserID),
 		},
 	)
 	if err != nil {
@@ -101,7 +101,7 @@ func (s *Store) createSecretTx(
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
 	input.Name = normalizedName
-	if isNilID(input.OwnerProjectID) {
+	if input.OwnerProjectID == uuid.Nil {
 		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 			return SecretRecord{}, SecretVersionRecord{}, err
 		}
@@ -143,8 +143,8 @@ func (s *Store) createSecretTx(
 		OrgID:            input.OrgID,
 		ManagementKind:   string(input.ManagementKind),
 		OwnerKind:        input.OwnerKind,
-		OwnerProjectID:   sqlcIDFromNil(input.OwnerProjectID),
-		OwnerUserID:      sqlcIDFromNil(input.OwnerUserID),
+		OwnerProjectID:   storeutil.IDFromNil(input.OwnerProjectID),
+		OwnerUserID:      storeutil.IDFromNil(input.OwnerUserID),
 		Name:             input.Name,
 		Kind:             string(material.Kind),
 		Metadata:         metadata,
@@ -175,12 +175,12 @@ func (s *Store) createSecretTx(
 }
 
 type insertSecretVersionTxInput struct {
-	OrgID          ID
-	SecretID       ID
-	VersionID      ID
+	OrgID          uuid.UUID
+	SecretID       uuid.UUID
+	VersionID      uuid.UUID
 	VersionNumber  int32
 	Material       secrets.CanonicalMaterial
-	MCPOAuthFlowID ID
+	MCPOAuthFlowID uuid.UUID
 }
 
 func (s *Store) insertSecretVersionTx(
@@ -224,7 +224,7 @@ func (s *Store) insertSecretVersionTx(
 		EncryptedDekNonce:          encrypted.EncryptedDEKNonce,
 		Nonce:                      encrypted.Nonce,
 		Ciphertext:                 encrypted.Ciphertext,
-		McpOauthFlowID:             sqlcIDFromNil(input.MCPOAuthFlowID),
+		McpOauthFlowID:             storeutil.IDFromNil(input.MCPOAuthFlowID),
 		OauthAccessTokenExpires:    oauthAccessTokenExpires,
 		OauthAccessTokenTtlSeconds: oauthAccessTokenTTLSeconds,
 	})
@@ -241,7 +241,7 @@ func (s *Store) UpdateSecretMetadata(
 	ctx context.Context,
 	input UpdateSecretMetadataInput,
 ) (SecretRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SecretRecord{}, invalidSecretRequest("org, secret, and actor are required")
 	}
 	metadata, err := normalizedSecretMetadata(input.Metadata)
@@ -258,7 +258,7 @@ func (s *Store) UpdateSecretMetadata(
 	if err != nil {
 		return SecretRecord{}, err
 	}
-	if isNilID(secret.OwnerProjectID) {
+	if secret.OwnerProjectID == uuid.Nil {
 		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 			return SecretRecord{}, err
 		}
@@ -323,7 +323,7 @@ func (s *Store) CreateSecretVersion(
 	ctx context.Context,
 	input CreateSecretVersionInput,
 ) (SecretRecord, SecretVersionRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest(
 			"org, secret, and actor are required",
 		)
@@ -345,7 +345,7 @@ func (s *Store) CreateSecretVersion(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
-	if isNilID(secret.OwnerProjectID) {
+	if secret.OwnerProjectID == uuid.Nil {
 		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 			return SecretRecord{}, SecretVersionRecord{}, err
 		}
@@ -466,7 +466,7 @@ func (s *Store) CreateSecretVersion(
 }
 
 func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (SecretRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SecretRecord{}, invalidSecretRequest("org, secret, and actor are required")
 	}
 	record, err := s.GetSecret(ctx, input.OrgID, input.SecretID)
@@ -576,8 +576,8 @@ func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecr
 	if s.secretKeyWrapper == nil {
 		return errors.New("secret key wrapper is required")
 	}
-	if isNilID(input.OrgID) || input.OwnerKind == "" || input.Material == nil ||
-		isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.OwnerKind == "" || input.Material == nil ||
+		input.Actor.ID == uuid.Nil {
 		return invalidSecretRequest("org, owner kind, material, and actor are required")
 	}
 	normalizedName, err := normalizeSecretName(input.Name)
@@ -601,10 +601,10 @@ func normalizeSecretName(name string) (string, error) {
 	return normalizedName, nil
 }
 
-func newSecretUUID() (ID, error) {
+func newSecretUUID() (uuid.UUID, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
-		return NilID, fmt.Errorf("generate uuidv7: %w", err)
+		return uuid.Nil, fmt.Errorf("generate uuidv7: %w", err)
 	}
 	return id, nil
 }

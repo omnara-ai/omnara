@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -87,7 +87,7 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("claim work for attempt %d: %v", attemptNumber, err)
 		}
-		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == storage.NilID {
+		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == uuid.Nil {
 			t.Fatalf("attempt %d claim = %+v found=%v, want a retry continuation", attemptNumber, claim, found)
 		}
 		predecessor, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -282,7 +282,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		t.Fatalf("claim admitted model retry: %v", err)
 	}
 	if !found || retry.Kind != executionstore.AgentWorkModel ||
-		retry.Model.ModelCallContextID == storage.NilID {
+		retry.Model.ModelCallContextID == uuid.Nil {
 		t.Fatalf("retry claim = %+v found=%v, want model retry continuation", retry, found)
 	}
 	retryInput := modelWorkExecutionFromClaimForKernelTest(retry, currentNow)
@@ -468,7 +468,7 @@ func TestAgentExecutorRetriesWithoutProviderReplayAfterReplayRejection(t *testin
 	if err != nil {
 		t.Fatalf("claim retry after replay rejection: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == storage.NilID {
+	if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == uuid.Nil {
 		t.Fatalf("retry claim = %+v found=%v, want model continuation", claim, found)
 	}
 	work = modelWorkExecutionFromClaimForKernelTest(claim, currentNow)
@@ -744,7 +744,7 @@ func TestAgentExecutorPreservesRetryAfterEvidenceWhenAttemptsAreExhausted(t *tes
 		if err != nil {
 			t.Fatalf("claim work for attempt %d: %v", attemptNumber, err)
 		}
-		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == storage.NilID {
+		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == uuid.Nil {
 			t.Fatalf("attempt %d claim = %+v found=%v, want retry continuation", attemptNumber, claim, found)
 		}
 		turn = modelWorkExecutionFromClaimForKernelTest(claim, currentNow)
@@ -829,7 +829,7 @@ func TestAgentExecutorSteeringStartsFreshFrontierWithFreshRetryBudget(t *testing
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 		t.Fatalf("execute rate-limited attempt: %v", err)
 	}
-	var oldContextID storage.ID
+	var oldContextID uuid.UUID
 	var oldRetryAt time.Time
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT context.id, context.retry_at
@@ -887,7 +887,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("claim steering work: %v", err)
 	}
 	if !found || steeredWork.Kind != executionstore.AgentWorkModel ||
-		steeredWork.Model.ModelCallContextID != storage.NilID ||
+		steeredWork.Model.ModelCallContextID != uuid.Nil ||
 		len(steeredWork.Model.InputIDs) != 2 || steeredWork.Model.InputIDs[0] != turn.InputIDs[0] ||
 		steeredWork.Model.InputIDs[1] != steering.ID ||
 		steeredWork.Model.TurnID == turn.TurnID {
@@ -980,7 +980,7 @@ func TestAgentExecutorConfigChangeRebuildsRetryingContextAtNewFrontier(t *testin
 		t.Fatalf("execute rate-limited attempt: %v", err)
 	}
 
-	var oldContextID storage.ID
+	var oldContextID uuid.UUID
 	var oldRetryAt time.Time
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT context.id, context.retry_at
@@ -1067,7 +1067,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if err != nil {
 		t.Fatalf("claim config-change continuation: %v", err)
 	}
-	if !found || freshWork.Kind != executionstore.AgentWorkModel || freshWork.Model.ModelCallContextID != storage.NilID ||
+	if !found || freshWork.Kind != executionstore.AgentWorkModel || freshWork.Model.ModelCallContextID != uuid.Nil ||
 		freshWork.Model.TurnID != turn.TurnID || len(freshWork.Model.InputIDs) != 1 ||
 		freshWork.Model.InputIDs[0] != turn.InputIDs[0] {
 		t.Fatalf("config-change work = %+v found=%v, want a fresh context for the active turn", freshWork, found)
@@ -1100,7 +1100,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	var oldState, newState executionstore.ModelCallState
 	var queuedState string
 	var oldContextCount, newAttemptNumber int
-	var newContextID, newConfigID storage.ID
+	var newContextID, newConfigID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT predecessor.state, count(context.id)
 FROM model_call_contexts predecessor
@@ -1189,7 +1189,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("claim queued input after config-change continuation: %v", err)
 	}
 	if !found || queuedWork.Kind != executionstore.AgentWorkModel ||
-		queuedWork.Model.ModelCallContextID != storage.NilID ||
+		queuedWork.Model.ModelCallContextID != uuid.Nil ||
 		queuedWork.Model.TurnID == turn.TurnID ||
 		len(queuedWork.Model.InputIDs) != 1 ||
 		queuedWork.Model.InputIDs[0] != queuedInput.ID {
@@ -1247,7 +1247,7 @@ func TestAgentExecutorQueuedInputWaitsForRetryingTurn(t *testing.T) {
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 		t.Fatalf("execute rate-limited attempt: %v", err)
 	}
-	var oldContextID storage.ID
+	var oldContextID uuid.UUID
 	var oldRetryAt time.Time
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT context.id, context.retry_at
@@ -1352,7 +1352,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("claim queued input after retry turn: %v", err)
 	}
 	if !found || queuedWork.Kind != executionstore.AgentWorkModel ||
-		queuedWork.Model.ModelCallContextID != storage.NilID ||
+		queuedWork.Model.ModelCallContextID != uuid.Nil ||
 		len(queuedWork.Model.InputIDs) != 1 || queuedWork.Model.InputIDs[0] != newInput.ID ||
 		queuedWork.Model.TurnID == turn.TurnID {
 		t.Fatalf("queued work = %+v found=%v, want a fresh input turn", queuedWork, found)
@@ -1366,7 +1366,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	}
 	var oldState, queuedContextState executionstore.ModelCallState
 	var oldContextCount, succeededRetryContexts int
-	var newContextID storage.ID
+	var newContextID uuid.UUID
 	var newAttemptNumber int
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT predecessor.state,

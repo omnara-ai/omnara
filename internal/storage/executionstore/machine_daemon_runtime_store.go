@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -37,10 +39,10 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	ctx context.Context,
 	input RegisterDaemonRuntimeInput,
 ) (DaemonRuntimeRegistrationRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.DaemonTokenID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil || input.DaemonTokenID == uuid.Nil {
 		return DaemonRuntimeRegistrationRecord{}, errors.New("org, machine, and daemon token are required")
 	}
-	if isNilID(input.DaemonInstanceID) {
+	if input.DaemonInstanceID == uuid.Nil {
 		return DaemonRuntimeRegistrationRecord{}, errors.New("daemon instance id is required")
 	}
 	if err := daemonversion.Validate(input.DaemonVersion); err != nil {
@@ -83,7 +85,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("get daemon runtime instance: %w", err)
 	}
-	if instanceFound && (idFromSQLCPtr(machine.CurrentDaemonRuntimeID) != instanceRow.ID ||
+	if instanceFound && (storeutil.IDFromPtr(machine.CurrentDaemonRuntimeID) != instanceRow.ID ||
 		instanceRow.DaemonVersion != input.DaemonVersion) {
 		return DaemonRuntimeRegistrationRecord{}, storeerr.ErrDaemonInstanceSuperseded
 	}
@@ -100,7 +102,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	if err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("list registered daemon runtimes: %w", err)
 	}
-	var runtimeID ID
+	var runtimeID uuid.UUID
 	var replacedRows []dbsqlc.ListActiveDaemonRuntimesForUpdateRow
 	if instanceFound {
 		if DaemonRuntimeState(instanceRow.State) != DaemonRuntimeStateActive {
@@ -133,7 +135,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 					OrgID:     prior.OrgID,
 					MachineID: prior.MachineID,
 					ID:        prior.ID,
-					Reason: sqlcTextFromEmpty(
+					Reason: storeutil.TextFromEmpty(
 						daemonRuntimeReplacedReason,
 					),
 					Message: "",
@@ -260,7 +262,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonRuntimeRecord{}, err
 	}
-	if isNilID(input.DaemonInstanceID) {
+	if input.DaemonInstanceID == uuid.Nil {
 		return DaemonRuntimeRecord{}, errors.New("daemon instance id is required")
 	}
 	if input.LeaseTimeout <= 0 {
@@ -351,7 +353,7 @@ func (s *Store) EndDaemonRuntime(
 			OrgID:         authority.OrgID,
 			MachineID:     authority.MachineID,
 			DaemonTokenID: authority.DaemonTokenID,
-			Reason:        sqlcTextFromEmpty(DaemonRuntimeReleasedReason),
+			Reason:        storeutil.TextFromEmpty(DaemonRuntimeReleasedReason),
 			Message:       "",
 		},
 	)
@@ -427,7 +429,7 @@ func (s *Store) SleepDaemonRuntime(
 			OrgID:         authority.OrgID,
 			MachineID:     authority.MachineID,
 			DaemonTokenID: authority.DaemonTokenID,
-			Reason:        sqlcTextFromEmpty(daemonRuntimeAsleepReason),
+			Reason:        storeutil.TextFromEmpty(daemonRuntimeAsleepReason),
 			Message:       "",
 		},
 	)

@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -31,10 +33,10 @@ const (
 )
 
 type IntegrationEventReceipt struct {
-	ID                   ID
-	ProjectID            ID
-	IntegrationInstallID ID
-	IntegrationAppID     ID
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationAppID     uuid.UUID
 	ConnectorKey         string
 	Provider             string
 	EventID              string
@@ -42,7 +44,7 @@ type IntegrationEventReceipt struct {
 	State                IntegrationEventState
 	AttemptCount         int
 	AvailableAt          time.Time
-	LeaseToken           ID
+	LeaseToken           uuid.UUID
 	LeaseGeneration      int64
 	LeaseExpiresAt       *time.Time
 	LastError            json.RawMessage
@@ -51,8 +53,8 @@ type IntegrationEventReceipt struct {
 }
 
 type ReceiveIntegrationEventInput struct {
-	ProjectID            ID
-	IntegrationInstallID ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
 	EventID              string
 	Payload              json.RawMessage
 	Capabilities         []channelconnector.Capability
@@ -65,10 +67,10 @@ type ClaimNextIntegrationEventInput struct {
 }
 
 type FinishIntegrationEventInput struct {
-	ProjectID            ID
-	IntegrationInstallID ID
-	ID                   ID
-	LeaseToken           ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ID                   uuid.UUID
+	LeaseToken           uuid.UUID
 	LeaseGeneration      int64
 	State                IntegrationEventState
 	LastError            json.RawMessage
@@ -81,7 +83,7 @@ func (s *Store) ReceiveIntegrationEvent(
 	ctx context.Context,
 	input ReceiveIntegrationEventInput,
 ) (IntegrationEventReceipt, error) {
-	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) {
+	if input.ProjectID == uuid.Nil || input.IntegrationInstallID == uuid.Nil {
 		return IntegrationEventReceipt{}, storeerr.InvalidRequest(errors.New("project and installation are required"))
 	}
 	if strings.TrimSpace(input.EventID) == "" || len(input.EventID) > 512 {
@@ -168,8 +170,8 @@ func (s *Store) FinishIntegrationEvent(
 	ctx context.Context,
 	input FinishIntegrationEventInput,
 ) (IntegrationEventReceipt, error) {
-	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) || isNilID(input.ID) ||
-		isNilID(input.LeaseToken) || input.LeaseGeneration <= 0 {
+	if input.ProjectID == uuid.Nil || input.IntegrationInstallID == uuid.Nil || input.ID == uuid.Nil ||
+		input.LeaseToken == uuid.Nil || input.LeaseGeneration <= 0 {
 		return IntegrationEventReceipt{}, storeerr.InvalidRequest(errors.New("event scope and current lease are required"))
 	}
 	switch input.State {
@@ -182,7 +184,7 @@ func (s *Store) FinishIntegrationEvent(
 	if err != nil {
 		return IntegrationEventReceipt{}, err
 	}
-	if (input.State == IntegrationEventCompleted) != jsoncanonical.Equal(lastError, json.RawMessage(`{}`)) {
+	if input.State == IntegrationEventCompleted != jsoncanonical.Equal(lastError, json.RawMessage(`{}`)) {
 		return IntegrationEventReceipt{}, storeerr.InvalidRequest(errors.New("only completed events may omit an error"))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -236,7 +238,7 @@ func integrationEventReceiptFromSQLC(row dbsqlc.IntegrationEventReceipt) Integra
 		IntegrationAppID: row.IntegrationAppID, ConnectorKey: row.ConnectorKey, Provider: row.Provider,
 		EventID: row.EventID, Payload: row.Payload, State: IntegrationEventState(row.State),
 		AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
-		LeaseToken: idFromSQLCPtr(row.LeaseToken), LeaseGeneration: row.LeaseGeneration,
+		LeaseToken: storeutil.IDFromPtr(row.LeaseToken), LeaseGeneration: row.LeaseGeneration,
 		LeaseExpiresAt: row.LeaseExpiresAt, LastError: row.LastError,
 		CompletedAt: row.CompletedAt, CreatedAt: row.CreatedAt,
 	}

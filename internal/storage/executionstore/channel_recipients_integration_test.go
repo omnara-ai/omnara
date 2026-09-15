@@ -20,7 +20,7 @@ func TestChannelRecipientsDeduplicateBeforePagingWithoutCombiningGrants(t *testi
 	ctx := t.Context()
 	f := newPublicChannelFixture(t, ctx, "recipient-pages")
 	store := f.store.Integrations()
-	grant := func(agentID ID, source string, receive, send bool) integrationstore.IntegrationTargetBindingRecord {
+	grant := func(agentID uuid.UUID, source string, receive, send bool) integrationstore.IntegrationTargetBindingRecord {
 		t.Helper()
 		input := f.grants(receive)
 		input.AgentID, input.Source, input.SendAllowed = agentID, source, send
@@ -48,7 +48,7 @@ func TestChannelRecipientsDeduplicateBeforePagingWithoutCombiningGrants(t *testi
 	sort.Slice(expected, func(i, j int) bool {
 		return bytes.Compare(expected[i].AgentID[:], expected[j].AgentID[:]) < 0
 	})
-	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, NilID, 2)
+	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, uuid.Nil, 2)
 	require.NoError(t, err)
 	require.Equal(t, expected[:2], page, "two rows mean two agents, without combining permissions from sibling grants")
 	last, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, page[1].AgentID, 2)
@@ -58,7 +58,7 @@ func TestChannelRecipientsDeduplicateBeforePagingWithoutCombiningGrants(t *testi
 	require.NoError(t, err)
 	require.Empty(t, empty)
 	for _, binding := range append(page, last...) {
-		require.Equal(t, NilID, binding.IntegrationRouteID, "external receive grants need neither app nor route")
+		require.Equal(t, uuid.Nil, binding.IntegrationRouteID, "external receive grants need neither app nor route")
 	}
 }
 
@@ -69,12 +69,12 @@ func TestChannelRecipientHistoryDoesNotAuthorizeNewInput(t *testing.T) {
 	store := f.store.Integrations()
 	_, err := store.CreateIntegrationTargetBinding(ctx, f.grants(false))
 	require.NoError(t, err)
-	noReceivers, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, NilID, 1)
+	noReceivers, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, uuid.Nil, 1)
 	require.NoError(t, err)
 	require.Empty(t, noReceivers)
 	binding, err := store.CreateIntegrationTargetBinding(ctx, f.grants(true))
 	require.NoError(t, err)
-	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, NilID, 1)
+	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.install.ID, f.target.ID, uuid.Nil, 1)
 	require.NoError(t, err)
 	require.Len(t, page, 1)
 	require.Equal(t, binding.ID, page[0].ID)
@@ -95,12 +95,12 @@ func TestChannelRecipientHistoryDoesNotAuthorizeNewInput(t *testing.T) {
 		testProjectID, f.agent.ID, f.install.ID, f.target.ID, binding.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "discovery and historical identity never substitute the replacement")
 	require.NoError(t, tx.Rollback(ctx))
-	for _, scope := range []struct{ project, install, target ID }{
+	for _, scope := range []struct{ project, install, target uuid.UUID }{
 		{uuid.New(), f.install.ID, f.target.ID},
 		{testProjectID, uuid.New(), f.target.ID},
 		{testProjectID, f.install.ID, uuid.New()},
 	} {
-		page, err = store.ListChannelReceiveBindings(ctx, scope.project, scope.install, scope.target, NilID, 1)
+		page, err = store.ListChannelReceiveBindings(ctx, scope.project, scope.install, scope.target, uuid.Nil, 1)
 		require.NoError(t, err)
 		require.Empty(t, page)
 		if scope.target == f.target.ID {
@@ -152,15 +152,15 @@ func TestChannelRecipientsRequireLiveAuthorityButHistorySurvives(t *testing.T) {
 			input.IntegrationRouteID, input.ReceiveAllowed = route.ID, true
 			binding, err := store.CreateIntegrationTargetBinding(ctx, input)
 			require.NoError(t, err)
-			page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, NilID, 1)
+			page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, uuid.Nil, 1)
 			require.NoError(t, err)
 			require.Len(t, page, 1)
 			// Change only this authority predicate; do not let cleanup revoke the
 			// binding and conceal a missing parent-lifecycle check in discovery.
-			ownerIDs := []ID{f.AppID, f.InstallID, f.Target.ID, testProjectID, testOrgID, route.ID, f.AgentID}
+			ownerIDs := []uuid.UUID{f.AppID, f.InstallID, f.Target.ID, testProjectID, testOrgID, route.ID, f.AgentID}
 			_, err = f.Store.pool.Exec(ctx, tc.statement, ownerIDs[tc.scope])
 			require.NoError(t, err)
-			page, err = store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, NilID, 1)
+			page, err = store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, uuid.Nil, 1)
 			require.NoError(t, err)
 			require.Empty(t, page)
 			routing, err := store.LookupChannelReceiptRouting(ctx,
@@ -186,7 +186,7 @@ func TestChannelRecipientInputKeyLookupBatchesExactAgentAndScope(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newPublicChannelFixture(t, ctx, "recipient-input-keys")
-	agentIDs := []ID{f.agent.ID, mustCreateAgent(t, ctx, f.store), mustCreateAgent(t, ctx, f.store)}
+	agentIDs := []uuid.UUID{f.agent.ID, mustCreateAgent(t, ctx, f.store), mustCreateAgent(t, ctx, f.store)}
 	var scope string
 	for _, agentID := range agentIDs {
 		grants := f.grants(true)
@@ -202,7 +202,7 @@ func TestChannelRecipientInputKeyLookupBatchesExactAgentAndScope(t *testing.T) {
 		}
 	}
 	params := dbsqlc.GetExistingChannelInputKeysForAgentsParams{
-		ProjectID: testProjectID, AgentIds: []ID{agentIDs[1], agentIDs[0], agentIDs[1]},
+		ProjectID: testProjectID, AgentIds: []uuid.UUID{agentIDs[1], agentIDs[0], agentIDs[1]},
 		IdempotencyScope: scope, InputKeys: []string{"shared", "absent", "shared"},
 	}
 	rows, err := f.store.q.GetExistingChannelInputKeysForAgents(ctx, params)
@@ -235,7 +235,7 @@ func TestChannelReceiptRoutingDistinguishesPartialWorkflowFromExistingHistory(t 
 	f := newChannelWorkflowFixture(t, ctx, "receipt-routing")
 	store := f.Store.Integrations()
 	first := f.event(t, ctx, "first")
-	lookup := func(receiptID ID) integrationstore.ChannelReceiptRouting {
+	lookup := func(receiptID uuid.UUID) integrationstore.ChannelReceiptRouting {
 		t.Helper()
 		observed, err := store.LookupChannelReceiptRouting(ctx,
 			testProjectID, f.Identity.IntegrationInstallID, first.Target.ProviderRef, receiptID)
@@ -294,7 +294,7 @@ func TestChannelReceiptRoutingDistinguishesPartialWorkflowFromExistingHistory(t 
 	}
 	require.NoError(t, tx.Commit(ctx))
 	require.Equal(t, existingThread, lookup(second.Receipt.ReceiptID), "only the exact workflow: namespace counts")
-	for _, scope := range []struct{ project, install, receipt ID }{
+	for _, scope := range []struct{ project, install, receipt uuid.UUID }{
 		{uuid.New(), f.Identity.IntegrationInstallID, first.Receipt.ReceiptID},
 		{testProjectID, uuid.New(), first.Receipt.ReceiptID},
 		{testProjectID, f.Identity.IntegrationInstallID, uuid.New()},
@@ -352,7 +352,7 @@ func TestChannelReceiptRoutingTracksOnlyReceiveHistory(t *testing.T) {
 	assertRouting(true)
 	require.NoError(t, store.RevokeIntegrationTargetBinding(ctx, testProjectID, binding.ID))
 	assertRouting(true)
-	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, NilID, 1)
+	page, err := store.ListChannelReceiveBindings(ctx, testProjectID, f.InstallID, f.Target.ID, uuid.Nil, 1)
 	require.NoError(t, err)
 	require.Empty(t, page, "revoked receive history blocks automatic replacement without authorizing delivery")
 }

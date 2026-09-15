@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func toolCallRecordFromInsertSQLC(row dbsqlc.InsertToolCallRow) ToolCallRecord {
@@ -37,8 +39,8 @@ func toolCallRecordFromRuntimeCompleteSQLC(row dbsqlc.CompleteRuntimeToolCallRow
 	)
 }
 
-func toolCallRecordFromMachineUnreachableCompleteSQLC(
-	row dbsqlc.CompleteMachineUnreachableToolCallRow,
+func toolCallRecordFromWaitingCompleteSQLC(
+	row dbsqlc.CompleteWaitingBuiltInToolCallRow,
 ) ToolCallRecord {
 	return toolCallRecordFromSQLC(
 		row.ID, row.ProjectID, row.AgentID, row.TurnID,
@@ -219,19 +221,19 @@ func toolCallRecordFromPermissionInteractionCompleteSQLC(
 }
 
 func toolCallRecordFromSQLC(
-	id ID,
-	projectID ID,
-	agentID ID,
-	turnID ID,
-	sourceEventID ID,
-	modelCallContextID ID,
+	id uuid.UUID,
+	projectID uuid.UUID,
+	agentID uuid.UUID,
+	turnID uuid.UUID,
+	sourceEventID uuid.UUID,
+	modelCallContextID uuid.UUID,
 	providerCallID string,
 	name string,
 	input json.RawMessage,
 	toolType string,
 	state string,
 	outcome string,
-	runtimeLockID *ID,
+	runtimeLockID *uuid.UUID,
 	resultContentParts []byte,
 	createdAt time.Time,
 	completedAt *time.Time,
@@ -250,7 +252,7 @@ func toolCallRecordFromSQLC(
 		CreatedAt:          createdAt,
 		State:              ToolCallState(state),
 		Outcome:            ToolResultOutcome(outcome),
-		RuntimeLockID:      idFromSQLCPtr(runtimeLockID),
+		RuntimeLockID:      storeutil.IDFromPtr(runtimeLockID),
 		ResultContentParts: json.RawMessage(resultContentParts),
 		CompletedAt:        completedAt,
 	}

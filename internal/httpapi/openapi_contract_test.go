@@ -396,6 +396,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
+		"AgentInteraction.agent_name": "#/components/schemas/AgentName",
 		// Provider-facing labels retain their provider/text byte limits rather
 		// than the naming policy for Omnara-owned resource identifiers.
 		"AgentChannel.name":                                    "",

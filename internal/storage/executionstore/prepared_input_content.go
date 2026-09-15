@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/log"
@@ -30,7 +31,7 @@ type PreparedInputAttachment struct {
 func (s *Store) persistInputContentTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	content PreparedInputContent,
 ) ([]CreateContentBlockInput, json.RawMessage, error) {
 	if len(content.Attachments) > 20 {

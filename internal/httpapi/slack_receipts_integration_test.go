@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,7 +83,7 @@ func TestSlackReceiptRoutesByVerifiedPhysicalAppIdentity(t *testing.T) {
 		http.StatusUnauthorized, unitSlackSignedHeaders(body, "signing-secret"))
 	requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "",
 		http.StatusOK, unitSlackSignedHeaders(body, "second-secret"))
-	var installID integrationstore.ID
+	var installID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT integration_install_id FROM integration_event_receipts WHERE event_id='second-app-event'`).Scan(&installID))
 	require.Equal(t, second.ID, installID)

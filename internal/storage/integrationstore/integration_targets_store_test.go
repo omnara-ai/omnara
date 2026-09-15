@@ -32,8 +32,8 @@ func TestChannelRegistrationRejectsInvalidIdentifiersBeforeSQL(t *testing.T) {
 		name   string
 		mutate func(*CreateIntegrationTargetInput)
 	}{
-		{"missing_project", func(in *CreateIntegrationTargetInput) { in.ProjectID = NilID }},
-		{"missing_installation", func(in *CreateIntegrationTargetInput) { in.IntegrationInstallID = NilID }},
+		{"missing_project", func(in *CreateIntegrationTargetInput) { in.ProjectID = uuid.Nil }},
+		{"missing_installation", func(in *CreateIntegrationTargetInput) { in.IntegrationInstallID = uuid.Nil }},
 		{"blank_reference", func(in *CreateIntegrationTargetInput) { in.ProviderRef = " \t\n" }},
 		{"blank_reference_kind", func(in *CreateIntegrationTargetInput) { in.ProviderRefKind = " \t\n" }},
 		{"reference_byte_limit", func(in *CreateIntegrationTargetInput) { in.ProviderRef = strings.Repeat("é", 1025) }},

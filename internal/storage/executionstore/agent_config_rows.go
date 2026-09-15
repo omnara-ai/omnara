@@ -1,6 +1,9 @@
 package executionstore
 
-import "github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+import (
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+)
 
 func agentConfigRecordFromSQLC(row dbsqlc.AgentConfig) AgentConfigRecord {
 	return AgentConfigRecord{
@@ -82,7 +85,7 @@ func agentConfigSnapshotAtWatermarkFromSQLC(
 	}
 }
 
-func agentProfileRecordFromInsertSQLC(row dbsqlc.InsertAgentProfileRow, orgID ID) AgentProfileRecord {
+func agentProfileRecordFromInsertSQLC(row dbsqlc.InsertAgentProfileRow, orgID uuid.UUID) AgentProfileRecord {
 	return AgentProfileRecord{
 		ID:                row.ID,
 		OrgID:             orgID,
@@ -186,7 +189,7 @@ func agentProfileRecordFromGetByIdempotencySQLC(
 
 func agentProfileRecordFromRetargetSQLC(
 	row dbsqlc.RetargetAgentProfileRow,
-	orgID ID,
+	orgID uuid.UUID,
 ) AgentProfileRecord {
 	return AgentProfileRecord{
 		ID:                row.ID,

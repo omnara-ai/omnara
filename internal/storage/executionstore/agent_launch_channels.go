@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -17,7 +18,7 @@ const MaxLaunchChannelBindings = 64
 // LaunchChannelBinding grants access to an existing project-owned channel. It
 // neither creates a conversation nor selects the agent's current channel.
 type LaunchChannelBinding struct {
-	ChannelID          ID
+	ChannelID          uuid.UUID
 	Grants             integrationstore.ChannelGrants
 	ReplyChannelGrants *integrationstore.ChannelGrants
 }
@@ -30,10 +31,10 @@ func (s *Store) prepareLaunchChannelBindingsTx(
 			"channel_bindings exceeds the %d binding limit", MaxLaunchChannelBindings))
 	}
 	bindings := make([]integrationstore.CreateIntegrationTargetBindingInput, 0, len(input.ChannelBindings))
-	seen := make(map[ID]bool, len(input.ChannelBindings))
-	installs := make([]ID, 0, len(input.ChannelBindings))
+	seen := make(map[uuid.UUID]bool, len(input.ChannelBindings))
+	installs := make([]uuid.UUID, 0, len(input.ChannelBindings))
 	for _, binding := range input.ChannelBindings {
-		if isNilID(binding.ChannelID) || seen[binding.ChannelID] {
+		if binding.ChannelID == uuid.Nil || seen[binding.ChannelID] {
 			return nil, storeerr.InvalidRequest(errors.New("channel_bindings must name distinct channels"))
 		}
 		seen[binding.ChannelID] = true
@@ -51,7 +52,7 @@ func (s *Store) prepareLaunchChannelBindingsTx(
 	}
 	// Enter every installation's deletion gate before profile and agent locks.
 	// The same ordering is used regardless of the request's channel order.
-	slices.SortFunc(installs, func(a, b ID) int { return slices.Compare(a[:], b[:]) })
+	slices.SortFunc(installs, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
 	installs = slices.Compact(installs)
 	for _, id := range installs {
 		if err := s.q.WithTx(tx).LockIntegrationInstallLifecycleShared(ctx,

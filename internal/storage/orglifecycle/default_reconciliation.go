@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -29,11 +30,11 @@ func (s *Service) ReconcileDefaults(
 	ctx context.Context,
 	input ReconcileDefaultsInput,
 ) (ReconcileDefaultsResult, error) {
-	var orgIDs []ID
-	seen := make(map[ID]bool)
-	pools := make(map[ID][]dbsqlc.MachinePool)
-	providers := make(map[ID][]dbsqlc.ModelProviderConfig)
-	addOrg := func(orgID ID) {
+	var orgIDs []uuid.UUID
+	seen := make(map[uuid.UUID]bool)
+	pools := make(map[uuid.UUID][]dbsqlc.MachinePool)
+	providers := make(map[uuid.UUID][]dbsqlc.ModelProviderConfig)
+	addOrg := func(orgID uuid.UUID) {
 		if !seen[orgID] {
 			seen[orgID] = true
 			orgIDs = append(orgIDs, orgID)
@@ -104,7 +105,7 @@ func (s *Service) ReconcileDefaults(
 
 func (s *Service) reconcileOrgDefaults(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	input ReconcileDefaultsInput,
 	pools []dbsqlc.MachinePool,
 	providers []dbsqlc.ModelProviderConfig,
@@ -124,7 +125,7 @@ func (s *Service) reconcileOrgDefaults(
 			return ReconcileDefaultsResult{}, err
 		}
 	}
-	defaultProjectID := NilID
+	defaultProjectID := uuid.Nil
 	if input.DefaultModelProvider != nil {
 		project, projectErr := qtx.GetProjectByIdempotencyKey(
 			ctx,

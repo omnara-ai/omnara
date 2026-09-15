@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -15,10 +17,10 @@ import (
 )
 
 type RecordModelOutputAndCompleteContextInput struct {
-	ProjectID          ID
-	AgentID            ID
-	RuntimeLockID      ID
-	ModelCallContextID ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
 	ProviderRequestID  string
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
@@ -27,16 +29,16 @@ type RecordModelOutputAndCompleteContextInput struct {
 }
 
 type ToolCallBindingInput struct {
-	ID             ID
+	ID             uuid.UUID
 	ProviderCallID string
 	Type           string
 }
 
 type RecordToolCallSourceAndCompleteContextInput struct {
-	ProjectID          ID
-	AgentID            ID
-	RuntimeLockID      ID
-	ModelCallContextID ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
 	ProviderRequestID  string
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
@@ -46,7 +48,7 @@ type RecordToolCallSourceAndCompleteContextInput struct {
 }
 
 type boundToolCall struct {
-	ID               ID
+	ID               uuid.UUID
 	ProviderCallID   string
 	Name             string
 	Input            []byte
@@ -145,8 +147,8 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	ctx context.Context,
 	input RecordToolCallSourceAndCompleteContextInput,
 ) (events.Event, []ToolCallRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil {
 		return events.Event{}, nil, errors.New(
 			"project, agent, runtime lock, and model context are required",
 		)
@@ -244,7 +246,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 			input.AgentID,
 			modelOutput.TurnID,
 			eventRecord.Event.ID,
-			NilID,
+			uuid.Nil,
 		); err != nil {
 			return events.Event{}, nil, err
 		}
@@ -291,7 +293,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	records := make([]ToolCallRecord, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		row, err := qtx.InsertToolCall(ctx, dbsqlc.InsertToolCallParams{
-			ToolCallID:         sqlcIDFromNil(call.ID),
+			ToolCallID:         storeutil.IDFromNil(call.ID),
 			ProjectID:          input.ProjectID,
 			AgentID:            input.AgentID,
 			SourceEventID:      eventRecord.Event.ID,
@@ -345,7 +347,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		return events.Event{}, nil, err
 	}
 	for _, record := range records {
-		if isNilID(contentBlockByProviderCallID[record.ProviderCallID]) {
+		if contentBlockByProviderCallID[record.ProviderCallID] == uuid.Nil {
 			return events.Event{}, nil, fmt.Errorf(
 				"tool call %q has no matching tool_call content block in envelope content",
 				record.ProviderCallID,
@@ -409,7 +411,7 @@ func sameBoundToolCallBatch(
 			record.Name != call.Name ||
 			!sameJSON(record.Input, call.Input) ||
 			record.Type != call.Type ||
-			(!isNilID(call.ID) && record.ID != call.ID) {
+			(call.ID != uuid.Nil && record.ID != call.ID) {
 			return false
 		}
 		if len(call.RejectionContent) > 0 &&
@@ -425,8 +427,8 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	ctx context.Context,
 	input RecordModelOutputAndCompleteContextInput,
 ) (events.Event, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil {
 		return events.Event{}, errors.New(
 			"project, agent, runtime lock, and model context are required",
 		)
@@ -440,6 +442,9 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		return events.Event{}, fmt.Errorf("begin record model output: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockAgentWithParentTx(ctx, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,
@@ -568,6 +573,14 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		); err != nil {
 			return events.Event{}, err
 		}
+		if message, ended := subagentTurnEndMessage(input.ProviderResponse); ended {
+			message.IdempotencyKey = "model_output:" + modelOutput.ID.String()
+			if err := handleSubagentTurnEndedTx(
+				ctx, txNotifications, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID, message,
+			); err != nil {
+				return events.Event{}, err
+			}
+		}
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "record model output"); err != nil {
 		return events.Event{}, err
@@ -618,7 +631,7 @@ func validateResponseEnvelopeForModelCallContext(
 
 func validateNormalModelCallCompletionState(
 	contextRow ModelCallContextRecord,
-	modelCallContextID, runtimeLockID ID,
+	modelCallContextID, runtimeLockID uuid.UUID,
 ) (bool, error) {
 	if contextRow.ID != modelCallContextID ||
 		contextRow.OperationKind != ModelCallOperationNormal {
@@ -649,7 +662,7 @@ func completeSuccessfulNormalModelCallTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	contextRow ModelCallContextRecord,
-	runtimeLockID ID,
+	runtimeLockID uuid.UUID,
 	providerRequestID string,
 	envelope modelenvelope.ResponseEnvelope,
 ) error {
@@ -674,4 +687,26 @@ func completeSuccessfulNormalModelCallTx(
 		return err
 	}
 	return nil
+}
+
+// subagentTurnEndMessage decides whether a model output ends a subagent's
+// turn from the parent's point of view. Tool calls keep the turn open, and so
+// does max_tokens, because the scheduler continues that output automatically;
+// only end_turn delivers the answer, while refusal and content_filter tell the
+// parent the subagent stopped without one.
+func subagentTurnEndMessage(envelope modelenvelope.ResponseEnvelope) (subagentMessage, bool) {
+	if envelope.HasToolCalls() {
+		return subagentMessage{}, false
+	}
+	text := strings.TrimSpace(envelope.Text())
+	switch envelope.Normalized.StopReason {
+	case modelenvelope.StopReasonEndTurn:
+		return subagentMessage{Kind: SubagentMessageKindResult, Text: text}, true
+	case modelenvelope.StopReasonRefusal:
+		return subagentMessage{Kind: SubagentMessageKindRefused, Text: text}, true
+	case modelenvelope.StopReasonContentFilter:
+		return subagentMessage{Kind: SubagentMessageKindContentFiltered, Text: text}, true
+	default:
+		return subagentMessage{}, false
+	}
 }

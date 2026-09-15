@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -105,7 +106,7 @@ LIMIT 1
 		t.Fatalf("release integration app: %v", err)
 	}
 
-	var targetID ID
+	var targetID uuid.UUID
 	select {
 	case result := <-targetDone:
 		if result.err != nil {

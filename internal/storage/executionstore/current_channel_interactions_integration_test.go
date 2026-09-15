@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -59,7 +60,7 @@ func TestCurrentChannelInteractionCallbackBetweenSetterAndNextPrompt(t *testing.
 			require.Equal(t, executionstore.AgentInteractionStateResolved, resolved.State)
 			require.Equal(t, prompt.IntegrationTargetID, resolved.IntegrationTargetID)
 			f.requireCurrent(t, ctx, f.first.ID)
-			var inputTarget, inputBinding ID
+			var inputTarget, inputBinding uuid.UUID
 			require.NoError(t, f.Store.pool.QueryRow(ctx, `
 SELECT integration_target_id, integration_target_binding_id FROM agent_inputs
 WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
@@ -92,7 +93,7 @@ func TestCurrentChannelInteractionWithoutOriginPreservesSelection(t *testing.T) 
 			ctx := t.Context()
 			f := newCurrentChannelInteractionFixture(t, ctx, kind, 2)
 			unrouted := f.prompt(t, ctx, 0)
-			require.Equal(t, NilID, unrouted.IntegrationTargetID)
+			require.Equal(t, uuid.Nil, unrouted.IntegrationTargetID)
 			f.selectChannel(t, ctx, f.first.ID)
 			pinned := f.prompt(t, ctx, 1)
 			require.Equal(t, f.first.ID, pinned.IntegrationTargetID)
@@ -189,7 +190,7 @@ var currentChannelInteractionKinds = []executionstore.AgentInteractionKind{
 type currentChannelInteractionFixture struct {
 	processDaemonFixture
 	kind          executionstore.AgentInteractionKind
-	calls         []ID
+	calls         []uuid.UUID
 	install       integrationstore.IntegrationInstallRecord
 	first, second integrationstore.IntegrationTargetRecord
 	firstBinding  integrationstore.IntegrationTargetBindingRecord
@@ -232,7 +233,7 @@ func newCurrentChannelInteractionFixture(
 }
 
 func (f currentChannelInteractionFixture) bind(
-	t *testing.T, ctx context.Context, target ID, receive, send bool,
+	t *testing.T, ctx context.Context, target uuid.UUID, receive, send bool,
 ) integrationstore.IntegrationTargetBindingRecord {
 	t.Helper()
 	binding, err := f.Store.Integrations().CreateIntegrationTargetBinding(ctx,
@@ -244,14 +245,14 @@ func (f currentChannelInteractionFixture) bind(
 	return binding
 }
 
-func (f currentChannelInteractionFixture) selectChannel(t *testing.T, ctx context.Context, id ID) {
+func (f currentChannelInteractionFixture) selectChannel(t *testing.T, ctx context.Context, id uuid.UUID) {
 	t.Helper()
 	_, err := executionstore.IntegrationSetAgentIntegrationTarget(ctx, f.Store.q, testProjectID, f.AgentID, id)
 	require.NoError(t, err)
 	f.requireCurrent(t, ctx, id)
 }
 
-func (f currentChannelInteractionFixture) requireCurrent(t *testing.T, ctx context.Context, want ID) {
+func (f currentChannelInteractionFixture) requireCurrent(t *testing.T, ctx context.Context, want uuid.UUID) {
 	t.Helper()
 	id, err := newIntegrationStore(f.Store.pool).Execution().GetAgentCurrentChannelID(ctx, testProjectID, f.AgentID)
 	require.NoError(t, err)
@@ -288,7 +289,7 @@ func (f currentChannelInteractionFixture) response(
 }
 
 type currentChannelInteractionSnapshot struct {
-	Current     ID
+	Current     uuid.UUID
 	Inputs      int
 	Events      int
 	Interaction executionstore.AgentInteractionRecord

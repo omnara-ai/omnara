@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
@@ -44,7 +45,7 @@ func (s *Store) CompleteExternalChannelRequest(
 		// results do not revalidate changed definitions or revive revoked grants.
 		result := CompleteExternalChannelRequestResult{Request: request, Replayed: true}
 		result.Request.Replayed = true
-		if !isNilID(request.ToolCallID) {
+		if request.ToolCallID != uuid.Nil {
 			call, err := getToolCallTx(ctx, tx, request.ProjectID, request.AgentID, request.ToolCallID)
 			if err != nil {
 				return CompleteExternalChannelRequestResult{}, err
@@ -79,7 +80,7 @@ func (s *Store) CompleteExternalChannelRequest(
 		}
 	}
 	var completion ToolCallCompletionInput
-	if !isNilID(request.ToolCallID) || request.NoticeKey != "" {
+	if request.ToolCallID != uuid.Nil || request.NoticeKey != "" {
 		completion, err = s.channelOperationCompletionTx(ctx, tx, channelOperationCompletionInput{
 			RequestID: input.Result.RequestID, Operation: request.Operation, Payload: request.Payload,
 			Access: access, Binding: binding, CreatesReplyChannel: request.CreatesReplyChannel, Result: input.Result,
@@ -90,7 +91,7 @@ func (s *Store) CompleteExternalChannelRequest(
 	}
 	result := CompleteExternalChannelRequestResult{Request: externalChannelRequestRecord(row)}
 	notifications := s.newTxNotifications()
-	if !isNilID(request.ToolCallID) {
+	if request.ToolCallID != uuid.Nil {
 		call, err := finishExternalChannelToolTx(ctx, tx, notifications, result.Request, completion)
 		if err != nil {
 			return CompleteExternalChannelRequestResult{}, err
@@ -103,7 +104,7 @@ func (s *Store) CompleteExternalChannelRequest(
 	return result, nil
 }
 
-func normalizeExternalChannelResult(id ID, result channelconnector.OperationResult) (json.RawMessage, error) {
+func normalizeExternalChannelResult(id uuid.UUID, result channelconnector.OperationResult) (json.RawMessage, error) {
 	requestID, err := publicid.Encode(publicid.KindExternalChannelRequest, id)
 	if err != nil || result.RequestID != requestID {
 		return nil, errors.New("channel result request ID does not match")
@@ -183,7 +184,7 @@ func (s *Store) recheckExternalChannelRequestTx(
 	if err := validateExternalChannelAccess(ctx, q, request, access); err != nil {
 		return access, binding, err
 	}
-	if !isNilID(request.ToolCallID) {
+	if request.ToolCallID != uuid.Nil {
 		call, err := getToolCallTx(ctx, tx, request.ProjectID, request.AgentID, request.ToolCallID)
 		if err != nil {
 			return access, binding, err

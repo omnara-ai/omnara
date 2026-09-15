@@ -69,8 +69,8 @@ func TestChannelRecipientLookupPagesDistinctAgentsWithScopedInputKeys(t *testing
 	input := f.event(t, "known-message")
 	_, err := f.store.Execution().DeliverBoundChannelInput(t.Context(), input)
 	require.NoError(t, err)
-	expected := map[ID][]string{f.binding.AgentID: {input.InputKey}}
-	bindings := map[ID]ID{f.binding.ID: f.binding.AgentID}
+	expected := map[uuid.UUID][]string{f.binding.AgentID: {input.InputKey}}
+	bindings := map[uuid.UUID]uuid.UUID{f.binding.ID: f.binding.AgentID}
 	for range 2 {
 		agentID := mustCreateAgent(t, t.Context(), f.store)
 		expected[agentID] = []string{}
@@ -100,7 +100,7 @@ func TestChannelRecipientLookupPagesDistinctAgentsWithScopedInputKeys(t *testing
 	}
 	before := f.rows(t)
 	lookup := f.lookupInput(input)
-	seen := make(map[ID][]string)
+	seen := make(map[uuid.UUID][]string)
 	for pageNumber := range 2 {
 		page, err := f.store.Execution().LookupChannelRecipients(t.Context(), lookup)
 		require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestChannelRecipientLookupPreservesRevokedHistoryWithoutGrantingReceive(t *
 	lookup.ProviderRef = "unregistered-thread"
 	unknown, err := f.store.Execution().LookupChannelRecipients(t.Context(), lookup)
 	require.NoError(t, err)
-	require.Equal(t, NilID, unknown.ChannelID)
+	require.Equal(t, uuid.Nil, unknown.ChannelID)
 	require.False(t, unknown.HasReceiveBindingHistory)
 	require.False(t, unknown.WorkflowStarted)
 	require.Empty(t, unknown.Recipients)

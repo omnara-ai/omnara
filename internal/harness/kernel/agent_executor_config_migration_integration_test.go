@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
@@ -112,7 +113,7 @@ func applyChannelConfigMigrationForKernelTest(t *testing.T, fixture kernelFixtur
 	t.Helper()
 	var cutover *goose.Migration
 	for _, migration := range schemamigrations.GoMigrations() {
-		if migration.Version == 36 {
+		if migration.Version == 39 {
 			cutover = migration
 			break
 		}

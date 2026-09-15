@@ -6,22 +6,23 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type PromoteQueuedInputToSteeringInput struct {
-	ProjectID              ID
-	AgentID                ID
-	InputID                ID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	InputID                uuid.UUID
 	CancelOpenInteractions bool
 }
 
 type DemoteSteeringInputToQueuedInput struct {
-	ProjectID ID
-	AgentID   ID
-	InputID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	InputID   uuid.UUID
 }
 
 func (s *Store) PromoteQueuedInputToSteering(
@@ -76,11 +77,11 @@ func (s *Store) DemoteSteeringInputToQueued(
 
 func (s *Store) changeAgentInputDeliveryMode(
 	ctx context.Context,
-	projectID, agentID, inputID ID,
+	projectID, agentID, inputID uuid.UUID,
 	cancelOpenInteractions bool,
 	mutate func(*dbsqlc.Queries, context.Context) (bool, bool, error),
 ) error {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(inputID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || inputID == uuid.Nil {
 		return errors.New("project id, agent id, and input id are required")
 	}
 	txNotifications := s.newTxNotifications()

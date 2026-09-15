@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
@@ -162,7 +162,7 @@ func channelConnectorRuntimeUnitResponse(
 		LeasedAt: record.LeasedAt, RenewedAt: record.RenewedAt,
 		LeaseExpiresAt: record.LeaseExpiresAt, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
-	if record.IntegrationInstallID != storage.NilID {
+	if record.IntegrationInstallID != uuid.Nil {
 		installID, err := publicID(publicid.KindIntegrationInstall, record.IntegrationInstallID)
 		if err != nil {
 			return openapi.ChannelConnectorRuntimeUnit{}, err
@@ -172,7 +172,7 @@ func channelConnectorRuntimeUnitResponse(
 	if record.LeaseOwner != "" {
 		response.LeaseOwner = &record.LeaseOwner
 	}
-	if record.LeaseToken != storage.NilID {
+	if record.LeaseToken != uuid.Nil {
 		value := record.LeaseToken
 		response.LeaseToken = &value
 	}

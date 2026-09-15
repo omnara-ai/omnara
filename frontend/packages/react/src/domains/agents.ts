@@ -8,6 +8,7 @@ import {
   listAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -41,6 +42,7 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
       }),
     ),
     enabled: list.enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

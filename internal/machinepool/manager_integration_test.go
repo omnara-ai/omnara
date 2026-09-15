@@ -31,7 +31,7 @@ import (
 
 type poolMachineProvisioningScenario uint8
 
-func managerUserPrincipal(userID storage.ID) identitystore.PrincipalRecord {
+func managerUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 
@@ -97,7 +97,7 @@ func TestPoolMachineManagerFinishesProvisioningAfterManagedWorkAdmissionCloses(t
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit default pool provisioning: %v", err)
 	}
-	var machinePoolID storage.ID
+	var machinePoolID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 SELECT id
 FROM machine_pools
@@ -559,7 +559,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 			provider.deletedResourceIDs[0] != "resource-returned-with-provider-error" {
 			t.Fatalf("deleted resources = %v, want provider-returned resource", provider.deletedResourceIDs)
 		}
-		if provider.inspectMachineID != storage.NilID {
+		if provider.inspectMachineID != uuid.Nil {
 			t.Fatalf("provider resource was inspected despite checkpointed identity: %s", provider.inspectMachineID)
 		}
 
@@ -590,7 +590,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 			machine.ProviderProvisionAttemptedAt != nil {
 			t.Fatalf("admission-rejected machine = %+v, want finalized without provider attempt", machine)
 		}
-		if provider.provisioning != nil || provider.inspectMachineID != storage.NilID ||
+		if provider.provisioning != nil || provider.inspectMachineID != uuid.Nil ||
 			len(provider.deletedResourceIDs) != 0 {
 			t.Fatalf(
 				"provider was used during admission cleanup: provisioning=%+v inspect=%s deleted=%v",
@@ -1711,7 +1711,7 @@ func seedManagerOrg(
 	pool *pgxpool.Pool,
 	seed string,
 	now time.Time,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	orgID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-machinepool-integration:"+seed))
 	if _, err := pool.Exec(
@@ -1732,10 +1732,10 @@ func seedManagerProjectActor(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	store *storage.Store,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	seed, email string,
 	now time.Time,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	projectID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-machinepool-integration:"+seed))
 	if _, err := pool.Exec(
@@ -1787,9 +1787,9 @@ func createProviderAuthSecretForManagerTest(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	store *storage.Store,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	name, value string,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	user, err := storagetest.CreateVerifiedUser(
 		ctx, pool, storagetest.CreateVerifiedUserInput{Email: name + "@example.com", DisplayName: name},
@@ -1823,7 +1823,7 @@ func insertPoolMachineForManagerTest(
 	machinePool executionstore.MachinePoolRecord,
 	lifecycleState, providerResourceID string,
 	now time.Time,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	return insertPoolMachineForManagerTestWithFields(
 		t,
@@ -1879,7 +1879,7 @@ func makePoolMachineReadyForManagerReconcile(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID, machineID storage.ID,
+	orgID, machineID uuid.UUID,
 ) {
 	t.Helper()
 	tag, err := pool.Exec(
@@ -1923,9 +1923,9 @@ func insertPoolMachineForManagerTestWithFields(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	env, secretEnv json.RawMessage,
 	now time.Time,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
-	var machineID storage.ID
+	var machineID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 			INSERT INTO machines(
 				org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
@@ -1998,9 +1998,9 @@ func seedPoolMachineCleanupBindingForManagerTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID, machinePoolID, machineID storage.ID,
+	orgID, machinePoolID, machineID uuid.UUID,
 	now time.Time,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	userID := uuid.New()
 	projectID := uuid.New()
@@ -2097,9 +2097,9 @@ VALUES ($1, $2, $3, $4, 'pool', $5, '{}'::jsonb, $6, $6)
 `, grantID, orgID, projectID, machineID, poolGrantID, now)
 
 	exec("insert cleanup binding", `
-INSERT INTO agent_machine_bindings(id, org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state,
+INSERT INTO agent_machine_bindings(id, org_id, project_id, agent_id, machine_id, binding_kind, state,
     metadata, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, 'mchr-abcd23', 'pool', 'attached', '{}'::jsonb, $6, $6)
+VALUES ($1, $2, $3, $4, $5, 'pool', 'attached', '{}'::jsonb, $6, $6)
 `, bindingID, orgID, projectID, agentID, machineID, now)
 
 	if err := tx.Commit(ctx); err != nil {
@@ -2108,7 +2108,7 @@ VALUES ($1, $2, $3, $4, $5, 'mchr-abcd23', 'pool', 'attached', '{}'::jsonb, $6, 
 	return bindingID, grantID
 }
 
-func secretPublicIDForManagerTest(t *testing.T, id storage.ID) string {
+func secretPublicIDForManagerTest(t *testing.T, id uuid.UUID) string {
 	t.Helper()
 	value, err := publicid.Encode(publicid.KindSecret, id)
 	if err != nil {
@@ -2210,15 +2210,15 @@ type captureProvider struct {
 	machineToken          string
 	provisionErr          error
 	prepare               func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error)
-	installationID        storage.ID
-	machineID             storage.ID
+	installationID        uuid.UUID
+	machineID             uuid.UUID
 	inspectResourceID     string
 	inspectFound          bool
 	inspectErr            error
-	inspectInstallationID storage.ID
-	inspectMachineID      storage.ID
-	deleteInstallationID  storage.ID
-	deleteMachineID       storage.ID
+	inspectInstallationID uuid.UUID
+	inspectMachineID      uuid.UUID
+	deleteInstallationID  uuid.UUID
+	deleteMachineID       uuid.UUID
 	deletedResourceIDs    []string
 	wakeInputs            []providers.WakeMachineInput
 	wakeErrors            []error
@@ -2244,8 +2244,8 @@ func (p *captureProvider) PrepareProvisioning(
 
 func (p *captureProvider) ProvisionMachine(
 	_ context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -2279,8 +2279,8 @@ func (p *captureProvider) WakeMachine(
 
 func (p *captureProvider) InspectMachine(
 	_ context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	_ string,
 ) (string, bool, error) {
@@ -2291,8 +2291,8 @@ func (p *captureProvider) InspectMachine(
 
 func (p *captureProvider) DeleteMachine(
 	_ context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {

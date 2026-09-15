@@ -1,4 +1,4 @@
-import { useMachine, useServerInfo } from '@omnara/react'
+import { useAgents, useMachine, useServerInfo } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -88,6 +88,19 @@ export function AgentSidebar({
                       </Link>
                     ) : undefined,
                   },
+                  {
+                    label: 'Parent',
+                    value: agent.parent_agent_id ? (
+                      <Link
+                        to="/projects/$projectId/agents/$agentId"
+                        params={{ projectId, agentId: agent.parent_agent_id }}
+                        className="font-mono text-xs hover:underline"
+                      >
+                        {agent.parent_agent_id}
+                      </Link>
+                    ) : undefined,
+                  },
+                  { label: 'Key', value: agent.subagent_key, mono: true },
                   { label: 'Config', value: agent.current_config_id, mono: true },
                   { label: 'Created', value: formatDateTime(agent.created_at) },
                 ]}
@@ -95,6 +108,7 @@ export function AgentSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
           <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
+          <AgentSubagentsGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentMcpGroup connections={mcpConnections} />
           <AgentCronGroup
             orgId={orgId}
@@ -133,6 +147,72 @@ function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: 
             {machineIds.map((machineId) => (
               <AgentMachineRow key={machineId} orgId={orgId} machineId={machineId} />
             ))}
+          </SidebarMenu>
+        )}
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
+function AgentSubagentsGroup({
+  orgId,
+  projectId,
+  agentId,
+}: {
+  orgId: string
+  projectId: string
+  agentId: string
+}) {
+  const query = useAgents(orgId, projectId, {
+    filters: { parent_agent_id: agentId, include_archived: true },
+    sort: 'created_at',
+  })
+  const subagents = query.data?.pages.flatMap((page) => page.data) ?? []
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="px-0 text-sm">Subagents</SidebarGroupLabel>
+      <SidebarGroupContent>
+        {query.isPending ? (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">Loading…</p>
+        ) : subagents.length === 0 ? (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">No subagents.</p>
+        ) : (
+          <SidebarMenu>
+            {subagents.map((subagent) => (
+              <SidebarMenuItem
+                key={subagent.id}
+                className="flex items-center justify-between gap-2 py-1.5 text-sm"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <Link
+                    to="/projects/$projectId/agents/$agentId"
+                    params={{ projectId, agentId: subagent.id }}
+                    className="truncate hover:underline"
+                  >
+                    {subagent.name || subagent.subagent_key}
+                  </Link>
+                  <span className="text-muted-foreground truncate font-mono text-xs">
+                    {subagent.subagent_key}
+                  </span>
+                </span>
+                <Badge variant="outline" className="capitalize">
+                  {(subagent.activity?.state ?? subagent.state).replaceAll('_', ' ')}
+                </Badge>
+              </SidebarMenuItem>
+            ))}
+            {query.hasNextPage && (
+              <SidebarMenuItem className="py-1.5 text-sm">
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0"
+                  disabled={query.isFetchingNextPage}
+                  onClick={() => void query.fetchNextPage()}
+                >
+                  Show more
+                </Button>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         )}
       </SidebarGroupContent>

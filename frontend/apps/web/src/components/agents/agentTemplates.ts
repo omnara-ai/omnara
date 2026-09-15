@@ -24,8 +24,8 @@ const templateToolNames = [
   'ask_question',
   'web_search',
   'web_fetch',
-  'upload_artifact',
-  'download_artifact',
+  'upload_file',
+  'download_file',
 ] as const
 
 const generalAgent: AgentTemplate = {
@@ -101,6 +101,9 @@ export function agentTemplateBasicConfig(
   return {
     mcpServers: [],
     skillIds: [],
+    subagents: [],
+    maxSubagents: '',
+    maxDepth: '',
     ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
   }
 }

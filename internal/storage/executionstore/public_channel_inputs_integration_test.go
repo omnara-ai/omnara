@@ -87,10 +87,10 @@ func TestPublicChannelInputRequiresReceiveAndPreservesReplayOrigin(t *testing.T)
 	require.NotEqual(t, created[0], created[1])
 	require.Equal(t, binding.ID, results[0].IntegrationTargetBindingID)
 	require.Equal(t, f.target.ID, results[0].IntegrationTargetID)
-	var current ID
+	var current uuid.UUID
 	require.NoError(t, f.store.pool.QueryRow(ctx,
 		`SELECT integration_target_id FROM agents WHERE id=$1`, f.agent.ID).Scan(&current))
-	require.Equal(t, NilID, current, "enqueue has not changed the model turn origin")
+	require.Equal(t, uuid.Nil, current, "enqueue has not changed the model turn origin")
 	claim, found, err := f.store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
 	require.NoError(t, err)
 	require.True(t, found)

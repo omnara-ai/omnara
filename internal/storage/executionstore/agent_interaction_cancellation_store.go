@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 const interactionCancellationReasonSupersededByInput = "superseded_by_input"
@@ -17,9 +19,9 @@ func cancelOpenInteractionsForSteeringInputTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
-	supersedingInputID ID,
-) ([]ID, error) {
+	projectID, agentID uuid.UUID,
+	supersedingInputID uuid.UUID,
+) ([]uuid.UUID, error) {
 	turn, err := qtx.CurrentContinuableAgentTurn(
 		ctx,
 		dbsqlc.CurrentContinuableAgentTurnParams{ProjectID: projectID, AgentID: agentID},
@@ -37,7 +39,7 @@ func cancelOpenInteractionsForSteeringInputTx(
 			AgentID:           agentID,
 			TurnID:            turn.ID,
 			Reason:            interactionCancellationReasonSupersededByInput,
-			ResolvedByInputID: sqlcIDFromNil(supersedingInputID),
+			ResolvedByInputID: storeutil.IDFromNil(supersedingInputID),
 		},
 	)
 	if err != nil {
@@ -51,7 +53,7 @@ func cancelOpenInteractionsForSteeringInputTx(
 	if err != nil {
 		return nil, fmt.Errorf("load canceled interactions for steering input: %w", err)
 	}
-	canceledInteractionIDs := make([]ID, 0, len(rows))
+	canceledInteractionIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		interaction := agentInteractionRecordFromSQLC(row)
 		if _, err := qtx.CancelExternalChannelRequestsForInteraction(ctx,

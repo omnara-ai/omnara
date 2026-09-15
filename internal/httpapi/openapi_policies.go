@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -440,10 +440,10 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	),
 	operationSocketMachineDaemonRuntime: machineDaemonPolicy(customScope("daemon runtime websocket upgrade")),
 	operationUploadDaemonArtifact: machineDaemonPolicy(
-		customScope("machine daemon token + active upload_artifact process"),
+		customScope("machine daemon token + active artifact upload process"),
 	),
 	operationDownloadDaemonArtifact: machineDaemonPolicy(
-		customScope("machine daemon token + active download_artifact process"),
+		customScope("machine daemon token + active artifact download process"),
 	),
 	operationGetChannelConnectorAppConfiguration: channelConnectorPolicy(
 		customScope("connector provider/app scope + exact secret association"),
@@ -651,7 +651,7 @@ func principalSatisfies(principal identitystore.PrincipalRecord, kind operationP
 	case principalKindAccount:
 		return identitystore.IsAccountPrincipal(principal)
 	case principalKindBrowserSession:
-		return principal.Type == identitystore.PrincipalTypeUser && principal.BrowserSessionID != storage.NilID
+		return principal.Type == identitystore.PrincipalTypeUser && principal.BrowserSessionID != uuid.Nil
 	case principalKindMachineDaemon:
 		return principal.Type == identitystore.PrincipalTypeMachineDaemon
 	case principalKindChannelConnector:
@@ -687,7 +687,7 @@ func missingOperationScopeError(scope string) error {
 
 func orgScopeFromContext(ctx context.Context) (identitystore.OrgRecord, error) {
 	org, ok := ctx.Value(orgScopeContextKey{}).(identitystore.OrgRecord)
-	if !ok || org.ID == storage.NilID {
+	if !ok || org.ID == uuid.Nil {
 		return identitystore.OrgRecord{}, missingOperationScopeError("organization")
 	}
 	return org, nil
@@ -703,7 +703,7 @@ func withProjectScope(
 
 func projectScopeFromContext(ctx context.Context) (projectScopeRecord, error) {
 	record, ok := ctx.Value(projectScopeContextKey{}).(projectScopeRecord)
-	if !ok || record.org.ID == storage.NilID || record.project.ID == storage.NilID {
+	if !ok || record.org.ID == uuid.Nil || record.project.ID == uuid.Nil {
 		return projectScopeRecord{}, missingOperationScopeError("project")
 	}
 	return record, nil
@@ -720,7 +720,7 @@ func withAgentScope(
 
 func agentScopeFromContext(ctx context.Context) (agentScopeRecord, error) {
 	record, ok := ctx.Value(agentScopeContextKey{}).(agentScopeRecord)
-	if !ok || record.org.ID == storage.NilID || record.project.ID == storage.NilID || record.agent.ID == storage.NilID {
+	if !ok || record.org.ID == uuid.Nil || record.project.ID == uuid.Nil || record.agent.ID == uuid.Nil {
 		return agentScopeRecord{}, missingOperationScopeError("agent")
 	}
 	return record, nil
@@ -732,7 +732,7 @@ func withMachineScope(ctx context.Context, machine executionstore.MachineRecord)
 
 func machineScopeFromContext(ctx context.Context) (executionstore.MachineRecord, error) {
 	machine, ok := ctx.Value(machineScopeContextKey{}).(executionstore.MachineRecord)
-	if !ok || machine.ID == storage.NilID {
+	if !ok || machine.ID == uuid.Nil {
 		return executionstore.MachineRecord{}, missingOperationScopeError("machine")
 	}
 	return machine, nil

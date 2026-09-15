@@ -48,8 +48,8 @@ func TestLaunchChannelsCommitAtomicallyAndReplayDoesNotGrant(t *testing.T) {
 	launched, err := f.store.Execution().LaunchAgent(ctx, request)
 	require.NoError(t, err)
 	require.True(t, launched.Created)
-	require.NotEqual(t, NilID, launched.AgentInput.ID)
-	var selected *ID
+	require.NotEqual(t, uuid.Nil, launched.AgentInput.ID)
+	var selected *uuid.UUID
 	require.NoError(t, f.store.pool.QueryRow(ctx,
 		`SELECT integration_target_id FROM agents WHERE id=$1`, launched.Agent.ID).Scan(&selected))
 	require.Nil(t, selected, "attaching access does not select an origin for an ordinary launch message")

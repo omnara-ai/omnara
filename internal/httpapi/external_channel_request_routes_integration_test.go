@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -154,7 +154,7 @@ func TestPublicExternalChannelRequestJourney(t *testing.T) {
 		http.StatusOK, authHeaders(token))
 	requireExternalRequestHTTPIDs(t, remaining, waiting[1].request.ID)
 
-	var childBindingID storage.ID
+	var childBindingID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM integration_target_bindings
 		WHERE project_id = $1 AND agent_id = $2 AND integration_target_id = $3 AND revoked_at IS NULL`,
 		project.ProjectUUID, waiting[0].request.AgentID, childID).Scan(&childBindingID))
@@ -220,7 +220,7 @@ func externalHTTPDefinitionBody() string {
 
 type externalRequestHTTPWaitingTool struct {
 	request       executionstore.ExternalChannelRequestRecord
-	bindingID     storage.ID
+	bindingID     uuid.UUID
 	originalInput json.RawMessage
 }
 
@@ -245,7 +245,7 @@ func createExternalRequestHTTPWaitingTools(
 	require.Equal(t, executionstore.AgentWorkModel, work.Kind)
 	require.Equal(t, agentID, work.RuntimeLock.AgentID)
 	claim := claimNormalModelCallForHTTPTest(t, ctx, store, project.ProjectUUID, agentID, work.RuntimeLock,
-		[]storage.ID{input.ID}, launch.AgentConfig.ID, work.Model.AdmittedInputTurn.Events[0].Sequence)
+		[]uuid.UUID{input.ID}, launch.AgentConfig.ID, work.Model.AdmittedInputTurn.Events[0].Sequence)
 	proposals := make([]model.ToolCall, len(channels))
 	bindings := make([]executionstore.ToolCallBindingInput, len(channels))
 	for i, channel := range channels {
@@ -267,7 +267,7 @@ func createExternalRequestHTTPWaitingTools(
 		})
 	require.NoError(t, err)
 	require.Len(t, calls, len(channels))
-	grants := make(map[storage.ID]storage.ID)
+	grants := make(map[uuid.UUID]uuid.UUID)
 	result := make([]externalRequestHTTPWaitingTool, len(calls))
 	for i, call := range calls {
 		channel := channels[i]
@@ -312,13 +312,13 @@ func createExternalRequestHTTPWaitingTools(
 	return result
 }
 
-func externalRequestHTTPPath(t *testing.T, project publicHTTPProject, installID storage.ID) string {
+func externalRequestHTTPPath(t *testing.T, project publicHTTPProject, installID uuid.UUID) string {
 	t.Helper()
 	return project.ProjectPath + "/integration-installs/" +
 		testPublicID(t, publicid.KindIntegrationInstall, installID) + "/requests"
 }
 
-func requireExternalRequestHTTPIDs(t *testing.T, response map[string]any, ids ...storage.ID) {
+func requireExternalRequestHTTPIDs(t *testing.T, response map[string]any, ids ...uuid.UUID) {
 	t.Helper()
 	items := testutil.RequireType[[]any](t, response["data"])
 	require.Len(t, items, len(ids))

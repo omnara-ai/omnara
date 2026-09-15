@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -30,10 +30,10 @@ func (e AgentExecutor) executeToolWork(
 	if e.Store == nil {
 		return errors.New("kernel store is required")
 	}
-	if input.ProjectID == storage.NilID || input.AgentID == storage.NilID ||
-		input.TurnID == storage.NilID || input.ModelCallContextID == storage.NilID ||
-		input.ModelOutputID == storage.NilID || input.SourceEventID == storage.NilID ||
-		input.RuntimeLockID == storage.NilID {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil ||
+		input.TurnID == uuid.Nil || input.ModelCallContextID == uuid.Nil ||
+		input.ModelOutputID == uuid.Nil || input.SourceEventID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return errors.New("tool work requires project, agent, turn, model output, source event, context, and runtime")
 	}
 	if input.Now.IsZero() {
@@ -80,7 +80,7 @@ func (e AgentExecutor) executeToolWork(
 		return fmt.Errorf("load tool work runtime contract: %w", err)
 	}
 	turn := toolWorkTurn(input, contextRecord.OrgID, specs)
-	deferredToolCallIDs := make([]storage.ID, 0)
+	deferredToolCallIDs := make([]uuid.UUID, 0)
 	for {
 		record, found, err := e.Store.Execution().NextRunnableToolCall(
 			ctx,

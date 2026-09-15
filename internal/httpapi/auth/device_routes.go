@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -155,8 +155,8 @@ func (h *Handler) writeOAuthTokenStorageError(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) pendingDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -182,8 +182,8 @@ func (h *Handler) pendingDeviceAuthRoute(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) approveDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -216,8 +216,8 @@ func (h *Handler) approveDeviceAuthRoute(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) denyDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -248,7 +248,7 @@ func (h *Handler) requireDeviceUserCodeRateLimits(
 	w http.ResponseWriter,
 	r *http.Request,
 	action string,
-	userID storage.ID,
+	userID uuid.UUID,
 	userCode string,
 ) bool {
 	code := identitystore.NormalizeDeviceUserCode(userCode)

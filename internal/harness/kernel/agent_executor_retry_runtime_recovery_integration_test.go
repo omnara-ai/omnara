@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -174,7 +174,7 @@ func TestAgentExecutorRetriesInterruptedModelContext(t *testing.T) {
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("model prepared %d requests, want one request on the new lease", modelClient.preparedCount())
 	}
-	var recoveredContextID storage.ID
+	var recoveredContextID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT id
 FROM model_call_contexts

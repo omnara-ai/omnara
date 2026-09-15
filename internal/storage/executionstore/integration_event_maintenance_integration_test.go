@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -17,8 +18,8 @@ import (
 
 type receiptMaintenanceFixture struct {
 	store     *Store
-	appID     ID
-	installID ID
+	appID     uuid.UUID
+	installID uuid.UUID
 }
 
 func newReceiptMaintenanceFixture(t *testing.T) receiptMaintenanceFixture {
@@ -73,7 +74,7 @@ func (f receiptMaintenanceFixture) finish(
 	return receipt
 }
 
-func (f receiptMaintenanceFixture) expire(t *testing.T, id ID) {
+func (f receiptMaintenanceFixture) expire(t *testing.T, id uuid.UUID) {
 	t.Helper()
 	_, err := f.store.pool.Exec(t.Context(), `UPDATE integration_event_receipts
 SET available_at = statement_timestamp() - interval '1 second',
@@ -281,10 +282,10 @@ func TestIntegrationEventMaintenanceFixedCycleRevisitsEarlierWorkAcrossStoreRest
 	first := f.receive(t, "first")
 	middle := f.receive(t, "middle")
 	end := f.receive(t, "cycle end")
-	readCursor := func() (ID, *ID) {
+	readCursor := func() (uuid.UUID, *uuid.UUID) {
 		t.Helper()
-		var last ID
-		var cycleEnd *ID
+		var last uuid.UUID
+		var cycleEnd *uuid.UUID
 		require.NoError(t, f.store.pool.QueryRow(ctx, `SELECT last_item_id, cycle_end_id
 FROM integration_sweep_cursors WHERE sweep_kind = 'event_unprocessable'`).Scan(&last, &cycleEnd))
 		return last, cycleEnd
@@ -312,7 +313,7 @@ FROM integration_sweep_cursors WHERE sweep_kind = 'event_unprocessable'`).Scan(&
 	require.NoError(t, err)
 	require.Zero(t, failed)
 	last, cycleEnd = readCursor()
-	require.Equal(t, NilID, last)
+	require.Equal(t, uuid.Nil, last)
 	require.Nil(t, cycleEnd)
 	failed, err = restarted.FailUnprocessableIntegrationEvents(ctx, 1)
 	require.NoError(t, err)
@@ -381,7 +382,7 @@ WHERE id = $1`, receipt.ID)
 	}
 	_, err := f.store.pool.Exec(ctx, `UPDATE integration_event_receipts
 SET updated_at = statement_timestamp() - interval '30 days' WHERE id = ANY($1::uuid[])`,
-		[]ID{recent.ID, processing.ID, pending.ID})
+		[]uuid.UUID{recent.ID, processing.ID, pending.ID})
 	require.NoError(t, err)
 	f.expire(t, processing.ID)
 	holder := integrationdb.BeginTx(t, ctx, f.store.pool)

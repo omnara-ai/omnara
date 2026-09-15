@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -18,8 +19,8 @@ func (s *Store) CreateSecretGrant(
 	ctx context.Context,
 	input CreateSecretGrantInput,
 ) (SecretGrantRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.TargetProjectID) ||
-		isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.TargetProjectID == uuid.Nil ||
+		input.Actor.ID == uuid.Nil {
 		return SecretGrantRecord{}, invalidSecretRequest(
 			"org, secret, target project, and actor are required",
 		)
@@ -61,7 +62,7 @@ func (s *Store) CreateSecretGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	projectIDs := []ID{input.TargetProjectID}
+	projectIDs := []uuid.UUID{input.TargetProjectID}
 	if secret.OwnerKind == SecretOwnerProject {
 		projectIDs = append(projectIDs, secret.OwnerProjectID)
 	}
@@ -102,7 +103,7 @@ func (s *Store) CreateSecretGrant(
 	return grant, nil
 }
 
-func (s *Store) GetSecretGrant(ctx context.Context, orgID, grantID ID) (SecretGrantRecord, error) {
+func (s *Store) GetSecretGrant(ctx context.Context, orgID, grantID uuid.UUID) (SecretGrantRecord, error) {
 	row, err := s.q.GetSecretGrant(ctx, dbsqlc.GetSecretGrantParams{OrgID: orgID, ID: grantID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -115,7 +116,7 @@ func (s *Store) GetSecretGrant(ctx context.Context, orgID, grantID ID) (SecretGr
 
 func (s *Store) GetSecretGrantForSourceSecret(
 	ctx context.Context,
-	orgID, secretID, grantID ID,
+	orgID, secretID, grantID uuid.UUID,
 ) (SecretGrantRecord, error) {
 	row, err := s.q.GetSecretGrantForSourceSecret(
 		ctx,
@@ -132,7 +133,7 @@ func (s *Store) GetSecretGrantForSourceSecret(
 
 func (s *Store) GetSecretGrantForTargetProject(
 	ctx context.Context,
-	orgID, projectID, grantID ID,
+	orgID, projectID, grantID uuid.UUID,
 ) (SecretGrantRecord, error) {
 	row, err := s.q.GetSecretGrantForTargetProject(
 		ctx,
@@ -152,7 +153,7 @@ func (s *Store) GetSecretGrantForTargetProject(
 }
 
 func (s *Store) ListSecretGrants(ctx context.Context, input ListSecretGrantsInput) (ListSecretGrantsResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return ListSecretGrantsResult{}, invalidSecretRequest("org, secret, and actor are required")
 	}
 	if input.Limit <= 0 {
@@ -174,7 +175,7 @@ func (s *Store) ListSecretGrants(ctx context.Context, input ListSecretGrantsInpu
 		SecretID:  input.SecretID,
 		RowLimit:  int64(input.Limit) + 1,
 		SortField: input.List.SortField, SortDesc: input.List.SortDesc,
-		NamePattern: input.List.NamePattern, TargetProjectID: sqlcIDFromNil(input.TargetProjectID),
+		NamePattern: input.List.NamePattern, TargetProjectID: storeutil.IDFromNil(input.TargetProjectID),
 	}
 	if !listing.SortAllowed(input.List.SortField, "name", "created_at") {
 		return ListSecretGrantsResult{}, invalidSecretRequest("unsupported sort")
@@ -212,8 +213,8 @@ func (s *Store) DeleteSecretGrant(
 	ctx context.Context,
 	input DeleteSecretGrantInput,
 ) (SecretGrantRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.GrantID) ||
-		isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.GrantID == uuid.Nil ||
+		input.Actor.ID == uuid.Nil {
 		return SecretGrantRecord{}, invalidSecretRequest("org, secret, grant, and actor are required")
 	}
 	grant, err := s.GetSecretGrantForSourceSecret(ctx, input.OrgID, input.SecretID, input.GrantID)
@@ -238,7 +239,7 @@ func (s *Store) DeleteSecretGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	projectIDs := []ID{grant.TargetProjectID}
+	projectIDs := []uuid.UUID{grant.TargetProjectID}
 	if secret.OwnerKind == SecretOwnerProject {
 		projectIDs = append(projectIDs, secret.OwnerProjectID)
 	}

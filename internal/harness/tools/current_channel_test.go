@@ -5,7 +5,8 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -16,15 +17,15 @@ func TestSetCurrentChannelInput(t *testing.T) {
 	require.NoError(t, err)
 	for _, value := range []struct {
 		input string
-		id    storage.ID
+		id    uuid.UUID
 		valid bool
 	}{
 		{`{"channel_id":"` + channelID + `"}`, id, true},
-		{`{"channel_id":null}`, storage.NilID, true},
-		{`{}`, storage.NilID, false},
-		{`{"channel_id":""}`, storage.NilID, false},
-		{`{"channel_id":false}`, storage.NilID, false},
-		{`{"channel_id":null,"extra":true}`, storage.NilID, false},
+		{`{"channel_id":null}`, uuid.Nil, true},
+		{`{}`, uuid.Nil, false},
+		{`{"channel_id":""}`, uuid.Nil, false},
+		{`{"channel_id":false}`, uuid.Nil, false},
+		{`{"channel_id":null,"extra":true}`, uuid.Nil, false},
 	} {
 		t.Run(value.input, func(t *testing.T) {
 			got, err := parseSetCurrentChannelRequest(json.RawMessage(value.input))

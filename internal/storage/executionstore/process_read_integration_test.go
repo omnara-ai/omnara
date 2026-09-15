@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
@@ -671,7 +672,7 @@ func assertProcessDefaultOutputCursor(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	processID ID,
+	processID uuid.UUID,
 	want int64,
 ) {
 	t.Helper()

@@ -53,3 +53,4 @@ Unknown model output capacity is represented by null: POST /orgs/{orgID}/project
 Strict model resource creation: POST /orgs/{orgID}/model-provider-configs removed the success response with the status `200`
 Strict model resource creation: POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models removed the success response with the status `200`
 Strict model resource creation: POST /orgs/{orgID}/projects/{projectID}/model-grants removed the success response with the status `200`
+Public machine IDs replace binding refs: POST /orgs/{orgID}/projects/{projectID}/agents removed the required property `machine_bindings/items/machine_ref` from the response with the `201` status

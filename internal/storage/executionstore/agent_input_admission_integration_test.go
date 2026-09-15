@@ -8,6 +8,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -73,7 +74,7 @@ func TestAgentInputAdmissionUsesItsCausalEvent(t *testing.T) {
 		t.Fatalf("admit input with unrelated event error = %v, want %v", err, pgx.ErrNoRows)
 	}
 	var state string
-	var admittedEventID *ID
+	var admittedEventID *uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT state, admitted_event_id
 FROM agent_inputs

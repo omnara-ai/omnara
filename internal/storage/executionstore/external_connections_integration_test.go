@@ -59,7 +59,7 @@ func TestChannelProviderReferenceLookupUsesCallerTransactionAndScope(t *testing.
 	require.Equal(t, created.ChannelDefinitionID, resolved.ChannelDefinitionID)
 	_, err = integrations.GetIntegrationTargetByProviderRef(ctx, testProjectID, f.install.ID, created.ProviderRef)
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "uncommitted registration is visible only inside the owning transaction")
-	for _, scope := range []struct{ project, install ID }{
+	for _, scope := range []struct{ project, install uuid.UUID }{
 		{uuid.New(), f.install.ID}, {testProjectID, uuid.New()},
 	} {
 		_, err = integrations.GetIntegrationTargetByProviderRefTx(ctx, tx, scope.project, scope.install, created.ProviderRef)
@@ -73,14 +73,14 @@ func TestChannelProviderReferenceLookupUsesCallerTransactionAndScope(t *testing.
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "lookup does not register a reference after its creation rolls back")
 }
 
-func externalConnectionInput(userID ID) integrationstore.CreateExternalIntegrationInstallInput {
+func externalConnectionInput(userID uuid.UUID) integrationstore.CreateExternalIntegrationInstallInput {
 	return integrationstore.CreateExternalIntegrationInstallInput{
 		OrgID: testOrgID, ProjectID: testProjectID, InstalledBy: identitystore.NewUserPrincipal(userID),
 		DisplayName: "Customer connector", Metadata: json.RawMessage(`{"team":"support"}`),
 	}
 }
 
-func externalDefinitionInput(installID ID) integrationstore.PublishChannelDefinitionInput {
+func externalDefinitionInput(installID uuid.UUID) integrationstore.PublishChannelDefinitionInput {
 	return integrationstore.PublishChannelDefinitionInput{
 		ProjectID: testProjectID, IntegrationInstallID: installID, ImplementationKey: "conversation",
 		Kind:             integrationstore.ChannelKindExternal,
@@ -107,7 +107,7 @@ func TestExternalConnectionRegistrationRetainsRealPrincipalWithoutPhysicalIdenti
 	require.JSONEq(t, string(input.Metadata), string(created.Metadata))
 	require.Empty(t, created.Provider)
 	require.Empty(t, created.ProviderAccountRef)
-	require.Equal(t, NilID, created.IntegrationAppID)
+	require.Equal(t, uuid.Nil, created.IntegrationAppID)
 	var honestShape bool
 	require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT integration_app_id IS NULL AND provider IS NULL
 		AND provider_tenant_id IS NULL AND provider_account_ref IS NULL AND credential_secret_id IS NULL
@@ -192,7 +192,7 @@ func TestExternalChannelsUseLiveGrantsAndActualInputAttribution(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, access.Active)
 	require.Equal(t, integrationstore.IntegrationKindExternal, access.IntegrationKind)
-	require.Equal(t, NilID, access.IntegrationAppID)
+	require.Equal(t, uuid.Nil, access.IntegrationAppID)
 	require.True(t, access.Capabilities.Read)
 	require.False(t, access.Capabilities.Send)
 	page, err := f.Store.Integrations().ListAgentChannelTargets(ctx, testProjectID, f.AgentID,

@@ -56,7 +56,7 @@ func TestIntegrationAppProviderIdentityLookupKeepsExactOwnershipScope(t *testing
 	require.Equal(t, apps[winner].ID, canonical.ID, "a racing creator can find the exact conflict owner")
 	require.Equal(t, input.ConnectorKey, canonical.ConnectorKey)
 	require.Nil(t, canonical.CredentialSecretID, "a physical registration need not invent app credentials")
-	input.OwnerProjectID = NilID
+	input.OwnerProjectID = uuid.Nil
 	shared, err := store.Integrations().CreateIntegrationApp(ctx, input)
 	require.NoError(t, err)
 	sharedKey := key

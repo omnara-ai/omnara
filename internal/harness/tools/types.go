@@ -3,9 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/sigv4"
@@ -31,7 +34,7 @@ type SkillBroadcaster interface {
 type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
-		projectID storage.ID,
+		projectID uuid.UUID,
 		publicSkillID string,
 	) (skillstore.SkillRecord, error)
 }
@@ -43,13 +46,13 @@ type ChannelOperationsClient interface {
 }
 
 type Turn struct {
-	OrgID              storage.ID
-	ProjectID          storage.ID
-	AgentID            storage.ID
-	TurnID             storage.ID
-	SourceEventID      storage.ID
-	RuntimeLockID      storage.ID
-	ModelCallContextID storage.ID
+	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	SourceEventID      uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
 	Tools              map[string]ToolSpec
 }
 
@@ -73,6 +76,15 @@ type Executor struct {
 	Now                      func() time.Time
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
+	AgentConfigOptions       agentconfig.CompileOptions
+	Log                      *slog.Logger
+}
+
+func (e Executor) logger() *slog.Logger {
+	if e.Log != nil {
+		return e.Log
+	}
+	return slog.Default()
 }
 
 func (e Executor) skillStore() SkillStore {
@@ -90,9 +102,11 @@ func (e Executor) skillStore() SkillStore {
 }
 
 type machinePoolManager interface {
-	ProvisionMachine(ctx context.Context, orgID, machineID storage.ID) error
+	ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUID) error
+	StartLaunchProvisioning(parent context.Context, logger *slog.Logger, orgID uuid.UUID, machineIDs []uuid.UUID)
 	DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error
-	WakeMachine(ctx context.Context, orgID, machineID storage.ID) (bool, error)
+	DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error)
+	WakeMachine(ctx context.Context, orgID, machineID uuid.UUID) (bool, error)
 }
 
 type DispatchDisposition uint8

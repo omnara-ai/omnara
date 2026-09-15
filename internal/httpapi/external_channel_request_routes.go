@@ -4,9 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -123,7 +125,7 @@ func (s strictOpenAPIServer) CompleteExternalChannelRequest(
 		if err != nil {
 			return nil, err
 		}
-		blocks, err := publicToolResultContentBlocks(result.ToolCall.ResultContentParts)
+		blocks, err := publicevents.ToolResultContentBlocks(result.ToolCall.ResultContentParts)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +144,7 @@ func publicExternalChannelRequest(
 	}
 	for _, field := range []struct {
 		kind publicid.Kind
-		id   integrationstore.ID
+		id   uuid.UUID
 		out  *string
 	}{
 		{publicid.KindExternalChannelRequest, record.ID, &response.Id},

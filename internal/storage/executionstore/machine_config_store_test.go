@@ -176,8 +176,8 @@ func TestResolveEnvironmentSecretsRejectsOversizedEnvironment(t *testing.T) {
 	}
 	if _, err := store.ResolveEnvironmentSecrets(
 		context.Background(),
-		NilID,
-		NilID,
+		uuid.Nil,
+		uuid.Nil,
 		env,
 		json.RawMessage(`{}`),
 	); err == nil || !errors.Is(err, storeerr.ErrPermanentEnvironment) ||

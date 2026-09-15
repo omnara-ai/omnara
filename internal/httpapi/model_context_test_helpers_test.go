@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -15,10 +16,10 @@ func claimNormalModelCallForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	runtime executionstore.AgentRuntimeLockRecord,
-	openingInputIDs []storage.ID,
-	agentConfigID storage.ID,
+	openingInputIDs []uuid.UUID,
+	agentConfigID uuid.UUID,
 	inputEventSequence int64,
 ) executionstore.ModelCallClaim {
 	t.Helper()
@@ -46,7 +47,7 @@ func loadModelCallProviderIdentityForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	projectID storage.ID,
+	projectID uuid.UUID,
 	modelCallContext executionstore.ModelCallContextRecord,
 ) modelCallProviderIdentityForHTTPTest {
 	t.Helper()

@@ -12,7 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -111,7 +112,7 @@ func TestSteeringChannelReachesNextModelContextAtAdmission(t *testing.T) {
 	require.NoError(t, err)
 	current, err := fixture.Store.Execution().GetAgentCurrentChannelID(ctx, kernelTestProjectID, agentID)
 	require.NoError(t, err)
-	require.Equal(t, storage.NilID, current, "enqueue does not redirect a running agent")
+	require.Equal(t, uuid.Nil, current, "enqueue does not redirect a running agent")
 	work, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx,
 		kernelTestClaimInput(fixture.Now.Add(2*time.Second)))
 	require.NoError(t, err)

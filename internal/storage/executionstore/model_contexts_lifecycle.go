@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -114,8 +115,8 @@ func (s *Store) RecordRetryableModelCallFailure(
 }
 
 func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailureInput) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ModelCallContextID) ||
-		isNilID(input.RuntimeLockID) || input.ErrorKind == "" ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ModelCallContextID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil || input.ErrorKind == "" ||
 		input.ErrorMessage == "" {
 		return errors.New("project, agent, context, runtime, and error are required")
 	}
@@ -151,10 +152,10 @@ func validateModelCallFailureEvidence(
 }
 
 type finishModelCallContextInput struct {
-	ProjectID               ID
-	AgentID                 ID
-	ModelCallContextID      ID
-	RuntimeLockID           ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	ModelCallContextID      uuid.UUID
+	RuntimeLockID           uuid.UUID
 	ToState                 ModelCallState
 	RecoveryKind            ModelCallRecoveryKind
 	APIFormat               modelprotocol.APIFormat
@@ -217,7 +218,7 @@ func finishModelCallContextWithAuthorityTx(
 	}
 	id, err := q.FinishModelCallContext(ctx, dbsqlc.FinishModelCallContextParams{
 		ToState:                             string(input.ToState),
-		RecoveryKind:                        sqlcTextFromEmpty(string(input.RecoveryKind)),
+		RecoveryKind:                        storeutil.TextFromEmpty(string(input.RecoveryKind)),
 		ApiFormat:                           string(input.APIFormat),
 		ApiVariant:                          string(input.APIVariant),
 		ProviderRequestID:                   input.ProviderRequestID,

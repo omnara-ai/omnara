@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -15,9 +16,9 @@ import (
 )
 
 type ChannelBindingInputIdentity struct {
-	ProjectID            ID
-	IntegrationInstallID ID
-	BindingID            ID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	BindingID            uuid.UUID
 	Capabilities         []channelconnector.Capability
 }
 
@@ -28,7 +29,7 @@ type PreparedBoundChannelInput struct {
 	install  integrationstore.IntegrationInstallRecord
 }
 
-func (p PreparedBoundChannelInput) AgentID() ID { return p.binding.AgentID }
+func (p PreparedBoundChannelInput) AgentID() uuid.UUID { return p.binding.AgentID }
 
 type DeliverBoundChannelInput struct {
 	Prepared               PreparedBoundChannelInput
@@ -49,7 +50,7 @@ type DeliverBoundChannelInput struct {
 func (s *Store) PrepareBoundChannelInput(
 	ctx context.Context, identity ChannelBindingInputIdentity,
 ) (PreparedBoundChannelInput, error) {
-	if isNilID(identity.ProjectID) || isNilID(identity.IntegrationInstallID) || isNilID(identity.BindingID) {
+	if identity.ProjectID == uuid.Nil || identity.IntegrationInstallID == uuid.Nil || identity.BindingID == uuid.Nil {
 		return PreparedBoundChannelInput{}, storeerr.InvalidRequest(
 			errors.New("project, installation and binding are required"))
 	}
@@ -83,8 +84,8 @@ func (s *Store) DeliverBoundChannelInput(
 	outcome := artifactstore.ArtifactTransactionRolledBack
 	defer func() { s.finishInputContent(ctx, input.Content, outcome) }()
 	prepared := input.Prepared
-	if prepared.store != s || isNilID(prepared.binding.AgentID) || isNilID(input.Receipt.ReceiptID) ||
-		isNilID(input.Receipt.LeaseToken) || input.Receipt.LeaseGeneration <= 0 {
+	if prepared.store != s || prepared.binding.AgentID == uuid.Nil || input.Receipt.ReceiptID == uuid.Nil ||
+		input.Receipt.LeaseToken == uuid.Nil || input.Receipt.LeaseGeneration <= 0 {
 		return ChannelInputResult{}, storeerr.InvalidRequest(
 			errors.New("prepared recipient and current receipt lease are required"))
 	}

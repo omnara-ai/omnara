@@ -32,7 +32,7 @@ func TestTransactionalReceiveBindingLookupUsesCallerStateAndLiveExternalScope(t 
 	}
 	original, err := f.Store.Integrations().CreateIntegrationTargetBinding(ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, NilID, original.IntegrationRouteID, "public setup has no fabricated route")
+	require.Equal(t, uuid.Nil, original.IntegrationRouteID, "public setup has no fabricated route")
 	tx, err := f.Store.pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -46,7 +46,7 @@ func TestTransactionalReceiveBindingLookupUsesCallerStateAndLiveExternalScope(t 
 	require.NoError(t, err)
 	require.Equal(t, preferred.ID, inside.ID, "the transaction sees its writes and uses the existing send preference")
 	require.False(t, inside.ReadAllowed, "selection returns one binding without combining grants")
-	for _, scope := range []struct{ project, agent, target ID }{
+	for _, scope := range []struct{ project, agent, target uuid.UUID }{
 		{uuid.New(), f.AgentID, target.ID},
 		{testProjectID, uuid.New(), target.ID},
 		{testProjectID, f.AgentID, f.Target.ID},

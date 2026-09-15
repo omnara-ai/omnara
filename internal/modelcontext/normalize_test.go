@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -15,7 +16,7 @@ func TestProjectionNormalizerAcceptsAssistantMessageRole(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 1,
 		Messages: []Message{
 			{
@@ -36,7 +37,7 @@ func TestProjectionNormalizerEnforcesOwnerSpecificContentBlocks(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 2,
 	}
 	validToolResult := ToolResultRef{
@@ -119,7 +120,7 @@ func TestProjectionNormalizerPreservesStructuredDataValue(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 2,
 		ToolResults: []ToolResultRef{{
 			ToolCallID:          "call",
@@ -146,7 +147,7 @@ func TestProjectionNormalizerRejectsCoreProjectionInvariantBreaks(t *testing.T) 
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 5,
 		Messages: []Message{
 			{ID: sourceMessageID, Role: "user", Sequence: 5, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
@@ -276,7 +277,7 @@ func TestProjectionNormalizerValidatesCurrentChannelID(t *testing.T) {
 	}
 	for _, value := range []string{"", id, "private-provider-address", testIDN(44).String()} {
 		bundle := Bundle{ProjectID: testProjectID, AgentID: testAgentID, TurnID: testTurnID,
-			OpeningInputIDs: []storage.ID{testInputID}, InputEventSequence: 1, CurrentChannelID: value}
+			OpeningInputIDs: []uuid.UUID{testInputID}, InputEventSequence: 1, CurrentChannelID: value}
 		err := (ProjectionNormalizer{}).Normalize(bundle)
 		if (err == nil) != (value == "" || value == id) {
 			t.Fatalf("current channel %q: %v", value, err)

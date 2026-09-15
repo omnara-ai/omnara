@@ -122,12 +122,12 @@ func TestManagedInstallationPhysicalIdentityIsGlobalOnlyForSlack(t *testing.T) {
 			})
 			require.NoError(t, err)
 			inputs := make([]integrationstore.UpsertIntegrationInstallInput, 2)
-			for i, projectID := range []ID{testProjectID, other.ID} {
+			for i, projectID := range []uuid.UUID{testProjectID, other.ID} {
 				appInput := integrationstore.CreateIntegrationAppInput{
 					OrgID: testOrgID, OwnerProjectID: projectID, Provider: provider, ProviderAppRef: "A_SHARED",
 					ConnectorKey: testChannelConnector, State: integrationstore.IntegrationAppStateActive,
 				}
-				credentialID := NilID
+				credentialID := uuid.Nil
 				if provider == integrationstore.IntegrationProviderSlack {
 					appInput.ConnectorKey = channelconnector.BuiltInConnectorKey
 					appInput.InstallationCredentialKind = "slack_app_credentials"

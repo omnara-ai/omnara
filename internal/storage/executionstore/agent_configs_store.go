@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -21,7 +22,7 @@ import (
 )
 
 func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigInput) (AgentConfigRecord, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("project id is required")
 	}
 	input.Definition = normalizedJSON(input.Definition)
@@ -53,27 +54,27 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 }
 
 type CreateAgentConfigInput struct {
-	OrgID                   ID
-	ProjectID               ID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
 	Definition              json.RawMessage
 	Source                  string
 	SourceFormat            string
 	SourceHash              string
-	ConfiguredModelID       ID
+	ConfiguredModelID       uuid.UUID
 	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string
 }
 
 type AgentConfigRecord struct {
-	ID                      ID              `json:"id"`
-	OrgID                   ID              `json:"org_id"`
-	ProjectID               ID              `json:"project_id"`
+	ID                      uuid.UUID       `json:"id"`
+	OrgID                   uuid.UUID       `json:"org_id"`
+	ProjectID               uuid.UUID       `json:"project_id"`
 	Definition              json.RawMessage `json:"definition"`
 	Source                  string          `json:"source,omitempty"`
 	SourceFormat            string          `json:"source_format,omitempty"`
 	SourceHash              string          `json:"source_hash,omitempty"`
-	ConfiguredModelID       ID              `json:"configured_model_id"`
+	ConfiguredModelID       uuid.UUID       `json:"configured_model_id"`
 	CompiledDefinition      json.RawMessage `json:"compiled_definition"`
 	CompilerVersion         string          `json:"compiler_version"`
 	EffectiveDefinitionHash string          `json:"effective_definition_hash"`
@@ -88,9 +89,9 @@ type AgentConfigSnapshotRecord struct {
 
 func (s *Store) CaptureAgentConfigForModelContext(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) (AgentConfigSnapshotRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return AgentConfigSnapshotRecord{}, errors.New("project and agent are required")
 	}
 
@@ -147,10 +148,10 @@ func (s *Store) CaptureAgentConfigForModelContext(
 
 func (s *Store) CaptureAgentConfigForEventWatermark(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	watermark int64,
 ) (AgentConfigSnapshotRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || watermark <= 0 {
+	if projectID == uuid.Nil || agentID == uuid.Nil || watermark <= 0 {
 		return AgentConfigSnapshotRecord{}, errors.New(
 			"project, agent, and positive event watermark are required",
 		)
@@ -177,9 +178,9 @@ func (s *Store) CaptureAgentConfigForEventWatermark(
 
 func (s *Store) GetAgentConfig(
 	ctx context.Context,
-	projectID, configID ID,
+	projectID, configID uuid.UUID,
 ) (AgentConfigRecord, bool, error) {
-	if isNilID(projectID) || isNilID(configID) {
+	if projectID == uuid.Nil || configID == uuid.Nil {
 		return AgentConfigRecord{}, false, errors.New("project and agent config are required")
 	}
 	row, err := s.q.GetAgentConfig(
@@ -208,7 +209,7 @@ func insertAgentConfigTx(
 	); err != nil {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(err)
 	}
-	if isNilID(input.ConfiguredModelID) {
+	if input.ConfiguredModelID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
 	}
 	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
@@ -306,7 +307,7 @@ func lockAndValidateAgentConfigModelContractTx(
 	if contract.Model.ConfiguredModelID == "" {
 		return errors.New("agent config compiled model must include configured_model_id")
 	}
-	compiledModelID, err := ParseID(contract.Model.ConfiguredModelID)
+	compiledModelID, err := uuid.Parse(contract.Model.ConfiguredModelID)
 	if err != nil {
 		return fmt.Errorf("parse compiled configured model id: %w", err)
 	}
@@ -347,7 +348,7 @@ func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigI
 func loadAgentConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, configID ID,
+	projectID, configID uuid.UUID,
 ) (AgentConfigRecord, error) {
 	row, err := qtx.GetAgentConfig(
 		ctx,
@@ -379,11 +380,11 @@ func lockAgentConfigModelForUseTx(
 
 func (s *Store) ValidateAgentConfigMachineSources(
 	ctx context.Context,
-	projectID ID,
+	projectID uuid.UUID,
 	compiledDefinition json.RawMessage,
 	compilerVersion, definitionHash string,
 ) error {
-	if isNilID(projectID) {
+	if projectID == uuid.Nil {
 		return errors.New("project id is required")
 	}
 	project, err := loadProjectTx(ctx, s.q, projectID)
@@ -561,44 +562,48 @@ func (s *Store) ValidateAgentConfigMachineSources(
 	return nil
 }
 
-func (s *Store) ResolveAgentConfigMachineName(ctx context.Context, projectID ID, machineName string) (ID, error) {
-	if isNilID(projectID) || machineName == "" {
-		return NilID, errors.New("project and machine name are required")
+func (s *Store) ResolveAgentConfigMachineName(
+	ctx context.Context,
+	projectID uuid.UUID,
+	machineName string,
+) (uuid.UUID, error) {
+	if projectID == uuid.Nil || machineName == "" {
+		return uuid.Nil, errors.New("project and machine name are required")
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("machine name", machineName)
 	if err != nil {
-		return NilID, storeerr.InvalidRequest(err)
+		return uuid.Nil, storeerr.InvalidRequest(err)
 	}
 	row, err := s.q.GetActiveProjectMachineGrantForMachineName(
 		ctx,
 		dbsqlc.GetActiveProjectMachineGrantForMachineNameParams{ProjectID: projectID, MachineName: normalizedName},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NilID, storeerr.ErrNotFound
+		return uuid.Nil, storeerr.ErrNotFound
 	}
 	if err != nil {
-		return NilID, fmt.Errorf("resolve machine name: %w", err)
+		return uuid.Nil, fmt.Errorf("resolve machine name: %w", err)
 	}
 	return row.MachineID, nil
 }
 
 func (s *Store) ResolveAgentConfigMachinePoolName(
 	ctx context.Context,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	machinePoolName string,
-) (ID, error) {
-	if isNilID(orgID) || isNilID(projectID) || machinePoolName == "" {
-		return NilID, errors.New("org, project, and machine pool name are required")
+) (uuid.UUID, error) {
+	if orgID == uuid.Nil || projectID == uuid.Nil || machinePoolName == "" {
+		return uuid.Nil, errors.New("org, project, and machine pool name are required")
 	}
 	machinePoolID, ok, err := resolveMachinePoolName(ctx, s.q, orgID, machinePoolName)
 	if err != nil {
-		return NilID, err
+		return uuid.Nil, err
 	}
 	if !ok {
-		return NilID, storeerr.ErrNotFound
+		return uuid.Nil, storeerr.ErrNotFound
 	}
 	if _, err := s.GetActiveProjectMachinePoolGrantForMachinePool(ctx, projectID, machinePoolID); err != nil {
-		return NilID, err
+		return uuid.Nil, err
 	}
 	return machinePoolID, nil
 }
@@ -638,4 +643,29 @@ func configDefinitionHash(definition json.RawMessage) string {
 	}
 	sum := sha256.Sum256(normalized)
 	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) ResolveAgentConfigProfileName(
+	ctx context.Context,
+	projectID uuid.UUID,
+	profileName string,
+) (uuid.UUID, error) {
+	if projectID == uuid.Nil || profileName == "" {
+		return uuid.Nil, errors.New("project and profile name are required")
+	}
+	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", profileName)
+	if err != nil {
+		return uuid.Nil, storeerr.InvalidRequest(err)
+	}
+	id, err := s.q.GetAgentProfileIDByName(
+		ctx,
+		dbsqlc.GetAgentProfileIDByNameParams{ProjectID: projectID, Name: normalizedName},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("resolve agent profile name: %w", err)
+	}
+	return id, nil
 }

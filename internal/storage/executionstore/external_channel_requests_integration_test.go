@@ -26,7 +26,7 @@ import (
 
 type externalRequestFixture struct {
 	processDaemonFixture
-	call       ToolCallRecord
+	call       executionstore.ToolCallRecord
 	target     integrationstore.IntegrationTargetRecord
 	definition integrationstore.ChannelDefinition
 	binding    integrationstore.IntegrationTargetBindingRecord
@@ -157,7 +157,7 @@ func TestExternalChannelRequestRestartAndConcurrentCompletionPreserveCanonicalAu
 	call, err := fresh.GetToolCall(ctx, testProjectID, f.AgentID, f.call.ID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateWaiting, call.State)
-	require.Equal(t, NilID, call.RuntimeLockID)
+	require.Equal(t, uuid.Nil, call.RuntimeLockID)
 	input := externalRequestCompletion(t, request)
 	results := make([]executionstore.CompleteExternalChannelRequestResult, 2)
 	errs := make([]error, 2)
@@ -203,7 +203,7 @@ func TestExternalChannelRequestCompletionReplayAfterBindingRevocationDoesNotRegr
 	completed, err := f.Store.Execution().CompleteExternalChannelRequest(ctx, input)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, completed.ToolCall.Outcome)
-	var childID, childBindingID ID
+	var childID, childBindingID uuid.UUID
 	require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT target.id, binding.id FROM integration_targets target
 		JOIN integration_target_bindings binding ON binding.integration_target_id = target.id
 		WHERE target.parent_channel_id = $1 AND binding.agent_id = $2`,
@@ -411,7 +411,7 @@ func TestExternalChannelRequestDeletedConnectionFindsRevokedOwnerAfterCurrentCha
 	ctx := context.Background()
 	f := newExternalRequestFixture(t, ctx, toolcatalog.ToolNameSendChannelMessage)
 	request := f.start(t, ctx, time.Minute)
-	_, err := executionstore.IntegrationSetAgentIntegrationTarget(ctx, f.Store.q, testProjectID, f.AgentID, NilID)
+	_, err := executionstore.IntegrationSetAgentIntegrationTarget(ctx, f.Store.q, testProjectID, f.AgentID, uuid.Nil)
 	require.NoError(t, err)
 	require.NoError(t, f.Store.Integrations().RevokeIntegrationTargetBinding(ctx, testProjectID, f.binding.ID))
 	require.NoError(t, f.Store.Integrations().DeleteIntegrationInstall(ctx, testProjectID, request.IntegrationInstallID))
@@ -495,7 +495,7 @@ func TestExternalChannelHistoryResolvesOnlyKnownAuthorizedAddressesWithoutRegist
 	}
 	unbound, unknown := known, known
 	unbound.ProviderRef, unknown.ProviderRef = "unbound-child", "unknown-child"
-	var knownID ID
+	var knownID uuid.UUID
 	for i, ref := range []channelconnector.ReplyDestination{known, unbound} {
 		target, err := f.Store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
 			ProjectID: testProjectID, IntegrationInstallID: f.target.IntegrationInstallID, ChannelDefinitionID: f.definition.ID,
@@ -580,7 +580,7 @@ func TestExternalChannelHistoryRejectsForeignArtifactsWithoutCompleting(t *testi
 	f := newExternalRequestFixture(t, ctx, toolcatalog.ToolNameReadChannel)
 	foreignAgent := mustCreateAgent(t, ctx, f.Store)
 	foreignID, allowedID := uuid.New(), uuid.New()
-	for _, artifact := range []struct{ id, agent ID }{{foreignID, foreignAgent}, {allowedID, f.AgentID}} {
+	for _, artifact := range []struct{ id, agent uuid.UUID }{{foreignID, foreignAgent}, {allowedID, f.AgentID}} {
 		_, err := f.Store.q.InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
 			ID: artifact.id, ProjectID: testProjectID, AgentID: artifact.agent, ContentType: "image/png",
 		})
@@ -588,7 +588,7 @@ func TestExternalChannelHistoryRejectsForeignArtifactsWithoutCompleting(t *testi
 	}
 	request := f.start(t, ctx, time.Minute)
 	input := externalRequestCompletion(t, request)
-	for i, artifactID := range []ID{foreignID, uuid.New(), allowedID} {
+	for i, artifactID := range []uuid.UUID{foreignID, uuid.New(), allowedID} {
 		publicID, err := publicid.Encode(publicid.KindArtifact, artifactID)
 		require.NoError(t, err)
 		input.Result.Payload = mustExternalHistoryJSON(t, channelconnector.ProviderReadResult{

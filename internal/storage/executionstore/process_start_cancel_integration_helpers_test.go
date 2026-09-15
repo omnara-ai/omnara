@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -118,7 +119,7 @@ func reapRuntimeLockForReplacementTest(
 	ctx context.Context,
 	fixture processDaemonFixture,
 	work executionstore.ClaimedAgentWork,
-	modelCallContextID ID,
+	modelCallContextID uuid.UUID,
 ) time.Time {
 	t.Helper()
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, work.RuntimeLock.ID)
@@ -142,7 +143,7 @@ func claimReplacementModelCallContext(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	predecessorContextID ID,
+	predecessorContextID uuid.UUID,
 	now time.Time,
 ) (executionstore.ClaimedAgentWork, executionstore.ModelCallClaim) {
 	t.Helper()
@@ -175,7 +176,7 @@ func assertModelCallContextState(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	modelCallContextID ID,
+	modelCallContextID uuid.UUID,
 	want executionstore.ModelCallState,
 ) {
 	t.Helper()
@@ -517,7 +518,7 @@ func injectModelReadyFrontier(
 	ctx context.Context,
 	fixture processDaemonFixture,
 	kind, key string,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	if kind == "steering" {
 		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
@@ -551,10 +552,10 @@ model:
 	}); err != nil {
 		t.Fatalf("create config frontier: %v", err)
 	}
-	return NilID
+	return uuid.Nil
 }
 
-func claimedOpeningInputIDsEqual(claim executionstore.ClaimedAgentWork, inputIDs ...ID) bool {
+func claimedOpeningInputIDsEqual(claim executionstore.ClaimedAgentWork, inputIDs ...uuid.UUID) bool {
 	if len(claim.Model.InputIDs) != len(inputIDs) {
 		return false
 	}
@@ -570,7 +571,7 @@ func assertTerminalFailureSettledBeforeModelReadyFrontier(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	parentContextID, compactionContextID, terminalContextID, steeringInputID ID,
+	parentContextID, compactionContextID, terminalContextID, steeringInputID uuid.UUID,
 ) {
 	t.Helper()
 	terminalContext, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -592,7 +593,7 @@ func assertTerminalFailureSettledBeforeModelReadyFrontier(
 	if err != nil || !found {
 		t.Fatalf("load settled parent context = %+v found=%v err=%v", parent, found, err)
 	}
-	if compactionContextID == NilID {
+	if compactionContextID == uuid.Nil {
 		if parent.ID != terminalContext.ID || parent.State != terminalContext.State {
 			t.Fatalf("settled normal context = %+v, want terminal context %+v", parent, terminalContext)
 		}
@@ -610,7 +611,7 @@ func assertTerminalFailureSettledBeforeModelReadyFrontier(
 		output.ModelCallContextID != terminalContextID {
 		t.Fatalf("settled terminal output = %+v found=%v err=%v", output, found, err)
 	}
-	if compactionContextID != NilID {
+	if compactionContextID != uuid.Nil {
 		compactionContext, found, err := fixture.Store.Execution().GetModelCallContext(
 			ctx,
 			testProjectID,
@@ -622,7 +623,7 @@ func assertTerminalFailureSettledBeforeModelReadyFrontier(
 			t.Fatalf("settled compaction context = %+v found=%v err=%v", compactionContext, found, err)
 		}
 	}
-	if steeringInputID == NilID {
+	if steeringInputID == uuid.Nil {
 		return
 	}
 	var state string
@@ -681,7 +682,7 @@ func claimTestNormalModelCallForWork(
 	return modelClaim
 }
 
-func countAgentWakeups(t *testing.T, ctx context.Context, store *Store, agentID ID) int {
+func countAgentWakeups(t *testing.T, ctx context.Context, store *Store, agentID uuid.UUID) int {
 	t.Helper()
 	var wakeups int
 	if err := store.pool.QueryRow(
@@ -699,7 +700,7 @@ func requireAgentWakeupCoverage(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) {
 	t.Helper()
 	var runnable, hasWakeup, hasRuntimeLock bool
@@ -814,7 +815,7 @@ func retryBackoffWithQueuedInput(
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []ID{openingInput.ID},
+		OpeningInputIDs:    []uuid.UUID{openingInput.ID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: admitted.Events[0].Sequence,
 	})
@@ -861,7 +862,7 @@ func retryBackoffWithQueuedInput(
 	return fixture, queuedInput, retryAt
 }
 
-func agentWakeupReadyAt(t *testing.T, ctx context.Context, store *Store, agentID ID) time.Time {
+func agentWakeupReadyAt(t *testing.T, ctx context.Context, store *Store, agentID uuid.UUID) time.Time {
 	t.Helper()
 	var readyAt time.Time
 	if err := store.pool.QueryRow(ctx, `
@@ -887,7 +888,7 @@ func databaseStatementTime(t *testing.T, ctx context.Context, store *Store) time
 func requestAgentRuntimeCancelForTest(
 	ctx context.Context,
 	store *Store,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	now time.Time,
 ) (executionstore.AgentRuntimeLockRecord, error) {
 	row, err := dbsqlc.New(store.pool).

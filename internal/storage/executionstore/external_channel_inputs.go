@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -13,7 +14,7 @@ import (
 func (s *Store) resolveExternalInputChannelTx(
 	ctx context.Context, tx pgx.Tx, q *dbsqlc.Queries, input CreateAgentContentInputInput,
 ) (CreateAgentContentInputInput, *createAgentContentInputTxResult, error) {
-	if !isNilID(input.IntegrationTargetID) || !isNilID(input.IntegrationTargetBindingID) {
+	if input.IntegrationTargetID != uuid.Nil || input.IntegrationTargetBindingID != uuid.Nil {
 		return input, nil, storeerr.InvalidRequest(errors.New("channel_id cannot be combined with a resolved input origin"))
 	}
 	input.IntegrationTargetID = input.ChannelID

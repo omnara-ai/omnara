@@ -12,7 +12,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -93,7 +94,7 @@ func TestChannelQuestionPresentationKeepsCanonicalDashboardAuthority(t *testing.
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolCallStateWaiting, record.State)
-			require.Equal(t, storage.NilID, record.RuntimeLockID)
+			require.Equal(t, uuid.Nil, record.RuntimeLockID)
 			require.JSONEq(t, string(call.Input), string(record.Input))
 			interaction := integrationToolInteraction(t, ctx, f, record.ID, "question")
 			require.Equal(t, executionstore.AgentInteractionStateOpen, interaction.State)
@@ -243,7 +244,7 @@ func TestManagedRuntimeNoticeUsesCurrentChannelAndDoesNotRetryUnknown(t *testing
 	require.NoError(t, err)
 	require.Equal(t, "malformed", toolResultMapFromTestParts(t, result.ContentParts)["error_code"])
 	require.Equal(t, 1, count)
-	require.NoError(t, seedIntegrationToolCurrentChannel(ctx, f.Pool, turn.ProjectID, turn.AgentID, storage.NilID))
+	require.NoError(t, seedIntegrationToolCurrentChannel(ctx, f.Pool, turn.ProjectID, turn.AgentID, uuid.Nil))
 	require.NoError(t, e.PostIntegrationRuntimeMessage(ctx, turn, "notice"))
 	require.Equal(t, 1, count)
 }
@@ -306,7 +307,7 @@ func TestExternalPromptAndRuntimeNoticeRetainSeparateFiniteOwners(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, page.Requests, 2, "replayed acceptance retains the same finite owner")
 	for _, request := range page.Requests {
-		require.Equal(t, storage.NilID, request.ToolCallID)
+		require.Equal(t, uuid.Nil, request.ToolCallID)
 		require.Equal(t, turn.TurnID, request.TurnID)
 		require.Equal(t, channel.ID, request.IntegrationTargetID)
 		require.WithinDuration(t, request.CreatedAt.Add(executionstore.ExternalChannelRequestTimeout),

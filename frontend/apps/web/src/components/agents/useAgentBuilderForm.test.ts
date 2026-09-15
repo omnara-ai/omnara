@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import { emptyProviderOptions } from '@/components/machines/machineOverrides'
-
 import {
   type BasicConfig,
   basicConfigValid,
@@ -13,89 +11,7 @@ import {
   mcpToolEnabled,
   unexposableMcpTools,
 } from './useAgentBuilderForm'
-
-const fullConfig: BasicConfig = {
-  instruction: 'You are a research assistant.\n\nCite sources.',
-  providerConfig: 'anthropic',
-  modelName: 'claude-sonnet-5',
-  machineSources: [
-    {
-      id: 'source-1',
-      kind: 'pool',
-      name: 'default-pool',
-      provider: '',
-      managementKind: '',
-      defaultCwd: '/workspace',
-      initialNumMachines: '2',
-      maxMachines: '5',
-      deleteAfterIdleMinutes: '0',
-      machineCpu: '4',
-      machineMemoryGb: '8',
-      providerOptions: emptyProviderOptions,
-      envRows: [{ id: 'env-1', key: 'MODE', value: 'ci' }],
-      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_123' }],
-    },
-    {
-      id: 'source-2',
-      kind: 'machine',
-      name: 'build-box',
-      provider: '',
-      managementKind: '',
-      defaultCwd: '',
-      initialNumMachines: '',
-      maxMachines: '',
-      deleteAfterIdleMinutes: '',
-      machineCpu: '',
-      machineMemoryGb: '',
-      providerOptions: emptyProviderOptions,
-      envRows: [],
-      secretEnvRows: [],
-    },
-  ],
-  tools: [
-    { name: 'shell', permission: { mode: 'always_ask', parameters: {} } },
-    { name: 'browser', permission: { mode: 'allowlist', parameters: { hosts: ['example.com'] } } },
-  ],
-  mcpServers: [
-    {
-      id: 'mcp-1',
-      name: 'search',
-      url: 'https://mcp.example.com',
-      permission: { mode: 'always_allow', parameters: {} },
-      defaultEnabled: true,
-      authType: 'none',
-      secretId: '',
-      service: '',
-      region: '',
-      tools: [],
-    },
-    {
-      id: 'mcp-2',
-      name: 'aws-docs',
-      url: 'https://mcp.aws.example.com',
-      permission: { mode: 'always_ask', parameters: {} },
-      defaultEnabled: false,
-      authType: 'sigv4',
-      secretId: 'sec_456',
-      service: 'execute-api',
-      region: 'us-east-1',
-      tools: [],
-    },
-    {
-      id: 'mcp-3',
-      name: 'issues',
-      url: 'https://mcp.issues.example.com',
-      permission: { mode: 'always_ask', parameters: {} },
-      defaultEnabled: true,
-      authType: 'bearer',
-      secretId: 'sec_789',
-      service: '',
-      region: '',
-      tools: [],
-    },
-  ],
-  skillIds: ['skl_1', 'skl_2'],
-}
+import { fullConfig } from './useAgentBuilderForm.test-fixtures'
 
 const minimalYaml = `instruction: Do the thing.
 model:
@@ -183,6 +99,51 @@ describe('createBasicConfigSession initialDraft', () => {
       secretId: 'sec_456',
       service: 'execute-api',
       region: 'us-east-1',
+    })
+    expect(config.subagents).toMatchObject([
+      {
+        key: 'researcher',
+        type: 'profile',
+        profileName: 'research-agent',
+        description: 'Investigate.',
+        instructionAppend: 'Report as bullets.',
+        maxInstances: '2',
+        archiveAfterIdleMinutes: '30',
+      },
+      { key: 'fork', type: 'self', profileName: '' },
+    ])
+    expect(config.maxSubagents).toBe('4')
+    expect(config.maxDepth).toBe('2')
+    expect(parse(source)).toMatchObject({
+      subagents: {
+        researcher: { type: 'profile', profile: 'research-agent', max_instances: 2 },
+        fork: { type: 'self' },
+      },
+      max_subagents: 4,
+      max_depth: 2,
+    })
+  })
+
+  it('keeps subagent model overrides authored in YAML', () => {
+    const source = `instruction: Do the thing.
+model:
+  provider_config: anthropic
+  name: claude-sonnet-5
+subagents:
+  fork:
+    type: self
+    model:
+      name: claude-haiku
+`
+    const config = mustDeserialize(source)
+    expect(config.subagents[0]?.modelOverride).toEqual({ name: 'claude-haiku' })
+    expect(applyToSource(source, config)).toBe(source)
+    const renamed = {
+      ...config,
+      subagents: config.subagents.map((subagent) => ({ ...subagent, description: 'Fork.' })),
+    }
+    expect(parse(applyToSource(source, renamed))).toMatchObject({
+      subagents: { fork: { type: 'self', description: 'Fork.', model: { name: 'claude-haiku' } } },
     })
   })
 
@@ -461,6 +422,9 @@ describe('createBasicConfigSession apply', () => {
       tools: [],
       mcpServers: [],
       skillIds: [],
+      subagents: [],
+      maxSubagents: '',
+      maxDepth: '',
     }
     expect(applyToSource('', emptyConfig)).toBe('')
   })

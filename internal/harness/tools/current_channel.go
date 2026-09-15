@@ -6,33 +6,34 @@ import (
 	"errors"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func parseSetCurrentChannelRequest(raw json.RawMessage) (storage.ID, error) {
+func parseSetCurrentChannelRequest(raw json.RawMessage) (uuid.UUID, error) {
 	var request struct {
 		ChannelID json.RawMessage `json:"channel_id"`
 	}
 	if err := decodeSingleStrictJSON(raw, &request, "set_current_channel request"); err != nil {
-		return storage.NilID, err
+		return uuid.Nil, err
 	}
 	if len(request.ChannelID) == 0 {
-		return storage.NilID, errors.New("channel_id is required; use null to clear the current channel")
+		return uuid.Nil, errors.New("channel_id is required; use null to clear the current channel")
 	}
 	var channelID *string
 	if err := json.Unmarshal(request.ChannelID, &channelID); err != nil {
-		return storage.NilID, errors.New("channel_id must be a channel ID or null")
+		return uuid.Nil, errors.New("channel_id must be a channel ID or null")
 	}
 	if channelID == nil {
-		return storage.NilID, nil
+		return uuid.Nil, nil
 	}
 	return publicid.Decode(publicid.KindIntegrationTarget, *channelID)
 }
 
-func currentChannelPublicID(id storage.ID) (*string, error) {
-	if id == storage.NilID {
+func currentChannelPublicID(id uuid.UUID) (*string, error) {
+	if id == uuid.Nil {
 		return nil, nil //nolint:nilnil // No selection is represented as JSON null.
 	}
 	value, err := publicid.Encode(publicid.KindIntegrationTarget, id)

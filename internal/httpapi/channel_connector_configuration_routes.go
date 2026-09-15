@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -145,7 +145,7 @@ func (s strictOpenAPIServer) ResolveChannelConnectorInstallationConfiguration(
 func (s strictOpenAPIServer) channelConnectorAppConfiguration(
 	ctx context.Context,
 	scope channelConnectorScope,
-	appID integrationstore.ID,
+	appID uuid.UUID,
 ) (openapi.ChannelConnectorAppConfiguration, error) {
 	for range channelConfigurationReadAttempts {
 		app, err := s.server.store.Integrations().GetConnectorIntegrationApp(
@@ -175,7 +175,7 @@ func (s strictOpenAPIServer) channelConnectorAppConfiguration(
 func (s strictOpenAPIServer) channelConnectorInstallationConfiguration(
 	ctx context.Context,
 	scope channelConnectorScope,
-	appID integrationstore.ID,
+	appID uuid.UUID,
 	resolve func() (integrationstore.IntegrationInstallRecord, error),
 ) (openapi.ChannelConnectorInstallationConfiguration, error) {
 	for range channelConfigurationReadAttempts {
@@ -224,7 +224,7 @@ func (s strictOpenAPIServer) channelConnectorAppCredential(
 	ctx context.Context,
 	app integrationstore.IntegrationAppRecord,
 ) (*openapi.ChannelCredentialPayload, error) {
-	if app.CredentialSecretID == storage.NilID {
+	if app.CredentialSecretID == uuid.Nil {
 		return nil, nil //nolint:nilnil // No app credential is a valid optional configuration.
 	}
 	credential, err := s.server.store.Secrets().GetIntegrationAssociatedSecretPayload(
@@ -247,7 +247,7 @@ func (s strictOpenAPIServer) channelConnectorInstallationCredential(
 	app integrationstore.IntegrationAppRecord,
 	install integrationstore.IntegrationInstallRecord,
 ) (*openapi.ChannelCredentialPayload, error) {
-	if install.CredentialSecretID == storage.NilID {
+	if install.CredentialSecretID == uuid.Nil {
 		return nil, nil //nolint:nilnil // No install credential is a valid optional configuration.
 	}
 	payload, err := s.server.store.Secrets().GetProjectOwnedSecretPayload(

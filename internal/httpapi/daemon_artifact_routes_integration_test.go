@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -39,7 +40,7 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now,
 		"daemon-artifact-upload-success",
-		"upload_artifact",
+		"upload_file",
 	)
 	if _, found, err := acceptDaemonProcessOfferForTest(
 		ctx,
@@ -98,6 +99,36 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		artifact.IdempotencyKey != "upload-artifact:"+fixture.ToolCallUUID.String() {
 		t.Fatalf("stored artifact = %+v content=%q", artifact, stored)
 	}
+	wrongVFSRoot := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(2*time.Second),
+		"daemon-vfs-upload-wrong-root",
+		"upload_file",
+		nil,
+		func(uuid.UUID) json.RawMessage {
+			return json.RawMessage(`{"path":"/memory","source":"notes.md"}`)
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		wrongVFSRoot.authority(),
+		wrongVFSRoot.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept wrong-root vfs upload process: found=%t err=%v", found, err)
+	}
+	requestDaemonArtifactUpload(
+		t,
+		handler,
+		wrongVFSRoot,
+		"notes.md",
+		[]byte("notes"),
+		http.StatusNotFound,
+	)
 
 	otherProject := bootstrapPublicHTTPProject(t, handler, "daemon-artifact-upload-other-org")
 	otherFixture := createDaemonProcessFixture(
@@ -106,9 +137,9 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		pool,
 		store,
 		otherProject,
-		now.Add(time.Second),
+		now.Add(3*time.Second),
 		"daemon-artifact-upload-other-org",
-		"upload_artifact",
+		"upload_file",
 	)
 	requestDaemonArtifactUploadForToolCall(
 		t,
@@ -126,7 +157,7 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(2*time.Second),
+		now.Add(4*time.Second),
 		"daemon-artifact-upload-wrong-tool",
 		"run_command",
 	)
@@ -157,7 +188,7 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now.Add(3*time.Second),
 		"daemon-artifact-upload-ungranted",
-		"upload_artifact",
+		"upload_file",
 	)
 	requestDaemonArtifactUpload(
 		t,
@@ -176,7 +207,7 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now.Add(4*time.Second),
 		"daemon-artifact-upload-terminal",
-		"upload_artifact",
+		"upload_file",
 	)
 	if _, found, err := acceptDaemonProcessOfferForTest(
 		ctx,
@@ -221,7 +252,7 @@ func TestUploadDaemonArtifactValidatesFilenameAndBody(t *testing.T) {
 		project,
 		time.Date(2026, 8, 25, 13, 0, 0, 0, time.UTC),
 		"daemon-artifact-validation",
-		"upload_artifact",
+		"upload_file",
 	)
 	if _, found, err := acceptDaemonProcessOfferForTest(
 		ctx,
@@ -289,9 +320,9 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		project,
 		now,
 		"daemon-artifact-download-success",
-		"download_artifact",
+		"download_file",
 		nil,
-		func(agentID storage.ID) json.RawMessage {
+		func(agentID uuid.UUID) json.RawMessage {
 			artifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 				ProjectID:   project.ProjectUUID,
 				AgentID:     agentID,
@@ -303,7 +334,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 				t.Fatalf("create artifact: %v", err)
 			}
 			artifactID = testPublicID(t, publicid.KindArtifact, artifact.ID)
-			input, err := json.Marshal(map[string]string{"artifact_id": artifactID, "path": "report.pdf"})
+			input, err := json.Marshal(map[string]string{"path": "/artifacts/" + artifactID, "destination": "report.pdf"})
 			if err != nil {
 				t.Fatalf("marshal download tool input: %v", err)
 			}
@@ -333,7 +364,6 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		err != nil || disposition != "attachment" || params["filename"] != "report.pdf" {
 		t.Fatalf("download response headers=%v body=%q", recorder.Header(), recorder.Body.String())
 	}
-
 	otherArtifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   project.ProjectUUID,
 		AgentID:     fixture.AgentUUID,
@@ -359,9 +389,9 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(time.Second),
+		now.Add(2*time.Second),
 		"daemon-artifact-download-other-agent",
-		"download_artifact",
+		"download_file",
 	)
 	otherAgentArtifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   project.ProjectUUID,
@@ -380,14 +410,14 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(2*time.Second),
+		now.Add(3*time.Second),
 		"daemon-artifact-download-cross-agent",
-		"download_artifact",
+		"download_file",
 		nil,
-		func(storage.ID) json.RawMessage {
+		func(uuid.UUID) json.RawMessage {
 			input, err := json.Marshal(map[string]string{
-				"artifact_id": otherAgentArtifactID,
-				"path":        "private.txt",
+				"path":        "/artifacts/" + otherAgentArtifactID,
+				"destination": "private.txt",
 			})
 			if err != nil {
 				t.Fatalf("marshal cross-agent tool input: %v", err)
@@ -418,11 +448,11 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(3*time.Second),
+		now.Add(4*time.Second),
 		"daemon-artifact-download-wrong-tool",
 		"run_command",
 		nil,
-		func(storage.ID) json.RawMessage {
+		func(uuid.UUID) json.RawMessage {
 			input, err := json.Marshal(map[string]string{"artifact_id": artifactID, "path": "report.pdf"})
 			if err != nil {
 				t.Fatalf("marshal wrong-tool input: %v", err)
@@ -452,7 +482,7 @@ func requestDaemonArtifactDownload(
 	t *testing.T,
 	handler http.Handler,
 	token string,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	artifactID string,
 	wantStatus int,
 ) *httptest.ResponseRecorder {
@@ -494,7 +524,7 @@ func requestDaemonArtifactUploadForToolCall(
 	t *testing.T,
 	handler http.Handler,
 	token string,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	filename string,
 	body []byte,
 	wantStatus int,
@@ -538,7 +568,7 @@ func TestDaemonArtifactProcessScopeRejectsWrongMachine(t *testing.T) {
 		project,
 		time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC),
 		"daemon-artifact-wrong-machine",
-		"upload_artifact",
+		"upload_file",
 	)
 	if _, found, err := acceptDaemonProcessOfferForTest(
 		ctx,
@@ -551,9 +581,9 @@ func TestDaemonArtifactProcessScopeRejectsWrongMachine(t *testing.T) {
 	_, found, err := store.Execution().GetDaemonArtifactProcessScope(
 		ctx,
 		fixture.OrgUUID,
-		storage.ID{1},
+		uuid.UUID{1},
 		fixture.ToolCallUUID,
-		"upload_artifact",
+		"upload_file",
 	)
 	if err != nil {
 		t.Fatalf("load wrong-machine scope: %v", err)

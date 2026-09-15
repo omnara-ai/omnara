@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -24,7 +26,7 @@ func (s *Store) CreateIntegrationTarget(
 	ctx context.Context,
 	input CreateIntegrationTargetInput,
 ) (IntegrationTargetRecord, error) {
-	if isNilID(input.ChannelDefinitionID) {
+	if input.ChannelDefinitionID == uuid.Nil {
 		return IntegrationTargetRecord{}, storeerr.InvalidRequest(errors.New("channel definition is required"))
 	}
 	return s.createIntegrationTargetInTransaction(ctx, input)
@@ -37,7 +39,7 @@ func (s *Store) CreateIntegrationTargetTx(
 	tx pgx.Tx,
 	input CreateIntegrationTargetInput,
 ) (IntegrationTargetRecord, error) {
-	if tx == nil || isNilID(input.ChannelDefinitionID) {
+	if tx == nil || input.ChannelDefinitionID == uuid.Nil {
 		return IntegrationTargetRecord{}, storeerr.InvalidRequest(
 			errors.New("transaction and channel definition are required"))
 	}
@@ -75,7 +77,7 @@ func (s *Store) createIntegrationTarget(
 	input.ProviderRef = strings.TrimSpace(input.ProviderRef)
 	input.ProviderRefKind = strings.TrimSpace(input.ProviderRefKind)
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) ||
+	if input.ProjectID == uuid.Nil || input.IntegrationInstallID == uuid.Nil ||
 		input.ProviderRef == "" || input.ProviderRefKind == "" {
 		return IntegrationTargetRecord{}, storeerr.InvalidRequest(errors.New(
 			"project, integration install, provider ref, and provider ref kind are required",
@@ -126,7 +128,7 @@ func (s *Store) createIntegrationTarget(
 	}); err != nil {
 		return IntegrationTargetRecord{}, integrationChannelReadError("lock channel definition", err)
 	}
-	if !isNilID(input.ParentChannelID) {
+	if input.ParentChannelID != uuid.Nil {
 		if _, err := q.LockIntegrationChannelParent(ctx, dbsqlc.LockIntegrationChannelParentParams{
 			ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
 			ParentChannelID: input.ParentChannelID,
@@ -145,7 +147,7 @@ func (s *Store) createIntegrationTarget(
 			TargetRef:            targetRef,
 			ProviderRef:          input.ProviderRef,
 			ProviderRefKind:      input.ProviderRefKind,
-			ParentChannelID:      sqlcIDFromNil(input.ParentChannelID),
+			ParentChannelID:      storeutil.IDFromNil(input.ParentChannelID),
 			ChannelDefinitionID:  input.ChannelDefinitionID,
 			DisplayName:          input.DisplayName,
 			ProviderMetadata:     input.ProviderMetadata,
@@ -184,8 +186,7 @@ func (s *Store) createIntegrationTarget(
 		if !providerMetadataProvided {
 			input.ProviderMetadata = record.ProviderMetadata
 		}
-		if displayName == record.DisplayName &&
-			storeutil.SameJSON(record.ProviderMetadata, input.ProviderMetadata) {
+		if displayName == record.DisplayName && jsoncanonical.Equal(record.ProviderMetadata, input.ProviderMetadata) {
 			return record, nil
 		}
 		updated, updateErr := q.UpdateResolvedIntegrationTarget(
@@ -230,10 +231,10 @@ const integrationTargetRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"
 
 func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 	ctx context.Context,
-	projectID, installID ID,
+	projectID, installID uuid.UUID,
 	providerRefPrefix, displayName string,
 ) error {
-	if isNilID(projectID) || isNilID(installID) || providerRefPrefix == "" || displayName == "" {
+	if projectID == uuid.Nil || installID == uuid.Nil || providerRefPrefix == "" || displayName == "" {
 		return errors.New("project, integration install, provider ref prefix, and display name are required")
 	}
 	if len(providerRefPrefix) > 2048 || len(displayName) > 512 {
@@ -256,7 +257,7 @@ func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 
 func (s *Store) GetIntegrationTarget(
 	ctx context.Context,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	return getIntegrationTarget(ctx, s.q, projectID, id)
 }
@@ -264,7 +265,7 @@ func (s *Store) GetIntegrationTarget(
 func (s *Store) GetIntegrationTargetTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	return getIntegrationTarget(ctx, dbsqlc.New(tx), projectID, id)
 }
@@ -272,7 +273,7 @@ func (s *Store) GetIntegrationTargetTx(
 func getIntegrationTarget(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	row, err := q.GetIntegrationTarget(
 		ctx,
@@ -289,7 +290,7 @@ func getIntegrationTarget(
 
 func (s *Store) GetIntegrationTargetByProviderRef(
 	ctx context.Context,
-	projectID, integrationInstallID ID,
+	projectID, integrationInstallID uuid.UUID,
 	providerRef string,
 ) (IntegrationTargetRecord, error) {
 	return getIntegrationTargetByProviderRef(ctx, s.q, projectID, integrationInstallID, providerRef)
@@ -300,7 +301,7 @@ func (s *Store) GetIntegrationTargetByProviderRef(
 func (s *Store) GetIntegrationTargetByProviderRefTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, integrationInstallID ID,
+	projectID, integrationInstallID uuid.UUID,
 	providerRef string,
 ) (IntegrationTargetRecord, error) {
 	if tx == nil {
@@ -312,7 +313,7 @@ func (s *Store) GetIntegrationTargetByProviderRefTx(
 func getIntegrationTargetByProviderRef(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, integrationInstallID ID,
+	projectID, integrationInstallID uuid.UUID,
 	providerRef string,
 ) (IntegrationTargetRecord, error) {
 	row, err := q.GetIntegrationTargetByProviderRef(
@@ -334,7 +335,7 @@ func getIntegrationTargetByProviderRef(
 
 func (s *Store) ListIntegrationTargets(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]IntegrationTargetSummary, error) {
 	return listIntegrationTargets(ctx, s.q, projectID, agentID)
 }
@@ -342,7 +343,7 @@ func (s *Store) ListIntegrationTargets(
 func (s *Store) ListIntegrationTargetsTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]IntegrationTargetSummary, error) {
 	return listIntegrationTargets(ctx, dbsqlc.New(tx), projectID, agentID)
 }
@@ -350,7 +351,7 @@ func (s *Store) ListIntegrationTargetsTx(
 func listIntegrationTargets(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]IntegrationTargetSummary, error) {
 	rows, err := q.ListIntegrationTargets(
 		ctx,
@@ -368,7 +369,7 @@ func listIntegrationTargets(
 
 func integrationTargetRecordFromInsertSQLC(
 	row dbsqlc.IntegrationTarget,
-	orgID ID,
+	orgID uuid.UUID,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
 		row.ID, orgID, row.ProjectID, row.IntegrationInstallID,
@@ -398,11 +399,11 @@ func integrationTargetRecordFromProviderRefSQLC(
 }
 
 func integrationTargetRecordFromFields(
-	id, orgID, projectID ID,
-	integrationInstallID ID,
+	id, orgID, projectID uuid.UUID,
+	integrationInstallID uuid.UUID,
 	targetRef, providerRef, providerRefKind string,
-	parentChannelID *ID,
-	channelDefinitionID ID,
+	parentChannelID *uuid.UUID,
+	channelDefinitionID uuid.UUID,
 	displayName string,
 	providerMetadata json.RawMessage,
 	createdAt, updatedAt time.Time,
@@ -415,7 +416,7 @@ func integrationTargetRecordFromFields(
 		TargetRef:            targetRef,
 		ProviderRef:          providerRef,
 		ProviderRefKind:      providerRefKind,
-		ParentChannelID:      idFromSQLCPtr(parentChannelID),
+		ParentChannelID:      storeutil.IDFromPtr(parentChannelID),
 		ChannelDefinitionID:  channelDefinitionID,
 		DisplayName:          displayName,
 		ProviderMetadata:     providerMetadata,

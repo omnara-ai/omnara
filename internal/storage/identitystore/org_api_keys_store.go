@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
@@ -121,13 +122,13 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 }
 
 func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return "", "", errors.New("org api key org id is required")
 	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
 		return "", "", fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
 	}
-	if isNilID(input.CreatedByUserID) {
+	if input.CreatedByUserID == uuid.Nil {
 		return "", "", errors.New("org api key creator user id is required")
 	}
 	if input.ActorPrincipal.Type != "" && input.ActorPrincipal.ID != input.CreatedByUserID {
@@ -167,8 +168,8 @@ func (s *Store) AuthenticateOrgAPIKey(
 	return NewOrgAPIKeyPrincipal(row.OrgID, row.OrgApiKeyID), nil
 }
 
-func (s *Store) GetOrgAPIKey(ctx context.Context, orgID, keyID ID) (OrgAPIKeyRecord, error) {
-	if isNilID(orgID) || isNilID(keyID) {
+func (s *Store) GetOrgAPIKey(ctx context.Context, orgID, keyID uuid.UUID) (OrgAPIKeyRecord, error) {
+	if orgID == uuid.Nil || keyID == uuid.Nil {
 		return OrgAPIKeyRecord{}, errors.New("org id and key id are required")
 	}
 	row, err := s.q.GetOrgAPIKey(ctx, dbsqlc.GetOrgAPIKeyParams{OrgID: orgID, ID: keyID})
@@ -182,7 +183,7 @@ func (s *Store) GetOrgAPIKey(ctx context.Context, orgID, keyID ID) (OrgAPIKeyRec
 }
 
 type ListOrgAPIKeysInput struct {
-	OrgID ID
+	OrgID uuid.UUID
 	Limit int
 	After listing.KeysetCursor
 }
@@ -198,7 +199,7 @@ func (s *Store) ListOrgAPIKeysForOrg(
 	ctx context.Context,
 	input ListOrgAPIKeysInput,
 ) (ListOrgAPIKeysResult, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ListOrgAPIKeysResult{}, errors.New("org id is required")
 	}
 	if input.Limit <= 0 {
@@ -244,8 +245,8 @@ func (s *Store) ListOrgAPIKeysForOrg(
 }
 
 type UpdateOrgAPIKeyInput struct {
-	OrgID          ID
-	KeyID          ID
+	OrgID          uuid.UUID
+	KeyID          uuid.UUID
 	ActorPrincipal PrincipalRecord
 	Name           string
 	OrgRole        string
@@ -257,7 +258,7 @@ func (s *Store) UpdateOrgAPIKey(
 	ctx context.Context,
 	input UpdateOrgAPIKeyInput,
 ) (OrgAPIKeyRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.KeyID) {
+	if input.OrgID == uuid.Nil || input.KeyID == uuid.Nil {
 		return OrgAPIKeyRecord{}, errors.New("org id and key id are required")
 	}
 	if input.Name == "" && input.OrgRole == "" {
@@ -344,10 +345,10 @@ func (s *Store) UpdateOrgAPIKey(
 // idempotent: an already-revoked key keeps its original revoked_at.
 func (s *Store) RevokeOrgAPIKey(
 	ctx context.Context,
-	orgID, keyID ID,
+	orgID, keyID uuid.UUID,
 	actor PrincipalRecord,
 ) (OrgAPIKeyRecord, error) {
-	if isNilID(orgID) || isNilID(keyID) {
+	if orgID == uuid.Nil || keyID == uuid.Nil {
 		return OrgAPIKeyRecord{}, errors.New("org id and key id are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -391,9 +392,9 @@ func (s *Store) RevokeOrgAPIKey(
 }
 
 type OrgAPIKeyProjectRoleInput struct {
-	OrgID          ID
-	KeyID          ID
-	ProjectID      ID
+	OrgID          uuid.UUID
+	KeyID          uuid.UUID
+	ProjectID      uuid.UUID
 	ActorPrincipal PrincipalRecord
 	Role           string
 }
@@ -404,7 +405,7 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 	ctx context.Context,
 	input OrgAPIKeyProjectRoleInput,
 ) (ProjectMembershipRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.KeyID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.KeyID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return ProjectMembershipRecord{}, errors.New("org id, key id, and project id are required")
 	}
 	if !isValidProjectRole(input.Role) {
@@ -452,12 +453,12 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 
 func (s *Store) ListProjectMembershipGrantsForOrgAPIKey(
 	ctx context.Context,
-	orgID, keyID ID,
+	orgID, keyID uuid.UUID,
 ) ([]ProjectMembershipGrantRecord, error) {
-	if isNilID(orgID) {
+	if orgID == uuid.Nil {
 		return nil, errors.New("org id is required")
 	}
-	if isNilID(keyID) {
+	if keyID == uuid.Nil {
 		return nil, errors.New("key id is required")
 	}
 	rows, err := s.q.ListProjectMembershipsForOrgAPIKey(
@@ -485,7 +486,7 @@ func (s *Store) RemoveOrgAPIKeyProjectRole(
 	ctx context.Context,
 	input OrgAPIKeyProjectRoleInput,
 ) error {
-	if isNilID(input.OrgID) || isNilID(input.KeyID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.KeyID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return errors.New("org id, key id, and project id are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -529,7 +530,7 @@ func (s *Store) RemoveOrgAPIKeyProjectRole(
 func lockActiveOrgAPIKeyTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, keyID ID,
+	orgID, keyID uuid.UUID,
 	actor PrincipalRecord,
 ) (dbsqlc.GetOrgAPIKeyRow, error) {
 	if _, err := qtx.LockOrgAPIKeyForUpdate(

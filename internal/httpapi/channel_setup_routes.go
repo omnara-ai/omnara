@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -61,7 +62,7 @@ func (s strictOpenAPIServer) RegisterExternalChannel(
 	if !installOK || !definitionOK {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	parentID := integrationstore.NilID
+	parentID := uuid.Nil
 	if request.Body.ParentChannelId != nil {
 		var ok bool
 		parentID, ok = parseOpenAPIPublicID(publicid.KindIntegrationTarget, *request.Body.ParentChannelId)

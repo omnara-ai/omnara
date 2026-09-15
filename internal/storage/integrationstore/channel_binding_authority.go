@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -18,10 +20,10 @@ const (
 )
 
 type PrepareChannelBindingInput struct {
-	ProjectID            ID
-	AgentID              ID
-	IntegrationInstallID ID
-	IntegrationTargetID  ID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationTargetID  uuid.UUID
 	Operation            ChannelBindingOperation
 	CreatesReplyChannel  bool
 }
@@ -35,7 +37,7 @@ func (s *Store) PrepareChannelBindingTx(
 	tx pgx.Tx,
 	input PrepareChannelBindingInput,
 ) (IntegrationTargetBindingRecord, error) {
-	return s.lockChannelOperationBinding(ctx, tx, input, NilID)
+	return s.lockChannelOperationBinding(ctx, tx, input, uuid.Nil)
 }
 
 // RecheckChannelBindingTx fences completion against the same live binding and
@@ -48,7 +50,7 @@ func (s *Store) RecheckChannelBindingTx(
 	input PrepareChannelBindingInput,
 	prepared IntegrationTargetBindingRecord,
 ) (IntegrationTargetBindingRecord, error) {
-	if isNilID(prepared.ID) || prepared.ProjectID != input.ProjectID || prepared.AgentID != input.AgentID ||
+	if prepared.ID == uuid.Nil || prepared.ProjectID != input.ProjectID || prepared.AgentID != input.AgentID ||
 		prepared.IntegrationInstallID != input.IntegrationInstallID ||
 		prepared.IntegrationTargetID != input.IntegrationTargetID {
 		return IntegrationTargetBindingRecord{}, storeerr.ErrUnauthorized
@@ -67,10 +69,10 @@ func (s *Store) lockChannelOperationBinding(
 	ctx context.Context,
 	tx pgx.Tx,
 	input PrepareChannelBindingInput,
-	bindingID ID,
+	bindingID uuid.UUID,
 ) (IntegrationTargetBindingRecord, error) {
-	if tx == nil || isNilID(input.ProjectID) || isNilID(input.AgentID) ||
-		isNilID(input.IntegrationInstallID) || isNilID(input.IntegrationTargetID) {
+	if tx == nil || input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil ||
+		input.IntegrationInstallID == uuid.Nil || input.IntegrationTargetID == uuid.Nil {
 		return IntegrationTargetBindingRecord{}, storeerr.InvalidRequest(
 			errors.New("transaction, project, agent, connection, and channel are required"))
 	}
@@ -89,7 +91,7 @@ func (s *Store) lockChannelOperationBinding(
 	row, err := s.q.WithTx(tx).LockChannelOperationBinding(ctx, dbsqlc.LockChannelOperationBindingParams{
 		ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationInstallID: input.IntegrationInstallID,
 		IntegrationTargetID: input.IntegrationTargetID, Operation: string(input.Operation),
-		CreatesReplyChannel: input.CreatesReplyChannel, BindingID: sqlcIDFromNil(bindingID),
+		CreatesReplyChannel: input.CreatesReplyChannel, BindingID: storeutil.IDFromNil(bindingID),
 	})
 	if err != nil {
 		return IntegrationTargetBindingRecord{}, integrationChannelReadError("lock channel operation binding", err)

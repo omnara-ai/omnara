@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -14,16 +15,16 @@ func claimNormalModelCallForToolsTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	runtime executionstore.AgentRuntimeLockRecord,
-	openingInputIDs []storage.ID,
-	agentConfigID storage.ID,
+	openingInputIDs []uuid.UUID,
+	agentConfigID uuid.UUID,
 	inputEventSequence int64,
-	sourceModelCallContextID storage.ID,
+	sourceModelCallContextID uuid.UUID,
 ) executionstore.ModelCallClaim {
 	t.Helper()
-	sourceModelOutputID := storage.NilID
-	if sourceModelCallContextID != storage.NilID {
+	sourceModelOutputID := uuid.Nil
+	if sourceModelCallContextID != uuid.Nil {
 		output, found, err := store.Execution().GetModelOutputForContext(
 			ctx,
 			projectID,

@@ -88,8 +88,8 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	warning := testutil.RequireType[map[string]any](t, warnings[0])
 	if warning["code"] != "missing_recommended_machine_tools" ||
 		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "write_process") ||
-		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "upload_artifact") ||
-		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "download_artifact") {
+		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "upload_file") ||
+		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "download_file") {
 		t.Fatalf("config warnings = %v, want missing machine tools warning", warnings)
 	}
 	profile := createPublicHTTPAgentProfile(
@@ -272,8 +272,9 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 			binding,
 		)
 	}
-	if binding["machine_ref"] == "" {
-		t.Fatalf("machine binding response missing machine_ref: %+v", binding)
+	mustPublicHTTPID(t, publicid.KindMachine, testutil.RequireType[string](t, binding["machine_id"]))
+	if _, ok := binding["machine_ref"]; ok {
+		t.Fatalf("machine binding response exposes machine_ref: %+v", binding)
 	}
 	launchConfig := testutil.RequireType[map[string]any](t, retargetedLaunch["agent_config"])
 	if launchConfig["model"] == nil || launchConfig["instruction_hash"] == "" {

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -15,13 +17,13 @@ import (
 // Private address fields stay between core and its authorized connector.
 type ChannelAccess struct {
 	IntegrationKind      IntegrationKind
-	ProjectID            ID
-	AgentID              ID
-	ChannelID            ID
-	ParentChannelID      ID
-	IntegrationInstallID ID
-	IntegrationAppID     ID
-	DefinitionID         ID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	ChannelID            uuid.UUID
+	ParentChannelID      uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationAppID     uuid.UUID
+	DefinitionID         uuid.UUID
 	ConnectorKey         string
 	Provider             string
 	ImplementationKey    string
@@ -37,7 +39,10 @@ type ChannelAccess struct {
 	ProviderMetadata     json.RawMessage
 }
 
-func (s *Store) GetAgentChannelAccess(ctx context.Context, projectID, agentID, channelID ID) (ChannelAccess, error) {
+func (s *Store) GetAgentChannelAccess(
+	ctx context.Context,
+	projectID, agentID, channelID uuid.UUID,
+) (ChannelAccess, error) {
 	return getAgentChannelAccess(ctx, s.q, projectID, agentID, channelID)
 }
 
@@ -48,7 +53,7 @@ func (s *Store) GetAgentChannelAccess(ctx context.Context, projectID, agentID, c
 func (s *Store) GetAgentChannelAccessTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, channelID ID,
+	projectID, agentID, channelID uuid.UUID,
 ) (ChannelAccess, error) {
 	if tx == nil {
 		return ChannelAccess{}, errors.New("transaction is required")
@@ -71,9 +76,9 @@ func (s *Store) GetAgentChannelAccessTx(
 func getAgentChannelAccess(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID, channelID ID,
+	projectID, agentID, channelID uuid.UUID,
 ) (ChannelAccess, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(channelID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || channelID == uuid.Nil {
 		return ChannelAccess{}, storeerr.InvalidRequest(errors.New("project, agent, and channel are required"))
 	}
 	row, err := q.GetAgentChannelAccess(ctx, dbsqlc.GetAgentChannelAccessParams{
@@ -88,8 +93,8 @@ func getAgentChannelAccess(
 	}
 	return ChannelAccess{
 		ProjectID: projectID, AgentID: agentID, ChannelID: row.ID,
-		ParentChannelID: idFromSQLCPtr(row.ParentChannelID), IntegrationInstallID: row.IntegrationInstallID,
-		IntegrationAppID: idFromSQLCPtr(row.IntegrationAppID), DefinitionID: row.DefinitionID,
+		ParentChannelID: storeutil.IDFromPtr(row.ParentChannelID), IntegrationInstallID: row.IntegrationInstallID,
+		IntegrationAppID: storeutil.IDFromPtr(row.IntegrationAppID), DefinitionID: row.DefinitionID,
 		IntegrationKind: IntegrationKind(row.IntegrationKind),
 		ConnectorKey:    stringFromPtr(row.ConnectorKey), Provider: stringFromPtr(row.Provider),
 		ImplementationKey: row.ImplementationKey,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/benbjohnson/clock"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -21,7 +22,7 @@ const (
 type agentEventFrontierReader interface {
 	ListAgentEventFrontiers(
 		context.Context,
-		[]executionstore.ID,
+		[]uuid.UUID,
 	) ([]executionstore.AgentEventFrontier, error)
 }
 
@@ -39,12 +40,12 @@ type agentEventStreamReconciler struct {
 	mu      sync.Mutex
 	started bool
 	closed  bool
-	streams map[executionstore.ID]map[*agentEventStreamRegistration]struct{}
+	streams map[uuid.UUID]map[*agentEventStreamRegistration]struct{}
 }
 
 type agentEventStreamRegistration struct {
 	reconciler *agentEventStreamReconciler
-	agentID    executionstore.ID
+	agentID    uuid.UUID
 	notify     chan<- struct{}
 	cursor     atomic.Int64
 	once       sync.Once
@@ -72,12 +73,12 @@ func newAgentEventStreamReconciler(
 		batchSize: batchSize,
 		ctx:       ctx,
 		cancel:    cancel,
-		streams:   make(map[executionstore.ID]map[*agentEventStreamRegistration]struct{}),
+		streams:   make(map[uuid.UUID]map[*agentEventStreamRegistration]struct{}),
 	}
 }
 
 func (r *agentEventStreamReconciler) register(
-	agentID executionstore.ID,
+	agentID uuid.UUID,
 	cursor int64,
 	notify chan<- struct{},
 ) (*agentEventStreamRegistration, bool) {
@@ -142,10 +143,10 @@ func (r *agentEventStreamReconciler) reconcile(ctx context.Context) error {
 	return nil
 }
 
-func (r *agentEventStreamReconciler) activeAgentIDs() []executionstore.ID {
+func (r *agentEventStreamReconciler) activeAgentIDs() []uuid.UUID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	agentIDs := make([]executionstore.ID, 0, len(r.streams))
+	agentIDs := make([]uuid.UUID, 0, len(r.streams))
 	for agentID := range r.streams {
 		agentIDs = append(agentIDs, agentID)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -29,8 +30,8 @@ func (s *Store) RegisterExternalChannel(
 
 // RevokeAgentChannelBinding checks immutable ownership, including revoked rows.
 // Deleting an old binding again never affects a replacement for the same channel.
-func (s *Store) RevokeAgentChannelBinding(ctx context.Context, projectID, agentID, id ID) error {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+func (s *Store) RevokeAgentChannelBinding(ctx context.Context, projectID, agentID, id uuid.UUID) error {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("project, agent and binding are required"))
 	}
 	belongs, err := s.q.IntegrationTargetBindingBelongsToAgent(ctx,

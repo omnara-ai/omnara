@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -136,7 +137,7 @@ WHERE unit.id = $1
 				t.Fatalf("relinquish stale runtime lease: %v", err)
 			}
 			if relinquished.Status != integrationstore.IntegrationRuntimeStatusIdle ||
-				relinquished.LeaseToken != integrationstore.NilID {
+				relinquished.LeaseToken != uuid.Nil {
 				t.Fatalf("stale runtime release did not relinquish ownership: %+v", relinquished)
 			}
 
@@ -380,7 +381,7 @@ func assertRuntimeAvailableAtLeaseExpiry(
 	pool interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
 	},
-	unitID ID,
+	unitID uuid.UUID,
 ) {
 	t.Helper()
 	var equal bool
@@ -614,7 +615,7 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 		t.Fatalf("create fresh runtime after reinstall: %v", err)
 	}
 	if fresh.ID == unit.ID || fresh.IntegrationInstallID != reinstalled.ID ||
-		fresh.LeaseToken != NilID || fresh.LeaseGeneration != 0 {
+		fresh.LeaseToken != uuid.Nil || fresh.LeaseGeneration != 0 {
 		t.Fatalf("fresh reinstalled runtime inherited stale identity or lease: %+v", fresh)
 	}
 }

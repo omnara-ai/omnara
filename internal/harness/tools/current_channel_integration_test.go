@@ -12,7 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
+
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -128,14 +129,14 @@ func TestCurrentChannelToolJourneyPinsPromptsAndReplaysSelection(t *testing.T) {
 	require.Nil(t, toolResultMapFromTestParts(t, dispatch(7).ContentParts)["current_channel_id"])
 	require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, calls[8]))
 	unrouted := integrationToolInteraction(t, ctx, fixture, fixture.toolCallID(t, ctx, calls[8].ID), "permission")
-	require.Equal(t, storage.NilID, unrouted.IntegrationTargetID)
+	require.Equal(t, uuid.Nil, unrouted.IntegrationTargetID)
 
 	replayed, err := executor.Dispatch(ctx, turn, calls[0])
 	require.NoError(t, err)
 	require.JSONEq(t, string(selected.ContentParts), string(replayed.ContentParts))
 	current, err := fixture.Store.Execution().GetAgentCurrentChannelID(ctx, toolsTestProjectID, fixture.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, storage.NilID, current, "replaying a completed setter must not reapply its selection")
+	require.Equal(t, uuid.Nil, current, "replaying a completed setter must not reapply its selection")
 	permission = integrationToolInteraction(t, ctx, fixture, permission.ToolCallID, "permission")
 	question = integrationToolInteraction(t, ctx, fixture, question.ToolCallID, "question")
 	require.Equal(t, targets[0].ID, permission.IntegrationTargetID)
@@ -153,7 +154,7 @@ func TestCurrentChannelToolJourneyPinsPromptsAndReplaysSelection(t *testing.T) {
 		fixture.Agent.ID)
 	require.NoError(t, err)
 	unrouted = integrationToolInteraction(t, ctx, fixture, unrouted.ToolCallID, "permission")
-	require.Equal(t, storage.NilID, unrouted.IntegrationTargetID)
+	require.Equal(t, uuid.Nil, unrouted.IntegrationTargetID)
 	require.NoError(t, executor.postIntegrationPrompt(ctx, turn, unrouted))
 
 	_, err = fixture.Pool.Exec(ctx, `UPDATE integration_apps SET state = 'disabled' WHERE id = $1`, connection.App.ID)
@@ -173,7 +174,7 @@ func TestCurrentChannelToolJourneyPinsPromptsAndReplaysSelection(t *testing.T) {
 			connection.Install.ID))
 	current, err = fixture.Store.Execution().GetAgentCurrentChannelID(ctx, toolsTestProjectID, fixture.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, storage.NilID, current)
+	require.Equal(t, uuid.Nil, current)
 	permission = integrationToolInteraction(t, ctx, fixture, permission.ToolCallID, "permission")
 	require.Equal(t, targets[0].ID, permission.IntegrationTargetID)
 	require.NoError(t, executor.postIntegrationPrompt(ctx, turn, permission))

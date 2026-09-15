@@ -1287,7 +1287,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		project.ProjectUUID,
 		agentID,
 		runtime,
-		[]storage.ID{admitted.Inputs[0].ID},
+		[]uuid.UUID{admitted.Inputs[0].ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)
@@ -1717,7 +1717,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		project.ProjectUUID,
 		agentID,
 		work.RuntimeLock,
-		[]storage.ID{inputID},
+		[]uuid.UUID{inputID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)
@@ -2238,4 +2238,191 @@ func assertPublicMaxTokensEvent(t *testing.T, records []any) {
 		}
 	}
 	t.Fatalf("max_tokens model output missing from public events: %+v", records)
+}
+
+func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	pool := openIntegrationDB(t, ctx)
+
+	redisClient := integrationredis.OpenClient(t)
+	bus, err := notifications.NewRedisBus(redisClient, nil)
+	if err != nil {
+		t.Fatalf("create redis bus: %v", err)
+	}
+	presence, err := notifications.NewRedisPresenceStore(redisClient)
+	if err != nil {
+		t.Fatalf("create presence store: %v", err)
+	}
+	publisher, err := notifications.NewRoutedPublisher(
+		notifications.RoutedPublisherPorts{
+			DaemonWakeups:     bus,
+			AgentEventWakeups: bus,
+			ToolCallUpdates:   bus,
+			WorkerControls:    bus,
+		},
+		presence,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create routed publisher: %v", err)
+	}
+	t.Cleanup(publisher.Close)
+
+	keyWrapper := integrationKeyWrapper()
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(keyWrapper), storage.WithPostCommitPublisher(publisher))
+	server := mustNewServer(
+		t,
+		store,
+		WithSecretKeyWrapper(keyWrapper),
+		WithAgentEventWakeupSubscriber(bus),
+		WithAgentToolCallUpdateSubscriber(bus),
+		WithAgentStreamDeltaSubscriber(bus),
+	)
+	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
+	project := bootstrapPublicHTTPProject(t, handler, "sse-subagents")
+	user := createHTTPInteractionUser(t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, "sse-subagents")
+	parentLaunch := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, "sse-subagents")
+	parent := parentLaunch.Agent
+	asker := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "asker", "worker")
+	caller := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "caller", "worker")
+	parentPublicID := testPublicID(t, publicid.KindAgent, parent.ID)
+	askerPublicID := testPublicID(t, publicid.KindAgent, asker.ID)
+	callerPublicID := testPublicID(t, publicid.KindAgent, caller.ID)
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		httpServer.URL+project.ProjectPath+"/agents/"+parentPublicID+"/events/stream",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build sse request: %v", err)
+	}
+	for key, value := range authHeaders(project.AdminToken) {
+		req.Header.Set(key, value)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("sse request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sse status=%d", resp.StatusCode)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), ":") {
+		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
+	}
+	frames := make(chan [2]string, 64)
+	go func() {
+		var eventName string
+		for scanner.Scan() {
+			line := scanner.Text()
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				eventName = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				frames <- [2]string{eventName, strings.TrimPrefix(line, "data: ")}
+				eventName = ""
+			}
+		}
+	}()
+	nextFrame := func(wantEvent string) map[string]any {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for {
+			select {
+			case frame := <-frames:
+				if frame[0] != wantEvent {
+					continue
+				}
+				var decoded map[string]any
+				if err := json.Unmarshal([]byte(frame[1]), &decoded); err != nil {
+					t.Fatalf("decode %s frame: %v", wantEvent, err)
+				}
+				return decoded
+			case <-deadline:
+				t.Fatalf("sse did not deliver a %s frame within 10s", wantEvent)
+			}
+		}
+	}
+
+	question := json.RawMessage(`{"questions":[{"prompt":"Ship?","options":[{"label":"Yes"},{"label":"No"}]}]}`)
+	interactionID := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, asker, "question", "", question,
+	)
+	interaction, found, err := store.Execution().GetAgentInteraction(ctx, project.ProjectUUID, asker.ID, interactionID)
+	if err != nil || !found {
+		t.Fatalf("load subagent question: found=%v err=%v", found, err)
+	}
+	awaitToolCallUpdate := func(toolCallPublicID, agentPublicID, state string) {
+		t.Helper()
+		for {
+			frame := nextFrame("tool_call_update")
+			if frame["tool_call_id"] != toolCallPublicID {
+				continue
+			}
+			if frame["agent_id"] != agentPublicID {
+				t.Fatalf("tool call update = %+v, want agent %s", frame, agentPublicID)
+			}
+			if state == "" || frame["state"] == state {
+				return
+			}
+		}
+	}
+	awaitToolCallUpdate(testPublicID(t, publicid.KindToolCall, interaction.ToolCallID), askerPublicID, "")
+
+	toolCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
+	toolCallPublicID := testPublicID(t, publicid.KindToolCall, toolCallID)
+	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "ready")
+
+	grandchild := spawnHTTPSubagentForTest(t, ctx, store, caller, parentLaunch.AgentConfig.ID, "grandchild", "helper")
+	grandchildPublicID := testPublicID(t, publicid.KindAgent, grandchild.ID)
+	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
+		ProjectID:     project.ProjectUUID,
+		AgentID:       caller.ID,
+		ID:            toolCallID,
+		Outcome:       executionstore.ToolResultOutcomeSucceeded,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"done"}]`),
+	}); err != nil {
+		t.Fatalf("complete subagent custom tool call: %v", err)
+	}
+	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "completed")
+	grandchildToolCallID := createHTTPCustomToolCallForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, grandchild,
+	)
+	awaitToolCallUpdate(testPublicID(t, publicid.KindToolCall, grandchildToolCallID), grandchildPublicID, "ready")
+
+	listed := requestJSONWithHeaders(
+		t, handler, http.MethodGet,
+		project.ProjectPath+"/agents/"+parentPublicID+"/tool-calls?include_subagents=true&type=custom",
+		"", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	rows := testutil.RequireType[[]any](t, listed["data"])
+	if len(rows) != 2 {
+		t.Fatalf("subagent custom tool calls = %+v, want the caller's and the grandchild's", rows)
+	}
+	listedAgents := map[any]any{}
+	for _, entry := range rows {
+		row := testutil.RequireType[map[string]any](t, entry)
+		listedAgents[row["id"]] = row["agent_id"]
+	}
+	if listedAgents[toolCallPublicID] != callerPublicID ||
+		listedAgents[testPublicID(t, publicid.KindToolCall, grandchildToolCallID)] != grandchildPublicID {
+		t.Fatalf("listed subagent tool calls = %+v", listedAgents)
+	}
+	own := requestJSONWithHeaders(
+		t, handler, http.MethodGet,
+		project.ProjectPath+"/agents/"+parentPublicID+"/tool-calls?type=custom",
+		"", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	if rows := testutil.RequireType[[]any](t, own["data"]); len(rows) != 0 {
+		t.Fatalf("parent custom tool calls without include_subagents = %+v, want none", rows)
+	}
 }

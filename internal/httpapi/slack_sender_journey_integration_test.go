@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -227,7 +228,7 @@ func prepareSlackJourneySend(
 	require.True(t, found)
 	require.Equal(t, agentID, work.RuntimeLock.AgentID)
 	claim := claimNormalModelCallForHTTPTest(t, ctx, store, project.ProjectUUID, agentID, work.RuntimeLock,
-		[]integrationstore.ID{input.ID}, launch.AgentConfig.ID, work.Model.AdmittedInputTurn.Events[0].Sequence)
+		[]uuid.UUID{input.ID}, launch.AgentConfig.ID, work.Model.AdmittedInputTurn.Events[0].Sequence)
 	channelID := testPublicID(t, publicid.KindIntegrationTarget, parent.ID)
 	proposal := model.ToolCall{ID: "scheduled-send", Name: toolcatalog.ToolNameSendChannelMessage,
 		Input: json.RawMessage(`{"channel_id":"` + channelID + `","message":{"text":"Scheduled update"}}`)}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
@@ -171,8 +172,8 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 	for _, resolved := range []struct {
 		name      string
 		load      func() (integrationstore.IntegrationInstallRecord, error)
-		projectID integrationstore.ID
-		installID integrationstore.ID
+		projectID uuid.UUID
+		installID uuid.UUID
 	}{
 		{
 			name: "first external identity",
@@ -776,7 +777,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		project.OrgUUID,
 		project.ProjectUUID,
 		time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC),
-		func(agentID executionstore.ID) {
+		func(agentID uuid.UUID) {
 			app, err = store.Integrations().CreateIntegrationApp(
 				ctx,
 				integrationstore.CreateIntegrationAppInput{
@@ -1145,7 +1146,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		"permission",
 		"run_command",
 		json.RawMessage(`{"command":"printf concurrent"}`),
-		func(agentID executionstore.ID) {
+		func(agentID uuid.UUID) {
 			if _, err := pool.Exec(ctx,
 				`UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,
 				target.ID,
@@ -1433,7 +1434,7 @@ func assertChannelInteractionUnchanged(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, interactionID integrationstore.ID,
+	projectID, agentID, interactionID uuid.UUID,
 	wantActors int,
 ) {
 	t.Helper()

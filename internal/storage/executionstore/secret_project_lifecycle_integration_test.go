@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -100,7 +101,7 @@ VALUES (
 	if err := duplicateHolder.Rollback(ctx); err != nil {
 		t.Fatalf("release duplicate secret authority holder: %v", err)
 	}
-	var createdID ID
+	var createdID uuid.UUID
 	select {
 	case result := <-createDone:
 		if result.err != nil {
@@ -318,7 +319,7 @@ VALUES (
 	if err := duplicateHolder.Rollback(ctx); err != nil {
 		t.Fatalf("release duplicate organization secret authority holder: %v", err)
 	}
-	var createdID ID
+	var createdID uuid.UUID
 	select {
 	case result := <-createDone:
 		if result.err != nil {
@@ -661,7 +662,7 @@ func holdOrganizationOAuthLease(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	secretID ID,
+	secretID uuid.UUID,
 ) (pgx.Tx, int32) {
 	t.Helper()
 	tx, err := pool.Begin(ctx)

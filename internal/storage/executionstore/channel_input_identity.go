@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -46,7 +47,7 @@ func validateChannelInputKeys(key string, condition *ChannelInputPrecondition) e
 }
 
 func checkChannelInputPrecondition(
-	ctx context.Context, tx pgx.Tx, projectID, agentID ID, scope string, condition *ChannelInputPrecondition,
+	ctx context.Context, tx pgx.Tx, projectID, agentID uuid.UUID, scope string, condition *ChannelInputPrecondition,
 ) error {
 	if condition == nil {
 		return nil

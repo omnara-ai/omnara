@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -42,7 +43,7 @@ func TestCurrentChannelFollowsAdmissionAndExplicitSelection(t *testing.T) {
 		require.NoError(t, err)
 		origins = append(origins, origin{target: target, binding: binding})
 	}
-	current := func(want ID) {
+	current := func(want uuid.UUID) {
 		t.Helper()
 		// Recreate the composition root to prove this is durable state.
 		id, err := newSecretIntegrationStore(pool).Execution().GetAgentCurrentChannelID(ctx, testProjectID, agent.ID)
@@ -63,9 +64,9 @@ func TestCurrentChannelFollowsAdmissionAndExplicitSelection(t *testing.T) {
 		require.Equal(t, source.binding.ID, input.IntegrationTargetBindingID)
 		return input
 	}
-	current(NilID)
+	current(uuid.Nil)
 	first, second := enqueue(0), enqueue(1)
-	current(NilID)
+	current(uuid.Nil)
 	runtime, err := store.Execution().AcquireAgentRuntimeLock(ctx,
 		testProjectID,
 		agent.ID,
@@ -74,7 +75,7 @@ func TestCurrentChannelFollowsAdmissionAndExplicitSelection(t *testing.T) {
 	require.NoError(t, err)
 	admitted, found := admitNextAgentInputAndOpenTurnForTest(t, ctx, store, testProjectID, agent.ID, runtime.ID)
 	require.True(t, found)
-	require.Equal(t, []ID{first.ID, second.ID}, []ID{admitted.Inputs[0].ID, admitted.Inputs[1].ID})
+	require.Equal(t, []uuid.UUID{first.ID, second.ID}, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID})
 	current(origins[1].target.ID)
 
 	_, err = executionstore.IntegrationSetAgentIntegrationTarget(ctx,
@@ -115,9 +116,9 @@ func TestCurrentChannelFollowsAdmissionAndExplicitSelection(t *testing.T) {
 		origins[0].target.ID)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "explicit selection checks current authority")
 	current(origins[2].target.ID)
-	_, err = executionstore.IntegrationSetAgentIntegrationTarget(ctx, store.q, testProjectID, agent.ID, NilID)
+	_, err = executionstore.IntegrationSetAgentIntegrationTarget(ctx, store.q, testProjectID, agent.ID, uuid.Nil)
 	require.NoError(t, err)
-	current(NilID)
+	current(uuid.Nil)
 }
 
 func TestDeleteInstallLocksRevokedCurrentChannelAgentBeforeInstall(t *testing.T) {
@@ -169,5 +170,5 @@ func TestDeleteInstallLocksRevokedCurrentChannelAgentBeforeInstall(t *testing.T)
 	require.NoError(t, <-done)
 	current, err := store.Execution().GetAgentCurrentChannelID(ctx, testProjectID, agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, NilID, current)
+	require.Equal(t, uuid.Nil, current)
 }

@@ -36,8 +36,8 @@ const alwaysAllowProfile: ToolPermissionProfile = {
 const catalog: ToolCatalog = {
   built_in_tools: [
     {
-      name: 'download_artifact',
-      description: 'Download an artifact.',
+      name: 'download_file',
+      description: 'Download a file.',
       configurable: true,
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
@@ -125,7 +125,7 @@ async function renderAndFlush(node: ReactNode) {
 
 it('preserves an inherited built-in permission when the catalog loads', async () => {
   const onToolsChange = vi.fn()
-  const tools = [{ name: 'download_artifact', permission: null }]
+  const tools = [{ name: 'download_file', permission: null }]
 
   await renderAndFlush(<AgentConfigToolsField tools={tools} onToolsChange={onToolsChange} />)
   await renderAndFlush(
@@ -134,6 +134,7 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
 
   expect(onToolsChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always allow')
+  expect(container.textContent).toContain('download_file')
 })
 
 it('keeps runtime-injected channel tools out of agent config', async () => {
@@ -173,13 +174,42 @@ it('keeps runtime-injected channel tools out of agent config', async () => {
   expect(onToolsChange).not.toHaveBeenCalled()
 })
 
-it('treats an old catalog entry without configurable as configurable', async () => {
+it('keeps file and subagent tools configurable alongside binding-managed channels', async () => {
+  const tools = [
+    { name: 'download_file', configurable: true },
+    { name: 'spawn_agent', configurable: true },
+    { name: 'send_channel_message', configurable: false },
+  ].map((entry) => ({
+    ...entry,
+    description: entry.name,
+    default_permission: alwaysAllowProfile.default_permission,
+    permission_modes: alwaysAllowProfile.permission_modes,
+  }))
+  const onToolsChange = vi.fn()
+
+  await renderAndFlush(
+    <form>
+      <AgentConfigToolsField
+        catalog={{ ...catalog, built_in_tools: tools }}
+        tools={tools.map(({ name }) => ({ name, permission: null }))}
+        onToolsChange={onToolsChange}
+      />
+    </form>,
+  )
+
+  expect(container.textContent).toContain('download_file')
+  expect(container.textContent).toContain('spawn_agent')
+  expect(container.textContent).not.toContain('send_channel_message')
+  expect(onToolsChange).not.toHaveBeenCalled()
+})
+
+it('treats a catalog entry without configurable as configurable', async () => {
   const oldCatalog: ToolCatalog = {
     ...catalog,
     built_in_tools: [
       {
-        name: 'download_artifact',
-        description: 'Download an artifact.',
+        name: 'download_file',
+        description: 'Download a file.',
         default_permission: alwaysAllowProfile.default_permission,
         permission_modes: alwaysAllowProfile.permission_modes,
       },

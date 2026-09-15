@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
@@ -12,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -175,47 +175,47 @@ func accountPrincipalFromContext(ctx context.Context) (identitystore.PrincipalRe
 func parseSecretOwnerInput(
 	input openapi.SecretOwnerInput,
 	principal identitystore.PrincipalRecord,
-) (string, storage.ID, storage.ID, *apierror.ResponseError) {
+) (string, uuid.UUID, uuid.UUID, *apierror.ResponseError) {
 	kind, err := input.Discriminator()
 	if err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid owner")
-		return "", storage.NilID, storage.NilID, &apiErr
+		return "", uuid.Nil, uuid.Nil, &apiErr
 	}
 	switch kind {
 	case secretstore.SecretOwnerOrg:
 		if _, err := input.AsOrgSecretOwnerInput(); err != nil {
 			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid owner")
-			return "", storage.NilID, storage.NilID, &apiErr
+			return "", uuid.Nil, uuid.Nil, &apiErr
 		}
-		return kind, storage.NilID, storage.NilID, nil
+		return kind, uuid.Nil, uuid.Nil, nil
 	case secretstore.SecretOwnerProject:
 		owner, err := input.AsProjectSecretOwnerInput()
 		if err != nil {
 			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid owner")
-			return "", storage.NilID, storage.NilID, &apiErr
+			return "", uuid.Nil, uuid.Nil, &apiErr
 		}
 		projectID, ok := parseOpenAPIPublicID(publicid.KindProject, owner.ProjectId)
 		if !ok {
 			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid owner project_id")
-			return "", storage.NilID, storage.NilID, &apiErr
+			return "", uuid.Nil, uuid.Nil, &apiErr
 		}
-		return kind, projectID, storage.NilID, nil
+		return kind, projectID, uuid.Nil, nil
 	case secretstore.SecretOwnerUser:
 		if _, err := input.AsUserSecretOwnerInput(); err != nil {
 			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid owner")
-			return "", storage.NilID, storage.NilID, &apiErr
+			return "", uuid.Nil, uuid.Nil, &apiErr
 		}
 		if principal.Type != identitystore.PrincipalTypeUser {
 			apiErr := apierror.FromCode(
 				openapi.ErrorCodeInvalidRequest,
 				"user-owned secrets require a user principal",
 			)
-			return "", storage.NilID, storage.NilID, &apiErr
+			return "", uuid.Nil, uuid.Nil, &apiErr
 		}
-		return kind, storage.NilID, principal.ID, nil
+		return kind, uuid.Nil, principal.ID, nil
 	default:
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid owner kind")
-		return "", storage.NilID, storage.NilID, &apiErr
+		return "", uuid.Nil, uuid.Nil, &apiErr
 	}
 }
 
@@ -299,7 +299,7 @@ func valueOrEmpty(value *string) string {
 func canonicalSecret(
 	ctx context.Context,
 	store *secretstore.Store,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	rawID string,
 	principal identitystore.PrincipalRecord,
 ) (secretstore.SecretRecord, *apierror.ResponseError) {
@@ -418,10 +418,10 @@ func (s strictOpenAPIServer) ListSecrets(
 		Kind                      string
 		Metadata                  map[string]string
 	}{OwnerKind: filters.OwnerKind, Kind: kind, Metadata: filters.Metadata}
-	if filters.OwnerProjectID != storage.NilID {
+	if filters.OwnerProjectID != uuid.Nil {
 		extra.OwnerProjectID = filters.OwnerProjectID.String()
 	}
-	if filters.MCPOAuthFlowID != storage.NilID {
+	if filters.MCPOAuthFlowID != uuid.Nil {
 		extra.MCPOAuthFlowID = filters.MCPOAuthFlowID.String()
 	}
 	list, err := parseResourceListQuery(resourceListQueryInput{

@@ -5,17 +5,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 func SeedAgentIntegrationTarget(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	projectID, agentID, integrationTargetID storage.ID,
+	projectID, agentID, integrationTargetID uuid.UUID,
 ) error {
 	var target any
-	if integrationTargetID != storage.NilID {
+	if integrationTargetID != uuid.Nil {
 		target = integrationTargetID
 	}
 	tag, err := pool.Exec(

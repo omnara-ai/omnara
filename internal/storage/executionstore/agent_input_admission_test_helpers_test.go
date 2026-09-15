@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -17,7 +18,7 @@ func admitNextAgentInputAndOpenTurnForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 ) (executionstore.AdmittedAgentInputTurn, bool) {
 	t.Helper()
 	admitted, found, err := admitNextAgentInputAndOpenTurnForTestErr(
@@ -36,9 +37,9 @@ func admitNextAgentInputAndOpenTurnForTest(
 func admitNextAgentInputAndOpenTurnForTestErr(
 	ctx context.Context,
 	store *Store,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 ) (executionstore.AdmittedAgentInputTurn, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(runtimeLockID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || runtimeLockID == uuid.Nil {
 		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf(
 			"project id, agent id, and runtime lock id are required",
 		)

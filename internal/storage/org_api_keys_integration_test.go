@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -154,7 +155,7 @@ func TestOrgAPIKeyLifecycleAndAuthorization(t *testing.T) {
 		otherOrgID,
 		created.Record.ID,
 		now,
-	); !isForeignKeyViolation(err) {
+	); !storeutil.IsForeignKeyViolation(err) {
 		t.Fatalf("cross-org membership for key error = %v, want foreign key violation", err)
 	}
 	if _, err := pool.Exec(

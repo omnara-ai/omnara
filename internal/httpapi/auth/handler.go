@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -31,7 +32,7 @@ type Store interface {
 		identitystore.PasswordResetStartInput,
 	) (identitystore.PasswordResetStartRecord, error)
 	CompletePasswordReset(context.Context, identitystore.CompletePasswordResetInput) (identitystore.UserRecord, error)
-	PrimaryVerifiedEmailForUser(context.Context, identitystore.ID) (identitystore.UserEmailRecord, bool, error)
+	PrimaryVerifiedEmailForUser(context.Context, uuid.UUID) (identitystore.UserEmailRecord, bool, error)
 	ChangePassword(context.Context, identitystore.ChangePasswordInput) (identitystore.UserRecord, error)
 	ListEnabledAuthConnectorSummaries(context.Context) ([]identitystore.AuthConnectorSummaryRecord, error)
 	GetEnabledAuthConnectorBySlug(context.Context, string) (identitystore.AuthConnectorRecord, error)
@@ -65,7 +66,7 @@ type Store interface {
 }
 
 type CompromiseRevoker interface {
-	RevokeUserTokensForCompromiseWithPasswordIfPresent(context.Context, identitystore.ID, string) error
+	RevokeUserTokensForCompromiseWithPasswordIfPresent(context.Context, uuid.UUID, string) error
 }
 
 type EmailSender interface {

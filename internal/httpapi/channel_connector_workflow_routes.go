@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 // One concurrent winner can change the provisional agent. Reprepare once for
@@ -86,7 +86,7 @@ func (s strictOpenAPIServer) DeliverChannelConnectorWorkflow(
 
 func channelWorkflowDeliveryInput(
 	body openapi.DeliverChannelConnectorWorkflowRequest,
-) (executionstore.DeliverChannelWorkflowInput, integrationstore.ID, error) {
+) (executionstore.DeliverChannelWorkflowInput, uuid.UUID, error) {
 	input := executionstore.DeliverChannelWorkflowInput{}
 	input.InputKey = body.InputKey
 	input.OnlyIfUnbound = body.OnlyIfUnbound != nil && *body.OnlyIfUnbound
@@ -98,7 +98,7 @@ func channelWorkflowDeliveryInput(
 	routeID, routeOK := parseOpenAPIPublicID(publicid.KindIntegrationRoute, body.RouteId)
 	definitionID, definitionOK := parseOpenAPIPublicID(publicid.KindChannelDefinition, body.Target.DefinitionId)
 	if !routeOK || !definitionOK {
-		return input, integrationstore.NilID, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		return input, uuid.Nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	input.Target.ChannelDefinitionID = definitionID
 	if body.Target.ParentChannelId != nil {

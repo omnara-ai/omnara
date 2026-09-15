@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
@@ -190,7 +191,7 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list project available skills: %v", err)
 	}
-	wantAvailability := map[ID]string{
+	wantAvailability := map[uuid.UUID]string{
 		orgSkill.ID: skillstore.SkillAvailabilityGrant, projectSkill.ID: skillstore.SkillAvailabilityDirect,
 		userSkill.ID: skillstore.SkillAvailabilityGrant,
 	}
@@ -234,7 +235,7 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list developer skills: %v", err)
 	}
-	for _, id := range []ID{orgSkill.ID, projectSkill.ID, userSkill.ID} {
+	for _, id := range []uuid.UUID{orgSkill.ID, projectSkill.ID, userSkill.ID} {
 		if !containsSkill(visible.Skills, id) {
 			t.Fatalf("developer list missing skill %s: %+v", id, visible.Skills)
 		}
@@ -584,7 +585,7 @@ func TestOrganizationDeletionSoftDeletesSkillRevisionSet(t *testing.T) {
 	assertSkillRevisionSetDeleted(t, ctx, pool, skill.ID)
 }
 
-func assertSkillRevisionSetDeleted(t *testing.T, ctx context.Context, pool *pgxpool.Pool, skillID ID) {
+func assertSkillRevisionSetDeleted(t *testing.T, ctx context.Context, pool *pgxpool.Pool, skillID uuid.UUID) {
 	t.Helper()
 	var identityDeleted bool
 	var liveRevisions int
@@ -840,7 +841,7 @@ func createIntegrationSkill(
 	return record
 }
 
-func containsSkill(records []skillstore.SkillRecord, id ID) bool {
+func containsSkill(records []skillstore.SkillRecord, id uuid.UUID) bool {
 	for _, record := range records {
 		if record.ID == id {
 			return true
@@ -849,6 +850,6 @@ func containsSkill(records []skillstore.SkillRecord, id ID) bool {
 	return false
 }
 
-func publicSkillID(id ID) (string, error) {
+func publicSkillID(id uuid.UUID) (string, error) {
 	return publicid.Encode(publicid.KindSkill, id)
 }

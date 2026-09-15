@@ -7,6 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,6 +61,77 @@ func TestChannelWorkflowSelectionDoesNotReplaceExistingRecipient(t *testing.T) {
 	require.Empty(t, after.Recipients)
 	_, err = f.Store.Execution().DeliverChannelWorkflow(ctx, input)
 	require.ErrorIs(t, err, executionstore.ErrChannelRecipientsChanged)
+}
+
+func TestChannelWorkflowSelectionReobservesReceiveHistoryAfterTargetLockWait(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newChannelWorkflowFixture(t, ctx, "workflow-target-wait")
+	input := f.event(t, ctx, "incoming")
+	input.OnlyIfUnbound = true
+	targetInput := input.Target
+	targetInput.ProjectID, targetInput.IntegrationInstallID = f.Identity.ProjectID, f.Identity.IntegrationInstallID
+	target, err := f.Store.Integrations().CreateIntegrationTarget(ctx, targetInput)
+	require.NoError(t, err)
+	agentID := mustCreateAgent(t, ctx, f.Store)
+
+	bindingTx, err := f.Store.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = bindingTx.Rollback(ctx) }()
+	var bindingPID int32
+	require.NoError(t, bindingTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&bindingPID))
+	binding, err := f.Store.Integrations().CreateIntegrationTargetBindingTx(ctx, bindingTx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
+			IntegrationTargetID: target.ID, AgentID: agentID, ReceiveAllowed: true, Source: "api",
+		})
+	require.NoError(t, err)
+	lookupInput := executionstore.LookupChannelRecipientsInput{
+		ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
+		ProviderRef: target.ProviderRef, Receipt: input.Receipt, Limit: 1, Capabilities: f.Identity.Capabilities,
+	}
+	before, err := f.Store.Execution().LookupChannelRecipients(ctx, lookupInput)
+	require.NoError(t, err)
+	require.False(t, before.HasReceiveBindingHistory, "the pending binding is invisible to another transaction")
+	require.Empty(t, before.Recipients)
+
+	finished := make(chan error, 1)
+	go func() {
+		_, deliveryErr := f.Store.Execution().DeliverChannelWorkflow(ctx, input)
+		finished <- deliveryErr
+	}()
+	// Admission has already inserted its provisional agent/workflow and started
+	// the target-lock statement while the receive grant remains uncommitted.
+	// Reading history in that same statement would retain the pre-wait snapshot.
+	integrationdb.WaitForLockWaitBlockedBy(t, ctx, f.Store.pool,
+		"-- name: LockIntegrationTargetForBinding ", bindingPID)
+	require.NoError(t, bindingTx.Commit(ctx))
+	require.ErrorIs(t, integrationdb.Await(t, finished, "workflow after receive binding commit"),
+		executionstore.ErrChannelRecipientsChanged)
+
+	var agents, inputs, workflows, outcomes int
+	require.NoError(t, f.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM agents WHERE project_id=$1 AND id=$2`,
+		f.Identity.ProjectID, input.Prepared.AgentID()).Scan(&agents))
+	require.Zero(t, agents, "the provisional launch rolls back after the target-lock wait")
+	require.NoError(t, f.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND agent_id=$2`,
+		f.Identity.ProjectID, input.Prepared.AgentID()).Scan(&inputs))
+	require.Zero(t, inputs)
+	require.NoError(t, f.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_workflows WHERE project_id=$1 AND integration_install_id=$2`,
+		f.Identity.ProjectID, f.Identity.IntegrationInstallID).Scan(&workflows))
+	require.Zero(t, workflows)
+	require.NoError(t, f.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_event_outcomes WHERE project_id=$1 AND receipt_id=$2`,
+		f.Identity.ProjectID, input.Receipt.ReceiptID).Scan(&outcomes))
+	require.Zero(t, outcomes)
+	after, err := f.Store.Execution().LookupChannelRecipients(ctx, lookupInput)
+	require.NoError(t, err)
+	require.True(t, after.HasReceiveBindingHistory)
+	require.False(t, after.WorkflowStarted)
+	require.Len(t, after.Recipients, 1)
+	require.Equal(t, binding.ID, after.Recipients[0].BindingID)
 }
 
 func TestChannelWorkflowSelectionResumesPartialFanoutForSameReceiptAndChannel(t *testing.T) {

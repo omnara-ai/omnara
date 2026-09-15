@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
@@ -387,7 +388,7 @@ func TestSlackEventsStableCallbackUsesInstallSigningSecret(t *testing.T) {
 	if response["ok"] != "accepted" {
 		t.Fatalf("event response=%v want accepted", response)
 	}
-	var receivedInstallID storage.ID
+	var receivedInstallID uuid.UUID
 	if err := pool.QueryRow(ctx,
 		`SELECT integration_install_id FROM integration_event_receipts WHERE event_id='Ev-multi-install'`,
 	).Scan(&receivedInstallID); err != nil {
@@ -606,7 +607,7 @@ DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.update
 		t.Fatalf("get resolved interaction: %v", err)
 	}
 	if !found || resolved.State != executionstore.AgentInteractionStateResolved ||
-		resolved.ResolvedByInputID == storage.NilID {
+		resolved.ResolvedByInputID == uuid.Nil {
 		t.Fatalf("resolved interaction found=%v record=%+v", found, resolved)
 	}
 	resolvingActorID, resolvingInputKind := interactionResolvingInput(
@@ -797,7 +798,7 @@ func TestSlackActionsResolvePermissionAsSlackActor(t *testing.T) {
 		t.Fatalf("get interaction: %v", err)
 	}
 	if !found || resolved.State != executionstore.AgentInteractionStateResolved ||
-		resolved.ResolvedByInputID == storage.NilID {
+		resolved.ResolvedByInputID == uuid.Nil {
 		t.Fatalf("interaction=%+v found=%v", resolved, found)
 	}
 	resolvingActorID, _ := interactionResolvingInput(
@@ -1129,7 +1130,7 @@ func createSlackHTTPInstall(
 	t *testing.T,
 	ctx context.Context,
 	project publicHTTPProject,
-	profileID storage.ID,
+	profileID uuid.UUID,
 	appID, workspaceID, botUserID, signingSecret string,
 ) integrationstore.IntegrationInstallRecord {
 	t.Helper()
@@ -1192,7 +1193,7 @@ func createSlackHTTPInstallSecret(
 	project publicHTTPProject,
 	name string,
 	payload secrets.Payload,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	secret, _, err := project.Store.Secrets().CreateSecret(
 		ctx,
@@ -1213,9 +1214,9 @@ func createSlackHTTPInstallSecret(
 
 type slackActionPayloadInput struct {
 	Install             integrationstore.IntegrationInstallRecord
-	AgentID             storage.ID
-	IntegrationTargetID storage.ID
-	InteractionID       storage.ID
+	AgentID             uuid.UUID
+	IntegrationTargetID uuid.UUID
+	InteractionID       uuid.UUID
 	UserID              string
 	OptionValue         string
 	ResponseURL         string
@@ -1276,7 +1277,7 @@ func createQuestionInteractionForAgent(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	seed string,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
@@ -1296,7 +1297,7 @@ func createPermissionInteractionForAgent(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	seed string,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
@@ -1316,7 +1317,7 @@ func createInteractionForAgent(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	seed string,
 	kind string,
 	additionalToolCalls ...model.ToolCall,
@@ -1350,7 +1351,7 @@ func createInteractionForAgent(
 		project.ProjectUUID,
 		agentID,
 		runtime,
-		[]storage.ID{admitted.Inputs[0].ID},
+		[]uuid.UUID{admitted.Inputs[0].ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)

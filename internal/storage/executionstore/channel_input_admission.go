@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -12,19 +13,19 @@ import (
 )
 
 type ChannelEventLease struct {
-	ReceiptID       ID
-	LeaseToken      ID
+	ReceiptID       uuid.UUID
+	LeaseToken      uuid.UUID
 	LeaseGeneration int64
 }
 
 type ChannelInputResult struct {
 	CreatedAgent           bool
-	ChannelID              ID
-	BindingID              ID
+	ChannelID              uuid.UUID
+	BindingID              uuid.UUID
 	AgentInput             AgentInputRecord
 	ContentBlocks          json.RawMessage
 	CreatedInput           bool
-	CanceledInteractionIDs []ID
+	CanceledInteractionIDs []uuid.UUID
 }
 
 // A replay reads the accepted immutable input; it neither recreates grants nor
@@ -32,7 +33,7 @@ type ChannelInputResult struct {
 func channelInputReplayResult(
 	ctx context.Context, q *dbsqlc.Queries, input AgentInputRecord,
 ) (ChannelInputResult, error) {
-	blocks, err := agentInputContentBlocks(ctx, q, input.ProjectID, input.AgentID, []ID{input.ID})
+	blocks, err := agentInputContentBlocks(ctx, q, input.ProjectID, input.AgentID, []uuid.UUID{input.ID})
 	if err != nil {
 		return ChannelInputResult{}, err
 	}
@@ -55,7 +56,7 @@ func (s *Store) recordChannelInputOutcomeTx(
 }
 
 func checkChannelEventLease(
-	ctx context.Context, q *dbsqlc.Queries, projectID, installID ID, lease ChannelEventLease,
+	ctx context.Context, q *dbsqlc.Queries, projectID, installID uuid.UUID, lease ChannelEventLease,
 ) error {
 	// A row lock fences replacement owners, but cannot stop time passing. Check
 	// the lease again immediately before committing the admission outcome.

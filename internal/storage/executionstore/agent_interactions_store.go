@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -34,10 +35,10 @@ const (
 )
 
 type CreatePermissionInteractionInput struct {
-	ProjectID     ID
-	AgentID       ID
-	ToolCallID    ID
-	RuntimeLockID ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ToolCallID    uuid.UUID
+	RuntimeLockID uuid.UUID
 	Request       toolpermission.Request
 }
 
@@ -46,32 +47,32 @@ type CreateQuestionInteractionInput struct {
 }
 
 type ResolveAgentInteractionInput struct {
-	ProjectID                  ID
-	AgentID                    ID
-	ID                         ID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	ID                         uuid.UUID
 	Resolution                 interactionform.Resolution
 	Actor                      *ActorParams
-	IntegrationTargetID        ID
-	IntegrationTargetBindingID ID
-	IntegrationInstallID       ID
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
+	IntegrationInstallID       uuid.UUID
 	Metadata                   json.RawMessage
 	RuntimeLease               *IntegrationRuntimeLeaseProof
 }
 
 type AgentInteractionRecord struct {
-	ID                  ID
-	ProjectID           ID
-	AgentID             ID
-	TurnID              ID
-	ModelCallContextID  ID
-	ToolCallID          ID
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
 	ProviderCallID      string
-	IntegrationTargetID ID
+	IntegrationTargetID uuid.UUID
 	InteractionKind     AgentInteractionKind
 	State               AgentInteractionState
 	Request             json.RawMessage
 	Resolution          json.RawMessage
-	ResolvedByInputID   ID
+	ResolvedByInputID   uuid.UUID
 	CreatedAt           time.Time
 	ResolvedAt          time.Time
 	Replayed            bool `json:"-"`
@@ -85,8 +86,8 @@ func (s *Store) CreatePermissionInteraction(
 	ctx context.Context,
 	input CreatePermissionInteractionInput,
 ) (AgentInteractionRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ToolCallID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return AgentInteractionRecord{}, errors.New(
 			"agent, tool call, and runtime lock are required",
 		)
@@ -191,6 +192,9 @@ func (t *toolCallTransaction) createQuestionInteraction(
 		}
 		return existing, nil
 	}
+	if err := lockAgentWithParentTx(ctx, t.tx, t.q, t.input.ProjectID, t.input.AgentID); err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentInteractionRecord{}, err
 	}
@@ -216,7 +220,11 @@ func (t *toolCallTransaction) createQuestionInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("load created question interaction: %w", err)
 	}
 	t.hasDurableCompletionOwner = true
-	return agentInteractionRecordFromSQLC(row), nil
+	record := agentInteractionRecordFromSQLC(row)
+	if err := handleSubagentQuestionTx(ctx, t.notifications, t.tx, t.q, record); err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	return record, nil
 }
 
 func markToolCallAwaitingPermissionTx(
@@ -224,7 +232,7 @@ func markToolCallAwaitingPermissionTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID, runtimeLockID ID,
+	projectID, agentID, toolCallID, runtimeLockID uuid.UUID,
 ) error {
 	_, err := qtx.MarkToolCallAwaitingPermission(
 		ctx,
@@ -262,13 +270,13 @@ func (s *Store) ResolveAgentInteraction(
 	ctx context.Context,
 	input ResolveAgentInteractionInput,
 ) (AgentInteractionRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
-	hasIntegrationOrigin := !isNilID(input.IntegrationInstallID) ||
-		!isNilID(input.IntegrationTargetID) || !isNilID(input.IntegrationTargetBindingID)
-	if hasIntegrationOrigin && (isNilID(input.IntegrationInstallID) ||
-		isNilID(input.IntegrationTargetID) || isNilID(input.IntegrationTargetBindingID)) {
+	hasIntegrationOrigin := input.IntegrationInstallID != uuid.Nil ||
+		input.IntegrationTargetID != uuid.Nil || input.IntegrationTargetBindingID != uuid.Nil
+	if hasIntegrationOrigin && (input.IntegrationInstallID == uuid.Nil ||
+		input.IntegrationTargetID == uuid.Nil || input.IntegrationTargetBindingID == uuid.Nil) {
 		return AgentInteractionRecord{}, errors.New(
 			"integration install, target, and binding must either all be set or all be omitted",
 		)
@@ -285,6 +293,24 @@ func (s *Store) ResolveAgentInteraction(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	record, err := s.resolveAgentInteractionTx(ctx, txNotifications, tx, qtx, input)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *Store) resolveAgentInteractionTx(
+	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	input ResolveAgentInteractionInput,
+) (AgentInteractionRecord, error) {
+	hasIntegrationOrigin := input.IntegrationInstallID != uuid.Nil
 	if hasIntegrationOrigin {
 		install, err := s.integrations.GetIntegrationInstallByIDTx(ctx, tx, input.IntegrationInstallID)
 		if err != nil {
@@ -297,6 +323,7 @@ func (s *Store) ResolveAgentInteraction(
 			return AgentInteractionRecord{}, err
 		}
 	} else if _, err := qtx.LockAgentInProject(
+
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
 	); err != nil {
@@ -340,7 +367,7 @@ func (s *Store) ResolveAgentInteraction(
 	}
 	// A later input or setter may have changed the agent's current destination.
 	// Only the channel pinned when this prompt was created may answer it.
-	if hasIntegrationOrigin && idFromSQLCPtr(existing.IntegrationTargetID) != input.IntegrationTargetID {
+	if hasIntegrationOrigin && storeutil.IDFromPtr(existing.IntegrationTargetID) != input.IntegrationTargetID {
 		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 	}
 	resolution, err := normalizeAgentInteractionResolution(
@@ -408,7 +435,7 @@ func (s *Store) ResolveAgentInteraction(
 				AgentID:           input.AgentID,
 				ID:                input.ID,
 				Resolution:        resolution,
-				ResolvedByInputID: sqlcIDFromNil(responseInput.ID),
+				ResolvedByInputID: storeutil.IDFromNil(responseInput.ID),
 			},
 		)
 		if err != nil {
@@ -438,8 +465,8 @@ func (s *Store) ResolveAgentInteraction(
 				ProjectID:           input.ProjectID,
 				AgentID:             input.AgentID,
 				ID:                  responseInput.ID,
-				TargetInteractionID: sqlcIDFromNil(input.ID),
-				EventID:             sqlcIDFromNil(eventRecord.Event.ID),
+				TargetInteractionID: storeutil.IDFromNil(input.ID),
+				EventID:             storeutil.IDFromNil(eventRecord.Event.ID),
 			},
 		); err != nil {
 			return AgentInteractionRecord{}, fmt.Errorf("resolve interaction response agent input: %w", err)
@@ -502,9 +529,6 @@ func (s *Store) ResolveAgentInteraction(
 		},
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("mark interaction resolution wakeup: %w", err)
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
-		return AgentInteractionRecord{}, err
 	}
 	return record, nil
 }
@@ -771,7 +795,7 @@ func insertInteractionResponseInputTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input ResolveAgentInteractionInput,
-	resolvedByActorID ID,
+	resolvedByActorID uuid.UUID,
 ) (AgentInputRecord, error) {
 	scope := interactionResponseIdempotencyScope
 	key := input.ID.String()
@@ -781,11 +805,11 @@ func insertInteractionResponseInputTx(
 			ProjectID:                  input.ProjectID,
 			AgentID:                    input.AgentID,
 			TargetInteractionID:        input.ID,
-			ActorID:                    sqlcIDFromNil(resolvedByActorID),
-			IntegrationTargetID:        sqlcIDFromNil(input.IntegrationTargetID),
-			IntegrationTargetBindingID: sqlcIDFromNil(input.IntegrationTargetBindingID),
-			IdempotencyScope:           sqlcTextFromEmpty(scope),
-			InputIdempotencyKey:        sqlcTextFromEmpty(key),
+			ActorID:                    storeutil.IDFromNil(resolvedByActorID),
+			IntegrationTargetID:        storeutil.IDFromNil(input.IntegrationTargetID),
+			IntegrationTargetBindingID: storeutil.IDFromNil(input.IntegrationTargetBindingID),
+			IdempotencyScope:           storeutil.TextFromEmpty(scope),
+			InputIdempotencyKey:        storeutil.TextFromEmpty(key),
 			Metadata:                   input.Metadata,
 		},
 	)
@@ -908,8 +932,8 @@ func permissionToolResultOutcome(record AgentInteractionRecord) ToolResultOutcom
 }
 
 type ListAgentInteractionsForAgentInput struct {
-	ProjectID ID
-	AgentID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
 	State     AgentInteractionState
 	Limit     int
 	After     listing.KeysetCursor
@@ -924,43 +948,33 @@ func (s *Store) ListAgentInteractionsForAgent(
 	ctx context.Context,
 	input ListAgentInteractionsForAgentInput,
 ) (ListAgentInteractionsForAgentResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return ListAgentInteractionsForAgentResult{}, errors.New("project and agent are required")
 	}
 	if input.Limit <= 0 {
 		return ListAgentInteractionsForAgentResult{}, errors.New("limit must be positive")
 	}
-	params := dbsqlc.ListAgentInteractionsForAgentParams{
+	page, err := s.ListAgentInteractions(ctx, ListAgentInteractionsInput{
 		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
-		State:     string(input.State),
-		RowLimit:  int64(input.Limit) + 1,
-	}
-	if input.After.Set {
-		createdAt := input.After.CreatedAt
-		id := input.After.ID
-		params.CursorCreatedAt = &createdAt
-		params.CursorID = &id
-	}
-	rows, err := s.q.ListAgentInteractionsForAgent(ctx, params)
+		AgentIDs:  []uuid.UUID{input.AgentID},
+		State:     input.State,
+		Limit:     input.Limit,
+		After:     input.After,
+	})
 	if err != nil {
-		return ListAgentInteractionsForAgentResult{}, fmt.Errorf("list agent interactions: %w", err)
+		return ListAgentInteractionsForAgentResult{}, err
 	}
-	result := ListAgentInteractionsForAgentResult{}
-	if len(rows) > input.Limit {
-		result.HasMore = true
-		rows = rows[:input.Limit]
-	}
-	result.Interactions = make([]AgentInteractionRecord, 0, len(rows))
-	for _, row := range rows {
-		result.Interactions = append(result.Interactions, agentInteractionRecordFromSQLC(row))
+	result := ListAgentInteractionsForAgentResult{HasMore: page.HasMore}
+	result.Interactions = make([]AgentInteractionRecord, 0, len(page.Interactions))
+	for _, item := range page.Interactions {
+		result.Interactions = append(result.Interactions, item.AgentInteractionRecord)
 	}
 	return result, nil
 }
 
 func (s *Store) GetAgentInteraction(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (AgentInteractionRecord, bool, error) {
 	row, err := s.q.GetAgentInteraction(
 		ctx,
@@ -977,10 +991,10 @@ func (s *Store) GetAgentInteraction(
 
 func (s *Store) GetAgentInteractionByToolCallKind(
 	ctx context.Context,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	interactionKind AgentInteractionKind,
 ) (AgentInteractionRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(toolCallID) ||
+	if projectID == uuid.Nil || agentID == uuid.Nil || toolCallID == uuid.Nil ||
 		(interactionKind != AgentInteractionKindPermission && interactionKind != AgentInteractionKindQuestion) {
 		return AgentInteractionRecord{}, false, errors.New(
 			"project, agent, tool call id, and interaction kind are required",
@@ -1014,7 +1028,7 @@ func (r *ToolCallReader) GetAgentInteractionByToolCallKind(
 func getAgentInteractionByToolCallKind(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	interactionKind AgentInteractionKind,
 ) (AgentInteractionRecord, bool, error) {
 	row, err := q.GetAgentInteractionByToolCallKind(

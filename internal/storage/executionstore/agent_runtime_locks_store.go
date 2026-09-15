@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -20,9 +22,9 @@ const (
 )
 
 type AgentRuntimeLockRecord struct {
-	ID                ID         `json:"id"`
-	AgentID           ID         `json:"agent_id"`
-	WorkerProcessID   ID         `json:"worker_process_id"`
+	ID                uuid.UUID  `json:"id"`
+	AgentID           uuid.UUID  `json:"agent_id"`
+	WorkerProcessID   uuid.UUID  `json:"worker_process_id"`
 	StartedAt         time.Time  `json:"started_at"`
 	RenewedAt         time.Time  `json:"renewed_at"`
 	LeaseExpiresAt    time.Time  `json:"lease_expires_at"`
@@ -37,18 +39,18 @@ type AgentRuntimeLockRenewal struct {
 func acquireAgentRuntimeLockTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, workerProcessID ID,
+	projectID, agentID, workerProcessID uuid.UUID,
 	leaseDuration time.Duration,
-) (AgentRuntimeLockRecord, ID, error) {
+) (AgentRuntimeLockRecord, uuid.UUID, error) {
 	agent, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return AgentRuntimeLockRecord{}, NilID, storeerr.ErrAgentNotAdvanceable
+			return AgentRuntimeLockRecord{}, uuid.Nil, storeerr.ErrAgentNotAdvanceable
 		}
-		return AgentRuntimeLockRecord{}, NilID, fmt.Errorf("lock agent for runtime acquisition: %w", err)
+		return AgentRuntimeLockRecord{}, uuid.Nil, fmt.Errorf("lock agent for runtime acquisition: %w", err)
 	}
 	row, err := qtx.AcquireAgentRuntimeLock(
 		ctx,
@@ -60,10 +62,10 @@ func acquireAgentRuntimeLockTx(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return AgentRuntimeLockRecord{}, NilID, storeerr.ErrAgentNotAdvanceable
+		return AgentRuntimeLockRecord{}, uuid.Nil, storeerr.ErrAgentNotAdvanceable
 	}
 	if err != nil {
-		return AgentRuntimeLockRecord{}, NilID, fmt.Errorf("acquire agent runtime lock: %w", err)
+		return AgentRuntimeLockRecord{}, uuid.Nil, fmt.Errorf("acquire agent runtime lock: %w", err)
 	}
 	return agentRuntimeLockRecordFromSQLC(row), agent.OrgID, nil
 }
@@ -82,9 +84,9 @@ func validateAgentRuntimeLockLeaseDuration(leaseDuration time.Duration) error {
 
 func (s *Store) EnsureRuntimeLockActive(
 	ctx context.Context,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) error {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(runtimeID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
 		return errors.New("project, agent, and runtime lock ids are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -104,7 +106,7 @@ func (s *Store) EnsureRuntimeLockActive(
 func lockAgentRuntimeForOwnedMutationTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) error {
 	if _, err := qtx.LockAgentInProject(
 		ctx,
@@ -133,7 +135,7 @@ func lockAgentRuntimeForOwnedMutationTx(
 
 func (s *Store) beginAgentRuntimeOwnedMutation(
 	ctx context.Context,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) (pgx.Tx, *dbsqlc.Queries, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -150,7 +152,7 @@ func (s *Store) beginAgentRuntimeOwnedMutation(
 func agentRuntimeLockActiveTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) error {
 	active, err := qtx.AgentRuntimeLockIsActive(
 		ctx,
@@ -172,9 +174,9 @@ func agentRuntimeLockActiveTx(
 func ensureRuntimeLockActiveTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) error {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(runtimeID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
 		return errors.New("project, agent, and runtime lock ids are required")
 	}
 	qtx := dbsqlc.New(tx)
@@ -189,17 +191,17 @@ func failQueuedRuntimeWorkTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 	reason string,
 ) error {
-	if isNilID(runtimeID) {
+	if runtimeID == uuid.Nil {
 		return nil
 	}
 	params := dbsqlc.FailQueuedProcessesForRuntimeEndParams{
 		ProjectID:       projectID,
 		AgentID:         agentID,
 		RuntimeLockID:   runtimeID,
-		StateReasonCode: sqlcTextFromEmpty(reason),
+		StateReasonCode: storeutil.TextFromEmpty(reason),
 	}
 	processRows, err := qtx.FailQueuedProcessesForRuntimeEnd(ctx, params)
 	if err != nil {
@@ -249,7 +251,7 @@ func failRuntimeToolCallsTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 	reason string,
 ) error {
 	result, err := marshalJSON(map[string]any{
@@ -307,10 +309,10 @@ func failRuntimeToolCallsTx(
 
 func (s *Store) RenewAgentRuntimeLock(
 	ctx context.Context,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	leaseDuration time.Duration,
 ) (AgentRuntimeLockRenewal, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(runtimeLockID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || runtimeLockID == uuid.Nil {
 		return AgentRuntimeLockRenewal{}, errors.New("project, agent, and runtime lock ids are required")
 	}
 	if err := validateAgentRuntimeLockLeaseDuration(leaseDuration); err != nil {
@@ -341,7 +343,7 @@ func (s *Store) RenewAgentRuntimeLock(
 func renewAgentRuntimeLockTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	leaseDuration time.Duration,
 ) (AgentRuntimeLockRenewal, error) {
 	if _, err := qtx.LockAgentRuntimeLockForRenewal(
@@ -381,7 +383,7 @@ func renewAgentRuntimeLockTx(
 
 func (s *Store) ReleaseAgentRuntimeLock(
 	ctx context.Context,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 ) error {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -390,11 +392,10 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	lockParams := dbsqlc.LockAgentInProjectParams{
-		ProjectID: projectID,
-		ID:        agentID,
-	}
-	if _, err := qtx.LockAgentInProject(ctx, lockParams); err != nil {
+	if err := lockAgentWithParentTx(ctx, tx, qtx, projectID, agentID); err != nil {
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return storeerr.ErrRuntimeLockInactive
+		}
 		return fmt.Errorf("lock agent for runtime lock release: %w", err)
 	}
 	releaseParams := dbsqlc.GetAgentRuntimeLockForReleaseParams{

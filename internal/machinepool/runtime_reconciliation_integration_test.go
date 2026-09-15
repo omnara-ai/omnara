@@ -1234,7 +1234,7 @@ func TestProviderRuntimeConfirmationRotatesPastFailingTarget(t *testing.T) {
 	backdateAllRuntimeMismatches(t, ctx, fixture)
 
 	var seenMu sync.Mutex
-	seen := make(map[storage.ID]struct{})
+	seen := make(map[uuid.UUID]struct{})
 	var failed atomic.Bool
 	provider.singleTargetHook = func(_ context.Context, target providers.RuntimeTarget) error {
 		seenMu.Lock()
@@ -1257,7 +1257,7 @@ func TestProviderRuntimeConfirmationRotatesPastFailingTarget(t *testing.T) {
 	}
 	seenMu.Lock()
 	firstSeen := maps.Clone(seen)
-	seen = make(map[storage.ID]struct{})
+	seen = make(map[uuid.UUID]struct{})
 	seenMu.Unlock()
 
 	fixture.manager.runtimeReconciliationState.mu.Lock()
@@ -1326,9 +1326,9 @@ type runtimeReconciliationFixture struct {
 	manager     Manager
 	definition  *runtimeReconciliationTestDefinition
 	machinePool executionstore.MachinePoolRecord
-	orgID       storage.ID
-	machineID   storage.ID
-	tokenID     storage.ID
+	orgID       uuid.UUID
+	machineID   uuid.UUID
+	tokenID     uuid.UUID
 	resourceID  string
 }
 
@@ -1419,7 +1419,7 @@ func addRuntimeReconciliationScopeMachine(
 	fixture runtimeReconciliationFixture,
 	seed string,
 	providerConfig json.RawMessage,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	now := time.Now().UTC()
 	providerAuthSecretID := createProviderAuthSecretForManagerTest(
@@ -1476,7 +1476,7 @@ func seedInactiveRuntimeMachine(
 	machinePool executionstore.MachinePoolRecord,
 	seed string,
 	now time.Time,
-) (storage.ID, storage.ID, string) {
+) (uuid.UUID, uuid.UUID, string) {
 	t.Helper()
 	resourceID := "runtime-resource-" + seed
 	machineID := insertPoolMachineForManagerTest(
@@ -1652,8 +1652,8 @@ func (*runtimeReconciliationTestProvider) PrepareProvisioning(
 
 func (*runtimeReconciliationTestProvider) ProvisionMachine(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
@@ -1663,8 +1663,8 @@ func (*runtimeReconciliationTestProvider) ProvisionMachine(
 
 func (*runtimeReconciliationTestProvider) InspectMachine(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 	executionstore.MachineProvisioningConfig,
 	string,
 ) (string, bool, error) {
@@ -1673,7 +1673,7 @@ func (*runtimeReconciliationTestProvider) InspectMachine(
 
 func (p *runtimeReconciliationTestProvider) DeleteMachine(
 	_ context.Context,
-	_, _ storage.ID,
+	_, _ uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {

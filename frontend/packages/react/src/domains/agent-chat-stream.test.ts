@@ -574,7 +574,9 @@ describe('AgentChatSession streaming', () => {
     const session = startSession()
     await connection(0)
     expect(transport.openAgentEventStream).toHaveBeenCalledWith(
-      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
+      expect.objectContaining({
+        query: { after_sequence: 0, stream_deltas: true },
+      }),
     )
     session.disconnect()
   })

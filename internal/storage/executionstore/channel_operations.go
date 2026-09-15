@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -15,8 +16,8 @@ import (
 
 type PrepareChannelOperationInput struct {
 	ExecuteToolCallInput
-	TurnID    ID
-	ChannelID ID
+	TurnID    uuid.UUID
+	ChannelID uuid.UUID
 	Operation integrationstore.ChannelBindingOperation
 }
 
@@ -54,8 +55,8 @@ func (s *Store) PrepareChannelOperation(
 	ctx context.Context,
 	input PrepareChannelOperationInput,
 ) (PreparedChannelOperation, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ToolCallID) ||
-		isNilID(input.RuntimeLockID) || isNilID(input.TurnID) || isNilID(input.ChannelID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil || input.TurnID == uuid.Nil || input.ChannelID == uuid.Nil ||
 		channelOperationToolName(input.Operation) == "" {
 		return PreparedChannelOperation{}, storeerr.InvalidRequest(
 			errors.New("channel operation and tool owner are required"))
@@ -134,7 +135,7 @@ func (s *Store) CompleteChannelOperation(
 	input CompleteChannelOperationInput,
 ) (ToolCallRecord, error) {
 	prepared := input.Prepared
-	if prepared.store != s || isNilID(prepared.binding.ID) {
+	if prepared.store != s || prepared.binding.ID == uuid.Nil {
 		return ToolCallRecord{}, storeerr.ErrUnauthorized
 	}
 	requestID, err := publicid.Encode(publicid.KindToolCall, prepared.owner.ToolCallID)
@@ -178,7 +179,7 @@ func (s *Store) recheckChannelOperationTx(
 	tx pgx.Tx,
 	prepared PreparedChannelOperation,
 ) (integrationstore.ChannelAccess, error) {
-	if prepared.store != s || isNilID(prepared.binding.ID) {
+	if prepared.store != s || prepared.binding.ID == uuid.Nil {
 		return integrationstore.ChannelAccess{}, storeerr.ErrUnauthorized
 	}
 	if _, err := s.integrations.RecheckChannelBindingTx(ctx, tx, prepared.input, prepared.binding); err != nil {
@@ -230,7 +231,7 @@ func validateManagedChannelAccess(
 	operation integrationstore.ChannelBindingOperation,
 ) error {
 	if !access.Active || access.IntegrationKind != integrationstore.IntegrationKindManaged ||
-		isNilID(access.IntegrationAppID) || access.ConnectorKey == "" || access.Provider == "" {
+		access.IntegrationAppID == uuid.Nil || access.ConnectorKey == "" || access.Provider == "" {
 		return storeerr.ErrUnauthorized
 	}
 	switch operation {

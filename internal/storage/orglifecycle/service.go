@@ -1,7 +1,6 @@
 package orglifecycle
 
 import (
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -11,10 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
-
-type ID = uuid.UUID
-
-var NilID = uuid.Nil
 
 type Config struct {
 	Blobs               blobstore.Store
@@ -47,10 +42,6 @@ func New(pool *pgxpool.Pool, config Config) *Service {
 		models:              config.Models,
 		secrets:             config.Secrets,
 	}
-}
-
-func isNilID(id ID) bool {
-	return id == NilID
 }
 
 func (s *Service) newTxNotifications() *notifications.TxNotifications {

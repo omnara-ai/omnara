@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func reconcileRegisteredRuntimeTx(
@@ -123,10 +125,10 @@ func reconcileRegisteredRuntimeTx(
 
 func validateProcessReconciliationClaims(
 	input []ProcessReconciliationClaim,
-) (map[ID]ProcessReconciliationClaim, error) {
-	claims := make(map[ID]ProcessReconciliationClaim, len(input))
+) (map[uuid.UUID]ProcessReconciliationClaim, error) {
+	claims := make(map[uuid.UUID]ProcessReconciliationClaim, len(input))
 	for _, claim := range input {
-		if isNilID(claim.ProcessID) || claim.SupervisorInstanceID == "" {
+		if claim.ProcessID == uuid.Nil || claim.SupervisorInstanceID == "" {
 			return nil, errors.New(
 				"process reconciliation claims require a process and supervisor instance ID",
 			)
@@ -156,10 +158,10 @@ func validateProcessReconciliationClaims(
 			)
 		}
 
-		actionIDs := make(map[ID]struct{}, len(claim.Actions))
+		actionIDs := make(map[uuid.UUID]struct{}, len(claim.Actions))
 		actionSeqs := make(map[int64]struct{}, len(claim.Actions))
 		for _, action := range claim.Actions {
-			if isNilID(action.ProcessActionID) ||
+			if action.ProcessActionID == uuid.Nil ||
 				action.Seq <= claim.ResolvedActionSeq {
 				return nil, fmt.Errorf(
 					"process %s has invalid local action %s at sequence %d",
@@ -213,9 +215,9 @@ func lockAndLoadReconciliationProcesses(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
-	claims map[ID]ProcessReconciliationClaim,
-) (map[ID]ProcessRecord, error) {
+	orgID, machineID uuid.UUID,
+	claims map[uuid.UUID]ProcessReconciliationClaim,
+) (map[uuid.UUID]ProcessRecord, error) {
 	rows, err := qtx.ListProcessesForMachineReconciliation(
 		ctx,
 		dbsqlc.ListProcessesForMachineReconciliationParams{
@@ -229,7 +231,7 @@ func lockAndLoadReconciliationProcesses(
 		)
 	}
 	agentRefs := make([]lifecyclelock.AgentRef, 0, len(rows)+len(claims))
-	seen := make(map[ID]struct{}, len(rows)+len(claims))
+	seen := make(map[uuid.UUID]struct{}, len(rows)+len(claims))
 	for _, row := range rows {
 		record := processRecordFromSQLC(row)
 		agentRefs = append(agentRefs, lifecyclelock.AgentRef{
@@ -281,9 +283,9 @@ func lockAndLoadReconciliationProcesses(
 func loadReconciliationProcesses(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
-	claims map[ID]ProcessReconciliationClaim,
-) (map[ID]ProcessRecord, error) {
+	orgID, machineID uuid.UUID,
+	claims map[uuid.UUID]ProcessReconciliationClaim,
+) (map[uuid.UUID]ProcessRecord, error) {
 	rows, err := qtx.ListProcessesForMachineReconciliation(
 		ctx,
 		dbsqlc.ListProcessesForMachineReconciliationParams{
@@ -296,7 +298,7 @@ func loadReconciliationProcesses(
 			err,
 		)
 	}
-	processes := make(map[ID]ProcessRecord, len(rows)+len(claims))
+	processes := make(map[uuid.UUID]ProcessRecord, len(rows)+len(claims))
 	for _, row := range rows {
 		record := processRecordFromSQLC(row)
 		processes[record.ID] = record
@@ -510,7 +512,7 @@ func completeProcessFailedWithoutExecutionTx(
 			OrgID:              process.OrgID,
 			MachineID:          process.MachineID,
 			ID:                 process.ID,
-			StateReasonCode:    sqlcTextFromEmpty(processExecutionNotStartedReason),
+			StateReasonCode:    storeutil.TextFromEmpty(processExecutionNotStartedReason),
 			StateReasonMessage: "",
 		},
 	)
@@ -605,13 +607,13 @@ func reconcileProcessActionsTx(
 			err,
 		)
 	}
-	local := make(map[ID]ProcessActionReconciliationClaim, len(claim.Actions))
+	local := make(map[uuid.UUID]ProcessActionReconciliationClaim, len(claim.Actions))
 	for _, action := range claim.Actions {
 		local[action.ProcessActionID] = action
 	}
 
 	dispositions := make([]ProcessActionReconciliationDirective, 0, len(rows))
-	seenLocal := make(map[ID]struct{}, len(local))
+	seenLocal := make(map[uuid.UUID]struct{}, len(local))
 	for _, row := range rows {
 		action := processActionRecordFromSQLC(row)
 		localAction, locallyPresent := local[action.ID]
@@ -785,7 +787,7 @@ func resolveAcceptedProcessActionForReconciliationTx(
 func lockProcessAgentByMachineTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, machineID, processID ID,
+	orgID, machineID, processID uuid.UUID,
 ) (ProcessRecord, bool, error) {
 	row, err := qtx.GetProcessByMachine(
 		ctx,
@@ -805,7 +807,7 @@ func lockProcessAgentByMachineTx(
 }
 
 func lockAgentForProcessRecordTx(ctx context.Context, qtx *dbsqlc.Queries, record ProcessRecord) error {
-	if isNilID(record.ProjectID) || isNilID(record.AgentID) {
+	if record.ProjectID == uuid.Nil || record.AgentID == uuid.Nil {
 		return nil
 	}
 	if _, err := qtx.LockAgentInProject(

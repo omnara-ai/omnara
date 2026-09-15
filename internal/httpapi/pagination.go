@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
@@ -43,7 +43,7 @@ func parseOpenAPIPageParams(
 		if err != nil {
 			return 0, listing.KeysetCursor{}, errMalformedCursor
 		}
-		rawID, err := parsePublicID(kind, cursor.ID)
+		rawID, err := publicid.Decode(kind, cursor.ID)
 		if err != nil {
 			return 0, listing.KeysetCursor{}, errMalformedCursor
 		}
@@ -68,9 +68,9 @@ func encodeNextCursor(
 	hasMore bool,
 	lastCreatedAt time.Time,
 	kind publicid.Kind,
-	lastID storage.ID,
+	lastID uuid.UUID,
 ) (cursor *string, err error) {
-	if !hasMore || lastID == storage.NilID {
+	if !hasMore || lastID == uuid.Nil {
 		return
 	}
 	lastPublicID, err := publicID(kind, lastID)
@@ -132,7 +132,7 @@ func parseAgentInputQueuePageParams(
 		if err != nil {
 			return 0, executionstore.AgentInputQueueCursor{}, errMalformedCursor
 		}
-		rawID, err := parsePublicID(publicid.KindAgentInput, cursor.ID)
+		rawID, err := publicid.Decode(publicid.KindAgentInput, cursor.ID)
 		if err != nil {
 			return 0, executionstore.AgentInputQueueCursor{}, errMalformedCursor
 		}
@@ -148,7 +148,7 @@ func parseAgentInputQueuePageParams(
 }
 
 func encodeNextAgentInputQueueCursor(hasMore bool, last executionstore.AgentInputRecord) (cursor *string, err error) {
-	if !hasMore || last.ID == storage.NilID {
+	if !hasMore || last.ID == uuid.Nil {
 		return
 	}
 	lastPublicID, err := publicID(publicid.KindAgentInput, last.ID)

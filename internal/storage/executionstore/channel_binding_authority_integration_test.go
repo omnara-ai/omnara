@@ -16,7 +16,7 @@ import (
 
 type channelAuthorityFixture struct {
 	Store                     *Store
-	AgentID, AppID, InstallID ID
+	AgentID, AppID, InstallID uuid.UUID
 	Definition                integrationstore.ChannelDefinition
 	Target                    integrationstore.IntegrationTargetRecord
 }

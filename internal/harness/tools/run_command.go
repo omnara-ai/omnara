@@ -6,26 +6,27 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 type runCommandRequest struct {
-	Command    string          `json:"command"`
-	MachineRef json.RawMessage `json:"machine_ref,omitempty"`
-	Shell      json.RawMessage `json:"shell,omitempty"`
-	Cwd        json.RawMessage `json:"cwd,omitempty"`
-	WaitMs     json.RawMessage `json:"wait_ms,omitempty"`
-	IOMode     json.RawMessage `json:"io_mode,omitempty"`
+	Command   string          `json:"command"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
+	Shell     json.RawMessage `json:"shell,omitempty"`
+	Cwd       json.RawMessage `json:"cwd,omitempty"`
+	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
+	IOMode    json.RawMessage `json:"io_mode,omitempty"`
 }
 
 type resolvedRunCommandRequest struct {
-	Command    string
-	MachineRef string
-	Selector   processcmd.ShellSelector
-	Cwd        string
-	WaitMs     int
-	IOMode     processcmd.IOMode
+	Command   string
+	MachineID uuid.UUID
+	Selector  processcmd.ShellSelector
+	Cwd       string
+	WaitMs    int
+	IOMode    processcmd.IOMode
 }
 
 func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, error) {
@@ -33,16 +34,9 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 	if err := decodeSingleStrictJSON(raw, &input, "run_command request"); err != nil {
 		return resolvedRunCommandRequest{}, fmt.Errorf("parse run_command request: %w", err)
 	}
-	machineRef := ""
-	if len(input.MachineRef) > 0 {
-		var rawMachineRef *string
-		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
-			return resolvedRunCommandRequest{}, fmt.Errorf("parse machine_ref: %w", err)
-		}
-		if rawMachineRef == nil {
-			return resolvedRunCommandRequest{}, errors.New("machine_ref cannot be null")
-		}
-		machineRef = strings.TrimSpace(*rawMachineRef)
+	machineID, err := resolveOptionalMachineID(input.MachineID)
+	if err != nil {
+		return resolvedRunCommandRequest{}, err
 	}
 	selector := processcmd.ShellDefault
 	if len(input.Shell) != 0 {
@@ -109,11 +103,11 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 		return resolvedRunCommandRequest{}, err
 	}
 	return resolvedRunCommandRequest{
-		Command:    spec.Command,
-		MachineRef: machineRef,
-		Selector:   spec.Shell,
-		Cwd:        cwd,
-		WaitMs:     waitMs,
-		IOMode:     ioMode,
+		Command:   spec.Command,
+		MachineID: machineID,
+		Selector:  spec.Shell,
+		Cwd:       cwd,
+		WaitMs:    waitMs,
+		IOMode:    ioMode,
 	}, nil
 }

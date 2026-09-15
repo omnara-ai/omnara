@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -75,7 +76,7 @@ func (s strictOpenAPIServer) AcceptChannelConnectorRuntimeEvent(
 func (s strictOpenAPIServer) receiveChannelConnectorEvent(
 	ctx context.Context,
 	scope channelConnectorScope,
-	appID integrationstore.ID,
+	appID uuid.UUID,
 	body openapi.ChannelInboundEventRequest,
 	runtimeLease *integrationstore.IntegrationRuntimeLeaseProof,
 ) (openapi.ChannelInboundEventResponse, error) {
@@ -200,7 +201,7 @@ func (s strictOpenAPIServer) CompleteChannelConnectorEvent(
 func (s strictOpenAPIServer) channelConnectorEventInstallation(
 	ctx context.Context,
 	scope channelConnectorScope,
-	appID, installID integrationstore.ID,
+	appID, installID uuid.UUID,
 ) (integrationstore.IntegrationInstallRecord, error) {
 	if _, err := s.server.store.Integrations().GetConnectorIntegrationApp(ctx, appID, scope.Capabilities); err != nil {
 		return integrationstore.IntegrationInstallRecord{}, apierror.FromError(err)
@@ -309,8 +310,8 @@ func (s strictOpenAPIServer) ResolveChannelConnectorRuntimeInteraction(
 func (s strictOpenAPIServer) resolveChannelConnectorInteraction(
 	ctx context.Context,
 	scope channelConnectorScope,
-	appID integrationstore.ID,
-	interactionID executionstore.ID,
+	appID uuid.UUID,
+	interactionID uuid.UUID,
 	body openapi.ResolveChannelConnectorInteractionRequest,
 	runtimeLease *executionstore.IntegrationRuntimeLeaseProof,
 ) (openapi.ResolveChannelConnectorInteractionResponse, error) {

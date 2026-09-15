@@ -6,8 +6,53 @@ mode: "center"
 ---
 
 <Update
+  label="September 14, 2026"
+  rss={{
+    title: "Omnara is now available over MCP",
+    description: "MCP joins the API, SDK, and CLI as a way to work with Omnara. Also new: Modal sandboxes, Amazon Bedrock with AWS credentials, editable secrets, and reliability improvements."
+  }}
+>
+
+## Omnara is now available over MCP
+
+MCP joins the API, SDK, and CLI as a way to work with Omnara. Connect Claude Code, Cursor, or any MCP client to the Omnara API and spin up Omnara agents from another agent. Also new: Modal sandboxes, Amazon Bedrock with AWS credentials, and in-place secret editing.
+
+### Connect an MCP client
+
+Add `https://app.omnara.com/mcp` to any MCP client. For example, with Claude Code:
+
+```bash Claude Code
+claude mcp add --transport http omnara https://app.omnara.com/mcp
+```
+
+Or with Codex:
+
+```bash Codex
+codex mcp add omnara --url https://app.omnara.com/mcp
+```
+
+Sign in through the browser on first use; there are no tokens to paste. Your agent can then launch Omnara agents, send them messages, follow their progress, and manage profiles, secrets, and machines, with the same permissions you have in the dashboard. Omnara is also listed in the official MCP Registry as `com.omnara/omnara`. See [Connecting MCP clients](/api/authentication#connecting-mcp-clients).
+
+### Modal sandboxes
+
+Bring your Modal account as a sandbox provider alongside Blaxel, Unikraft Cloud, and Daytona. Create a pool with your Modal token and choose the image, region, and resource limits. See [Machine pools](/machines/pools).
+
+### Amazon Bedrock with AWS credentials
+
+Bedrock model providers can authenticate with AWS credentials instead of an API key, including assuming a role. They use the same AWS credential secrets as SigV4 MCP servers. See [Model providers](/organization/model-providers).
+
+### Edit secrets in place
+
+Rename a secret or replace its value from the dashboard. Agent configs that reference it keep working. See [Secrets](/organization/secrets).
+
+### Reliability
+
+Agents that reach a model's output limit now continue their answer instead of stopping short. You can set idle and total timeouts for provider requests. Commands waiting on a machine that looks online but isn't responding are released after five minutes so the agent can move on.
+
+</Update>
+
+<Update
   label="September 9, 2026"
-  description="Introducing Omnara"
   rss={{
     title: "Introducing Omnara",
     description: "Run agents that keep their history, use your choice of models and tools, and work with people in your product or in Slack."
