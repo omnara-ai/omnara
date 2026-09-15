@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,8 +21,17 @@ import (
 
 const supervisedServiceFlag = "--supervised"
 const daemonRestartDelay = 3 * time.Second
+const daemonRestartMaxDelay = 3 * time.Minute
+const daemonRestartResetAfter = 5 * time.Minute
 const daemonRestartSignal = syscall.SIGUSR1
 const supervisorChildShutdownTimeout = 20 * time.Second
+const supervisorFailureReportTimeout = 2 * time.Second
+
+type supervisorRestartPolicy struct {
+	initialDelay time.Duration
+	maxDelay     time.Duration
+	resetAfter   time.Duration
+}
 
 func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
 	store, err := localstore.New(home)
@@ -73,7 +84,11 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 	}()
 	childStdout, childStderr := supervisorChildWriters(os.Stdout, os.Stderr, logFile)
 	log = slog.New(logpkg.NewJSONHandler(childStdout, nil))
-	return runSupervisorLoop(ctx, home, daemonRestartDelay, restart, childStdout, childStderr, log)
+	return runSupervisorLoop(ctx, home, supervisorRestartPolicy{
+		initialDelay: daemonRestartDelay,
+		maxDelay:     daemonRestartMaxDelay,
+		resetAfter:   daemonRestartResetAfter,
+	}, restart, childStdout, childStderr, log)
 }
 
 func supervisorChildWriters(stdout, stderr, logFile io.Writer) (io.Writer, io.Writer) {
@@ -94,32 +109,34 @@ func (b bestEffortWriter) Write(p []byte) (int, error) {
 func runSupervisorLoop(
 	ctx context.Context,
 	home string,
-	restartDelay time.Duration,
+	policy supervisorRestartPolicy,
 	restart <-chan os.Signal,
 	childStdout io.Writer,
 	childStderr io.Writer,
 	log *slog.Logger,
 ) error {
 	binary := canonicalDaemonPath(home)
+	restartDelay := policy.initialDelay
+	var reports sync.WaitGroup
+	defer reports.Wait()
 	for ctx.Err() == nil {
+		config, configErr := loadDaemonConfig(home)
+		if configErr == nil {
+			_, configErr = applyDaemonEnvironment(config)
+		}
+		output := &supervisorOutputTail{}
 		cmd := exec.CommandContext(context.WithoutCancel(ctx), binary, runServiceSubcommand, supervisedServiceFlag)
-		cmd.Stdout = childStdout
-		cmd.Stderr = childStderr
+		cmd.Stdout = io.MultiWriter(supervisorOutputWriter{tail: output}, childStdout)
+		cmd.Stderr = io.MultiWriter(supervisorOutputWriter{tail: output, stderr: true}, childStderr)
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("start supervised daemon: %w", err)
 		}
+		startedAt := time.Now()
+		var err error
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
 		select {
-		case err := <-done:
-			if err == nil {
-				return nil
-			}
-			if ctx.Err() != nil {
-				continue
-			}
-			log.Error("supervised daemon exited", "error", err, "restart_after", restartDelay)
-			waitForDaemonRestart(ctx, restartDelay, restart)
+		case err = <-done:
 		case <-ctx.Done():
 			if err := terminateSupervisorChild(
 				cmd, done, syscall.SIGTERM, supervisorChildShutdownTimeout, log,
@@ -134,20 +151,67 @@ func runSupervisorLoop(
 			); err != nil {
 				return err
 			}
+			restartDelay = policy.initialDelay
+			continue
+		}
+		if err == nil || ctx.Err() != nil {
+			return nil
+		}
+		elapsed := time.Since(startedAt)
+		if elapsed >= policy.resetAfter {
+			restartDelay = policy.initialDelay
+		}
+		log.Error("supervised daemon exited", "error", err, "restart_after", restartDelay)
+		if configErr != nil {
+			log.Warn("load daemon failure reporting configuration failed", "error", configErr)
+		} else {
+			reportClient := machinedaemon.New(machinedaemon.Config{
+				APIURL:       config.APIURL,
+				MachineToken: config.MachineToken,
+			}, nil, log)
+			detail := fmt.Sprintf("supervised daemon exited after %s: %v", elapsed.Round(time.Millisecond), err)
+			if cmd.ProcessState != nil {
+				if usage, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok && usage != nil && usage.Maxrss > 0 {
+					peakMiB := float64(usage.Maxrss) / 1024
+					if runtime.GOOS == "darwin" {
+						peakMiB /= 1024
+					}
+					detail += fmt.Sprintf("; wait_max_rss_mib=%.1f", peakMiB)
+				}
+			}
+			tail, truncated := output.snapshot(machinedaemon.MaxFailureDetailBytes - len(detail) - 1)
+			if tail != "" {
+				detail = tail + "\n" + detail
+			}
+			reportCtx, cancelReport := context.WithTimeout(ctx, supervisorFailureReportTimeout)
+			reports.Go(func() {
+				defer cancelReport()
+				if err := reportClient.ReportRuntimeFailure(reportCtx, detail, truncated); err != nil && ctx.Err() == nil {
+					log.Warn("report daemon runtime failure failed", "error", err)
+				}
+			})
+		}
+		manualRestart := waitForDaemonRestart(ctx, restartDelay, restart)
+		if manualRestart {
+			restartDelay = policy.initialDelay
+		} else {
+			restartDelay = min(restartDelay*2, policy.maxDelay)
 		}
 	}
 	return nil
 }
 
-func waitForDaemonRestart(ctx context.Context, delay time.Duration, restart <-chan os.Signal) {
+func waitForDaemonRestart(ctx context.Context, delay time.Duration, restart <-chan os.Signal) bool {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 	case <-restart:
 		clearDaemonEnvironmentOverrides()
+		return true
 	case <-timer.C:
 	}
+	return false
 }
 
 func clearDaemonEnvironmentOverrides() {
