@@ -4,8 +4,10 @@ import { useState } from 'react'
 import { CreatePersonalAccessTokenDialog } from '@/components/api-tokens/CreatePersonalAccessTokenDialog'
 import { PersonalAccessTokenRowActions } from '@/components/api-tokens/PersonalAccessTokenRowActions'
 import { DataTable } from '@/components/data-table/DataTable'
+import { SectionTitle } from '@/components/layout/SectionTitle'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 
 export function PersonalAccessTokensSection() {
@@ -16,7 +18,7 @@ export function PersonalAccessTokensSection() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="type-title">Personal access tokens</h2>
+        <SectionTitle title="Personal access tokens" guide={guides.apiTokens} />
         <Button
           size="sm"
           onClick={() => {

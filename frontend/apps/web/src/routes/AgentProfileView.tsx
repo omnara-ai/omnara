@@ -349,7 +349,7 @@ function useProfileActions(
         config: profile.current_config_id,
       })
       await navigate({
-        to: '/projects/$projectId/agents/$agentId',
+        to: '/projects/$projectId/agents/$agentId/events',
         params: { projectId, agentId: launched.agent.id },
       })
     } catch (error) {

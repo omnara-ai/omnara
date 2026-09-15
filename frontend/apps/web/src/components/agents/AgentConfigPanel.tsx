@@ -153,7 +153,7 @@ function AgentConfigPanelEditor({
         void submit(event)
       }}
     >
-      <FieldGroup>
+      <FieldGroup className="pb-6">
         <AgentConfigEditorFields
           editor={editor}
           orgId={orgId}

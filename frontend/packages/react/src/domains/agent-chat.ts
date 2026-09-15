@@ -69,12 +69,14 @@ export type {
 export type AgentChatHistoryStatus = QueryStatus
 
 export interface UseAgentChatResult {
+  events: AgentEvent[]
   messages: OmnaraUIMessage[]
   status: AgentChatStatus
   isWorking: boolean
   error: Error | undefined
   historyStatus: AgentChatHistoryStatus
   historyError: Error | null
+  retryHistory: () => void
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
@@ -478,12 +480,14 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
       : 'conversation'
 
   return {
+    events: data.events,
     messages: projected.messages,
     status: projected.status,
     isWorking: projected.isWorking,
     error: data.error,
     historyStatus: history.status,
     historyError: history.error,
+    retryHistory: () => void history.refetch(),
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),

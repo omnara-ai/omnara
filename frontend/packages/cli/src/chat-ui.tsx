@@ -1,8 +1,10 @@
 import {
+  abbreviate,
   type AgentChatScope,
   type AgentChatStatus,
   type AgentInputBacklogItem,
   backlogInputPreview,
+  blockText,
   type OmnaraUIMessage,
   useAgentChat,
   useAgentInteractions,
@@ -13,9 +15,8 @@ import { Box, Static, Text, useApp } from 'ink'
 import { useEffect, useMemo, useReducer, useState } from 'react'
 import * as z from 'zod'
 
-import { blockText, summaryWidth, toolCallSummary } from './agent-rendering.ts'
+import { summaryWidth, toolCallSummary } from './agent-rendering.ts'
 import { InteractionPrompt, Label, TextInput } from './chat-prompts.tsx'
-import { abbreviate } from './output.ts'
 
 type MessagePart = OmnaraUIMessage['parts'][number]
 type ToolPart = Extract<MessagePart, { type: 'dynamic-tool' }>
