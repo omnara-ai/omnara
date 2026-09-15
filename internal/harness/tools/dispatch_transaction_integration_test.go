@@ -77,6 +77,36 @@ func TestTransactionalToolDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 }
 
+func TestListMachinesDispatchRejectsInvalidCursor(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixture(t, ctx, "invalid-machine-cursor")
+	call := fixture.recordToolCall(
+		t, ctx, "call_invalid_machine_cursor", "list_machines",
+		`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`, fixture.Now.Add(20*time.Second),
+	)
+	turn := fixture.turn()
+	turn.Tools["list_machines"] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Disposition != DispatchCompleted ||
+		!strings.Contains(string(result.ContentParts), `"error_code":"malformed"`) {
+		t.Fatalf("invalid cursor result = %+v, want completed malformed-input result", result)
+	}
+	record, err := fixture.Store.Execution().GetToolCall(
+		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != executionstore.ToolCallStateCompleted || record.Outcome != executionstore.ToolResultOutcomeFailed {
+		t.Fatalf("invalid cursor tool call = %+v, want completed failure", record)
+	}
+}
+
 func TestSpawnAgentDispatchUsesOneDatabaseConnection(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixtureWithOptions(

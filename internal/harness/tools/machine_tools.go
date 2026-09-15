@@ -1,10 +1,12 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,10 @@ var ErrNoMachine = errors.New("no_machine")
 
 type createMachineRequest struct {
 	MachinePoolName string `json:"machine_pool_name"`
+}
+
+type listMachinesRequest struct {
+	Cursor string `json:"cursor,omitempty"`
 }
 
 type machineObservationMode string
@@ -48,12 +54,14 @@ func validateInspectMachineInput(input json.RawMessage) error {
 }
 
 func validateListMachinesInput(input json.RawMessage) error {
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal(input, &body); err != nil {
-		return fmt.Errorf("parse list_machines request: %w", err)
+	var request listMachinesRequest
+	if err := decodeSingleStrictJSON(input, &request, "list_machines request"); err != nil {
+		return err
 	}
-	if len(body) != 0 {
-		return errors.New("list_machines request has unsupported fields")
+	if request.Cursor != "" {
+		if _, err := publicid.Decode(publicid.KindMachine, request.Cursor); err != nil {
+			return errors.New("cursor must be a valid machine_id")
+		}
 	}
 	return nil
 }
@@ -165,6 +173,10 @@ func listMachines(
 	ctx context.Context,
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {
+	var input listMachinesRequest
+	if err := decodeSingleStrictJSON(call.Call.Input, &input, "list_machines request"); err != nil {
+		return nil, err
+	}
 	authorizationInput, err := machineObservationAuthorizationInput(machineObservationList, "")
 	if err != nil {
 		return nil, err
@@ -182,17 +194,70 @@ func listMachines(
 	if err != nil {
 		return nil, err
 	}
-	machineResults := make([]machineObservationPayload, 0, len(machines))
-	for _, machine := range machines {
-		payload, err := agentMachineObservation(machine)
+	return machineListPage(machines, input.Cursor)
+}
+
+func machineListPage(
+	machines []executionstore.AgentMachineObservationRecord,
+	cursor string,
+) (transactionalPhaseResult, error) {
+	slices.SortFunc(machines, func(a, b executionstore.AgentMachineObservationRecord) int {
+		return bytes.Compare(a.MachineID[:], b.MachineID[:])
+	})
+	cursorID := uuid.Nil
+	if cursor != "" {
+		var err error
+		cursorID, err = publicid.Decode(publicid.KindMachine, cursor)
+		if err != nil {
+			return nil, errors.New("cursor must be a valid machine_id")
+		}
+	}
+	page := machineListResult{Machines: []machineObservationPayload{}}
+	machineBytes := 0
+	for index, machine := range machines {
+		if bytes.Compare(machine.MachineID[:], cursorID[:]) <= 0 {
+			continue
+		}
+		observation, err := agentMachineObservation(machine)
 		if err != nil {
 			return nil, err
 		}
-		machineResults = append(machineResults, payload)
+		encoded, err := marshalJSON(observation)
+		if err != nil {
+			return nil, err
+		}
+		nextBytes := machineBytes + len(encoded)
+		if len(page.Machines) > 0 {
+			nextBytes++
+		}
+		nextCursor := ""
+		if index < len(machines)-1 {
+			nextCursor = observation.MachineID
+		}
+		envelope, err := structuredToolResultContent(machineListResult{
+			Machines: []machineObservationPayload{}, NextCursor: nextCursor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		parts, err := envelope.contentParts()
+		if err != nil {
+			return nil, err
+		}
+		if len(parts)+nextBytes > executionstore.ToolResultInlineBudgetBytes {
+			if len(page.Machines) == 0 {
+				return failMachineTransaction("machine_details_too_large", fmt.Errorf(
+					"details for machine %s exceed the list_machines size limit; use inspect_machine for details, or call list_machines with cursor %q to continue",
+					observation.MachineID, observation.MachineID,
+				), false)
+			}
+			break
+		}
+		page.Machines = append(page.Machines, observation)
+		page.NextCursor = nextCursor
+		machineBytes = nextBytes
 	}
-	content, err := structuredToolResultContent(
-		machineListResult{Machines: machineResults},
-	)
+	content, err := structuredToolResultContent(page)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +559,8 @@ type machineObservationPayload struct {
 }
 
 type machineListResult struct {
-	Machines []machineObservationPayload `json:"machines"`
+	Machines   []machineObservationPayload `json:"machines"`
+	NextCursor string                      `json:"next_cursor,omitempty"`
 }
 
 type machineInspectionPayload struct {

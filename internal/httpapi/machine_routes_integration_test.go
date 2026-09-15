@@ -370,6 +370,35 @@ func TestCreateMachineRejectsNonObjectMetadata(t *testing.T) {
 	}
 }
 
+func TestMachineCwdLengthAPI(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "machine-cwd-length")
+	path := "/api/v1/orgs/" + project.OrgID + "/machines"
+	cwd := strings.Repeat("é", 4096)
+	created := requestJSONWithHeaders(t, handler, http.MethodPost, path,
+		`{"display_name":"Cwd Limit","cwd":`+quote(cwd)+`}`, "",
+		http.StatusCreated, authHeaders(project.AdminToken))
+	machinePath := path + "/" + testutil.RequireType[string](t, created["id"])
+	requestJSONWithHeaders(t, handler, http.MethodPost, path,
+		`{"display_name":"Oversized Cwd","cwd":`+quote(cwd+"x")+`}`, "",
+		http.StatusBadRequest, authHeaders(project.AdminToken))
+	updated := requestJSONWithHeaders(t, handler, http.MethodPatch, machinePath,
+		`{"cwd":`+quote(cwd)+`}`, "", http.StatusOK, authHeaders(project.AdminToken))
+	if updated["cwd"] != cwd {
+		t.Fatal("cwd boundary was not preserved")
+	}
+	requestJSONWithHeaders(t, handler, http.MethodPatch, machinePath,
+		`{"cwd":`+quote(cwd+"x")+`}`, "", http.StatusBadRequest, authHeaders(project.AdminToken))
+	stored := requestJSONWithHeaders(t, handler, http.MethodGet, machinePath,
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	if stored["cwd"] != cwd {
+		t.Fatal("invalid update changed stored cwd")
+	}
+}
+
 func TestMachineExecutionDefaultsAPI(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

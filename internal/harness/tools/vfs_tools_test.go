@@ -26,7 +26,8 @@ func TestResolveUploadFileRequest(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{name: "trailing slash", raw: `{"path":"/artifacts/","source":"a"}`, want: "upload path must be /artifacts"},
+		{name: "trailing slash",
+			raw: `{"path":"/artifacts/","source":"a"}`, want: "upload path must be /artifacts"},
 		{name: "missing source", raw: `{"path":"/artifacts"}`, want: "source is required"},
 		{
 			name: "artifact identity", raw: `{"path":"/artifacts/art_invalid","source":"a"}`,
@@ -71,18 +72,20 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{name: "trailing slash", raw: `{"path":"/artifacts/","destination":"a"}`, want: "download path must be /artifacts"},
-		{name: "artifact root", raw: `{"path":"/artifacts"}`, want: "download path must be /artifacts"},
+		{name: "trailing slash",
+			raw: `{"path":"/artifacts/","destination":"a"}`, want: "path must be /artifacts/<artifact_id>"},
+		{name: "artifact root", raw: `{"path":"/artifacts"}`, want: "path must be /artifacts/<artifact_id>"},
 		{name: "artifact destination", raw: `{"path":"/artifacts/` + artifactID + `"}`, want: "destination is required"},
 		{
 			name: "unsupported root", raw: `{"path":"/skills/deploy","destination":"deploy"}`,
-			want: "download path must be /artifacts",
+			want: "path must be /artifacts/<artifact_id>",
 		},
-		{name: "invalid artifact", raw: `{"path":"/artifacts/not-an-id","destination":"a"}`, want: "valid artifact ID"},
+		{name: "invalid artifact",
+			raw: `{"path":"/artifacts/not-an-id","destination":"a"}`, want: "path must be /artifacts/<artifact_id>"},
 		{
 			name: "nested artifact",
 			raw:  `{"path":"/artifacts/` + artifactID + `/file","destination":"a"}`,
-			want: "must be /artifacts",
+			want: "path must be /artifacts/<artifact_id>",
 		},
 	}
 	for _, test := range tests {

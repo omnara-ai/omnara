@@ -465,11 +465,12 @@ func (e Executor) executeAsyncTool(
 	defer cancelCompletion()
 	switch result := result.(type) {
 	case completeAsync:
-		if err := e.completeAsyncToolSuccess(
+		if err := e.completeAsyncToolResult(
 			completionCtx,
 			call.Turn,
 			call.ToolCallID,
 			result.content,
+			executionstore.ToolResultOutcomeSucceeded,
 		); err != nil {
 			return err
 		}

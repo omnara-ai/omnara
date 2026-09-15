@@ -91,7 +91,7 @@ func (s *Store) CreateArtifact(
 	input.SizeBytes = &metadata.SizeBytes
 	record, err := s.createArtifactRecord(ctx, artifactID, input)
 	// The transaction has committed or rolled back before external cleanup starts.
-	if err != nil || !record.Created {
+	if !record.Created || errors.Is(err, pgx.ErrTxCommitRollback) {
 		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
 		if err != nil && cleanupErr != nil {
 			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
@@ -107,7 +107,10 @@ func (s *Store) CreateArtifact(
 			event.Done(ctx)
 		}
 	}
-	return record, err
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	return record, nil
 }
 
 func (s *Store) createArtifactRecord(
@@ -157,7 +160,7 @@ func (s *Store) createArtifactRecord(
 		return ArtifactRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
+		return record, fmt.Errorf("commit create artifact: %w", err)
 	}
 	return record, nil
 }

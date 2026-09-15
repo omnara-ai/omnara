@@ -71,13 +71,10 @@ func resolveDownloadFileRequest(raw json.RawMessage) (resolvedDownloadFileReques
 	if err := decodeSingleStrictJSON(raw, &input, "download_file request"); err != nil {
 		return resolvedDownloadFileRequest{}, fmt.Errorf("parse download_file request: %w", err)
 	}
-	artifactID, ok := strings.CutPrefix(input.Path, toolcatalog.ArtifactVFSRoot+"/")
-	if !ok || artifactID == "" || strings.Contains(artifactID, "/") {
-		return resolvedDownloadFileRequest{}, errors.New("download path must be /artifacts/<artifact_id>")
+	if _, err := resolveArtifactPath(input.Path); err != nil {
+		return resolvedDownloadFileRequest{}, errors.New("path must be /artifacts/<artifact_id>")
 	}
-	if _, err := publicid.Decode(publicid.KindArtifact, artifactID); err != nil {
-		return resolvedDownloadFileRequest{}, errors.New("artifact path must contain a valid artifact ID")
-	}
+	artifactID := strings.TrimPrefix(input.Path, toolcatalog.ArtifactVFSRoot+"/")
 	if input.Destination == "" {
 		return resolvedDownloadFileRequest{}, errors.New("destination is required")
 	}

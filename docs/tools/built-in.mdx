@@ -17,7 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
-| Files | `upload_file`, `download_file` |
+| Files | `upload_file`, `download_file`, `read_file`, `search_files` |
 | Integrations | `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
 
@@ -160,9 +160,13 @@ Deletes a pool-backed machine. Requires `machine_id`.
 
 `list_machines` lists the agent's BYO and pool-backed machines. `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Results identify the machine's `source_kind` and `binding_kind`; only pool bindings can be passed to `delete_machine`.
 
+When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call to continue listing.
+
 ## Files
 
 `path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
+
+Omnara automatically adds `read_file` and `search_files` to agents that have tools or MCP servers, including tools added implicitly for skills or integrations. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine.
 
 ### `upload_file`
 
@@ -179,6 +183,48 @@ Use `download_file` to copy a file from Omnara's virtual filesystem to an attach
 Set `path` to `/artifacts/<artifact_id>` and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically.
 
 Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
+
+### `read_file`
+
+Reads a UTF-8 text file at `/artifacts/<artifact_id>`. The artifact must contain no NUL bytes and be at most 48 MiB. Readability is determined from the file's bytes, regardless of its declared content type.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact path |
+| `offset_line` | integer | ≥ 1; default 1 |
+| `limit_lines` | integer | 1–200; default 200 |
+| `offset_byte` | integer | ≥ 0; default 0 in byte mode; must be a UTF-8 character boundary |
+| `limit_bytes` | integer | 1–4096; default 4096 in byte mode; use at least 4 to accommodate any character |
+
+Reading defaults to line mode. Supplying either byte input selects byte mode; do not combine line and byte inputs. Each response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, and `has_more`.
+
+When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_byte`. A line longer than one page returns its first chunk and a byte offset; switch to byte mode to continue. Reading past the end returns empty content with `has_more: false`.
+
+### `search_files`
+
+Searches text inside an artifact file using a regular expression. It accepts one exact artifact path per call and has the same file requirements as `read_file`.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact path |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | RE2 regex, 1–1024 UTF-8 bytes; case-sensitive unless using `(?i)` |
+| `offset_line` | integer | ≥ 1; default 1; first line to search for matches |
+| `max_matches` | integer | 1–100 matching lines; default 20 |
+| `context_lines` | integer | 0–5 lines before and after each match; default 0 |
+
+Results include line numbers and bounded text snippets. When `truncated` is true, continue with the same pattern and the returned `next_offset_line` as `offset_line`. Context may overlap between pages or include lines before `offset_line`. Patterns match within individual lines; use `read_file` to read more around a match.
+
+### Large tool results
+
+For `web_fetch`, `web_search`, `skill`, MCP tools, and custom tools, results containing text or structured data trigger overflow handling when their serialized content exceeds 50 KiB. Omnara saves the oversized content as a text or JSON artifact and returns its `path`, a preview of up to 8 KiB, `size_bytes`, `content_type`, and `truncated: true`. Saved overflow artifacts are limited to 48 MiB.
+
+The overflow marker's `truncated` field describes the shortened inline preview. In `web_fetch` metadata, `truncated` reports whether the upstream extractor shortened the fetched content; it can be `false` even when the overflow marker is `true`.
+
+For example, a large `web_fetch` result provides an `/artifacts/<artifact_id>` path. The agent can search that path for a phrase with `search_files`, then read the surrounding lines with `read_file`. Visible overflow artifacts also appear as downloadable attachments in the conversation. Hidden results remain hidden.
+
+Explicitly disabling both retrieval tools does not disable overflow handling. The agent still receives the preview and path, but cannot use these tools to retrieve the saved content.
+
+Existing media references remain inline so their attachments remain available to the model and clients. Consequently, 50 KiB is an overflow threshold, not a hard limit on the rewritten result: many retained media references can still exceed it. Media-only results are not offloaded.
 
 ## Integrations
 
