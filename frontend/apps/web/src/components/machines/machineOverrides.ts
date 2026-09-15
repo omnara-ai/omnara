@@ -83,7 +83,9 @@ export function providerOptionsOverlay(
   const overlay: Record<string, string> = {}
   if (!clusterManaged) {
     if (draft.resource.trim() !== '') overlay[definition.resource.key] = draft.resource.trim()
-    if (draft.location.trim() !== '') overlay[definition.location.key] = draft.location.trim()
+    if (definition.location.supported !== false && draft.location.trim() !== '') {
+      overlay[definition.location.key] = draft.location.trim()
+    }
   }
   if (draft.startupScript.trim() !== '') overlay.startup_script = draft.startupScript
   return Object.keys(overlay).length > 0 ? overlay : undefined

@@ -17,6 +17,7 @@ interface MachinePoolProviderDefinition {
     placeholder: string
     defaultValue: string
     required: boolean
+    supported?: boolean
   }
   scope?: {
     key: string
@@ -35,6 +36,8 @@ interface MachinePoolProviderDefinition {
   resources: {
     cpu: MachinePoolResourceMode
     memoryMb: MachinePoolResourceMode
+    defaultCpu?: string
+    defaultMemoryGb?: string
   }
 }
 
@@ -50,6 +53,22 @@ export function machinePoolScopeValue(
   if (provider !== 'modal') return value
   const app = value?.trim()
   return app === undefined || app === '' ? 'omnara' : app
+}
+
+export function machinePoolCoreProviderOptions(
+  provider: MachinePoolProvider,
+  resource: string,
+  location: string,
+) {
+  const definition = machinePoolProviderDefinitions[provider]
+  const includeLocation =
+    definition.location.supported !== false &&
+    (definition.location.required || location.trim() !== '')
+  const options = { [definition.resource.key]: resource.trim() }
+  if (includeLocation) {
+    options[definition.location.key] = location.trim()
+  }
+  return options
 }
 
 const unikraft: MachinePoolProviderDefinition = {
@@ -114,6 +133,31 @@ const daytona: MachinePoolProviderDefinition = {
   resources: { cpu: 'provider-resolved', memoryMb: 'provider-resolved' },
 }
 
+const freestyle: MachinePoolProviderDefinition = {
+  label: 'Freestyle',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot',
+    placeholder: 'freestyle/ubuntu-sm',
+    description: 'The configured vCPU and memory must be at least the snapshot size.',
+    descriptionHref: 'https://www.freestyle.sh/docs/vms/base-snapshots',
+  },
+  location: {
+    key: '',
+    label: '',
+    placeholder: '',
+    defaultValue: '',
+    required: false,
+    supported: false,
+  },
+  resources: {
+    cpu: 'configured',
+    memoryMb: 'configured',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 const modal: MachinePoolProviderDefinition = {
   label: 'Modal',
   resource: {
@@ -147,10 +191,13 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
-  MachinePoolProvider,
-  MachinePoolProviderDefinition
->
+export const machinePoolProviderDefinitions = {
+  unikraft,
+  blaxel,
+  daytona,
+  freestyle,
+  modal,
+} satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)

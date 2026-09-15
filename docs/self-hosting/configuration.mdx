@@ -136,6 +136,7 @@ Machine pool templates automatically create a base machine pool for any new orga
 
 | Provider | CPU fields | `provider_config` | `default_machine_provider_options` |
 | --- | --- | --- | --- |
+| `freestyle` | Default and maximums required; minimum optional | Optional `api_base_url` and `allowed_snapshots` | `snapshot`, plus optional `startup_script` and `idle_timeout_seconds` |
 | `unikraft` | Default and maximums required; minimum optional | Optional `api_base_url`, `allowed_images`, and `allowed_metros` | `image`, `metro`, and optional `startup_script` and `sleep_after_ms` |
 | `blaxel` | Omit all CPU fields | Required `workspace`; optional `allowed_images` and `allowed_regions` | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
 | `daytona` | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets` | Daytona snapshot name, `target`, and optional `startup_script` |
@@ -144,6 +145,7 @@ Machine pool templates automatically create a base machine pool for any new orga
 Provider notes:
 
 - Custom pool images must provide a writable `HOME` or `OMNARA_HOME`, plus a POSIX shell, standard Unix utilities, `curl`, and `sha256sum` or `shasum` for the Omnara launcher (`startup_script` additionally requires `base64`).
+- Freestyle pool machines use full hardware virtualization, providing complete Linux environments for system-level workloads. Snapshots must run systemd and include a POSIX shell, `curl`, `base64`, and `sha256sum` or `shasum`. Omnara grows the VM to the configured CPU and memory; it rejects a snapshot that already exceeds either value. `idle_timeout_seconds` uses Freestyle's native pause and resume lifecycle and accepts values from `1` through `31536000`; omit it to disable idle pausing.
 - Blaxel images must be sandbox images built or pushed through Blaxel (custom images must include `sandbox-api`), and unlimited persistence requires quota Tier 2 or higher — Tier 0 and Tier 1 cap sandbox lifetimes at 7 and 30 days.
 - Daytona snapshots are allowed by name, must be active in the selected target, must allow sandboxes to reach `OMNARA_PUBLIC_URL`, and their API-resolved CPU and memory count against the pool caps.
 - Modal credentials must be supplied as one JSON value containing `token_id` and `token_secret`. Omnara configures Modal sandboxes with a 24-hour timeout. Omit `region` for automatic placement. Create a non-`main` environment in Modal before configuring it. Use versioned image tags because Modal does not automatically repull a mutable external tag after caching it.

@@ -485,6 +485,23 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
+  it('infers a snapshot-only provider overlay as Daytona', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_pool_name: "default-pool"
+    machine_provider_options_overlay: {"snapshot":"base-image"}
+`
+    const config = mustDeserialize(source)
+    expect(config.machineSources).toMatchObject([
+      {
+        kind: 'pool',
+        name: 'default-pool',
+        provider: 'daytona',
+        providerOptions: { resource: 'base-image' },
+      },
+    ])
+    expect(applyToSource(source, config)).toBe(source)
+  })
+
   it('rejects provider options overlays no provider accounts for', () => {
     const unknownKey = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
