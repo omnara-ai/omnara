@@ -526,7 +526,7 @@ func downloadFileTool(machineID map[string]any) (Entry, error) {
 				"type":        "string",
 				"minLength":   1,
 				"description": "Source path in Omnara's virtual filesystem. Currently supports /artifacts/<artifact_id>.",
-				"pattern":     "^" + ArtifactVFSRoot + "/art_[a-zA-Z2-7]{26}$",
+				"pattern":     "^" + ArtifactVFSRoot + "/art_[a-z2-7]{26}$",
 			},
 			"destination": map[string]any{
 				"type":      "string",

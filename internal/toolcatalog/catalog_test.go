@@ -35,7 +35,7 @@ func TestFileToolPathSchemas(t *testing.T) {
 					input["source"] = "file.txt"
 				} else {
 					input["destination"] = "file.txt"
-					wantValid = path == artifactPath || path == "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW"
+					wantValid = path == artifactPath
 				}
 				raw, err := json.Marshal(input)
 				if err != nil {

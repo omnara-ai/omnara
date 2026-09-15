@@ -16,7 +16,8 @@ func TestResolveUploadFileRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve upload: %v", err)
 	}
-	if resolved.Source != "reports/final.pdf" || resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
+	if resolved.Source != "reports/final.pdf" ||
+		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("resolved upload = %+v", resolved)
 	}
 
