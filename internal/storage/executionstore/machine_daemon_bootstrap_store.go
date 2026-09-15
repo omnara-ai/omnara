@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
@@ -65,7 +66,7 @@ type preparedBYOMachineDaemonTokenCreate struct {
 func prepareBYOMachineDaemonTokenCreate(
 	input CreateBYOMachineDaemonTokenInput,
 ) (preparedBYOMachineDaemonTokenCreate, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.Name == "" {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil || input.Name == "" {
 		return preparedBYOMachineDaemonTokenCreate{}, errors.New(
 			"org, machine, and name are required",
 		)
@@ -144,8 +145,8 @@ func createBYOMachineDaemonTokenTx(
 }
 
 type BeginPoolMachineProviderProvisioningInput struct {
-	OrgID            ID
-	MachineID        ID
+	OrgID            uuid.UUID
+	MachineID        uuid.UUID
 	ProvisionAttempt int32
 	TokenName        string
 }
@@ -160,7 +161,7 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 	ctx context.Context,
 	input BeginPoolMachineProviderProvisioningInput,
 ) (PoolMachineProviderProvisioningStart, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || input.TokenName == "" {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil || input.TokenName == "" {
 		return PoolMachineProviderProvisioningStart{}, errors.New(
 			"org, machine, and token name are required",
 		)
@@ -260,8 +261,8 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 }
 
 type ListBYOMachineDaemonTokensInput struct {
-	OrgID     ID
-	MachineID ID
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 	Limit     int
 	After     listing.KeysetCursor
 }
@@ -275,7 +276,7 @@ func (s *Store) ListBYOMachineDaemonTokens(
 	ctx context.Context,
 	input ListBYOMachineDaemonTokensInput,
 ) (ListBYOMachineDaemonTokensResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return ListBYOMachineDaemonTokensResult{}, errors.New("org and machine are required")
 	}
 	if input.Limit <= 0 {
@@ -310,7 +311,7 @@ func (s *Store) ListBYOMachineDaemonTokens(
 
 func (s *Store) ListAllMachineDaemonTokens(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 ) ([]MachineDaemonTokenRecord, error) {
 	rows, err := s.q.ListAllMachineDaemonTokens(
 		ctx,
@@ -328,7 +329,7 @@ func (s *Store) ListAllMachineDaemonTokens(
 
 func (s *Store) RevokeBYOMachineDaemonToken(
 	ctx context.Context,
-	orgID, machineID, tokenID ID,
+	orgID, machineID, tokenID uuid.UUID,
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -351,7 +352,7 @@ func (s *Store) RevokeBYOMachineDaemonTokenTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	txNotifications *notifications.TxNotifications,
-	orgID, machineID, tokenID ID,
+	orgID, machineID, tokenID uuid.UUID,
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
 	qtx := s.q.WithTx(tx)
@@ -393,7 +394,7 @@ func (s *Store) RevokeBYOMachineDaemonTokenTx(
 				OrgID:     orgID,
 				MachineID: machineID,
 				ID:        runtime.ID,
-				Reason:    sqlcTextFromEmpty(reason),
+				Reason:    storeutil.TextFromEmpty(reason),
 				Message:   "",
 			},
 		); err != nil &&
@@ -449,7 +450,7 @@ func (s *Store) BootstrapMachineDaemon(
 	ctx context.Context,
 	input MachineDaemonBootstrapInput,
 ) (MachineBootstrapRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.DaemonTokenID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil || input.DaemonTokenID == uuid.Nil {
 		return MachineBootstrapRecord{}, errors.New(
 			"org, machine, and daemon token are required",
 		)
@@ -481,7 +482,7 @@ func (s *Store) RecordMachineFailureReport(
 	ctx context.Context,
 	input MachineFailureReportInput,
 ) error {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) || isNilID(input.DaemonTokenID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil || input.DaemonTokenID == uuid.Nil {
 		return errors.New("org, machine, and daemon token are required")
 	}
 	switch input.Stage {

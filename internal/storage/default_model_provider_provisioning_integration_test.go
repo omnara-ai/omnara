@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -23,7 +24,7 @@ func mustCompleteDefaultModelProviderProvisioning(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	orgID ID,
+	orgID uuid.UUID,
 	template modelstore.DefaultModelProviderTemplate,
 	credentialValue string,
 ) {
@@ -244,7 +245,7 @@ func TestDefaultModelProviderProvisioningWaitingBehindProjectDeletionCreatesNoth
 		t.Fatalf("build project deletion actor: %v", err)
 	}
 	controlTx := integrationdb.BeginTx(t, ctx, pool)
-	var membershipProjectID ID
+	var membershipProjectID uuid.UUID
 	if err := controlTx.QueryRow(ctx, `
 		SELECT project_id
 		FROM project_memberships

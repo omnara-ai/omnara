@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -127,7 +127,7 @@ func TestSelectOnlyMachine(t *testing.T) {
 	tests := []struct {
 		name     string
 		machines []executionstore.PoolMachineRecord
-		want     storage.ID
+		want     uuid.UUID
 		wantErr  error
 	}{
 		{name: "zero machines", wantErr: ErrNoMachine},
@@ -303,7 +303,7 @@ func TestMachineInspectionIncludesFailureReport(t *testing.T) {
 	}
 }
 
-func machinePublicIDForTest(t *testing.T, id storage.ID) string {
+func machinePublicIDForTest(t *testing.T, id uuid.UUID) string {
 	t.Helper()
 	value, err := publicid.Encode(publicid.KindMachine, id)
 	if err != nil {

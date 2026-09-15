@@ -3,9 +3,9 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -37,8 +37,8 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	}
 	visible := page.Projects
 	projects := make([]openapi.VisibleProject, 0, len(visible))
-	agentProjectIDs := make([]storage.ID, 0, len(visible))
-	profileProjectIDs := make([]storage.ID, 0, len(visible))
+	agentProjectIDs := make([]uuid.UUID, 0, len(visible))
+	profileProjectIDs := make([]uuid.UUID, 0, len(visible))
 	for _, record := range visible {
 		response, err := visibleProjectResponse(record)
 		if err != nil {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -106,10 +106,10 @@ func (s strictOpenAPIServer) listCronTriggers(
 		filters.AgentID = agentID
 	}
 	extra := struct{ AgentProfileID, AgentID string }{}
-	if filters.AgentProfileID != storage.NilID {
+	if filters.AgentProfileID != uuid.Nil {
 		extra.AgentProfileID = filters.AgentProfileID.String()
 	}
-	if filters.AgentID != storage.NilID {
+	if filters.AgentID != uuid.Nil {
 		extra.AgentID = filters.AgentID.String()
 	}
 	list, err := parseResourceListQuery(resourceListQueryInput{

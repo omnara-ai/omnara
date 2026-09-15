@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -66,7 +65,7 @@ type socketMachineDaemonRuntimeLiveResponse struct {
 	server    *Server
 	request   *http.Request
 	scope     machineDaemonScope
-	runtimeID storage.ID
+	runtimeID uuid.UUID
 }
 
 func (response socketMachineDaemonRuntimeLiveResponse) VisitSocketMachineDaemonRuntimeResponse(
@@ -80,7 +79,7 @@ func (s *Server) socketMachineDaemonRuntime(
 	w http.ResponseWriter,
 	r *http.Request,
 	scope machineDaemonScope,
-	runtimeID storage.ID,
+	runtimeID uuid.UUID,
 ) {
 	orgID, machineID, tokenID := scope.OrgID, scope.MachineID, scope.DaemonTokenID
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
@@ -132,7 +131,7 @@ func (s *Server) socketMachineDaemonRuntime(
 
 func (s *Server) putDaemonRuntimePresence(
 	r *http.Request,
-	orgID, machineID, runtimeID, tokenID storage.ID,
+	orgID, machineID, runtimeID, tokenID uuid.UUID,
 	connectionID uuid.UUID,
 ) error {
 	presence := notifications.DaemonPresence{
@@ -191,7 +190,7 @@ func (s *Server) putDaemonRuntimePresence(
 
 func (s *Server) putDaemonRuntimePresenceRecords(
 	ctx context.Context,
-	machineID, runtimeID storage.ID,
+	machineID, runtimeID uuid.UUID,
 	presence notifications.DaemonPresence,
 	ttl time.Duration,
 ) error {
@@ -207,7 +206,7 @@ func (s *Server) putDaemonRuntimePresenceRecords(
 
 func (s *Server) deleteDaemonRuntimePresence(
 	ctx context.Context,
-	machineID, runtimeID storage.ID,
+	machineID, runtimeID uuid.UUID,
 	connectionID uuid.UUID,
 ) error {
 	owner := notifications.PresenceOwner{

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -17,7 +18,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	input RecordModelCallFailureAndClaimCompactionInput,
 ) (TriggeredCompactionHandoff, error) {
 	failure := input.Failure
-	if isNilID(input.ParentContextID) || input.SourceEventSequenceEnd <= 0 {
+	if input.ParentContextID == uuid.Nil || input.SourceEventSequenceEnd <= 0 {
 		return TriggeredCompactionHandoff{}, errors.New(
 			"parent model context and a valid compaction source range are required",
 		)
@@ -209,8 +210,8 @@ func (s *Store) ReplaceCompactionSource(
 	ctx context.Context,
 	input ReplaceCompactionSourceInput,
 ) (ReplaceCompactionSourceResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil ||
 		input.ErrorKind == "" || input.ErrorMessage == "" || input.NextSourceEventSequenceEnd <= 0 {
 		return ReplaceCompactionSourceResult{}, errors.New(
 			"project, agent, runtime, compaction context, error, and replacement source end are required",

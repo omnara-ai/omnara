@@ -3,11 +3,11 @@ package logent
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
-func WorkerLoop(ctx context.Context, workerProcessID storage.ID) (context.Context, *log.Event) {
+func WorkerLoop(ctx context.Context, workerProcessID uuid.UUID) (context.Context, *log.Event) {
 	event := log.NewEvent(ctx, "worker.loop")
 	ctx = log.WithEvent(ctx, event)
 	log.Attach(ctx, log.Fields{"worker.process_id": workerProcessID})
@@ -23,7 +23,7 @@ func WorkerLoopResult(ctx context.Context, worked bool, err error) {
 	}
 }
 
-func AgentWorkScope(ctx context.Context, orgID, projectID, agentID storage.ID) {
+func AgentWorkScope(ctx context.Context, orgID, projectID, agentID uuid.UUID) {
 	log.Attach(ctx, log.Fields{
 		"org.id":     orgID,
 		"project.id": projectID,

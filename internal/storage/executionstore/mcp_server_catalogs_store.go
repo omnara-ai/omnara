@@ -7,36 +7,37 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type MCPServerCatalogCredential struct {
-	SecretID        ID
-	SecretVersionID ID
+	SecretID        uuid.UUID
+	SecretVersionID uuid.UUID
 	AWSRegion       string
 	AWSService      string
 }
 
 type MCPServerCatalogIdentity struct {
-	OrgID       ID
+	OrgID       uuid.UUID
 	EndpointURL string
 	Credential  *MCPServerCatalogCredential
 }
 
 func (identity MCPServerCatalogIdentity) validate() error {
-	if isNilID(identity.OrgID) || identity.EndpointURL == "" {
+	if identity.OrgID == uuid.Nil || identity.EndpointURL == "" {
 		return errors.New("org and endpoint url are required")
 	}
 	if identity.Credential != nil &&
-		(isNilID(identity.Credential.SecretID) || isNilID(identity.Credential.SecretVersionID)) {
+		(identity.Credential.SecretID == uuid.Nil || identity.Credential.SecretVersionID == uuid.Nil) {
 		return errors.New("credential secret and secret version are required")
 	}
 	return nil
 }
 
-func (identity MCPServerCatalogIdentity) secretID() *ID {
+func (identity MCPServerCatalogIdentity) secretID() *uuid.UUID {
 	if identity.Credential == nil {
 		return nil
 	}
@@ -44,7 +45,7 @@ func (identity MCPServerCatalogIdentity) secretID() *ID {
 	return &id
 }
 
-func (identity MCPServerCatalogIdentity) secretVersionID() *ID {
+func (identity MCPServerCatalogIdentity) secretVersionID() *uuid.UUID {
 	if identity.Credential == nil {
 		return nil
 	}
@@ -72,8 +73,8 @@ type MCPServerCatalogCacheHint struct {
 }
 
 type MCPServerCatalogRecord struct {
-	ID                    ID                          `json:"id"`
-	OrgID                 ID                          `json:"org_id"`
+	ID                    uuid.UUID                   `json:"id"`
+	OrgID                 uuid.UUID                   `json:"org_id"`
 	EndpointURL           string                      `json:"endpoint_url"`
 	Credential            *MCPServerCatalogCredential `json:"credential,omitempty"`
 	Revision              int64                       `json:"revision"`
@@ -87,7 +88,7 @@ type MCPServerCatalogRecord struct {
 	Tools                 MCPServerCatalogCacheHint   `json:"tools"`
 	ToolsExpiresAt        *time.Time                  `json:"tools_expires_at,omitempty"`
 	FetchedAt             *time.Time                  `json:"fetched_at,omitempty"`
-	RefreshOwnerToken     *ID                         `json:"refresh_owner_token,omitempty"`
+	RefreshOwnerToken     *uuid.UUID                  `json:"refresh_owner_token,omitempty"`
 	RefreshLeaseExpiresAt *time.Time                  `json:"refresh_lease_expires_at,omitempty"`
 	RefreshError          string                      `json:"refresh_error"`
 	CreatedAt             time.Time                   `json:"created_at"`
@@ -126,7 +127,7 @@ func (s *Store) GetMCPServerCatalog(
 
 type AcquireMCPServerCatalogRefreshLeaseInput struct {
 	Identity   MCPServerCatalogIdentity
-	OwnerToken ID
+	OwnerToken uuid.UUID
 	TTL        time.Duration
 }
 
@@ -137,7 +138,7 @@ func (s *Store) AcquireMCPServerCatalogRefreshLease(
 	if err := input.Identity.validate(); err != nil {
 		return MCPServerCatalogRecord{}, false, err
 	}
-	if isNilID(input.OwnerToken) || input.TTL <= 0 {
+	if input.OwnerToken == uuid.Nil || input.TTL <= 0 {
 		return MCPServerCatalogRecord{}, false, errors.New("owner token and positive ttl are required")
 	}
 	row, err := s.q.AcquireMCPServerCatalogRefreshLease(ctx, dbsqlc.AcquireMCPServerCatalogRefreshLeaseParams{
@@ -159,9 +160,9 @@ func (s *Store) AcquireMCPServerCatalogRefreshLease(
 }
 
 type MarkMCPServerCatalogFetchedInput struct {
-	OrgID              ID
-	ID                 ID
-	OwnerToken         ID
+	OrgID              uuid.UUID
+	ID                 uuid.UUID
+	OwnerToken         uuid.UUID
 	ProtocolVersion    string
 	ServerCapabilities json.RawMessage
 	ServerInfo         json.RawMessage
@@ -177,7 +178,7 @@ func (s *Store) MarkMCPServerCatalogFetched(
 	ctx context.Context,
 	input MarkMCPServerCatalogFetchedInput,
 ) (MCPServerCatalogRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ID) || isNilID(input.OwnerToken) {
+	if input.OrgID == uuid.Nil || input.ID == uuid.Nil || input.OwnerToken == uuid.Nil {
 		return MCPServerCatalogRecord{}, errors.New("org, catalog id, and owner token are required")
 	}
 	if input.ProtocolVersion == "" {
@@ -213,9 +214,9 @@ func (s *Store) MarkMCPServerCatalogFetched(
 
 func (s *Store) ReleaseMCPServerCatalogRefreshLease(
 	ctx context.Context,
-	orgID, id, ownerToken ID,
+	orgID, id, ownerToken uuid.UUID,
 ) error {
-	if isNilID(orgID) || isNilID(id) || isNilID(ownerToken) {
+	if orgID == uuid.Nil || id == uuid.Nil || ownerToken == uuid.Nil {
 		return errors.New("org, catalog id, and owner token are required")
 	}
 	if err := s.q.ReleaseMCPServerCatalogRefreshLease(ctx, dbsqlc.ReleaseMCPServerCatalogRefreshLeaseParams{
@@ -230,8 +231,8 @@ func (s *Store) ReleaseMCPServerCatalogRefreshLease(
 
 func (s *Store) listAgentMCPConnectionCatalogs(
 	ctx context.Context,
-	projectID, agentID ID,
-) (map[ID]MCPServerCatalogRecord, error) {
+	projectID, agentID uuid.UUID,
+) (map[uuid.UUID]MCPServerCatalogRecord, error) {
 	rows, err := s.q.ListAgentMCPConnectionCatalogs(
 		ctx,
 		dbsqlc.ListAgentMCPConnectionCatalogsParams{ProjectID: projectID, AgentID: agentID},
@@ -239,7 +240,7 @@ func (s *Store) listAgentMCPConnectionCatalogs(
 	if err != nil {
 		return nil, fmt.Errorf("list agent mcp connection catalogs: %w", err)
 	}
-	out := make(map[ID]MCPServerCatalogRecord, len(rows))
+	out := make(map[uuid.UUID]MCPServerCatalogRecord, len(rows))
 	for _, row := range rows {
 		out[row.ID] = mcpServerCatalogRecordFromSQLC(row)
 	}
@@ -287,7 +288,7 @@ func mcpServerCatalogRecordFromSQLC(row dbsqlc.McpServerCatalog) MCPServerCatalo
 
 func (s *Store) MarkMCPServerCatalogRefreshFailed(
 	ctx context.Context,
-	orgID, id, ownerToken ID,
+	orgID, id, ownerToken uuid.UUID,
 	message string,
 ) error {
 	count, err := s.q.MarkMCPServerCatalogRefreshFailed(ctx, dbsqlc.MarkMCPServerCatalogRefreshFailedParams{

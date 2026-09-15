@@ -1287,7 +1287,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		project.ProjectUUID,
 		agentID,
 		runtime,
-		[]storage.ID{admitted.Inputs[0].ID},
+		[]uuid.UUID{admitted.Inputs[0].ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)
@@ -1717,7 +1717,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		project.ProjectUUID,
 		agentID,
 		work.RuntimeLock,
-		[]storage.ID{inputID},
+		[]uuid.UUID{inputID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)

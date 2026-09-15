@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -18,10 +18,6 @@ var ErrNoMachine = errors.New("no_machine")
 
 type createMachineRequest struct {
 	MachinePoolName string `json:"machine_pool_name"`
-}
-
-type machineIDRequest struct {
-	MachineID storage.ID
 }
 
 type machineObservationMode string
@@ -127,7 +123,7 @@ func deleteMachine(
 	ctx context.Context,
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {
-	input, err := resolveMachineIDRequest(call.Call.Input, false)
+	machineID, err := resolveMachineIDRequest(call.Call.Input, false)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +138,7 @@ func deleteMachine(
 	}
 	command := executionstore.DeletePoolMachineForToolCall(
 		executionstore.DeletePoolMachineInput{
-			MachineID: input.MachineID,
+			MachineID: machineID,
 		},
 		func(record executionstore.PoolMachineRecord) (executionstore.ToolCallCompletionInput, error) {
 			content, err := machineDeletionAcceptedResult(record)
@@ -207,13 +203,13 @@ func inspectMachine(
 	ctx context.Context,
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {
-	input, err := resolveMachineIDRequest(call.Call.Input, true)
+	machineID, err := resolveMachineIDRequest(call.Call.Input, true)
 	if err != nil {
 		return nil, err
 	}
 	var record executionstore.AgentMachineObservationRecord
-	if input.MachineID != storage.NilID {
-		record, err = call.Reader.GetAgentMachineObservationByMachineID(ctx, input.MachineID)
+	if machineID != uuid.Nil {
+		record, err = call.Reader.GetAgentMachineObservationByMachineID(ctx, machineID)
 	} else {
 		var machines []executionstore.AgentMachineObservationRecord
 		machines, err = call.Reader.ListAgentMachineObservations(ctx)
@@ -222,7 +218,7 @@ func inspectMachine(
 		}
 	}
 	if err != nil {
-		if input.MachineID != storage.NilID && errors.Is(err, storeerr.ErrNotFound) {
+		if machineID != uuid.Nil && errors.Is(err, storeerr.ErrNotFound) {
 			err = ErrMachineIDUnavailable
 		}
 		if errors.Is(err, ErrMachineSelectionRequired) ||
@@ -246,13 +242,13 @@ func inspectMachine(
 		}
 		return failMachineTransaction("inspect_machine_failed", err, false)
 	}
-	machineID, err := publicid.Encode(publicid.KindMachine, record.MachineID)
+	machinePublicID, err := publicid.Encode(publicid.KindMachine, record.MachineID)
 	if err != nil {
 		return nil, err
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,
-		machineID,
+		machinePublicID,
 	)
 	if err != nil {
 		return nil, err
@@ -294,7 +290,7 @@ func deleteMachineInBackground(
 func (e Executor) provisionMachineForToolCall(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 ) error {
 	record, err := e.Store.Execution().GetPoolMachineByCreateToolCall(
 		ctx,
@@ -320,7 +316,7 @@ func (e Executor) provisionMachineForToolCall(
 func (e Executor) deleteMachineForToolCall(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 ) error {
 	record, err := e.Store.Execution().GetPoolMachineByDeleteToolCall(
 		ctx,
@@ -369,14 +365,14 @@ func resolveCreateMachineRequest(raw json.RawMessage) (createMachineRequest, err
 func agentConfigIDForModelContext(
 	ctx context.Context,
 	reader *executionstore.ToolCallReader,
-	modelCallContextID storage.ID,
-) (storage.ID, error) {
+	modelCallContextID uuid.UUID,
+) (uuid.UUID, error) {
 	contextRecord, found, err := reader.GetModelCallContext(ctx, modelCallContextID)
 	if err != nil {
-		return storage.NilID, err
+		return uuid.Nil, err
 	}
 	if !found {
-		return storage.NilID, fmt.Errorf("model call context not found: %w", storeerr.ErrNotFound)
+		return uuid.Nil, fmt.Errorf("model call context not found: %w", storeerr.ErrNotFound)
 	}
 	return contextRecord.AgentConfigID, nil
 }
@@ -427,42 +423,42 @@ func selectPoolForMachineCreate(
 	}
 }
 
-func resolveOptionalMachineID(raw json.RawMessage) (storage.ID, error) {
+func resolveOptionalMachineID(raw json.RawMessage) (uuid.UUID, error) {
 	if len(raw) == 0 {
-		return storage.NilID, nil
+		return uuid.Nil, nil
 	}
 	var value *string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return storage.NilID, fmt.Errorf("parse machine_id: %w", err)
+		return uuid.Nil, fmt.Errorf("parse machine_id: %w", err)
 	}
 	if value == nil {
-		return storage.NilID, errors.New("machine_id cannot be null")
+		return uuid.Nil, errors.New("machine_id cannot be null")
 	}
 	id, err := publicid.Decode(publicid.KindMachine, *value)
 	if err != nil {
-		return storage.NilID, fmt.Errorf("machine_id must be a valid public machine ID: %w", err)
+		return uuid.Nil, fmt.Errorf("machine_id must be a valid public machine ID: %w", err)
 	}
 	return id, nil
 }
 
-func resolveMachineIDRequest(raw json.RawMessage, optional bool) (machineIDRequest, error) {
+func resolveMachineIDRequest(raw json.RawMessage, optional bool) (uuid.UUID, error) {
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return machineIDRequest{}, fmt.Errorf("parse machine request: %w", err)
+		return uuid.Nil, fmt.Errorf("parse machine request: %w", err)
 	}
 	for field := range body {
 		if field != "machine_id" {
-			return machineIDRequest{}, fmt.Errorf("machine request has unsupported field %q", field)
+			return uuid.Nil, fmt.Errorf("machine request has unsupported field %q", field)
 		}
 	}
 	machineID, err := resolveOptionalMachineID(body["machine_id"])
 	if err != nil {
-		return machineIDRequest{}, err
+		return uuid.Nil, err
 	}
-	if machineID == storage.NilID && !optional {
-		return machineIDRequest{}, errors.New("machine_id is required")
+	if machineID == uuid.Nil && !optional {
+		return uuid.Nil, errors.New("machine_id is required")
 	}
-	return machineIDRequest{MachineID: machineID}, nil
+	return machineID, nil
 }
 
 func selectOnlyMachine[T any](machines []T) (T, error) {

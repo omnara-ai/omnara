@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func completeMachineLifecycleTerminalWorkTx(
@@ -17,7 +19,7 @@ func completeMachineLifecycleTerminalWorkTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	reason string,
 ) error {
 	agents, err := qtx.ListMachineLifecycleTerminalAgentRefs(
@@ -62,10 +64,10 @@ func completeMachineLifecycleTerminalWorkTx(
 }
 
 type executionRevokedProcessScope struct {
-	projectID                 ID
-	agentID                   ID
-	projectMachineGrantID     ID
-	projectMachinePoolGrantID ID
+	projectID                 uuid.UUID
+	agentID                   uuid.UUID
+	projectMachineGrantID     uuid.UUID
+	projectMachinePoolGrantID uuid.UUID
 }
 
 func completeExecutionRevokedProcessesTx(
@@ -78,9 +80,9 @@ func completeExecutionRevokedProcessesTx(
 ) error {
 	lockParams := dbsqlc.LockAgentsForExecutionRevokedParams{
 		ProjectID:                 scope.projectID,
-		AgentID:                   sqlcIDFromNil(scope.agentID),
-		ProjectMachineGrantID:     sqlcIDFromNil(scope.projectMachineGrantID),
-		ProjectMachinePoolGrantID: sqlcIDFromNil(scope.projectMachinePoolGrantID),
+		AgentID:                   storeutil.IDFromNil(scope.agentID),
+		ProjectMachineGrantID:     storeutil.IDFromNil(scope.projectMachineGrantID),
+		ProjectMachinePoolGrantID: storeutil.IDFromNil(scope.projectMachinePoolGrantID),
 	}
 	if _, err := qtx.LockAgentsForExecutionRevoked(ctx, lockParams); err != nil {
 		return fmt.Errorf("lock agents for execution revoke: %w", err)
@@ -92,9 +94,9 @@ func completeExecutionRevokedProcessesTx(
 		ctx,
 		dbsqlc.ListProcessesForExecutionRevokedParams{
 			ProjectID:                 scope.projectID,
-			AgentID:                   sqlcIDFromNil(scope.agentID),
-			ProjectMachineGrantID:     sqlcIDFromNil(scope.projectMachineGrantID),
-			ProjectMachinePoolGrantID: sqlcIDFromNil(scope.projectMachinePoolGrantID),
+			AgentID:                   storeutil.IDFromNil(scope.agentID),
+			ProjectMachineGrantID:     storeutil.IDFromNil(scope.projectMachineGrantID),
+			ProjectMachinePoolGrantID: storeutil.IDFromNil(scope.projectMachinePoolGrantID),
 		},
 	)
 	if err != nil {
@@ -112,7 +114,7 @@ func completeExecutionRevokedProcessesTx(
 					ID:              process.ID,
 					OrgID:           process.OrgID,
 					MachineID:       process.MachineID,
-					StateReasonCode: sqlcTextFromEmpty(reason),
+					StateReasonCode: storeutil.TextFromEmpty(reason),
 				},
 			)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -170,7 +172,7 @@ func completeMachineLifecycleTerminalProcessesTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	reason string,
 ) error {
 	rows, err := qtx.ListProcessesForMachineLifecycleTermination(
@@ -223,7 +225,7 @@ func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	reason string,
 ) error {
 	for {
@@ -249,7 +251,7 @@ func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 				ID:              process.ID,
 				OrgID:           orgID,
 				MachineID:       machineID,
-				StateReasonCode: sqlcTextFromEmpty(reason),
+				StateReasonCode: storeutil.TextFromEmpty(reason),
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -388,7 +390,7 @@ func completeProcessToolCallFromRecordTx(
 	overrideResult json.RawMessage,
 	wakeReason string,
 ) error {
-	if isNilID(record.ToolCallID) {
+	if record.ToolCallID == uuid.Nil {
 		return nil
 	}
 	outcome, result, resultErr := processToolResult(record)
@@ -462,7 +464,7 @@ func completeProcessUnknownByMachineTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, machineID, processID ID,
+	orgID, machineID, processID uuid.UUID,
 	reason, message string,
 ) (bool, error) {
 	if _, found, err := lockProcessAgentByMachineTx(ctx, qtx, orgID, machineID, processID); err != nil {
@@ -476,7 +478,7 @@ func completeProcessUnknownByMachineTx(
 			OrgID:              orgID,
 			MachineID:          machineID,
 			ID:                 processID,
-			StateReasonCode:    sqlcTextFromEmpty(reason),
+			StateReasonCode:    storeutil.TextFromEmpty(reason),
 			StateReasonMessage: message,
 		},
 	)
@@ -517,7 +519,7 @@ func completeUnresolvedProcessActionsForClosedProcessTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, processID ID,
+	orgID, processID uuid.UUID,
 	reason string,
 ) error {
 	if err := completeQueuedProcessActionsFailedTx(
@@ -547,7 +549,7 @@ func completeQueuedProcessActionsFailedTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, processID ID,
+	orgID, processID uuid.UUID,
 	reason string,
 ) error {
 	rows, err := qtx.MarkQueuedProcessActionsFailedForProcess(
@@ -555,7 +557,7 @@ func completeQueuedProcessActionsFailedTx(
 		dbsqlc.MarkQueuedProcessActionsFailedForProcessParams{
 			OrgID:              orgID,
 			ProcessID:          processID,
-			StateReasonCode:    sqlcTextFromEmpty(reason),
+			StateReasonCode:    storeutil.TextFromEmpty(reason),
 			StateReasonMessage: "",
 		},
 	)
@@ -643,7 +645,7 @@ func completeAcceptedProcessActionsWithoutEvidenceTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, processID ID,
+	orgID, processID uuid.UUID,
 	reason string,
 ) error {
 	rows, err := qtx.ResolveAcceptedProcessActionsWithoutEvidence(
@@ -651,7 +653,7 @@ func completeAcceptedProcessActionsWithoutEvidenceTx(
 		dbsqlc.ResolveAcceptedProcessActionsWithoutEvidenceParams{
 			OrgID:              orgID,
 			ProcessID:          processID,
-			StateReasonCode:    sqlcTextFromEmpty(reason),
+			StateReasonCode:    storeutil.TextFromEmpty(reason),
 			StateReasonMessage: "",
 		},
 	)

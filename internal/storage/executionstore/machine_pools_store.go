@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -52,9 +53,9 @@ const (
 )
 
 type MachineRecord struct {
-	ID                           ID                     `json:"id"`
-	OrgID                        ID                     `json:"org_id"`
-	MachinePoolID                ID                     `json:"machine_pool_id,omitempty"`
+	ID                           uuid.UUID              `json:"id"`
+	OrgID                        uuid.UUID              `json:"org_id"`
+	MachinePoolID                uuid.UUID              `json:"machine_pool_id,omitempty"`
 	SourceKind                   MachineSourceKind      `json:"source_kind"`
 	DisplayName                  string                 `json:"display_name,omitempty"`
 	Description                  string                 `json:"description,omitempty"`
@@ -89,8 +90,8 @@ type MachineRecord struct {
 }
 
 type MachineSummaryRecord struct {
-	ID              ID                     `json:"id"`
-	OrgID           ID                     `json:"org_id"`
+	ID              uuid.UUID              `json:"id"`
+	OrgID           uuid.UUID              `json:"org_id"`
 	SourceKind      MachineSourceKind      `json:"source_kind"`
 	DisplayName     string                 `json:"display_name,omitempty"`
 	Description     string                 `json:"description,omitempty"`
@@ -104,8 +105,8 @@ type MachineSummaryRecord struct {
 }
 
 type MachinePoolRecord struct {
-	ID                            ID              `json:"id"`
-	OrgID                         ID              `json:"org_id"`
+	ID                            uuid.UUID       `json:"id"`
+	OrgID                         uuid.UUID       `json:"org_id"`
 	Name                          string          `json:"name"`
 	ManagementKind                management.Kind `json:"-"`
 	Description                   string          `json:"description"`
@@ -117,7 +118,7 @@ type MachinePoolRecord struct {
 	DefaultMachineProviderOptions json.RawMessage `json:"default_machine_provider_options"`
 	DefaultCwd                    string          `json:"default_cwd"`
 	ProviderConfig                json.RawMessage `json:"-"`
-	ProviderAuthSecretID          ID              `json:"provider_auth_secret_id,omitempty"`
+	ProviderAuthSecretID          uuid.UUID       `json:"provider_auth_secret_id,omitempty"`
 	ProviderAuthEnvVar            string          `json:"-"`
 	RuntimeProtectionEnabled      bool            `json:"runtime_protection_enabled"`
 	MaxTotalMachines              int32           `json:"max_total_machines"`
@@ -160,7 +161,7 @@ func (record MachinePoolRecord) ProviderPolicy() (MachinePoolProviderPolicy, err
 }
 
 type CreateMachinePoolInput struct {
-	OrgID                         ID
+	OrgID                         uuid.UUID
 	Name                          string
 	ManagementKind                management.Kind
 	Description                   string
@@ -172,7 +173,7 @@ type CreateMachinePoolInput struct {
 	DefaultMachineProviderOptions json.RawMessage
 	DefaultCwd                    string
 	ProviderConfig                json.RawMessage
-	ProviderAuthSecretID          ID
+	ProviderAuthSecretID          uuid.UUID
 	ProviderAuthEnvVar            string
 	RuntimeProtectionEnabled      bool
 	MaxTotalMachines              int32
@@ -187,8 +188,8 @@ type CreateMachinePoolInput struct {
 }
 
 type UpdateMachinePoolInput struct {
-	OrgID                         ID
-	ID                            ID
+	OrgID                         uuid.UUID
+	ID                            uuid.UUID
 	Name                          *string
 	Description                   *string
 	DefaultMachineCPU             patch.NullableInt
@@ -198,7 +199,7 @@ type UpdateMachinePoolInput struct {
 	DefaultMachineProviderOptions json.RawMessage
 	DefaultCwd                    *string
 	ProviderConfig                json.RawMessage
-	ProviderAuthSecretID          *ID
+	ProviderAuthSecretID          *uuid.UUID
 	RuntimeProtectionEnabled      *bool
 	MaxTotalMachines              *int32
 	MaxTotalCPU                   patch.NullableInt
@@ -247,7 +248,7 @@ func poolMachineDisplayName(poolName string) string {
 	return poolMachineDisplayNamePrefix + string(poolNameCodePoints)
 }
 
-func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) CreateMachinePoolInput {
+func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID uuid.UUID) CreateMachinePoolInput {
 	return CreateMachinePoolInput{
 		OrgID:                         orgID,
 		Name:                          defaultPoolTemplate.Name,
@@ -279,7 +280,7 @@ func ValidateDefaultMachinePoolTemplate(
 	defaultPoolTemplate DefaultMachinePoolTemplate,
 	machinePoolProviders MachinePoolProviders,
 ) error {
-	input := defaultPoolTemplate.createInput(NilID)
+	input := defaultPoolTemplate.createInput(uuid.Nil)
 	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
 	if err != nil {
 		return err
@@ -419,7 +420,7 @@ func prepareMachinePoolCreateInput(
 	if input.ManagementKind == "" {
 		input.ManagementKind = management.Tenant
 	}
-	if isNilID(input.OrgID) || input.Name == "" || input.Provider == "" {
+	if input.OrgID == uuid.Nil || input.Name == "" || input.Provider == "" {
 		return machinePoolDefaults{}, errors.New("org, name, and provider are required")
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
@@ -499,7 +500,7 @@ func prepareMachinePoolConfigInput(
 	input.ProviderAuthEnvVar = strings.TrimSpace(input.ProviderAuthEnvVar)
 	switch input.ManagementKind {
 	case management.Tenant:
-		if isNilID(input.ProviderAuthSecretID) {
+		if input.ProviderAuthSecretID == uuid.Nil {
 			return machinePoolDefaults{}, errors.New("provider_auth_secret_id is required")
 		}
 		if input.ProviderAuthEnvVar != "" {
@@ -508,7 +509,7 @@ func prepareMachinePoolConfigInput(
 			)
 		}
 	case management.Cluster:
-		if !isNilID(input.ProviderAuthSecretID) {
+		if input.ProviderAuthSecretID != uuid.Nil {
 			return machinePoolDefaults{}, errors.New(
 				"provider_auth_secret_id is only valid for tenant-managed machine pools",
 			)
@@ -566,7 +567,7 @@ func prepareMachinePoolConfigInput(
 	return machinePoolDefaults{Provisioning: poolProvisioning, Environment: poolEnvironment}, nil
 }
 
-func validateMachinePoolProviderAuth(ctx context.Context, tx pgx.Tx, orgID, providerAuthSecretID ID) error {
+func validateMachinePoolProviderAuth(ctx context.Context, tx pgx.Tx, orgID, providerAuthSecretID uuid.UUID) error {
 	credential, err := secretops.LockReference(ctx, tx, orgID, providerAuthSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
@@ -616,7 +617,7 @@ func insertMachinePool(
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
 		DefaultCwd:                    input.DefaultCwd,
 		ProviderConfig:                input.ProviderConfig,
-		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
+		ProviderAuthSecretID:          storeutil.IDFromNil(input.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
@@ -641,7 +642,7 @@ func (s *Store) UpdateMachinePool(
 	ctx context.Context,
 	input UpdateMachinePoolInput,
 ) (MachinePoolRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ID) {
+	if input.OrgID == uuid.Nil || input.ID == uuid.Nil {
 		return MachinePoolRecord{}, errors.New("org and machine pool are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -692,7 +693,7 @@ func (s *Store) UpdateMachinePool(
 		DefaultMachineProviderOptions: locked.DefaultMachineProviderOptions,
 		DefaultCwd:                    locked.DefaultCwd,
 		ProviderConfig:                locked.ProviderConfig,
-		ProviderAuthSecretID:          idFromSQLCPtr(locked.ProviderAuthSecretID),
+		ProviderAuthSecretID:          storeutil.IDFromPtr(locked.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            locked.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      locked.RuntimeProtectionEnabled,
 		MaxTotalMachines:              locked.MaxTotalMachines,
@@ -850,7 +851,7 @@ func validateClusterMachinePoolUpdate(input UpdateMachinePoolInput) error {
 func updateMachinePoolRow(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	id ID,
+	id uuid.UUID,
 	input CreateMachinePoolInput,
 ) (dbsqlc.MachinePool, error) {
 	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
@@ -873,7 +874,7 @@ func updateMachinePoolRow(
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
 		DefaultCwd:                    input.DefaultCwd,
 		ProviderConfig:                input.ProviderConfig,
-		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
+		ProviderAuthSecretID:          storeutil.IDFromNil(input.ProviderAuthSecretID),
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
 		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
@@ -887,7 +888,7 @@ func updateMachinePoolRow(
 	})
 }
 
-func (s *Store) GetMachinePool(ctx context.Context, orgID, id ID) (MachinePoolRecord, error) {
+func (s *Store) GetMachinePool(ctx context.Context, orgID, id uuid.UUID) (MachinePoolRecord, error) {
 	row, err := s.q.GetMachinePool(ctx, dbsqlc.GetMachinePoolParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return MachinePoolRecord{}, fmt.Errorf("get machine pool: %w", err)
@@ -897,7 +898,7 @@ func (s *Store) GetMachinePool(ctx context.Context, orgID, id ID) (MachinePoolRe
 
 func (s *Store) GetMachinePoolForLifecycle(
 	ctx context.Context,
-	orgID, id ID,
+	orgID, id uuid.UUID,
 ) (MachinePoolRecord, error) {
 	row, err := s.q.GetMachinePoolForLifecycle(
 		ctx,
@@ -910,7 +911,7 @@ func (s *Store) GetMachinePoolForLifecycle(
 }
 
 type ListMachinePoolsInput struct {
-	OrgID ID
+	OrgID uuid.UUID
 	Limit int
 	List  listing.Options
 }
@@ -933,7 +934,7 @@ type ListMachinePoolsResult struct {
 }
 
 func (s *Store) ListMachinePools(ctx context.Context, input ListMachinePoolsInput) (ListMachinePoolsResult, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ListMachinePoolsResult{}, errors.New("org id is required")
 	}
 	if input.Limit <= 0 {
@@ -970,8 +971,8 @@ func (s *Store) ListMachinePools(ctx context.Context, input ListMachinePoolsInpu
 	return result, nil
 }
 
-func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineRecord, error) {
-	if isNilID(orgID) || isNilID(id) {
+func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id uuid.UUID) ([]MachineRecord, error) {
+	if orgID == uuid.Nil || id == uuid.Nil {
 		return nil, errors.New("org and machine pool are required")
 	}
 	// The cluster guard is API policy, not part of the shared teardown:
@@ -989,7 +990,7 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineR
 	})
 }
 
-func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id ID) ([]MachineRecord, error) {
+func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id uuid.UUID) ([]MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete machine pool: %w", err)
@@ -1013,7 +1014,7 @@ func (s *Store) DeleteMachinePoolTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	txNotifications *notifications.TxNotifications,
-	orgID, id ID,
+	orgID, id uuid.UUID,
 ) ([]MachineRecord, error) {
 	qtx := s.q.WithTx(tx)
 	if _, err := qtx.LockMachinePoolForUpdate(
@@ -1035,7 +1036,7 @@ func (s *Store) DeleteMachinePoolTx(
 	if err != nil {
 		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
 	}
-	grantIDs := make([]ID, 0, len(poolGrantRefs))
+	grantIDs := make([]uuid.UUID, 0, len(poolGrantRefs))
 	for _, grantRef := range poolGrantRefs {
 		grantIDs = append(grantIDs, grantRef.ID)
 	}
@@ -1082,7 +1083,7 @@ func (s *Store) DeleteMachinePoolTx(
 	machineRows, err := qtx.MarkMachinePoolMachinesDeleting(ctx, dbsqlc.MarkMachinePoolMachinesDeletingParams{
 		OrgID:                  orgID,
 		MachinePoolID:          id,
-		LifecycleReasonCode:    sqlcTextFromEmpty("machine_pool_deleted"),
+		LifecycleReasonCode:    storeutil.TextFromEmpty("machine_pool_deleted"),
 		LifecycleReasonMessage: "machine pool deleted",
 	})
 	if err != nil {
@@ -1138,7 +1139,7 @@ func (s *Store) DeleteMachinePoolTx(
 	return machines, nil
 }
 
-func (s *Store) GetMachine(ctx context.Context, orgID, id ID) (MachineRecord, error) {
+func (s *Store) GetMachine(ctx context.Context, orgID, id uuid.UUID) (MachineRecord, error) {
 	row, err := s.q.GetMachine(ctx, dbsqlc.GetMachineParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("get machine: %w", err)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -17,7 +18,7 @@ type skillStoreStub struct{}
 
 func (*skillStoreStub) GetSkillForDispatch(
 	context.Context,
-	storage.ID,
+	uuid.UUID,
 	string,
 ) (skillstore.SkillRecord, error) {
 	return skillstore.SkillRecord{}, nil

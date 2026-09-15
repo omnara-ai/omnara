@@ -3,11 +3,11 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -49,7 +49,7 @@ func (s strictOpenAPIServer) createProjectMachineGrant(
 	request openapi.CreateProjectMachineGrantRequestObject,
 	org identitystore.OrgRecord,
 	project identitystore.ProjectRecord,
-	machineID storage.ID,
+	machineID uuid.UUID,
 	machine executionstore.MachineRecord,
 ) (openapi.CreateProjectMachineGrantResponseObject, error) {
 	if machine.SourceKind != executionstore.MachineSourceKindBYO {
@@ -281,7 +281,7 @@ func (s strictOpenAPIServer) deleteProjectMachineGrant(
 	ctx context.Context,
 	org identitystore.OrgRecord,
 	project identitystore.ProjectRecord,
-	grantID storage.ID,
+	grantID uuid.UUID,
 ) (openapi.DeleteProjectMachineGrantResponseObject, error) {
 	if _, err := s.server.store.Execution().DeleteProjectMachineGrant(ctx, org.ID, project.ID, grantID); err != nil {
 		return nil, apierror.ProjectScoped(err)

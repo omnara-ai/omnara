@@ -46,7 +46,7 @@ func toolsTestClaimInput() executionstore.ClaimNextAgentWorkInput {
 	}
 }
 
-func toolsTestID(seed string) storage.ID {
+func toolsTestID(seed string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-tools-integration:"+seed))
 }
 
@@ -137,7 +137,7 @@ func TestResolveMachineExecutionTargetUsesMachineIDSelection(t *testing.T) {
 
 	executor := Executor{Store: store}
 	turn := Turn{ProjectID: toolsTestProjectID, AgentID: agent.ID}
-	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, storage.NilID); !errors.Is(
+	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, uuid.Nil); !errors.Is(
 		err, ErrMachineSelectionRequired,
 	) {
 		t.Fatalf("omitted selector with multiple bindings error = %v, want %v", err, ErrMachineSelectionRequired)
@@ -173,12 +173,12 @@ func TestResolveMachineExecutionTargetUsesMachineIDSelection(t *testing.T) {
 	binding, err = executor.ResolveMachineExecutionTarget(
 		ctx,
 		Turn{ProjectID: toolsTestProjectID, AgentID: singleAgent.ID},
-		storage.NilID,
+		uuid.Nil,
 	)
 	if err != nil {
 		t.Fatalf("resolve omitted single binding: %v", err)
 	}
-	if binding.ID != singleBinding.ID || binding.MachineID == storage.NilID {
+	if binding.ID != singleBinding.ID || binding.MachineID == uuid.Nil {
 		t.Fatalf("resolved wrong single binding: %+v want %s", binding, singleBinding.ID)
 	}
 	_ = secondAgentBinding
@@ -725,10 +725,10 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 		toolsTestProjectID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
-		storage.NilID,
+		uuid.Nil,
 	)
 	contextRecord := modelCall.Context
 	call := model.ToolCall{ID: "call_selection", Name: "run_command", Input: json.RawMessage(`{"command":"pwd"}`)}
@@ -865,9 +865,9 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 			},
 		},
 	}
-	provisionCalls := make(chan storage.ID, 1)
+	provisionCalls := make(chan uuid.UUID, 1)
 	manager := testPoolMachineManager{
-		provision: func(ctx context.Context, orgID, machineID storage.ID) error {
+		provision: func(ctx context.Context, orgID, machineID uuid.UUID) error {
 			if orgID != toolsTestOrgID {
 				return errors.New("provision manager received the wrong organization")
 			}
@@ -1112,7 +1112,7 @@ func activateProvisioningMachineForToolsTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture machineDispatchFixture,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	label string,
 ) {
 	t.Helper()
@@ -1214,7 +1214,7 @@ func assertManagedWorkAdmissionToolFailure(
 	t *testing.T,
 	ctx context.Context,
 	fixture machineDispatchFixture,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	result Result,
 ) {
 	t.Helper()
@@ -1239,7 +1239,7 @@ func assertManagedWorkAdmissionToolFailure(
 	}
 	if toolCall.State != executionstore.ToolCallStateCompleted ||
 		toolCall.Outcome != executionstore.ToolResultOutcomeFailed ||
-		toolCall.RuntimeLockID != storage.NilID ||
+		toolCall.RuntimeLockID != uuid.Nil ||
 		!reflect.DeepEqual(
 			toolResultMapFromTestParts(t, toolCall.ResultContentParts),
 			body,
@@ -1432,7 +1432,7 @@ func TestApprovedMachineDeletionCanBeReconciled(t *testing.T) {
 		toolsTestProjectID,
 		launch.Agent.ID,
 		lock,
-		[]storage.ID{admitted.Inputs[0].ID},
+		[]uuid.UUID{admitted.Inputs[0].ID},
 		config.ID,
 		continuationFrontier,
 		createContext.ID,
@@ -1705,10 +1705,10 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 		toolsTestProjectID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
-		storage.NilID,
+		uuid.Nil,
 	)
 	contextRecord := runModelCall.Context
 	runCall := model.ToolCall{
@@ -1870,7 +1870,7 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 		toolsTestProjectID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID,
 		readFrontier,
 		contextRecord.ID,
@@ -1930,7 +1930,7 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 	wakeCalls := 0
 	manager := testPoolMachineManager{wake: func(
 		_ context.Context,
-		orgID, machineID storage.ID,
+		orgID, machineID uuid.UUID,
 	) (bool, error) {
 		if orgID != toolsTestOrgID || machineID != binding.MachineID {
 			return false, storeerr.ErrNotFound
@@ -1994,7 +1994,7 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 		t.Fatalf("read tool call state=%q, want waiting", toolCall.State)
 	}
 	wakeErr := errors.New("wake failed")
-	manager.wake = func(context.Context, storage.ID, storage.ID) (bool, error) {
+	manager.wake = func(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 		return false, wakeErr
 	}
 	cleanupErr := wakeReadProcess(ctx, backgroundToolContext{
@@ -2034,7 +2034,7 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 type machineDispatchFixture struct {
 	Pool        *pgxpool.Pool
 	Store       *storage.Store
-	UserID      storage.ID
+	UserID      uuid.UUID
 	MachinePool executionstore.MachinePoolRecord
 	Config      executionstore.AgentConfigRecord
 	Launch      executionstore.LaunchAgentResult
@@ -2042,14 +2042,14 @@ type machineDispatchFixture struct {
 }
 
 type testPoolMachineManager struct {
-	provision func(context.Context, storage.ID, storage.ID) error
+	provision func(context.Context, uuid.UUID, uuid.UUID) error
 	delete    func(context.Context, executionstore.PoolMachineCleanupCandidate) error
-	wake      func(context.Context, storage.ID, storage.ID) (bool, error)
+	wake      func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 }
 
 func (m testPoolMachineManager) ProvisionMachine(
 	ctx context.Context,
-	orgID, machineID storage.ID,
+	orgID, machineID uuid.UUID,
 ) error {
 	if m.provision == nil {
 		return nil
@@ -2060,8 +2060,8 @@ func (m testPoolMachineManager) ProvisionMachine(
 func (m testPoolMachineManager) StartLaunchProvisioning(
 	context.Context,
 	*slog.Logger,
-	storage.ID,
-	[]storage.ID,
+	uuid.UUID,
+	[]uuid.UUID,
 ) {
 }
 
@@ -2089,7 +2089,7 @@ func (m testPoolMachineManager) DeleteMachines(
 
 func (m testPoolMachineManager) WakeMachine(
 	ctx context.Context,
-	orgID, machineID storage.ID,
+	orgID, machineID uuid.UUID,
 ) (bool, error) {
 	if m.wake == nil {
 		return false, nil
@@ -2200,7 +2200,7 @@ VALUES ($1, $2, 'Tools Test Project', $3, $4, $4)`,
 		if err := tx.Commit(ctx); err != nil {
 			t.Fatalf("commit managed machine dispatch pool: %v", err)
 		}
-		var machinePoolID storage.ID
+		var machinePoolID uuid.UUID
 		if err := pool.QueryRow(ctx, `
 SELECT id
 FROM machine_pools
@@ -2322,10 +2322,10 @@ tools:
 }
 
 type executableBindingFixture struct {
-	GrantID       storage.ID
-	MachineID     storage.ID
-	RuntimeID     storage.ID
-	DaemonTokenID storage.ID
+	GrantID       uuid.UUID
+	MachineID     uuid.UUID
+	RuntimeID     uuid.UUID
+	DaemonTokenID uuid.UUID
 	DisplayName   string
 }
 
@@ -2333,12 +2333,12 @@ func createMachineToolCallForDirectStoreTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentID, userID, configID storage.ID,
+	agentID, userID, configID uuid.UUID,
 	label, name string,
 	inputJSON json.RawMessage,
 	now time.Time,
 ) (
-	storage.ID,
+	uuid.UUID,
 	executionstore.AgentRuntimeLockRecord,
 	executionstore.AdmittedAgentInputTurn,
 	executionstore.ModelCallContextRecord,
@@ -2363,7 +2363,7 @@ func createMachineToolCallsForDirectStoreTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentID, userID, configID storage.ID,
+	agentID, userID, configID uuid.UUID,
 	label string,
 	calls []model.ToolCall,
 	now time.Time,
@@ -2407,12 +2407,12 @@ func recordMachineToolCallForDirectStoreTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentID, userID, configID storage.ID,
+	agentID, userID, configID uuid.UUID,
 	label, name string,
 	inputJSON json.RawMessage,
 	now time.Time,
 ) (
-	storage.ID,
+	uuid.UUID,
 	executionstore.AgentRuntimeLockRecord,
 	executionstore.AdmittedAgentInputTurn,
 	executionstore.ModelCallContextRecord,
@@ -2437,7 +2437,7 @@ func recordMachineToolCallsForDirectStoreTest(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentID, userID, configID storage.ID,
+	agentID, userID, configID uuid.UUID,
 	label string,
 	calls []model.ToolCall,
 	now time.Time,
@@ -2484,10 +2484,10 @@ func recordMachineToolCallsForDirectStoreTest(
 		toolsTestProjectID,
 		agentID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		configID,
 		admitted.Events[0].Sequence,
-		storage.NilID,
+		uuid.Nil,
 	)
 	contextRecord := modelCall.Context
 	providerResponse, err := model.NewResponseEnvelopeForStorage(
@@ -2539,7 +2539,7 @@ func createToolsRuntimeAgentWithMachineSources(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	name string,
 	machineSources []toolsAgentMachineSource,
 ) executionstore.LaunchAgentResult {
@@ -2559,7 +2559,7 @@ func createToolsRuntimeAgentWithMachineSourcesAndSkills(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	name string,
 	machineSources []toolsAgentMachineSource,
 	skillIDs []string,
@@ -2631,7 +2631,7 @@ func ensureToolsProjectOperator(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	now time.Time,
 ) {
 	t.Helper()
@@ -2658,7 +2658,7 @@ func createExecutableBinding(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	name string,
 	now time.Time,
 ) executableBindingFixture {

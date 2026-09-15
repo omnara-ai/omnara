@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -101,7 +101,7 @@ func integrationTargetProviderURI(target executionstore.IntegrationTargetDisplay
 }
 
 func publicArtifactResponseFromRecord(
-	orgIDValue storage.ID,
+	orgIDValue uuid.UUID,
 	record artifactstore.ArtifactRecord,
 ) (openapi.Artifact, error) {
 	id, err := publicID(publicid.KindArtifact, record.ID)
@@ -244,7 +244,7 @@ func publicAgentInputResponseFromRecordWithContent(
 		InputKind:    inputKind,
 		QueuedAt:     record.QueuedAt,
 	}
-	if record.ActorID != storage.NilID {
+	if record.ActorID != uuid.Nil {
 		actorID, err := publicID(publicid.KindActor, record.ActorID)
 		if err != nil {
 			return openapi.AgentInput{}, err

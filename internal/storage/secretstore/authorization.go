@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -13,20 +15,20 @@ import (
 
 func (s *Store) AuthorizeSecretOwnerManage(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	owner SecretOwner,
-	actor PrincipalRecord,
+	actor identitystore.PrincipalRecord,
 ) error {
 	switch owner.Kind {
 	case SecretOwnerOrg:
-		if !isNilID(owner.ProjectID) || !isNilID(owner.UserID) {
+		if owner.ProjectID != uuid.Nil || owner.UserID != uuid.Nil {
 			return invalidSecretRequest("org-owned secret cannot set project or user owner")
 		}
 		if err := s.authorizeOrgSecretsManage(ctx, orgID, actor); err != nil {
 			return err
 		}
 	case SecretOwnerProject:
-		if isNilID(owner.ProjectID) || !isNilID(owner.UserID) {
+		if owner.ProjectID == uuid.Nil || owner.UserID != uuid.Nil {
 			return invalidSecretRequest("project-owned secret requires only project owner")
 		}
 		if err := s.authorizeProjectSecretsManage(
@@ -38,10 +40,10 @@ func (s *Store) AuthorizeSecretOwnerManage(
 			return err
 		}
 	case SecretOwnerUser:
-		if !isNilID(owner.ProjectID) || isNilID(owner.UserID) {
+		if owner.ProjectID != uuid.Nil || owner.UserID == uuid.Nil {
 			return invalidSecretRequest("user-owned secret requires only user owner")
 		}
-		if actor.Type != principalTypeUser || owner.UserID != actor.ID {
+		if actor.Type != authz.PrincipalUser || owner.UserID != actor.ID {
 			return storeerr.ErrUnauthorized
 		}
 		if err := s.requireOrgMember(ctx, orgID, actor); err != nil {
@@ -53,8 +55,12 @@ func (s *Store) AuthorizeSecretOwnerManage(
 	return nil
 }
 
-func (s *Store) authorizeSecretManage(ctx context.Context, secret SecretRecord, actor PrincipalRecord) error {
-	if isNilID(actor.ID) {
+func (s *Store) authorizeSecretManage(
+	ctx context.Context,
+	secret SecretRecord,
+	actor identitystore.PrincipalRecord,
+) error {
+	if actor.ID == uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
 	switch secret.OwnerKind {
@@ -63,7 +69,7 @@ func (s *Store) authorizeSecretManage(ctx context.Context, secret SecretRecord, 
 	case SecretOwnerProject:
 		return s.authorizeProjectSecretsManage(ctx, secret.OrgID, secret.OwnerProjectID, actor)
 	case SecretOwnerUser:
-		if actor.Type != principalTypeUser || secret.OwnerUserID != actor.ID {
+		if actor.Type != authz.PrincipalUser || secret.OwnerUserID != actor.ID {
 			return storeerr.ErrUnauthorized
 		}
 		return s.requireOrgMember(ctx, secret.OrgID, actor)
@@ -72,8 +78,12 @@ func (s *Store) authorizeSecretManage(ctx context.Context, secret SecretRecord, 
 	}
 }
 
-func (s *Store) authorizeSecretRead(ctx context.Context, secret SecretRecord, actor PrincipalRecord) error {
-	if isNilID(actor.ID) {
+func (s *Store) authorizeSecretRead(
+	ctx context.Context,
+	secret SecretRecord,
+	actor identitystore.PrincipalRecord,
+) error {
+	if actor.ID == uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
 	switch secret.OwnerKind {
@@ -81,7 +91,7 @@ func (s *Store) authorizeSecretRead(ctx context.Context, secret SecretRecord, ac
 		allowed, err := s.access.AuthorizeOrg(ctx, identitystore.AuthorizeOrgInput{
 			Principal: actor,
 			OrgID:     secret.OrgID,
-			Action:    orgActionSecretsList,
+			Action:    authz.OrgSecretsList,
 		})
 		if err != nil {
 			return err
@@ -93,7 +103,7 @@ func (s *Store) authorizeSecretRead(ctx context.Context, secret SecretRecord, ac
 	case SecretOwnerProject:
 		return s.authorizeProjectSecretsList(ctx, secret.OrgID, secret.OwnerProjectID, actor)
 	case SecretOwnerUser:
-		if actor.Type != principalTypeUser || secret.OwnerUserID != actor.ID {
+		if actor.Type != authz.PrincipalUser || secret.OwnerUserID != actor.ID {
 			return storeerr.ErrUnauthorized
 		}
 		return s.requireOrgMember(ctx, secret.OrgID, actor)
@@ -105,8 +115,8 @@ func (s *Store) authorizeSecretRead(ctx context.Context, secret SecretRecord, ac
 func (s *Store) authorizeSecretGrantDelete(
 	ctx context.Context,
 	secret SecretRecord,
-	targetProjectID ID,
-	actor PrincipalRecord,
+	targetProjectID uuid.UUID,
+	actor identitystore.PrincipalRecord,
 ) error {
 	if err := s.authorizeSecretManage(ctx, secret, actor); err == nil {
 		return nil
@@ -129,11 +139,15 @@ func (s *Store) authorizeSecretGrantDelete(
 	return storeerr.ErrNotFound
 }
 
-func (s *Store) authorizeOrgSecretsManage(ctx context.Context, orgID ID, actor PrincipalRecord) error {
+func (s *Store) authorizeOrgSecretsManage(
+	ctx context.Context,
+	orgID uuid.UUID,
+	actor identitystore.PrincipalRecord,
+) error {
 	allowed, err := s.access.AuthorizeOrg(ctx, identitystore.AuthorizeOrgInput{
 		Principal: actor,
 		OrgID:     orgID,
-		Action:    orgActionSecretsManage,
+		Action:    authz.OrgSecretsManage,
 	})
 	if err != nil {
 		return err
@@ -144,11 +158,15 @@ func (s *Store) authorizeOrgSecretsManage(ctx context.Context, orgID ID, actor P
 	return nil
 }
 
-func (s *Store) authorizeOrgSecretsList(ctx context.Context, orgID ID, actor PrincipalRecord) error {
+func (s *Store) authorizeOrgSecretsList(
+	ctx context.Context,
+	orgID uuid.UUID,
+	actor identitystore.PrincipalRecord,
+) error {
 	allowed, err := s.access.AuthorizeOrg(ctx, identitystore.AuthorizeOrgInput{
 		Principal: actor,
 		OrgID:     orgID,
-		Action:    orgActionSecretsList,
+		Action:    authz.OrgSecretsList,
 	})
 	if err != nil {
 		return err
@@ -161,14 +179,14 @@ func (s *Store) authorizeOrgSecretsList(ctx context.Context, orgID ID, actor Pri
 
 func (s *Store) authorizeProjectSecretsManage(
 	ctx context.Context,
-	orgID, projectID ID,
-	actor PrincipalRecord,
+	orgID, projectID uuid.UUID,
+	actor identitystore.PrincipalRecord,
 ) error {
 	allowed, err := s.access.AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
 		Principal: actor,
 		OrgID:     orgID,
 		ProjectID: projectID,
-		Action:    projectActionSecretsManage,
+		Action:    authz.ProjectSecretsManage,
 	})
 	if err != nil {
 		return err
@@ -181,14 +199,14 @@ func (s *Store) authorizeProjectSecretsManage(
 
 func (s *Store) authorizeProjectSecretsList(
 	ctx context.Context,
-	orgID, projectID ID,
-	actor PrincipalRecord,
+	orgID, projectID uuid.UUID,
+	actor identitystore.PrincipalRecord,
 ) error {
 	allowed, err := s.access.AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
 		Principal: actor,
 		OrgID:     orgID,
 		ProjectID: projectID,
-		Action:    projectActionSecretsList,
+		Action:    authz.ProjectSecretsList,
 	})
 	if err != nil {
 		return err
@@ -199,7 +217,7 @@ func (s *Store) authorizeProjectSecretsList(
 	return nil
 }
 
-func (s *Store) requireOrgMember(ctx context.Context, orgID ID, actor PrincipalRecord) error {
+func (s *Store) requireOrgMember(ctx context.Context, orgID uuid.UUID, actor identitystore.PrincipalRecord) error {
 	allowed, err := s.access.HasOrgMembership(ctx, actor, orgID)
 	if err != nil {
 		return err
@@ -213,9 +231,9 @@ func (s *Store) requireOrgMember(ctx context.Context, orgID ID, actor PrincipalR
 func lockActiveSecretOwnerMembershipTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID ID,
+	orgID uuid.UUID,
 	ownerKind string,
-	ownerUserID ID,
+	ownerUserID uuid.UUID,
 ) error {
 	if ownerKind != SecretOwnerUser {
 		return nil

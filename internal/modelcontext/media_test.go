@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func mediaTestArtifact(id storage.ID, contentType string, size int64) artifactstore.ArtifactRecord {
+func mediaTestArtifact(id uuid.UUID, contentType string, size int64) artifactstore.ArtifactRecord {
 	return artifactstore.ArtifactRecord{
 		ID:          id,
 		ProjectID:   testProjectID,
@@ -25,7 +25,7 @@ func mediaTestArtifact(id storage.ID, contentType string, size int64) artifactst
 	}
 }
 
-func mediaRefContent(t *testing.T, ids ...storage.ID) json.RawMessage {
+func mediaRefContent(t *testing.T, ids ...uuid.UUID) json.RawMessage {
 	t.Helper()
 	parts := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
@@ -86,7 +86,7 @@ func TestBuildResolvesMediaMetadata(t *testing.T) {
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{testInputID},
+			OpeningInputIDs: []uuid.UUID{testInputID},
 			Now:             time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC),
 		},
 	)
@@ -136,7 +136,7 @@ func TestResolvedMediaOccurrencesUseExactOpeningInputIdentity(t *testing.T) {
 	openingArtifactID := testIDN(131)
 	historicalArtifactID := testIDN(132)
 	bundle := Bundle{
-		OpeningInputIDs: []storage.ID{openingInputID},
+		OpeningInputIDs: []uuid.UUID{openingInputID},
 		Messages: []Message{
 			{
 				AgentInputID: testIDN(129).String(),
@@ -223,7 +223,7 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{firstInputID, secondInputID},
+			OpeningInputIDs: []uuid.UUID{firstInputID, secondInputID},
 			MediaProjector:  imageOnlyMediaProjector{},
 			Now:             time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC),
 		})
@@ -260,7 +260,7 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{testInputID},
+			OpeningInputIDs: []uuid.UUID{testInputID},
 			MediaProjector:  imageOnlyMediaProjector{},
 			Now:             time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC),
 		})
@@ -299,7 +299,7 @@ func TestBuildDropsOldestMediaPastByteBudget(t *testing.T) {
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{testInputID},
+			OpeningInputIDs: []uuid.UUID{testInputID},
 			Now:             time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC),
 		},
 	)
@@ -349,7 +349,7 @@ func TestBuildRejectsOpeningMediaBatchPastByteBudget(t *testing.T) {
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{firstInputID, secondInputID},
+			OpeningInputIDs: []uuid.UUID{firstInputID, secondInputID},
 			Now:             time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC),
 		},
 	)
@@ -379,7 +379,7 @@ func TestBuildCountsEveryReferenceToResolvedMediaAgainstByteBudget(t *testing.T)
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{testInputID},
+			OpeningInputIDs: []uuid.UUID{testInputID},
 			Now:             time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC),
 		},
 	)
@@ -436,7 +436,7 @@ func TestBuildProtectsOpeningOccurrenceWhenHistoryReferencesSameArtifact(t *test
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{openingInputID},
+			OpeningInputIDs: []uuid.UUID{openingInputID},
 			Now:             time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC),
 		},
 	)
@@ -504,7 +504,7 @@ func TestBuildDropsOldToolResultMediaBeforeNewerMessageMedia(t *testing.T) {
 			ProjectID:       testProjectID,
 			AgentID:         testAgentID,
 			TurnID:          testTurnID,
-			OpeningInputIDs: []storage.ID{testInputID},
+			OpeningInputIDs: []uuid.UUID{testInputID},
 			Now:             time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC),
 		},
 	)

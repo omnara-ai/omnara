@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -33,13 +34,13 @@ const (
 
 type CronTriggerTarget struct {
 	Kind         CronTriggerTargetKind
-	ID           ID
+	ID           uuid.UUID
 	DeliveryMode CronTriggerDeliveryMode
 }
 
 type CreateCronTriggerInput struct {
-	OrgID           ID
-	ProjectID       ID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
 	Name            string
 	Target          CronTriggerTarget
 	CronExpression  string
@@ -50,8 +51,8 @@ type CreateCronTriggerInput struct {
 }
 
 type UpdateCronTriggerInput struct {
-	ProjectID       ID
-	TriggerID       ID
+	ProjectID       uuid.UUID
+	TriggerID       uuid.UUID
 	Name            *string
 	CronExpression  *string
 	Timezone        *string
@@ -61,9 +62,9 @@ type UpdateCronTriggerInput struct {
 }
 
 type CronTriggerRecord struct {
-	ID              ID                        `json:"id"`
-	OrgID           ID                        `json:"org_id"`
-	ProjectID       ID                        `json:"project_id"`
+	ID              uuid.UUID                 `json:"id"`
+	OrgID           uuid.UUID                 `json:"org_id"`
+	ProjectID       uuid.UUID                 `json:"project_id"`
 	Name            string                    `json:"name"`
 	Target          CronTriggerTarget         `json:"target"`
 	CronExpression  string                    `json:"cron_expression"`
@@ -89,7 +90,7 @@ func (s *Store) CreateCronTrigger(
 	ctx context.Context,
 	input CreateCronTriggerInput,
 ) (CronTriggerRecord, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return CronTriggerRecord{}, errors.New("project id is required")
 	}
 	if input.Name == "" {
@@ -100,7 +101,7 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	if isNilID(input.Target.ID) {
+	if input.Target.ID == uuid.Nil {
 		return CronTriggerRecord{}, errors.New("cron trigger target is required")
 	}
 	if input.Target.Kind != CronTriggerTargetAgent && input.Target.Kind != CronTriggerTargetAgentProfile {
@@ -202,8 +203,8 @@ func (s *Store) CreateCronTrigger(
 	return record, nil
 }
 
-func (s *Store) GetCronTrigger(ctx context.Context, projectID, id ID) (CronTriggerRecord, error) {
-	if isNilID(projectID) || isNilID(id) {
+func (s *Store) GetCronTrigger(ctx context.Context, projectID, id uuid.UUID) (CronTriggerRecord, error) {
+	if projectID == uuid.Nil || id == uuid.Nil {
 		return CronTriggerRecord{}, errors.New("project and cron trigger are required")
 	}
 	row, err := s.q.GetCronTrigger(ctx, dbsqlc.GetCronTriggerParams{ProjectID: projectID, ID: id})
@@ -217,15 +218,15 @@ func (s *Store) GetCronTrigger(ctx context.Context, projectID, id ID) (CronTrigg
 }
 
 type ListCronTriggersForProjectInput struct {
-	ProjectID ID
+	ProjectID uuid.UUID
 	Filters   CronTriggerListFilters
 	List      listing.Options
 	Limit     int
 }
 
 type CronTriggerListFilters struct {
-	AgentProfileID ID
-	AgentID        ID
+	AgentProfileID uuid.UUID
+	AgentID        uuid.UUID
 }
 
 type ListCronTriggersForProjectResult struct {
@@ -238,7 +239,7 @@ func (s *Store) ListCronTriggersForProject(
 	ctx context.Context,
 	input ListCronTriggersForProjectInput,
 ) (ListCronTriggersForProjectResult, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return ListCronTriggersForProjectResult{}, errors.New("project id is required")
 	}
 	if input.Limit <= 0 {
@@ -253,8 +254,8 @@ func (s *Store) ListCronTriggersForProject(
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
-		AgentProfileID: sqlcIDFromNil(input.Filters.AgentProfileID),
-		AgentID:        sqlcIDFromNil(input.Filters.AgentID),
+		AgentProfileID: storeutil.IDFromNil(input.Filters.AgentProfileID),
+		AgentID:        storeutil.IDFromNil(input.Filters.AgentID),
 	}
 	rows, err := s.q.ListCronTriggersForProject(ctx, params)
 	if err != nil {
@@ -284,7 +285,7 @@ func (s *Store) UpdateCronTrigger(
 	ctx context.Context,
 	input UpdateCronTriggerInput,
 ) (CronTriggerRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.TriggerID) {
+	if input.ProjectID == uuid.Nil || input.TriggerID == uuid.Nil {
 		return CronTriggerRecord{}, errors.New("project and cron trigger are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -404,8 +405,8 @@ func (s *Store) UpdateCronTrigger(
 	return updated, nil
 }
 
-func (s *Store) DeleteCronTrigger(ctx context.Context, projectID, id ID) error {
-	if isNilID(projectID) || isNilID(id) {
+func (s *Store) DeleteCronTrigger(ctx context.Context, projectID, id uuid.UUID) error {
+	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and cron trigger are required")
 	}
 	rows, err := s.q.DeleteCronTrigger(
@@ -443,7 +444,7 @@ func insertCronTriggerTx(
 		DeliveryMode:    cronTriggerDeliveryModeColumn(input.Target),
 		Enabled:         input.Enabled,
 		NextFireAfter:   nextFireAfter,
-		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
+		IdempotencyKey:  storeutil.TextFromEmpty(input.IdempotencyKey),
 	}
 	switch input.Target.Kind {
 	case CronTriggerTargetAgentProfile:
@@ -490,7 +491,7 @@ func insertCronTriggerTx(
 func lockCronTriggerTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (CronTriggerRecord, error) {
 	row, err := qtx.GetCronTriggerForUpdate(
 		ctx,
@@ -508,7 +509,7 @@ func lockCronTriggerTx(
 func loadCronTriggerByIdempotencyKeyTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	idempotencyKey string,
 ) (CronTriggerRecord, error) {
 	row, err := qtx.GetCronTriggerByIdempotencyKey(
@@ -528,10 +529,10 @@ func loadCronTriggerByIdempotencyKeyTx(
 }
 
 type ClaimedCronTrigger struct {
-	TriggerID       ID
-	ClaimToken      ID
-	OrgID           ID
-	ProjectID       ID
+	TriggerID       uuid.UUID
+	ClaimToken      uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
 	Name            string
 	Target          CronTriggerTarget
 	MessageTemplate string
@@ -542,7 +543,7 @@ type ClaimedCronTrigger struct {
 
 type ClaimDueCronTriggersResult struct {
 	Claimed  []ClaimedCronTrigger
-	Disabled []ID
+	Disabled []uuid.UUID
 }
 
 const cronTriggerClaimLease = 5 * time.Minute
@@ -604,7 +605,7 @@ func (s *Store) ClaimDueCronTriggers(
 			Name:            row.Name,
 			Target:          cronTriggerTargetFromColumns(row.AgentProfileID, row.AgentID, row.DeliveryMode),
 			MessageTemplate: row.MessageTemplate,
-			DueAt:           nullableTimeToZero(row.NextFireAfter),
+			DueAt:           storeutil.TimeOrZero(row.NextFireAfter),
 			FiredAt:         now,
 			LastFiredAt:     row.LastFiredAt,
 		})
@@ -616,9 +617,9 @@ func (s *Store) ClaimDueCronTriggers(
 }
 
 type CompleteCronTriggerFiringInput struct {
-	ProjectID  ID
-	TriggerID  ID
-	ClaimToken ID
+	ProjectID  uuid.UUID
+	TriggerID  uuid.UUID
+	ClaimToken uuid.UUID
 	Fired      bool
 }
 
@@ -626,7 +627,7 @@ func (s *Store) CompleteCronTriggerFiring(
 	ctx context.Context,
 	input CompleteCronTriggerFiringInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.TriggerID) || isNilID(input.ClaimToken) {
+	if input.ProjectID == uuid.Nil || input.TriggerID == uuid.Nil || input.ClaimToken == uuid.Nil {
 		return errors.New("project, cron trigger, and claim token are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -693,9 +694,9 @@ func completeCronTriggerFiringTx(
 const maxCronTriggerFailureMessageBytes = 4 * 1024
 
 type CronTriggerFailureParams struct {
-	ProjectID  ID
-	TriggerID  ID
-	ClaimToken ID
+	ProjectID  uuid.UUID
+	TriggerID  uuid.UUID
+	ClaimToken uuid.UUID
 	Message    string
 	WillRetry  bool
 }
@@ -704,7 +705,7 @@ func (s *Store) RecordCronTriggerFailure(
 	ctx context.Context,
 	params CronTriggerFailureParams,
 ) error {
-	if isNilID(params.ProjectID) || isNilID(params.TriggerID) || isNilID(params.ClaimToken) {
+	if params.ProjectID == uuid.Nil || params.TriggerID == uuid.Nil || params.ClaimToken == uuid.Nil {
 		return errors.New("project, cron trigger, and claim token are required")
 	}
 	rows, err := s.q.RecordCronTriggerFailure(ctx, dbsqlc.RecordCronTriggerFailureParams{
@@ -746,13 +747,13 @@ func cronTriggerNextFireTx(
 	return next, nil
 }
 
-func cronTriggerTargetFromColumns(agentProfileID, agentID *ID, deliveryMode string) CronTriggerTarget {
+func cronTriggerTargetFromColumns(agentProfileID, agentID *uuid.UUID, deliveryMode string) CronTriggerTarget {
 	if agentProfileID != nil {
 		return CronTriggerTarget{Kind: CronTriggerTargetAgentProfile, ID: *agentProfileID}
 	}
 	return CronTriggerTarget{
 		Kind:         CronTriggerTargetAgent,
-		ID:           idFromSQLCPtr(agentID),
+		ID:           storeutil.IDFromPtr(agentID),
 		DeliveryMode: CronTriggerDeliveryMode(deliveryMode),
 	}
 }

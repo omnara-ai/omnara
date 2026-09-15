@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	agentevents "github.com/omnara-ai/omnara/internal/events"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -30,8 +30,8 @@ type AtomicGroup struct {
 }
 
 type PlanInput struct {
-	ProjectID                      storage.ID
-	AgentID                        storage.ID
+	ProjectID                      uuid.UUID
+	AgentID                        uuid.UUID
 	InputEventSequence             int64
 	SummarizedThroughEventSequence int64
 	RetainFromEventSequence        int64
@@ -39,8 +39,8 @@ type PlanInput struct {
 }
 
 type Plan struct {
-	ProjectID          storage.ID
-	AgentID            storage.ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
 	InputEventSequence int64
 	EventSequenceStart int64
 	EventSequenceEnd   int64
@@ -124,9 +124,9 @@ func completeTurnSourceEnds(
 	events, witnessEvents []executionstore.CompactionSourceEventRecord,
 	candidates []int64,
 ) []int64 {
-	latestSequenceByTurn := make(map[storage.ID]int64)
+	latestSequenceByTurn := make(map[uuid.UUID]int64)
 	for _, event := range witnessEvents {
-		if event.Kind != string(agentevents.KindContextCheckpoint) && event.TurnID != storage.NilID {
+		if event.Kind != string(agentevents.KindContextCheckpoint) && event.TurnID != uuid.Nil {
 			latestSequenceByTurn[event.TurnID] = event.Sequence
 		}
 	}
@@ -138,7 +138,7 @@ func completeTurnSourceEnds(
 	for _, candidate := range candidates {
 		event, ok := eventBySequence[candidate]
 		if ok && event.Kind == string(agentevents.KindModelOutput) &&
-			event.TurnID != storage.NilID && latestSequenceByTurn[event.TurnID] == candidate {
+			event.TurnID != uuid.Nil && latestSequenceByTurn[event.TurnID] == candidate {
 			ends = append(ends, candidate)
 		}
 	}
@@ -215,14 +215,14 @@ func wholeTurnRetainFrom(input RetainBoundaryInput, safeEnds []int64) int64 {
 	if input.DesiredRetainTokens <= 0 {
 		return 0
 	}
-	desiredTurnID := storage.NilID
+	desiredTurnID := uuid.Nil
 	for _, event := range input.Events {
 		if event.Sequence == input.DesiredRetainFromSequence {
 			desiredTurnID = event.TurnID
 			break
 		}
 	}
-	if desiredTurnID == storage.NilID {
+	if desiredTurnID == uuid.Nil {
 		return 0
 	}
 	openingSequence := int64(0)
@@ -256,7 +256,7 @@ func EstimateSourceEventTokens(event executionstore.CompactionSourceEventRecord)
 }
 
 func PlanCheckpoint(input PlanInput) (Plan, bool, error) {
-	if input.ProjectID == storage.NilID || input.AgentID == storage.NilID {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return Plan{}, false, errors.New("project and agent are required")
 	}
 	if input.InputEventSequence <= 0 {
@@ -317,7 +317,7 @@ func safeCompactionSourceEndsWithWitness(
 	witnessEvents []executionstore.CompactionSourceEventRecord,
 	groups []AtomicGroup,
 ) []int64 {
-	latestModelOutputByTurn := make(map[storage.ID]int64)
+	latestModelOutputByTurn := make(map[uuid.UUID]int64)
 	for _, event := range witnessEvents {
 		if event.Kind == string(agentevents.KindModelOutput) {
 			latestModelOutputByTurn[event.TurnID] = event.Sequence
@@ -345,7 +345,7 @@ func safeCompactionSourceEndsWithWitness(
 
 func compactionEventEndsSettledStep(
 	event executionstore.CompactionSourceEventRecord,
-	latestModelOutputByTurn map[storage.ID]int64,
+	latestModelOutputByTurn map[uuid.UUID]int64,
 ) bool {
 	switch agentevents.Kind(event.Kind) {
 	case agentevents.KindModelOutput, agentevents.KindToolResult:

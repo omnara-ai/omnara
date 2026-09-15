@@ -50,11 +50,11 @@ var (
 	httpTestActorID       = testHTTPID(13)
 )
 
-func testHTTPID(last byte) storage.ID {
+func testHTTPID(last byte) uuid.UUID {
 	return uuid.UUID{0x01, 0x92, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, last}
 }
 
-func testPublicID(t *testing.T, kind publicid.Kind, id storage.ID) string {
+func testPublicID(t *testing.T, kind publicid.Kind, id uuid.UUID) string {
 	t.Helper()
 	value, err := publicid.Encode(kind, id)
 	if err != nil {
@@ -717,7 +717,7 @@ func TestRequestLogAbortsPartialResponseOnHandlerPanic(t *testing.T) {
 
 func TestPublicIDEncodingInvariantReturnsHTTP500(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := publicID(publicid.KindAgent, storage.NilID); err != nil {
+		if _, err := publicID(publicid.KindAgent, uuid.Nil); err != nil {
 			apierror.Write(w, openapi.ErrorCodeInternalError)
 			return
 		}

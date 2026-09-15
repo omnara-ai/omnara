@@ -27,19 +27,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-type ID = storage.ID
-type Option = storage.Option
-type ToolCallRecord = executionstore.ToolCallRecord
-type CreateVerifiedUserInput = storagetest.CreateVerifiedUserInput
-
-var NilID = storage.NilID
-
-var WithBlobStore = storage.WithBlobStore
-var WithMachinePoolProviders = storage.WithMachinePoolProviders
-var WithModelCallRetryBackoff = storage.WithModelCallRetryBackoff
-var WithPostCommitPublisher = storage.WithPostCommitPublisher
-var WithSecretKeyWrapper = storage.WithSecretKeyWrapper
-
 type Store struct {
 	*storage.Store
 	pool *pgxpool.Pool
@@ -68,14 +55,14 @@ func newIntegrationKeyWrapper() secrets.KeyWrapper {
 	return keyWrapper
 }
 
-func newIntegrationStore(pool *pgxpool.Pool, opts ...Option) *Store {
-	allOpts := make([]Option, 0, len(opts)+1)
-	allOpts = append(allOpts, WithSecretKeyWrapper(newIntegrationKeyWrapper()))
+func newIntegrationStore(pool *pgxpool.Pool, opts ...storage.Option) *Store {
+	allOpts := make([]storage.Option, 0, len(opts)+1)
+	allOpts = append(allOpts, storage.WithSecretKeyWrapper(newIntegrationKeyWrapper()))
 	allOpts = append(allOpts, opts...)
 	return NewStore(pool, allOpts...)
 }
 
-func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
+func NewStore(pool *pgxpool.Pool, opts ...storage.Option) *Store {
 	return &Store{
 		Store: storage.NewStore(pool, opts...),
 		pool:  pool,
@@ -89,13 +76,9 @@ func (s *Store) Identity() *IdentityStore {
 
 func (s *IdentityStore) CreateVerifiedUser(
 	ctx context.Context,
-	input CreateVerifiedUserInput,
+	input storagetest.CreateVerifiedUserInput,
 ) (identitystore.UserRecord, error) {
 	return storagetest.CreateVerifiedUser(ctx, s.pool, input)
-}
-
-func ParseID(value string) (ID, error) {
-	return storage.ParseID(value)
 }
 
 func newSecretIntegrationKeyWrapper() secrets.KeyWrapper {
@@ -109,10 +92,10 @@ func newSecretIntegrationKeyWrapper() secrets.KeyWrapper {
 	return keyWrapper
 }
 
-func newSecretIntegrationStore(pool *pgxpool.Pool, opts ...Option) *Store {
-	allOpts := []Option{
-		WithSecretKeyWrapper(newSecretIntegrationKeyWrapper()),
-		WithMachinePoolProviders(mergingMachinePoolProviders{}),
+func newSecretIntegrationStore(pool *pgxpool.Pool, opts ...storage.Option) *Store {
+	allOpts := []storage.Option{
+		storage.WithSecretKeyWrapper(newSecretIntegrationKeyWrapper()),
+		storage.WithMachinePoolProviders(mergingMachinePoolProviders{}),
 	}
 	allOpts = append(allOpts, opts...)
 	return newIntegrationStore(pool, allOpts...)
@@ -157,7 +140,7 @@ func waitForDatabaseTime(
 	}
 }
 
-func userPrincipal(id ID) identitystore.PrincipalRecord {
+func userPrincipal(id uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: id}
 }
 
@@ -214,27 +197,6 @@ func (providers mergingMachinePoolProviders) BuildMachineProvisioningIntent(
 		return executionstore.MachineProvisioningConfig{}, err
 	}
 	return machineProvisioning, nil
-}
-
-func sqlcTextFromEmpty(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func sqlcIDFromNil(value ID) *ID {
-	if value == NilID {
-		return nil
-	}
-	return &value
-}
-
-func idFromSQLCPtrForTest(value *ID) ID {
-	if value == nil {
-		return NilID
-	}
-	return *value
 }
 
 func testMachineProvisioning(
@@ -307,7 +269,7 @@ func mustTestRawJSON(t *testing.T, value any) json.RawMessage {
 func provisionDefaultMachinePoolGrantsForProject(
 	ctx context.Context,
 	store *Store,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 ) error {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
@@ -324,7 +286,7 @@ func setManagedWorkAdmissionForTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID ID,
+	orgID uuid.UUID,
 	allowed bool,
 ) {
 	t.Helper()
@@ -374,11 +336,7 @@ func permissionRequestForStorageTest(t *testing.T, toolName string) json.RawMess
 	return raw
 }
 
-func newSecretUUID() (ID, error) {
-	return uuid.NewV7()
-}
-
-func publicResourceID(kind publicid.Kind, id ID) string {
+func publicResourceID(kind publicid.Kind, id uuid.UUID) string {
 	encoded, err := publicid.Encode(kind, id)
 	if err != nil {
 		return ""

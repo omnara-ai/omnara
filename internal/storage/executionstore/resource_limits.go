@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -31,7 +32,7 @@ func lockResourceCreation(
 func resolveResourceLimits(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID ID,
+	orgID uuid.UUID,
 ) (dbsqlc.EffectiveResourceLimit, error) {
 	return resourceguard.ResolveLimits(ctx, qtx, orgID)
 }

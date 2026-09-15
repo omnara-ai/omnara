@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -75,8 +76,8 @@ func (s *Store) createConfiguredModelTx(
 	managementKind management.Kind,
 ) (ConfiguredModelRecord, error) {
 	input = normalizeCreateConfiguredModelInput(input)
-	if isNilID(input.OrgID) ||
-		isNilID(input.ModelProviderConfigID) ||
+	if input.OrgID == uuid.Nil ||
+		input.ModelProviderConfigID == uuid.Nil ||
 		input.Name == "" ||
 		input.ProviderModelSlug == "" {
 		return ConfiguredModelRecord{}, errors.New(
@@ -163,7 +164,7 @@ func (s *Store) PatchConfiguredModel(
 	ctx context.Context,
 	input PatchConfiguredModelInput,
 ) (ConfiguredModelRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ModelProviderConfigID) || isNilID(input.ID) {
+	if input.OrgID == uuid.Nil || input.ModelProviderConfigID == uuid.Nil || input.ID == uuid.Nil {
 		return ConfiguredModelRecord{}, errors.New("org, provider config, and configured model are required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -227,7 +228,7 @@ func (s *Store) PatchConfiguredModel(
 func lockConfiguredModelCurrentRevisionForMutationTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, configuredModelID ID,
+	orgID, configuredModelID uuid.UUID,
 ) (ConfiguredModelRecord, error) {
 	configuredModel, err := qtx.LockConfiguredModelForMutation(
 		ctx,
@@ -261,7 +262,7 @@ func lockConfiguredModelCurrentRevisionForMutationTx(
 func lockConfiguredModelCurrentRevisionForDeleteTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, configuredModelID ID,
+	orgID, configuredModelID uuid.UUID,
 ) (ConfiguredModelRecord, error) {
 	configuredModel, err := qtx.LockConfiguredModelForDelete(
 		ctx,
@@ -486,7 +487,7 @@ func applyNullableIntPatch(target **int, value patch.NullableInt) {
 	}
 }
 
-func (s *Store) GetConfiguredModel(ctx context.Context, orgID, id ID) (ConfiguredModelRecord, error) {
+func (s *Store) GetConfiguredModel(ctx context.Context, orgID, id uuid.UUID) (ConfiguredModelRecord, error) {
 	row, err := s.q.GetConfiguredModel(ctx, dbsqlc.GetConfiguredModelParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model: %w", err)
@@ -494,7 +495,7 @@ func (s *Store) GetConfiguredModel(ctx context.Context, orgID, id ID) (Configure
 	return configuredModelRecordFromGetSQLC(row), nil
 }
 
-func (s *Store) GetConfiguredModelDisplay(ctx context.Context, orgID, id ID) (ConfiguredModelRecord, error) {
+func (s *Store) GetConfiguredModelDisplay(ctx context.Context, orgID, id uuid.UUID) (ConfiguredModelRecord, error) {
 	row, err := s.q.GetConfiguredModelDisplay(ctx, dbsqlc.GetConfiguredModelDisplayParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model display: %w", err)
@@ -504,7 +505,7 @@ func (s *Store) GetConfiguredModelDisplay(ctx context.Context, orgID, id ID) (Co
 
 func (s *Store) GetConfiguredModelByName(
 	ctx context.Context,
-	orgID, providerConfigID ID,
+	orgID, providerConfigID uuid.UUID,
 	name string,
 ) (ConfiguredModelRecord, error) {
 	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", name)
@@ -524,8 +525,8 @@ func (s *Store) GetConfiguredModelByName(
 }
 
 type ListConfiguredModelsInput struct {
-	OrgID            ID
-	ProviderConfigID ID
+	OrgID            uuid.UUID
+	ProviderConfigID uuid.UUID
 	Limit            int
 	After            listing.KeysetCursor
 }
@@ -539,7 +540,7 @@ func (s *Store) ListConfiguredModels(
 	ctx context.Context,
 	input ListConfiguredModelsInput,
 ) (ListConfiguredModelsResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProviderConfigID) {
+	if input.OrgID == uuid.Nil || input.ProviderConfigID == uuid.Nil {
 		return ListConfiguredModelsResult{}, errors.New("org and provider config are required")
 	}
 	if input.Limit <= 0 {
@@ -574,7 +575,7 @@ func (s *Store) ListConfiguredModels(
 
 func (s *Store) GetConfiguredModelRevisionForUse(
 	ctx context.Context,
-	orgID, revisionID ID,
+	orgID, revisionID uuid.UUID,
 ) (ConfiguredModelRevisionRecord, error) {
 	row, err := s.q.GetConfiguredModelRevisionForUse(
 		ctx,
@@ -591,7 +592,7 @@ func (s *Store) GetConfiguredModelRevisionForUse(
 
 func (s *Store) GetConfiguredModelRevisionDisplay(
 	ctx context.Context,
-	orgID, revisionID ID,
+	orgID, revisionID uuid.UUID,
 ) (ConfiguredModelRevisionDisplayRecord, error) {
 	row, err := s.q.GetConfiguredModelRevisionDisplay(
 		ctx,
@@ -605,7 +606,7 @@ func (s *Store) GetConfiguredModelRevisionDisplay(
 
 func (s *Store) DeleteConfiguredModel(
 	ctx context.Context,
-	orgID, id ID,
+	orgID, id uuid.UUID,
 ) (ConfiguredModelRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

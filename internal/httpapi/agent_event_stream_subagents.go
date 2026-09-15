@@ -3,21 +3,21 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 type subagentStreamSubscriptions struct {
 	server        *Server
-	projectID     storage.ID
-	rootAgentID   storage.ID
+	projectID     uuid.UUID
+	rootAgentID   uuid.UUID
 	updates       chan<- notifications.ToolCallUpdatedCommitted
-	subscriptions map[storage.ID]notifications.Subscription
+	subscriptions map[uuid.UUID]notifications.Subscription
 }
 
 func newSubagentStreamSubscriptions(
 	server *Server,
-	projectID, rootAgentID storage.ID,
+	projectID, rootAgentID uuid.UUID,
 	updates chan<- notifications.ToolCallUpdatedCommitted,
 ) *subagentStreamSubscriptions {
 	return &subagentStreamSubscriptions{
@@ -25,7 +25,7 @@ func newSubagentStreamSubscriptions(
 		projectID:     projectID,
 		rootAgentID:   rootAgentID,
 		updates:       updates,
-		subscriptions: map[storage.ID]notifications.Subscription{},
+		subscriptions: map[uuid.UUID]notifications.Subscription{},
 	}
 }
 
@@ -34,7 +34,7 @@ func (s *subagentStreamSubscriptions) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	current := make(map[storage.ID]struct{}, len(descendants))
+	current := make(map[uuid.UUID]struct{}, len(descendants))
 	for _, agentID := range descendants {
 		current[agentID] = struct{}{}
 		if _, ok := s.subscriptions[agentID]; ok {

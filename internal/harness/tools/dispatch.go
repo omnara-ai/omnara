@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -25,7 +25,7 @@ func (e Executor) dispatchToolHandler(
 	ctx context.Context,
 	turn Turn,
 	call model.ToolCall,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	handler toolHandler,
 ) (toolDispatchResult, error) {
 	if handler.Transactional == nil && handler.Async == nil {
@@ -171,7 +171,7 @@ type toolPhasePipeline struct {
 	turn       Turn
 	call       model.ToolCall
 	handler    toolHandler
-	toolCallID storage.ID
+	toolCallID uuid.UUID
 }
 
 func (p toolPhasePipeline) advanceAfterTransaction(
@@ -246,7 +246,7 @@ func (e Executor) submitBackgroundTool(
 	turn Turn,
 	call model.ToolCall,
 	handler backgroundToolHandler,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	commandResult any,
 ) {
 	if handler == nil || e.BackgroundRunner == nil {
@@ -553,21 +553,21 @@ type transactionalToolContext struct {
 	Reader     *executionstore.ToolCallReader
 	Turn       Turn
 	Call       model.ToolCall
-	ToolCallID storage.ID
+	ToolCallID uuid.UUID
 }
 
 type asyncToolContext struct {
 	Executor   Executor
 	Turn       Turn
 	Call       model.ToolCall
-	ToolCallID storage.ID
+	ToolCallID uuid.UUID
 }
 
 type backgroundToolContext struct {
 	Executor      Executor
 	Turn          Turn
 	Call          model.ToolCall
-	ToolCallID    storage.ID
+	ToolCallID    uuid.UUID
 	CommandResult any
 }
 

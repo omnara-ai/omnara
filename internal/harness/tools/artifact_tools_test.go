@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -85,21 +84,21 @@ func TestUploadArtifactApprovalPinsBindingAndPath(t *testing.T) {
 		InteractionKind: executionstore.AgentInteractionKindPermission,
 		Request:         requestJSON,
 	}
-	if !toolCallAuthorizationMatches(action, call, storage.NilID, selection, approvedInput) {
+	if !toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput) {
 		t.Fatal("approved upload authorization did not match")
 	}
 	otherPath, err := uploadArtifactAuthorizationInput(bindingID, "other.png")
 	if err != nil {
 		t.Fatalf("build other-path authorization: %v", err)
 	}
-	if toolCallAuthorizationMatches(action, call, storage.NilID, selection, otherPath) {
+	if toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherPath) {
 		t.Fatal("different path matched approved upload authorization")
 	}
 	otherBinding, err := uploadArtifactAuthorizationInput(uuid.New(), "shot.png")
 	if err != nil {
 		t.Fatalf("build other-binding authorization: %v", err)
 	}
-	if toolCallAuthorizationMatches(action, call, storage.NilID, selection, otherBinding) {
+	if toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherBinding) {
 		t.Fatal("different binding matched approved upload authorization")
 	}
 }

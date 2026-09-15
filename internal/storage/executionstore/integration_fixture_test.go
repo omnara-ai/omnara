@@ -31,12 +31,8 @@ const (
 	testDaemonRuntimeLeaseTimeout     = time.Hour
 )
 
-func testID(seed string) ID {
+func testID(seed string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-storage-integration:"+seed))
-}
-
-func isNilID(id ID) bool {
-	return id == NilID
 }
 
 func testClaimNextAgentWorkInput() executionstore.ClaimNextAgentWorkInput {
@@ -73,7 +69,7 @@ func expireAgentRuntimeLockForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	runtimeLockID ID,
+	runtimeLockID uuid.UUID,
 ) {
 	t.Helper()
 	if _, err := store.pool.Exec(
@@ -122,7 +118,7 @@ func recordPoolMachineProvisioningResourceForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	machineID ID,
+	machineID uuid.UUID,
 	provisionAttempt int32,
 	providerResourceID string,
 ) {
@@ -144,7 +140,7 @@ func beginAndRecordPoolMachineProvisioningForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	machineID ID,
+	machineID uuid.UUID,
 	provisionAttempt int32,
 	providerResourceID string,
 ) {
@@ -181,11 +177,11 @@ func getProjectMachineGrantByMachineForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	orgID, projectID, machineID ID,
+	orgID, projectID, machineID uuid.UUID,
 ) executionstore.ProjectMachineGrantRecord {
 	t.Helper()
 	var grant executionstore.ProjectMachineGrantRecord
-	var poolGrantID *ID
+	var poolGrantID *uuid.UUID
 	if err := store.pool.QueryRow(ctx, `
 SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
        description, coalesce(idempotency_key, ''), metadata, created_at, updated_at
@@ -213,7 +209,7 @@ func countProjectMachineGrantsForMachineForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	orgID, projectID, machineID ID,
+	orgID, projectID, machineID uuid.UUID,
 ) int {
 	t.Helper()
 	var count int
@@ -243,7 +239,7 @@ func seedAdditionalProjectForTest(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	seed string,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	projectID := testID("project_" + seed)
 	storagefixture.InsertProject(t, ctx, pool, testOrgID, projectID,
@@ -251,7 +247,7 @@ func seedAdditionalProjectForTest(
 	return projectID
 }
 
-func testDefaultProviderConfigID() ID {
+func testDefaultProviderConfigID() uuid.UUID {
 	return testID("default_provider_config")
 }
 
@@ -265,9 +261,9 @@ func ensureTestConfiguredModelForSource(
 	return storagefixture.SeedModelForAgentYAML(t, ctx, store.Models(), testOrgID, testProjectID, sourceYAML)
 }
 
-func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) ID {
+func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := ParseID(compiled.Compiled.Model.ConfiguredModelID)
+	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("parse compiled configured model id: %v", err)
 	}
@@ -294,7 +290,7 @@ func mustCompileAgentYAMLResolved(
 	)
 }
 
-func mustCreateAgent(t *testing.T, ctx context.Context, store *Store) ID {
+func mustCreateAgent(t *testing.T, ctx context.Context, store *Store) uuid.UUID {
 	t.Helper()
 	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
@@ -311,8 +307,8 @@ func mustCreateAgentConfig(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID ID,
-) ID {
+	projectID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	config := storagefixture.SeedAgentConfig(
 		t, ctx, store.Models(), store.Execution(), testOrgID, projectID, testAgentConfigYAML(),

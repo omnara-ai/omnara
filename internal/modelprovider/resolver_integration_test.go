@@ -35,7 +35,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
-func modelProviderUserPrincipal(userID storage.ID) identitystore.PrincipalRecord {
+func modelProviderUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 

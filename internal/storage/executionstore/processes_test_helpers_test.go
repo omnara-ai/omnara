@@ -11,17 +11,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -30,7 +33,7 @@ func createQuestionInteractionForTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
 	value := questionInteractionFormForTest(t)
@@ -91,7 +94,7 @@ func createPermissionInteractionForTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 	request json.RawMessage,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
@@ -116,11 +119,11 @@ func createPermissionInteractionForTest(
 }
 
 type toolCallFixtureInput struct {
-	ProjectID          ID
-	AgentID            ID
-	SourceEventID      ID
-	ModelCallContextID ID
-	RuntimeLockID      ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	SourceEventID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	RuntimeLockID      uuid.UUID
 	ProviderCallID     string
 	Name               string
 	Input              json.RawMessage
@@ -171,7 +174,7 @@ func insertToolCallForTest(
 	if err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
-	var modelOutputID ID
+	var modelOutputID uuid.UUID
 	var ordinal int32
 	if err := tx.QueryRow(ctx, `
 SELECT call.model_output_id,
@@ -241,7 +244,7 @@ func (p *recordingPostCommitPublisher) PublishPostCommit(_ context.Context, inte
 	p.intents = append(p.intents, intent)
 }
 
-func (p *recordingPostCommitPublisher) runtimeEndedCount(runtimeID ID) int {
+func (p *recordingPostCommitPublisher) runtimeEndedCount(runtimeID uuid.UUID) int {
 	count := 0
 	for _, intent := range p.intents {
 		ended, ok := intent.(notifications.DaemonRuntimeEndedCommitted)
@@ -252,7 +255,7 @@ func (p *recordingPostCommitPublisher) runtimeEndedCount(runtimeID ID) int {
 	return count
 }
 
-func (p *recordingPostCommitPublisher) toolCallStates(toolCallID ID) []string {
+func (p *recordingPostCommitPublisher) toolCallStates(toolCallID uuid.UUID) []string {
 	states := []string{}
 	for _, intent := range p.intents {
 		update, ok := intent.(notifications.ToolCallUpdatedCommitted)
@@ -263,7 +266,7 @@ func (p *recordingPostCommitPublisher) toolCallStates(toolCallID ID) []string {
 	return states
 }
 
-func (p *recordingPostCommitPublisher) hasProcessTermination(machineID, processID ID) bool {
+func (p *recordingPostCommitPublisher) hasProcessTermination(machineID, processID uuid.UUID) bool {
 	for _, intent := range p.intents {
 		termination, ok := intent.(notifications.DaemonProcessTerminationCommitted)
 		if !ok || termination.MachineID != machineID {
@@ -282,25 +285,25 @@ func mustEnsureOmnaraActor(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	orgID, projectID, userID ID,
-) ID {
+	orgID, projectID, userID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	params, err := executionstore.OmnaraActorParams(orgID, userPrincipal(userID))
 	if err != nil {
 		t.Fatalf("omnara actor params: %v", err)
 	}
-	actorID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, projectID, NilID, params, NilID)
+	actorID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, projectID, uuid.Nil, params, uuid.Nil)
 	if err != nil {
 		t.Fatalf("ensure omnara actor: %v", err)
 	}
 	return actorID
 }
 
-func (fixture processDaemonFixture) omnaraActorID(t *testing.T, ctx context.Context) ID {
+func (fixture processDaemonFixture) omnaraActorID(t *testing.T, ctx context.Context) uuid.UUID {
 	return mustEnsureOmnaraActor(t, ctx, fixture.Store, testOrgID, testProjectID, fixture.UserID)
 }
 
-func mustOmnaraActorParams(t *testing.T, userID ID) *executionstore.ActorParams {
+func mustOmnaraActorParams(t *testing.T, userID uuid.UUID) *executionstore.ActorParams {
 	t.Helper()
 	params, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(userID))
 	if err != nil {
@@ -340,7 +343,9 @@ func mustCreateProjectRoleUser(
 	email, displayName, projectRole string,
 ) identitystore.UserRecord {
 	t.Helper()
-	user, err := store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{Email: email, DisplayName: displayName})
+	user, err := store.Identity().CreateVerifiedUser(ctx, storagetest.CreateVerifiedUserInput{
+		Email: email, DisplayName: displayName,
+	})
 	if err != nil {
 		t.Fatalf("create user %s: %v", email, err)
 	}
@@ -365,16 +370,16 @@ func mustCreateProjectRoleUser(
 
 type processDaemonFixture struct {
 	Store     *Store
-	OrgID     ID
-	AgentID   ID
-	MachineID ID
-	BindingID ID
-	TokenID   ID
-	RuntimeID ID
-	DaemonID  ID
-	UserID    ID
+	OrgID     uuid.UUID
+	AgentID   uuid.UUID
+	MachineID uuid.UUID
+	BindingID uuid.UUID
+	TokenID   uuid.UUID
+	RuntimeID uuid.UUID
+	DaemonID  uuid.UUID
+	UserID    uuid.UUID
 	Lock      executionstore.AgentRuntimeLockRecord
-	GrantID   ID
+	GrantID   uuid.UUID
 	Now       time.Time
 }
 
@@ -387,7 +392,7 @@ func (fixture processDaemonFixture) authority() executionstore.DaemonRuntimeAuth
 	}
 }
 
-func (fixture processDaemonFixture) authorityForRuntime(runtimeID ID) executionstore.DaemonRuntimeAuthority {
+func (fixture processDaemonFixture) authorityForRuntime(runtimeID uuid.UUID) executionstore.DaemonRuntimeAuthority {
 	authority := fixture.authority()
 	authority.DaemonRuntimeID = runtimeID
 	return authority
@@ -397,7 +402,7 @@ func newProcessDaemonFixture(t *testing.T, ctx context.Context, testName string)
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }))
+	store := newIntegrationStore(pool, storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }))
 	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "process-"+testName+"@example.com", "Process Tester")
 	return newProcessDaemonFixtureInStore(t, ctx, store, user.ID, testName, now)
@@ -407,7 +412,7 @@ func newProcessDaemonFixtureInStore(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	userID ID,
+	userID uuid.UUID,
 	testName string,
 	now time.Time,
 ) processDaemonFixture {
@@ -594,7 +599,7 @@ func expireDaemonRuntimeLeaseForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	orgID, machineID, runtimeID ID,
+	orgID, machineID, runtimeID uuid.UUID,
 ) time.Time {
 	t.Helper()
 	var leaseExpiresAt time.Time
@@ -619,7 +624,7 @@ func assertMachineState(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	machineID ID,
+	machineID uuid.UUID,
 	lifecycleState executionstore.MachineLifecycleState,
 	connectionState executionstore.MachineConnectionState,
 ) {
@@ -639,7 +644,13 @@ func assertMachineState(
 	}
 }
 
-func assertMachineObservedPlatform(t *testing.T, ctx context.Context, store *Store, machineID ID, osName, arch string) {
+func assertMachineObservedPlatform(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	machineID uuid.UUID,
+	osName, arch string,
+) {
 	t.Helper()
 	machine, err := store.Execution().GetMachine(ctx, testOrgID, machineID)
 	if err != nil {
@@ -661,7 +672,7 @@ func createToolCallForProcessActionTest(
 	ctx context.Context,
 	fixture processDaemonFixture,
 	testName string,
-) ID {
+) uuid.UUID {
 	return createToolCallForProcessTest(t, ctx, fixture, testName, "read_process")
 }
 
@@ -671,7 +682,7 @@ func createToolCallForProcessTest(
 	fixture processDaemonFixture,
 	testName string,
 	toolName string,
-) ID {
+) uuid.UUID {
 	return createToolCallForProcessTestWithPermission(t, ctx, fixture, testName, toolName, true)
 }
 
@@ -679,7 +690,7 @@ func claimToolCallForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	agentID, toolCallID, runtimeLockID ID,
+	agentID, toolCallID, runtimeLockID uuid.UUID,
 	retainRuntimeOwnership bool,
 ) executionstore.ToolCallRecord {
 	t.Helper()
@@ -714,7 +725,7 @@ func createToolCallForProcessTestWithPermission(
 	testName string,
 	toolName string,
 	allowed bool,
-) ID {
+) uuid.UUID {
 	return createTypedToolCallForProcessTest(
 		t,
 		ctx,
@@ -759,7 +770,7 @@ func createTypedToolCallForProcessTest(
 	toolName string,
 	toolType string,
 	allowed bool,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	toolCallIDs := createToolCallBatchForProcessTest(
 		t,
@@ -782,7 +793,7 @@ func createToolCallBatchForProcessTest(
 	fixture processDaemonFixture,
 	batchName string,
 	items []processToolCallBatchItem,
-) []ID {
+) []uuid.UUID {
 	t.Helper()
 	if batchName == "" {
 		t.Fatal("process tool-call batch name is required")
@@ -822,7 +833,7 @@ func createToolCallBatchForProcessTest(
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []ID{input.ID},
+		OpeningInputIDs:    []uuid.UUID{input.ID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: admitted.Events[0].Sequence,
 	})
@@ -891,7 +902,7 @@ func createToolCallBatchForProcessTest(
 	for _, toolCall := range toolCalls {
 		toolCallsByProviderID[toolCall.ProviderCallID] = toolCall
 	}
-	toolCallIDs := make([]ID, len(items))
+	toolCallIDs := make([]uuid.UUID, len(items))
 	for index, item := range items {
 		providerCallID := "call_" + item.TestName
 		toolCall, found := toolCallsByProviderID[providerCallID]
@@ -918,10 +929,10 @@ func modelContextIDForProcessToolCallTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
-) ID {
+	toolCallID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
-	var modelContextID ID
+	var modelContextID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT model_call_context_id
 FROM tool_call_read_projection
@@ -932,9 +943,14 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 	return modelContextID
 }
 
-func turnIDForProcessToolCallTest(t *testing.T, ctx context.Context, fixture processDaemonFixture, toolCallID ID) ID {
+func turnIDForProcessToolCallTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	toolCallID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
-	var turnID ID
+	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn_id
 FROM tool_call_read_projection tool_call
@@ -949,10 +965,10 @@ func openingInputAndWatermarkForProcessToolCallTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
-) (ID, int64) {
+	toolCallID uuid.UUID,
+) (uuid.UUID, int64) {
 	t.Helper()
-	var inputID ID
+	var inputID uuid.UUID
 	var watermark int64
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT opening_event.agent_input_id, event.sequence
@@ -989,7 +1005,7 @@ func appendStopEventForProcessTest(t *testing.T, ctx context.Context, fixture pr
 func acceptDaemonProcessForTest(
 	ctx context.Context,
 	store *Store,
-	orgID, machineID, runtimeID, processID ID,
+	orgID, machineID, runtimeID, processID uuid.UUID,
 ) (executionstore.DaemonProcessOffer, bool, error) {
 	authority, err := daemonRuntimeAuthorityForTest(ctx, store, orgID, machineID, runtimeID)
 	if err != nil {
@@ -1003,7 +1019,7 @@ func acceptDaemonProcessForTest(
 		return executionstore.DaemonProcessOffer{}, false, err
 	}
 	for _, offer := range offers {
-		if processID != NilID && offer.Process.ID != processID {
+		if processID != uuid.Nil && offer.Process.ID != processID {
 			continue
 		}
 		return store.Execution().AcceptDaemonProcess(
@@ -1020,7 +1036,7 @@ func acceptDaemonProcessForTest(
 func acceptDaemonProcessActionForTest(
 	ctx context.Context,
 	store *Store,
-	orgID, machineID, runtimeID, processID, actionID ID,
+	orgID, machineID, runtimeID, processID, actionID uuid.UUID,
 ) (executionstore.ProcessActionRecord, bool, error) {
 	authority, err := daemonRuntimeAuthorityForTest(ctx, store, orgID, machineID, runtimeID)
 	if err != nil {
@@ -1034,10 +1050,10 @@ func acceptDaemonProcessActionForTest(
 		return executionstore.ProcessActionRecord{}, false, err
 	}
 	for _, offer := range offers {
-		if processID != NilID && offer.ProcessID != processID {
+		if processID != uuid.Nil && offer.ProcessID != processID {
 			continue
 		}
-		if actionID != NilID && offer.ID != actionID {
+		if actionID != uuid.Nil && offer.ID != actionID {
 			continue
 		}
 		grant, found, err := store.Execution().AcceptDaemonProcessAction(
@@ -1056,9 +1072,9 @@ func acceptDaemonProcessActionForTest(
 func daemonRuntimeAuthorityForTest(
 	ctx context.Context,
 	store *Store,
-	orgID, machineID, runtimeID ID,
+	orgID, machineID, runtimeID uuid.UUID,
 ) (executionstore.DaemonRuntimeAuthority, error) {
-	var tokenID ID
+	var tokenID uuid.UUID
 	err := store.pool.QueryRow(
 		ctx,
 		`SELECT daemon_token_id FROM daemon_runtimes WHERE org_id = $1 AND machine_id = $2 AND id = $3`,
@@ -1087,7 +1103,7 @@ type terminalProcessActionTestInput struct {
 type terminalProcessActionTestResult struct {
 	Process    executionstore.ProcessRecord
 	Action     executionstore.ProcessActionRecord
-	ToolCallID ID
+	ToolCallID uuid.UUID
 }
 
 func createTerminalProcessActionForLifecycleTest(
@@ -1097,7 +1113,7 @@ func createTerminalProcessActionForLifecycleTest(
 	name, toolName string,
 	kind executionstore.ProcessActionKind,
 	accepted bool,
-) (executionstore.ProcessRecord, executionstore.ProcessActionRecord, ID) {
+) (executionstore.ProcessRecord, executionstore.ProcessActionRecord, uuid.UUID) {
 	t.Helper()
 	result := createTerminalProcessActionsForLifecycleTest(
 		t,
@@ -1292,7 +1308,7 @@ func forceToolCallResultForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	outcome executionstore.ToolResultOutcome,
 	result json.RawMessage,
 ) {
@@ -1358,7 +1374,7 @@ func cancelToolCallForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	agentID, toolCallID ID,
+	agentID, toolCallID uuid.UUID,
 ) {
 	t.Helper()
 	forceToolCallResultForTest(
@@ -1376,11 +1392,11 @@ func cancelToolCallForTest(
 func assertProcessActionToolResultUsesPublicIDs(
 	t *testing.T,
 	store *Store,
-	agentID ID,
-	turnID ID,
-	toolCallID ID,
-	processID ID,
-	actionID ID,
+	agentID uuid.UUID,
+	turnID uuid.UUID,
+	toolCallID uuid.UUID,
+	processID uuid.UUID,
+	actionID uuid.UUID,
 ) {
 	t.Helper()
 	processPublicID, err := publicid.Encode(publicid.KindProcess, processID)
@@ -1409,7 +1425,7 @@ func assertProcessActionToolResultUsesPublicIDs(
 func assertCompletedToolCallWithResult(
 	t *testing.T,
 	store *Store,
-	agentID ID,
+	agentID uuid.UUID,
 	toolCall executionstore.ToolCallRecord,
 	reason string,
 ) {
@@ -1443,7 +1459,7 @@ func assertCompletedToolCallWithResult(
 func assertCompletedProcessActionResult(
 	t *testing.T,
 	store *Store,
-	agentID ID,
+	agentID uuid.UUID,
 	toolCall executionstore.ToolCallRecord,
 	wantState executionstore.ProcessActionState,
 ) {
@@ -1479,9 +1495,9 @@ func assertCompletedProcessActionResult(
 func completedToolCallForTest(
 	t *testing.T,
 	store *Store,
-	agentID ID,
-	turnID ID,
-	toolCallID ID,
+	agentID uuid.UUID,
+	turnID uuid.UUID,
+	toolCallID uuid.UUID,
 ) executionstore.ToolCallRecord {
 	t.Helper()
 	completed, err := store.Execution().ListCompletedToolCallsForTurn(context.Background(), testProjectID, agentID, turnID)

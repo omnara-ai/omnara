@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -24,7 +24,7 @@ type uploadArtifactRequest struct {
 
 type resolvedUploadArtifactRequest struct {
 	Path      string
-	MachineID storage.ID
+	MachineID uuid.UUID
 }
 
 type uploadArtifactAuthorization struct {
@@ -41,7 +41,7 @@ type downloadArtifactRequest struct {
 type resolvedDownloadArtifactRequest struct {
 	ArtifactID string
 	Path       string
-	MachineID  storage.ID
+	MachineID  uuid.UUID
 }
 
 type downloadArtifactAuthorization struct {
@@ -74,7 +74,7 @@ func resolveUploadArtifactRequest(raw json.RawMessage) (resolvedUploadArtifactRe
 }
 
 func uploadArtifactAuthorizationInput(
-	bindingID storage.ID,
+	bindingID uuid.UUID,
 	path string,
 ) (json.RawMessage, error) {
 	input, err := marshalJSON(uploadArtifactAuthorization{
@@ -119,7 +119,7 @@ func resolveDownloadArtifactRequest(raw json.RawMessage) (resolvedDownloadArtifa
 }
 
 func downloadArtifactAuthorizationInput(
-	bindingID storage.ID,
+	bindingID uuid.UUID,
 	artifactID string,
 	path string,
 ) (json.RawMessage, error) {

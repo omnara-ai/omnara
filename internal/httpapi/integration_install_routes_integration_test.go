@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 )
@@ -264,7 +264,7 @@ func createListInstallsFixture(
 	t *testing.T,
 	ctx context.Context,
 	project publicHTTPProject,
-	profileID storage.ID,
+	profileID uuid.UUID,
 	appID, workspaceID, displayName string,
 ) integrationstore.IntegrationInstallRecord {
 	t.Helper()

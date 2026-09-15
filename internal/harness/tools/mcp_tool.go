@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -38,7 +38,7 @@ func runMCPToolAsync(
 func (e Executor) dispatchMCPTool(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	call model.ToolCall,
 ) (toolResultContent, error) {
 	serverKey, remoteName, ok := toolcatalog.SplitMCPRuntimeToolName(call.Name)
@@ -137,7 +137,7 @@ func mcpConnectionFailedToolResult(
 func (e Executor) mcpToolResultContent(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	serverKey, remoteName string,
 	result *sdkmcp.CallToolResult,
 ) (toolResultContent, error) {
@@ -183,7 +183,7 @@ func (e Executor) mcpToolResultContent(
 func (e Executor) mcpContentPart(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	ordinal int,
 	content sdkmcp.Content,
 ) (toolResultPart, error) {
@@ -265,7 +265,7 @@ func (e Executor) mcpContentPart(
 func (e Executor) mcpMediaPart(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	ordinal int,
 	contentType string,
 	content []byte,

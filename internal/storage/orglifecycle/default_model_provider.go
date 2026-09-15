@@ -32,9 +32,9 @@ var ErrDefaultModelProviderProvisioningSuperseded = errors.New(
 )
 
 type DefaultModelProviderProvisioningClaim struct {
-	OrgID         ID
-	CreatorUserID ID
-	ClaimToken    ID
+	OrgID         uuid.UUID
+	CreatorUserID uuid.UUID
+	ClaimToken    uuid.UUID
 	Attempt       int32
 }
 
@@ -77,9 +77,9 @@ func (s *Service) ClaimDefaultModelProviderProvisioning(
 
 func (s *Service) ClaimDefaultModelProviderProvisioningForOrganization(
 	ctx context.Context,
-	organizationID ID,
+	organizationID uuid.UUID,
 ) (DefaultModelProviderProvisioningClaim, bool, error) {
-	if isNilID(organizationID) {
+	if organizationID == uuid.Nil {
 		return DefaultModelProviderProvisioningClaim{}, false, errors.New("organization is required")
 	}
 	row, err := s.q.ClaimDefaultModelProviderProvisioningForOrganization(
@@ -107,8 +107,8 @@ func (s *Service) ClaimDefaultModelProviderProvisioningForOrganization(
 }
 
 func defaultModelProviderProvisioningClaim(
-	organizationID, creatorUserID ID,
-	claimToken *ID,
+	organizationID, creatorUserID uuid.UUID,
+	claimToken *uuid.UUID,
 	attempt int32,
 ) (DefaultModelProviderProvisioningClaim, bool, error) {
 	if claimToken == nil || *claimToken == uuid.Nil || attempt <= 0 {
@@ -312,14 +312,14 @@ func (s *Service) RetryDefaultModelProviderProvisioning(
 }
 
 func validDefaultModelProviderProvisioningClaim(claim DefaultModelProviderProvisioningClaim) bool {
-	return !isNilID(claim.OrgID) && !isNilID(claim.CreatorUserID) &&
-		!isNilID(claim.ClaimToken) && claim.Attempt > 0
+	return claim.OrgID != uuid.Nil && claim.CreatorUserID != uuid.Nil &&
+		claim.ClaimToken != uuid.Nil && claim.Attempt > 0
 }
 
 func (s *Service) installDefaultModelProviderTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, defaultProjectID, createdByUserID ID,
+	orgID, defaultProjectID, createdByUserID uuid.UUID,
 	template modelstore.DefaultModelProviderTemplate,
 	credentialValue string,
 ) error {

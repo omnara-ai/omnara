@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -28,7 +28,7 @@ func WithImplicitIntegrationMessageTool(
 func RuntimeContractToolSpecs(
 	ctx context.Context,
 	store Store,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 	now time.Time,
 ) ([]ToolSpec, error) {
@@ -104,7 +104,7 @@ type mcpToolSnapshot struct {
 func runtimeMCPToolSpecs(
 	ctx context.Context,
 	store Store,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 ) ([]ToolSpec, error) {
 	if len(contract.MCPServers) == 0 {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
@@ -19,9 +20,9 @@ import (
 )
 
 type LaunchAgentInput struct {
-	ProjectID     ID
-	ProfileID     ID
-	AgentConfigID ID
+	ProjectID     uuid.UUID
+	ProfileID     uuid.UUID
+	AgentConfigID uuid.UUID
 	LaunchedBy    identitystore.PrincipalRecord
 	Name          *string
 	Message       string
@@ -42,7 +43,7 @@ type LaunchAgentResult struct {
 	MCPServers          []agentconfig.RuntimeMCPServer
 	MCPConnections      []MCPConnectionRecord
 	MachineBindings     []AgentMachineBindingRecord
-	ProvisionMachineIDs []ID
+	ProvisionMachineIDs []uuid.UUID
 	AgentInput          AgentInputRecord
 	InputContentBlocks  json.RawMessage
 	Created             bool
@@ -62,10 +63,10 @@ func (s *Store) LaunchAgent(
 }
 
 func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) {
-	if isNilID(input.ProjectID) || isNilID(input.LaunchedBy.ID) {
+	if input.ProjectID == uuid.Nil || input.LaunchedBy.ID == uuid.Nil {
 		return LaunchAgentInput{}, errors.New("project and launching principal are required")
 	}
-	if isNilID(input.AgentConfigID) == (input.DerivedConfig == nil) {
+	if (input.AgentConfigID == uuid.Nil) == (input.DerivedConfig == nil) {
 		return LaunchAgentInput{}, errors.New("exactly one of agent config or derived config is required")
 	}
 	if input.Name != nil {
@@ -132,7 +133,7 @@ func (s *Store) launchAgentTx(
 		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
 	}
 	var profile *AgentProfileRecord
-	if input.ProfileID != NilID {
+	if input.ProfileID != uuid.Nil {
 		record, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.ProfileID)
 		if err != nil {
 			return LaunchAgentResult{}, err
@@ -217,7 +218,7 @@ func (s *Store) launchAgentTx(
 		Created:     true,
 	}
 	for _, source := range machineSources {
-		if source.PoolGrantForLaunch.ID == NilID {
+		if source.PoolGrantForLaunch.ID == uuid.Nil {
 			continue
 		}
 		if err := ensurePoolCapacityForConfigTx(
@@ -265,7 +266,7 @@ func (s *Store) launchAgentTx(
 	for _, bindingRequest := range bindingRequests {
 		source := bindingRequest.Source
 		switch {
-		case source.GrantID != NilID:
+		case source.GrantID != uuid.Nil:
 			envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
 				source.BindingConfig.EnvironmentOverlay,
 			)
@@ -287,7 +288,7 @@ func (s *Store) launchAgentTx(
 				return LaunchAgentResult{}, err
 			}
 			result.MachineBindings = append(result.MachineBindings, binding)
-		case source.PoolGrantForLaunch.ID != NilID:
+		case source.PoolGrantForLaunch.ID != uuid.Nil:
 			binding, err := allocateNewPoolMachineForAgentTx(
 				ctx,
 				qtx,
@@ -367,12 +368,12 @@ func launchReplayMaybeTx(
 func launchConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	profile *AgentProfileRecord,
-	configID ID,
+	configID uuid.UUID,
 	derived bool,
 ) (AgentConfigRecord, agentconfig.RuntimeContract, error) {
-	if configID == NilID {
+	if configID == uuid.Nil {
 		return AgentConfigRecord{}, agentconfig.RuntimeContract{}, errors.New(
 			"agent config is required",
 		)
@@ -424,7 +425,7 @@ func launchAgentName(name *string, profile *AgentProfileRecord) string {
 func createAgentMCPConnectionsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	servers []agentconfig.RuntimeMCPServer,
 ) ([]MCPConnectionRecord, error) {
 	if len(servers) == 0 {

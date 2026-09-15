@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 const (
@@ -35,7 +35,7 @@ func (p *provider) ObserveRuntimeStates(
 	observations := make([]providers.RuntimeObservation, len(targets))
 	resourceIndexes := make(map[string][]int, len(targets))
 	resourceCounts := make(map[string]int, len(targets))
-	machineCounts := make(map[storage.ID]int, len(targets))
+	machineCounts := make(map[uuid.UUID]int, len(targets))
 	for index, target := range targets {
 		observations[index] = target.UnknownObservation()
 		resourceCounts[target.ProviderResourceID]++

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -131,7 +132,7 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 	if err != nil {
 		t.Fatalf("get integration target input: %v", err)
 	}
-	if !found || input.ActorID == storage.NilID ||
+	if !found || input.ActorID == uuid.Nil ||
 		input.IntegrationTargetID != integrationTarget.ID {
 		t.Fatalf(
 			"unexpected integration input: found=%v input=%+v",
@@ -969,7 +970,7 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 	if resolution["reason"] != "superseded_by_input" {
 		t.Fatalf("canceled interaction resolution=%v", resolution)
 	}
-	var resultTurnID storage.ID
+	var resultTurnID uuid.UUID
 	var resultSequence int64
 	var resultReason string
 	if err := pool.QueryRow(
@@ -3418,7 +3419,7 @@ DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.update
 		t.Fatalf("get resolved interaction: %v", err)
 	}
 	if !found || resolved.State != executionstore.AgentInteractionStateResolved ||
-		resolved.ResolvedByInputID == storage.NilID {
+		resolved.ResolvedByInputID == uuid.Nil {
 		t.Fatalf("resolved interaction found=%v record=%+v", found, resolved)
 	}
 	resolvingActorID, resolvingInputKind := interactionResolvingInput(
@@ -3655,7 +3656,7 @@ func TestSlackActionsResolvePermissionAsSlackActor(t *testing.T) {
 		t.Fatalf("get interaction: %v", err)
 	}
 	if !found || resolved.State != executionstore.AgentInteractionStateResolved ||
-		resolved.ResolvedByInputID == storage.NilID {
+		resolved.ResolvedByInputID == uuid.Nil {
 		t.Fatalf("interaction=%+v found=%v", resolved, found)
 	}
 	resolvingActorID, _ := interactionResolvingInput(
@@ -4015,9 +4016,9 @@ func assertAgentInputArtifactBlock(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	input executionstore.AgentInputRecord,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
-	var artifactID storage.ID
+	var artifactID uuid.UUID
 	var blocks int64
 	if err := pool.QueryRow(ctx, `
 		SELECT artifact_id, count(*) OVER ()::bigint
@@ -4043,7 +4044,7 @@ func createSlackHTTPInstall(
 	t *testing.T,
 	ctx context.Context,
 	project publicHTTPProject,
-	profileID storage.ID,
+	profileID uuid.UUID,
 	appID, workspaceID, botUserID, signingSecret string,
 ) integrationstore.IntegrationInstallRecord {
 	t.Helper()
@@ -4093,7 +4094,7 @@ func createSlackHTTPInstallSecret(
 	project publicHTTPProject,
 	name string,
 	payload secrets.Payload,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	secret, _, err := project.Store.Secrets().CreateSecret(
 		ctx,
@@ -4114,9 +4115,9 @@ func createSlackHTTPInstallSecret(
 
 type slackActionPayloadInput struct {
 	Install             integrationstore.IntegrationInstallRecord
-	AgentID             storage.ID
-	IntegrationTargetID storage.ID
-	InteractionID       storage.ID
+	AgentID             uuid.UUID
+	IntegrationTargetID uuid.UUID
+	InteractionID       uuid.UUID
 	UserID              string
 	OptionValue         string
 	ResponseURL         string
@@ -4182,7 +4183,7 @@ func createQuestionInteractionForAgent(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	seed string,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
@@ -4202,7 +4203,7 @@ func createPermissionInteractionForAgent(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	seed string,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
@@ -4222,7 +4223,7 @@ func createInteractionForAgent(
 	ctx context.Context,
 	store *storage.Store,
 	project publicHTTPProject,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	seed string,
 	kind string,
 	additionalToolCalls ...model.ToolCall,
@@ -4256,7 +4257,7 @@ func createInteractionForAgent(
 		project.ProjectUUID,
 		agentID,
 		runtime,
-		[]storage.ID{admitted.Inputs[0].ID},
+		[]uuid.UUID{admitted.Inputs[0].ID},
 		snapshot.AgentConfig.ID,
 		admitted.Events[0].Sequence,
 	)

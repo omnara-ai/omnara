@@ -10,17 +10,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/stretchr/testify/require"
 )
 
 func liveProcessReconciliationClaimForTest(
-	processID ID,
+	processID uuid.UUID,
 	actions ...executionstore.ProcessActionReconciliationClaim,
 ) executionstore.ProcessReconciliationClaim {
 	return executionstore.ProcessReconciliationClaim{
@@ -33,7 +36,7 @@ func liveProcessReconciliationClaimForTest(
 	}
 }
 
-func terminalProcessReconciliationClaimForTest(processID ID) executionstore.ProcessReconciliationClaim {
+func terminalProcessReconciliationClaimForTest(processID uuid.UUID) executionstore.ProcessReconciliationClaim {
 	return executionstore.ProcessReconciliationClaim{
 		ProcessID:             processID,
 		SupervisorInstanceID:  "test-supervisor-instance",
@@ -46,7 +49,7 @@ func terminalProcessReconciliationClaimForTest(processID ID) executionstore.Proc
 func processReconciliationDirectiveForTest(
 	t *testing.T,
 	reconciliation executionstore.DaemonRuntimeReconciliation,
-	processID ID,
+	processID uuid.UUID,
 ) executionstore.ProcessReconciliationDirective {
 	t.Helper()
 	for _, disposition := range reconciliation.Processes {
@@ -360,7 +363,7 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	store := newIntegrationStore(pool)
 	_, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{Email: "runtime-bindings@example.com", DisplayName: "Runtime Bindings Tester"},
+		storagetest.CreateVerifiedUserInput{Email: "runtime-bindings@example.com", DisplayName: "Runtime Bindings Tester"},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -490,7 +493,7 @@ func TestDaemonRuntimeCredentialRotationPreservesIdentityAndRevocationOwnership(
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "revoke_token_runtime_isolation")
 	publisher := &recordingPostCommitPublisher{}
-	store := newIntegrationStore(fixture.Store.pool, WithPostCommitPublisher(publisher))
+	store := newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	replacementToken, err := store.Execution().CreateBYOMachineDaemonToken(
 		ctx,
 		executionstore.CreateBYOMachineDaemonTokenInput{
@@ -1317,7 +1320,7 @@ func TestReplacementRuntimeWithoutProcessClaimClosesQueuedReadAction(t *testing.
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -1420,7 +1423,7 @@ func TestReplacementDaemonRuntimeRoutesLiveProcessClaimByMachine(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process: %v", err)
@@ -1488,7 +1491,7 @@ func TestReplacementDaemonRuntimeRoutesLiveProcessClaimByMachine(t *testing.T) {
 		fixture.MachineID,
 		registration.Runtime.ID,
 		process.ID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process action through replacement runtime: %v", err)
@@ -1537,7 +1540,7 @@ func TestReplacementDaemonRuntimeRedeliversAcceptedActionMissingLocally(t *testi
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -1574,7 +1577,7 @@ func TestReplacementDaemonRuntimeRedeliversAcceptedActionMissingLocally(t *testi
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept action: %v", err)
 	} else if !found {
 		t.Fatal("expected action accept")
@@ -2006,7 +2009,7 @@ func TestReplacementDaemonRuntimeSettlesAlreadyAppliedActionEvidence(t *testing.
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -2162,7 +2165,7 @@ func TestReplacementDaemonRuntimeSettlesFailedActionEvidence(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -2299,7 +2302,7 @@ func TestReplacementDaemonRuntimeReportsTerminalActionGrantedByExpiredRuntime(t 
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -2455,7 +2458,7 @@ func TestDaemonRuntimeEndPreservesLiveProcess(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process: %v", err)
@@ -2983,7 +2986,7 @@ func TestTerminalReportBeforeReconnectCompletesToolCallWithOutputResult(t *testi
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -3077,7 +3080,7 @@ func TestRuntimeRegistrationReconciliationLocksAgentBeforeProcessAndReadMutation
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -3404,7 +3407,7 @@ func TestReplacementRuntimeWithoutProcessClaimFailsAcceptedRead(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -3430,7 +3433,7 @@ func TestReplacementRuntimeWithoutProcessClaimFailsAcceptedRead(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept action: %v", err)
 	} else if !found {
 		t.Fatal("expected action accept")
@@ -3513,7 +3516,7 @@ func TestReplacementRuntimeWithoutProcessClaimClosesProcessUnknown(t *testing.T)
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -3658,7 +3661,7 @@ func TestExpiredAgentRuntimeLockRetainsAcceptedProcess(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -3736,7 +3739,7 @@ func TestExpiredAgentRuntimeLockRetainsAcceptedProcessAction(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")

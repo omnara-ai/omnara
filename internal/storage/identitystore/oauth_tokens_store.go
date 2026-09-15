@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -30,7 +31,7 @@ func (s *Store) CreateOAuthAuthorizationCode(
 	ctx context.Context,
 	input CreateOAuthAuthorizationCodeInput,
 ) (string, error) {
-	if isNilID(input.UserID) || isNilID(input.BrowserSessionID) || input.ClientID == "" || input.ClientName == "" ||
+	if input.UserID == uuid.Nil || input.BrowserSessionID == uuid.Nil || input.ClientID == "" || input.ClientName == "" ||
 		input.RedirectURI == "" || input.CodeChallenge == "" || input.Resource == "" {
 		return "", storeerr.ErrUnauthorized
 	}
@@ -251,7 +252,7 @@ func (s *Store) AuthenticateOAuthAccessToken(
 	}, nil
 }
 
-func lockActiveOAuthUserTx(ctx context.Context, qtx *dbsqlc.Queries, userID ID) error {
+func lockActiveOAuthUserTx(ctx context.Context, qtx *dbsqlc.Queries, userID uuid.UUID) error {
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: userID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrUnauthorized

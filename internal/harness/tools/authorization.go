@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -87,7 +87,7 @@ func authorizeDirectToolExecution(
 func toolCallAuthorizationMatches(
 	action executionstore.AgentInteractionRecord,
 	call model.ToolCall,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	selection toolpermission.Selection,
 	authorizationInput json.RawMessage,
 ) bool {
@@ -98,7 +98,7 @@ func toolCallAuthorizationMatches(
 func toolCallPermissionMatches(
 	action executionstore.AgentInteractionRecord,
 	call model.ToolCall,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	selection toolpermission.Selection,
 ) bool {
 	_, ok := matchingToolPermissionRequest(action, call, toolCallID, selection)
@@ -108,7 +108,7 @@ func toolCallPermissionMatches(
 func matchingToolPermissionRequest(
 	action executionstore.AgentInteractionRecord,
 	call model.ToolCall,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	selection toolpermission.Selection,
 ) (toolpermission.Request, bool) {
 	if action.ToolCallID != toolCallID || action.ProviderCallID != call.ID ||

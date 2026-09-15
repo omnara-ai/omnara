@@ -18,7 +18,6 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/skills"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -475,7 +474,7 @@ func (s strictOpenAPIServer) ListSkills(
 		OwnerKind      string `json:"owner_kind,omitempty"`
 		OwnerProjectID string `json:"owner_project_id,omitempty"`
 	}{OwnerKind: filters.OwnerKind}
-	if filters.OwnerProjectID != storage.NilID {
+	if filters.OwnerProjectID != uuid.Nil {
 		extra.OwnerProjectID = filters.OwnerProjectID.String()
 	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
@@ -839,7 +838,7 @@ func (s strictOpenAPIServer) GetDaemonSkillArchive(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid revision_id")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.OrgID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.OrgID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
 	err := verifySkillDownloadCapability(
@@ -874,7 +873,7 @@ func verifySkillDownloadCapability(
 	expiresAt int64,
 	now time.Time,
 ) error {
-	if principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.ID == storage.NilID {
+	if principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.ID == uuid.Nil {
 		return skills.ErrInvalidDownloadToken
 	}
 	machineID, err := publicID(publicid.KindMachine, principal.ID)

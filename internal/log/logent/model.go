@@ -3,11 +3,11 @@ package logent
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
-func ModelCatalogProbeFailed(ctx context.Context, modelProviderConfigID storage.ID, message string) {
+func ModelCatalogProbeFailed(ctx context.Context, modelProviderConfigID uuid.UUID, message string) {
 	log.Attach(ctx, log.Fields{
 		"model_catalog.probe.result":             "failed",
 		"model_catalog.probe.error":              message,

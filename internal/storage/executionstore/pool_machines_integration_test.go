@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -29,7 +31,7 @@ func TestListMachinePoolSourcesUsesCapturedNamesAfterSwap(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 6, 15, 8, 0, 0, 0, time.UTC)
 
 	machinePools := make([]executionstore.MachinePoolRecord, 2)
@@ -82,7 +84,7 @@ tools:
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
-	renamePool := func(machinePoolID ID, name string) {
+	renamePool := func(machinePoolID uuid.UUID, name string) {
 		t.Helper()
 		if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
 			OrgID: testOrgID,
@@ -114,7 +116,7 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -259,7 +261,7 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		if err != nil {
 			t.Fatalf("load rolled-back tool call: %v", err)
 		}
-		if rolledBackToolCall.State != executionstore.ToolCallStateReady || rolledBackToolCall.RuntimeLockID != NilID {
+		if rolledBackToolCall.State != executionstore.ToolCallStateReady || rolledBackToolCall.RuntimeLockID != uuid.Nil {
 			t.Fatalf(
 				"rolled-back tool call state/runtime = %s/%s, want ready/unowned",
 				rolledBackToolCall.State,
@@ -337,7 +339,7 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -514,7 +516,7 @@ func TestCreatePoolMachinePersistsProviderIntentWithoutExternalResolution(t *tes
 	seedMigratedDB(t, ctx, pool)
 
 	providers := &externalMachinePoolProviders{}
-	store := newIntegrationStore(pool, WithMachinePoolProviders(providers))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(providers))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -658,7 +660,7 @@ func TestCreatePoolMachineUsesDefaultPoolSource(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -797,7 +799,7 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -905,7 +907,7 @@ func TestZeroCapMachinePoolLifecycle(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -1103,7 +1105,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -1202,7 +1204,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 			createTransaction.ToolCallID,
 		)
 	}
-	if created.Machine.Binding.DeleteToolCallID != NilID {
+	if created.Machine.Binding.DeleteToolCallID != uuid.Nil {
 		t.Fatalf("created machine binding delete tool call = %s, want nil", created.Machine.Binding.DeleteToolCallID)
 	}
 	if created.Machine.Machine.IdempotencyKey != "" {
@@ -1397,7 +1399,7 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 6, 15, 10, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -1538,7 +1540,7 @@ func TestListMachinePoolSourcesIncludesZeroMaxPool(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 6, 15, 11, 0, 0, 0, time.UTC)
 
 	machinePool := createLaunchTestMachinePool(
@@ -1589,7 +1591,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -1882,7 +1884,7 @@ func TestCreatePoolMachineValidatesProviderPoolConfig(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	providers := &rejectingMachinePoolProviders{}
-	store := newIntegrationStore(pool, WithMachinePoolProviders(providers))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(providers))
 	now := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
@@ -1995,7 +1997,7 @@ func activateAgentConfigForPoolMachineTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	agentID, configID ID,
+	agentID, configID uuid.UUID,
 	idempotencyKey string,
 ) {
 	t.Helper()
@@ -2029,11 +2031,11 @@ func createPoolMachineToolCalls(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	agentID, userID, configID ID,
+	agentID, userID, configID uuid.UUID,
 	lock executionstore.AgentRuntimeLockRecord,
 	label string,
 	specs []poolMachineToolCallSpec,
-) map[string]ID {
+) map[string]uuid.UUID {
 	t.Helper()
 	input, _, _, err := store.Execution().CreateAgentContentInput(
 		ctx,
@@ -2065,7 +2067,7 @@ func createPoolMachineToolCalls(
 			ProjectID:          testProjectID,
 			AgentID:            agentID,
 			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []ID{input.ID},
+			OpeningInputIDs:    []uuid.UUID{input.ID},
 			AgentConfigID:      configID,
 			InputEventSequence: admitted.Events[0].Sequence,
 		},
@@ -2116,7 +2118,7 @@ func createPoolMachineToolCalls(
 	if len(records) != len(specs) {
 		t.Fatalf("recorded tool calls = %d, want %d", len(records), len(specs))
 	}
-	out := make(map[string]ID, len(records))
+	out := make(map[string]uuid.UUID, len(records))
 	for index, record := range records {
 		if _, err := store.Execution().MarkToolCallReady(
 			ctx,

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -219,7 +220,7 @@ func TestSemanticContextIdentityPreventsLaterOutputAtStaleFrontier(t *testing.T)
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []ID{openingInputID},
+		OpeningInputIDs:    []uuid.UUID{openingInputID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: initialContext.InputEventSequence,
 	})
@@ -495,7 +496,7 @@ func TestContinuationSeedKeepsLaterToolResultAfterEarlierResultConsumed(t *testi
 	ctx := context.Background()
 	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_later_result")
 	firstContext := claimNormalContextAtFrontierTest(
-		t, ctx, fixture, []ID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
+		t, ctx, fixture, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
 		admitted.Events[1].Sequence, fixture.Now.Add(4*time.Second),
 	)
 	firstCompleted := completeToolCallForContinuationSeedTest(
@@ -507,7 +508,7 @@ func TestContinuationSeedKeepsLaterToolResultAfterEarlierResultConsumed(t *testi
 		t.Fatalf("first tool result events = %d, want 1", len(firstResultEvents))
 	}
 	laterContext := claimNormalContextAtFrontierTest(
-		t, ctx, fixture, []ID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
+		t, ctx, fixture, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
 		firstResultEvents[0].Sequence, fixture.Now.Add(7*time.Second),
 	)
 	completed := completeToolCallForContinuationSeedTest(
@@ -532,7 +533,7 @@ func TestNextAgentContinuationSeedUsesOpeningInputsAtContextWatermark(t *testing
 		ctx := context.Background()
 		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_multi_input")
 		contextRecord := claimNormalContextAtFrontierTest(
-			t, ctx, fixture, []ID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
+			t, ctx, fixture, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
 			admitted.Events[1].Sequence, fixture.Now.Add(4*time.Second),
 		)
 		completed := completeToolCallForContinuationSeedTest(
@@ -565,7 +566,7 @@ func TestNextAgentContinuationSeedUsesOpeningInputsAtContextWatermark(t *testing
 			ProjectID:          testProjectID,
 			AgentID:            fixture.AgentID,
 			RuntimeLockID:      fixture.Lock.ID,
-			OpeningInputIDs:    []ID{admitted.Inputs[0].ID},
+			OpeningInputIDs:    []uuid.UUID{admitted.Inputs[0].ID},
 			AgentConfigID:      agent.CurrentConfigID,
 			InputEventSequence: admitted.Events[0].Sequence,
 		})
@@ -587,7 +588,7 @@ func TestClaimNormalModelCallFencesContinuationToSelectedSource(t *testing.T) {
 		t,
 		ctx,
 		fixture,
-		[]ID{admitted.Inputs[0].ID, admitted.Inputs[1].ID},
+		[]uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID},
 		agent.CurrentConfigID,
 		admitted.Events[1].Sequence,
 		fixture.Now.Add(4*time.Second),
@@ -634,7 +635,7 @@ func TestClaimNormalModelCallFencesContinuationToSelectedSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load continuation frontier: %v", err)
 	}
-	claim := func(sourceContextID, sourceOutputID ID, now time.Time) (executionstore.ModelCallClaim, error) {
+	claim := func(sourceContextID, sourceOutputID uuid.UUID, now time.Time) (executionstore.ModelCallClaim, error) {
 		return fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
 			ProjectID:                testProjectID,
 			AgentID:                  fixture.AgentID,
@@ -647,7 +648,9 @@ func TestClaimNormalModelCallFencesContinuationToSelectedSource(t *testing.T) {
 		})
 	}
 
-	if _, err := claim(NilID, NilID, fixture.Now.Add(8*time.Second)); !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
+	if _, err := claim(uuid.Nil, uuid.Nil, fixture.Now.Add(8*time.Second)); !errors.Is(
+		err, storeerr.ErrAgentNotAdvanceable,
+	) {
 		t.Fatalf("continuation claim without source error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
 	}
 	if _, err := claim(
@@ -765,7 +768,7 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []ID{input.ID},
+		OpeningInputIDs:    []uuid.UUID{input.ID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: admitted.Events[0].Sequence,
 	})
@@ -841,7 +844,7 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 		if event.Role == modelprotocol.RoleAssistant &&
 			strings.Contains(content, "assistant visible") {
 			foundVisibleOutput = sameJSON(event.ProviderReplay, providerReplay) &&
-				event.ModelProviderConfigID != (executionstore.ID{}) &&
+				event.ModelProviderConfigID != (uuid.UUID{}) &&
 				event.RequestedModelSlug == providerModelSlug &&
 				event.APIFormat == modelprotocol.APIFormatOpenAIResponses &&
 				event.APIVariant == modelprotocol.APIVariantDefault

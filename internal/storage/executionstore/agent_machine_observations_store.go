@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type AgentMachineObservationRecord struct {
-	MachineID              ID                       `json:"machine_id"`
+	MachineID              uuid.UUID                `json:"machine_id"`
 	SourceKind             MachineSourceKind        `json:"source_kind"`
 	BindingKind            AgentMachineBindingKind  `json:"binding_kind"`
 	BindingState           AgentMachineBindingState `json:"binding_state"`
@@ -34,9 +35,9 @@ type AgentMachineObservationRecord struct {
 
 func (s *Store) ListAgentMachineObservations(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentMachineObservationRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	return selectAgentMachineObservations(ctx, s.q, projectID, agentID, nil, false)
@@ -57,9 +58,9 @@ func (r *ToolCallReader) ListAgentMachineObservations(
 
 func (r *ToolCallReader) GetAgentMachineObservationByMachineID(
 	ctx context.Context,
-	machineID ID,
+	machineID uuid.UUID,
 ) (AgentMachineObservationRecord, error) {
-	if isNilID(machineID) {
+	if machineID == uuid.Nil {
 		return AgentMachineObservationRecord{}, errors.New("machine ID is required")
 	}
 	return getAgentMachineObservationByMachineID(
@@ -74,8 +75,8 @@ func (r *ToolCallReader) GetAgentMachineObservationByMachineID(
 func getAgentMachineObservationByMachineID(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
-	machineID ID,
+	projectID, agentID uuid.UUID,
+	machineID uuid.UUID,
 ) (AgentMachineObservationRecord, error) {
 	records, err := selectAgentMachineObservations(
 		ctx,
@@ -97,8 +98,8 @@ func getAgentMachineObservationByMachineID(
 func selectAgentMachineObservations(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
-	machineID *ID,
+	projectID, agentID uuid.UUID,
+	machineID *uuid.UUID,
 	includeReleasedPool bool,
 ) ([]AgentMachineObservationRecord, error) {
 	rows, err := q.SelectAgentMachineObservations(

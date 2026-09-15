@@ -5,6 +5,7 @@ package secretstore
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
 
@@ -12,7 +13,7 @@ func (s *Store) DeleteSecretOnceForIntegration(
 	ctx context.Context,
 	input DeleteSecretInput,
 ) (SecretRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SecretRecord{}, invalidSecretRequest("org, secret, and actor are required")
 	}
 	record, err := s.GetSecret(ctx, input.OrgID, input.SecretID)

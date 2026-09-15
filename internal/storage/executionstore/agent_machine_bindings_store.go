@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -26,9 +27,9 @@ const (
 
 func (s *Store) ListExecutableAgentMachineBindings(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentMachineBindingRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	return listExecutableAgentMachineBindings(ctx, s.q, projectID, agentID)
@@ -36,9 +37,9 @@ func (s *Store) ListExecutableAgentMachineBindings(
 
 func (s *Store) ListAgentMachineBindings(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentMachineBindingRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	rows, err := s.q.ListAgentMachineBindings(
@@ -70,7 +71,7 @@ func (r *ToolCallReader) ListExecutableAgentMachineBindings(
 func listExecutableAgentMachineBindings(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentMachineBindingRecord, error) {
 	rows, err := q.ListExecutableAgentMachineBindings(
 		ctx,
@@ -87,13 +88,13 @@ func listExecutableAgentMachineBindings(
 }
 
 type AgentMachineBindingRecord struct {
-	ID                     ID                       `json:"id"`
-	OrgID                  ID                       `json:"org_id"`
-	ProjectID              ID                       `json:"project_id"`
-	AgentID                ID                       `json:"agent_id"`
-	CreateToolCallID       ID                       `json:"create_tool_call_id,omitempty"`
-	DeleteToolCallID       ID                       `json:"delete_tool_call_id,omitempty"`
-	MachineID              ID                       `json:"machine_id"`
+	ID                     uuid.UUID                `json:"id"`
+	OrgID                  uuid.UUID                `json:"org_id"`
+	ProjectID              uuid.UUID                `json:"project_id"`
+	AgentID                uuid.UUID                `json:"agent_id"`
+	CreateToolCallID       uuid.UUID                `json:"create_tool_call_id,omitempty"`
+	DeleteToolCallID       uuid.UUID                `json:"delete_tool_call_id,omitempty"`
+	MachineID              uuid.UUID                `json:"machine_id"`
 	BindingKind            AgentMachineBindingKind  `json:"binding_kind"`
 	State                  AgentMachineBindingState `json:"state"`
 	Description            string                   `json:"description,omitempty"`
@@ -107,10 +108,10 @@ type AgentMachineBindingRecord struct {
 }
 
 type insertAgentMachineBindingInput struct {
-	ProjectID              ID
-	AgentID                ID
-	CreateToolCallID       ID
-	ProjectMachineGrantID  ID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       uuid.UUID
+	ProjectMachineGrantID  uuid.UUID
 	BindingKind            AgentMachineBindingKind
 	Description            string
 	Cwd                    string

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -124,8 +124,8 @@ func (p *provider) PrepareProvisioning(
 
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -274,8 +274,8 @@ func ensureDaemonSession(
 
 func (p *provider) InspectMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
@@ -302,8 +302,8 @@ func (p *provider) InspectMachine(
 
 func (p *provider) DeleteMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {

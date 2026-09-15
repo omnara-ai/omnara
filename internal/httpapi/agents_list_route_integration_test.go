@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -432,13 +433,13 @@ func seedListAgentAt(
 	pool *pgxpool.Pool,
 	store *storage.Store,
 	project publicHTTPProject,
-	configID storage.ID,
+	configID uuid.UUID,
 	name string,
 	idempotencyKey string,
 	createdAt time.Time,
 ) executionstore.AgentRecord {
 	t.Helper()
-	var id storage.ID
+	var id uuid.UUID
 	if err := pool.QueryRow(ctx, `
 INSERT INTO agents (
     org_id, project_id, state, name, current_config_id,

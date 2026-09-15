@@ -23,7 +23,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -134,7 +133,7 @@ func (s strictOpenAPIServer) createAgentProfile(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
 	}
 	principal, _ := principalFromContext(ctx)
-	if principal.ID == storage.NilID {
+	if principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated user principal is required to create an agent profile")
 	}
@@ -185,7 +184,7 @@ func (s strictOpenAPIServer) updateAgentProfile(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
 	principal, _ := principalFromContext(ctx)
-	if principal.ID == storage.NilID {
+	if principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated user principal is required to update an agent profile")
 	}
@@ -243,7 +242,7 @@ func (s strictOpenAPIServer) RenameAgentProfile(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
 	}
 	principal, _ := principalFromContext(ctx)
-	if principal.ID == storage.NilID {
+	if principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated user principal is required to rename an agent profile")
 	}
@@ -657,8 +656,8 @@ func (s strictOpenAPIServer) listAgents(
 		filters.IncludeArchived = *params.IncludeArchived
 	}
 	extra := struct {
-		AgentProfileID   *storage.ID
-		ParentAgentID    *storage.ID
+		AgentProfileID   *uuid.UUID
+		ParentAgentID    *uuid.UUID
 		IncludeSubagents bool
 		IncludeArchived  bool
 	}{filters.AgentProfileID, filters.ParentAgentID, filters.IncludeSubagents, filters.IncludeArchived}
@@ -784,7 +783,7 @@ func (s strictOpenAPIServer) createAgent(
 			"authenticated account principal is required to create an agent",
 		)
 	}
-	profileID := storage.NilID
+	profileID := uuid.Nil
 	if request.Body.Profile != nil && *request.Body.Profile != "" {
 		var ok bool
 		profileID, ok = parseOpenAPIPublicID(publicid.KindAgentProfile, *request.Body.Profile)
@@ -821,7 +820,7 @@ func (s strictOpenAPIServer) createAgent(
 	}
 	s.server.startLaunchMachineProvisioning(ctx, logpkg.LoggerFromContext(ctx), result)
 	logent.Agent(ctx, result.Agent)
-	if result.AgentInput.ID != storage.NilID {
+	if result.AgentInput.ID != uuid.Nil {
 		logent.AgentInput(ctx, result.AgentInput)
 	}
 	logent.MCPConnections(ctx, result.MCPConnections)
@@ -873,7 +872,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 	if err != nil {
 		return nil, agentConfigCompileError(err)
 	}
-	expectedCurrentConfigID := storage.NilID
+	expectedCurrentConfigID := uuid.Nil
 	if request.Body.ExpectedCurrentConfigId != nil {
 		expectedCurrentConfigID, ok = parseOpenAPIPublicID(
 			publicid.KindAgentConfig,
@@ -974,7 +973,7 @@ func (s *Server) currentAgentResponse(
 		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
 	}
 	machineIDs := make([]openapi.MachineID, 0, len(records))
-	seen := make(map[storage.ID]bool, len(records))
+	seen := make(map[uuid.UUID]bool, len(records))
 	for _, binding := range records {
 		if binding.State != executionstore.AgentMachineBindingStateAttached || seen[binding.MachineID] {
 			continue
@@ -1034,7 +1033,7 @@ func (s *Server) launchAgentResponse(
 		bindings = append(bindings, binding)
 	}
 	response.MachineBindings = bindings
-	if result.AgentInput.ID != storage.NilID {
+	if result.AgentInput.ID != uuid.Nil {
 		input, err := publicAgentInputResponseFromRecordWithContent(result.AgentInput, result.InputContentBlocks)
 		if err != nil {
 			return openapi.LaunchAgentResponse{}, err

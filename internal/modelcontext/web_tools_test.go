@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -38,8 +38,8 @@ func TestRuntimeContractToolSpecsRenderWebToolDescriptions(t *testing.T) {
 	specs, err := RuntimeContractToolSpecs(
 		context.Background(),
 		nil,
-		storage.ID{},
-		storage.ID{},
+		uuid.UUID{},
+		uuid.UUID{},
 		webToolsContract(t),
 		now,
 	)

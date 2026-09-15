@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 )
 
@@ -16,11 +17,11 @@ const (
 )
 
 type DaemonRuntimeRecord struct {
-	ID                 ID                 `json:"id"`
-	OrgID              ID                 `json:"org_id"`
-	MachineID          ID                 `json:"machine_id"`
-	DaemonTokenID      ID                 `json:"daemon_token_id"`
-	DaemonInstanceID   ID                 `json:"daemon_instance_id"`
+	ID                 uuid.UUID          `json:"id"`
+	OrgID              uuid.UUID          `json:"org_id"`
+	MachineID          uuid.UUID          `json:"machine_id"`
+	DaemonTokenID      uuid.UUID          `json:"daemon_token_id"`
+	DaemonInstanceID   uuid.UUID          `json:"daemon_instance_id"`
 	DaemonVersion      string             `json:"daemon_version"`
 	State              DaemonRuntimeState `json:"state"`
 	StateReasonCode    string             `json:"state_reason_code,omitempty"`
@@ -35,10 +36,10 @@ type DaemonRuntimeRecord struct {
 }
 
 type RegisterDaemonRuntimeInput struct {
-	OrgID            ID
-	MachineID        ID
-	DaemonTokenID    ID
-	DaemonInstanceID ID
+	OrgID            uuid.UUID
+	MachineID        uuid.UUID
+	DaemonTokenID    uuid.UUID
+	DaemonInstanceID uuid.UUID
 	DaemonVersion    string
 	Capacity         json.RawMessage
 	ObservedPlatform json.RawMessage
@@ -47,7 +48,7 @@ type RegisterDaemonRuntimeInput struct {
 }
 
 type ProcessReconciliationClaim struct {
-	ProcessID             ID
+	ProcessID             uuid.UUID
 	SupervisorInstanceID  string
 	Phase                 daemonprotocol.ProcessPhase
 	SupervisorLive        bool
@@ -58,7 +59,7 @@ type ProcessReconciliationClaim struct {
 }
 
 type ProcessActionReconciliationClaim struct {
-	ProcessActionID ID
+	ProcessActionID uuid.UUID
 	Seq             int64
 	ActionKind      ProcessActionKind
 	Position        daemonprotocol.ActionPosition
@@ -74,29 +75,29 @@ type DaemonRuntimeReconciliation struct {
 }
 
 type DaemonRuntimeAuthority struct {
-	OrgID           ID
-	MachineID       ID
-	DaemonRuntimeID ID
-	DaemonTokenID   ID
+	OrgID           uuid.UUID
+	MachineID       uuid.UUID
+	DaemonRuntimeID uuid.UUID
+	DaemonTokenID   uuid.UUID
 }
 
 func validateDaemonRuntimeAuthority(authority DaemonRuntimeAuthority) error {
-	if isNilID(authority.OrgID) || isNilID(authority.MachineID) || isNilID(authority.DaemonRuntimeID) ||
-		isNilID(authority.DaemonTokenID) {
+	if authority.OrgID == uuid.Nil || authority.MachineID == uuid.Nil || authority.DaemonRuntimeID == uuid.Nil ||
+		authority.DaemonTokenID == uuid.Nil {
 		return errors.New("org, machine, daemon runtime, and daemon token are required")
 	}
 	return nil
 }
 
 type ProcessReconciliationDirective struct {
-	ProcessID            ID
+	ProcessID            uuid.UUID
 	SupervisorInstanceID string
 	Disposition          daemonprotocol.ProcessDisposition
 	Actions              []ProcessActionReconciliationDirective
 }
 
 type ProcessActionReconciliationDirective struct {
-	ProcessActionID ID
+	ProcessActionID uuid.UUID
 	Seq             int64
 	ActionKind      ProcessActionKind
 	Payload         json.RawMessage
@@ -105,7 +106,7 @@ type ProcessActionReconciliationDirective struct {
 
 type DaemonRuntimeLeaseInput struct {
 	Authority        DaemonRuntimeAuthority
-	DaemonInstanceID ID
+	DaemonInstanceID uuid.UUID
 	Capacity         json.RawMessage
 	ObservedPlatform json.RawMessage
 	LeaseTimeout     time.Duration

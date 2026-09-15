@@ -18,8 +18,8 @@ func (s *Store) CreateSkillGrant(
 	ctx context.Context,
 	input CreateSkillGrantInput,
 ) (SkillGrantRecord, error) {
-	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) || isNilUUID(input.TargetProjectID) ||
-		isNilUUID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil || input.TargetProjectID == uuid.Nil ||
+		input.Actor.ID == uuid.Nil {
 		return SkillGrantRecord{}, invalidSkillRequest("org, skill, target project, and actor are required")
 	}
 	skill, err := s.getSkill(ctx, input.OrgID, input.SkillID)
@@ -82,7 +82,7 @@ func (s *Store) CreateSkillGrant(
 }
 
 func (s *Store) ListSkillGrants(ctx context.Context, input ListSkillGrantsInput) (ListSkillGrantsResult, error) {
-	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) || isNilUUID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return ListSkillGrantsResult{}, invalidSkillRequest("org, skill, and actor are required")
 	}
 	if input.Limit <= 0 {
@@ -102,7 +102,7 @@ func (s *Store) ListSkillGrants(ctx context.Context, input ListSkillGrantsInput)
 	params := dbsqlc.ListSkillGrantsBySkillParams{
 		OrgID: input.OrgID, SkillID: input.SkillID, RowLimit: int64(input.Limit) + 1,
 		SortField: input.List.SortField, SortDesc: input.List.SortDesc,
-		NamePattern: input.List.NamePattern, TargetProjectID: sqlcUUIDFromNil(input.TargetProjectID),
+		NamePattern: input.List.NamePattern, TargetProjectID: storeutil.IDFromNil(input.TargetProjectID),
 	}
 	if !listing.SortAllowed(input.List.SortField, "name", "created_at") {
 		return ListSkillGrantsResult{}, invalidSkillRequest("unsupported sort")
@@ -131,7 +131,7 @@ func (s *Store) ListSkillGrants(ctx context.Context, input ListSkillGrantsInput)
 }
 
 func (s *Store) DeleteSkillGrant(ctx context.Context, input DeleteSkillGrantInput) (SkillGrantRecord, error) {
-	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) || isNilUUID(input.GrantID) || isNilUUID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil || input.GrantID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SkillGrantRecord{}, invalidSkillRequest("org, skill, grant, and actor are required")
 	}
 	grant, err := s.q.GetSkillGrantForSourceSkill(ctx, dbsqlc.GetSkillGrantForSourceSkillParams{

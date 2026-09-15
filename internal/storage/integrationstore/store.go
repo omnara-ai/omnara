@@ -12,20 +12,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-type ID = uuid.UUID
-
-var NilID = uuid.Nil
-
 type InstallBinding struct {
-	OrgID          ID
-	ProjectID      ID
-	AgentProfileID ID
-	AgentID        ID
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentProfileID uuid.UUID
+	AgentID        uuid.UUID
 }
 
 type Access interface {
 	ValidateInstallBinding(context.Context, pgx.Tx, InstallBinding) error
-	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, ID, ID) error
+	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
 }
 
 type Store struct {
@@ -42,22 +38,6 @@ func New(pool *pgxpool.Pool, access Access) *Store {
 		access:             access,
 		targetRefGenerator: newIntegrationTargetRef,
 	}
-}
-
-func isNilID(id ID) bool {
-	return id == NilID
-}
-
-func sqlcTextFromEmpty(value string) *string {
-	return storeutil.TextFromEmpty(value)
-}
-
-func sqlcIDFromNil(value ID) *ID {
-	return storeutil.IDFromNil(value)
-}
-
-func idFromSQLCPtr(value *ID) ID {
-	return storeutil.IDFromPtr(value)
 }
 
 func normalizedJSONObject(value json.RawMessage, fieldName string) (json.RawMessage, error) {

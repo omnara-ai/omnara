@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -109,8 +108,8 @@ func daemonBootstrapResponse(bootstrap executionstore.MachineBootstrapRecord) (o
 
 func machineDaemonScopeFromContext(ctx context.Context) (machineDaemonScope, *apierror.ResponseError) {
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.OrgID == storage.NilID ||
-		principal.ID == storage.NilID || principal.MachineDaemonTokenID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeMachineDaemon || principal.OrgID == uuid.Nil ||
+		principal.ID == uuid.Nil || principal.MachineDaemonTokenID == uuid.Nil {
 		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 		return machineDaemonScope{}, &err
 	}
@@ -151,7 +150,7 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 		)
 	}
 	claims := make([]executionstore.ProcessReconciliationClaim, 0, len(body.Processes))
-	seenProcesses := make(map[storage.ID]struct{}, len(body.Processes))
+	seenProcesses := make(map[uuid.UUID]struct{}, len(body.Processes))
 	for _, claim := range body.Processes {
 		id, ok := parseOpenAPIPublicID(publicid.KindProcess, claim.ProcessId)
 		if !ok {
@@ -178,7 +177,7 @@ func (s strictOpenAPIServer) registerMachineDaemonRuntime(
 			0,
 			len(claim.Actions),
 		)
-		seenActions := make(map[storage.ID]struct{}, len(claim.Actions))
+		seenActions := make(map[uuid.UUID]struct{}, len(claim.Actions))
 		seenSeq := make(map[int64]struct{}, len(claim.Actions))
 		for _, action := range claim.Actions {
 			actionID, ok := parseOpenAPIPublicID(
@@ -462,7 +461,7 @@ func daemonRuntimeReconciliationResponse(
 	return openapi.DaemonRuntimeReconciliation{Processes: processes}, nil
 }
 
-func publicIDs(kind publicid.Kind, ids []storage.ID) ([]string, error) {
+func publicIDs(kind publicid.Kind, ids []uuid.UUID) ([]string, error) {
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		encoded, err := publicID(kind, id)

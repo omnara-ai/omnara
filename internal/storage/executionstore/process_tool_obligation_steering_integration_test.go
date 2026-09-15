@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -104,7 +105,7 @@ func TestSteeringWaitsForPendingToolObligation(t *testing.T) {
 	}
 	if !found || work.Kind != executionstore.AgentWorkTool || work.Tool.TurnID != turnID ||
 		work.Tool.ModelCallContextID != modelContextID ||
-		work.Model.AdmittedInputTurn.Turn.ID != NilID {
+		work.Model.AdmittedInputTurn.Turn.ID != uuid.Nil {
 		t.Fatalf(
 			"claimed work = %+v found=%v, want existing turn %s context %s without steering admission",
 			work,
@@ -184,7 +185,7 @@ func TestIdempotentSteeringReplayDoesNotCancelOpenInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load interaction after replay: %v", err)
 	}
-	if !found || preserved.State != executionstore.AgentInteractionStateOpen || preserved.ResolvedByInputID != NilID {
+	if !found || preserved.State != executionstore.AgentInteractionStateOpen || preserved.ResolvedByInputID != uuid.Nil {
 		t.Fatalf("interaction after replay = %+v found=%v, want open", preserved, found)
 	}
 }
@@ -233,7 +234,7 @@ func TestPromoteQueuedInputPreservesOpenInteractionsByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load interaction after promotion: %v", err)
 	}
-	if !found || preserved.State != executionstore.AgentInteractionStateOpen || preserved.ResolvedByInputID != NilID {
+	if !found || preserved.State != executionstore.AgentInteractionStateOpen || preserved.ResolvedByInputID != uuid.Nil {
 		t.Fatalf("interaction after promotion = %+v found=%v, want open", preserved, found)
 	}
 	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)

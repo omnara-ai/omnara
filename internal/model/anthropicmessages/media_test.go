@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 const (
@@ -183,13 +183,13 @@ func TestPrepareDropsOldestMediaToFitProviderBodyLimit(t *testing.T) {
 
 func TestPrepareDropsOneHistoricalOccurrenceWhenOpeningReusesArtifact(t *testing.T) {
 	const artifactID = "019b18be-0000-7000-8000-00000000a013"
-	openingInputID, err := storage.ParseID("019b18be-0000-7000-8000-00000000b013")
+	openingInputID, err := uuid.Parse("019b18be-0000-7000-8000-00000000b013")
 	if err != nil {
 		t.Fatalf("parse opening input id: %v", err)
 	}
 	data := bytes.Repeat([]byte("r"), 512)
 	bundle := modelcontext.Bundle{
-		OpeningInputIDs: []storage.ID{openingInputID},
+		OpeningInputIDs: []uuid.UUID{openingInputID},
 		Messages: []modelcontext.Message{
 			{Role: modelprotocol.RoleUser, Sequence: 1, Content: json.RawMessage(`[{"type":"media_ref","artifact_id":"` + artifactID + `"}]`)},
 			{Role: modelprotocol.RoleUser, Sequence: 2, Content: json.RawMessage(`[{"type":"media_ref","artifact_id":"` + artifactID + `"}]`)},
@@ -255,14 +255,14 @@ func TestPrepareNeverDropsOpeningMediaToFitProviderBodyLimit(t *testing.T) {
 		currentID    = "019b18be-0000-7000-8000-00000000a021"
 		historicalID = "019b18be-0000-7000-8000-00000000a022"
 	)
-	openingInputID, err := storage.ParseID("019b18be-0000-7000-8000-00000000b021")
+	openingInputID, err := uuid.Parse("019b18be-0000-7000-8000-00000000b021")
 	if err != nil {
 		t.Fatalf("parse opening input id: %v", err)
 	}
 	currentData := bytes.Repeat([]byte("c"), 512)
 	historicalData := bytes.Repeat([]byte("h"), 512)
 	bundle := modelcontext.Bundle{
-		OpeningInputIDs: []storage.ID{openingInputID},
+		OpeningInputIDs: []uuid.UUID{openingInputID},
 		Messages: []modelcontext.Message{
 			{
 				Role:         "user",
@@ -329,7 +329,7 @@ func TestPrepareNeverDropsOpeningMediaToFitProviderBodyLimit(t *testing.T) {
 
 func TestPrepareRejectsOpeningImageAboveAnthropicPerImageLimit(t *testing.T) {
 	const currentID = "019b18be-0000-7000-8000-00000000a023"
-	openingInputID, err := storage.ParseID("019b18be-0000-7000-8000-00000000b023")
+	openingInputID, err := uuid.Parse("019b18be-0000-7000-8000-00000000b023")
 	if err != nil {
 		t.Fatalf("parse opening input id: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestPrepareRejectsOpeningImageAboveAnthropicPerImageLimit(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
 	_, err = client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{
-			OpeningInputIDs: []storage.ID{openingInputID},
+			OpeningInputIDs: []uuid.UUID{openingInputID},
 			Messages: []modelcontext.Message{{Sequence: 1, Role: "user",
 				AgentInputID: openingInputID.String(),
 				Content: json.RawMessage(

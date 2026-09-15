@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -28,7 +28,7 @@ type renewalDeadlineStore struct {
 
 type retainedRuntimeStore struct {
 	claim                          executionstore.ClaimedAgentWork
-	released                       chan storage.ID
+	released                       chan uuid.UUID
 	renewed                        chan struct{}
 	firstLocalLeaseBudgetStartedAt time.Time
 	renewalCalls                   atomic.Int32
@@ -107,15 +107,15 @@ func (e *failingThenBlockTurnExecutor) ExecuteModelWork(
 
 func TestExecuteWorkPreservesContinuationSourceLineage(t *testing.T) {
 	now := time.Date(2026, 7, 28, 15, 0, 0, 0, time.UTC)
-	orgID := storage.ID{9}
-	projectID := storage.ID{1}
-	agentID := storage.ID{2}
-	sourceContextID := storage.ID{3}
-	sourceOutputID := storage.ID{4}
-	turnID := storage.ID{5}
-	firstInputID := storage.ID{6}
-	secondInputID := storage.ID{7}
-	runtimeLockID := storage.ID{8}
+	orgID := uuid.UUID{9}
+	projectID := uuid.UUID{1}
+	agentID := uuid.UUID{2}
+	sourceContextID := uuid.UUID{3}
+	sourceOutputID := uuid.UUID{4}
+	turnID := uuid.UUID{5}
+	firstInputID := uuid.UUID{6}
+	secondInputID := uuid.UUID{7}
+	runtimeLockID := uuid.UUID{8}
 	executor := &recordingModelWorkExecutor{}
 	worker := &Worker{executor: executor}
 
@@ -134,7 +134,7 @@ func TestExecuteWorkPreservesContinuationSourceLineage(t *testing.T) {
 				SourceModelCallContextID: sourceContextID,
 				SourceModelOutputID:      sourceOutputID,
 				TurnID:                   turnID,
-				InputIDs:                 []storage.ID{firstInputID, secondInputID},
+				InputIDs:                 []uuid.UUID{firstInputID, secondInputID},
 				OpeningEventSequence:     42,
 			},
 		},
@@ -173,15 +173,15 @@ func (s *retainedRuntimeStore) ClaimNextAgentWork(
 
 func (*retainedRuntimeStore) DeleteAgentWakeupIfNoWork(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 ) error {
 	return nil
 }
 
 func (s *retainedRuntimeStore) ReleaseAgentRuntimeLock(
 	_ context.Context,
-	_, _, runtimeID storage.ID,
+	_, _, runtimeID uuid.UUID,
 ) error {
 	s.released <- runtimeID
 	return nil
@@ -189,9 +189,9 @@ func (s *retainedRuntimeStore) ReleaseAgentRuntimeLock(
 
 func (s *retainedRuntimeStore) RenewAgentRuntimeLock(
 	context.Context,
-	storage.ID,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
+	uuid.UUID,
 	time.Duration,
 ) (executionstore.AgentRuntimeLockRenewal, error) {
 	call := s.renewalCalls.Add(1)
@@ -275,9 +275,9 @@ func (e *retainedAsyncExecutor) ExecuteToolWork(ctx context.Context, _ kernel.To
 }
 
 func TestWorkerRetainsRuntimeWithoutConsumingTurnExecution(t *testing.T) {
-	projectID := storage.ID{1}
-	agentID := storage.ID{2}
-	runtimeID := storage.ID{3}
+	projectID := uuid.UUID{1}
+	agentID := uuid.UUID{2}
+	runtimeID := uuid.UUID{3}
 	store := &retainedRuntimeStore{
 		claim: executionstore.ClaimedAgentWork{
 			ProjectID:   projectID,
@@ -285,13 +285,13 @@ func TestWorkerRetainsRuntimeWithoutConsumingTurnExecution(t *testing.T) {
 			Kind:        executionstore.AgentWorkTool,
 			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: runtimeID},
 			Tool: executionstore.ClaimedToolWork{
-				TurnID:             storage.ID{4},
-				ModelCallContextID: storage.ID{5},
-				ModelOutputID:      storage.ID{6},
-				SourceEventID:      storage.ID{7},
+				TurnID:             uuid.UUID{4},
+				ModelCallContextID: uuid.UUID{5},
+				ModelOutputID:      uuid.UUID{6},
+				SourceEventID:      uuid.UUID{7},
 			},
 		},
-		released: make(chan storage.ID, 1),
+		released: make(chan uuid.UUID, 1),
 	}
 	executor := &retainedAsyncExecutor{
 		started:       make(chan struct{}),
@@ -365,9 +365,9 @@ func (e *cancelableRetainedAsyncExecutor) ExecuteToolWork(ctx context.Context, _
 }
 
 func TestWorkerControlCancelsRetainedAsyncExecution(t *testing.T) {
-	projectID := storage.ID{1}
-	agentID := storage.ID{2}
-	runtimeID := storage.ID{3}
+	projectID := uuid.UUID{1}
+	agentID := uuid.UUID{2}
+	runtimeID := uuid.UUID{3}
 	store := &retainedRuntimeStore{
 		claim: executionstore.ClaimedAgentWork{
 			ProjectID:   projectID,
@@ -375,13 +375,13 @@ func TestWorkerControlCancelsRetainedAsyncExecution(t *testing.T) {
 			Kind:        executionstore.AgentWorkTool,
 			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: runtimeID},
 			Tool: executionstore.ClaimedToolWork{
-				TurnID:             storage.ID{4},
-				ModelCallContextID: storage.ID{5},
-				ModelOutputID:      storage.ID{6},
-				SourceEventID:      storage.ID{7},
+				TurnID:             uuid.UUID{4},
+				ModelCallContextID: uuid.UUID{5},
+				ModelOutputID:      uuid.UUID{6},
+				SourceEventID:      uuid.UUID{7},
 			},
 		},
-		released: make(chan storage.ID, 1),
+		released: make(chan uuid.UUID, 1),
 	}
 	executor := &cancelableRetainedAsyncExecutor{
 		started:  make(chan struct{}),
@@ -421,9 +421,9 @@ func TestWorkerControlCancelsRetainedAsyncExecution(t *testing.T) {
 }
 
 func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing.T) {
-	projectID := storage.ID{1}
-	agentID := storage.ID{2}
-	runtimeID := storage.ID{3}
+	projectID := uuid.UUID{1}
+	agentID := uuid.UUID{2}
+	runtimeID := uuid.UUID{3}
 	store := &retainedRuntimeStore{
 		claim: executionstore.ClaimedAgentWork{
 			ProjectID:   projectID,
@@ -431,13 +431,13 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 			Kind:        executionstore.AgentWorkTool,
 			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: runtimeID},
 			Tool: executionstore.ClaimedToolWork{
-				TurnID:             storage.ID{4},
-				ModelCallContextID: storage.ID{5},
-				ModelOutputID:      storage.ID{6},
-				SourceEventID:      storage.ID{7},
+				TurnID:             uuid.UUID{4},
+				ModelCallContextID: uuid.UUID{5},
+				ModelOutputID:      uuid.UUID{6},
+				SourceEventID:      uuid.UUID{7},
 			},
 		},
-		released:                       make(chan storage.ID, 1),
+		released:                       make(chan uuid.UUID, 1),
 		renewed:                        make(chan struct{}),
 		firstLocalLeaseBudgetStartedAt: time.Now().Add(-executionstore.MinimumAgentRuntimeLockLeaseDuration),
 	}
@@ -506,20 +506,20 @@ func TestWorkerLoopContinuesAfterTurnFailure(t *testing.T) {
 		{name: "panic", firstPanic: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			runtimeID := storage.ID{3}
+			runtimeID := uuid.UUID{3}
 			store := &retainedRuntimeStore{
 				claim: executionstore.ClaimedAgentWork{
-					ProjectID:   storage.ID{1},
-					AgentID:     storage.ID{2},
+					ProjectID:   uuid.UUID{1},
+					AgentID:     uuid.UUID{2},
 					Kind:        executionstore.AgentWorkModel,
 					RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: runtimeID},
 					Model: executionstore.ClaimedModelWork{
-						TurnID:               storage.ID{4},
-						InputIDs:             []storage.ID{{5}},
+						TurnID:               uuid.UUID{4},
+						InputIDs:             []uuid.UUID{{5}},
 						OpeningEventSequence: 1,
 					},
 				},
-				released: make(chan storage.ID, 2),
+				released: make(chan uuid.UUID, 2),
 			}
 			executor := &failingThenBlockTurnExecutor{
 				firstPanic:    test.firstPanic,
@@ -597,21 +597,21 @@ func TestWorkerLoopRetainsMixedShutdownError(t *testing.T) {
 }
 
 func TestWorkerReturnsUnavailableModelGrantError(t *testing.T) {
-	runtimeID := storage.ID{3}
+	runtimeID := uuid.UUID{3}
 	store := &retainedRuntimeStore{
 		claim: executionstore.ClaimedAgentWork{
-			ProjectID:   storage.ID{1},
-			AgentID:     storage.ID{2},
+			ProjectID:   uuid.UUID{1},
+			AgentID:     uuid.UUID{2},
 			Kind:        executionstore.AgentWorkModel,
 			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: runtimeID},
 			Model: executionstore.ClaimedModelWork{
 				Kind:                 executionstore.ModelWorkStart,
-				TurnID:               storage.ID{4},
-				InputIDs:             []storage.ID{{5}},
+				TurnID:               uuid.UUID{4},
+				InputIDs:             []uuid.UUID{{5}},
 				OpeningEventSequence: 1,
 			},
 		},
-		released: make(chan storage.ID, 1),
+		released: make(chan uuid.UUID, 1),
 	}
 	worker := NewWorker(
 		store,
@@ -659,24 +659,24 @@ func (s *renewalDeadlineStore) ClaimNextAgentWork(
 
 func (s *renewalDeadlineStore) DeleteAgentWakeupIfNoWork(
 	context.Context,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
 ) error {
 	panic("unexpected DeleteAgentWakeupIfNoWork call")
 }
 
 func (s *renewalDeadlineStore) ReleaseAgentRuntimeLock(
 	context.Context,
-	storage.ID,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
+	uuid.UUID,
 ) error {
 	panic("unexpected ReleaseAgentRuntimeLock call")
 }
 
 func (s *renewalDeadlineStore) RenewAgentRuntimeLock(
 	ctx context.Context,
-	_, _, _ storage.ID,
+	_, _, _ uuid.UUID,
 	_ time.Duration,
 ) (executionstore.AgentRuntimeLockRenewal, error) {
 	call := s.calls.Add(1)
@@ -750,9 +750,9 @@ func TestRuntimeRenewalUsesLocalMonotonicBudgetAcrossClockSkew(t *testing.T) {
 			startedAt := time.Now()
 			_, _, stop, err := worker.startRuntimeRenewal(
 				context.Background(),
-				storage.ID{1},
-				storage.ID{2},
-				executionstore.AgentRuntimeLockRecord{ID: storage.ID{3}, LeaseExpiresAt: test.leaseExpiresAt},
+				uuid.UUID{1},
+				uuid.UUID{2},
+				executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}, LeaseExpiresAt: test.leaseExpiresAt},
 			)
 			if err != nil {
 				t.Fatalf("start runtime renewal: %v", err)
@@ -790,9 +790,9 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 
 	_, _, stop, err := worker.startRuntimeRenewal(
 		context.Background(),
-		storage.ID{1},
-		storage.ID{2},
-		executionstore.AgentRuntimeLockRecord{ID: storage.ID{3}, LeaseExpiresAt: leaseExpiresAt},
+		uuid.UUID{1},
+		uuid.UUID{2},
+		executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}, LeaseExpiresAt: leaseExpiresAt},
 	)
 	if err != nil {
 		t.Fatalf("start runtime renewal after transient failure: %v", err)

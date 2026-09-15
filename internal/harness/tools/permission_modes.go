@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -303,12 +303,11 @@ func inspectMachinePermissionChallenge(
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	input, err := resolveMachineIDRequest(call.Input, true)
+	machineID, err := resolveMachineIDRequest(call.Input, true)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	machineID := input.MachineID
-	if machineID == storage.NilID {
+	if machineID == uuid.Nil {
 		if executor.Store == nil {
 			return toolpermission.Request{}, fmt.Errorf("tool executor store is required")
 		}

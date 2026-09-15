@@ -36,9 +36,9 @@ type publicHTTPProject struct {
 	OrgID         string
 	ProjectID     string
 	AdminUserID   string
-	OrgUUID       storage.ID
-	ProjectUUID   storage.ID
-	AdminUserUUID storage.ID
+	OrgUUID       uuid.UUID
+	ProjectUUID   uuid.UUID
+	AdminUserUUID uuid.UUID
 	AdminToken    string
 	AdminSession  string
 	AdminCSRF     string
@@ -170,7 +170,7 @@ func newIntegrationStore(pool *pgxpool.Pool) *storage.Store {
 	)
 }
 
-func httpUserPrincipal(userID storage.ID) identitystore.PrincipalRecord {
+func httpUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 
@@ -178,8 +178,8 @@ func httpOmnaraActorID(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
-) storage.ID {
+	orgID, projectID, userID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	params := httpOmnaraActorParams(t, orgID, userID)
 	actors, err := store.Execution().ListActors(ctx, executionstore.ListActorsInput{
@@ -194,7 +194,7 @@ func httpOmnaraActorID(
 	return actors[0].ID
 }
 
-func httpOmnaraActorParams(t *testing.T, orgID, userID storage.ID) *executionstore.ActorParams {
+func httpOmnaraActorParams(t *testing.T, orgID, userID uuid.UUID) *executionstore.ActorParams {
 	t.Helper()
 	params, err := executionstore.OmnaraActorParams(orgID, httpUserPrincipal(userID))
 	if err != nil {
@@ -207,7 +207,7 @@ func httpOmnaraActorPublicID(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 ) string {
 	t.Helper()
 	return testPublicID(
@@ -632,7 +632,7 @@ func mustPublicHTTPID(
 	t *testing.T,
 	kind publicid.Kind,
 	value string,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	id, err := publicid.Decode(kind, value)
 	if err != nil {
@@ -641,7 +641,7 @@ func mustPublicHTTPID(
 	return id
 }
 
-func httpTestID(seed string) storage.ID {
+func httpTestID(seed string) uuid.UUID {
 	return uuid.NewSHA1(
 		uuid.NameSpaceOID,
 		[]byte("omnara-http-integration:"+seed),

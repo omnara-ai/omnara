@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -88,7 +89,7 @@ func appendToolResultRecordTx(
 			record.AgentID,
 			record.TurnID,
 			admitted.Event.Event.ID,
-			NilID,
+			uuid.Nil,
 		); err != nil {
 			return admittedToolCallResult{}, err
 		}
@@ -109,7 +110,7 @@ func applyAdmittedToolResult(record *ToolCallRecord, admitted admittedToolCallRe
 func completedToolCallMatchesTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	outcome ToolResultOutcome,
 	contentParts json.RawMessage,
 ) (bool, error) {
@@ -217,7 +218,7 @@ func startedProcessToolResult(process ProcessRecord, observed json.RawMessage) (
 }
 
 func commandTerminalToolResult(
-	processID ID,
+	processID uuid.UUID,
 	result json.RawMessage,
 ) (json.RawMessage, error) {
 	if len(result) == 0 || string(result) == "null" {
@@ -239,7 +240,7 @@ func isUploadArtifactToolCall(call ToolCallRecord) bool {
 		call.Name == toolcatalog.ToolNameUploadArtifact
 }
 
-func UploadArtifactIdempotencyKey(toolCallID ID) string {
+func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
 

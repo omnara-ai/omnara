@@ -16,10 +16,10 @@ import (
 )
 
 type PublishContextCheckpointInput struct {
-	ProjectID               ID
-	AgentID                 ID
-	RuntimeLockID           ID
-	ModelCallContextID      ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	RuntimeLockID           uuid.UUID
+	ModelCallContextID      uuid.UUID
 	Summary                 string
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
@@ -153,7 +153,7 @@ func (s *Store) PublishContextCheckpoint(
 		input.AgentID,
 		turnID,
 		eventRecord.Event.ID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		return ContextCheckpointRecord{}, err
 	}
@@ -225,8 +225,8 @@ func compactionSourceStartTx(
 }
 
 func validatePublishContextCheckpointInput(input PublishContextCheckpointInput) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) || input.Summary == "" {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil || input.Summary == "" {
 		return errors.New("project, agent, runtime, context, and summary are required")
 	}
 	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {

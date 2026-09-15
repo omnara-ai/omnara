@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelretry"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -40,7 +40,7 @@ type modelStep struct {
 	Envelope            modelenvelope.ResponseEnvelope
 	Response            model.Response
 	Resolved            model.ResolvedClient
-	StreamedToolCallIDs map[string]storage.ID
+	StreamedToolCallIDs map[string]uuid.UUID
 }
 
 func (e AgentExecutor) executeModelStep(

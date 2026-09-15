@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -14,7 +15,7 @@ var ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is uns
 func validateClosedCheckpointRangeTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	start, end int64,
 ) error {
 	count, err := dbsqlc.New(tx).CountCheckpointRangeEvents(
@@ -43,7 +44,7 @@ func validateClosedCheckpointRangeTx(
 func validateCheckpointDoesNotCutOpenAuthoritiesTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	start, end int64,
 ) error {
 	count, err := dbsqlc.New(tx).CountCheckpointRangeOpenToolResults(

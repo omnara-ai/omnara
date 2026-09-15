@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -75,7 +76,7 @@ func (s *Store) ReapExpiredAgentRuntimeLocks(ctx context.Context, batchSize int3
 
 func (s *Store) reapExpiredAgentRuntimeLock(
 	ctx context.Context,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -105,7 +106,7 @@ func reapExpiredAgentRuntimeLockTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	retryBackoff func(int, string) time.Duration,
 ) (bool, error) {
 	qtx := dbsqlc.New(tx)

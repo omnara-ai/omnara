@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -53,7 +54,7 @@ func TestSteeringPreservesEveryUnansweredOpeningInput(t *testing.T) {
 				t.Fatalf("first claim found=%v work=%+v err=%v", found, firstWork, err)
 			}
 
-			var firstContextID ID
+			var firstContextID uuid.UUID
 			if test.createContext {
 				claim := claimTestNormalModelCallForWork(
 					t,
@@ -127,7 +128,7 @@ func TestSteeringPreservesEveryUnansweredOpeningInput(t *testing.T) {
 			if newClaim.Context.AttemptNumber != 1 {
 				t.Fatalf("steered context attempt = %d, want retry count reset to 1", newClaim.Context.AttemptNumber)
 			}
-			if firstContextID != NilID {
+			if firstContextID != uuid.Nil {
 				firstContext, found, err := fixture.Store.Execution().GetModelCallContext(
 					ctx,
 					testProjectID,

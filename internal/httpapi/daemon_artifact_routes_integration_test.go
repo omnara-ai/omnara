@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -291,7 +292,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		"daemon-artifact-download-success",
 		"download_artifact",
 		nil,
-		func(agentID storage.ID) json.RawMessage {
+		func(agentID uuid.UUID) json.RawMessage {
 			artifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 				ProjectID:   project.ProjectUUID,
 				AgentID:     agentID,
@@ -384,7 +385,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		"daemon-artifact-download-cross-agent",
 		"download_artifact",
 		nil,
-		func(storage.ID) json.RawMessage {
+		func(uuid.UUID) json.RawMessage {
 			input, err := json.Marshal(map[string]string{
 				"artifact_id": otherAgentArtifactID,
 				"path":        "private.txt",
@@ -422,7 +423,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		"daemon-artifact-download-wrong-tool",
 		"run_command",
 		nil,
-		func(storage.ID) json.RawMessage {
+		func(uuid.UUID) json.RawMessage {
 			input, err := json.Marshal(map[string]string{"artifact_id": artifactID, "path": "report.pdf"})
 			if err != nil {
 				t.Fatalf("marshal wrong-tool input: %v", err)
@@ -452,7 +453,7 @@ func requestDaemonArtifactDownload(
 	t *testing.T,
 	handler http.Handler,
 	token string,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	artifactID string,
 	wantStatus int,
 ) *httptest.ResponseRecorder {
@@ -494,7 +495,7 @@ func requestDaemonArtifactUploadForToolCall(
 	t *testing.T,
 	handler http.Handler,
 	token string,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	filename string,
 	body []byte,
 	wantStatus int,
@@ -551,7 +552,7 @@ func TestDaemonArtifactProcessScopeRejectsWrongMachine(t *testing.T) {
 	_, found, err := store.Execution().GetDaemonArtifactProcessScope(
 		ctx,
 		fixture.OrgUUID,
-		storage.ID{1},
+		uuid.UUID{1},
 		fixture.ToolCallUUID,
 		"upload_artifact",
 	)

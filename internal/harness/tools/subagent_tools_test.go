@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -122,15 +121,15 @@ type recordingPoolMachineManager struct {
 	deleted [][]executionstore.MachineRecord
 }
 
-func (m *recordingPoolMachineManager) ProvisionMachine(context.Context, storage.ID, storage.ID) error {
+func (m *recordingPoolMachineManager) ProvisionMachine(context.Context, uuid.UUID, uuid.UUID) error {
 	return nil
 }
 
 func (m *recordingPoolMachineManager) StartLaunchProvisioning(
 	context.Context,
 	*slog.Logger,
-	storage.ID,
-	[]storage.ID,
+	uuid.UUID,
+	[]uuid.UUID,
 ) {
 }
 
@@ -149,7 +148,7 @@ func (m *recordingPoolMachineManager) DeleteMachines(
 	return len(machines), nil
 }
 
-func (m *recordingPoolMachineManager) WakeMachine(context.Context, storage.ID, storage.ID) (bool, error) {
+func (m *recordingPoolMachineManager) WakeMachine(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return false, nil
 }
 

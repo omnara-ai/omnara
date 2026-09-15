@@ -1007,7 +1007,7 @@ func loadDaemonRuntimeLeaseForTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	runtimeID storage.ID,
+	runtimeID uuid.UUID,
 ) daemonRuntimeLeaseForTest {
 	t.Helper()
 	var record daemonRuntimeLeaseForTest
@@ -1025,7 +1025,7 @@ func expireDaemonRuntimeForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	runtimeID storage.ID,
+	runtimeID uuid.UUID,
 ) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

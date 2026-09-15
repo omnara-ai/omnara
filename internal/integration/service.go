@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -18,16 +19,16 @@ type Service struct {
 }
 
 type executionStore interface {
-	GetAgentProfile(context.Context, executionstore.ID, executionstore.ID) (executionstore.AgentProfileRecord, error)
+	GetAgentProfile(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentProfileRecord, error)
 	LaunchAgent(context.Context, executionstore.LaunchAgentInput) (executionstore.LaunchAgentResult, error)
 }
 
 type integrationStore interface {
-	GetIntegrationInstallByID(context.Context, integrationstore.ID) (integrationstore.IntegrationInstallRecord, error)
+	GetIntegrationInstallByID(context.Context, uuid.UUID) (integrationstore.IntegrationInstallRecord, error)
 	GetIntegrationTargetByProviderRef(
 		context.Context,
-		integrationstore.ID,
-		integrationstore.ID,
+		uuid.UUID,
+		uuid.UUID,
 		string,
 	) (integrationstore.IntegrationTargetRecord, error)
 	CreateIntegrationTarget(
@@ -41,7 +42,7 @@ func New(execution executionStore, integrations integrationStore) *Service {
 }
 
 type GetOrCreateTargetInput struct {
-	IntegrationInstallID integrationstore.ID
+	IntegrationInstallID uuid.UUID
 	ProviderRef          string
 	ProviderRefKind      string
 	DisplayName          string
@@ -51,7 +52,7 @@ func (s *Service) GetOrCreateTarget(
 	ctx context.Context,
 	input GetOrCreateTargetInput,
 ) (integrationstore.IntegrationTargetRecord, executionstore.LaunchAgentResult, error) {
-	if input.IntegrationInstallID == integrationstore.NilID ||
+	if input.IntegrationInstallID == uuid.Nil ||
 		input.ProviderRef == "" || input.ProviderRefKind == "" {
 		return integrationstore.IntegrationTargetRecord{}, executionstore.LaunchAgentResult{}, errors.New(
 			"integration install, provider ref, and provider ref kind are required",
@@ -80,7 +81,7 @@ func (s *Service) GetOrCreateTarget(
 
 	agentID := install.AgentID
 	var launch executionstore.LaunchAgentResult
-	if agentID == integrationstore.NilID {
+	if agentID == uuid.Nil {
 		profile, err := s.execution.GetAgentProfile(ctx, install.ProjectID, install.AgentProfileID)
 		if err != nil {
 			return integrationstore.IntegrationTargetRecord{}, executionstore.LaunchAgentResult{}, err

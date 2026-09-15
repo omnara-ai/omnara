@@ -13,7 +13,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	mlog "github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -142,7 +141,7 @@ func (m Manager) openLegacySession(ctx context.Context, wireConn Conn) (Conn, In
 }
 
 func (m Manager) connectionRequestIDs(
-	projectID, agentID, connectionID storage.ID,
+	projectID, agentID, connectionID uuid.UUID,
 ) func(context.Context) (int64, error) {
 	return func(ctx context.Context) (int64, error) {
 		seq, err := m.Execution.NextMCPRequestSequence(ctx, projectID, agentID, connectionID)
@@ -196,7 +195,7 @@ func (m Manager) negotiatedCatalogFetch(wireConn Conn, legacy catalogFetch) cata
 
 func (m Manager) initializeStateless(
 	ctx context.Context,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 	identity executionstore.MCPServerCatalogIdentity,
@@ -215,7 +214,7 @@ func (m Manager) initializeStateless(
 
 func (m Manager) initializeLegacy(
 	ctx context.Context,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 	wireConn Conn,
@@ -263,7 +262,7 @@ func boundSession(
 
 func (m Manager) bindCatalog(
 	ctx context.Context,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 	mcpSessionID, protocolVersion string,
@@ -384,7 +383,7 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 	callerCtx context.Context,
 	identity executionstore.MCPServerCatalogIdentity,
 	current executionstore.MCPServerCatalogRecord,
-	owner storage.ID,
+	owner uuid.UUID,
 	timeout time.Duration,
 	fetch catalogFetch,
 ) (executionstore.MCPServerCatalogRecord, error) {
@@ -450,7 +449,7 @@ func (m Manager) markCatalogRefreshFailed(
 	ctx context.Context,
 	identity executionstore.MCPServerCatalogIdentity,
 	current executionstore.MCPServerCatalogRecord,
-	owner storage.ID,
+	owner uuid.UUID,
 	cause error,
 ) error {
 	ctx, cancel := failureRecordContext(ctx)
@@ -462,7 +461,7 @@ func (m Manager) markCatalogRefreshFailed(
 
 func (m Manager) refreshReadyCatalog(
 	ctx context.Context,
-	orgID, projectID, agentID storage.ID,
+	orgID, projectID, agentID uuid.UUID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 ) (ConnectionResult, error) {
@@ -504,7 +503,7 @@ func (m Manager) refreshReadyCatalog(
 
 func (m Manager) refreshCatalogNow(
 	ctx context.Context,
-	orgID, projectID, agentID storage.ID,
+	orgID, projectID, agentID uuid.UUID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 ) (ConnectionResult, error) {
@@ -545,7 +544,7 @@ func (m Manager) refreshCatalogNow(
 
 func (m Manager) rebindCatalog(
 	ctx context.Context,
-	orgID, projectID, agentID storage.ID,
+	orgID, projectID, agentID uuid.UUID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 	catalog executionstore.MCPServerCatalogRecord,

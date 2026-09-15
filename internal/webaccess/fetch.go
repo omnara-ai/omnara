@@ -26,10 +26,6 @@ const (
 	MaxFetchTimeoutSeconds     = 120
 )
 
-// ErrBlockedAddress marks SSRF rejections (loopback, private, link-local, and
-// other special-use addresses).
-var ErrBlockedAddress = ssrf.ErrBlockedAddress
-
 type FetcherOptions struct {
 	// AllowLoopback opens loopback targets and disables the http→https
 	// upgrade for local development (wired from the same dev flag as the MCP
@@ -219,7 +215,7 @@ func mapFetchError(err error, ctx context.Context) error {
 	if errors.As(err, &providerErr) {
 		return providerErr
 	}
-	if errors.Is(err, ErrBlockedAddress) {
+	if errors.Is(err, ssrf.ErrBlockedAddress) {
 		return &ProviderError{Code: ErrorCodeFetchBlocked, Message: BlockedAddressGuidance}
 	}
 	if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) {

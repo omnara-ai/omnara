@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 type runCommandRequest struct {
@@ -22,7 +22,7 @@ type runCommandRequest struct {
 
 type resolvedRunCommandRequest struct {
 	Command   string
-	MachineID storage.ID
+	MachineID uuid.UUID
 	Selector  processcmd.ShellSelector
 	Cwd       string
 	WaitMs    int

@@ -10,12 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 func TestInstallationIsSeededSingleton(t *testing.T) {
@@ -24,11 +26,11 @@ func TestInstallationIsSeededSingleton(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	var installationID ID
+	var installationID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT id FROM installation WHERE singleton_key = 1`).Scan(&installationID); err != nil {
 		t.Fatalf("get installation: %v", err)
 	}
-	if isNilID(installationID) {
+	if installationID == uuid.Nil {
 		t.Fatal("installation id is empty")
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO installation DEFAULT VALUES`); err == nil {
@@ -52,7 +54,7 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 45, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "agent-machine-binding-replay@example.com",
 			DisplayName: "Agent Machine Binding Replay Tester",
 		},
@@ -121,7 +123,7 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	user, err := store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{
+	user, err := store.Identity().CreateVerifiedUser(ctx, storagetest.CreateVerifiedUserInput{
 		Email:       "agent-machine-observation@example.com",
 		DisplayName: "Agent Machine Observation Tester",
 	})
@@ -299,7 +301,7 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 5, 18, 12, 46, 0, 0, time.UTC)
-	user, err := store.Identity().CreateVerifiedUser(ctx, CreateVerifiedUserInput{
+	user, err := store.Identity().CreateVerifiedUser(ctx, storagetest.CreateVerifiedUserInput{
 		Email:       "agent-machine-binding-history@example.com",
 		DisplayName: "Agent Machine Binding History Tester",
 	})
@@ -503,7 +505,7 @@ func TestReleasedAgentMachineBindingRejectsReplay(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 47, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "agent-machine-binding-released-replay@example.com",
 			DisplayName: "Agent Machine Binding Released Replay Tester",
 		},
@@ -613,7 +615,7 @@ func TestCreateProjectMachineGrantDoesNotMutateExistingBindings(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 48, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "agent-machine-binding-retarget-scope@example.com",
 			DisplayName: "Agent Machine Binding Retarget Scope Tester",
 		},
@@ -749,15 +751,15 @@ func TestCreateProjectMachineGrantDoesNotMutateExistingBindings(t *testing.T) {
 
 type contextMachine struct {
 	Machine executionstore.MachineRecord
-	GrantID ID
+	GrantID uuid.UUID
 }
 
 func createContextMachine(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	id ID,
-	userID ID,
+	id uuid.UUID,
+	userID uuid.UUID,
 	now time.Time,
 ) contextMachine {
 	t.Helper()

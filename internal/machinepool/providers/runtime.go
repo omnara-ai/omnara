@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -42,8 +42,8 @@ func (state RuntimeState) Valid() bool {
 }
 
 type RuntimeTarget struct {
-	InstallationID      storage.ID
-	MachineID           storage.ID
+	InstallationID      uuid.UUID
+	MachineID           uuid.UUID
 	ProviderResourceID  string
 	MachineProvisioning executionstore.MachineProvisioningConfig
 }
@@ -57,7 +57,7 @@ func (target RuntimeTarget) UnknownObservation() RuntimeObservation {
 }
 
 type RuntimeObservation struct {
-	MachineID          storage.ID
+	MachineID          uuid.UUID
 	ProviderResourceID string
 	State              RuntimeState
 }

@@ -62,11 +62,11 @@ func kernelTestClaimInput(_ time.Time) executionstore.ClaimNextAgentWorkInput {
 	}
 }
 
-func kernelTestID(seed string) storage.ID {
+func kernelTestID(seed string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-kernel-integration:"+seed))
 }
 
-func kernelTestUserPrincipal(userID storage.ID) identitystore.PrincipalRecord {
+func kernelTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 
@@ -104,7 +104,7 @@ func kernelTestKeyWrapper(t *testing.T) secrets.KeyWrapper {
 	return wrapper
 }
 
-func kernelTestOmnaraActorParams(t *testing.T, userID storage.ID) *executionstore.ActorParams {
+func kernelTestOmnaraActorParams(t *testing.T, userID uuid.UUID) *executionstore.ActorParams {
 	t.Helper()
 	params, err := executionstore.OmnaraActorParams(kernelTestOrgID, kernelTestUserPrincipal(userID))
 	if err != nil {
@@ -179,7 +179,7 @@ func (f kernelFixture) createAgent(
 	modelSelection string,
 	now time.Time,
 	tools ...string,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	return f.createNamedAgentWithModelOptions(
 		t,
@@ -199,7 +199,7 @@ func (f kernelFixture) createAgentWithModelOptions(
 	now time.Time,
 	modelOptions kernelConfiguredModelOptions,
 	tools ...string,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	return f.createNamedAgentWithModelOptions(
 		t,
@@ -219,7 +219,7 @@ func (f kernelFixture) createNamedAgentWithModelOptions(
 	now time.Time,
 	modelOptions kernelConfiguredModelOptions,
 	tools ...string,
-) (storage.ID, storage.ID) {
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	providerConfigBaseName, configuredModelName, ok := strings.Cut(modelSelection, "/")
 	if !ok {
@@ -486,9 +486,9 @@ SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
 	}
 }
 
-func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {
+func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := storage.ParseID(compiled.Compiled.Model.ConfiguredModelID)
+	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("parse compiled configured model id: %v", err)
 	}
@@ -500,7 +500,7 @@ func configuredModelIDForKernelConfig(
 	ctx context.Context,
 	store *storage.Store,
 	config executionstore.AgentConfigRecord,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	return currentConfiguredModelForKernelConfig(t, ctx, store, config).ID
 }
@@ -510,7 +510,7 @@ func currentRevisionIDForKernelConfig(
 	ctx context.Context,
 	store *storage.Store,
 	config executionstore.AgentConfigRecord,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	return currentRevisionIDForKernelConfiguredModelID(t, ctx, store, config.ConfiguredModelID)
 }
@@ -520,7 +520,7 @@ func currentProjectModelGrantIDForKernelConfig(
 	ctx context.Context,
 	store *storage.Store,
 	config executionstore.AgentConfigRecord,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	return currentProjectModelGrantIDForKernelConfiguredModelID(
 		t,
@@ -536,10 +536,10 @@ func currentProjectModelGrantIDForKernelConfiguredModelID(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID storage.ID,
-	projectID storage.ID,
-	configuredModelID storage.ID,
-) storage.ID {
+	orgID uuid.UUID,
+	projectID uuid.UUID,
+	configuredModelID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(ctx, orgID, projectID, configuredModelID)
 	if err != nil {
@@ -552,8 +552,8 @@ func currentRevisionIDForKernelConfiguredModelID(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	configuredModelID storage.ID,
-) storage.ID {
+	configuredModelID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	configuredModel, err := store.Models().GetConfiguredModel(ctx, kernelTestOrgID, configuredModelID)
 	if err != nil {
@@ -579,7 +579,7 @@ func currentConfiguredModelForKernelConfig(
 func (f kernelFixture) currentAgentConfig(
 	t *testing.T,
 	ctx context.Context,
-	agentID storage.ID,
+	agentID uuid.UUID,
 ) executionstore.AgentConfigRecord {
 	t.Helper()
 	agent, err := f.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
@@ -596,7 +596,7 @@ func (f kernelFixture) currentAgentConfig(
 func (f kernelFixture) admitContentInputTurn(
 	t *testing.T,
 	ctx context.Context,
-	agentID, userID storage.ID,
+	agentID, userID uuid.UUID,
 	text string,
 	now time.Time,
 ) ModelWorkExecution {
@@ -629,7 +629,7 @@ func (f kernelFixture) admitContentInputTurn(
 		ProjectID:            kernelTestProjectID,
 		AgentID:              agentID,
 		TurnID:               admitted.Turn.ID,
-		InputIDs:             []storage.ID{input.ID},
+		InputIDs:             []uuid.UUID{input.ID},
 		OpeningEventSequence: claim.Model.OpeningEventSequence,
 		RuntimeLockID:        lock.ID,
 		Now:                  now.Add(3 * time.Millisecond),
@@ -760,7 +760,7 @@ func claimNextAgentWorkForKernelTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture kernelFixture,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	kind executionstore.AgentWorkKind,
 ) executionstore.ClaimedAgentWork {
 	t.Helper()
@@ -878,7 +878,7 @@ func assertDurableModelErrorForKernelTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture kernelFixture,
-	agentID, turnID storage.ID,
+	agentID, turnID uuid.UUID,
 	errorKind, errorCode string,
 ) {
 	t.Helper()

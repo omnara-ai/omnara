@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -17,14 +18,14 @@ func (s *Store) ClaimNormalModelCall(
 	ctx context.Context,
 	input ClaimNormalModelCallInput,
 ) (ModelCallClaim, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		len(input.OpeningInputIDs) == 0 || isNilID(input.AgentConfigID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		len(input.OpeningInputIDs) == 0 || input.AgentConfigID == uuid.Nil ||
 		input.InputEventSequence <= 0 {
 		return ModelCallClaim{}, errors.New(
 			"project, agent, runtime, opening inputs, agent config, and input event sequence are required",
 		)
 	}
-	if isNilID(input.SourceModelCallContextID) != isNilID(input.SourceModelOutputID) {
+	if (input.SourceModelCallContextID == uuid.Nil) != (input.SourceModelOutputID == uuid.Nil) {
 		return ModelCallClaim{}, errors.New(
 			"continuation source model context and output must be provided together",
 		)
@@ -36,10 +37,10 @@ func (s *Store) ClaimCompactionModelCall(
 	ctx context.Context,
 	input ClaimCompactionModelCallInput,
 ) (ModelCallClaim, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
 		input.InputEventSequence <= 0 || input.SourceEventSequenceEnd <= 0 ||
 		input.SourceEventSequenceEnd > input.InputEventSequence ||
-		isNilID(input.ParentContextID) {
+		input.ParentContextID == uuid.Nil {
 		return ModelCallClaim{}, errors.New(
 			"project, agent, runtime, parent context, frontier, and a valid compaction source range are required",
 		)
@@ -104,7 +105,7 @@ func applyModelCallAdmissionTx(
 	tx pgx.Tx,
 	q *dbsqlc.Queries,
 	claim modelCallContextClaimTx,
-	runtimeLockID ID,
+	runtimeLockID uuid.UUID,
 ) (ModelCallClaim, error) {
 	if !claim.created {
 		return ModelCallClaim{Context: claim.context}, nil
@@ -151,7 +152,7 @@ func managedWorkAdmissionModelFailure(
 	}
 }
 
-func claimIdentity(input claimModelCallInput) (ID, ID, ID) {
+func claimIdentity(input claimModelCallInput) (uuid.UUID, uuid.UUID, uuid.UUID) {
 	if input.normal != nil {
 		return input.normal.ProjectID, input.normal.AgentID, input.normal.RuntimeLockID
 	}
@@ -223,7 +224,7 @@ func claimNormalContextTx(
 	if errors.Is(err, pgx.ErrNoRows) || !slices.Equal(work.InputIds, input.OpeningInputIDs) {
 		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
 	}
-	if isNilID(input.SourceModelCallContextID) {
+	if input.SourceModelCallContextID == uuid.Nil {
 		if ModelWorkKind(work.WorkKind) != ModelWorkStart {
 			return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
 		}
@@ -398,8 +399,8 @@ func (s *Store) ClaimNextModelCallContext(
 	ctx context.Context,
 	input ClaimNextModelCallContextInput,
 ) (ModelCallClaim, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) ||
-		isNilID(input.PredecessorModelCallContextID) || isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil ||
+		input.PredecessorModelCallContextID == uuid.Nil || input.RuntimeLockID == uuid.Nil {
 		return ModelCallClaim{}, errors.New("project, agent, predecessor context, and runtime are required")
 	}
 	txNotifications := s.newTxNotifications()
@@ -463,7 +464,7 @@ func claimNextModelCallContextTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	predecessor ModelCallContextRecord,
-	runtimeLockID ID,
+	runtimeLockID uuid.UUID,
 ) (modelCallContextClaimTx, error) {
 	latest, err := loadLatestModelCallContextForOperation(ctx, q, predecessor)
 	if err != nil {
@@ -523,14 +524,14 @@ func claimNextModelCallContextTx(
 }
 
 type modelCallRevisionForClaim struct {
-	ID                    ID
+	ID                    uuid.UUID
 	NewManagedWorkAllowed bool
 }
 
 func getModelCallRevisionForClaim(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentConfigID ID,
+	projectID, agentConfigID uuid.UUID,
 ) (modelCallRevisionForClaim, error) {
 	revision, err := q.GetModelCallRevisionForClaim(
 		ctx,
@@ -556,7 +557,7 @@ func loadLatestModelCallContextForOperation(
 	q *dbsqlc.Queries,
 	contextRow ModelCallContextRecord,
 ) (ModelCallContextRecord, error) {
-	var id ID
+	var id uuid.UUID
 	var err error
 	switch contextRow.OperationKind {
 	case ModelCallOperationNormal:
@@ -592,9 +593,9 @@ func loadLatestModelCallContextForOperation(
 
 func (s *Store) GetModelCallContext(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ModelCallContextRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return ModelCallContextRecord{}, false, errors.New("project, agent, and model context are required")
 	}
 	record, err := loadModelCallContextByID(ctx, s.q, projectID, agentID, id)
@@ -609,10 +610,10 @@ func (s *Store) GetModelCallContext(
 
 func (s *Store) GetNormalModelCallContextForFrontier(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	inputEventSequence int64,
 ) (ModelCallContextRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || inputEventSequence <= 0 {
+	if projectID == uuid.Nil || agentID == uuid.Nil || inputEventSequence <= 0 {
 		return ModelCallContextRecord{}, false, errors.New(
 			"project, agent, and positive input event sequence are required",
 		)
@@ -641,7 +642,7 @@ func (s *Store) GetNormalModelCallContextForFrontier(
 func loadModelCallContextByID(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ModelCallContextRecord, error) {
 	row, err := q.GetModelCallContext(ctx, dbsqlc.GetModelCallContextParams{
 		ProjectID: projectID,
@@ -657,7 +658,7 @@ func loadModelCallContextByID(
 func loadModelCallContextByIDTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ModelCallContextRecord, error) {
 	return loadModelCallContextByID(ctx, dbsqlc.New(tx), projectID, agentID, id)
 }

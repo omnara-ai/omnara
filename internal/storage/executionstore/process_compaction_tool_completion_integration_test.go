@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -55,7 +56,7 @@ func TestReplaceCompactionSourceRejectsLargerRange(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []ID{inputs[0].ID, inputs[1].ID},
+		OpeningInputIDs:    []uuid.UUID{inputs[0].ID, inputs[1].ID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: admitted.Events[1].Sequence,
 	})

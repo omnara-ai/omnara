@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -27,7 +29,7 @@ func (IntegrationInstallAccess) ValidateInstallBinding(
 	if project.OrgID != binding.OrgID {
 		return storeerr.ErrNotFound
 	}
-	if binding.AgentProfileID != integrationstore.NilID {
+	if binding.AgentProfileID != uuid.Nil {
 		_, err := lockAgentProfileTx(ctx, qtx, binding.ProjectID, binding.AgentProfileID)
 		return err
 	}
@@ -56,7 +58,7 @@ func (IntegrationInstallAccess) ValidateInstallBinding(
 func (IntegrationInstallAccess) ClearInstallTargetsFromAgents(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, integrationInstallID integrationstore.ID,
+	projectID, integrationInstallID uuid.UUID,
 ) error {
 	err := dbsqlc.New(tx).ClearDeletedIntegrationTargetsFromAgents(
 		ctx,
@@ -85,7 +87,7 @@ func (r *ToolCallReader) ListIntegrationTargets(
 
 func (t *toolCallTransaction) setAgentIntegrationTarget(
 	ctx context.Context,
-	integrationTargetID ID,
+	integrationTargetID uuid.UUID,
 ) (AgentRecord, error) {
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentRecord{}, err
@@ -102,16 +104,16 @@ func (t *toolCallTransaction) setAgentIntegrationTarget(
 func setAgentIntegrationTarget(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID, integrationTargetID ID,
+	projectID, agentID, integrationTargetID uuid.UUID,
 ) (AgentRecord, error) {
 	row, err := q.SetAgentIntegrationTarget(ctx, dbsqlc.SetAgentIntegrationTargetParams{
 		ProjectID:           projectID,
 		AgentID:             agentID,
-		IntegrationTargetID: sqlcIDFromNil(integrationTargetID),
+		IntegrationTargetID: storeutil.IDFromNil(integrationTargetID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			if !isNilID(integrationTargetID) {
+			if integrationTargetID != uuid.Nil {
 				if _, agentErr := q.GetAgentInProject(
 					ctx,
 					dbsqlc.GetAgentInProjectParams{

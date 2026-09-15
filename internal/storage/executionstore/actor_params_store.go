@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -22,12 +24,12 @@ type ActorParams struct {
 	Metadata         resourcemeta.Metadata
 }
 
-func OmnaraActorParams(orgID ID, principal identitystore.PrincipalRecord) (*ActorParams, error) {
+func OmnaraActorParams(orgID uuid.UUID, principal identitystore.PrincipalRecord) (*ActorParams, error) {
 	tenantID, err := publicid.Encode(publicid.KindOrganization, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("encode omnara actor tenant: %w", err)
 	}
-	if isNilID(principal.ID) {
+	if principal.ID == uuid.Nil {
 		return nil, errors.New("omnara actor principal id is required")
 	}
 	var providerUserID string
@@ -52,7 +54,7 @@ func OmnaraActorParams(orgID ID, principal identitystore.PrincipalRecord) (*Acto
 func omnaraActorDisplayNameTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	providerUserID string,
 ) (string, error) {
 	if userID, err := publicid.Decode(publicid.KindUser, providerUserID); err == nil {
@@ -96,18 +98,18 @@ func omnaraActorDisplayNameTx(
 func resolveActorTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	params *ActorParams,
-	integrationTargetID ID,
-) (ID, error) {
-	if isNilID(projectID) {
-		return NilID, errors.New("project id is required for input actor")
+	integrationTargetID uuid.UUID,
+) (uuid.UUID, error) {
+	if projectID == uuid.Nil {
+		return uuid.Nil, errors.New("project id is required for input actor")
 	}
 	if params == nil {
-		if !isNilID(integrationTargetID) {
-			return NilID, errors.New("integration target input requires an actor")
+		if integrationTargetID != uuid.Nil {
+			return uuid.Nil, errors.New("integration target input requires an actor")
 		}
-		return NilID, nil
+		return uuid.Nil, nil
 	}
 	var actor ActorRecord
 	var err error
@@ -128,7 +130,7 @@ func resolveActorTx(
 		if displayName == "" && params.Provider == ActorProviderOmnara {
 			displayName, err = omnaraActorDisplayNameTx(ctx, qtx, projectID, params.ProviderUserID)
 			if err != nil {
-				return NilID, err
+				return uuid.Nil, err
 			}
 		}
 		actor, err = upsertActorIdentityTx(ctx, qtx, UpsertActorIdentityInput{
@@ -140,11 +142,11 @@ func resolveActorTx(
 		})
 	}
 	if err != nil {
-		return NilID, err
+		return uuid.Nil, err
 	}
-	if !isNilID(integrationTargetID) {
-		if isNilID(agentID) {
-			return NilID, errors.New("agent is required for integration-target input actor")
+	if integrationTargetID != uuid.Nil {
+		if agentID == uuid.Nil {
+			return uuid.Nil, errors.New("agent is required for integration-target input actor")
 		}
 		matches, err := qtx.ActorMatchesIntegrationTarget(
 			ctx,
@@ -156,10 +158,10 @@ func resolveActorTx(
 			},
 		)
 		if err != nil {
-			return NilID, fmt.Errorf("validate integration target actor: %w", err)
+			return uuid.Nil, fmt.Errorf("validate integration target actor: %w", err)
 		}
 		if !matches {
-			return NilID, storeerr.ErrUnauthorized
+			return uuid.Nil, storeerr.ErrUnauthorized
 		}
 	}
 	return actor.ID, nil
@@ -168,23 +170,23 @@ func resolveActorTx(
 func lookupActorIDTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	params *ActorParams,
-) (ID, bool, error) {
+) (uuid.UUID, bool, error) {
 	if params == nil {
-		return NilID, true, nil
+		return uuid.Nil, true, nil
 	}
 	row, err := qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 		ProjectID:        projectID,
 		Provider:         strings.TrimSpace(params.Provider),
-		ProviderTenantID: sqlcTextFromEmpty(strings.TrimSpace(params.ProviderTenantID)),
+		ProviderTenantID: storeutil.TextFromEmpty(strings.TrimSpace(params.ProviderTenantID)),
 		ProviderUserID:   strings.TrimSpace(params.ProviderUserID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NilID, false, nil
+		return uuid.Nil, false, nil
 	}
 	if err != nil {
-		return NilID, false, fmt.Errorf("look up input actor: %w", err)
+		return uuid.Nil, false, fmt.Errorf("look up input actor: %w", err)
 	}
 	return row.ID, true, nil
 }

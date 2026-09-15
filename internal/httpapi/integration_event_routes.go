@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration"
@@ -16,7 +17,6 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -241,7 +241,7 @@ func (s *Server) processIntegrationInboundEvent(
 		integrationTarget = mappedTarget
 		launch = launchResult
 		newlyMapped = mappedTarget.Created
-		if launch.Agent.ID != storage.NilID {
+		if launch.Agent.ID != uuid.Nil {
 			s.startLaunchMachineProvisioning(ctx, logpkg.LoggerFromContext(ctx), launch)
 		}
 	default:
@@ -258,7 +258,7 @@ func (s *Server) processIntegrationInboundEvent(
 	); err != nil {
 		return false, err
 	} else if found {
-		if launch.Agent.ID != storage.NilID {
+		if launch.Agent.ID != uuid.Nil {
 			s.startLaunchMachineProvisioning(ctx, logpkg.LoggerFromContext(ctx), launch)
 		}
 		return true, nil

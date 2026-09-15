@@ -13,11 +13,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -282,8 +282,8 @@ func (h *Handler) oauthAuthorizePrincipal(
 	r *http.Request,
 ) (identitystore.PrincipalRecord, bool) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return identitystore.PrincipalRecord{}, false
 	}

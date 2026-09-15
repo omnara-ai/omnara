@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -220,7 +219,7 @@ func TestEncodeNextCursorTerminalPage(t *testing.T) {
 		t.Fatal("expected nil next_cursor on the terminal page")
 	}
 
-	if token, _ := encodeNextCursor(true, time.Now(), publicid.KindAgent, storage.NilID); token != nil {
+	if token, _ := encodeNextCursor(true, time.Now(), publicid.KindAgent, uuid.Nil); token != nil {
 		t.Fatal("expected nil next_cursor for an empty page")
 	}
 }

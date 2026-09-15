@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -64,8 +65,8 @@ func (s *Store) UpsertIntegrationInstall(
 	row, err := qtx.InsertIntegrationInstall(ctx, dbsqlc.InsertIntegrationInstallParams{
 		OrgID:                    input.OrgID,
 		ProjectID:                input.ProjectID,
-		AgentProfileID:           sqlcIDFromNil(input.AgentProfileID),
-		AgentID:                  sqlcIDFromNil(input.AgentID),
+		AgentProfileID:           storeutil.IDFromNil(input.AgentProfileID),
+		AgentID:                  storeutil.IDFromNil(input.AgentID),
 		InstalledByUserID:        input.InstalledByUserID,
 		Provider:                 input.Provider,
 		IntegrationKind:          input.IntegrationKind,
@@ -74,18 +75,18 @@ func (s *Store) UpsertIntegrationInstall(
 		ProviderTenantID:         input.ProviderTenantID,
 		ProviderAccountRef:       input.ProviderAccountRef,
 		ProviderAgentDisplayName: input.ProviderAgentDisplayName,
-		CredentialSecretID:       sqlcIDFromNil(input.CredentialSecretID),
+		CredentialSecretID:       storeutil.IDFromNil(input.CredentialSecretID),
 		ProviderConfig:           input.ProviderConfig,
 		ProviderIdentity:         input.ProviderIdentity,
 		ProviderMetadata:         input.ProviderMetadata,
-		LastOauthFlowID:          sqlcIDFromNil(input.OAuthFlowID),
+		LastOauthFlowID:          storeutil.IDFromNil(input.OAuthFlowID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, findErr := qtx.LockIntegrationInstallByProviderAccount(
 			ctx,
 			dbsqlc.LockIntegrationInstallByProviderAccountParams{
 				Provider:           input.Provider,
-				ProviderTenantID:   sqlcTextFromEmpty(input.ProviderTenantID),
+				ProviderTenantID:   storeutil.TextFromEmpty(input.ProviderTenantID),
 				ProviderAccountRef: input.ProviderAccountRef,
 			},
 		)
@@ -127,8 +128,8 @@ func (s *Store) UpsertIntegrationInstall(
 	return record, nil
 }
 
-func (s *Store) IntegrationOAuthFlowConsumed(ctx context.Context, flowID ID) (bool, error) {
-	if isNilID(flowID) {
+func (s *Store) IntegrationOAuthFlowConsumed(ctx context.Context, flowID uuid.UUID) (bool, error) {
+	if flowID == uuid.Nil {
 		return false, errors.New("flow id is required")
 	}
 	consumed, err := s.q.IntegrationOAuthFlowConsumed(
@@ -143,7 +144,7 @@ func (s *Store) IntegrationOAuthFlowConsumed(ctx context.Context, flowID ID) (bo
 
 func (s *Store) GetIntegrationInstall(
 	ctx context.Context,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationInstallRecord, error) {
 	return getIntegrationInstall(ctx, s.q, projectID, id)
 }
@@ -151,7 +152,7 @@ func (s *Store) GetIntegrationInstall(
 func getIntegrationInstall(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationInstallRecord, error) {
 	row, err := q.GetIntegrationInstall(
 		ctx,
@@ -168,7 +169,7 @@ func getIntegrationInstall(
 
 func (s *Store) GetIntegrationInstallByID(
 	ctx context.Context,
-	id ID,
+	id uuid.UUID,
 ) (IntegrationInstallRecord, error) {
 	return getIntegrationInstallByID(ctx, s.q, id)
 }
@@ -176,7 +177,7 @@ func (s *Store) GetIntegrationInstallByID(
 func (s *Store) GetIntegrationInstallByIDTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	id ID,
+	id uuid.UUID,
 ) (IntegrationInstallRecord, error) {
 	return getIntegrationInstallByID(ctx, dbsqlc.New(tx), id)
 }
@@ -184,7 +185,7 @@ func (s *Store) GetIntegrationInstallByIDTx(
 func getIntegrationInstallByID(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	id ID,
+	id uuid.UUID,
 ) (IntegrationInstallRecord, error) {
 	row, err := q.GetIntegrationInstallByID(ctx, dbsqlc.GetIntegrationInstallByIDParams{ID: id})
 	if err != nil {
@@ -204,7 +205,7 @@ func (s *Store) GetIntegrationInstallByProviderAccount(
 		ctx,
 		dbsqlc.GetIntegrationInstallByProviderAccountParams{
 			Provider:           provider,
-			ProviderTenantID:   sqlcTextFromEmpty(providerTenantID),
+			ProviderTenantID:   storeutil.TextFromEmpty(providerTenantID),
 			ProviderAccountRef: providerAccountRef,
 		},
 	)
@@ -218,15 +219,15 @@ func (s *Store) GetIntegrationInstallByProviderAccount(
 }
 
 type ListIntegrationInstallsForProjectInput struct {
-	ProjectID ID
+	ProjectID uuid.UUID
 	Filters   IntegrationInstallListFilters
 	List      listing.Options
 	Limit     int
 }
 
 type IntegrationInstallListFilters struct {
-	AgentProfileID ID
-	OAuthFlowID    ID
+	AgentProfileID uuid.UUID
+	OAuthFlowID    uuid.UUID
 }
 
 type ListIntegrationInstallsForProjectResult struct {
@@ -239,7 +240,7 @@ func (s *Store) ListIntegrationInstallsForProject(
 	ctx context.Context,
 	input ListIntegrationInstallsForProjectInput,
 ) (ListIntegrationInstallsForProjectResult, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return ListIntegrationInstallsForProjectResult{}, errors.New("project id is required")
 	}
 	if input.Limit <= 0 {
@@ -254,8 +255,8 @@ func (s *Store) ListIntegrationInstallsForProject(
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
-		AgentProfileID: sqlcIDFromNil(input.Filters.AgentProfileID),
-		OauthFlowID:    sqlcIDFromNil(input.Filters.OAuthFlowID),
+		AgentProfileID: storeutil.IDFromNil(input.Filters.AgentProfileID),
+		OauthFlowID:    storeutil.IDFromNil(input.Filters.OAuthFlowID),
 	})
 	if err != nil {
 		return ListIntegrationInstallsForProjectResult{}, fmt.Errorf("list integration installs: %w", err)
@@ -277,16 +278,16 @@ func (s *Store) ListIntegrationInstallsForProject(
 }
 
 type DisableIntegrationInstallInput struct {
-	ProjectID           ID
-	ID                  ID
-	ExpectedOAuthFlowID *ID
+	ProjectID           uuid.UUID
+	ID                  uuid.UUID
+	ExpectedOAuthFlowID *uuid.UUID
 }
 
 func (s *Store) DisableIntegrationInstall(
 	ctx context.Context,
 	input DisableIntegrationInstallInput,
 ) (bool, error) {
-	if isNilID(input.ProjectID) || isNilID(input.ID) || input.ExpectedOAuthFlowID == nil {
+	if input.ProjectID == uuid.Nil || input.ID == uuid.Nil || input.ExpectedOAuthFlowID == nil {
 		return false, errors.New("project, integration install, and expected OAuth flow are required")
 	}
 	expectedOAuthFlowID := *input.ExpectedOAuthFlowID
@@ -310,7 +311,7 @@ func (s *Store) DisableIntegrationInstall(
 		return false, fmt.Errorf("lock integration install for disable: %w", err)
 	}
 	if IntegrationInstallState(current.State) != IntegrationInstallStateActive ||
-		idFromSQLCPtr(current.LastOauthFlowID) != expectedOAuthFlowID {
+		storeutil.IDFromPtr(current.LastOauthFlowID) != expectedOAuthFlowID {
 		return false, nil
 	}
 	rows, err := qtx.DisableIntegrationInstall(
@@ -318,7 +319,7 @@ func (s *Store) DisableIntegrationInstall(
 		dbsqlc.DisableIntegrationInstallParams{
 			ProjectID:           input.ProjectID,
 			ID:                  input.ID,
-			ExpectedOauthFlowID: sqlcIDFromNil(expectedOAuthFlowID),
+			ExpectedOauthFlowID: storeutil.IDFromNil(expectedOAuthFlowID),
 		},
 	)
 	if err != nil {
@@ -333,8 +334,8 @@ func (s *Store) DisableIntegrationInstall(
 	return true, nil
 }
 
-func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) error {
-	if isNilID(projectID) || isNilID(id) {
+func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id uuid.UUID) error {
+	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and integration install are required")
 	}
 	_, err := storeutil.RetryTransaction(ctx, "delete_integration_install", func() (struct{}, error) {
@@ -343,7 +344,7 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 	return err
 }
 
-func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id ID) error {
+func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id uuid.UUID) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete integration install: %w", err)
@@ -420,10 +421,10 @@ func integrationIdempotencyScope(install IntegrationInstallRecord) string {
 func normalizeUpsertIntegrationInstallInput(
 	input UpsertIntegrationInstallInput,
 ) (UpsertIntegrationInstallInput, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.InstalledByUserID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.InstalledByUserID == uuid.Nil {
 		return UpsertIntegrationInstallInput{}, errors.New("org, project, and installed-by user are required")
 	}
-	if isNilID(input.AgentProfileID) == isNilID(input.AgentID) {
+	if (input.AgentProfileID == uuid.Nil) == (input.AgentID == uuid.Nil) {
 		return UpsertIntegrationInstallInput{}, errors.New("exactly one of agent profile and agent is required")
 	}
 	input.Provider = strings.TrimSpace(input.Provider)
@@ -438,7 +439,7 @@ func normalizeUpsertIntegrationInstallInput(
 	if input.ProviderTenantID == "" {
 		return UpsertIntegrationInstallInput{}, errors.New("provider tenant id is required for slack integrations")
 	}
-	if isNilID(input.CredentialSecretID) {
+	if input.CredentialSecretID == uuid.Nil {
 		return UpsertIntegrationInstallInput{}, errors.New("credential secret is required for slack integrations")
 	}
 	if input.State != IntegrationInstallStateActive && input.State != IntegrationInstallStateDisabled {
@@ -470,7 +471,7 @@ func validateIntegrationInstallCredential(
 	tx pgx.Tx,
 	input UpsertIntegrationInstallInput,
 ) error {
-	if isNilID(input.CredentialSecretID) {
+	if input.CredentialSecretID == uuid.Nil {
 		return nil
 	}
 	credential, err := secretops.LockReference(ctx, tx, input.OrgID, input.CredentialSecretID)
@@ -492,7 +493,7 @@ func validateIntegrationInstallCredential(
 func validateIntegrationInstaller(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID, userID ID,
+	orgID, projectID, userID uuid.UUID,
 ) error {
 	roles, err := qtx.ListProjectAuthorizationRolesForPrincipal(
 		ctx,
@@ -526,7 +527,7 @@ func IdempotencyScope(install IntegrationInstallRecord) string {
 func updateIntegrationInstallTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	id ID,
+	id uuid.UUID,
 	input UpsertIntegrationInstallInput,
 ) (IntegrationInstallRecord, error) {
 	row, err := qtx.UpdateIntegrationInstall(ctx, dbsqlc.UpdateIntegrationInstallParams{
@@ -536,14 +537,14 @@ func updateIntegrationInstallTx(
 		ConnectionMode:           input.ConnectionMode,
 		State:                    string(input.State),
 		ProviderAgentDisplayName: input.ProviderAgentDisplayName,
-		CredentialSecretID:       sqlcIDFromNil(input.CredentialSecretID),
+		CredentialSecretID:       storeutil.IDFromNil(input.CredentialSecretID),
 		ProviderConfig:           input.ProviderConfig,
 		ProviderIdentity:         input.ProviderIdentity,
 		ProviderMetadata:         input.ProviderMetadata,
-		LastOauthFlowID:          sqlcIDFromNil(input.OAuthFlowID),
+		LastOauthFlowID:          storeutil.IDFromNil(input.OAuthFlowID),
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) && !isNilID(input.OAuthFlowID) {
+		if errors.Is(err, pgx.ErrNoRows) && input.OAuthFlowID != uuid.Nil {
 			return IntegrationInstallRecord{}, storeerr.ErrIntegrationOAuthFlowConsumed
 		}
 		if storeutil.IsUniqueViolationOnConstraint(err, "integration_installs_last_oauth_flow_id_idx") {
@@ -562,8 +563,8 @@ func integrationInstallRecordFromSQLC(row dbsqlc.IntegrationInstall) Integration
 		ID:                       row.ID,
 		OrgID:                    row.OrgID,
 		ProjectID:                row.ProjectID,
-		AgentProfileID:           idFromSQLCPtr(row.AgentProfileID),
-		AgentID:                  idFromSQLCPtr(row.AgentID),
+		AgentProfileID:           storeutil.IDFromPtr(row.AgentProfileID),
+		AgentID:                  storeutil.IDFromPtr(row.AgentID),
 		InstalledByUserID:        row.InstalledByUserID,
 		Provider:                 row.Provider,
 		IntegrationKind:          row.IntegrationKind,
@@ -572,11 +573,11 @@ func integrationInstallRecordFromSQLC(row dbsqlc.IntegrationInstall) Integration
 		ProviderTenantID:         row.ProviderTenantID,
 		ProviderAccountRef:       row.ProviderAccountRef,
 		ProviderAgentDisplayName: row.ProviderAgentDisplayName,
-		CredentialSecretID:       idFromSQLCPtr(row.CredentialSecretID),
+		CredentialSecretID:       storeutil.IDFromPtr(row.CredentialSecretID),
 		ProviderConfig:           row.ProviderConfig,
 		ProviderIdentity:         row.ProviderIdentity,
 		ProviderMetadata:         row.ProviderMetadata,
-		LastOAuthFlowID:          idFromSQLCPtr(row.LastOauthFlowID),
+		LastOAuthFlowID:          storeutil.IDFromPtr(row.LastOauthFlowID),
 		CreatedAt:                row.CreatedAt,
 		UpdatedAt:                row.UpdatedAt,
 	}
@@ -587,8 +588,8 @@ func integrationInstallRecordFromListSQLC(row dbsqlc.ListIntegrationInstallsForP
 		ID:                       row.ID,
 		OrgID:                    row.OrgID,
 		ProjectID:                row.ProjectID,
-		AgentProfileID:           idFromSQLCPtr(row.AgentProfileID),
-		AgentID:                  idFromSQLCPtr(row.AgentID),
+		AgentProfileID:           storeutil.IDFromPtr(row.AgentProfileID),
+		AgentID:                  storeutil.IDFromPtr(row.AgentID),
 		InstalledByUserID:        row.InstalledByUserID,
 		Provider:                 row.Provider,
 		IntegrationKind:          row.IntegrationKind,
@@ -597,11 +598,11 @@ func integrationInstallRecordFromListSQLC(row dbsqlc.ListIntegrationInstallsForP
 		ProviderTenantID:         row.ProviderTenantID,
 		ProviderAccountRef:       row.ProviderAccountRef,
 		ProviderAgentDisplayName: row.ProviderAgentDisplayName,
-		CredentialSecretID:       idFromSQLCPtr(row.CredentialSecretID),
+		CredentialSecretID:       storeutil.IDFromPtr(row.CredentialSecretID),
 		ProviderConfig:           row.ProviderConfig,
 		ProviderIdentity:         row.ProviderIdentity,
 		ProviderMetadata:         row.ProviderMetadata,
-		LastOAuthFlowID:          idFromSQLCPtr(row.LastOauthFlowID),
+		LastOAuthFlowID:          storeutil.IDFromPtr(row.LastOauthFlowID),
 		CreatedAt:                row.CreatedAt,
 		UpdatedAt:                row.UpdatedAt,
 	}

@@ -3,6 +3,7 @@ package identitystore
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -178,7 +179,7 @@ func consumedOrgInvitationRecordFromSQLC(
 	}
 }
 
-func userOrgMembershipRecord(id, orgID, userID ID, role string, createdAt time.Time) OrgMembershipRecord {
+func userOrgMembershipRecord(id, orgID, userID uuid.UUID, role string, createdAt time.Time) OrgMembershipRecord {
 	return OrgMembershipRecord{
 		ID:        id,
 		OrgID:     orgID,

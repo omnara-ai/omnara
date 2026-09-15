@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -311,7 +311,7 @@ func provisionSubagentMachinesInBackground(ctx context.Context, call backgroundT
 }
 
 type subagentLaunchConfig struct {
-	profileID storage.ID
+	profileID uuid.UUID
 	derived   executionstore.CreateAgentConfigInput
 }
 
@@ -330,7 +330,7 @@ func subagentLaunchConfigForSpawn(
 	depth agentconfig.SubagentDepth,
 ) (subagentLaunchConfig, error) {
 	var baseConfig executionstore.AgentConfigRecord
-	var profileID storage.ID
+	var profileID uuid.UUID
 	switch subagent.Type {
 	case agentconfig.SubagentTypeSelf:
 		profileID = parent.AgentProfileID

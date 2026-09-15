@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -25,10 +26,10 @@ const (
 
 func (s *Store) BeginMachineWake(
 	ctx context.Context,
-	orgID, machineID, machinePoolID ID,
+	orgID, machineID, machinePoolID uuid.UUID,
 	wakeTimeout time.Duration,
 ) (MachineWakeDisposition, error) {
-	if orgID == NilID || machineID == NilID || machinePoolID == NilID {
+	if orgID == uuid.Nil || machineID == uuid.Nil || machinePoolID == uuid.Nil {
 		return MachineWakeUnavailable, errors.New("org, machine, and machine pool are required")
 	}
 	if wakeTimeout < time.Millisecond {
@@ -42,7 +43,7 @@ func (s *Store) BeginMachineWake(
 
 func (s *Store) beginMachineWakeOnce(
 	ctx context.Context,
-	orgID, machineID, machinePoolID ID,
+	orgID, machineID, machinePoolID uuid.UUID,
 	wakeTimeout time.Duration,
 ) (MachineWakeDisposition, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

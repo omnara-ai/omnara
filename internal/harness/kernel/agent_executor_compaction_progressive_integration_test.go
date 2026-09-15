@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -201,9 +201,9 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 		t.Fatalf("list progressive checkpoints: %v", err)
 	}
 	defer rows.Close()
-	var checkpointIDs []storage.ID
+	var checkpointIDs []uuid.UUID
 	for rows.Next() {
-		var checkpointID storage.ID
+		var checkpointID uuid.UUID
 		if err := rows.Scan(&checkpointID); err != nil {
 			t.Fatalf("scan progressive checkpoint id: %v", err)
 		}
@@ -478,7 +478,7 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 	}
 	run := func(
 		start, end, frontier int64,
-		blockedContextID storage.ID,
+		blockedContextID uuid.UUID,
 		compactionClaim executionstore.ModelCallClaim,
 	) compaction.RunResult {
 		t.Helper()

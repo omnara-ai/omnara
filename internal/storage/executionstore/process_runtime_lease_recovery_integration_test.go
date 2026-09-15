@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -105,7 +107,7 @@ func assertRuntimeLockReapCounts(
 	pool interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
 	},
-	projectID ID,
+	projectID uuid.UUID,
 	wantWakeups, wantLocks int,
 ) {
 	t.Helper()
@@ -158,7 +160,7 @@ func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T
 	if err != nil {
 		t.Fatalf("claim initial input work: %v", err)
 	}
-	if !found || firstClaim.Kind != executionstore.AgentWorkModel || firstClaim.Model.TurnID == NilID ||
+	if !found || firstClaim.Kind != executionstore.AgentWorkModel || firstClaim.Model.TurnID == uuid.Nil ||
 		!claimedOpeningInputIDsEqual(firstClaim, input.ID) {
 		t.Fatalf("initial claim = %+v found=%v, want executable turn for input %s", firstClaim, found, input.ID)
 	}
@@ -240,7 +242,7 @@ func TestClaimNextAgentWorkRecoversFailedAbandonedContext(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "claim_recovers_failed_abandoned_context")
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,
-		WithModelCallRetryBackoff(executionstore.ModelCallRetryBackoff),
+		storage.WithModelCallRetryBackoff(executionstore.ModelCallRetryBackoff),
 	)
 	now := fixture.Now.Add(time.Minute)
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -401,7 +403,7 @@ WHERE agent.id = wake.agent_id AND agent.project_id = $1 AND wake.agent_id = $2`
 	if err != nil {
 		t.Fatalf("cancel failed abandoned context: %v", err)
 	}
-	if cancelResult.Event.ID == NilID || !cancelResult.Affected {
+	if cancelResult.Event.ID == uuid.Nil || !cancelResult.Affected {
 		t.Fatalf(
 			"cancel failed abandoned context = event %+v affected %v, want affected event",
 			cancelResult.Event,
@@ -929,7 +931,7 @@ func TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction(t *testing.T) 
 	}
 	if waitingTool.State != executionstore.ToolCallStateWaiting ||
 		waitingTool.Outcome != "" ||
-		waitingTool.RuntimeLockID != NilID ||
+		waitingTool.RuntimeLockID != uuid.Nil ||
 		waitingTool.CompletedAt != nil {
 		t.Fatalf("reaped question tool call = %+v, want unowned waiting work", waitingTool)
 	}

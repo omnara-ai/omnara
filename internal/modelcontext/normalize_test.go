@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -14,7 +14,7 @@ func TestProjectionNormalizerRejectsInvalidIntegrationTargets(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 1,
 	}
 	tests := []struct {
@@ -93,7 +93,7 @@ func TestProjectionNormalizerAcceptsIntegrationTargets(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 1,
 		IntegrationTargets: []IntegrationTargetRef{
 			{
@@ -116,7 +116,7 @@ func TestProjectionNormalizerAcceptsAssistantMessageRole(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 1,
 		Messages: []Message{
 			{
@@ -137,7 +137,7 @@ func TestProjectionNormalizerEnforcesOwnerSpecificContentBlocks(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 2,
 	}
 	validToolResult := ToolResultRef{
@@ -220,7 +220,7 @@ func TestProjectionNormalizerPreservesStructuredDataValue(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 2,
 		ToolResults: []ToolResultRef{{
 			ToolCallID:          "call",
@@ -247,7 +247,7 @@ func TestProjectionNormalizerRejectsCoreProjectionInvariantBreaks(t *testing.T) 
 		ProjectID:          testProjectID,
 		AgentID:            testAgentID,
 		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
+		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 5,
 		Messages: []Message{
 			{ID: sourceMessageID, Role: "user", Sequence: 5, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},

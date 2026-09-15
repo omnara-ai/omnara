@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
@@ -20,7 +22,7 @@ import (
 
 type idlePoolMachineFixture struct {
 	processDaemonFixture
-	PoolID ID
+	PoolID uuid.UUID
 }
 
 type idlePoolMachinePolicy struct {
@@ -38,7 +40,7 @@ func newIdlePoolMachineFixture(
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	user := mustCreateProjectOperatorUser(
 		t,
@@ -310,7 +312,7 @@ func TestAttachedPoolMachineBindingIsExclusive(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIdlePoolMachineFixture(t, ctx, "binding-exclusive", idlePoolMachinePolicy{})
 	secondAgentID := mustCreateAgent(t, ctx, fixture.Store)
-	var machineGrantID ID
+	var machineGrantID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT id
 FROM project_machine_grants

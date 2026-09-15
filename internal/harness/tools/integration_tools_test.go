@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -508,7 +507,7 @@ func writeToolTestJSON(w http.ResponseWriter, value any) {
 	}
 }
 
-func integrationToolTestID(seed string) storage.ID {
+func integrationToolTestID(seed string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-integration-tool:"+seed))
 }
 

@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (s *Store) GetSecret(ctx context.Context, orgID, secretID ID) (SecretRecord, error) {
+func (s *Store) GetSecret(ctx context.Context, orgID, secretID uuid.UUID) (SecretRecord, error) {
 	row, err := s.q.GetSecret(ctx, dbsqlc.GetSecretParams{OrgID: orgID, ID: secretID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -26,8 +28,8 @@ func (s *Store) GetSecret(ctx context.Context, orgID, secretID ID) (SecretRecord
 
 func (s *Store) GetVisibleSecret(
 	ctx context.Context,
-	orgID, secretID ID,
-	actor PrincipalRecord,
+	orgID, secretID uuid.UUID,
+	actor identitystore.PrincipalRecord,
 ) (SecretRecord, error) {
 	record, err := s.GetSecret(ctx, orgID, secretID)
 	if err != nil {
@@ -44,12 +46,12 @@ func (s *Store) GetVisibleSecret(
 
 func (s *Store) GetProjectOwnedSecretPayload(
 	ctx context.Context,
-	orgID, projectID, secretID ID,
+	orgID, projectID, secretID uuid.UUID,
 ) (secrets.Payload, error) {
 	if s.secretKeyWrapper == nil {
 		return nil, errors.New("secret key wrapper is required")
 	}
-	if isNilID(orgID) || isNilID(projectID) || isNilID(secretID) {
+	if orgID == uuid.Nil || projectID == uuid.Nil || secretID == uuid.Nil {
 		return nil, invalidSecretRequest("org, project, and secret are required")
 	}
 	secret, err := s.GetSecret(ctx, orgID, secretID)
@@ -108,9 +110,9 @@ func (s *Store) GetProjectOwnedSecretPayload(
 
 func (s *Store) GetSecretByOwnerName(
 	ctx context.Context,
-	orgID ID,
+	orgID uuid.UUID,
 	ownerKind string,
-	ownerProjectID, ownerUserID ID,
+	ownerProjectID, ownerUserID uuid.UUID,
 	name string,
 ) (SecretRecord, error) {
 	if name == "" {
@@ -119,8 +121,8 @@ func (s *Store) GetSecretByOwnerName(
 	row, err := s.q.GetSecretByOwnerName(ctx, dbsqlc.GetSecretByOwnerNameParams{
 		OrgID:          orgID,
 		OwnerKind:      ownerKind,
-		OwnerProjectID: sqlcIDFromNil(ownerProjectID),
-		OwnerUserID:    sqlcIDFromNil(ownerUserID),
+		OwnerProjectID: storeutil.IDFromNil(ownerProjectID),
+		OwnerUserID:    storeutil.IDFromNil(ownerUserID),
 		Name:           name,
 	})
 	if err != nil {
@@ -133,7 +135,7 @@ func (s *Store) GetSecretByOwnerName(
 }
 
 func (s *Store) ListSecrets(ctx context.Context, input ListSecretsInput) (ListSecretsResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return ListSecretsResult{}, invalidSecretRequest("org and actor are required")
 	}
 	if input.Limit <= 0 {
@@ -147,13 +149,13 @@ func (s *Store) ListSecrets(ctx context.Context, input ListSecretsInput) (ListSe
 		return ListSecretsResult{}, invalidSecretRequest("unsupported owner kind")
 	}
 	if input.Filters.OwnerKind == SecretOwnerProject {
-		if isNilID(input.Filters.OwnerProjectID) {
+		if input.Filters.OwnerProjectID == uuid.Nil {
 			return ListSecretsResult{}, invalidSecretRequest("owner project is required for project owner filter")
 		}
 		if err := s.authorizeProjectSecretsList(ctx, input.OrgID, input.Filters.OwnerProjectID, input.Actor); err != nil {
 			return ListSecretsResult{}, err
 		}
-	} else if !isNilID(input.Filters.OwnerProjectID) {
+	} else if input.Filters.OwnerProjectID != uuid.Nil {
 		return ListSecretsResult{}, invalidSecretRequest("owner project requires project owner filter")
 	} else if input.Filters.OwnerKind == SecretOwnerOrg {
 		if err := s.authorizeOrgSecretsList(ctx, input.OrgID, input.Actor); err != nil {
@@ -169,8 +171,8 @@ func (s *Store) ListSecrets(ctx context.Context, input ListSecretsInput) (ListSe
 	params := dbsqlc.ListVisibleOwnedSecretsParams{
 		OrgID: input.OrgID, UserID: actorUserID, OrgApiKeyID: actorOrgAPIKeyID,
 		OwnerKind:      input.Filters.OwnerKind,
-		OwnerProjectID: sqlcIDFromNil(input.Filters.OwnerProjectID),
-		McpOauthFlowID: sqlcIDFromNil(input.Filters.MCPOAuthFlowID), MetadataFilter: metadataFilter,
+		OwnerProjectID: storeutil.IDFromNil(input.Filters.OwnerProjectID),
+		McpOauthFlowID: storeutil.IDFromNil(input.Filters.MCPOAuthFlowID), MetadataFilter: metadataFilter,
 		RowLimit:  int64(input.Limit) + 1,
 		SortField: input.List.SortField, SortDesc: input.List.SortDesc,
 		NamePattern: input.List.NamePattern, Kinds: input.Filters.Kinds,
@@ -200,7 +202,7 @@ func (s *Store) ListProjectAvailableSecretsForPrincipal(
 	ctx context.Context,
 	input ListProjectAvailableSecretsForPrincipalInput,
 ) (ListProjectSecretAccessesResult, error) {
-	if isNilID(input.Actor.ID) {
+	if input.Actor.ID == uuid.Nil {
 		return ListProjectSecretAccessesResult{}, invalidSecretRequest("actor is required")
 	}
 	if err := s.authorizeProjectSecretsList(
@@ -218,7 +220,7 @@ func (s *Store) ListProjectAvailableSecrets(
 	ctx context.Context,
 	input ListProjectAvailableSecretsInput,
 ) (ListProjectSecretAccessesResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return ListProjectSecretAccessesResult{}, invalidSecretRequest("org and project are required")
 	}
 	if input.Limit <= 0 {
@@ -279,7 +281,7 @@ func (s *Store) ListProjectAvailableSecrets(
 
 func (s *Store) GetProjectAvailableSecret(
 	ctx context.Context,
-	orgID, projectID, secretID ID,
+	orgID, projectID, secretID uuid.UUID,
 ) (ProjectSecretAccessRecord, error) {
 	row, err := s.q.GetProjectAvailableSecret(
 		ctx,
@@ -300,8 +302,8 @@ func (s *Store) GetProjectAvailableSecret(
 
 func (s *Store) GetProjectAvailableSecretForPrincipal(
 	ctx context.Context,
-	orgID, projectID, secretID ID,
-	actor PrincipalRecord,
+	orgID, projectID, secretID uuid.UUID,
+	actor identitystore.PrincipalRecord,
 ) (ProjectSecretAccessRecord, error) {
 	if err := s.authorizeProjectSecretsList(ctx, orgID, projectID, actor); err != nil {
 		return ProjectSecretAccessRecord{}, err
@@ -312,7 +314,7 @@ func (s *Store) GetProjectAvailableSecretForPrincipal(
 func getSecretTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, secretID ID,
+	orgID, secretID uuid.UUID,
 ) (SecretRecord, error) {
 	row, err := qtx.GetSecret(ctx, dbsqlc.GetSecretParams{OrgID: orgID, ID: secretID})
 	if err != nil {

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -96,7 +96,7 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 	if request.Body.ProjectIds != nil {
 		requestProjectIDs = *request.Body.ProjectIds
 	}
-	projectIDs := make([]storage.ID, 0, len(requestProjectIDs))
+	projectIDs := make([]uuid.UUID, 0, len(requestProjectIDs))
 	for _, projectID := range requestProjectIDs {
 		parsed, ok := parseOpenAPIPublicID(publicid.KindProject, projectID)
 		if !ok {
@@ -406,7 +406,7 @@ func visibleMachineResponse(record executionstore.VisibleMachineRecord) (openapi
 }
 
 func projectVisibleMachineResponse(
-	projectID storage.ID,
+	projectID uuid.UUID,
 	record executionstore.ProjectVisibleMachineRecord,
 ) (openapi.VisibleMachine, error) {
 	summary, err := machineSummaryResponse(record.Machine)
@@ -471,14 +471,14 @@ func machineAccessSourceResponses(
 	out := make([]openapi.MachineAccessSource, 0, len(records))
 	for _, record := range records {
 		response := openapi.MachineAccessSource{Kind: openapi.MachineAccessSourceKind(record.Kind)}
-		if record.ProjectID != storage.NilID {
+		if record.ProjectID != uuid.Nil {
 			projectID, err := publicID(publicid.KindProject, record.ProjectID)
 			if err != nil {
 				return nil, err
 			}
 			response.ProjectId = &projectID
 		}
-		if record.GrantID != storage.NilID {
+		if record.GrantID != uuid.Nil {
 			grantID, err := publicID(publicid.KindProjectMachineGrant, record.GrantID)
 			if err != nil {
 				return nil, err

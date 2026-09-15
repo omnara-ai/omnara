@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -32,45 +31,15 @@ func New(pool *pgxpool.Pool, keyWrapper secrets.KeyWrapper, access Access) *Stor
 	return &Store{pool: pool, q: dbsqlc.New(pool), secretKeyWrapper: keyWrapper, access: access}
 }
 
-type ID = uuid.UUID
-type PrincipalRecord = identitystore.PrincipalRecord
-
-var NilID = uuid.Nil
-
 type ProjectRecord struct {
-	ID        ID
-	OrgID     ID
+	ID        uuid.UUID
+	OrgID     uuid.UUID
 	Name      string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-const (
-	resourceSecrets            = "secrets"
-	orgActionSecretsList       = authz.OrgSecretsList
-	orgActionSecretsManage     = authz.OrgSecretsManage
-	projectActionSecretsList   = authz.ProjectSecretsList
-	projectActionSecretsManage = authz.ProjectSecretsManage
-	principalTypeUser          = authz.PrincipalUser
-)
-
-func isNilID(id ID) bool {
-	return id == uuid.Nil
-}
-
-func idFromSQLCPtr(value *ID) ID {
-	if value == nil {
-		return uuid.Nil
-	}
-	return *value
-}
-
-func sqlcIDFromNil(value ID) *ID {
-	if isNilID(value) {
-		return nil
-	}
-	return &value
-}
+const resourceSecrets = "secrets"
 
 func resourceLimitExceeded(resource string, limit int64) error {
 	return fmt.Errorf("%s limit of %d reached: %w", resource, limit, storeerr.ErrConflict)

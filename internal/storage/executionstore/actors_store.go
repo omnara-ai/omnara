@@ -9,10 +9,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -24,8 +26,8 @@ const (
 )
 
 type ActorRecord struct {
-	ID               ID              `json:"id"`
-	ProjectID        ID              `json:"project_id"`
+	ID               uuid.UUID       `json:"id"`
+	ProjectID        uuid.UUID       `json:"project_id"`
 	Provider         string          `json:"provider"`
 	ProviderTenantID string          `json:"provider_tenant_id,omitempty"`
 	ProviderUserID   string          `json:"provider_user_id"`
@@ -36,7 +38,7 @@ type ActorRecord struct {
 }
 
 type UpsertActorIdentityInput struct {
-	ProjectID        ID
+	ProjectID        uuid.UUID
 	Provider         string
 	ProviderTenantID string
 	ProviderUserID   string
@@ -51,7 +53,7 @@ func upsertActorIdentityTx(
 	provider := strings.TrimSpace(input.Provider)
 	providerTenantID := strings.TrimSpace(input.ProviderTenantID)
 	providerUserID := strings.TrimSpace(input.ProviderUserID)
-	if isNilID(input.ProjectID) || provider == "" || providerUserID == "" {
+	if input.ProjectID == uuid.Nil || provider == "" || providerUserID == "" {
 		return ActorRecord{}, errors.New("project, provider, and provider user id are required")
 	}
 	if provider != ActorProviderExternal && providerTenantID == "" {
@@ -60,7 +62,7 @@ func upsertActorIdentityTx(
 	row, err := qtx.UpsertActorIdentity(ctx, dbsqlc.UpsertActorIdentityParams{
 		ProjectID:        input.ProjectID,
 		Provider:         provider,
-		ProviderTenantID: sqlcTextFromEmpty(providerTenantID),
+		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 		ProviderUserID:   providerUserID,
 		DisplayName:      strings.TrimSpace(input.DisplayName),
 	})
@@ -70,7 +72,7 @@ func upsertActorIdentityTx(
 		row, err = qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 			ProjectID:        input.ProjectID,
 			Provider:         provider,
-			ProviderTenantID: sqlcTextFromEmpty(providerTenantID),
+			ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 			ProviderUserID:   providerUserID,
 		})
 	}
@@ -81,7 +83,7 @@ func upsertActorIdentityTx(
 }
 
 type PutActorInput struct {
-	ProjectID        ID
+	ProjectID        uuid.UUID
 	ProviderTenantID string
 	ProviderUserID   string
 	// DisplayName and Metadata overwrite the stored attributes only when
@@ -130,7 +132,7 @@ func enterActiveActorProjectTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 ) error {
 	project, err := loadProjectTx(ctx, qtx, projectID)
 	if err != nil {
@@ -156,7 +158,7 @@ func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (Ac
 	}
 	row, err := q.PutActor(ctx, dbsqlc.PutActorParams{
 		ProjectID:        input.ProjectID,
-		ProviderTenantID: sqlcTextFromEmpty(providerTenantID),
+		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 		ProviderUserID:   providerUserID,
 		DisplayName:      displayName,
 		DisplayNameSet:   input.DisplayName != nil,
@@ -169,7 +171,7 @@ func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (Ac
 		row, err = q.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 			ProjectID:        input.ProjectID,
 			Provider:         ActorProviderExternal,
-			ProviderTenantID: sqlcTextFromEmpty(providerTenantID),
+			ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 			ProviderUserID:   providerUserID,
 		})
 	}
@@ -182,7 +184,7 @@ func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (Ac
 func validatePutActorInput(input PutActorInput) error {
 	providerTenantID := strings.TrimSpace(input.ProviderTenantID)
 	providerUserID := strings.TrimSpace(input.ProviderUserID)
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return errors.New("project is required")
 	}
 	if providerUserID == "" {
@@ -218,8 +220,8 @@ func validatePutActorInput(input PutActorInput) error {
 	return nil
 }
 
-func (s *Store) GetActor(ctx context.Context, projectID, actorID ID) (ActorRecord, error) {
-	if isNilID(projectID) || isNilID(actorID) {
+func (s *Store) GetActor(ctx context.Context, projectID, actorID uuid.UUID) (ActorRecord, error) {
+	if projectID == uuid.Nil || actorID == uuid.Nil {
 		return ActorRecord{}, errors.New("project and actor are required")
 	}
 	row, err := s.q.GetActor(ctx, dbsqlc.GetActorParams{ProjectID: projectID, ID: actorID})
@@ -233,7 +235,7 @@ func (s *Store) GetActor(ctx context.Context, projectID, actorID ID) (ActorRecor
 }
 
 type ListActorsInput struct {
-	ProjectID        ID
+	ProjectID        uuid.UUID
 	Provider         string
 	ProviderTenantID string
 	ProviderUserID   string
@@ -242,7 +244,7 @@ type ListActorsInput struct {
 }
 
 func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorRecord, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return nil, errors.New("project is required")
 	}
 	limit := input.Limit
@@ -250,7 +252,7 @@ func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorR
 		limit = 100
 	}
 	var cursorCreatedAt *time.Time
-	var cursorID *ID
+	var cursorID *uuid.UUID
 	if input.After.Set {
 		cursorCreatedAt = &input.After.CreatedAt
 		cursorID = &input.After.ID
@@ -276,11 +278,11 @@ func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorR
 
 func (s *Store) ListActorDisplayNames(
 	ctx context.Context,
-	projectID ID,
+	projectID uuid.UUID,
 	provider, providerTenantID string,
 	providerUserIDs []string,
 ) (map[string]string, error) {
-	if isNilID(projectID) || provider == "" {
+	if projectID == uuid.Nil || provider == "" {
 		return nil, errors.New("project and provider are required")
 	}
 	if len(providerUserIDs) == 0 {
@@ -291,7 +293,7 @@ func (s *Store) ListActorDisplayNames(
 		dbsqlc.ListActorDisplayNamesParams{
 			ProjectID:        projectID,
 			Provider:         provider,
-			ProviderTenantID: sqlcTextFromEmpty(providerTenantID),
+			ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 			ProviderUserIds:  providerUserIDs,
 		},
 	)
@@ -306,7 +308,7 @@ func (s *Store) ListActorDisplayNames(
 }
 
 type UpdateActorDisplayNameInput struct {
-	ProjectID        ID
+	ProjectID        uuid.UUID
 	Provider         string
 	ProviderTenantID string
 	ProviderUserID   string
@@ -317,7 +319,7 @@ func (s *Store) UpdateActorDisplayName(
 	ctx context.Context,
 	input UpdateActorDisplayNameInput,
 ) error {
-	if isNilID(input.ProjectID) || input.Provider == "" || input.ProviderUserID == "" ||
+	if input.ProjectID == uuid.Nil || input.Provider == "" || input.ProviderUserID == "" ||
 		strings.TrimSpace(input.DisplayName) == "" {
 		return errors.New("project, provider, provider user id, and display name are required")
 	}
@@ -335,7 +337,7 @@ func (s *Store) UpdateActorDisplayName(
 		dbsqlc.UpdateActorDisplayNameParams{
 			ProjectID:        input.ProjectID,
 			Provider:         input.Provider,
-			ProviderTenantID: sqlcTextFromEmpty(input.ProviderTenantID),
+			ProviderTenantID: storeutil.TextFromEmpty(input.ProviderTenantID),
 			ProviderUserID:   input.ProviderUserID,
 			DisplayName:      strings.TrimSpace(input.DisplayName),
 		},

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authn"
@@ -1378,8 +1379,8 @@ func TestPasswordAuthSignupVerifyLoginAndReset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticate verified browser session: %v", err)
 	}
-	if principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		t.Fatalf("unexpected verified session principal: %+v", principal)
 	}
 	csrfToken := cookieValue(rec.Result().Cookies(), httpauth.CSRFCookieName)
@@ -2465,7 +2466,7 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		t.Fatalf("authenticate device PAT: %v", err)
 	}
 	if principal.Type != identitystore.PrincipalTypeUser || principal.ID != user.ID ||
-		principal.PersonalAccessTokenID == storage.NilID {
+		principal.PersonalAccessTokenID == uuid.Nil {
 		t.Fatalf("device PAT principal = %+v", principal)
 	}
 	req = newOAuthFormRequest(
@@ -2623,7 +2624,7 @@ func TestAuthConnectorsRouteListsEnabledConnectorsWithoutDecryptingSecrets(t *te
 	if err != nil {
 		t.Fatalf("create disabled connector: %v", err)
 	}
-	for _, connectorID := range []storage.ID{github.ID, disabled.ID} {
+	for _, connectorID := range []uuid.UUID{github.ID, disabled.ID} {
 		if _, err := pool.Exec(
 			ctx,
 			`UPDATE auth_connectors SET encrypted_client_secret = '{}'::jsonb WHERE id = $1`,
@@ -2883,7 +2884,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	if err != nil {
 		t.Fatalf("authenticate oauth browser session: %v", err)
 	}
-	if principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
+	if principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == uuid.Nil {
 		t.Fatalf("oauth principal = %+v", principal)
 	}
 	var linkedCount int
@@ -3202,7 +3203,7 @@ func TestSSOOIDCConnectorValidatesIDTokenAndNonce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticate oidc browser session: %v", err)
 	}
-	if principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
+	if principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == uuid.Nil {
 		t.Fatalf("oidc principal = %+v", principal)
 	}
 	var linkedCount int
@@ -3772,7 +3773,7 @@ func signedOIDCTestToken(
 func sCreateBrowserSessionForTest(
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 ) (string, string, error) {
 	sessionToken := "session-" + identitystore.HashBearerToken(userID.String())[:24]
 	csrfToken := "csrf-" + identitystore.HashBearerToken(userID.String())[:24]
@@ -4001,7 +4002,7 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		project.adminBrowserAuthHeaders(),
 	)
 	otherDaemonToken := testutil.RequireType[string](t, otherToken["token"])
-	var installationUUID storage.ID
+	var installationUUID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT id FROM installation WHERE singleton_key = 1`).Scan(
 		&installationUUID,
 	); err != nil {
