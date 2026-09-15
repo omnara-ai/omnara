@@ -60,7 +60,7 @@ export type Error = {
     /**
      * Stable error code for programmatic handling.
      */
-    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
 /**
@@ -71,7 +71,7 @@ export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unautho
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
  */
-export type ServerErrorCode = 'internal_error' | 'upstream_error' | 'service_unavailable' | 'authentication_unavailable';
+export type ServerErrorCode = 'internal_error' | 'service_unavailable' | 'authentication_unavailable';
 
 /**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
@@ -1078,7 +1078,7 @@ export type McpServerAuthRequiredError = {
      */
     error: string;
     code: 'unprocessable';
-    auth: McpServerAuthHint;
+    auth?: McpServerAuthHint;
 };
 
 export type McpServerAuthHint = {
@@ -6710,10 +6710,6 @@ export type StartSecretMcpoAuthErrors = {
      */
     500: Error;
     /**
-     * An upstream service required to satisfy the request failed.
-     */
-    502: Error;
-    /**
      * The service dependency required to satisfy the request is unavailable.
      */
     503: Error;
@@ -7689,13 +7685,9 @@ export type ListMcpServerToolsErrors = {
      */
     404: Error;
     /**
-     * The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+     * The MCP server could not be reached, did not speak MCP, or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
      */
     422: McpServerAuthRequiredError;
-    /**
-     * An upstream service required to satisfy the request failed.
-     */
-    502: Error;
     /**
      * The service dependency required to satisfy the request is unavailable.
      */

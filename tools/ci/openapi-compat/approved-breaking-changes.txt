@@ -70,3 +70,4 @@ OMN2-376 implicit machine tools remove obsolete warnings: PATCH /orgs/{orgID}/pr
 OMN2-376 implicit machine tools remove obsolete warnings: POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config removed the optional property `current_config/warnings` from the response with the `200` status
 OMN2-376 implicit machine tools remove obsolete warnings: POST /orgs/{orgID}/projects/{projectID}/agents removed the optional property `agent_config/warnings` from the response with the `201` status
 OMN2-376 implicit machine tools remove obsolete warnings: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the optional property `agent_config/warnings` from the response with the `200` status
+MCP discovery errors are client-facing 422s: POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools the response property `auth` became optional for the status `422`

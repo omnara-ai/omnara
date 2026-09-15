@@ -1990,7 +1990,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
-        '502': { $ref: '#/components/responses/BadGateway' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '4XX':
@@ -2573,13 +2572,11 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          description: The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+          description: The MCP server could not be reached, did not speak MCP, or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MCPServerAuthRequiredError'
-        '502':
-          $ref: '#/components/responses/BadGateway'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -7055,12 +7052,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-    BadGateway:
-      description: An upstream service required to satisfy the request failed.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     InternalServerError:
       description: An unexpected internal server error occurred.
       content:
@@ -7180,7 +7171,6 @@ components:
             - unprocessable
             - rate_limited
             - internal_error
-            - upstream_error
             - service_unavailable
             - idempotency_key_conflict
             - state_transition_conflict
@@ -7217,7 +7207,6 @@ components:
       description: Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
       enum:
         - internal_error
-        - upstream_error
         - service_unavailable
         - authentication_unavailable
     ManagementKind:
@@ -8785,7 +8774,7 @@ components:
     MCPServerAuthRequiredError:
       type: object
       additionalProperties: false
-      required: [error, code, auth]
+      required: [error, code]
       properties:
         error:
           type: string
