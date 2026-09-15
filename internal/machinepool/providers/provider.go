@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	Blaxel   = "blaxel"
-	Daytona  = "daytona"
-	Modal    = "modal"
-	Unikraft = "unikraft"
+	Blaxel    = "blaxel"
+	Daytona   = "daytona"
+	Freestyle = "freestyle"
+	Modal     = "modal"
+	Unikraft  = "unikraft"
 )
 
 type RuntimeConfig struct {

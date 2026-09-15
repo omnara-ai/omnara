@@ -30,6 +30,7 @@ import { resourceNameValid } from '@/lib/resource-name'
 
 import {
   isMachinePoolProvider,
+  machinePoolCoreProviderOptions,
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
 } from './machinePoolProviders'
@@ -148,13 +149,15 @@ export function machinePoolFormAfterProviderChange(
     image: '',
     location: nextDefinition.location.defaultValue,
     cpu:
-      currentDefinition.resources.cpu === nextDefinition.resources.cpu
+      nextDefinition.resources.defaultCpu ??
+      (currentDefinition.resources.cpu === nextDefinition.resources.cpu
         ? values.cpu
-        : machinePoolFormDefaults.cpu,
+        : machinePoolFormDefaults.cpu),
     memoryGb:
-      currentDefinition.resources.memoryMb === nextDefinition.resources.memoryMb
+      nextDefinition.resources.defaultMemoryGb ??
+      (currentDefinition.resources.memoryMb === nextDefinition.resources.memoryMb
         ? values.memoryGb
-        : machinePoolFormDefaults.memoryGb,
+        : machinePoolFormDefaults.memoryGb),
     maxTotalCpu: '',
     maxTotalMemoryGb: '',
     minMachineCpu: '',
@@ -228,6 +231,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   switch (values.provider) {
     case 'unikraft':
+    case 'freestyle':
     case 'modal':
       return {
         ...common,
@@ -237,12 +241,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
         default_machine_provider_options: {
-          image: values.image.trim(),
-          ...(values.provider === 'unikraft'
-            ? { metro: values.location.trim() }
-            : values.location.trim() === ''
-              ? {}
-              : { region: values.location.trim() }),
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
           ...startupScript,
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -258,8 +257,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         provider: 'blaxel',
         default_machine_memory_mb: memoryMb,
         default_machine_provider_options: {
-          image: values.image.trim(),
-          region: values.location.trim(),
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
           ...startupScript,
         },
         provider_config: { workspace: values.providerScope.trim() },
@@ -272,8 +270,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         ...common,
         provider: 'daytona',
         default_machine_provider_options: {
-          snapshot: values.image.trim(),
-          target: values.location.trim(),
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
           ...startupScript,
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -308,7 +305,8 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
         ? providerOptionStrings(pool.provider_config)[definition.scope.key]
         : undefined) ?? '',
     image: options[definition.resource.key] ?? '',
-    location: options[definition.location.key] ?? '',
+    location:
+      definition.location.supported === false ? '' : (options[definition.location.key] ?? ''),
     startupScript: options.startup_script ?? '',
     cwd: pool.default_cwd,
     envRows: textRowsFromRecord(pool.default_machine_env),
@@ -340,18 +338,15 @@ export function machinePoolUpdateRequest(
   if (pool.provider !== values.provider) throw new Error('machine pool provider cannot be changed')
   if (pool.management_kind === 'cluster') return clusterMachinePoolUpdateRequest(pool, values)
   const definition = machinePoolProviderDefinitions[values.provider]
-  const editableOptionKeys = new Set([
-    definition.resource.key,
-    definition.location.key,
-    'startup_script',
-  ])
+  const editableOptionKeys = new Set([definition.resource.key, 'startup_script'])
+  if (definition.location.supported !== false) editableOptionKeys.add(definition.location.key)
   const defaultMachineProviderOptions = Object.fromEntries(
     Object.entries(pool.default_machine_provider_options).filter(
       ([key]) => !editableOptionKeys.has(key),
     ),
   )
   defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
-  if (values.location.trim() !== '') {
+  if (definition.location.supported !== false && values.location.trim() !== '') {
     defaultMachineProviderOptions[definition.location.key] = values.location.trim()
   }
   if (values.startupScript.trim() !== '') {
@@ -378,6 +373,7 @@ export function machinePoolUpdateRequest(
   }
   switch (values.provider) {
     case 'unikraft':
+    case 'freestyle':
     case 'modal':
       return {
         ...common,
@@ -465,6 +461,7 @@ function clusterMachinePoolUpdateRequest(
   }
   switch (values.provider) {
     case 'unikraft':
+    case 'freestyle':
     case 'modal':
       return {
         ...common,

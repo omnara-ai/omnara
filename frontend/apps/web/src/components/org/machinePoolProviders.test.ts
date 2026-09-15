@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
-import { machinePoolScopeValue } from './machinePoolProviders'
+import {
+  isMachinePoolProvider,
+  machinePoolProviderDefinitions,
+  machinePoolScopeValue,
+} from './machinePoolProviders'
+
+it('registers Freestyle as a configured-size snapshot provider', () => {
+  expect(isMachinePoolProvider('freestyle')).toBe(true)
+  expect(machinePoolProviderDefinitions.freestyle).toMatchObject({
+    label: 'Freestyle',
+    resource: { key: 'snapshot' },
+    location: { supported: false },
+    resources: { cpu: 'configured', memoryMb: 'configured' },
+  })
+})
 
 describe('machine pool scope display', () => {
   it.each([
