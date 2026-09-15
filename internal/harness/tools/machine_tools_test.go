@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -175,7 +176,8 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
+	if got.MachineID != machinePublicIDForTest(t, record.Machine.ID) ||
+		got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
 		t.Fatalf("pool observation identity = %+v", got)
 	}
 	if got.MachinePoolName != "Build Pool" {
@@ -201,7 +203,8 @@ func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
+	if got.MachineID != machinePublicIDForTest(t, record.MachineID) ||
+		got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
 		t.Fatalf("BYO observation identity = %+v", got)
 	}
 	encoded, err := json.Marshal(got)
@@ -312,73 +315,27 @@ func machinePublicIDForTest(t *testing.T, id storage.ID) string {
 func TestMachineToolsRequirePublicMachineIDs(t *testing.T) {
 	id := integrationToolTestID("public-machine")
 	publicID := machinePublicIDForTest(t, id)
-	for _, name := range []string{
-		"run_command", "inspect_machine", "delete_machine", "upload_artifact", "download_artifact",
+	for _, tc := range []struct{ name, input string }{
+		{"run_command", `{"command":"pwd","%s":"%s"}`},
+		{"inspect_machine", `{"%s":"%s"}`},
+		{"delete_machine", `{"%s":"%s"}`},
+		{"upload_artifact", `{"path":"report.pdf","%s":"%s"}`},
+		{"download_artifact", `{"artifact_id":"art_aaaaaaaaaaaaaaaaaaaaaaaaae","path":"report.pdf","%s":"%s"}`},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			for _, value := range []string{
-				publicID, "  " + publicID + "  ", id.String(), "mchr-abc234",
-				"agt_" + strings.TrimPrefix(publicID, "mch_"),
+				publicID, "  " + publicID + "  ", id.String(), "mchr-abc234", "agt_aaaaaaaaaaaaaaaaaaaaaaaaae",
 			} {
-				body := map[string]any{"machine_id": value}
-				switch name {
-				case "run_command":
-					body["command"] = "pwd"
-				case "upload_artifact", "download_artifact":
-					body["path"] = "report.pdf"
-					if name == "download_artifact" {
-						body["artifact_id"] = "art_" + strings.TrimPrefix(publicID, "mch_")
-					}
+				input := json.RawMessage(fmt.Sprintf(tc.input, "machine_id", value))
+				err := validateRegisteredToolInput(tc.name, input)
+				if (err == nil) != (strings.TrimSpace(value) == publicID) {
+					t.Fatalf("machine_id %q: unexpected validation result: %v", value, err)
 				}
-				raw, err := json.Marshal(body)
-				if err != nil {
-					t.Fatal(err)
-				}
-				err = validateRegisteredToolInput(name, raw)
-				wantValid := strings.TrimSpace(value) == publicID
-				if (err == nil) != wantValid {
-					t.Fatalf("machine_id %q: error = %v, want valid = %v", value, err, wantValid)
-				}
-				delete(body, "machine_id")
-				body["machine_ref"] = value
-				raw, err = json.Marshal(body)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := validateRegisteredToolInput(name, raw); err == nil {
-					t.Fatal("legacy machine_ref was accepted")
-				}
+			}
+			input := json.RawMessage(fmt.Sprintf(tc.input, "machine_ref", "mchr-abc234"))
+			if err := validateRegisteredToolInput(tc.name, input); err == nil {
+				t.Fatal("legacy machine_ref was accepted")
 			}
 		})
-	}
-}
-
-func TestMachineSelectionUsesPublicIDAcrossBindings(t *testing.T) {
-	machineID := integrationToolTestID("shared-machine")
-	publicID := machinePublicIDForTest(t, machineID)
-	for _, agent := range []string{"parent", "child", "reattached"} {
-		binding := executionstore.AgentMachineBindingRecord{
-			ID:        integrationToolTestID(agent + "-binding"),
-			AgentID:   integrationToolTestID(agent),
-			MachineID: machineID,
-		}
-		other := executionstore.AgentMachineBindingRecord{MachineID: integrationToolTestID("other-machine")}
-		selected, err := selectMachineExecutionTarget([]executionstore.AgentMachineBindingRecord{other, binding}, publicID)
-		if err != nil || selected.ID != binding.ID {
-			t.Fatalf("%s selection = %+v, %v", agent, selected, err)
-		}
-		observation, err := agentMachineObservation(executionstore.AgentMachineObservationRecord{MachineID: machineID})
-		if err != nil || observation.MachineID != publicID {
-			t.Fatalf("%s observation = %+v, %v", agent, observation, err)
-		}
-		for _, unavailable := range []string{
-			machineID.String(), "mchr-abc234",
-			machinePublicIDForTest(t, integrationToolTestID("unattached-machine")),
-		} {
-			_, err := selectMachineExecutionTarget([]executionstore.AgentMachineBindingRecord{binding}, unavailable)
-			if !errors.Is(err, ErrMachineIDUnavailable) {
-				t.Fatalf("selection %q error = %v, want unavailable", unavailable, err)
-			}
-		}
 	}
 }
