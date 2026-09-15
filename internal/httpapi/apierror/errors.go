@@ -29,7 +29,6 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeUnprocessable:           {http.StatusUnprocessableEntity, "unprocessable request"},
 	openapi.ErrorCodeRateLimited:             {http.StatusTooManyRequests, "too many requests"},
 	openapi.ErrorCodeInternalError:           {http.StatusInternalServerError, "internal server error"},
-	openapi.ErrorCodeUpstreamError:           {http.StatusBadGateway, "upstream error"},
 	openapi.ErrorCodeServiceUnavailable:      {http.StatusServiceUnavailable, "service unavailable"},
 	openapi.ErrorCodeIdempotencyKeyConflict:  {http.StatusConflict, "idempotency key conflict"},
 	openapi.ErrorCodeStateTransitionConflict: {http.StatusConflict, "state transition conflict"},
