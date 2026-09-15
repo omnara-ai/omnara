@@ -2,6 +2,11 @@ import type { CreateMachinePoolRequest, MachinePool } from '@omnara/sdk'
 
 import { providerOptionStrings } from '@/lib/provider-options'
 
+export interface MachineSizeClass {
+  cpu: number
+  memoryMb: number
+}
+
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
@@ -10,8 +15,11 @@ interface MachinePoolProviderDefinition {
     placeholder: string
     description?: string
     descriptionHref?: string
+    /** The pool may leave the resource empty to boot the provider's base image. */
+    optional?: boolean
   }
-  location: {
+  /** Omitted for providers without a region-like placement setting. */
+  location?: {
     key: string
     label: string
     placeholder: string
@@ -35,6 +43,15 @@ interface MachinePoolProviderDefinition {
   resources: {
     cpu: MachinePoolResourceMode
     memoryMb: MachinePoolResourceMode
+  }
+  /**
+   * Set for providers that only offer fixed machine shapes. The form then
+   * picks one of these instead of free CPU and memory numbers, and
+   * providerDefault lets a pool leave the size to the provider entirely.
+   */
+  sizes?: {
+    classes: MachineSizeClass[]
+    providerDefault?: { label: string; description: string }
   }
 }
 
@@ -147,10 +164,46 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
-  MachinePoolProvider,
-  MachinePoolProviderDefinition
->
+const boxd: MachinePoolProviderDefinition = {
+  label: 'boxd',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot (optional)',
+    placeholder: 'Leave empty for the boxd base image',
+    description:
+      'Machines boot the boxd base image unless a snapshot saved with `boxd snapshots save` is named. Sizes must be 1 vCPU with 4 GB, 2 with 8 GB, or 4 with 16 GB.',
+    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
+    optional: true,
+  },
+  credential: {
+    label: 'boxd API key',
+    placeholder: 'Search secrets for your boxd API key…',
+    emptyDescription: 'No secrets yet — use New secret to store your boxd API key.',
+    defaultSecretName: 'boxd-api-key',
+    secretValuePlaceholder: 'bxd_...',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+  sizes: {
+    classes: [
+      { cpu: 1, memoryMb: 4096 },
+      { cpu: 2, memoryMb: 8192 },
+      { cpu: 4, memoryMb: 16384 },
+    ],
+    providerDefault: {
+      label: 'Snapshot or org default',
+      description:
+        'Machines take the size captured in the snapshot, or the boxd org default without one. Set the per-machine limits under Advanced to cap what that can be.',
+    },
+  },
+}
+
+export const machinePoolProviderDefinitions = {
+  unikraft,
+  blaxel,
+  daytona,
+  modal,
+  boxd,
+} satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)

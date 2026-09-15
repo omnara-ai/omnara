@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   derivedMemoryTotalCapPlaceholder,
   machinePoolCreateRequest,
+  machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
   machinePoolFormValid,
@@ -281,6 +282,71 @@ describe('machine pool edit state', () => {
     expect(request).not.toHaveProperty('default_machine_memory_mb')
   })
 
+  it('serializes a boxd pool without a snapshot as the base image', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'boxd' as const,
+      name: 'boxd-pool',
+      location: '',
+      secretId: 'secret_1',
+      cpu: '2',
+      memoryGb: '8',
+      maxMachines: '2',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, image: 'team-workspace' })).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'boxd',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 8192,
+      default_machine_provider_options: {},
+      max_total_cpu: 4,
+      max_total_memory_mb: 16384,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 8192,
+    })
+    expect(machinePoolCreateRequest(values).provider_config).toBeUndefined()
+    expect(
+      machinePoolCreateRequest({ ...values, image: ' team-workspace ', startupScript: 'echo hi' }),
+    ).toMatchObject({
+      default_machine_provider_options: { snapshot: 'team-workspace', startup_script: 'echo hi' },
+    })
+  })
+
+  it('round-trips a boxd pool and drops a cleared snapshot on update', () => {
+    const pool = machinePool({
+      provider: 'boxd',
+      default_machine_cpu: 4,
+      default_machine_memory_mb: 16384,
+      default_machine_provider_options: { snapshot: 'team-workspace', extra: 'kept' },
+      max_total_cpu: 8,
+      max_total_memory_mb: 32768,
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+
+    const values = machinePoolFormFromPool(pool)
+
+    if (values === null) throw new Error('expected boxd form values')
+    expect(values).toMatchObject({
+      provider: 'boxd',
+      image: 'team-workspace',
+      location: '',
+      cpu: '4',
+      memoryGb: '16',
+    })
+    expect(machinePoolUpdateRequest(pool, values)).toMatchObject({
+      default_machine_cpu: 4,
+      default_machine_memory_mb: 16384,
+      default_machine_provider_options: { snapshot: 'team-workspace', extra: 'kept' },
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+    const cleared = machinePoolUpdateRequest(pool, { ...values, image: '' })
+    expect(cleared.default_machine_provider_options).toEqual({ extra: 'kept' })
+  })
+
   it('serializes only organization-editable fields for a cluster pool', () => {
     const pool = machinePool({
       management_kind: 'cluster',
@@ -383,6 +449,85 @@ describe('machine pool edit state', () => {
     expect(() =>
       machinePoolUpdateRequest(pool, { ...machinePoolFormDefaults, provider: 'daytona' }),
     ).toThrow('machine pool provider cannot be changed')
+  })
+})
+
+describe('boxd machine sizes', () => {
+  const boxdValues = {
+    ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'boxd'),
+    name: 'boxd-pool',
+    secretId: 'secret_1',
+    maxMachines: '2',
+  }
+
+  it('starts at the smallest boxd size when the provider changes', () => {
+    expect(boxdValues).toMatchObject({ provider: 'boxd', cpu: '1', memoryGb: '4', location: '' })
+  })
+
+  it('accepts only boxd size classes', () => {
+    expect(machinePoolFormValid(boxdValues)).toBe(true)
+    expect(machinePoolFormValid({ ...boxdValues, cpu: '2', memoryGb: '8' })).toBe(true)
+    expect(machinePoolFormValid({ ...boxdValues, cpu: '1', memoryGb: '1' })).toBe(false)
+    expect(machinePoolFormValid({ ...boxdValues, cpu: '3', memoryGb: '8' })).toBe(false)
+    expect(machinePoolFormValid({ ...boxdValues, cpu: '2', memoryGb: '8' }, 'cluster-edit')).toBe(
+      true,
+    )
+    expect(machinePoolFormValid({ ...boxdValues, cpu: '1', memoryGb: '1' }, 'cluster-edit')).toBe(
+      false,
+    )
+  })
+
+  it('leaves the size to boxd only behind explicit per-machine limits', () => {
+    const omitted = { ...boxdValues, cpu: '', memoryGb: '' }
+    expect(machinePoolFormValid(omitted)).toBe(false)
+    const capped = { ...omitted, maxMachineCpu: '4', maxMachineMemoryGb: '16' }
+    expect(machinePoolFormValid(capped)).toBe(true)
+    const request = machinePoolCreateRequest(capped)
+    expect(request.default_machine_cpu).toBeUndefined()
+    expect(request.default_machine_memory_mb).toBeUndefined()
+    expect(request).toMatchObject({
+      provider: 'boxd',
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+      max_total_cpu: 8,
+      max_total_memory_mb: 32768,
+    })
+  })
+
+  it('round-trips a boxd pool that leaves the size to the provider', () => {
+    const pool = machinePool({
+      provider: 'boxd',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: { snapshot: 'team-workspace' },
+      max_total_cpu: 8,
+      max_total_memory_mb: 32768,
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+
+    const values = machinePoolFormFromPool(pool)
+
+    if (values === null) throw new Error('expected boxd form values')
+    expect(values).toMatchObject({
+      cpu: '',
+      memoryGb: '',
+      maxMachineCpu: '4',
+      maxMachineMemoryGb: '16',
+    })
+    expect(machinePoolFormValid(values, 'tenant-edit')).toBe(true)
+    expect(machinePoolUpdateRequest(pool, values)).toMatchObject({
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+      max_total_cpu: 8,
+    })
+    // Picking a size on edit sets the defaults again.
+    expect(machinePoolUpdateRequest(pool, { ...values, cpu: '2', memoryGb: '8' })).toMatchObject({
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 8192,
+    })
   })
 })
 

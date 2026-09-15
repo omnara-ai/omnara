@@ -41,6 +41,7 @@ const (
 	provisioningFactDrift
 	provisioningFinalFailure
 	provisioningAdmissionFinalFailure
+	provisioningFinalRefusal
 )
 
 func TestPoolMachineManagerPersistsResolvedProviderFacts(t *testing.T) {
@@ -184,6 +185,10 @@ func TestPoolMachineManagerCleansUpResourceAfterFinalProvisionFailure(t *testing
 
 func TestPoolMachineManagerFinalizesCleanupAfterAdmissionExhaustion(t *testing.T) {
 	testPoolMachineManagerProvisioningScenario(t, provisioningAdmissionFinalFailure)
+}
+
+func TestPoolMachineManagerFinalizesCleanupWhenProviderRefusedTheCreate(t *testing.T) {
+	testPoolMachineManagerProvisioningScenario(t, provisioningFinalRefusal)
 }
 
 func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachineProvisioningScenario) {
@@ -561,6 +566,75 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		if provider.inspectMachineID != uuid.Nil {
 			t.Fatalf("provider resource was inspected despite checkpointed identity: %s", provider.inspectMachineID)
+		}
+
+	case provisioningFinalRefusal:
+		// The provider watched its create being refused outright, so no resource
+		// can exist. The machine must be finalized at once, not held for the
+		// missing-resource grace period that guards a create whose outcome was
+		// never observed.
+		refusedMachineID := insertPoolMachineForManagerTestWithFields(
+			t,
+			ctx,
+			pool,
+			machinePool,
+			"provisioning",
+			"",
+			intent,
+			machinePool.DefaultMachineEnv,
+			machinePool.DefaultMachineSecretEnv,
+			now,
+		)
+		if _, err := pool.Exec(
+			ctx,
+			`INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, 'pool', $4, 'refused machine', '{}'::jsonb, $5, $5)`,
+			orgID,
+			projectID,
+			refusedMachineID,
+			poolGrant.ID,
+			now,
+		); err != nil {
+			t.Fatalf("insert refused project machine grant: %v", err)
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE machines SET provision_attempts = $3 WHERE org_id = $1 AND id = $2`,
+			orgID,
+			refusedMachineID,
+			executionstore.DefaultPoolMachineProvisionFailureLimit-1,
+		); err != nil {
+			t.Fatalf("seed final refused attempt: %v", err)
+		}
+		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
+			return executionstore.MachineResourceFacts{
+				CPU:      new(1),
+				MemoryMB: new(1024),
+			}, nil
+		}
+		refusal := fmt.Errorf(
+			"create refused: %w: org machine limit reached",
+			providers.ErrResourceNotCreated,
+		)
+		provider.provisionResourceID = ""
+		provider.provisionErr = refusal
+		provider.inspectFound = false
+		provider.deletedResourceIDs = nil
+		if err := manager.ProvisionMachine(ctx, orgID, refusedMachineID); !errors.Is(err, refusal) {
+			t.Fatalf("final refusal = %v, want the provider's refusal", err)
+		}
+		refused, err := store.Execution().GetMachine(ctx, orgID, refusedMachineID)
+		if err != nil {
+			t.Fatalf("get refused machine: %v", err)
+		}
+		if refused.LifecycleState != "deleted" || refused.DeletedAt == nil {
+			t.Fatalf(
+				"refused machine = state %q deleted_at %v, want finalized at once",
+				refused.LifecycleState,
+				refused.DeletedAt,
+			)
+		}
+		if len(provider.deletedResourceIDs) != 0 {
+			t.Fatalf("deleted resources = %v, want none: nothing was created", provider.deletedResourceIDs)
 		}
 
 	case provisioningAdmissionFinalFailure:

@@ -291,19 +291,21 @@ function providerDetails(pool: MachinePool): DetailItem[] {
   if (!isMachinePoolProvider(pool.provider)) return []
   const definition = machinePoolProviderDefinitions[pool.provider]
   const options = providerOptionStrings(pool.default_machine_provider_options)
-  const location = options[definition.location.key]
-  const defaultLocation = definition.location.required ? undefined : 'Automatic'
   const details: DetailItem[] = [
     {
       label: `${definition.label} ${definition.resource.label.toLowerCase()}`,
       value: options[definition.resource.key],
       mono: true,
     },
-    {
+  ]
+  if (definition.location) {
+    const location = options[definition.location.key]
+    const defaultLocation = definition.location.required ? undefined : 'Automatic'
+    details.push({
       label: `${definition.label} ${definition.location.label.toLowerCase()}`,
       value: location == null || location === '' ? defaultLocation : location,
-    },
-  ]
+    })
+  }
   if (definition.scope) {
     details.push({
       label: `${definition.label} ${definition.scope.label.toLowerCase()}`,

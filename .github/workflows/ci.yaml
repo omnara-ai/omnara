@@ -268,6 +268,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          BOXD_API_KEY: ${{ secrets.BOXD_API_KEY }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
         run: |
@@ -294,7 +295,7 @@ jobs:
             configured=true
           fi
           if { [ -n "$BL_API_KEY" ] && [ -n "$BL_WORKSPACE" ]; } || \
-             [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_KEY" ]; then
+             [ -n "$BOXD_API_KEY" ] || [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_KEY" ]; then
             echo "sandboxes=true" >> "$GITHUB_OUTPUT"
             configured=true
           else
@@ -356,6 +357,7 @@ jobs:
         env:
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          BOXD_API_KEY: ${{ secrets.BOXD_API_KEY }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
 

@@ -504,6 +504,30 @@ func TestProvisionMachineWithRetryPreservesProviderErrorWhenWaitExpires(t *testi
 	}
 }
 
+func TestProvisionMachineWithRetryStopsOnALongRetryHint(t *testing.T) {
+	// A provider that knows a refusal will not clear on the immediate-retry
+	// schedule, such as an account at its machine limit, attaches a hint
+	// longer than the deadline. The loop must stop after one call instead of
+	// spending the whole budget on a condition only the operator can fix.
+	providerErr := providers.WithRetryDelay(errors.New("org machine limit reached"), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	calls := 0
+	_, err := provisionWithRetryForTest(
+		ctx,
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			return providers.ProvisionMachineResult{}, providerErr
+		},
+	)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("provision error = %v, want %v", err, providerErr)
+	}
+	if calls != 1 {
+		t.Fatalf("provision calls = %d, want 1: a long retry hint must end the immediate retries", calls)
+	}
+}
+
 func TestProviderProvisionRetryDelayHonorsRetryAfter(t *testing.T) {
 	providerErr := providers.WithRetryAfter(
 		errors.New("rate limited"),
