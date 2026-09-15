@@ -1399,6 +1399,7 @@ WITH listed AS (
        g.created_at, g.updated_at,
        configured_model.name AS model_name, configured_model.model_provider_config_id,
        provider_config.name AS provider_config_name,
+       revision.provider_model_slug,
        configured_model.created_at AS model_created_at, configured_model.updated_at AS model_updated_at,
        CASE $6::text WHEN 'name' THEN lower(configured_model.name) WHEN 'created_at' THEN to_char(g.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'updated_at' THEN to_char(g.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') END::text AS sort_key, false AS sort_is_null
  FROM project_model_grants g
@@ -1408,6 +1409,8 @@ WITH listed AS (
  JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
   AND provider_config.id = configured_model.model_provider_config_id
   AND provider_config.deleted_at IS NULL
+ JOIN configured_model_revisions revision ON revision.org_id = configured_model.org_id
+  AND revision.id = configured_model.current_revision_id
  WHERE g.org_id = $7
   AND g.project_id = $8
   AND ($9::text = '' OR configured_model.name ILIKE $9::text ESCAPE '\')
@@ -1418,7 +1421,8 @@ SELECT id, org_id, project_id, configured_model_id,
  default_reasoning_effort, supported_reasoning_efforts,
  input_modalities, output_modalities,
  created_at, updated_at,
- model_name, model_provider_config_id, provider_config_name, model_created_at, model_updated_at,
+ model_name, model_provider_config_id, provider_config_name, provider_model_slug,
+ model_created_at, model_updated_at,
  sort_key, sort_is_null
 FROM listed WHERE $1::boolean = false
  OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
@@ -1460,6 +1464,7 @@ type ListProjectModelGrantsRow struct {
 	ModelName                 string
 	ModelProviderConfigID     uuid.UUID
 	ProviderConfigName        string
+	ProviderModelSlug         string
 	ModelCreatedAt            time.Time
 	ModelUpdatedAt            time.Time
 	SortKey                   string
@@ -1505,6 +1510,7 @@ func (q *Queries) ListProjectModelGrants(ctx context.Context, arg ListProjectMod
 			&i.ModelName,
 			&i.ModelProviderConfigID,
 			&i.ProviderConfigName,
+			&i.ProviderModelSlug,
 			&i.ModelCreatedAt,
 			&i.ModelUpdatedAt,
 			&i.SortKey,

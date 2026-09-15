@@ -53,16 +53,13 @@ export function ModelProvidersSection() {
         <SearchHeader
           title="Model providers"
           toolbar={
-            showToolbar ? (
-              <ResourceListToolbar
-                search={list.search}
-                onSearchChange={list.setSearch}
-                sort={list.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={list.setSort}
-                placeholder="Search providers by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+              placeholder="Search providers by name…"
+              showSearch={showToolbar}
+            />
           }
         >
           {newProviderButton()}

@@ -132,6 +132,10 @@ const (
 	operationGetMachine                    operationID = "GetMachine"
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
 	operationGetOrgOverview                operationID = "GetOrgOverview"
+	operationGetOrgUsage                   operationID = "GetOrgUsage"
+	operationGetProjectUsage               operationID = "GetProjectUsage"
+	operationGetAgentProfileUsage          operationID = "GetAgentProfileUsage"
+	operationGetAgentUsage                 operationID = "GetAgentUsage"
 	operationGetMachinePool                operationID = "GetMachinePool"
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
@@ -279,9 +283,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationUpdateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListModelProviderConfigs:   accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListModelProviderConfigs:   accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetModelProviderConfig:     accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationGetModelCatalog:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetModelCatalog:            accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationUpdateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
@@ -290,6 +294,10 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentProfileUsage:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentUsage:              accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListVisibleProjects:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleMachines:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateSecret:               accountPolicy(orgScope(identitystore.OrgActionRead)),

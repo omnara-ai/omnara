@@ -1,8 +1,9 @@
-import { useProjectModelGrants } from '@omnara/react'
-import type { ConfiguredModelSummary } from '@omnara/sdk'
+import { useClusterModelPricing, useProjectModelGrants } from '@omnara/react'
+import type { ConfiguredModelSummary, DiscoveredModelPricing } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
+import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { GrantProjectModelDialog } from '@/components/projects/GrantProjectModelDialog'
 import { Button } from '@/components/ui/button'
 import { Field, RequiredFieldLabel } from '@/components/ui/field'
@@ -13,13 +14,23 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { useProjectPage } from '@/lib/use-project-page'
 
-const ModelCombobox = createResourceCombobox<ConfiguredModelSummary>({
+interface ModelChoice extends ConfiguredModelSummary {
+  pricing: DiscoveredModelPricing | undefined
+}
+
+const ModelCombobox = createResourceCombobox<ModelChoice>({
   itemKey: (model) => model.id,
   itemLabel: (model) => `${model.name} · ${model.provider_config}`,
   renderItem: (model) => (
-    <span className="flex min-w-0 items-baseline gap-1.5">
+    <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
       <span className="truncate">{model.name}</span>
       <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
+      {model.pricing && (
+        <ModelPricingSummary
+          className="text-muted-foreground ml-auto shrink-0 text-xs tabular-nums"
+          pricing={model.pricing}
+        />
+      )}
     </span>
   ),
   placeholder: 'Search granted models…',
@@ -38,7 +49,12 @@ function useModelChoices(orgId: string, projectId: string, value: ModelSelection
     sort: 'name',
     pageSize: 25,
   })
-  const models = useInfiniteQueryItems(grantsQuery).map((item) => item.model)
+  const pricing = useClusterModelPricing(orgId)
+  const withPricing = (model: ConfiguredModelSummary): ModelChoice => ({
+    ...model,
+    pricing: pricing.pricingFor(model.model_provider_config_id, model.provider_model_slug),
+  })
+  const models = useInfiniteQueryItems(grantsQuery).map((item) => withPricing(item.model))
   const matchesValue = (model: ConfiguredModelSummary) =>
     model.name === value.modelName && model.provider_config === value.providerConfig
   const listedSelected = models.find(matchesValue)
@@ -50,7 +66,9 @@ function useModelChoices(orgId: string, projectId: string, value: ModelSelection
   })
   const completeSelection = useCompleteInfiniteQueryItems(selectedQuery, lookupEnabled)
   const selected =
-    listedSelected ?? completeSelection.items.map((item) => item.model).find(matchesValue) ?? null
+    listedSelected ??
+    completeSelection.items.map((item) => withPricing(item.model)).find(matchesValue) ??
+    null
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
   const unavailable = lookupEnabled && completeSelection.isComplete && selected === null
@@ -124,6 +142,11 @@ export function AgentConfigModelField({
             )
           }
         />
+        {selected?.pricing && (
+          <p className="text-muted-foreground text-xs">
+            <ModelPricingSummary pricing={selected.pricing} /> per 1M tokens
+          </p>
+        )}
         <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider config name" />
         <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
         {unavailable && (

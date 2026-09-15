@@ -12,7 +12,6 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Badge } from '@/components/ui/badge'
-import { CheckboxField } from '@/components/ui/field'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
@@ -31,11 +30,11 @@ export function AgentsSection({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="type-title">Agents</h2>
       <AgentsTable
         orgId={orgId}
         projectId={projectId}
         canManage={canManage}
+        title="Agents"
         emptyMessage="No agents yet. Launch one from a profile above, or create one with New agent."
       />
     </div>
@@ -48,22 +47,29 @@ export function AgentsTable({
   projectId,
   canManage,
   profileId,
+  title,
   emptyMessage,
 }: {
   orgId: string
   projectId: string
   canManage: boolean
   profileId?: string
+  title?: string
   emptyMessage: string
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
   const [includeSubagents, setIncludeSubagents] = useState(false)
+  const [includeArchived, setIncludeArchived] = useState(false)
   const filters: AgentListFilters = { ...list.apiFilters }
   if (profileId) filters.agent_profile_id = profileId
   if (includeSubagents) filters.include_subagents = true
+  if (includeArchived) filters.include_archived = true
   const query = useAgents(orgId, projectId, { filters, sort: list.sort })
-  const paged = usePagedQuery(query, `${list.queryKey}:${includeSubagents ? 'all' : 'top'}`)
-  const showToolbar = useListToolbarVisibility(
+  const paged = usePagedQuery(
+    query,
+    `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}`,
+  )
+  const showSearch = useListToolbarVisibility(
     list,
     paged.pagination,
     query.isSuccess && !query.isPlaceholderData,
@@ -73,25 +79,21 @@ export function AgentsTable({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        {showToolbar && (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {title && <h2 className="type-title shrink-0 sm:mr-80">{title}</h2>}
+        <div className="flex min-w-0 flex-1 justify-end">
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
-            sort={list.sort}
-            sortOptions={resourceSortOptions}
-            onSortChange={list.setSort}
             placeholder="Search agents by name…"
+            showSearch={showSearch}
+            sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+            filters={{
+              subagents: { checked: includeSubagents, onChange: setIncludeSubagents },
+              archived: { checked: includeArchived, onChange: setIncludeArchived },
+            }}
           />
-        )}
-        <CheckboxField
-          label="Show subagents"
-          className="w-auto"
-          checked={includeSubagents}
-          onChange={(event) => {
-            setIncludeSubagents(event.target.checked)
-          }}
-        />
+        </div>
       </div>
       <DataTable
         columns={[
