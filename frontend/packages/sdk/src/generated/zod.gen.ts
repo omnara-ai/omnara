@@ -206,11 +206,22 @@ export const zModelCacheRetention = z.enum([
     'long'
 ]);
 
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export const zDiscoveredModelPricing = z.object({
+    input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    cache_read_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    cache_write_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    output_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
 export const zDiscoveredProviderModel = z.object({
     slug: z.string(),
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
-    max_output_tokens: z.int().gte(1).lte(2147483647).optional()
+    max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    pricing: zDiscoveredModelPricing.optional()
 });
 
 /**
@@ -454,6 +465,7 @@ export const zConfiguredModelSummary = z.object({
     model_provider_config_id: zModelProviderConfigId,
     name: zResourceName,
     provider_config: zResourceName,
+    provider_model_slug: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });

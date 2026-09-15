@@ -122,9 +122,11 @@ export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,
+  type ModelPricingLookup,
   type ModelProviderListFilters,
   type ModelProviderListOptions,
   type ModelProviderListSort,
+  useClusterModelPricing,
   useConfiguredModelOptions,
   useConfiguredModels,
   useCreateConfiguredModel,

@@ -1,4 +1,5 @@
 import {
+  useClusterModelPricing,
   useConfiguredModelOptions,
   useDeleteConfiguredModel,
   useModelProviders,
@@ -10,6 +11,7 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { CreateConfiguredModelDialog } from '@/components/org/CreateConfiguredModelDialog'
 import { EditConfiguredModelDialog } from '@/components/org/EditConfiguredModelDialog'
 import { GrantConfiguredModelDialog } from '@/components/org/GrantConfiguredModelDialog'
@@ -24,6 +26,7 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { modelPricingDetailItems } from '@/lib/model-pricing'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -57,6 +60,7 @@ export function ConfiguredModelsSection() {
   const providers = providersPending || providersError ? [] : loadedProviders
   const modelsQuery = useConfiguredModelOptions(activeOrg.id, providers)
   const deleteModel = useDeleteConfiguredModel(activeOrg.id)
+  const pricing = useClusterModelPricing(activeOrg.id)
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
   const list = useResourceList<string>('-created_at')
   // Newest first for the overview; the hook's name ordering is for pickers.
@@ -131,6 +135,16 @@ export function ConfiguredModelsSection() {
               ),
             },
             {
+              id: 'pricing',
+              header: 'Price / 1M',
+              cell: (option) => (
+                <ModelPricingSummary
+                  className="text-muted-foreground whitespace-nowrap tabular-nums"
+                  pricing={pricing.pricingFor(option.provider.id, option.model.provider_model_slug)}
+                />
+              ),
+            },
+            {
               id: 'actions',
               header: '',
               className: 'w-14',
@@ -182,11 +196,14 @@ export function ConfiguredModelsSection() {
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(option) => option.model.id}
-          rowExpanded={({ model }) => (
+          rowExpanded={({ provider, model }) => (
             <DetailList
               items={[
                 { label: 'ID', value: model.id, mono: true },
                 { label: 'Provider model', value: model.provider_model_slug, mono: true },
+                ...modelPricingDetailItems(
+                  pricing.pricingFor(provider.id, model.provider_model_slug),
+                ),
                 {
                   label: 'Context window',
                   value: `${model.context_window_tokens.toLocaleString()} tokens`,

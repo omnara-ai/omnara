@@ -7458,6 +7458,30 @@ components:
           minimum: 1
           maximum: 2147483647
           description: Provider-advertised maximum output limit in tokens, when available.
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+    DiscoveredModelPricing:
+      type: object
+      additionalProperties: false
+      description: >-
+        Provider-advertised list prices in USD per million tokens, as exact decimal
+        strings. Present only when the provider publishes pricing in its model
+        catalog (OpenRouter). Cache prices are omitted when the provider does not
+        publish them.
+      required: [input_usd_per_million, output_usd_per_million]
+      properties:
+        input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_read_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_write_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        output_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
     ModelProviderConfigList:
       type: object
       additionalProperties: false
@@ -7842,7 +7866,7 @@ components:
     ConfiguredModelSummary:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, name, provider_config, created_at, updated_at]
+      required: [id, org_id, model_provider_config_id, name, provider_config, provider_model_slug, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'
@@ -7856,6 +7880,9 @@ components:
         provider_config:
           $ref: '#/components/schemas/ResourceName'
           description: Name of the provider config that owns this model, used by agent YAML as model.provider_config.
+        provider_model_slug:
+          type: string
+          description: Exact provider model slug sent to the provider endpoint by the current revision.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:

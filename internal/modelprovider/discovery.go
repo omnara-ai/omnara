@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"slices"
@@ -26,6 +27,14 @@ type DiscoveredModel struct {
 	DisplayName         string
 	ContextWindowTokens *int
 	MaxOutputTokens     *int
+	Pricing             *DiscoveredModelPricing
+}
+
+type DiscoveredModelPricing struct {
+	InputUSDPerMillion           string
+	CacheReadInputUSDPerMillion  string
+	CacheWriteInputUSDPerMillion string
+	OutputUSDPerMillion          string
 }
 
 type DiscoverFunc func(
@@ -120,6 +129,7 @@ func DiscoverModels(
 				DisplayName:         displayName,
 				ContextWindowTokens: contextWindowTokens,
 				MaxOutputTokens:     maxOutputTokens,
+				Pricing:             entry.pricing(),
 			},
 			createdAt: entry.createdAtUnix(),
 		})
@@ -227,11 +237,59 @@ type discoveredModelEntry struct {
 	Architecture *struct {
 		OutputModalities []string `json:"output_modalities"`
 	} `json:"architecture"`
+	Pricing *struct {
+		Prompt          json.RawMessage `json:"prompt"`
+		Completion      json.RawMessage `json:"completion"`
+		InputCacheRead  json.RawMessage `json:"input_cache_read"`
+		InputCacheWrite json.RawMessage `json:"input_cache_write"`
+	} `json:"pricing"`
 	SupportedParameters []string `json:"supported_parameters"`
 	TopProvider         *struct {
 		ContextLength       json.RawMessage `json:"context_length"`
 		MaxCompletionTokens json.RawMessage `json:"max_completion_tokens"`
 	} `json:"top_provider"`
+}
+
+func (e discoveredModelEntry) pricing() *DiscoveredModelPricing {
+	if e.Pricing == nil {
+		return nil
+	}
+	input, inputOK := usdPerMillionFromPerToken(e.Pricing.Prompt)
+	output, outputOK := usdPerMillionFromPerToken(e.Pricing.Completion)
+	if !inputOK || !outputOK {
+		return nil
+	}
+	cacheRead, _ := usdPerMillionFromPerToken(e.Pricing.InputCacheRead)
+	cacheWrite, _ := usdPerMillionFromPerToken(e.Pricing.InputCacheWrite)
+	return &DiscoveredModelPricing{
+		InputUSDPerMillion:           input,
+		CacheReadInputUSDPerMillion:  cacheRead,
+		CacheWriteInputUSDPerMillion: cacheWrite,
+		OutputUSDPerMillion:          output,
+	}
+}
+
+var tokensPerMillion = big.NewRat(1_000_000, 1)
+
+func usdPerMillionFromPerToken(raw json.RawMessage) (string, bool) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		var number json.Number
+		if err := json.Unmarshal(raw, &number); err != nil {
+			return "", false
+		}
+		text = number.String()
+	}
+	perToken, ok := new(big.Rat).SetString(strings.TrimSpace(text))
+	if !ok || perToken.Sign() < 0 {
+		return "", false
+	}
+	perMillion := new(big.Rat).Mul(perToken, tokensPerMillion)
+	formatted := perMillion.FloatString(6)
+	if strings.Contains(formatted, ".") {
+		formatted = strings.TrimRight(strings.TrimRight(formatted, "0"), ".")
+	}
+	return formatted, true
 }
 
 func (e discoveredModelEntry) contextWindowTokens() *int {

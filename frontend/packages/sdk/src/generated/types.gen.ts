@@ -293,6 +293,17 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    pricing?: DiscoveredModelPricing;
+};
+
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export type DiscoveredModelPricing = {
+    input_usd_per_million: string;
+    cache_read_input_usd_per_million?: string;
+    cache_write_input_usd_per_million?: string;
+    output_usd_per_million: string;
 };
 
 export type ModelProviderConfigList = {
@@ -622,6 +633,10 @@ export type ConfiguredModelSummary = {
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
     provider_config: ResourceName;
+    /**
+     * Exact provider model slug sent to the provider endpoint by the current revision.
+     */
+    provider_model_slug: string;
     created_at: Timestamp;
     updated_at: Timestamp;
 };

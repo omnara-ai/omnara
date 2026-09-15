@@ -37,3 +37,16 @@ const compactCountFormatter = new Intl.NumberFormat(undefined, {
 export function formatCompactCount(value: number) {
   return compactCountFormatter.format(value)
 }
+
+const usdPerMillionFormatter = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 3,
+})
+
+export function formatUsdPerMillion(decimal: string) {
+  const value = Number(decimal)
+  if (!Number.isFinite(value)) return decimal
+  return usdPerMillionFormatter.format(value)
+}

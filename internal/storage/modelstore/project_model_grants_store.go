@@ -307,6 +307,7 @@ func (s *Store) ListProjectModelGrants(
 				ModelProviderConfigID: row.ModelProviderConfigID,
 				Name:                  row.ModelName,
 				ProviderConfigName:    row.ProviderConfigName,
+				ProviderModelSlug:     row.ProviderModelSlug,
 				CreatedAt:             row.ModelCreatedAt,
 				UpdatedAt:             row.ModelUpdatedAt,
 			},
