@@ -132,16 +132,12 @@ func deleteMachine(
 	if err != nil {
 		return nil, err
 	}
-	authorizationInput, err := marshalJSON(input)
-	if err != nil {
-		return nil, err
-	}
 	if err := authorizeToolExecution(
 		ctx,
 		call.Reader,
 		call.Turn,
 		call.Call,
-		authorizationInput,
+		call.Call.Input,
 	); err != nil {
 		return nil, fmt.Errorf("authorize %s: %w", call.Call.Name, err)
 	}

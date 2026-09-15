@@ -1439,7 +1439,7 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 	call := model.ToolCall{
 		ID:    "call_delete_replay",
 		Name:  "delete_machine",
-		Input: json.RawMessage(`{"machine_id":"` + machinePublicIDForTest(t, created.Machine.Binding.MachineID) + `"}`),
+		Input: json.RawMessage(`{"machine_id":"  ` + machinePublicIDForTest(t, created.Machine.Binding.MachineID) + `  "}`),
 	}
 	providerResponse, err := model.NewResponseEnvelopeForStorage(
 		"tools-test",
@@ -1476,17 +1476,6 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("recorded delete tool calls = %d, want 1", len(records))
 	}
-	if _, err := store.Execution().MarkToolCallReady(
-		ctx,
-		executionstore.MarkToolCallReadyInput{
-			ProjectID:     toolsTestProjectID,
-			AgentID:       launch.Agent.ID,
-			ID:            records[0].ID,
-			RuntimeLockID: lock.ID,
-		},
-	); err != nil {
-		t.Fatalf("mark permission allowed: %v", err)
-	}
 	turn := Turn{
 		ProjectID:          toolsTestProjectID,
 		AgentID:            launch.Agent.ID,
@@ -1495,13 +1484,37 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 		ModelCallContextID: contextRecord.ID,
 		Tools: map[string]ToolSpec{
 			"delete_machine": {
-				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
 			},
 		},
 	}
 	executor := Executor{
 		Store: store,
 		Now:   func() time.Time { return now.Add(12 * time.Second) },
+	}
+	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
+		t.Fatalf("prepare delete permission: %v", err)
+	}
+	interaction, found, err := store.Execution().GetAgentInteractionByToolCallKind(
+		ctx, toolsTestProjectID, launch.Agent.ID, records[0].ID, executionstore.AgentInteractionKindPermission,
+	)
+	if err != nil || !found {
+		t.Fatalf("load delete permission: found=%t err=%v", found, err)
+	}
+	actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(userID))
+	if err != nil {
+		t.Fatalf("build delete permission actor: %v", err)
+	}
+	if _, err := store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: toolsTestProjectID,
+		AgentID:   launch.Agent.ID,
+		ID:        interaction.ID,
+		Resolution: interactionform.Resolution{
+			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
+		},
+		Actor: actor,
+	}); err != nil {
+		t.Fatalf("approve delete permission: %v", err)
 	}
 	dispatchResult, err := executor.Dispatch(ctx, turn, call)
 	if err != nil {
@@ -1517,7 +1530,7 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 		records[0].ID,
 	)
 	if err != nil {
-		t.Fatalf("load deleting machine: %v", err)
+		t.Fatalf("load deleting machine: %v; tool result=%s", err, dispatchResult.ContentParts)
 	}
 	var completedWithoutRuntime bool
 	if err := pool.QueryRow(
