@@ -263,15 +263,18 @@ func TestListMCPServerToolsDoesNotGuessBearerWhenProbeReturnsForbidden(t *testin
 	}))
 	defer upstream.Close()
 
-	_, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+	response, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
 		mcpServerToolsTestContext(),
 		openapi.ListMCPServerToolsRequestObject{
 			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
 		},
 	)
-	var apiErr apierror.ResponseError
-	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamError {
-		t.Fatalf("err = %v, want upstream_error", err)
+	if err != nil {
+		t.Fatalf("ListMCPServerTools() error = %v", err)
+	}
+	unreachable, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || unreachable.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
 	}
 }
 
@@ -281,15 +284,18 @@ func TestListMCPServerToolsReportsUpstreamFailureForNonAuthErrors(t *testing.T) 
 	}))
 	defer upstream.Close()
 
-	_, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+	response, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
 		mcpServerToolsTestContext(),
 		openapi.ListMCPServerToolsRequestObject{
 			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
 		},
 	)
-	var apiErr apierror.ResponseError
-	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamError {
-		t.Fatalf("err = %v, want upstream_error", err)
+	if err != nil {
+		t.Fatalf("ListMCPServerTools() error = %v", err)
+	}
+	unreachable, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || unreachable.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
 	}
 }
 

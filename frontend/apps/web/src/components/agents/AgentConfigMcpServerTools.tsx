@@ -297,7 +297,7 @@ function UnexposableTools({ tools }: { tools: UnexposableMcpTool[] }) {
 function detectedAuthType(cause: unknown): McpAuthType | null {
   if (!(cause instanceof ApiError) || cause.status !== 422) return null
   const parsed = schemas.zMcpServerAuthRequiredError.safeParse(cause.body)
-  return parsed.success ? parsed.data.auth.type : null
+  return parsed.success ? (parsed.data.auth?.type ?? null) : null
 }
 
 function discoveryFailureTitle(
@@ -315,7 +315,7 @@ function discoveryFailureTitle(
       ? 'The server rejected the selected secret.'
       : 'This server expects a bearer token. Switch authentication to a bearer secret.'
   }
-  if (cause instanceof ApiError && cause.status === 502) {
+  if (cause instanceof ApiError && cause.status === 422) {
     return 'Could not connect to the MCP server.'
   }
   if (cause instanceof ApiError && cause.status === 404) {
