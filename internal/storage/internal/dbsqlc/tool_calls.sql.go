@@ -19,7 +19,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $2
     AND agent.id = $3
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -110,7 +110,7 @@ WITH locked_agent AS MATERIALIZED (
   WHERE agent.project_id = $3
     AND tool_call.agent_id = $4
     AND tool_call.id = $1
-  FOR UPDATE OF agent
+  FOR NO KEY UPDATE OF agent
 )
 UPDATE tool_calls call
 SET state = 'completed'
@@ -379,7 +379,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $2
     AND agent.id = $3
-  FOR UPDATE
+  FOR NO KEY UPDATE
 ),
 permission_interaction AS MATERIALIZED (
   SELECT agent.project_id, interaction.agent_id, interaction.tool_call_id
@@ -470,7 +470,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $4
     AND agent.id = $5
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -561,7 +561,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $5
     AND agent.id = $6
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -655,7 +655,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $3
     AND agent.id = $4
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -746,7 +746,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $4
     AND agent.id = $5
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -837,7 +837,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $3
     AND agent.id = $4
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -1592,7 +1592,7 @@ WHERE call.agent_id = runtime_lock.agent_id
   AND call.id = $1
   AND call.state = 'awaiting_authorization'
   AND runtime_lock.id = $2
-RETURNING call.id
+RETURNING call.type
 `
 
 type MarkToolCallAwaitingPermissionParams struct {
@@ -1602,16 +1602,16 @@ type MarkToolCallAwaitingPermissionParams struct {
 	AgentID       uuid.UUID
 }
 
-func (q *Queries) MarkToolCallAwaitingPermission(ctx context.Context, arg MarkToolCallAwaitingPermissionParams) (uuid.UUID, error) {
+func (q *Queries) MarkToolCallAwaitingPermission(ctx context.Context, arg MarkToolCallAwaitingPermissionParams) (string, error) {
 	row := q.db.QueryRow(ctx, markToolCallAwaitingPermission,
 		arg.ID,
 		arg.RuntimeLockID,
 		arg.ProjectID,
 		arg.AgentID,
 	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var type_ string
+	err := row.Scan(&type_)
+	return type_, err
 }
 
 const markToolCallReady = `-- name: MarkToolCallReady :one
@@ -1707,7 +1707,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $1
     AND agent.id = $2
-  FOR UPDATE
+  FOR NO KEY UPDATE
 ),
 permission_interaction AS MATERIALIZED (
   SELECT agent.project_id, interaction.agent_id, interaction.tool_call_id
@@ -1870,7 +1870,7 @@ func (q *Queries) NextRunnableToolCallForModelOutput(ctx context.Context, arg Ne
 	return i, err
 }
 
-const releaseToolCallRuntimeOwnership = `-- name: ReleaseToolCallRuntimeOwnership :execrows
+const releaseToolCallRuntimeOwnership = `-- name: ReleaseToolCallRuntimeOwnership :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
@@ -1897,6 +1897,7 @@ WHERE call.agent_id = runtime_lock.agent_id
       AND interaction.interaction_kind = 'question'
       AND interaction.state = 'open'
   )
+RETURNING call.type
 `
 
 type ReleaseToolCallRuntimeOwnershipParams struct {
@@ -1906,20 +1907,19 @@ type ReleaseToolCallRuntimeOwnershipParams struct {
 	RuntimeLockID uuid.UUID
 }
 
-func (q *Queries) ReleaseToolCallRuntimeOwnership(ctx context.Context, arg ReleaseToolCallRuntimeOwnershipParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseToolCallRuntimeOwnership,
+func (q *Queries) ReleaseToolCallRuntimeOwnership(ctx context.Context, arg ReleaseToolCallRuntimeOwnershipParams) (string, error) {
+	row := q.db.QueryRow(ctx, releaseToolCallRuntimeOwnership,
 		arg.ID,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.RuntimeLockID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var type_ string
+	err := row.Scan(&type_)
+	return type_, err
 }
 
-const requeueRuntimeToolCall = `-- name: RequeueRuntimeToolCall :execrows
+const requeueRuntimeToolCall = `-- name: RequeueRuntimeToolCall :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
@@ -1938,6 +1938,7 @@ WHERE call.agent_id = runtime_lock.agent_id
   AND call.id = $1
   AND call.state = 'running'
   AND call.runtime_lock_id = runtime_lock.id
+RETURNING call.type
 `
 
 type RequeueRuntimeToolCallParams struct {
@@ -1947,20 +1948,19 @@ type RequeueRuntimeToolCallParams struct {
 	RuntimeLockID uuid.UUID
 }
 
-func (q *Queries) RequeueRuntimeToolCall(ctx context.Context, arg RequeueRuntimeToolCallParams) (int64, error) {
-	result, err := q.db.Exec(ctx, requeueRuntimeToolCall,
+func (q *Queries) RequeueRuntimeToolCall(ctx context.Context, arg RequeueRuntimeToolCallParams) (string, error) {
+	row := q.db.QueryRow(ctx, requeueRuntimeToolCall,
 		arg.ID,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.RuntimeLockID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var type_ string
+	err := row.Scan(&type_)
+	return type_, err
 }
 
-const startToolCall = `-- name: StartToolCall :execrows
+const startToolCall = `-- name: StartToolCall :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
@@ -1992,6 +1992,7 @@ WHERE call.agent_id = $2
   )
   AND runtime_lock.agent_id = call.agent_id
   AND runtime_lock.id = $4
+RETURNING call.type
 `
 
 type StartToolCallParams struct {
@@ -2002,16 +2003,15 @@ type StartToolCallParams struct {
 	ProjectID              uuid.UUID
 }
 
-func (q *Queries) StartToolCall(ctx context.Context, arg StartToolCallParams) (int64, error) {
-	result, err := q.db.Exec(ctx, startToolCall,
+func (q *Queries) StartToolCall(ctx context.Context, arg StartToolCallParams) (string, error) {
+	row := q.db.QueryRow(ctx, startToolCall,
 		arg.RetainRuntimeOwnership,
 		arg.AgentID,
 		arg.ID,
 		arg.RuntimeLockID,
 		arg.ProjectID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var type_ string
+	err := row.Scan(&type_)
+	return type_, err
 }

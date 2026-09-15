@@ -50,7 +50,7 @@ func TestServerServesSPA(t *testing.T) {
 		discardLogger(),
 		nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		WithWebAssets(spaAssets()),
 	)
@@ -129,7 +129,7 @@ func TestSPAReservedNamespacesReturnJSON404(t *testing.T) {
 		discardLogger(),
 		nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		WithWebAssets(spaAssets()),
 	)
@@ -177,7 +177,7 @@ func TestSPAReservedNamespacesReturnJSON404(t *testing.T) {
 func TestConfiguredPublicURLRejectsUnknownHost(t *testing.T) {
 	srv, err := New(discardLogger(), nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		WithPublicURL(" https://omnara.test/ "),
 		WithWebAssets(spaAssets()),
@@ -217,7 +217,7 @@ func TestServerWithoutWebIndexKeepsAPIOnlyRoot(t *testing.T) {
 		discardLogger(),
 		nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		WithWebAssets(fstest.MapFS{".gitkeep": {Data: []byte("x")}}),
 	)

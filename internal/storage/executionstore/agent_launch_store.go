@@ -177,20 +177,26 @@ func (s *Store) launchAgentTx(
 		IdempotencyKey:          input.IdempotencyKey,
 		ArchiveAfterIdleMinutes: input.ArchiveAfterIdleMinutes,
 	}
+	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
 	if input.Subagent != nil {
+		lockedMachineIDs, err := lockParentMachineBindingsForSharingTx(
+			ctx, tx, qtx, project.OrgID, input.ProjectID, input.Subagent.ParentAgentID,
+		)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
 		if err := admitSubagentLaunchTx(ctx, tx, qtx, input.ProjectID, *input.Subagent); err != nil {
+			return LaunchAgentResult{}, err
+		}
+		sharedBindings, err = revalidateParentMachineBindingsForSharingTx(
+			ctx, qtx, input.ProjectID, input.Subagent.ParentAgentID, lockedMachineIDs,
+		)
+		if err != nil {
 			return LaunchAgentResult{}, err
 		}
 		insertInput.ParentAgentID = input.Subagent.ParentAgentID
 		insertInput.SubagentKey = input.Subagent.Key
 		machineSources = nil
-	}
-	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
-	if !inserted {
-		return LaunchAgentResult{Agent: agent}, nil
 	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,
@@ -202,14 +208,12 @@ func (s *Store) launchAgentTx(
 	); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
-	if input.Subagent != nil {
-		sharedBindings, err = lockParentMachineBindingsForSharingTx(
-			ctx, tx, qtx, project.OrgID, input.ProjectID, input.Subagent.ParentAgentID,
-		)
-		if err != nil {
-			return LaunchAgentResult{}, err
-		}
+	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if !inserted {
+		return LaunchAgentResult{Agent: agent}, nil
 	}
 	result := LaunchAgentResult{
 		Agent:       agent,
@@ -337,6 +341,7 @@ func (s *Store) launchAgentTx(
 			return LaunchAgentResult{}, fmt.Errorf("mark launch agent wakeup: %w", err)
 		}
 	}
+	txNotifications.AddAgentChange(input.ProjectID, agent.ID, notifications.AgentChangeAgent)
 	return result, nil
 }
 

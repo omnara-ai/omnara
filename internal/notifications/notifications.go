@@ -43,11 +43,11 @@ type AgentStreamDeltaSubscriber interface {
 	) (Subscription, error)
 }
 
-type AgentToolCallUpdateSubscriber interface {
-	SubscribeAgentToolCallUpdates(
+type AgentUpdateSubscriber interface {
+	SubscribeAgentUpdates(
 		ctx context.Context,
 		agentID uuid.UUID,
-		handler func(context.Context, ToolCallUpdatedCommitted),
+		handler func(context.Context, AgentUpdate),
 	) (Subscription, error)
 }
 
@@ -67,8 +67,14 @@ type AgentEventWakeupPublisher interface {
 	PublishAgentEventWakeup(ctx context.Context, agentID uuid.UUID) error
 }
 
-type AgentToolCallUpdatePublisher interface {
-	PublishAgentToolCallUpdate(ctx context.Context, update ToolCallUpdatedCommitted) error
+type AgentUpdatePublisher interface {
+	PublishAgentUpdate(ctx context.Context, destinationID uuid.UUID, update AgentUpdate) error
+}
+
+// AgentAncestryReader reads immutable parent edges after commit, scoped to the
+// owner's project. Results exclude the owner and are nearest first, at most eight.
+type AgentAncestryReader interface {
+	ListAgentAncestors(ctx context.Context, projectID, agentID uuid.UUID) ([]uuid.UUID, error)
 }
 
 type WorkerControlPublisher interface {
@@ -119,12 +125,89 @@ type AgentEventCommitted struct {
 func (AgentEventCommitted) postCommitIntent() {}
 
 type ToolCallUpdatedCommitted struct {
-	AgentID    uuid.UUID `json:"-"`
+	ProjectID  uuid.UUID `json:"-"`
+	AgentID    uuid.UUID `json:"agent_id"`
 	ToolCallID uuid.UUID `json:"tool_call_id"`
+	ToolType   string    `json:"-"`
 	State      string    `json:"state"`
 }
 
 func (ToolCallUpdatedCommitted) postCommitIntent() {}
+
+type AgentChangeKind string
+
+const (
+	AgentChangeAgent        AgentChangeKind = "agent"
+	AgentChangeInteractions AgentChangeKind = "interactions"
+)
+
+type AgentChangeCommitted struct {
+	ProjectID     uuid.UUID         `json:"-"`
+	AgentID       uuid.UUID         `json:"agent_id"`
+	ParentAgentID *uuid.UUID        `json:"parent_agent_id"`
+	Changes       []AgentChangeKind `json:"changes"`
+}
+
+func (AgentChangeCommitted) postCommitIntent() {}
+
+// AgentUpdate carries exactly one payload. Its owner is independent of the
+// subscription destination, which can be an ancestor of that owner.
+type AgentUpdate struct {
+	ToolCallUpdate *ToolCallUpdatedCommitted `json:"tool_call_update,omitempty"`
+	Change         *AgentChangeCommitted     `json:"change,omitempty"`
+}
+
+func (u AgentUpdate) Validate() error {
+	if (u.ToolCallUpdate == nil) == (u.Change == nil) {
+		return errors.New("agent update requires exactly one payload")
+	}
+	if v := u.ToolCallUpdate; v != nil {
+		if v.AgentID == uuid.Nil || v.ToolCallID == uuid.Nil || v.State == "" {
+			return errors.New("agent, tool call, and state are required")
+		}
+		return nil
+	}
+	v := u.Change
+	if v.AgentID == uuid.Nil || len(v.Changes) == 0 {
+		return errors.New("agent and changes are required")
+	}
+	if v.ParentAgentID != nil && (*v.ParentAgentID == uuid.Nil || *v.ParentAgentID == v.AgentID) {
+		return errors.New("invalid parent agent id")
+	}
+	for _, kind := range v.Changes {
+		if kind != AgentChangeAgent && kind != AgentChangeInteractions {
+			return fmt.Errorf("unknown agent change kind %q", kind)
+		}
+	}
+	return nil
+}
+
+type agentNotificationKey struct {
+	projectID uuid.UUID
+	agentID   uuid.UUID
+}
+
+func mergeAgentChangeKinds(a, b []AgentChangeKind) []AgentChangeKind {
+	var agent, interactions bool
+	for _, kinds := range [][]AgentChangeKind{a, b} {
+		for _, kind := range kinds {
+			switch kind {
+			case AgentChangeAgent:
+				agent = true
+			case AgentChangeInteractions:
+				interactions = true
+			}
+		}
+	}
+	var kinds []AgentChangeKind
+	if agent {
+		kinds = append(kinds, AgentChangeAgent)
+	}
+	if interactions {
+		kinds = append(kinds, AgentChangeInteractions)
+	}
+	return kinds
+}
 
 type WorkerControlCommitted struct {
 	WorkerProcessID uuid.UUID
@@ -247,6 +330,7 @@ type TxNotifications struct {
 	processTerminationByMachine map[uuid.UUID]map[uuid.UUID]struct{}
 	runtimeEndedByID            map[uuid.UUID]DaemonRuntimeEndedCommitted
 	agentEventByID              map[uuid.UUID]struct{}
+	agentChanges                map[agentNotificationKey]AgentChangeCommitted
 	toolCallUpdates             []ToolCallUpdatedCommitted
 	workerControls              []WorkerControlCommitted
 }
@@ -257,6 +341,7 @@ func NewTxNotifications() *TxNotifications {
 		processTerminationByMachine: map[uuid.UUID]map[uuid.UUID]struct{}{},
 		runtimeEndedByID:            map[uuid.UUID]DaemonRuntimeEndedCommitted{},
 		agentEventByID:              map[uuid.UUID]struct{}{},
+		agentChanges:                map[agentNotificationKey]AgentChangeCommitted{},
 	}
 }
 
@@ -302,13 +387,29 @@ func (n *TxNotifications) AddAgentEvent(agentID uuid.UUID) {
 	n.agentEventByID[agentID] = struct{}{}
 }
 
-func (n *TxNotifications) AddToolCallUpdate(agentID, toolCallID uuid.UUID, state string) {
-	if n == nil || agentID == uuid.Nil || toolCallID == uuid.Nil || state == "" {
+func (n *TxNotifications) AddAgentChange(projectID, agentID uuid.UUID, kind AgentChangeKind) {
+	if n == nil || projectID == uuid.Nil || agentID == uuid.Nil ||
+		(kind != AgentChangeAgent && kind != AgentChangeInteractions) {
+		return
+	}
+	key := agentNotificationKey{projectID: projectID, agentID: agentID}
+	change := n.agentChanges[key]
+	change.ProjectID = projectID
+	change.AgentID = agentID
+	change.Changes = mergeAgentChangeKinds(change.Changes, []AgentChangeKind{kind})
+	n.agentChanges[key] = change
+}
+
+func (n *TxNotifications) AddToolCallUpdate(projectID, agentID, toolCallID uuid.UUID, toolType, state string) {
+	if n == nil || projectID == uuid.Nil || agentID == uuid.Nil || toolCallID == uuid.Nil ||
+		toolType == "" || state == "" {
 		return
 	}
 	n.toolCallUpdates = append(n.toolCallUpdates, ToolCallUpdatedCommitted{
+		ProjectID:  projectID,
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
+		ToolType:   toolType,
 		State:      state,
 	})
 }
@@ -351,6 +452,9 @@ func (n *TxNotifications) Flush(ctx context.Context, publisher PostCommitPublish
 		publisher.PublishPostCommit(ctx, AgentEventCommitted{AgentID: agentID})
 	}
 	for _, intent := range n.toolCallUpdates {
+		publisher.PublishPostCommit(ctx, intent)
+	}
+	for _, intent := range n.agentChanges {
 		publisher.PublishPostCommit(ctx, intent)
 	}
 	for _, intent := range n.workerControls {

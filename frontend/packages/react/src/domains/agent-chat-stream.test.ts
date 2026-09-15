@@ -478,58 +478,8 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('invalidates the interactions query when tool activity streams', async () => {
-    const queryClient = new QueryClient()
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
-    const session = startSession([], client(), queryClient)
-    const stream = await connection(0)
-
-    stream.push({ event: 'agent_input', data: userInputEvent() })
-    await waitForSnapshot(session, (s) => s.status === 'streaming')
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(1)
-    })
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: [expect.objectContaining({ _id: 'listQueuedBacklogInputs' })],
-    })
-    invalidate.mockClear()
-
-    stream.push({
-      event: 'model_output',
-      data: event({
-        sequence: 12,
-        content_blocks: [toolCallBlock()],
-      }),
-    })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(1)
-    })
-
-    stream.push({
-      event: 'tool_result',
-      data: toolResultEvent({
-        sequence: 13,
-        tool_call_id: 'call',
-        content_blocks: [{ type: 'text', text: '/workspace' }],
-      }),
-    })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(2)
-    })
-
-    stream.push({
-      event: 'agent_input',
-      data: controlEvent({ sequence: 14 }),
-    })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(3)
-    })
-    session.disconnect()
-  })
-
   it('clears connection-scoped previews and accepts recovered durable output', async () => {
     const queryClient = new QueryClient()
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
     const session = startSession([], client(), queryClient)
     const stream = await connection(0)
 
@@ -554,11 +504,7 @@ describe('AgentChatSession streaming', () => {
         'Partial',
       )
     })
-    const invalidationsBeforeReconnect = invalidate.mock.calls.length
     stream.connectionState({ state: 'connected', reconnected: true })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(invalidationsBeforeReconnect + 1)
-    })
 
     stream.push({
       event: 'model_output',

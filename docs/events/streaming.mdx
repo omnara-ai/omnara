@@ -68,6 +68,7 @@ The response is a standard `text/event-stream`. The SSE `event` name tells you w
 | `tool_result` | A completed tool call's result | Yes |
 | `context_checkpoint` | A summary of earlier context | Yes |
 | `tool_call_update` | A tool call ID, its agent ID, and a reported lifecycle state | No |
+| `agent_change` | The changed agent and parent IDs, and which current-state queries to refresh | No |
 | `model_output_delta` | A live preview while the model responds | No |
 | `error` | A stream-closing error; retry only `service_unavailable` | No |
 
@@ -84,9 +85,11 @@ data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_ou
 : heartbeat
 ```
 
-`tool_call_update` frames are included for every tool type and contain only `tool_call_id`, `agent_id`, and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
+`tool_call_update` frames contain only `tool_call_id`, `agent_id`, and `state`. The stream includes every tool type on this agent and custom tools on its descendants. After the stream connects, including after a reconnect, query `GET /tool-calls?include_subagents=true` for current state.
 
-A parent's stream does not carry its subagents' timelines, but it does carry their `tool_call_update` frames from every depth, with `agent_id` naming the subagent. Because every question and permission request is attached to a tool call, a frame arrives whenever a subagent asks a question, waits on permission, calls a custom tool, or has one of those resolved or canceled. Treat it as a signal to query `GET /interactions?include_subagents=true` and `GET /tool-calls?include_subagents=true` for current state.
+`agent_change` frames contain `agent_id`, a nullable `parent_agent_id`, and a `changes` array. An `agent` change covers this agent or a direct child: refresh the changed agent's details and the child list filtered by its `parent_agent_id`. An `interactions` change covers this agent or a descendant at any depth: refresh `GET /interactions?include_subagents=true` when a question or permission request is created, answered, or canceled. The IDs identify the changed agent and its direct parent, even when a more distant ancestor receives the frame.
+
+These notifications may arrive out of order and are not replayed. Refresh the agent's details, current tool calls, interactions, and child lists after connecting or reconnecting; a manual refresh also recovers missed notifications. A parent's stream does not carry its descendants' timelines, model previews, or ordinary built-in tool updates.
 
 After an `error` frame, the server closes that HTTP response. A raw client should reconnect when the stable `code` is `service_unavailable`; other currently documented error codes are terminal and should be surfaced to the caller. Do not decide from the human-readable `error` text.
 

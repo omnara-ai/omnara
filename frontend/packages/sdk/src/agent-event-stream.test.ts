@@ -149,6 +149,26 @@ describe('openAgentEventStream', () => {
     ])
   })
 
+  it('decodes agent changes by their standalone shape and preserves the durable cursor', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const changes = [
+      { agent_id: `agt_${idSuffix}`, parent_agent_id: null, changes: ['agent'] },
+      {
+        agent_id: `agt_${idSuffix}`,
+        parent_agent_id: `agt_${'b'.repeat(26)}`,
+        changes: ['agent', 'interactions'],
+      },
+    ]
+    const { client, fetch } = scriptedClient(
+      sse(durableEvent(11), ...changes, toolUpdate),
+      new Response(null, { status: 401 }),
+    )
+    const result = await collectUntilError(openAgentEventStream({ client, path }))
+    expect(result.frames).toEqual([durableEvent(11), ...changes, toolUpdate])
+    expect(result.error).toMatchObject({ kind: 'http', status: 401 })
+    expect(requestOf(fetch.mock.calls[1]?.[0]).headers.get('Last-Event-ID')).toBe('11')
+  })
+
   it('retries transport failures and preserves the caller boundary before a durable frame', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const { client, fetch } = scriptedClient(

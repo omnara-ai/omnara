@@ -117,6 +117,14 @@ func lockAgentRuntimeForOwnedMutationTx(
 		}
 		return fmt.Errorf("lock agent for runtime-owned mutation: %w", err)
 	}
+	return lockAgentRuntimeRowForOwnedMutationTx(ctx, qtx, projectID, agentID, runtimeID)
+}
+
+func lockAgentRuntimeRowForOwnedMutationTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID, runtimeID uuid.UUID,
+) error {
 	if _, err := qtx.LockAgentRuntimeLockForOwnedMutation(
 		ctx,
 		dbsqlc.LockAgentRuntimeLockForOwnedMutationParams{
@@ -143,6 +151,37 @@ func (s *Store) beginAgentRuntimeOwnedMutation(
 	}
 	qtx := dbsqlc.New(tx)
 	if err := lockAgentRuntimeForOwnedMutationTx(ctx, qtx, projectID, agentID, runtimeID); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, nil, err
+	}
+	return tx, qtx, nil
+}
+
+// beginParentNotifyingRuntimeMutation locks the complete agent set before runtime
+// ownership. The parent edge is immutable, so lockAgentWithParentTx can read it
+// before acquiring the sorted parent/child row locks. Validate the active lease
+// only after all locks are held, since waiting may outlive ownership.
+func (s *Store) beginParentNotifyingRuntimeMutation(
+	ctx context.Context,
+	projectID, agentID, runtimeID uuid.UUID,
+) (pgx.Tx, *dbsqlc.Queries, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("begin parent-notifying runtime mutation: %w", err)
+	}
+	qtx := dbsqlc.New(tx)
+	if err := lockAgentWithParentTx(ctx, tx, qtx, projectID, agentID); err != nil {
+		_ = tx.Rollback(ctx)
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return nil, nil, storeerr.ErrRuntimeLockInactive
+		}
+		return nil, nil, err
+	}
+	if err := lockAgentRuntimeRowForOwnedMutationTx(ctx, qtx, projectID, agentID, runtimeID); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, nil, err
+	}
+	if err := agentRuntimeLockActiveTx(ctx, qtx, projectID, agentID, runtimeID); err != nil {
 		_ = tx.Rollback(ctx)
 		return nil, nil, err
 	}
@@ -457,6 +496,7 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	}); err != nil {
 		return fmt.Errorf("reconcile agent wakeup after runtime release: %w", err)
 	}
+	txNotifications.AddAgentChange(projectID, agentID, notifications.AgentChangeAgent)
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "release agent runtime lock"); err != nil {
 		return err
 	}

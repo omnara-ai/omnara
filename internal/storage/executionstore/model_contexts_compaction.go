@@ -47,21 +47,13 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	}
 
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, q, err := s.beginParentNotifyingRuntimeMutation(
+		ctx, failure.ProjectID, failure.AgentID, failure.RuntimeLockID,
+	)
 	if err != nil {
-		return TriggeredCompactionHandoff{}, fmt.Errorf("begin triggered compaction handoff: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		failure.ProjectID,
-		failure.AgentID,
-		failure.RuntimeLockID,
-	); err != nil {
 		return TriggeredCompactionHandoff{}, err
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	parent, err := loadModelCallContextByID(
 		ctx,
@@ -236,21 +228,13 @@ func (s *Store) ReplaceCompactionSource(
 	}
 
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, q, err := s.beginParentNotifyingRuntimeMutation(
+		ctx, input.ProjectID, input.AgentID, input.RuntimeLockID,
+	)
 	if err != nil {
-		return ReplaceCompactionSourceResult{}, fmt.Errorf("begin compaction source replacement: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	contextRow, err := loadModelCallContextByID(
 		ctx,
 		q,

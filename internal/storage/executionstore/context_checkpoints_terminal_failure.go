@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -48,21 +47,13 @@ func (s *Store) RecordTerminalCompactionFailure(
 		return err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, q, err := s.beginParentNotifyingRuntimeMutation(
+		ctx, input.ProjectID, input.AgentID, input.RuntimeLockID,
+	)
 	if err != nil {
-		return fmt.Errorf("begin terminal compaction failure: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := recordTerminalCompactionFailureTx(
 		ctx,
 		txNotifications,

@@ -221,7 +221,7 @@ WHERE call.project_id = sqlc.arg(project_id)
 ORDER BY coalesce(call_block.ordinal, 2147483647), call.created_at, call.id
 LIMIT 1;
 
--- name: StartToolCall :execrows
+-- name: StartToolCall :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
@@ -252,7 +252,8 @@ WHERE call.agent_id = sqlc.arg(agent_id)
     OR call.type = 'built_in'
   )
   AND runtime_lock.agent_id = call.agent_id
-  AND runtime_lock.id = sqlc.arg(runtime_lock_id);
+  AND runtime_lock.id = sqlc.arg(runtime_lock_id)
+RETURNING call.type;
 
 -- name: GetToolCallDispatchState :one
 SELECT state, runtime_lock_id
@@ -261,7 +262,7 @@ WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
   AND id = sqlc.arg(id);
 
--- name: ReleaseToolCallRuntimeOwnership :execrows
+-- name: ReleaseToolCallRuntimeOwnership :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
@@ -287,9 +288,10 @@ WHERE call.agent_id = runtime_lock.agent_id
       AND interaction.tool_call_id = call.id
       AND interaction.interaction_kind = 'question'
       AND interaction.state = 'open'
-  );
+  )
+RETURNING call.type;
 
--- name: RequeueRuntimeToolCall :execrows
+-- name: RequeueRuntimeToolCall :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
@@ -307,7 +309,8 @@ FROM live_runtime runtime_lock
 WHERE call.agent_id = runtime_lock.agent_id
   AND call.id = sqlc.arg(id)
   AND call.state = 'running'
-  AND call.runtime_lock_id = runtime_lock.id;
+  AND call.runtime_lock_id = runtime_lock.id
+RETURNING call.type;
 
 -- name: MarkToolCallAwaitingPermission :one
 WITH live_runtime AS MATERIALIZED (
@@ -327,7 +330,7 @@ WHERE call.agent_id = runtime_lock.agent_id
   AND call.id = sqlc.arg(id)
   AND call.state = 'awaiting_authorization'
   AND runtime_lock.id = sqlc.arg(runtime_lock_id)
-RETURNING call.id;
+RETURNING call.type;
 
 -- name: MarkToolCallReady :one
 WITH live_runtime AS MATERIALIZED (
@@ -366,7 +369,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 ),
 permission_interaction AS MATERIALIZED (
   SELECT agent.project_id, interaction.agent_id, interaction.tool_call_id
@@ -402,7 +405,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 ),
 permission_interaction AS MATERIALIZED (
   SELECT agent.project_id, interaction.agent_id, interaction.tool_call_id
@@ -512,7 +515,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -543,7 +546,7 @@ WITH locked_agent AS MATERIALIZED (
   WHERE agent.project_id = sqlc.arg(project_id)
     AND tool_call.agent_id = sqlc.arg(agent_id)
     AND tool_call.id = sqlc.arg(id)
-  FOR UPDATE OF agent
+  FOR NO KEY UPDATE OF agent
 )
 UPDATE tool_calls call
 SET state = 'completed'
@@ -573,7 +576,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -608,7 +611,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -645,7 +648,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -680,7 +683,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',
@@ -765,7 +768,7 @@ WITH locked_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 UPDATE tool_calls call
 SET state = 'completed',

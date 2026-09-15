@@ -245,6 +245,7 @@ func (s *Store) ClaimNextAgentWork(ctx context.Context, input ClaimNextAgentWork
 		}
 		return ClaimedAgentWork{}, false, err
 	}
+	txNotifications.AddAgentChange(wakeup.ProjectID, wakeup.AgentID, notifications.AgentChangeAgent)
 	claim.RuntimeLock = runtime
 	claim.OrgID = orgID
 	if err := consumeClaimedAgentWakeupTx(
@@ -345,6 +346,9 @@ func (s *Store) reconcileClaimedWakeupTx(
 		Metadata:  metadata,
 	}); err != nil {
 		return ClaimedAgentWork{}, false, fmt.Errorf("reconcile claimed agent wakeup: %w", err)
+	}
+	if reason == "idle" {
+		txNotifications.AddAgentChange(claim.ProjectID, claim.AgentID, notifications.AgentChangeAgent)
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "reconcile claimed agent wakeup"); err != nil {
 		return ClaimedAgentWork{}, false, err
@@ -629,6 +633,7 @@ func (s *Store) CancelQueuedBacklogInput(
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.InputID == uuid.Nil {
 		return errors.New("project id, agent id, and input id are required")
 	}
+	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin cancel queued backlog input: %w", err)
@@ -662,10 +667,8 @@ func (s *Store) CancelQueuedBacklogInput(
 	}); err != nil {
 		return fmt.Errorf("reconcile wakeup after queued backlog cancel: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit cancel queued backlog input: %w", err)
-	}
-	return nil
+	txNotifications.AddAgentChange(input.ProjectID, input.AgentID, notifications.AgentChangeAgent)
+	return s.commitTxWithNotifications(ctx, tx, txNotifications, "cancel queued backlog input")
 }
 
 func (s *Store) MoveQueuedBacklogInput(

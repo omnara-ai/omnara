@@ -8,7 +8,7 @@ WHERE agent.project_id = sqlc.arg(project_id) AND event.agent_id = sqlc.arg(agen
 SELECT project_id, next_event_sequence
 FROM agents AS agents
 WHERE id = $1
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- name: LatestAgentEvent :one
 SELECT event.id, event.agent_id, event.turn_id, event.is_opening_event, event.sequence, event.event_kind, event.created_at, coalesce(event.idempotency_key, '') AS idempotency_key

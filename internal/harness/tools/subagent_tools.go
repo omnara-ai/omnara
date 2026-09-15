@@ -296,20 +296,6 @@ func spawnAgentResultContent(child executionstore.AgentRecord, key string) (tool
 	})
 }
 
-func provisionSubagentMachinesInBackground(ctx context.Context, call backgroundToolContext) error {
-	launch, ok := call.CommandResult.(executionstore.LaunchAgentResult)
-	if !ok {
-		return fmt.Errorf("spawn_agent command result is %T, want LaunchAgentResult", call.CommandResult)
-	}
-	if len(launch.ProvisionMachineIDs) == 0 || call.Executor.MachinePoolManager == nil {
-		return nil
-	}
-	call.Executor.MachinePoolManager.StartLaunchProvisioning(
-		ctx, call.Executor.logger(), launch.Agent.OrgID, launch.ProvisionMachineIDs,
-	)
-	return nil
-}
-
 type subagentLaunchConfig struct {
 	profileID uuid.UUID
 	derived   executionstore.CreateAgentConfigInput

@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -30,6 +29,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
@@ -93,7 +93,8 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
-			ToolCallUpdates:   redisBus,
+			AgentUpdates:      redisBus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(db),
 			WorkerControls:    redisBus,
 		},
 		presenceStore,
@@ -209,7 +210,6 @@ func main() {
 			MachinePoolManager:    machinePoolManager,
 			BackgroundRunner:      backgroundRunner,
 			SkillBroadcaster:      skillBroadcaster,
-			AgentConfigOptions:    agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
 			Log:                   log,
 		},
 		StreamPublisher: redisBus,

@@ -26,10 +26,10 @@ func (noopAgentNotificationSubscriber) SubscribeAgentStreamDeltas(
 	return noopSubscription{}, nil
 }
 
-func (noopAgentNotificationSubscriber) SubscribeAgentToolCallUpdates(
+func (noopAgentNotificationSubscriber) SubscribeAgentUpdates(
 	context.Context,
 	uuid.UUID,
-	func(context.Context, notifications.ToolCallUpdatedCommitted),
+	func(context.Context, notifications.AgentUpdate),
 ) (notifications.Subscription, error) {
 	return noopSubscription{}, nil
 }

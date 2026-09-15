@@ -1,4 +1,5 @@
 import type {
+  AgentChange,
   AgentEvent,
   AgentEventStreamFrame,
   AgentInput,
@@ -52,12 +53,16 @@ export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
 export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
   | { kind: 'tool_call_update' }
+  | { kind: 'agent_change'; change: AgentChange }
   | { kind: 'delta'; delta: ModelOutputDelta }
 
 export function parseStreamData(data: AgentEventStreamFrame): AgentStreamFrame {
   if ('event_kind' in data) return { kind: 'event', event: data }
   if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update' }
-  return { kind: 'delta', delta: data }
+  if ('changes' in data) return { kind: 'agent_change', change: data }
+  if ('event' in data) return { kind: 'delta', delta: data }
+  const unhandled: never = data
+  throw new Error(`Unhandled agent stream frame: ${JSON.stringify(unhandled)}`)
 }
 
 export function sequenceNumber(value: number | undefined): number {

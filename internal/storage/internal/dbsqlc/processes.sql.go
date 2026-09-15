@@ -1573,7 +1573,7 @@ WHERE agent.project_id = $1
     )
   )
 ORDER BY agent.id
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type LockAgentsForExecutionRevokedParams struct {

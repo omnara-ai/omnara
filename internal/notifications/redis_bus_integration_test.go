@@ -87,7 +87,7 @@ func TestAgentEventWakeupBusPublishSubscribeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
+func TestAgentUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -99,11 +99,11 @@ func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 
 	agentID := uuid.New()
 	toolCallID := uuid.New()
-	received := make(chan ToolCallUpdatedCommitted, 1)
-	sub, err := bus.SubscribeAgentToolCallUpdates(
+	received := make(chan AgentUpdate, 1)
+	sub, err := bus.SubscribeAgentUpdates(
 		ctx,
 		agentID,
-		func(_ context.Context, update ToolCallUpdatedCommitted) {
+		func(_ context.Context, update AgentUpdate) {
 			received <- update
 		},
 	)
@@ -117,13 +117,13 @@ func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 		ToolCallID: toolCallID,
 		State:      "ready",
 	}
-	if err := bus.PublishAgentToolCallUpdate(ctx, want); err != nil {
+	if err := bus.PublishAgentUpdate(ctx, agentID, AgentUpdate{ToolCallUpdate: &want}); err != nil {
 		t.Fatalf("publish tool call update: %v", err)
 	}
 
 	select {
 	case got := <-received:
-		if got != want {
+		if got.ToolCallUpdate == nil || *got.ToolCallUpdate != want {
 			t.Fatalf("tool call update = %+v, want %+v", got, want)
 		}
 	case <-ctx.Done():

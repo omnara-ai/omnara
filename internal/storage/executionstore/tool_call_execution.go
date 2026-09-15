@@ -202,7 +202,7 @@ func (t *toolCallTransaction) startToolCall(
 	if err := t.lockForMutation(ctx); err != nil {
 		return err
 	}
-	changed, err := t.q.StartToolCall(
+	toolType, err := t.q.StartToolCall(
 		ctx,
 		dbsqlc.StartToolCallParams{
 			RetainRuntimeOwnership: retainRuntimeOwnership,
@@ -212,10 +212,10 @@ func (t *toolCallTransaction) startToolCall(
 			RuntimeLockID:          t.input.RuntimeLockID,
 		},
 	)
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("start tool call: %w", err)
 	}
-	if changed == 0 {
+	if errors.Is(err, pgx.ErrNoRows) {
 		if runtimeErr := agentRuntimeLockActiveTx(
 			ctx,
 			t.q,
@@ -234,7 +234,7 @@ func (t *toolCallTransaction) startToolCall(
 	} else {
 		t.disposition = ToolCallDispositionWaiting
 	}
-	t.notifications.AddToolCallUpdate(t.input.AgentID, t.input.ToolCallID, string(state))
+	t.notifications.AddToolCallUpdate(t.input.ProjectID, t.input.AgentID, t.input.ToolCallID, toolType, string(state))
 	t.applied = true
 	return nil
 }

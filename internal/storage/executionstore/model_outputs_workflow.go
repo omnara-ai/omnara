@@ -322,7 +322,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		}
 		record := toolCallRecordFromInsertSQLC(row)
 		records = append(records, record)
-		txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State))
+		txNotifications.AddToolCallUpdate(record.ProjectID, record.AgentID, record.ID, record.Type, string(record.State))
 	}
 	toolCallContentBlockArgsByProviderCallID := make(
 		map[string]toolCallContentBlockArgs,
@@ -435,23 +435,13 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		return events.Event{}, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, _, err := s.beginParentNotifyingRuntimeMutation(
+		ctx, input.ProjectID, input.AgentID, input.RuntimeLockID,
+	)
 	if err != nil {
-		return events.Event{}, fmt.Errorf("begin record model output: %w", err)
+		return events.Event{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lockAgentWithParentTx(ctx, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID); err != nil {
-		return events.Event{}, err
-	}
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
-		return events.Event{}, err
-	}
 	contextRow, err := loadModelCallContextByIDTx(
 		ctx,
 		tx,

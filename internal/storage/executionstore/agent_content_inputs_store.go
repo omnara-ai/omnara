@@ -255,6 +255,7 @@ func createAgentContentInputTx(
 			err,
 		)
 	}
+	txNotifications.AddAgentChange(input.ProjectID, input.AgentID, notifications.AgentChangeAgent)
 	return result, nil
 }
 

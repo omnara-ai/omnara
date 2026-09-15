@@ -141,7 +141,7 @@ WITH locked_agent AS MATERIALIZED (
       WHERE runtime_lock.agent_id = wake.agent_id
     )
   ORDER BY wake.ready_at ASC, wake.agent_id ASC
-  FOR UPDATE OF agent SKIP LOCKED
+  FOR NO KEY UPDATE OF agent SKIP LOCKED
   LIMIT 1
 ),
 locked_wake AS MATERIALIZED (
@@ -202,7 +202,7 @@ WITH locked AS (
   FROM agents agent
   WHERE agent.project_id = $1
     AND agent.id = $2
-  FOR UPDATE
+  FOR NO KEY UPDATE
 )
 DELETE FROM agent_wakeups wake
 USING locked

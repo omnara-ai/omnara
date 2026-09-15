@@ -17,8 +17,8 @@ const (
 	sendAgentMessageToolDescription = "Send a message to one of your subagents by agent_id. Your plain text " +
 		"output is not visible to subagents; this tool is the only way to reach them. The subagent reads the " +
 		"message once its current model call and tool batch finish; it does not stop running work. It does " +
-		"cancel any question or permission request the subagent has open; it cannot answer those, only humans " +
-		"can. Messaging a finished subagent resumes it with its context intact. The reply arrives later as a " +
+		"cancel any question or permission request the subagent has open; it cannot answer those. " +
+		"Messaging a finished subagent resumes it with its context intact. The reply arrives later as a " +
 		"message from it."
 	stopAgentToolDescription = "Stop a subagent by agent_id. Cancels its current work and leaves it idle, so " +
 		"you can still message it to continue with its context intact. Pass `archive: true` to also archive it " +

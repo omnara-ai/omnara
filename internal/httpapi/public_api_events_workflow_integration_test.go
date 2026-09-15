@@ -36,7 +36,7 @@ import (
 type controlledAgentNotificationSubscriber struct {
 	eventCallbacks chan func(context.Context)
 	deltaCallbacks chan func(context.Context, json.RawMessage)
-	toolCallbacks  chan func(context.Context, notifications.ToolCallUpdatedCommitted)
+	toolCallbacks  chan func(context.Context, notifications.AgentUpdate)
 }
 
 type eventProjectionQueryCounter struct {
@@ -137,10 +137,10 @@ func (s *controlledAgentNotificationSubscriber) SubscribeAgentStreamDeltas(
 	return noopSubscription{}, nil
 }
 
-func (s *controlledAgentNotificationSubscriber) SubscribeAgentToolCallUpdates(
+func (s *controlledAgentNotificationSubscriber) SubscribeAgentUpdates(
 	_ context.Context,
 	_ uuid.UUID,
-	callback func(context.Context, notifications.ToolCallUpdatedCommitted),
+	callback func(context.Context, notifications.AgentUpdate),
 ) (notifications.Subscription, error) {
 	s.toolCallbacks <- callback
 	return noopSubscription{}, nil
@@ -157,7 +157,7 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 	subscriber := &controlledAgentNotificationSubscriber{
 		eventCallbacks: make(chan func(context.Context), 1),
 		deltaCallbacks: make(chan func(context.Context, json.RawMessage), 1),
-		toolCallbacks:  make(chan func(context.Context, notifications.ToolCallUpdatedCommitted), 1),
+		toolCallbacks:  make(chan func(context.Context, notifications.AgentUpdate), 1),
 	}
 	server := mustNewServer(
 		t,
@@ -165,7 +165,7 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 		WithTimer(timer),
 		WithAgentEventWakeupSubscriber(subscriber),
 		WithAgentStreamDeltaSubscriber(subscriber),
-		WithAgentToolCallUpdateSubscriber(subscriber),
+		WithAgentUpdateSubscriber(subscriber),
 		withAgentEventReconciliationInterval(time.Hour),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
@@ -281,11 +281,11 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 	wantSequence := claim.Model.AdmittedInputTurn.Events[0].Sequence
 
 	toolCallID := uuid.New()
-	toolUpdate(ctx, notifications.ToolCallUpdatedCommitted{
+	toolUpdate(ctx, notifications.AgentUpdate{ToolCallUpdate: &notifications.ToolCallUpdatedCommitted{
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
 		State:      string(executionstore.ToolCallStateReady),
-	})
+	}})
 	for _, wantLine := range []string{"event: tool_call_update", "data: "} {
 		select {
 		case result, ok := <-lines:
@@ -390,7 +390,8 @@ func TestPublicEventStreamReconcilesDroppedRedisWakeup(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: droppedWakeups,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,
@@ -415,7 +416,7 @@ func TestPublicEventStreamReconcilesDroppedRedisWakeup(t *testing.T) {
 		WithSecretKeyWrapper(keyWrapper),
 		WithTimer(timer),
 		WithAgentEventWakeupSubscriber(bus),
-		WithAgentToolCallUpdateSubscriber(bus),
+		WithAgentUpdateSubscriber(bus),
 		WithAgentStreamDeltaSubscriber(bus),
 		withAgentEventReconciliationInterval(time.Hour),
 	)
@@ -464,11 +465,24 @@ func TestPublicEventStreamReconcilesDroppedRedisWakeup(t *testing.T) {
 	if !scanner.Scan() || scanner.Text() != ": ok" {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
-	timer.Add(agentEventStreamHeartbeatInterval)
-	if !scanner.Scan() || scanner.Text() != "" ||
-		!scanner.Scan() || scanner.Text() != ": heartbeat" {
-		t.Fatalf("sse stream missing initial heartbeat: %q", scanner.Text())
+	awaitHeartbeat := func() {
+		t.Helper()
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == ": heartbeat" {
+				return
+			}
+			// Activity notifications can arrive even when the durable wakeup
+			// is dropped. They must not cause an event projection read.
+			if line == "" || line == "event: agent_change" || strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			t.Fatalf("durable event delivered before reconciliation: %q", line)
+		}
+		t.Fatalf("stream closed before heartbeat: %v", scanner.Err())
 	}
+	timer.Add(agentEventStreamHeartbeatInterval)
+	awaitHeartbeat()
 
 	requestJSONWithHeaders(
 		t,
@@ -491,10 +505,7 @@ func TestPublicEventStreamReconcilesDroppedRedisWakeup(t *testing.T) {
 	waitForAgentEventWakeupAttempt(t, ctx, droppedWakeups.attempts, agentID)
 
 	timer.Add(agentEventStreamHeartbeatInterval)
-	if !scanner.Scan() || scanner.Text() != "" ||
-		!scanner.Scan() || scanner.Text() != ": heartbeat" {
-		t.Fatalf("same SSE connection did not remain idle and open: %q", scanner.Text())
-	}
+	awaitHeartbeat()
 	if err := server.agentEventStreamReconciler.reconcile(ctx); err != nil {
 		t.Fatalf("reconcile event stream: %v", err)
 	}
@@ -1849,7 +1860,8 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,
@@ -1868,7 +1880,7 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 		store,
 		WithSecretKeyWrapper(keyWrapper),
 		WithAgentEventWakeupSubscriber(bus),
-		WithAgentToolCallUpdateSubscriber(bus),
+		WithAgentUpdateSubscriber(bus),
 		WithAgentStreamDeltaSubscriber(bus),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
@@ -1968,11 +1980,12 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 	if err != nil {
 		t.Fatalf("decode agent id: %v", err)
 	}
-	if err := bus.PublishAgentToolCallUpdate(ctx, notifications.ToolCallUpdatedCommitted{
-		AgentID:    agentID,
-		ToolCallID: toolCallID,
-		State:      string(executionstore.ToolCallStateReady),
-	}); err != nil {
+	if err := bus.PublishAgentUpdate(ctx, agentID, notifications.AgentUpdate{
+		ToolCallUpdate: &notifications.ToolCallUpdatedCommitted{
+			AgentID:    agentID,
+			ToolCallID: toolCallID,
+			State:      string(executionstore.ToolCallStateReady),
+		}}); err != nil {
 		t.Fatalf("publish tool call update: %v", err)
 	}
 
@@ -2024,7 +2037,8 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,
@@ -2043,7 +2057,7 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 		store,
 		WithSecretKeyWrapper(keyWrapper),
 		WithAgentEventWakeupSubscriber(bus),
-		WithAgentToolCallUpdateSubscriber(bus),
+		WithAgentUpdateSubscriber(bus),
 		WithAgentStreamDeltaSubscriber(bus),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
@@ -2240,7 +2254,7 @@ func assertPublicMaxTokensEvent(t *testing.T, records []any) {
 	t.Fatalf("max_tokens model output missing from public events: %+v", records)
 }
 
-func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
+func TestPublicEventStreamRoutesGrandchildChangesWithoutMembershipRefresh(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -2259,7 +2273,8 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,
@@ -2278,7 +2293,7 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 		store,
 		WithSecretKeyWrapper(keyWrapper),
 		WithAgentEventWakeupSubscriber(bus),
-		WithAgentToolCallUpdateSubscriber(bus),
+		WithAgentUpdateSubscriber(bus),
 		WithAgentStreamDeltaSubscriber(bus),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
@@ -2289,15 +2304,13 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 	asker := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "asker", "worker")
 	caller := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "caller", "worker")
 	parentPublicID := testPublicID(t, publicid.KindAgent, parent.ID)
-	askerPublicID := testPublicID(t, publicid.KindAgent, asker.ID)
-	callerPublicID := testPublicID(t, publicid.KindAgent, caller.ID)
 
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
-		httpServer.URL+project.ProjectPath+"/agents/"+parentPublicID+"/events/stream",
+		httpServer.URL+project.ProjectPath+"/agents/"+parentPublicID+"/events/stream?stream_deltas=true",
 		nil,
 	)
 	if err != nil {
@@ -2319,85 +2332,142 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), ":") {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
-	frames := make(chan [2]string, 64)
+	type streamFrame struct {
+		event string
+		id    string
+		data  string
+	}
+	frames := make(chan streamFrame, 128)
 	go func() {
-		var eventName string
+		defer close(frames)
+		var frame streamFrame
 		for scanner.Scan() {
 			line := scanner.Text()
 			switch {
 			case strings.HasPrefix(line, "event: "):
-				eventName = strings.TrimPrefix(line, "event: ")
+				frame.event = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "id: "):
+				frame.id = strings.TrimPrefix(line, "id: ")
 			case strings.HasPrefix(line, "data: "):
-				frames <- [2]string{eventName, strings.TrimPrefix(line, "data: ")}
-				eventName = ""
+				frame.data = strings.TrimPrefix(line, "data: ")
+				select {
+				case frames <- frame:
+				case <-ctx.Done():
+					return
+				}
+				frame = streamFrame{}
 			}
 		}
 	}()
-	nextFrame := func(wantEvent string) map[string]any {
-		t.Helper()
-		deadline := time.After(10 * time.Second)
-		for {
-			select {
-			case frame := <-frames:
-				if frame[0] != wantEvent {
-					continue
-				}
-				var decoded map[string]any
-				if err := json.Unmarshal([]byte(frame[1]), &decoded); err != nil {
-					t.Fatalf("decode %s frame: %v", wantEvent, err)
-				}
-				return decoded
-			case <-deadline:
-				t.Fatalf("sse did not deliver a %s frame within 10s", wantEvent)
-			}
-		}
-	}
 
+	// Both grandchildren are created after the root subscription opens. Neither
+	// needs a previous parent frame or a descendant membership refresh.
+	questionAgent := spawnHTTPSubagentForTest(
+		t, ctx, store, asker, parentLaunch.AgentConfig.ID, "question-grandchild", "helper",
+	)
 	question := json.RawMessage(`{"questions":[{"prompt":"Ship?","options":[{"label":"Yes"},{"label":"No"}]}]}`)
 	interactionID := createHTTPInteractionForAgent(
-		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, asker, "question", "", question,
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, questionAgent, "question", "", question,
 	)
-	interaction, found, err := store.Execution().GetAgentInteraction(ctx, project.ProjectUUID, asker.ID, interactionID)
-	if err != nil || !found {
-		t.Fatalf("load subagent question: found=%v err=%v", found, err)
-	}
-	awaitToolCallUpdate := func(toolCallPublicID, agentPublicID, state string) {
-		t.Helper()
-		for {
-			frame := nextFrame("tool_call_update")
-			if frame["tool_call_id"] != toolCallPublicID {
-				continue
-			}
-			if frame["agent_id"] != agentPublicID {
-				t.Fatalf("tool call update = %+v, want agent %s", frame, agentPublicID)
-			}
-			if state == "" || frame["state"] == state {
-				return
-			}
-		}
-	}
-	awaitToolCallUpdate(testPublicID(t, publicid.KindToolCall, interaction.ToolCallID), askerPublicID, "")
 
-	toolCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
-	toolCallPublicID := testPublicID(t, publicid.KindToolCall, toolCallID)
-	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "ready")
-
-	grandchild := spawnHTTPSubagentForTest(t, ctx, store, caller, parentLaunch.AgentConfig.ID, "grandchild", "helper")
-	grandchildPublicID := testPublicID(t, publicid.KindAgent, grandchild.ID)
-	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
-		ProjectID:     project.ProjectUUID,
-		AgentID:       caller.ID,
-		ID:            toolCallID,
-		Outcome:       executionstore.ToolResultOutcomeSucceeded,
-		ContentBlocks: json.RawMessage(`[{"type":"text","text":"done"}]`),
-	}); err != nil {
-		t.Fatalf("complete subagent custom tool call: %v", err)
+	// This built-in tool emits several lifecycle updates before the custom call.
+	// None may surface as tool_call_update on the ancestor stream.
+	if err := bus.PublishAgentStreamDelta(ctx, questionAgent.ID, json.RawMessage(`{"seq":1,"event":{"kind":"text_delta","delta":"child text"}}`)); err != nil {
+		t.Fatalf("publish child preview: %v", err)
 	}
-	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "completed")
+	otherProject := bootstrapPublicHTTPProject(t, handler, "sse-unrelated-project")
+	otherUser := createHTTPInteractionUser(
+		t, ctx, pool, store, otherProject.OrgUUID, otherProject.ProjectUUID, "sse-unrelated-project",
+	)
+	otherLaunch := createHTTPRuntimeAgent(
+		t, ctx, store, otherProject.OrgUUID, otherProject.ProjectUUID, otherUser.ID, "sse-unrelated-project",
+	)
+	createHTTPCustomToolCallForAgent(
+		t, ctx, store, otherProject.OrgUUID, otherProject.ProjectUUID, otherUser.ID, otherLaunch.Agent,
+	)
+	unrelated := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, "sse-unrelated-root")
+	createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, unrelated.Agent)
+
+	grandchild := spawnHTTPSubagentForTest(
+		t, ctx, store, caller, parentLaunch.AgentConfig.ID, "custom-grandchild", "helper",
+	)
 	grandchildToolCallID := createHTTPCustomToolCallForAgent(
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, grandchild,
 	)
-	awaitToolCallUpdate(testPublicID(t, publicid.KindToolCall, grandchildToolCallID), grandchildPublicID, "ready")
+	toolCallPublicID := testPublicID(t, publicid.KindToolCall, grandchildToolCallID)
+	grandchildPublicID := testPublicID(t, publicid.KindAgent, grandchild.ID)
+	questionPublicID := testPublicID(t, publicid.KindAgent, questionAgent.ID)
+	askerPublicID := testPublicID(t, publicid.KindAgent, asker.ID)
+	callerPublicID := testPublicID(t, publicid.KindAgent, caller.ID)
+	parents := map[string]any{
+		parentPublicID:     nil,
+		askerPublicID:      parentPublicID,
+		callerPublicID:     parentPublicID,
+		questionPublicID:   askerPublicID,
+		grandchildPublicID: callerPublicID,
+	}
+	sawQuestionChange := false
+	sawReady := false
+	sawCompleted := false
+	await := func(done func() bool) {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for !done() {
+			select {
+			case frame, ok := <-frames:
+				if !ok {
+					t.Fatal("stream closed before routed updates")
+				}
+				var data map[string]any
+				if err := json.Unmarshal([]byte(frame.data), &data); err != nil {
+					t.Fatalf("decode %s: %v", frame.event, err)
+				}
+				switch frame.event {
+				case "agent_change":
+					if frame.id != "" {
+						t.Fatalf("best-effort change carried cursor %q", frame.id)
+					}
+					owner := testutil.RequireType[string](t, data["agent_id"])
+					parentID, allowed := parents[owner]
+					if !allowed || data["parent_agent_id"] != parentID {
+						t.Fatalf("change has unrelated owner or wrong direct parent: %+v", data)
+					}
+					changes := testutil.RequireType[[]any](t, data["changes"])
+					for _, change := range changes {
+						if change == "interactions" && owner == questionPublicID {
+							sawQuestionChange = true
+						}
+					}
+				case "tool_call_update":
+					if frame.id != "" || data["agent_id"] != grandchildPublicID || data["tool_call_id"] != toolCallPublicID {
+						t.Fatalf("unexpected tool update (built-ins and unrelated projects must be excluded): %+v", frame)
+					}
+					sawReady = sawReady || data["state"] == "ready"
+					sawCompleted = sawCompleted || data["state"] == "completed"
+				case "model_output_delta", "error":
+					t.Fatalf("unexpected root stream frame: %+v", frame)
+				default:
+					if data["agent_id"] != parentPublicID {
+						t.Fatalf("child durable event reached root stream: %+v", frame)
+					}
+				}
+			case <-deadline:
+				t.Fatalf("missing routed updates: question=%v customReady=%v customCompleted=%v",
+					sawQuestionChange, sawReady, sawCompleted)
+			}
+		}
+	}
+	await(func() bool { return sawQuestionChange && sawReady })
+	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
+		ProjectID:     project.ProjectUUID,
+		AgentID:       grandchild.ID,
+		ID:            grandchildToolCallID,
+		Outcome:       executionstore.ToolResultOutcomeSucceeded,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"done"}]`),
+	}); err != nil {
+		t.Fatalf("complete grandchild custom call: %v", err)
+	}
+	await(func() bool { return sawCompleted })
 
 	listed := requestJSONWithHeaders(
 		t, handler, http.MethodGet,
@@ -2405,24 +2475,24 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(project.AdminToken),
 	)
 	rows := testutil.RequireType[[]any](t, listed["data"])
-	if len(rows) != 2 {
-		t.Fatalf("subagent custom tool calls = %+v, want the caller's and the grandchild's", rows)
+	if len(rows) != 1 {
+		t.Fatalf("scoped custom calls = %+v, want only grandchild custom call", rows)
 	}
-	listedAgents := map[any]any{}
-	for _, entry := range rows {
-		row := testutil.RequireType[map[string]any](t, entry)
-		listedAgents[row["id"]] = row["agent_id"]
+	row := testutil.RequireType[map[string]any](t, rows[0])
+	if row["agent_id"] != grandchildPublicID || row["id"] != toolCallPublicID {
+		t.Fatalf("custom call owner IDs changed: %+v", row)
 	}
-	if listedAgents[toolCallPublicID] != callerPublicID ||
-		listedAgents[testPublicID(t, publicid.KindToolCall, grandchildToolCallID)] != grandchildPublicID {
-		t.Fatalf("listed subagent tool calls = %+v", listedAgents)
-	}
-	own := requestJSONWithHeaders(
+	listed = requestJSONWithHeaders(
 		t, handler, http.MethodGet,
-		project.ProjectPath+"/agents/"+parentPublicID+"/tool-calls?type=custom",
+		project.ProjectPath+"/agents/"+parentPublicID+"/interactions?include_subagents=true&state=open",
 		"", "", http.StatusOK, authHeaders(project.AdminToken),
 	)
-	if rows := testutil.RequireType[[]any](t, own["data"]); len(rows) != 0 {
-		t.Fatalf("parent custom tool calls without include_subagents = %+v, want none", rows)
+	rows = testutil.RequireType[[]any](t, listed["data"])
+	if len(rows) != 1 {
+		t.Fatalf("scoped interactions = %+v, want grandchild question", rows)
+	}
+	row = testutil.RequireType[map[string]any](t, rows[0])
+	if row["agent_id"] != questionPublicID || row["id"] != testPublicID(t, publicid.KindAgentInteraction, interactionID) {
+		t.Fatalf("question owner IDs changed: %+v", row)
 	}
 }
