@@ -448,12 +448,14 @@ func resolveOptionalMachineID(raw json.RawMessage) (string, error) {
 		return "", errors.New("machine_id cannot be null")
 	}
 	id := strings.TrimSpace(*value)
-	if id != "" {
-		if _, err := publicid.Decode(publicid.KindMachine, id); err != nil {
-			return "", errors.New("machine_id must be a valid public machine ID")
-		}
+	if id == "" {
+		return "", nil
 	}
-	return id, nil
+	machineID, err := publicid.Decode(publicid.KindMachine, id)
+	if err != nil {
+		return "", fmt.Errorf("machine_id must be a valid public machine ID: %w", err)
+	}
+	return publicid.Encode(publicid.KindMachine, machineID)
 }
 
 func resolveMachineIDRequest(raw json.RawMessage, optional bool) (machineIDRequest, error) {

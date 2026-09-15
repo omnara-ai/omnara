@@ -1368,7 +1368,7 @@ func TestMissedMachineBackgroundProvisioningCanBeReconciled(t *testing.T) {
 	}
 }
 
-func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
+func TestApprovedPaddedMachineDeletionCanBeReconciled(t *testing.T) {
 	ctx := context.Background()
 	fixture := newMachineDispatchFixture(t, ctx, "runtime-interruption")
 	pool := fixture.Pool

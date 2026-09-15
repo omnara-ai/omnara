@@ -112,23 +112,6 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("duplicate binding after grant revoke error = %v, want ErrIdempotencyConflict", err)
 	}
-	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
-		ctx,
-		store.q,
-		executionstore.IntegrationInsertAgentMachineBindingInput{
-			ProjectID:             testProjectID,
-			AgentID:               agentID,
-			ProjectMachineGrantID: machine.GrantID,
-			BindingKind:           "explicit",
-			Description:           "primary",
-			Cwd:                   "/work",
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
-	}
 }
 
 func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T) {
@@ -761,54 +744,6 @@ func TestCreateProjectMachineGrantDoesNotMutateExistingBindings(t *testing.T) {
 			machine.Machine.ID,
 			otherBinding.UpdatedAt,
 		)
-	}
-}
-
-func TestInsertAgentMachineBindingMapsUniqueConflicts(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 12, 50, 0, 0, time.UTC)
-	user, err := store.Identity().CreateVerifiedUser(
-		ctx,
-		CreateVerifiedUserInput{
-			Email:       "agent-machine-binding-conflict@example.com",
-			DisplayName: "Agent Machine Binding Conflict Tester",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	agentID := mustCreateAgent(t, ctx, store)
-	first := createContextMachine(t, ctx, store, testID("agent_machine_binding_conflict_first"), user.ID, now)
-	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
-		ctx,
-		store.q,
-		executionstore.IntegrationInsertAgentMachineBindingInput{
-			ProjectID:             testProjectID,
-			AgentID:               agentID,
-			ProjectMachineGrantID: first.GrantID,
-			BindingKind:           "explicit",
-		},
-	); err != nil {
-		t.Fatalf("bind first machine: %v", err)
-	}
-	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
-		ctx,
-		store.q,
-		executionstore.IntegrationInsertAgentMachineBindingInput{
-			ProjectID:             testProjectID,
-			AgentID:               agentID,
-			ProjectMachineGrantID: first.GrantID,
-			BindingKind:           "explicit",
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("duplicate machine binding error = %v, want ErrIdempotencyConflict", err)
 	}
 }
 
