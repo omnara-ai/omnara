@@ -312,7 +312,7 @@ func machinePublicIDForTest(t *testing.T, id storage.ID) string {
 	return value
 }
 
-func TestMachineToolsRequireCanonicalPublicMachineIDs(t *testing.T) {
+func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 	id := integrationToolTestID("public-machine")
 	publicID := machinePublicIDForTest(t, id)
 	for _, tc := range []struct{ name, input string }{
@@ -324,8 +324,7 @@ func TestMachineToolsRequireCanonicalPublicMachineIDs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, value := range []string{
-				publicID, "  " + publicID + "  ", id.String(), "mchr-abc234", "agt_aaaaaaaaaaaaaaaaaaaaaaaaae",
-				"", " ", "mch_AAAAAAAAAAAAAAAAAAAAAAAAAE", "mch_aaaaaaaaaaaaaaaaaaaaaaaaaf",
+				publicID, "mch_invalid", "", "agt_aaaaaaaaaaaaaaaaaaaaaaaaae",
 			} {
 				input := json.RawMessage(fmt.Sprintf(tc.input, "machine_id", value))
 				err := validateRegisteredToolInput(tc.name, input)

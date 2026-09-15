@@ -21,7 +21,7 @@ type createMachineRequest struct {
 }
 
 type machineIDRequest struct {
-	MachineID string `json:"machine_id"`
+	MachineID storage.ID
 }
 
 type machineObservationMode string
@@ -140,13 +140,9 @@ func deleteMachine(
 	); err != nil {
 		return nil, fmt.Errorf("authorize %s: %w", call.Call.Name, err)
 	}
-	machineID, err := publicid.Decode(publicid.KindMachine, input.MachineID)
-	if err != nil {
-		return nil, err
-	}
 	command := executionstore.DeletePoolMachineForToolCall(
 		executionstore.DeletePoolMachineInput{
-			MachineID: machineID,
+			MachineID: input.MachineID,
 		},
 		func(record executionstore.PoolMachineRecord) (executionstore.ToolCallCompletionInput, error) {
 			content, err := machineDeletionAcceptedResult(record)
@@ -216,12 +212,8 @@ func inspectMachine(
 		return nil, err
 	}
 	var record executionstore.AgentMachineObservationRecord
-	if input.MachineID != "" {
-		machineID, decodeErr := publicid.Decode(publicid.KindMachine, input.MachineID)
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		record, err = call.Reader.GetAgentMachineObservationByMachineID(ctx, machineID)
+	if input.MachineID != storage.NilID {
+		record, err = call.Reader.GetAgentMachineObservationByMachineID(ctx, input.MachineID)
 	} else {
 		var machines []executionstore.AgentMachineObservationRecord
 		machines, err = call.Reader.ListAgentMachineObservations(ctx)
@@ -230,7 +222,7 @@ func inspectMachine(
 		}
 	}
 	if err != nil {
-		if input.MachineID != "" && errors.Is(err, storeerr.ErrNotFound) {
+		if input.MachineID != storage.NilID && errors.Is(err, storeerr.ErrNotFound) {
 			err = ErrMachineIDUnavailable
 		}
 		if errors.Is(err, ErrMachineSelectionRequired) ||
@@ -435,21 +427,22 @@ func selectPoolForMachineCreate(
 	}
 }
 
-func resolveOptionalMachineID(raw json.RawMessage) (string, error) {
+func resolveOptionalMachineID(raw json.RawMessage) (storage.ID, error) {
 	if len(raw) == 0 {
-		return "", nil
+		return storage.NilID, nil
 	}
 	var value *string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("parse machine_id: %w", err)
+		return storage.NilID, fmt.Errorf("parse machine_id: %w", err)
 	}
 	if value == nil {
-		return "", errors.New("machine_id cannot be null")
+		return storage.NilID, errors.New("machine_id cannot be null")
 	}
-	if _, err := publicid.Decode(publicid.KindMachine, *value); err != nil {
-		return "", fmt.Errorf("machine_id must be a valid public machine ID: %w", err)
+	id, err := publicid.Decode(publicid.KindMachine, *value)
+	if err != nil {
+		return storage.NilID, fmt.Errorf("machine_id must be a valid public machine ID: %w", err)
 	}
-	return *value, nil
+	return id, nil
 }
 
 func resolveMachineIDRequest(raw json.RawMessage, optional bool) (machineIDRequest, error) {
@@ -466,7 +459,7 @@ func resolveMachineIDRequest(raw json.RawMessage, optional bool) (machineIDReque
 	if err != nil {
 		return machineIDRequest{}, err
 	}
-	if machineID == "" && !optional {
+	if machineID == storage.NilID && !optional {
 		return machineIDRequest{}, errors.New("machine_id is required")
 	}
 	return machineIDRequest{MachineID: machineID}, nil

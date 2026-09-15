@@ -23,7 +23,8 @@ func TestResolveUploadArtifactRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve upload_artifact: %v", err)
 	}
-	if resolved.Path != "screenshots/latest.png" || resolved.MachineID != "mch_aaaaaaaaaaaaaaaaaaaaaaaaae" {
+	if resolved.Path != "screenshots/latest.png" ||
+		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("resolved upload_artifact = %+v", resolved)
 	}
 
@@ -134,7 +135,7 @@ func TestResolveDownloadArtifactRequest(t *testing.T) {
 		t.Fatalf("resolve download_artifact: %v", err)
 	}
 	if resolved.ArtifactID != artifactID || resolved.Path != "downloads/report.pdf" ||
-		resolved.MachineID != "mch_aaaaaaaaaaaaaaaaaaaaaaaaae" {
+		resolved.MachineID != uuid.MustParse("00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("resolved download_artifact = %+v", resolved)
 	}
 

@@ -101,7 +101,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 
 	executor := Executor{Store: store}
 	turn := Turn{ProjectID: toolsTestProjectID, AgentID: agent.ID}
-	resolved, err := executor.ResolveMachineExecutionTarget(ctx, turn, machinePublicIDForTest(t, agentBinding.MachineID))
+	resolved, err := executor.ResolveMachineExecutionTarget(ctx, turn, agentBinding.MachineID)
 	if err != nil {
 		t.Fatalf("resolve asleep machine execution target: %v", err)
 	}

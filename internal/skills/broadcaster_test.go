@@ -196,9 +196,8 @@ func TestBroadcastAndAwaitRetriesWakeAcrossSleepTransition(t *testing.T) {
 		"skr_test",
 		testArchiveDigest,
 		[]BroadcastTarget{{
-			OrgID:           orgID,
-			MachineID:       machineID,
-			MachinePublicID: "mch_Z",
+			OrgID:     orgID,
+			MachineID: machineID,
 		}},
 		time.Second,
 	)
@@ -253,7 +252,7 @@ func TestBroadcastAndAwaitDoesNotRetryOfflineTargetWithoutWake(t *testing.T) {
 		"skl_test",
 		"skr_test",
 		testArchiveDigest,
-		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachinePublicID: "mch_Z"}},
+		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New()}},
 		time.Second,
 	)
 	if err != nil {
@@ -362,8 +361,8 @@ func TestBroadcastAndAwaitHappyPathMatchesReportsToTargets(t *testing.T) {
 		"skr_test",
 		testArchiveDigest,
 		[]BroadcastTarget{
-			{OrgID: orgID, MachineID: machineA, MachinePublicID: "mch_A"},
-			{OrgID: orgID, MachineID: machineB, MachinePublicID: "mch_B"},
+			{OrgID: orgID, MachineID: machineA},
+			{OrgID: orgID, MachineID: machineB},
 		},
 		2*time.Second,
 	)
@@ -434,8 +433,8 @@ func TestBroadcastAndAwaitPartialTimeoutFoldsUnreporters(t *testing.T) {
 		"skr_test",
 		testArchiveDigest,
 		[]BroadcastTarget{
-			{OrgID: orgID, MachineID: machineA, MachinePublicID: "mch_A"},
-			{OrgID: orgID, MachineID: machineB, MachinePublicID: "mch_B"},
+			{OrgID: orgID, MachineID: machineA},
+			{OrgID: orgID, MachineID: machineB},
 		},
 		120*time.Millisecond,
 	)
@@ -482,7 +481,7 @@ func TestBroadcastAndAwaitTranslatesDaemonOffline(t *testing.T) {
 		"skl_test",
 		"skr_test",
 		testArchiveDigest,
-		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachinePublicID: "mch_Z"}},
+		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New()}},
 		200*time.Millisecond,
 	)
 	if err != nil {
@@ -504,7 +503,7 @@ func TestBroadcastAndAwaitTransportErrorBecomesPerMachineFailure(t *testing.T) {
 		"skl_test",
 		"skr_test",
 		testArchiveDigest,
-		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New(), MachinePublicID: "mch_Q"}},
+		[]BroadcastTarget{{OrgID: uuid.New(), MachineID: uuid.New()}},
 		200*time.Millisecond,
 	)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -307,7 +308,7 @@ func inspectMachinePermissionChallenge(
 		return toolpermission.Request{}, err
 	}
 	machineID := input.MachineID
-	if machineID == "" {
+	if machineID == storage.NilID {
 		if executor.Store == nil {
 			return toolpermission.Request{}, fmt.Errorf("tool executor store is required")
 		}
@@ -323,14 +324,15 @@ func inspectMachinePermissionChallenge(
 		if err != nil {
 			return toolpermission.Request{}, executor.machinePreparationError(err)
 		}
-		machineID, err = publicid.Encode(publicid.KindMachine, machine.MachineID)
-		if err != nil {
-			return toolpermission.Request{}, err
-		}
+		machineID = machine.MachineID
+	}
+	machinePublicID, err := publicid.Encode(publicid.KindMachine, machineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,
-		machineID,
+		machinePublicID,
 	)
 	if err != nil {
 		return toolpermission.Request{}, err

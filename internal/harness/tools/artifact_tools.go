@@ -24,7 +24,7 @@ type uploadArtifactRequest struct {
 
 type resolvedUploadArtifactRequest struct {
 	Path      string
-	MachineID string
+	MachineID storage.ID
 }
 
 type uploadArtifactAuthorization struct {
@@ -41,7 +41,7 @@ type downloadArtifactRequest struct {
 type resolvedDownloadArtifactRequest struct {
 	ArtifactID string
 	Path       string
-	MachineID  string
+	MachineID  storage.ID
 }
 
 type downloadArtifactAuthorization struct {

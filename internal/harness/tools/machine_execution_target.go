@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -15,7 +15,7 @@ var ErrMachineIDUnavailable = errors.New("machine_id_unavailable")
 func (e Executor) ResolveMachineExecutionTarget(
 	ctx context.Context,
 	turn Turn,
-	machineID string,
+	machineID storage.ID,
 ) (executionstore.AgentMachineBindingRecord, error) {
 	if e.Store == nil {
 		return executionstore.AgentMachineBindingRecord{}, errors.New("tool executor store is required")
@@ -30,7 +30,7 @@ func (e Executor) ResolveMachineExecutionTarget(
 func resolveMachineExecutionTargetForToolCall(
 	ctx context.Context,
 	reader *executionstore.ToolCallReader,
-	machineID string,
+	machineID storage.ID,
 ) (executionstore.AgentMachineBindingRecord, error) {
 	bindings, err := reader.ListExecutableAgentMachineBindings(ctx)
 	if err != nil {
@@ -41,15 +41,11 @@ func resolveMachineExecutionTargetForToolCall(
 
 func selectMachineExecutionTarget(
 	bindings []executionstore.AgentMachineBindingRecord,
-	machineID string,
+	machineID storage.ID,
 ) (executionstore.AgentMachineBindingRecord, error) {
-	if machineID != "" {
-		id, err := publicid.Decode(publicid.KindMachine, machineID)
-		if err != nil {
-			return executionstore.AgentMachineBindingRecord{}, ErrMachineIDUnavailable
-		}
+	if machineID != storage.NilID {
 		for _, binding := range bindings {
-			if binding.MachineID == id {
+			if binding.MachineID == machineID {
 				return binding, nil
 			}
 		}

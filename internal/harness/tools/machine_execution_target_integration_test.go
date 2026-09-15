@@ -137,11 +137,13 @@ func TestResolveMachineExecutionTargetUsesMachineIDSelection(t *testing.T) {
 
 	executor := Executor{Store: store}
 	turn := Turn{ProjectID: toolsTestProjectID, AgentID: agent.ID}
-	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, ""); !errors.Is(err, ErrMachineSelectionRequired) {
+	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, storage.NilID); !errors.Is(
+		err, ErrMachineSelectionRequired,
+	) {
 		t.Fatalf("omitted selector with multiple bindings error = %v, want %v", err, ErrMachineSelectionRequired)
 	}
 	binding, err := executor.ResolveMachineExecutionTarget(
-		ctx, turn, machinePublicIDForTest(t, firstAgentBinding.MachineID),
+		ctx, turn, firstAgentBinding.MachineID,
 	)
 	if err != nil {
 		t.Fatalf("resolve explicit first binding: %v", err)
@@ -149,7 +151,7 @@ func TestResolveMachineExecutionTargetUsesMachineIDSelection(t *testing.T) {
 	if binding.ID != firstAgentBinding.ID || binding.Cwd != "/first" {
 		t.Fatalf("resolved wrong explicit binding: %+v want %s", binding, firstAgentBinding.ID)
 	}
-	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, "mch_aaaaaaaaaaaaaaaaaaaaaaaaae"); !errors.Is(
+	if _, err := executor.ResolveMachineExecutionTarget(ctx, turn, integrationToolTestID("missing")); !errors.Is(
 		err,
 		ErrMachineIDUnavailable,
 	) {
@@ -171,7 +173,7 @@ func TestResolveMachineExecutionTargetUsesMachineIDSelection(t *testing.T) {
 	binding, err = executor.ResolveMachineExecutionTarget(
 		ctx,
 		Turn{ProjectID: toolsTestProjectID, AgentID: singleAgent.ID},
-		"",
+		storage.NilID,
 	)
 	if err != nil {
 		t.Fatalf("resolve omitted single binding: %v", err)

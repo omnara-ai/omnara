@@ -142,14 +142,9 @@ func runSkillTool(
 		}
 		targets := make([]skills.BroadcastTarget, 0, len(bindings))
 		for _, b := range bindings {
-			machineID, err := publicid.Encode(publicid.KindMachine, b.MachineID)
-			if err != nil {
-				return nil, err
-			}
 			targets = append(targets, skills.BroadcastTarget{
-				OrgID:           b.OrgID,
-				MachineID:       b.MachineID,
-				MachinePublicID: machineID,
+				OrgID:     b.OrgID,
+				MachineID: b.MachineID,
 			})
 		}
 		outcomes, err := call.Executor.SkillBroadcaster.BroadcastAndAwait(
@@ -176,7 +171,10 @@ func runSkillTool(
 	if !ok || body == "" {
 		body = record.SkillMd
 	}
-	wrapped := wrapSkillContent(match.Name, matchPublicID, revisionPublicID, ready, failed, body)
+	wrapped, err := wrapSkillContent(match.Name, matchPublicID, revisionPublicID, ready, failed, body)
+	if err != nil {
+		return nil, err
+	}
 	content, err := skillToolSuccessResult(match.Name, wrapped)
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill content: %w", err)
@@ -210,7 +208,7 @@ func wrapSkillContent(
 	name, publicID, revisionPublicID string,
 	ready, failed []skills.BroadcastOutcome,
 	body string,
-) string {
+) (string, error) {
 	var b strings.Builder
 	b.WriteString("<skill_content name=\"")
 	writeXMLAttributeValue(&b, name)
@@ -220,11 +218,15 @@ func wrapSkillContent(
 		b.WriteString("\n\nNo machines are attached; these instructions are available without an install.\n")
 	}
 	if len(ready) > 0 {
+		machineIDs, err := joinReadyMachineIDs(ready)
+		if err != nil {
+			return "", err
+		}
 		b.WriteString("\n\nSkill directory on machine: ")
 		writeXMLText(&b, SkillInstallPath(publicID, revisionPublicID))
 		b.WriteString("\nResolve relative paths in this skill against that directory.\n")
 		b.WriteString("\nInstalled on: ")
-		writeXMLText(&b, joinReadyMachineIDs(ready))
+		writeXMLText(&b, machineIDs)
 		b.WriteString("\n")
 	}
 	if len(failed) > 0 {
@@ -232,7 +234,7 @@ func wrapSkillContent(
 		b.WriteString("You may retry the skill tool to attempt installation again.\n")
 	}
 	b.WriteString("</skill_content>")
-	return b.String()
+	return b.String(), nil
 }
 
 func writeXMLAttributeValue(b *strings.Builder, s string) {
@@ -245,12 +247,16 @@ func writeXMLText(b *strings.Builder, s string) {
 	}
 }
 
-func joinReadyMachineIDs(outcomes []skills.BroadcastOutcome) string {
-	refs := make([]string, 0, len(outcomes))
+func joinReadyMachineIDs(outcomes []skills.BroadcastOutcome) (string, error) {
+	ids := make([]string, 0, len(outcomes))
 	for _, o := range outcomes {
-		refs = append(refs, o.Target.MachinePublicID)
+		id, err := publicid.Encode(publicid.KindMachine, o.Target.MachineID)
+		if err != nil {
+			return "", err
+		}
+		ids = append(ids, id)
 	}
-	return strings.Join(refs, ", ")
+	return strings.Join(ids, ", "), nil
 }
 
 // SkillInstallPath is the on-machine glob the daemon installs skills into.
