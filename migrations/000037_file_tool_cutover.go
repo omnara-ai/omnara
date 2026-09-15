@@ -146,8 +146,10 @@ func renameFileToolsJSON(raw []byte) ([]byte, bool, error) {
 		if !exists {
 			continue
 		}
-		if current, exists := tools[names[1]]; exists && !reflect.DeepEqual(current, value) {
-			return nil, false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
+		if _, exists := tools[names[1]]; exists {
+			return nil, false, fmt.Errorf(
+				"tools contains both %s and %s; resolve the duplicate before migrating", names[0], names[1],
+			)
 		}
 		tools[names[1]] = value
 		delete(tools, names[0])
@@ -176,8 +178,10 @@ func renameFileToolsYAML(raw []byte) ([]byte, bool, error) {
 		if !exists {
 			continue
 		}
-		if current, exists := expectedTools[names[1]]; exists && !reflect.DeepEqual(current, value) {
-			return nil, false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
+		if _, exists := expectedTools[names[1]]; exists {
+			return nil, false, fmt.Errorf(
+				"tools contains both %s and %s; resolve the duplicate before migrating", names[0], names[1],
+			)
 		}
 		expectedTools[names[1]] = value
 		delete(expectedTools, names[0])
@@ -224,24 +228,6 @@ func renameFileToolsYAML(raw []byte) ([]byte, bool, error) {
 					edit, err := fileToolYAMLKeyEdit(raw, key, names[1])
 					if err != nil {
 						return err
-					}
-					// A direct new-name entry wins over merged entries. Only a
-					// duplicate in this same mapping needs to be removed.
-					for j := 0; j < len(node.Content); j += 2 {
-						if node.Content[j].Value == names[1] {
-							// Remove the earlier equivalent entry so its end is
-							// the next key's position, even in flow mappings.
-							removed, err := fileToolYAMLRemoveEntry(raw, node, min(i, j))
-							if err != nil {
-								return err
-							}
-							if i < j {
-								edit = removed
-							} else {
-								edits = append(edits, removed)
-							}
-							break
-						}
 					}
 					edits = append(edits, edit)
 				}
@@ -377,40 +363,4 @@ func fileToolYAMLKeyEdit(raw []byte, key *yaml.Node, name string) (fileToolYAMLE
 		return fileToolYAMLEdit{}, fmt.Errorf("unsupported YAML tool key at %d:%d", key.Line, key.Column)
 	}
 	return fileToolYAMLEdit{start: start, end: end, text: text}, nil
-}
-
-// Only remove an entry with a following sibling. Keeping the later equivalent
-// entry gives us exact boundaries without scanning YAML values or delimiters.
-func fileToolYAMLRemoveEntry(raw []byte, mapping *yaml.Node, index int) (fileToolYAMLEdit, error) {
-	start, err := fileToolYAMLOffset(raw, mapping.Content[index])
-	if err != nil {
-		return fileToolYAMLEdit{}, err
-	}
-	end, err := fileToolYAMLOffset(raw, mapping.Content[index+2])
-	if err != nil {
-		return fileToolYAMLEdit{}, err
-	}
-	if mapping.Style&yaml.FlowStyle == 0 {
-		lineStart := bytes.LastIndexByte(raw[:start], '\n') + 1
-		lineEnd := bytes.LastIndexByte(raw[:end], '\n') + 1
-		if len(bytes.Trim(raw[lineStart:start], " \t")) != 0 || len(bytes.Trim(raw[lineEnd:end], " \t")) != 0 {
-			return fileToolYAMLEdit{}, errors.New("duplicate YAML tool must be a standalone mapping entry")
-		}
-		start, end = lineStart, lineEnd
-	}
-	// Retain standalone comments and blank lines before the following key.
-	// They need not belong to the entry being removed.
-	for end > start {
-		lineStart := bytes.LastIndexByte(raw[:end], '\n') + 1
-		if len(bytes.TrimSpace(raw[lineStart:end])) != 0 || lineStart == 0 {
-			break
-		}
-		previousStart := bytes.LastIndexByte(raw[:lineStart-1], '\n') + 1
-		line := bytes.TrimSpace(raw[previousStart : lineStart-1])
-		if previousStart < start || len(line) > 0 && line[0] != '#' {
-			break
-		}
-		end = previousStart
-	}
-	return fileToolYAMLEdit{start: start, end: end}, nil
 }

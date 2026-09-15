@@ -137,32 +137,6 @@ func TestFileToolYAMLSourcePreservation(t *testing.T) {
 	}
 }
 
-func TestFileToolYAMLEquivalentKeys(t *testing.T) {
-	for _, tools := range []string{
-		"{upload_artifact: {}, upload_file: {}}",
-		"{upload_file: {}, upload_artifact: {}}",
-		"{upload_file: {description: don't change this}, upload_artifact: {description: don't change this}}",
-		"{upload_artifact: {}, download_artifact: {}, upload_file: {}, download_file: {}}",
-		"{upload_file: {}, download_file: {}, upload_artifact: {}, download_artifact: {}}",
-		"\n  upload_artifact: {}\n  upload_file: {}\n",
-		"\n  upload_file: {}\n  upload_artifact: {}\n",
-		"\n  upload_artifact:\n    description: >-\n      One paragraph.\n\n        Indented paragraph.\n\n" +
-			"  upload_file:\n    description: >-\n      One paragraph.\n\n        Indented paragraph.\n",
-	} {
-		t.Run(tools, func(t *testing.T) {
-			prefix := "# keep this\ninstruction: >-\n  First paragraph.\n\n    Indented paragraph.\n\ntools: "
-			migrated, changed, err := renameFileToolsYAML([]byte(prefix + tools + "\n"))
-			if err != nil || !changed {
-				t.Fatalf("migration changed=%v err=%v", changed, err)
-			}
-			if !strings.HasPrefix(string(migrated), prefix) || strings.Contains(string(migrated), "upload_artifact:") ||
-				strings.Contains(string(migrated), "download_artifact:") {
-				t.Fatalf("unexpected migrated source: %s", migrated)
-			}
-		})
-	}
-}
-
 func TestFileToolYAMLRejectsUnsafeEdits(t *testing.T) {
 	for _, source := range []string{
 		"tools: {upload_artifact: {}, upload_artifact: {}}",
@@ -178,24 +152,6 @@ func TestFileToolYAMLRejectsUnsafeEdits(t *testing.T) {
 				t.Fatalf("unsafe migration accepted: changed=%v err=%v", changed, err)
 			}
 		})
-	}
-}
-
-func TestFileToolYAMLEquivalentKeysPreserveFollowingComments(t *testing.T) {
-	for _, test := range []struct{ source, want string }{
-		{
-			source: "tools:\n  upload_artifact: {}\n\n  # Keep this explanation.\n  upload_file: {}\n",
-			want:   "tools:\n\n  # Keep this explanation.\n  upload_file: {}\n",
-		},
-		{
-			source: "tools: {upload_file: {},\n  # Keep this explanation.\n  upload_artifact: {}}\n",
-			want:   "tools: {  # Keep this explanation.\n  upload_file: {}}\n",
-		},
-	} {
-		migrated, changed, err := renameFileToolsYAML([]byte(test.source))
-		if err != nil || !changed || string(migrated) != test.want {
-			t.Fatalf("migration changed=%v err=%v\ngot: %q\nwant: %q", changed, err, migrated, test.want)
-		}
 	}
 }
 
@@ -260,14 +216,16 @@ func TestFileToolRenameConflicts(t *testing.T) {
 		{"yaml", renameFileToolsYAML},
 	} {
 		t.Run(rename.name, func(t *testing.T) {
-			conflicting := []byte(`{"tools":{"upload_artifact":{"enabled":false},"upload_file":{"enabled":true}}}`)
-			if _, _, err := rename.run(conflicting); err == nil {
-				t.Fatal("accepted conflicting settings")
-			}
-			equivalent := []byte(`{"tools":{"upload_artifact":{"enabled":false},"upload_file":{"enabled":false}}}`)
-			result, changed, err := rename.run(equivalent)
-			if err != nil || !changed || strings.Contains(string(result), "upload_artifact") {
-				t.Fatalf("collapse equivalent tools: %s changed=%v err=%v", result, changed, err)
+			for _, source := range []string{
+				`{"tools":{"upload_artifact":{"enabled":false},"upload_file":{"enabled":true}}}`,
+				`{"tools":{"upload_artifact":{"enabled":false},"upload_file":{"enabled":false}}}`,
+				`{"tools":{"download_file":{},"download_artifact":{}}}`,
+			} {
+				result, changed, err := rename.run([]byte(source))
+				if err == nil || !strings.Contains(err.Error(), "resolve the duplicate before migrating") ||
+					changed || result != nil {
+					t.Fatalf("expected collision rejection: changed=%v err=%v", changed, err)
+				}
 			}
 		})
 	}
@@ -326,10 +284,13 @@ func TestFileToolConfigMigrationYAMLReferences(t *testing.T) {
 			}
 		})
 	}
-	_, _, err := renameFileToolsYAML([]byte(
+	for _, source := range []string{
 		"tools: {<<: {upload_artifact: {enabled: false}}, upload_file: {enabled: true}}",
-	))
-	if err == nil {
-		t.Fatal("accepted conflicting merged tool settings")
+		"tools: {<<: {upload_artifact: {}}, upload_file: {}}",
+	} {
+		_, _, err := renameFileToolsYAML([]byte(source))
+		if err == nil || !strings.Contains(err.Error(), "resolve the duplicate before migrating") {
+			t.Fatalf("expected merged tool collision rejection: %v", err)
+		}
 	}
 }
