@@ -19,7 +19,12 @@ MCP joins the API, SDK, and CLI as a way to work with Omnara. Connect Claude Cod
 
 ### Connect an MCP client
 
-Add `https://app.omnara.com/mcp` to your MCP client and sign in through the browser — no tokens to paste. The Omnara API is exposed as MCP tools, so your agent can launch Omnara agents, send them messages, follow their progress, and manage profiles, secrets, and machines, with the same permissions you have in the dashboard. Omnara is also listed in the official MCP Registry as `com.omnara/omnara`. See [Connecting MCP clients](/api/authentication#connecting-mcp-clients).
+```bash
+claude mcp add --transport http omnara https://app.omnara.com/mcp
+codex mcp add omnara --url https://app.omnara.com/mcp
+```
+
+Any MCP client works with `https://app.omnara.com/mcp`. Sign in through the browser on first use; there are no tokens to paste. Your agent can then launch Omnara agents, send them messages, follow their progress, and manage profiles, secrets, and machines, with the same permissions you have in the dashboard. Omnara is also listed in the official MCP Registry as `com.omnara/omnara`. See [Connecting MCP clients](/api/authentication#connecting-mcp-clients).
 
 ### Modal sandboxes
 
