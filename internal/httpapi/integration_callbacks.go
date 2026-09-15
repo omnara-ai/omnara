@@ -43,9 +43,8 @@ func (s *Server) verifySignedSlackCallback(
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack callback identity")
 		return integrationstore.IntegrationInstallRecord{}, false
 	}
-	install, err := s.store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := s.store.Integrations().GetSlackIntegrationInstallByIdentity(
 		r.Context(),
-		integrationstore.IntegrationProviderSlack,
 		workspaceID,
 		appID,
 	)

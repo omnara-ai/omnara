@@ -43,8 +43,6 @@ func TestIntegrationChannelWriteErrorClassifiesOnlyJSONBounds(t *testing.T) {
 		"integration_routes_configuration_bytes_check",
 		"integration_targets_channel_payload_bounds_check",
 		"integration_target_bindings_metadata_bytes_check",
-		"integration_deliveries_payload_bytes_check",
-		"integration_deliveries_last_error_bytes_check",
 		"integration_runtime_units_configuration_bytes_check",
 		"integration_runtime_units_checkpoint_bytes_check",
 		"integration_runtime_units_last_error_bytes_check",
@@ -61,7 +59,6 @@ func TestIntegrationChannelWriteErrorClassifiesOnlyJSONBounds(t *testing.T) {
 	}
 	for _, databaseError := range []*pgconn.PgError{
 		{Code: "23514", ConstraintName: "unrelated_check"},
-		{Code: "23505", ConstraintName: "integration_deliveries_payload_bytes_check"},
 	} {
 		if err := integrationChannelWriteError("write channel object", databaseError); errors.Is(
 			err,

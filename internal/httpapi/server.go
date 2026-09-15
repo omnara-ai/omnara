@@ -17,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -37,9 +36,6 @@ import (
 type Server struct {
 	log                                 *slog.Logger
 	store                               *storage.Store
-	integrations                        *integration.Service
-	channels                            *integration.ChannelService
-	channelRouteHandlers                integration.ChannelRouteHandlers
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
 	authOAuthStates                     httpauth.OAuthStateStore
@@ -59,7 +55,6 @@ type Server struct {
 	agentToolCallUpdateSubscriber       notifications.AgentToolCallUpdateSubscriber
 	agentStreamDeltaSubscriber          notifications.AgentStreamDeltaSubscriber
 	agentEventStreamReconciler          *agentEventStreamReconciler
-	integrationDeliveryPublisher        notifications.IntegrationDeliveryPublisher
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
@@ -262,15 +257,6 @@ func WithChannelConnectorAuthenticator(authenticator *channelconnector.Authentic
 	}
 }
 
-// WithChannelRouteHandlers injects compiled route implementations. Production
-// has no connector-backed provider handler in the foundation release; tests use
-// this option to exercise the provider-neutral ingress contract end to end.
-func WithChannelRouteHandlers(handlers integration.ChannelRouteHandlers) Option {
-	return func(s *Server) {
-		s.channelRouteHandlers = handlers
-	}
-}
-
 func WithHTTPRecorder(recorder *metrics.HTTPRecorder) Option {
 	return func(s *Server) {
 		s.recorder = recorder
@@ -312,12 +298,6 @@ func WithAgentToolCallUpdateSubscriber(subscriber notifications.AgentToolCallUpd
 func WithAgentStreamDeltaSubscriber(subscriber notifications.AgentStreamDeltaSubscriber) Option {
 	return func(s *Server) {
 		s.agentStreamDeltaSubscriber = subscriber
-	}
-}
-
-func WithIntegrationDeliveryPublisher(publisher notifications.IntegrationDeliveryPublisher) Option {
-	return func(s *Server) {
-		s.integrationDeliveryPublisher = publisher
 	}
 }
 
@@ -409,7 +389,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	var compromiseRevoker httpauth.CompromiseRevoker
 	if store != nil {
 		server.skills = store.Skills()
-		server.integrations = integration.New(store.Execution(), store.Integrations())
 		authStore = store.Identity()
 		compromiseRevoker = store.AccountSecurity()
 	}
@@ -429,11 +408,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	for _, opt := range opts {
 		opt(server)
-	}
-	if store != nil {
-		server.channels = integration.NewChannelService(
-			store.Execution(), store.Integrations(), server.channelRouteHandlers,
-		)
 	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {

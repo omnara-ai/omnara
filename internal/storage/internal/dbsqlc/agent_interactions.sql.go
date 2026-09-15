@@ -132,7 +132,7 @@ const getAgentInteraction = `-- name: GetAgentInteraction :one
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -163,6 +163,7 @@ func (q *Queries) GetAgentInteraction(ctx context.Context, arg GetAgentInteracti
 		&i.ResolvedByInputID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+		&i.IntegrationTargetID,
 	)
 	return i, err
 }
@@ -171,7 +172,7 @@ const getAgentInteractionByToolCallKind = `-- name: GetAgentInteractionByToolCal
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -209,6 +210,7 @@ func (q *Queries) GetAgentInteractionByToolCallKind(ctx context.Context, arg Get
 		&i.ResolvedByInputID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+		&i.IntegrationTargetID,
 	)
 	return i, err
 }
@@ -216,12 +218,13 @@ func (q *Queries) GetAgentInteractionByToolCallKind(ctx context.Context, arg Get
 const insertAgentInteraction = `-- name: InsertAgentInteraction :one
 INSERT INTO agent_interactions(
   agent_id, tool_call_id,
-  interaction_kind, state, request, created_at
+  interaction_kind, state, request, created_at, integration_target_id
 )
 SELECT tool_call.agent_id,
 	     tool_call.id, $1, 'open',
-	     $2, statement_timestamp()
+	     $2, statement_timestamp(), agent.integration_target_id
 FROM tool_call_read_projection tool_call
+JOIN agents agent ON agent.project_id = tool_call.project_id AND agent.id = tool_call.agent_id
 WHERE tool_call.project_id = $3
 	AND tool_call.agent_id = $4
 	AND tool_call.id = $5
@@ -365,7 +368,7 @@ const listAgentInteractionsByIDs = `-- name: ListAgentInteractionsByIDs :many
 SELECT id, project_id, agent_id, turn_id,
 	   model_call_context_id, tool_call_id, provider_call_id,
 	   interaction_kind, state, request, resolution,
-	   resolved_by_input_id, created_at, resolved_at
+	   resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
 	AND agent_id = $2
@@ -403,6 +406,7 @@ func (q *Queries) ListAgentInteractionsByIDs(ctx context.Context, arg ListAgentI
 			&i.ResolvedByInputID,
 			&i.CreatedAt,
 			&i.ResolvedAt,
+			&i.IntegrationTargetID,
 		); err != nil {
 			return nil, err
 		}
@@ -418,7 +422,7 @@ const listAgentInteractionsForAgent = `-- name: ListAgentInteractionsForAgent :m
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, integration_target_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -471,6 +475,7 @@ func (q *Queries) ListAgentInteractionsForAgent(ctx context.Context, arg ListAge
 			&i.ResolvedByInputID,
 			&i.CreatedAt,
 			&i.ResolvedAt,
+			&i.IntegrationTargetID,
 		); err != nil {
 			return nil, err
 		}

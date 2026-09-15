@@ -54,6 +54,13 @@ func cancelOpenInteractionsForSteeringInputTx(
 	canceledInteractionIDs := make([]ID, 0, len(rows))
 	for _, row := range rows {
 		interaction := agentInteractionRecordFromSQLC(row)
+		if _, err := qtx.CancelExternalChannelRequestsForInteraction(ctx,
+			dbsqlc.CancelExternalChannelRequestsForInteractionParams{
+				ProjectID: projectID, AgentID: agentID, InteractionID: interaction.ID,
+				Reason: interactionCancellationReasonSupersededByInput,
+			}); err != nil {
+			return nil, fmt.Errorf("cancel superseded interaction's channel request: %w", err)
+		}
 		if err := applyPermissionInteractionResolutionTx(
 			ctx,
 			txNotifications,

@@ -26,7 +26,8 @@ func TestProjectDeletionWaitsForInstallBeforeApp(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	admin, agent, app, install := createChannelLifecycleFixture(t, ctx, store, "project-lock-order")
+	admin, _, app, install := createChannelLifecycleFixture(t, ctx, store, "project-lock-order")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 
 	appHolder, err := pool.Begin(ctx)
 	if err != nil {
@@ -51,13 +52,13 @@ func TestProjectDeletionWaitsForInstallBeforeApp(t *testing.T) {
 	}
 	targetDone := make(chan targetResult, 1)
 	go func() {
-		target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+		target, err := store.Integrations().CreateIntegrationTarget(
 			context.Background(),
 			integrationstore.CreateIntegrationTargetInput{
 				ProviderRef:     "project-lock-order-thread",
 				ProviderRefKind: "thread", DisplayName: "Project lock order",
 				ProviderMetadata: json.RawMessage(`{}`), ProjectID: testProjectID,
-				AgentID: agent.ID, IntegrationInstallID: install.ID,
+				ChannelDefinitionID: definitionID, IntegrationInstallID: install.ID,
 			},
 		)
 		targetDone <- targetResult{target: target, err: err}
@@ -147,8 +148,8 @@ func TestChannelDeletesEnterProjectLifecycleBeforeRowMutation(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "channel-delete-lifecycle", HandlerKey: "channel_delete_lifecycle",
-			HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "channel-delete-lifecycle", BehaviorKey: "channel_delete_lifecycle",
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -216,21 +217,22 @@ func TestRouteDeletionWaitsForBindingCreation(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "route-binding-lock-order")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "route-binding-lock-order", HandlerKey: "route_binding_lock_order",
-			HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "route-binding-lock-order", BehaviorKey: "route_binding_lock_order",
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create route: %v", err)
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "route-binding-lock-order-channel",
 			ProviderRefKind: "channel",
 		},
@@ -361,21 +363,22 @@ func TestRouteDeletionWaitsForReceiveAuthorization(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "route-receive-lock-order")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "route-receive-lock-order", HandlerKey: "route_receive_lock_order",
-			HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "route-receive-lock-order", BehaviorKey: "route_receive_lock_order",
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create route: %v", err)
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "route-receive-lock-order-channel",
 			ProviderRefKind: "channel",
 		},
@@ -444,7 +447,7 @@ func TestRouteDeletionWaitsForReceiveAuthorization(t *testing.T) {
 		t,
 		ctx,
 		pool,
-		"-- name: GetActiveReceiveBinding ",
+		"-- name: LockActiveIntegrationTargetBinding ",
 		routeHolderPID,
 	)
 	var receivePID int32
@@ -452,7 +455,7 @@ func TestRouteDeletionWaitsForReceiveAuthorization(t *testing.T) {
 SELECT pid
 FROM pg_stat_activity
 WHERE datname = current_database()
-  AND query LIKE '%-- name: GetActiveReceiveBinding %'
+  AND query LIKE '%-- name: LockActiveIntegrationTargetBinding %'
   AND wait_event_type = 'Lock'
   AND $1::integer = ANY(pg_blocking_pids(pid))
 ORDER BY query_start DESC
@@ -523,6 +526,7 @@ func TestConcurrentReceiveTargetRefreshesDoNotDeadlock(t *testing.T) {
 		store,
 		"concurrent-target-refresh",
 	)
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 	secondProfile := createIntegrationTestProfile(t, ctx, store, "concurrent-target-refresh-second")
 	secondAgent := createIntegrationBoundAgent(
 		t,
@@ -536,17 +540,17 @@ func TestConcurrentReceiveTargetRefreshesDoNotDeadlock(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "concurrent-target-refresh", HandlerKey: "concurrent_target_refresh",
-			HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "concurrent-target-refresh", BehaviorKey: "concurrent_target_refresh",
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create concurrent-refresh route: %v", err)
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: firstAgent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "concurrent-target-refresh-channel",
 			ProviderRefKind: "channel",
 		},
@@ -594,15 +598,14 @@ func TestConcurrentReceiveTargetRefreshesDoNotDeadlock(t *testing.T) {
 
 	start := make(chan struct{})
 	results := make(chan error, 2)
-	for i, agent := range []executionstore.AgentRecord{firstAgent, secondAgent} {
-		tx := txs[i]
-		go func(agentID integrationstore.ID, metadata string) {
+	for i, tx := range txs {
+		go func(metadata string) {
 			<-start
-			_, refreshErr := store.Integrations().GetOrCreateIntegrationTargetForBindingTx(
+			_, refreshErr := store.Integrations().CreateIntegrationTargetTx(
 				context.Background(),
 				tx,
 				integrationstore.CreateIntegrationTargetInput{
-					ProjectID: testProjectID, AgentID: agentID,
+					ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 					IntegrationInstallID: install.ID,
 					ProviderRef:          target.ProviderRef,
 					ProviderRefKind:      target.ProviderRefKind,
@@ -615,7 +618,7 @@ func TestConcurrentReceiveTargetRefreshesDoNotDeadlock(t *testing.T) {
 				_ = tx.Rollback(context.Background())
 			}
 			results <- refreshErr
-		}(agent.ID, fmt.Sprintf(`{"refresher":%d}`, i+1))
+		}(fmt.Sprintf(`{"refresher":%d}`, i+1))
 	}
 	close(start)
 	for range 2 {
@@ -636,12 +639,13 @@ func TestSecretRotationLocksInstallBeforeApp(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	admin, agent, credential, app, install := createCredentialBackedChannelLifecycleFixture(
+	admin, _, credential, app, install := createCredentialBackedChannelLifecycleFixture(
 		t,
 		ctx,
 		store,
 		"secret-rotation-lock-order",
 	)
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 
 	appHolder, err := pool.Begin(ctx)
 	if err != nil {
@@ -675,7 +679,7 @@ func TestSecretRotationLocksInstallBeforeApp(t *testing.T) {
 		_, err := qtx.LockIntegrationTargetCreateAuthority(
 			context.Background(),
 			dbsqlc.LockIntegrationTargetCreateAuthorityParams{
-				ProjectID: testProjectID, AgentID: agent.ID,
+				ProjectID:            testProjectID,
 				IntegrationInstallID: install.ID,
 			},
 		)
@@ -686,7 +690,7 @@ func TestSecretRotationLocksInstallBeforeApp(t *testing.T) {
 					TargetRef:   "secret-rotation-lock-order-target",
 					ProviderRef: "secret-rotation-lock-order-thread", ProviderRefKind: "thread",
 					DisplayName: "Secret rotation lock order", ProviderMetadata: json.RawMessage(`{}`),
-					ProjectID: testProjectID, AgentID: nil,
+					ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 					IntegrationInstallID: install.ID,
 				},
 			)
@@ -973,8 +977,8 @@ func createCredentialBackedChannelLifecycleFixture(
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "lock_order_test",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
+			Provider:    testChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
 			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: suffix + "-tenant", ProviderAccountRef: suffix + "-account",
 			CredentialSecretID: credential.ID,

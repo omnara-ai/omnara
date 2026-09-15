@@ -88,6 +88,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.artifacts = artifactstore.New(pool, config.blobs)
 	store.integrations = integrationstore.New(pool, executionstore.IntegrationInstallAccess{})
 	store.execution = executionstore.New(pool, executionstore.Config{
+		Artifacts:             store.artifacts,
 		PostCommitPublisher:   config.postCommitPublisher,
 		ModelCallRetryBackoff: config.modelCallRetryBackoff,
 		Integrations:          store.integrations,

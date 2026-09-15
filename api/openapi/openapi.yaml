@@ -2191,13 +2191,49 @@ paths:
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
+    post:
+      operationId: createExternalIntegrationInstall
+      tags: [Configs and Profiles]
+      summary: Register an external connector
+      description: Create a project-owned connection for a customer API consumer. Provider OAuth installations use their provider setup flow.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExternalIntegrationInstallRequest'
+      responses:
+        '201':
+          description: External connection registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationInstall'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     get:
       operationId: listIntegrationInstalls
       tags: [Configs and Profiles]
       summary: List integration installs
       description: >-
         Items are ordered by created_at descending, then id descending. The list's logical name is
-        provider_agent_display_name.
+        display_name.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/IntegrationInstallAgentProfileFilter'
@@ -2223,6 +2259,447 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channel-definitions:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: publishExternalChannelDefinition
+      tags: [Channels]
+      summary: Publish an external channel definition
+      description: >-
+        Requires project management and an external connection. Publishing updates the current schema and capabilities for this implementation key.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishChannelConnectorDefinitionRequest'
+      responses:
+        '200':
+          description: Publish an external channel definition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelDefinition'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: registerExternalChannel
+      tags: [Channels]
+      summary: Register an external channel
+      description: >-
+        Requires project management and an external connection. Registers an address without creating or granting access to an agent. Repeating an address preserves its ID; changing its definition or parent conflicts.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterExternalChannelRequest'
+      responses:
+        '200':
+          description: Register an external channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisteredChannel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentID'
+    post:
+      operationId: attachAgentChannel
+      tags: [Channels]
+      summary: Attach a channel to an agent
+      description: >-
+        Requires project management. Equal grants reuse the binding; changed grants revoke and replace it with a new binding ID. Historical input provenance is preserved. The current channel is unchanged.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachAgentChannelRequest'
+      responses:
+        '200':
+          description: Attach a channel to an agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentChannelBinding'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings/{bindingID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentID'
+      - name: bindingID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationBindingID'
+    delete:
+      operationId: revokeAgentChannelBinding
+      tags: [Channels]
+      summary: Revoke a channel binding
+      description: >-
+        Requires project management. Revokes this exact binding for the scoped agent, preserving historical provenance.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Binding revoked.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentID'
+    get:
+      operationId: listAgentChannels
+      tags: [Channels]
+      summary: List agent channels
+      description: >-
+        Lists explicitly bound channels with effective access. Hierarchy does not grant access to parents or descendants. The cursor is scoped to this agent and parent filter.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+        - name: parent_channel_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/IntegrationTargetID'
+      responses:
+        '200':
+          description: List agent channels.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentChannelsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels/{channelID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentID'
+      - name: channelID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationTargetID'
+    get:
+      operationId: getAgentChannel
+      tags: [Channels]
+      summary: Get an agent channel
+      description: >-
+        Returns current effective capabilities and send parameter schema for an explicitly bound channel. Provider credentials and private address metadata are never exposed.
+      responses:
+        '200':
+          description: Get an agent channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentChannel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    get:
+      operationId: listExternalChannelRequests
+      tags: [Channel Connectors]
+      summary: Poll pending work for an external connector
+      description: >-
+        Returns pending requests oldest first, scoped to this project and external connection.
+        Polling does not claim work or authorize repeated publication. Deduplicate requests by ID,
+        execute within deadline_at and submit the known outcome. Start again without a cursor
+        after reaching the last page. Expiration fails the owning operation without scheduling a resend.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Pending requests currently authorized for this connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListExternalChannelRequestsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests/{requestID}/result:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+      - name: requestID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ExternalChannelRequestID'
+    post:
+      operationId: completeExternalChannelRequest
+      tags: [Channel Connectors]
+      summary: Complete an external channel request
+      description: >-
+        Submit the outcome for the exact pending request. Identical accepted results replay safely;
+        conflicting results, canceled requests and expired requests cannot reopen work. A completed
+        interaction presentation only records its delivery; resolve the canonical interaction separately.
+        Successful sends may include reply-channel address facts. Omnara validates captured grants
+        and registers the continuation without resending the message.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteExternalChannelRequestRequest'
+      responses:
+        '200':
+          description: Accepted result, including the owning tool's canonical result when applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteExternalChannelRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -6615,6 +7092,278 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/routes:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    get:
+      operationId: listChannelConnectorRoutes
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Read active behavior configuration for a connection
+      security:
+        - channelConnectorAuth: []
+      responses:
+        '200':
+          description: All active routes, bounded by the connection's route limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChannelConnectorRoutesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channel-definitions/publish:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: publishChannelConnectorDefinition
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Publish the current channel definition for one connection
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishChannelConnectorDefinitionRequest'
+      responses:
+        '200':
+          description: Current committed definition for this connection and implementation key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelDefinition'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/lookup:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: lookupChannelConnectorWorkflow
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Observe a configured workflow before preparing input content
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupChannelConnectorWorkflowRequest'
+      responses:
+        '200':
+          description: Current workflow and semantic input presence. This observation grants no authority; delivery repeats authorization and any input precondition atomically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LookupChannelConnectorWorkflowResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/deliver:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: deliverChannelConnectorWorkflow
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Atomically deliver a receipt through a configured behavior workflow
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliverChannelConnectorWorkflowRequest'
+      responses:
+        '200':
+          description: Committed result; identical receipt replay returns its original accepted input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorInputResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/recipients:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: lookupChannelConnectorRecipients
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Observe existing receive bindings for a provider address
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupChannelConnectorRecipientsRequest'
+      responses:
+        '200':
+          description: Existing channel recipients and receipt progress. This observation grants no authority; delivery rechecks the selected binding and receipt lease.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LookupChannelConnectorRecipientsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/deliver:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: deliverChannelConnectorInput
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Atomically deliver a receipt through an existing receive binding
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliverChannelConnectorInputRequest'
+      responses:
+        '200':
+          description: Committed result; identical receipt replay returns its original accepted input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorInputResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /channel-connector/apps/{integrationAppID}/installations/resolve:
     parameters:
       - name: integrationAppID
@@ -6674,7 +7423,7 @@ paths:
       operationId: acceptChannelConnectorEvent
       x-hidden: true
       tags: [Channel Connector]
-      summary: Accept one normalized provider event
+      summary: Durably receive one provider event
       security:
         - channelConnectorAuth: []
       requestBody:
@@ -6684,10 +7433,10 @@ paths:
             schema:
               $ref: '#/components/schemas/ChannelInboundEventRequest'
       responses:
-        '200':
+        '202':
           description: >-
-            The event was processed across all active routes. Accepted entries are durable; ignored
-            routes and routes with permanent configuration errors are not retried.
+            The receipt has committed. Identical retries return the same receipt and its current
+            state; a conflicting payload returns 409. Receipt does not imply agent processing.
           content:
             application/json:
               schema:
@@ -6772,7 +7521,7 @@ paths:
       operationId: acceptChannelConnectorRuntimeEvent
       x-hidden: true
       tags: [Channel Connector]
-      summary: Accept one normalized event from a fenced persistent runtime
+      summary: Durably receive one event from a fenced persistent runtime
       security:
         - channelConnectorAuth: []
       requestBody:
@@ -6782,10 +7531,10 @@ paths:
             schema:
               $ref: '#/components/schemas/ChannelRuntimeInboundEventRequest'
       responses:
-        '200':
+        '202':
           description: >-
-            The event was processed across all active routes. Accepted entries are durable; ignored
-            routes and routes with permanent configuration errors are not retried.
+            The receipt has committed. Identical retries return the same receipt and its current
+            state; a conflicting payload returns 409. Receipt does not imply agent processing.
           content:
             application/json:
               schema:
@@ -6859,12 +7608,16 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /channel-connector/deliveries/claim:
+  /channel-connector/events/claim-next:
     post:
-      operationId: claimChannelConnectorDeliveries
+      operationId: claimNextChannelConnectorEvent
       x-hidden: true
       tags: [Channel Connector]
-      summary: Claim due outbound deliveries
+      summary: Claim one due incoming event for an exact connector capability
+      description: >-
+        Claims at most one receipt, keeping each response to one bounded event payload.
+        The requested connector_key/provider pair must belong to the authenticated credential.
+        Expired leases can be reclaimed with a new token and generation.
       security:
         - channelConnectorAuth: []
       requestBody:
@@ -6872,53 +7625,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ChannelConnectorClaimRequest'
+              $ref: '#/components/schemas/ClaimNextChannelConnectorEventRequest'
       responses:
         '200':
-          description: Claimed deliveries fenced to this claimant.
+          description: One durably leased receipt, including its payload and current lease proof.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChannelConnectorDeliveriesResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '4XX':
-          $ref: '#/components/responses/ClientError'
-        '5XX':
-          $ref: '#/components/responses/ServerError'
-  /channel-connector/deliveries/{deliveryID}/complete:
-    parameters:
-      - name: deliveryID
-        in: path
-        required: true
-        schema:
-          $ref: '#/components/schemas/IntegrationDeliveryID'
-    post:
-      operationId: completeChannelConnectorDelivery
-      x-hidden: true
-      tags: [Channel Connector]
-      summary: Complete or reschedule a fenced outbound delivery
-      security:
-        - channelConnectorAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CompleteChannelConnectorDeliveryRequest'
-      responses:
-        '200':
-          description: Current delivery state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChannelConnectorDelivery'
+                $ref: '#/components/schemas/ChannelConnectorEventReceipt'
+        '204':
+          description: No receipt is currently due for this capability.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6929,8 +7645,61 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/events/{receiptID}/complete:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+      - name: receiptID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationEventReceiptID'
+    post:
+      operationId: completeChannelConnectorEvent
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Finish processing an incoming receipt with its current lease
+      description: >-
+        Project scope is derived from the authorized app and installation. The receipt must
+        belong to that installation and have a matching unexpired token and generation.
+        Stale, expired, or already consumed leases return 409.
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteChannelConnectorEventRequest'
+      responses:
+        '200':
+          description: The receipt outcome has committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelInboundEventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '4XX':
           $ref: '#/components/responses/ClientError'
         '5XX':
@@ -7327,9 +8096,9 @@ components:
     IntegrationBindingID:
       type: string
       pattern: '^ibnd_[a-z2-7]{26}$'
-    IntegrationDeliveryID:
+    IntegrationEventReceiptID:
       type: string
-      pattern: '^idel_[a-z2-7]{26}$'
+      pattern: '^irec_[a-z2-7]{26}$'
     IntegrationRuntimeUnitID:
       type: string
       pattern: '^irun_[a-z2-7]{26}$'
@@ -7338,6 +8107,943 @@ components:
       additionalProperties: true
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
+    ExternalChannelRequestID:
+      type: string
+      pattern: '^creq_[a-z2-7]{26}$'
+    ChannelOperationKind:
+      type: string
+      enum: [send, read, interaction]
+      x-enum-varnames: [ChannelOperationKindSend, ChannelOperationKindRead, ChannelOperationKindInteraction]
+    ChannelOperationOutcome:
+      type: string
+      enum: [completed, failed, unknown]
+      x-enum-varnames: [ChannelOperationOutcomeCompleted, ChannelOperationOutcomeFailed, ChannelOperationOutcomeUnknown]
+      description: Completed records a known result. Failed means publication is known not to have happened. Unknown means publication may have happened and must not be blindly retried.
+    ExternalChannelRequestState:
+      type: string
+      enum: [pending, completed, canceled, expired]
+      x-enum-varnames: [ExternalChannelRequestStatePending, ExternalChannelRequestStateCompleted, ExternalChannelRequestStateCanceled, ExternalChannelRequestStateExpired]
+    ExternalChannelRequest:
+      type: object
+      additionalProperties: false
+      required: [id, agent_id, channel_id, operation, payload, state, created_at, deadline_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ExternalChannelRequestID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        tool_call_id:
+          $ref: '#/components/schemas/ToolCallID'
+        interaction_id:
+          $ref: '#/components/schemas/AgentInteractionID'
+        operation:
+          $ref: '#/components/schemas/ChannelOperationKind'
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/ChannelSendOperation'
+            - $ref: '#/components/schemas/ChannelReadOperation'
+            - $ref: '#/components/schemas/ChannelInteractionOperation'
+          description: The accepted payload for operation. Artifact IDs can be downloaded through the agent artifact API. Credentials never appear here.
+        state:
+          $ref: '#/components/schemas/ExternalChannelRequestState'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        deadline_at:
+          $ref: '#/components/schemas/Timestamp'
+        terminal_at:
+          $ref: '#/components/schemas/Timestamp'
+        state_reason_code:
+          type: string
+    ListExternalChannelRequestsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalChannelRequest'
+        next_cursor:
+          type: [string, 'null']
+    CompleteExternalChannelRequestRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome, payload]
+      properties:
+        outcome:
+          $ref: '#/components/schemas/ChannelOperationOutcome'
+        payload:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: For completed operations, use ChannelSendOperationResult, ChannelReadOperationResult or ChannelInteractionOperationResult according to the request. Core validates that exact result before accepting it. Failed or unknown outcomes may include code and detail strings of at most 1024 bytes each.
+    CompleteExternalChannelRequestResponse:
+      type: object
+      additionalProperties: false
+      required: [request]
+      properties:
+        request:
+          $ref: '#/components/schemas/ExternalChannelRequest'
+        tool_call:
+          $ref: '#/components/schemas/ToolCall'
+        tool_result_content_blocks:
+          type: array
+          description: Canonical tool result, including public continuation-channel IDs or a continuation error after known publication. Omitted for automatic presentations and notices.
+          items:
+            $ref: '#/components/schemas/ToolResultContentBlock'
+    ChannelDefinitionID:
+      type: string
+      pattern: '^cdef_[a-z2-7]{26}$'
+    IntegrationTargetID:
+      type: string
+      pattern: '^itgt_[a-z2-7]{26}$'
+    ChannelKind:
+      type: string
+      enum: [SLACK_CHANNEL, SLACK_THREAD, EXTERNAL]
+      x-enum-varnames: [ChannelKindSlackChannel, ChannelKindSlackThread, ChannelKindExternal]
+      description: Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+    ChannelCapabilities:
+      type: object
+      additionalProperties: false
+      required: [read, send, text, artifacts, permissions, questions, creates_reply_channel]
+      properties:
+        read:
+          type: boolean
+        send:
+          type: boolean
+        text:
+          type: boolean
+        artifacts:
+          type: boolean
+        permissions:
+          type: boolean
+        questions:
+          type: boolean
+        creates_reply_channel:
+          type: boolean
+    PublishChannelConnectorDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [implementation_key, kind, description, send_params_schema, capabilities]
+      properties:
+        implementation_key:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        kind:
+          $ref: '#/components/schemas/ChannelKind'
+        description:
+          type: string
+          maxLength: 16384
+          description: At most 16 KiB of UTF-8 text.
+        send_params_schema:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: Valid send-parameter JSON Schema object, at most 256 KiB, without duplicate keys.
+        capabilities:
+          $ref: '#/components/schemas/ChannelCapabilities'
+    RegisterExternalChannelRequest:
+      type: object
+      additionalProperties: false
+      required: [definition_id, provider_ref, provider_ref_kind, name]
+      properties:
+        definition_id:
+          $ref: '#/components/schemas/ChannelDefinitionID'
+        parent_channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Nonblank provider address, at most 2048 UTF-8 bytes, without NUL characters.
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Nonblank provider address kind, at most 128 UTF-8 bytes, without NUL characters.
+        name:
+          type: string
+          maxLength: 512
+          description: Provider display label, at most 512 UTF-8 bytes, without NUL characters.
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    RegisteredChannel:
+      type: object
+      additionalProperties: false
+      required: [channel_id, definition_id, name]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        definition_id:
+          $ref: '#/components/schemas/ChannelDefinitionID'
+        parent_channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        name:
+          type: string
+    AttachAgentChannelRequest:
+      type: object
+      additionalProperties: false
+      required: [channel_id, grants]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        grants:
+          $ref: '#/components/schemas/ChannelGrants'
+        reply_channel_grants:
+          $ref: '#/components/schemas/ChannelGrants'
+          description: Optional nonempty grant for a reply channel created by a successful send. Requires send on this binding and does not authorize further descendants.
+    AgentChannelBinding:
+      type: object
+      additionalProperties: false
+      required: [id, channel_id, grants]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        grants:
+          $ref: '#/components/schemas/ChannelGrants'
+        reply_channel_grants:
+          $ref: '#/components/schemas/ChannelGrants'
+    AgentChannel:
+      type: object
+      additionalProperties: false
+      required: [channel_id, is_current, kind, name, description, active, can_receive, capabilities, send_params_schema]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        parent_channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        is_current:
+          type: boolean
+        kind:
+          $ref: '#/components/schemas/ChannelKind'
+        name:
+          type: string
+        description:
+          type: string
+        active:
+          type: boolean
+        can_receive:
+          type: boolean
+          description: Input admission is authorized; the connection behavior determines delivery.
+        capabilities:
+          $ref: '#/components/schemas/ChannelCapabilities'
+        send_params_schema:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    AgentChannelSummary:
+      type: object
+      additionalProperties: false
+      required: [channel_id, provider, address_kind, name, state, can_receive, can_read, can_send]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        parent_channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        provider:
+          type: string
+        address_kind:
+          type: string
+        name:
+          type: string
+        state:
+          type: string
+          enum: [active, disabled]
+          x-enum-varnames: [AgentChannelStateActive, AgentChannelStateDisabled]
+        can_receive:
+          type: boolean
+          description: Input admission is authorized; the connection behavior determines delivery.
+        can_read:
+          type: boolean
+        can_send:
+          type: boolean
+    ListAgentChannelsResponse:
+      type: object
+      additionalProperties: false
+      required: [channels, current_channel_id, next_cursor]
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentChannelSummary'
+        current_channel_id:
+          type: [string, "null"]
+          pattern: '^itgt_[a-z2-7]{26}$'
+        next_cursor:
+          type: [string, "null"]
+    ChannelDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, implementation_key, kind, description, send_params_schema, capabilities]
+      properties:
+        id:
+          $ref: '#/components/schemas/ChannelDefinitionID'
+        implementation_key:
+          type: string
+        kind:
+          $ref: '#/components/schemas/ChannelKind'
+        description:
+          type: string
+        send_params_schema:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        capabilities:
+          $ref: '#/components/schemas/ChannelCapabilities'
+    ChannelEventLease:
+      type: object
+      additionalProperties: false
+      required: [receipt_id, lease_token, lease_generation]
+      properties:
+        receipt_id:
+          $ref: '#/components/schemas/IntegrationEventReceiptID'
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+    ChannelGrants:
+      type: object
+      additionalProperties: false
+      required: [receive, read, send]
+      properties:
+        receive:
+          type: boolean
+          description: Authorizes input admission. Connection behavior selects recipients; this grant alone does not subscribe the agent.
+        read:
+          type: boolean
+        send:
+          type: boolean
+      description: Explicit access for one agent and channel. At least one grant must be true. Grants authorize operations; application behavior independently decides when to deliver input.
+    ChannelMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          description: Message text, at most 64 KiB of UTF-8. Whitespace alone requires an attachment.
+        artifact_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          x-go-type-skip-optional-pointer: true
+          items:
+            $ref: '#/components/schemas/ArtifactID'
+      description: Content of one logical message. An observation may be empty when its provider content is unavailable; history reports partial coverage. Sending requires nonempty text or accessible artifacts.
+    SendChannelMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [channel_id, message]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        message:
+          $ref: '#/components/schemas/ChannelSendMessage'
+        params:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: Validated against the channel's current send_params_schema. Omission means an empty object; null is invalid.
+    ChannelSendMessage:
+      allOf:
+        - $ref: '#/components/schemas/ChannelMessage'
+        - type: object
+          minProperties: 1
+      description: Nonempty text, accessible artifacts, or both. An empty history observation is not a valid send.
+    ReadChannelRequest:
+      type: object
+      additionalProperties: false
+      required: [channel_id]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          description: Opaque next_cursor from this agent's previous read of the same channel.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    ChannelMessagePublication:
+      type: string
+      enum: [published, draft]
+      x-enum-varnames: [ChannelMessagePublicationPublished, ChannelMessagePublicationDraft]
+      description: Provider publication state, not proof of delivery to or reading by a person.
+    ChannelMessageAuthor:
+      type: object
+      additionalProperties: false
+      properties:
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Provider author reference scoped to this channel's connection; not an Omnara authorization principal.
+        display_name:
+          type: string
+          maxLength: 256
+    ChannelMessageReference:
+      type: object
+      additionalProperties: false
+      required: [channel_id, message_id]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Provider message identity scoped to the containing channel.
+    ChannelMessageObservation:
+      type: object
+      additionalProperties: false
+      required: [content, publication]
+      properties:
+        content:
+          $ref: '#/components/schemas/ChannelMessage'
+        publication:
+          $ref: '#/components/schemas/ChannelMessagePublication'
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+          description: Actual containing channel. Omitted when a known publication's containing channel could not be registered; never substituted with its parent.
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Known provider message identity; interpret only with its containing channel.
+        reply_to:
+          $ref: '#/components/schemas/ChannelMessageReference'
+        reply_channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+          description: Registered continuation available to this agent. A reference does not independently grant access.
+        author:
+          $ref: '#/components/schemas/ChannelMessageAuthor'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: Bounded public provider details, without credentials or private destination configuration.
+    ChannelHistoryCoverage:
+      type: string
+      enum: [complete, partial]
+      x-enum-varnames: [ChannelHistoryCoverageComplete, ChannelHistoryCoveragePartial]
+      description: Completeness of the provider's available history representation, independent of pagination.
+    ChannelContinuationError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1024
+      description: Publication succeeded, but its continuation could not be made available. This does not mean the message was unsent.
+    SendChannelMessageResult:
+      type: object
+      additionalProperties: false
+      required: [request_id, message]
+      properties:
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Stable operation correlation, including the original tool or external request identity.
+        message:
+          $ref: '#/components/schemas/ChannelMessageObservation'
+        continuation_error:
+          $ref: '#/components/schemas/ChannelContinuationError'
+      description: One known message publication, with optional continuation failure. No batch or background-delivery result.
+    ChannelHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [messages, coverage]
+      properties:
+        messages:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ChannelMessageObservation'
+          description: Messages in chronological order within a page. The first page contains recent messages; subsequent pages move toward older history.
+        next_cursor:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          description: Omitted at the end of available history. Absence does not override partial coverage.
+        coverage:
+          $ref: '#/components/schemas/ChannelHistoryCoverage'
+        coverage_reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Explains a partial representation, such as unavailable message contents or provider history restrictions.
+    ChannelOperationDestination:
+      type: object
+      additionalProperties: false
+      required: [implementation_key, provider_ref, provider_ref_kind, provider_metadata]
+      description: Private destination resolved by Omnara after authorization. The model never supplies this address.
+      properties:
+        implementation_key:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelSendOperation:
+      type: object
+      additionalProperties: false
+      required: [destination, message, params]
+      properties:
+        destination:
+          $ref: '#/components/schemas/ChannelOperationDestination'
+        message:
+          $ref: '#/components/schemas/ChannelSendMessage'
+        params:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        reply_channel_grants:
+          $ref: '#/components/schemas/ChannelGrants'
+          description: Permission captured from one exact live binding. Absence prohibits creating a new reply channel. Completion cannot change or extend these grants.
+    ChannelReplyDestination:
+      type: object
+      additionalProperties: false
+      required: [implementation_key, provider_ref, provider_ref_kind]
+      description: Provider facts for one direct child of the addressed channel, within the same connection. Core validates and registers the child before exposing an actionable channel ID.
+      properties:
+        implementation_key:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        display_name:
+          type: string
+          maxLength: 512
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelMessageLocation:
+      type: string
+      enum: [destination, reply_channel]
+      x-enum-varnames: [ChannelMessageLocationDestination, ChannelMessageLocationReplyChannel]
+      description: Actual containing conversation. A Slack root post belongs to destination even when it opens a reply thread; an inline GitHub finding belongs to reply_channel.
+    ChannelSendOperationResult:
+      type: object
+      additionalProperties: false
+      required: [publication, message_channel]
+      properties:
+        publication:
+          $ref: '#/components/schemas/ChannelMessagePublication'
+        message_channel:
+          $ref: '#/components/schemas/ChannelMessageLocation'
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        reply_channel:
+          $ref: '#/components/schemas/ChannelReplyDestination'
+          description: Required when message_channel is reply_channel. Existing-thread replies use destination and need no new child.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelReadOperation:
+      type: object
+      additionalProperties: false
+      required: [destination, limit]
+      properties:
+        destination:
+          $ref: '#/components/schemas/ChannelOperationDestination'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Provider pagination state decoded from the channel-scoped cursor by core. Never an alternate destination or request URL.
+    ChannelReadOperationResult:
+      type: object
+      additionalProperties: false
+      required: [messages, coverage]
+      description: Provider history at the requested destination. Core supplies public channel IDs, resolves only already registered authorized reply addresses, reauthorizes artifacts and wraps the cursor. Reading never creates or binds a channel.
+      properties:
+        messages:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ChannelProviderMessageObservation'
+        next_cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        coverage:
+          $ref: '#/components/schemas/ChannelHistoryCoverage'
+        coverage_reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Required when coverage is partial.
+    ChannelProviderMessageReference:
+      type: object
+      additionalProperties: false
+      required: [message_id]
+      properties:
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        destination:
+          $ref: '#/components/schemas/ChannelReplyDestination'
+          description: Omit when the referenced message belongs to the requested channel.
+    ChannelProviderMessageObservation:
+      type: object
+      additionalProperties: false
+      required: [content, publication]
+      properties:
+        content:
+          $ref: '#/components/schemas/ChannelMessage'
+        publication:
+          $ref: '#/components/schemas/ChannelMessagePublication'
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        reply_to:
+          $ref: '#/components/schemas/ChannelProviderMessageReference'
+        reply_channel:
+          $ref: '#/components/schemas/ChannelReplyDestination'
+        author:
+          $ref: '#/components/schemas/ChannelMessageAuthor'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelInteractionOperation:
+      type: object
+      additionalProperties: false
+      required: [destination, interaction_id, agent_id, channel_id, kind, form]
+      description: A presentation copy of a canonical interaction, pinned to its channel. Delivering this copy does not resolve the interaction; the Omnara dashboard remains actionable.
+      properties:
+        destination:
+          $ref: '#/components/schemas/ChannelOperationDestination'
+        interaction_id:
+          $ref: '#/components/schemas/AgentInteractionID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        kind:
+          $ref: '#/components/schemas/AgentInteractionKind'
+        form:
+          $ref: '#/components/schemas/InteractionForm'
+    ChannelInteractionOperationResult:
+      type: object
+      additionalProperties: false
+      description: Records presentation only. Approval and question answers use the canonical interaction resolution API.
+      properties:
+        message_id:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelConnectorRoute:
+      type: object
+      additionalProperties: false
+      required: [id, behavior_key, configuration]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationRouteID'
+        behavior_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+        configuration:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ListChannelConnectorRoutesResponse:
+      type: object
+      additionalProperties: false
+      required: [routes]
+      properties:
+        routes:
+          type: array
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/ChannelConnectorRoute'
+    ChannelWorkflowTarget:
+      type: object
+      additionalProperties: false
+      required: [definition_id, provider_ref, provider_ref_kind]
+      properties:
+        definition_id:
+          $ref: '#/components/schemas/ChannelDefinitionID'
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        display_name:
+          type: string
+          maxLength: 512
+        parent_channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelWorkflowGrants:
+      type: object
+      additionalProperties: false
+      required: [read, send]
+      properties:
+        read:
+          type: boolean
+        send:
+          type: boolean
+    ChannelWorkflowAuthor:
+      type: object
+      additionalProperties: false
+      required: [ref, display_name]
+      properties:
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        display_name:
+          type: string
+          maxLength: 256
+    ChannelInputKey:
+      type: string
+      minLength: 1
+      maxLength: 512
+      description: Provider-selected semantic message identity, scoped to the connection and receiving agent. At most 512 UTF-8 bytes. Different callbacks describing the same message use the same key.
+    ChannelInputPrecondition:
+      type: object
+      additionalProperties: false
+      required: [input_key, exists]
+      description: Checked under the receiving agent's lock before admission. If presence changed, lookup current state and render content again; do not retry the unchanged body. An already accepted receipt or semantic input is returned before this check.
+      properties:
+        input_key:
+          $ref: '#/components/schemas/ChannelInputKey'
+        exists:
+          type: boolean
+    LookupChannelConnectorWorkflowRequest:
+      type: object
+      additionalProperties: false
+      required: [route_id, instance_key, input_keys]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/IntegrationRouteID'
+        instance_key:
+          type: string
+          minLength: 1
+          maxLength: 512
+        input_keys:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ChannelInputKey'
+    LookupChannelConnectorWorkflowResponse:
+      type: object
+      additionalProperties: false
+      required: [exists, input_keys]
+      properties:
+        exists:
+          type: boolean
+        agent_state:
+          $ref: '#/components/schemas/AgentState'
+        input_keys:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          description: Requested keys already accepted by this workflow's agent.
+          items:
+            $ref: '#/components/schemas/ChannelInputKey'
+    LookupChannelConnectorRecipientsRequest:
+      type: object
+      additionalProperties: false
+      required: [provider_ref, receipt, input_keys]
+      properties:
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Existing provider address within the authenticated installation; at most 512 UTF-8 bytes.
+        receipt:
+          $ref: '#/components/schemas/ChannelEventLease'
+        input_keys:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ChannelInputKey'
+        cursor:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    LookupChannelConnectorRecipientsResponse:
+      type: object
+      additionalProperties: false
+      required: [has_receive_binding_history, workflow_started, recipients, next_cursor]
+      properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+          description: Absent if the provider address has never been registered.
+        has_receive_binding_history:
+          type: boolean
+          description: A receive binding has existed for this channel, including revoked receive grants. Send-only and read-only grants do not establish a receiving conversation. Independent of pagination; an empty live-recipient page does not authorize launching replacement agents.
+        workflow_started:
+          type: boolean
+          description: This receipt already has an accepted workflow input for this addressed channel. Behaviors may continue partially completed route fanout on replay without mistaking those newly created bindings for a pre-existing conversation.
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelConnectorRecipient'
+        next_cursor:
+          type: [string, "null"]
+    ChannelConnectorRecipient:
+      type: object
+      additionalProperties: false
+      required: [agent_id, binding_id, input_keys]
+      properties:
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        binding_id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+        input_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelInputKey'
+    DeliverChannelConnectorInputRequest:
+      type: object
+      additionalProperties: false
+      required: [binding_id, receipt, input_key, author, content_blocks]
+      description: >-
+        Delivers to the existing agent and channel named by an exact receive binding.
+        Creates no workflow, agent, channel or grant. Receipt and semantic replay return
+        the original accepted input. Complete the receipt separately after all selected recipients.
+      properties:
+        binding_id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+        receipt:
+          $ref: '#/components/schemas/ChannelEventLease'
+        input_key:
+          $ref: '#/components/schemas/ChannelInputKey'
+        input_precondition:
+          $ref: '#/components/schemas/ChannelInputPrecondition'
+        author:
+          $ref: '#/components/schemas/ChannelWorkflowAuthor'
+        content_blocks:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Same inline attachment and request limits as workflow input delivery; artifacts and input commit atomically.
+          items:
+            $ref: '#/components/schemas/CreateAgentInputContentBlock'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        delivery_mode:
+          $ref: '#/components/schemas/CreateAgentInputDeliveryMode'
+        cancel_open_interactions:
+          type: boolean
+          description: Only valid with steering delivery; cancel open interactions atomically with admission.
+    DeliverChannelConnectorWorkflowRequest:
+      type: object
+      additionalProperties: false
+      required: [route_id, instance_key, receipt, input_key, target, grants, author, content_blocks]
+      description: >-
+        Uses the authenticated app's real installation and the registered behavior route.
+        Project, launch profile and agent identity are derived internally. One workflow winner
+        retry may prepare fresh uploads outside the database transaction. Complete the incoming
+        receipt separately after successful delivery to all intended workflows.
+      properties:
+        route_id:
+          $ref: '#/components/schemas/IntegrationRouteID'
+        instance_key:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Stable workflow identity within the configured route; at most 512 UTF-8 bytes.
+        receipt:
+          $ref: '#/components/schemas/ChannelEventLease'
+        input_key:
+          $ref: '#/components/schemas/ChannelInputKey'
+        only_if_unbound:
+          type: boolean
+          description: If creating a workflow, require no receive binding history for the destination unless this receipt already has a workflow outcome for that channel. A conflict requires recipient lookup again; existing workflow and input replay remain unchanged.
+        input_precondition:
+          $ref: '#/components/schemas/ChannelInputPrecondition'
+        target:
+          $ref: '#/components/schemas/ChannelWorkflowTarget'
+        grants:
+          $ref: '#/components/schemas/ChannelWorkflowGrants'
+        author:
+          $ref: '#/components/schemas/ChannelWorkflowAuthor'
+        content_blocks:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: >-
+            Up to 20 inline attachments, 10 MiB each and 24 MiB decoded combined;
+            at most 1 MiB of other content. The complete request is limited to 48 MiB.
+            Artifact records and canonical input references commit with the workflow.
+          items:
+            $ref: '#/components/schemas/CreateAgentInputContentBlock'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        delivery_mode:
+          $ref: '#/components/schemas/CreateAgentInputDeliveryMode'
+        cancel_open_interactions:
+          type: boolean
+          description: Only valid with steering delivery; cancel open interactions atomically with admission.
+    ChannelConnectorInputResponse:
+      type: object
+      additionalProperties: false
+      required: [agent_id, channel_id, agent_input_id, created_agent, created_input, content_blocks]
+      properties:
+        canceled_interaction_ids:
+          type: array
+          description: Canonical interactions canceled by this newly admitted input; presentation cleanup is best effort and replay may return no IDs.
+          items:
+            $ref: '#/components/schemas/AgentInteractionID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        binding_id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+          description: Present for newly admitted inputs. Historical inputs retain their original provenance and may predate bindings.
+        agent_input_id:
+          $ref: '#/components/schemas/AgentInputID'
+        created_agent:
+          type: boolean
+        created_input:
+          type: boolean
+        content_blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentInputContentBlock'
     ChannelConnectorApp:
       type: object
       additionalProperties: false
@@ -7370,8 +9076,10 @@ components:
     ChannelConnectorInstall:
       type: object
       additionalProperties: false
-      required: [id, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, provider_identity, provider_metadata, configuration_revision, updated_at]
+      required: [id, project_id, provider_account_ref, display_name, provider_config, provider_identity, metadata, configuration_revision, updated_at]
       properties:
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
         id:
           type: string
           pattern: '^iin_[a-z2-7]{26}$'
@@ -7379,13 +9087,13 @@ components:
           type: string
         provider_account_ref:
           type: string
-        provider_agent_display_name:
+        display_name:
           type: string
         provider_config:
           $ref: '#/components/schemas/ChannelOpaqueObject'
         provider_identity:
           $ref: '#/components/schemas/ChannelOpaqueObject'
-        provider_metadata:
+        metadata:
           $ref: '#/components/schemas/ChannelOpaqueObject'
         configuration_revision:
           type: integer
@@ -7426,34 +9134,6 @@ components:
           $ref: '#/components/schemas/ChannelConnectorInstall'
         credential:
           $ref: '#/components/schemas/ChannelCredentialPayload'
-    ChannelConversation:
-      type: object
-      additionalProperties: false
-      required: [ref, kind, mentioned, direct, metadata]
-      properties:
-        ref:
-          type: string
-          minLength: 1
-          maxLength: 2048
-        kind:
-          type: string
-          minLength: 1
-          maxLength: 128
-        display_name:
-          type: string
-          maxLength: 512
-        parent_ref:
-          type: string
-          maxLength: 2048
-        reply_to_ref:
-          type: string
-          maxLength: 2048
-        mentioned:
-          type: boolean
-        direct:
-          type: boolean
-        metadata:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
     ChannelActor:
       type: object
       additionalProperties: false
@@ -7471,39 +9151,26 @@ components:
     ChannelInboundEventRequest:
       type: object
       additionalProperties: false
-      required: [version, provider_event_id, external_tenant_id, external_account_ref, event_type, conversation, actor, content_blocks, occurred_at, metadata]
+      required: [event_id, integration_install_id, payload]
       properties:
-        version:
-          type: string
-          enum: [v1]
-        provider_event_id:
+        event_id:
           type: string
           minLength: 1
           maxLength: 512
-        external_tenant_id:
-          type: string
-          maxLength: 512
-        external_account_ref:
-          type: string
-          minLength: 1
-          maxLength: 512
-        event_type:
-          type: string
-          maxLength: 256
-        conversation:
-          $ref: '#/components/schemas/ChannelConversation'
-        actor:
-          $ref: '#/components/schemas/ChannelActor'
-        content_blocks:
-          type: array
-          minItems: 1
-          maxItems: 100
-          items:
-            $ref: '#/components/schemas/CreateAgentInputContentBlock'
-        occurred_at:
-          $ref: '#/components/schemas/Timestamp'
-        metadata:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: Stable provider event identity, scoped to the installation; at most 512 UTF-8 bytes.
+        integration_install_id:
+          $ref: '#/components/schemas/IntegrationInstallID'
+        payload:
+          $ref: '#/components/schemas/ChannelEventPayload'
+    ChannelEventPayload:
+      type: object
+      additionalProperties: true
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+      description: >-
+        Provider event data for asynchronous processing. Must be one PostgreSQL-safe JSON object
+        without duplicate keys, at most 24 MiB.
+        IDs or runtime proof within this opaque payload do not confer authority.
     ChannelRuntimeInboundEventRequest:
       type: object
       additionalProperties: false
@@ -7518,43 +9185,91 @@ components:
           minimum: 1
         event:
           $ref: '#/components/schemas/ChannelInboundEventRequest'
-    ChannelInboundAcceptance:
-      type: object
-      additionalProperties: false
-      required: [route_id, agent_id, target_id, binding_id, agent_input_id]
-      properties:
-        route_id:
-          $ref: '#/components/schemas/IntegrationRouteID'
-        agent_id:
-          $ref: '#/components/schemas/AgentID'
-        target_id:
-          type: string
-          pattern: '^itgt_[a-z2-7]{26}$'
-        binding_id:
-          $ref: '#/components/schemas/IntegrationBindingID'
-        agent_input_id:
-          $ref: '#/components/schemas/AgentInputID'
+    ChannelEventState:
+      type: string
+      enum: [pending, processing, completed, failed]
+      x-enum-varnames: [ChannelEventStatePending, ChannelEventStateProcessing, ChannelEventStateCompleted, ChannelEventStateFailed]
     ChannelInboundEventResponse:
       type: object
       additionalProperties: false
-      required: [accepted, ignored_routes]
+      required: [receipt_id, state]
       properties:
-        accepted:
-          type: array
-          items:
-            $ref: '#/components/schemas/ChannelInboundAcceptance'
-        ignored_routes:
+        receipt_id:
+          $ref: '#/components/schemas/IntegrationEventReceiptID'
+        state:
+          $ref: '#/components/schemas/ChannelEventState'
+    ClaimNextChannelConnectorEventRequest:
+      type: object
+      additionalProperties: false
+      required: [capability, lease_ms]
+      properties:
+        capability:
+          $ref: '#/components/schemas/ChannelConnectorCapability'
+        lease_ms:
           type: integer
           format: int32
-          minimum: 0
+          minimum: 1000
+          maximum: 300000
+    ChannelConnectorEventReceipt:
+      type: object
+      additionalProperties: false
+      required: [receipt_id, integration_app_id, integration_install_id, event_id, payload, state, lease_token, lease_generation, lease_expires_at, attempt_count, last_error]
+      properties:
+        receipt_id:
+          $ref: '#/components/schemas/IntegrationEventReceiptID'
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        integration_install_id:
+          $ref: '#/components/schemas/IntegrationInstallID'
+        event_id:
+          type: string
+        payload:
+          $ref: '#/components/schemas/ChannelEventPayload'
+        state:
+          $ref: '#/components/schemas/ChannelEventState'
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        lease_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        attempt_count:
+          type: integer
+          format: int32
+          minimum: 1
+        last_error:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelEventOutcome:
+      type: string
+      enum: [pending, completed, failed]
+      x-enum-varnames: [ChannelEventOutcomePending, ChannelEventOutcomeCompleted, ChannelEventOutcomeFailed]
+      description: Pending schedules a bounded-backoff retry; failed is a permanent rejection; completed records successful processing.
+    CompleteChannelConnectorEventRequest:
+      type: object
+      additionalProperties: false
+      required: [lease_token, lease_generation, state]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        state:
+          $ref: '#/components/schemas/ChannelEventOutcome'
+        last_error:
+          allOf:
+            - $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: A nonempty error object is required for pending or failed. Completed requires an omitted or empty error object.
     ResolveChannelConnectorInteractionRequest:
       type: object
       additionalProperties: false
-      required: [version, external_tenant_id, external_account_ref, integration_target_id, integration_target_binding_id, actor, answers, metadata]
+      required: [external_tenant_id, external_account_ref, integration_target_id, integration_target_binding_id, actor, answers, metadata]
       properties:
-        version:
-          type: string
-          enum: [v1]
         external_tenant_id:
           type: string
           maxLength: 512
@@ -7633,114 +9348,6 @@ components:
           maximum: 1000
         capability:
           $ref: '#/components/schemas/ChannelConnectorCapability'
-    ChannelDeliveryState:
-      type: string
-      enum: [pending, claimed, retry_wait, delivered, failed, unknown, canceled]
-    ChannelConnectorDelivery:
-      type: object
-      additionalProperties: false
-      required: [id, integration_app_id, integration_install_id, integration_target_id, integration_target_binding_id, provider, connector_key, delivery_kind, payload_version, payload, state, attempt_count, available_at, claim_generation, created_at, updated_at]
-      properties:
-        id:
-          $ref: '#/components/schemas/IntegrationDeliveryID'
-        integration_app_id:
-          $ref: '#/components/schemas/IntegrationAppID'
-        integration_install_id:
-          type: string
-          pattern: '^iin_[a-z2-7]{26}$'
-        integration_target_id:
-          type: string
-          pattern: '^itgt_[a-z2-7]{26}$'
-        integration_target_binding_id:
-          $ref: '#/components/schemas/IntegrationBindingID'
-        provider:
-          type: string
-          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
-        connector_key:
-          type: string
-          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
-        delivery_kind:
-          type: string
-        payload_version:
-          type: string
-        payload:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
-        state:
-          $ref: '#/components/schemas/ChannelDeliveryState'
-        attempt_count:
-          type: integer
-          format: int32
-          minimum: 0
-          description: Number of times core has leased this delivery. A connector must separately avoid retrying provider I/O after its own bounded attempt policy is exhausted; core fails a delivery that asks for another safe retry after 64 claims.
-        available_at:
-          $ref: '#/components/schemas/Timestamp'
-        claim_token:
-          type: string
-          format: uuid
-        claim_generation:
-          type: integer
-          format: int64
-          minimum: 0
-        app_configuration_revision:
-          type: integer
-          format: int64
-          minimum: 1
-        install_configuration_revision:
-          type: integer
-          format: int64
-          minimum: 1
-        claim_expires_at:
-          $ref: '#/components/schemas/Timestamp'
-        notify_ref:
-          type: string
-          format: uuid
-        provider_message_ref:
-          type: string
-          maxLength: 2048
-        last_error:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
-        completed_at:
-          $ref: '#/components/schemas/Timestamp'
-        created_at:
-          $ref: '#/components/schemas/Timestamp'
-        updated_at:
-          $ref: '#/components/schemas/Timestamp'
-    ChannelConnectorDeliveriesResponse:
-      type: object
-      additionalProperties: false
-      required: [deliveries]
-      properties:
-        deliveries:
-          type: array
-          items:
-            $ref: '#/components/schemas/ChannelConnectorDelivery'
-    CompleteChannelConnectorDeliveryRequest:
-      type: object
-      additionalProperties: false
-      required: [claim_token, claim_generation, outcome, provider_message_ref, last_error]
-      properties:
-        claim_token:
-          type: string
-          format: uuid
-        claim_generation:
-          type: integer
-          format: int64
-          minimum: 1
-        outcome:
-          type: string
-          enum: [retry_wait, delivered, failed, unknown, canceled]
-          description: Return retry_wait only when another bounded attempt is safe. Use unknown after provider I/O begins if success cannot be confirmed, so core does not risk a duplicate send. Core converts retry_wait to failed when the delivery has reached 64 claims.
-        retry_after_ms:
-          type: integer
-          format: int32
-          minimum: 1
-          maximum: 3600000
-        provider_message_ref:
-          type: string
-          maxLength: 2048
-          description: Provider message identifier, limited to 2048 UTF-8 bytes by the server.
-        last_error:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
     ChannelRuntimeDesiredState:
       type: string
       enum: [running, stopped]
@@ -9103,15 +10710,30 @@ components:
           minLength: 1
         return_to:
           type: string
+    IntegrationKind:
+      type: string
+      enum: [managed, external]
+      x-enum-varnames: [IntegrationKindManaged, IntegrationKindExternal]
+      description: Immutable connection ownership. Managed connections use an Omnara-hosted connector; external connections use the customer's authorized API consumer.
+    CreateExternalIntegrationInstallRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          maxLength: 512
+          description: At most 512 UTF-8 bytes.
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+      description: Register a project-owned customer connector. No provider app, tenant, account, credentials, agent, or agent profile is required or accepted.
     IntegrationInstall:
       type: object
       additionalProperties: false
       description: >-
-        A project-owned installation of a provider app in an external tenant or account. Native
-        compatibility installations connect exactly one agent profile or agent; connector
-        installations leave both agent_profile_id and agent_id unset and use routes and target
-        bindings instead. Provider credentials are never returned.
-      required: [id, org_id, project_id, provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, created_at, updated_at]
+        A project-owned connection. Managed connections install a genuine provider app; external
+        connections use a customer API consumer and omit provider identity. Channels and agent
+        bindings are separate resources. Provider credentials are never returned.
+      required: [id, org_id, project_id, integration_kind, connection_mode, state, display_name, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/IntegrationInstallID'
@@ -9119,14 +10741,12 @@ components:
           $ref: '#/components/schemas/OrganizationID'
         project_id:
           $ref: '#/components/schemas/ProjectID'
-        agent_profile_id:
-          $ref: '#/components/schemas/AgentProfileID'
-        agent_id:
-          $ref: '#/components/schemas/AgentID'
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
         provider:
           type: string
         integration_kind:
-          type: string
+          $ref: '#/components/schemas/IntegrationKind'
         connection_mode:
           type: string
         state:
@@ -9136,8 +10756,10 @@ components:
           type: string
         provider_account_ref:
           type: string
-        provider_agent_display_name:
+        display_name:
           type: string
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9903,6 +11525,17 @@ components:
           description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
         message:
           type: string
+        channel_bindings:
+          type: array
+          maxItems: 64
+          x-go-type-skip-optional-pointer: true
+          description: Optional initial channel grants, created atomically with a new agent. Requires project management. Launch retries return the original agent and never add or restore grants, even if this list changes.
+          items:
+            $ref: '#/components/schemas/AttachAgentChannelRequest'
+    AgentState:
+      type: string
+      enum: [active, archived]
+      x-enum-varnames: [AgentStateActive, AgentStateArchived]
     Agent:
       type: object
       additionalProperties: false
@@ -9917,8 +11550,7 @@ components:
         agent_profile_id:
           $ref: '#/components/schemas/AgentProfileID'
         state:
-          type: string
-          enum: [active, archived]
+          $ref: '#/components/schemas/AgentState'
         name:
           $ref: '#/components/schemas/AgentName'
         integration_target:
@@ -10441,6 +12073,9 @@ components:
       additionalProperties: false
       required: [content_blocks]
       properties:
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+          description: Optional input origin on an external connection. Requires an existing live receive binding to this agent. Managed provider origins arrive through verified provider intake. An identical retry retains its original binding after revocation or replacement.
         content_blocks:
           type: array
           description: >-

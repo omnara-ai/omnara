@@ -3,15 +3,17 @@ import { fileURLToPath } from 'node:url'
 
 import { AppRuntimeRegistry } from './app-registry'
 import { RedisAppStateFactory } from './app-state'
+import { asError } from './async'
 import { type GatewayConfig, loadConfig } from './config'
 import { CoreClient } from './core-client'
-import { DeliveryLoop } from './delivery-loop'
 import { errorMessage } from './diagnostics'
 import { builtInProviderFactories } from './factories'
 import { JsonLogger } from './logger'
+import { ReceiptConsumer, type ReceiptConsumerOptions } from './receipt-consumer'
 import { createGatewayRedisClient, type GatewayRedisClient } from './redis-client'
 import { RuntimeLoop } from './runtime-loop'
-import { GatewayServer } from './server'
+import { GatewayServer, type GatewayServerOptions } from './server'
+import { createSlackGateway, slackCapability } from './slack/gateway'
 import {
   type GatewayLogger,
   type ProviderCapability,
@@ -26,6 +28,9 @@ export interface RunGatewayOptions {
   createRedisClient?: typeof createGatewayRedisClient
   factories?: ProviderFactory[]
   logger?: GatewayLogger
+  operations?: GatewayServerOptions['operations']
+  /** Explicit behavior and exact capabilities; independent of webhook factories. */
+  receipts?: Omit<ReceiptConsumerOptions, 'client' | 'workBudget' | 'logger'>
   signal?: AbortSignal
 }
 
@@ -51,23 +56,30 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
   let loops: Promise<void> | undefined
   let redisConnected = false
   try {
-    const startupDeadline = Date.now() + config.startupTimeoutMs
-    redis = (options.createRedisClient ?? createGatewayRedisClient)({
-      clusterUrls: config.redisClusterUrls,
-      socketTimeoutMs: config.redisSocketTimeoutMs,
-      topology: config.redisTopology,
-      url: config.redisUrl,
-    })
-    redis.onError((error: Error) => {
-      logger.error('channel gateway Redis error', { error: error.message })
-    })
-    await runStartupStep(
-      redis.connect(),
-      controller.signal,
-      startupDeadline,
-      'connect channel gateway Redis',
-    )
-    redisConnected = true
+    if (factories.size > 0) {
+      if (!config.redisUrl || !config.redisTopology) {
+        throw new Error(
+          'OMNARA_CHANNEL_REDIS_URL and OMNARA_CHANNEL_REDIS_TOPOLOGY are required when provider factories are enabled',
+        )
+      }
+      const startupDeadline = Date.now() + config.startupTimeoutMs
+      redis = (options.createRedisClient ?? createGatewayRedisClient)({
+        clusterUrls: config.redisClusterUrls,
+        socketTimeoutMs: config.redisSocketTimeoutMs,
+        topology: config.redisTopology,
+        url: config.redisUrl,
+      })
+      redis.onError((error: Error) => {
+        logger.error('channel gateway Redis error', { error: error.message })
+      })
+      await runStartupStep(
+        redis.connect(),
+        controller.signal,
+        startupDeadline,
+        'connect channel gateway Redis',
+      )
+      redisConnected = true
+    }
 
     const client = new CoreClient({
       baseUrl: config.apiBaseUrl,
@@ -75,71 +87,84 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
       token: config.connectorToken,
     })
     const workBudget = new WorkByteBudget(config.webhookMaxBufferedBytes)
-    registry = new AppRuntimeRegistry({
+    const slack = createSlackGateway({ core: client, workBudget })
+    const receipts = new ReceiptConsumer({
+      capabilities: [slackCapability],
+      behavior: slack.processReceipt,
+      maxConcurrentEvents: 4,
+      maxAttempts: 8,
+      leaseMs: 60_000,
+      claimTimeoutMs: Math.min(config.coreRequestTimeoutMs, 10_000),
+      behaviorTimeoutMs: 40_000,
+      completionTimeoutMs: 5_000,
+      idlePollMs: config.idlePollMs,
+      ...options.receipts,
       client,
-      factories,
+      workBudget,
       logger,
-      maxApps: config.maxApps,
-      maxConcurrentLoads: config.maxConcurrentLoads,
-      maxInstallations: config.maxInstallations,
-      notFoundCacheMs: config.notFoundCacheMs,
-      providerLifecycleTimeoutMs: config.providerLifecycleTimeoutMs,
-      reserveWorkBytes: workBudget.reserve,
-      refreshAfterMs: config.refreshAfterMs,
-      state: new RedisAppStateFactory({
-        client: redis,
-        keyPrefix: 'omnara:chat-sdk',
-      }),
     })
+    if (redis)
+      registry = new AppRuntimeRegistry({
+        client,
+        factories,
+        logger,
+        maxApps: config.maxApps,
+        maxConcurrentLoads: config.maxConcurrentLoads,
+        maxInstallations: config.maxInstallations,
+        notFoundCacheMs: config.notFoundCacheMs,
+        providerLifecycleTimeoutMs: config.providerLifecycleTimeoutMs,
+        reserveWorkBytes: workBudget.reserve,
+        refreshAfterMs: config.refreshAfterMs,
+        state: new RedisAppStateFactory({
+          client: redis,
+          keyPrefix: 'omnara:chat-sdk',
+        }),
+      })
     server = new GatewayServer({
       bodyLimitBytes: config.webhookBodyLimitBytes,
       handlerTimeoutMs: config.webhookHandlerTimeoutMs,
       httpShutdownTimeoutMs: config.httpShutdownTimeoutMs,
-      isReady: () => redis?.ready() ?? false,
+      isReady: () => factories.size === 0 || (redis?.ready() ?? false),
       logger,
       maxConcurrentRequests: config.webhookMaxConcurrentRequests,
+      operations: options.operations ?? {
+        credential: config.connectorToken,
+        allowedCapabilities: [slackCapability],
+        maxConcurrentRequests: config.operationMaxConcurrentRequests,
+        maxTemporaryBytes: config.operationMaxTemporaryBytes,
+        maxRequestBytes: config.operationMaxRequestBytes,
+        maxDurationMs: config.operationMaxDurationMs,
+        temporaryDirectory: config.operationTemporaryDirectory,
+        execute: slack.executeOperation,
+      },
       port: config.port,
       publicUrl: config.publicUrl,
       registry,
       workBudget,
     })
-    const deliveryLoop = new DeliveryLoop({
-      capabilities,
-      claimLimit: config.deliveryClaimLimit,
-      client,
-      completionTimeoutMs: config.deliveryCompletionTimeoutMs,
-      idlePollMs: config.idlePollMs,
-      leaseMs: config.deliveryLeaseMs,
-      logger,
-      owner: config.instanceId,
-      registry,
-      sendTimeoutMs: config.deliverySendTimeoutMs,
-    })
-    const runtimeLoop = new RuntimeLoop({
-      capabilities,
-      claimLimit: config.runtimeClaimLimit,
-      client,
-      idlePollMs: config.idlePollMs,
-      leaseMs: config.runtimeLeaseMs,
-      logger,
-      owner: config.instanceId,
-      reserveWorkBytes: workBudget.reserve,
-      registry,
-      stopTimeoutMs: config.runtimeStopTimeoutMs,
-    })
+    const runtimeLoop = registry
+      ? new RuntimeLoop({
+          capabilities,
+          claimLimit: config.runtimeClaimLimit,
+          client,
+          idlePollMs: config.idlePollMs,
+          leaseMs: config.runtimeLeaseMs,
+          logger,
+          owner: config.instanceId,
+          reserveWorkBytes: workBudget.reserve,
+          registry,
+          stopTimeoutMs: config.runtimeStopTimeoutMs,
+        })
+      : undefined
     await server.listen()
     logger.info('channel gateway started', {
       port: config.port,
       provider_factories: factories.size,
     })
-    if (capabilities.length > 0) {
-      loops = Promise.all(
-        startClaimLoops(factories, deliveryLoop, runtimeLoop, controller.signal),
-      ).then(() => undefined)
-      await Promise.race([abortPromise(controller.signal), loops])
-    } else {
-      await abortPromise(controller.signal)
-    }
+    const running = runtimeLoop ? [runtimeLoop.run(controller.signal)] : []
+    running.push(receipts.run(controller.signal))
+    loops = Promise.all(running).then(() => undefined)
+    await Promise.race([abortPromise(controller.signal), loops])
     controller.abort(new Error('channel gateway stopping'))
     await server.close()
     await loops
@@ -233,10 +258,6 @@ function signalError(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error('channel gateway stopping')
 }
 
-function asError(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause))
-}
-
 const registryNamePattern = /^[a-z0-9][a-z0-9_.-]{0,127}$/
 
 export function createProviderFactoryRegistry(
@@ -251,9 +272,6 @@ export function createProviderFactoryRegistry(
       !registryNamePattern.test(factory.provider)
     ) {
       throw new Error('channel provider factories must use lowercase registry names')
-    }
-    if (factory.connectorKey.startsWith('native_')) {
-      throw new Error('native channel connector keys cannot be delegated to the gateway')
     }
     const key = providerFactoryKey(factory.connectorKey, factory.provider)
     if (registry.has(key))
@@ -272,16 +290,6 @@ export function providerFactoryCapabilities(
     connector_key: connectorKey,
     provider,
   }))
-}
-
-export function startClaimLoops(
-  factories: ProviderFactoryRegistry,
-  deliveryLoop: Pick<DeliveryLoop, 'run'>,
-  runtimeLoop: Pick<RuntimeLoop, 'run'>,
-  signal: AbortSignal,
-): Promise<void>[] {
-  if (factories.size === 0) return []
-  return [deliveryLoop.run(signal), runtimeLoop.run(signal)]
 }
 
 function abortPromise(signal: AbortSignal): Promise<void> {
@@ -305,32 +313,20 @@ if (entrypoint && realpathSync(entrypoint) === realpathSync(fileURLToPath(import
   })
 }
 
-export { createChatSdkLogger } from './chat-sdk-logger'
-export type {
-  ChannelDeliveryDestination,
-  ChannelInteractionPromptPayload,
-  ChannelMessagePayload,
-  ChatSdkAttachmentDataLoader,
-  ChatSdkAttachmentLoadContext,
-  ChatSdkDeliveryHandler,
-  ChatSdkEnvelopeIdentity,
-  ChatSdkInboundActions,
-  ChatSdkRuntimeOptions,
-} from './chat-sdk-runtime'
-export {
-  chatSdkDeliveryHandlerKey,
-  createChatSdkRuntime,
-  fetchBoundedMedia,
-  parseChannelInteractionPromptDelivery,
-  parseChannelMessageDelivery,
-} from './chat-sdk-runtime'
+export { normalizeProviderDeliveryError } from './chat-sdk-errors'
+export type { ChatSdkAttachmentDataLoader, ChatSdkAttachmentLoadContext } from './chat-sdk-media'
+export { fetchBoundedMedia, messageContentBlocks } from './chat-sdk-media'
+export type { ReceiptConsumerOptions } from './receipt-consumer'
+export { ReceiptConsumer } from './receipt-consumer'
 export type {
   GatewayAppConfiguration,
   ProviderFactory,
   ProviderFactoryContext,
   ProviderRuntime,
-  ProviderSendContext,
   ProviderWebhookContext,
   ProviderWorkReservation,
+  ReceiptBehavior,
+  ReceiptBehaviorContext,
   RuntimeUnitContext,
 } from './types'
+export { ReceiptBehaviorError } from './types'

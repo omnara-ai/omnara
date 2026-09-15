@@ -2,7 +2,7 @@ import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AppRuntimeRegistry, RuntimeHandle } from './app-registry'
-import { messageContentBlocks } from './chat-sdk-runtime'
+import { messageContentBlocks } from './chat-sdk-media'
 import type { CoreClient } from './core-client'
 import { maxDiagnosticMessageBytes } from './diagnostics'
 import {
@@ -63,7 +63,6 @@ describe('persistent channel runtime supervision', () => {
       close: () => Promise.resolve(),
       handleWebhook: () => Promise.resolve(new Response()),
       runUnit,
-      send: () => Promise.resolve({ providerMessageRef: '' }),
     }
     const registry = {
       acquire: vi.fn(() =>
@@ -141,7 +140,6 @@ describe('persistent channel runtime supervision', () => {
       close: () => Promise.resolve(),
       handleWebhook: () => Promise.resolve(new Response()),
       runUnit,
-      send: () => Promise.resolve({ providerMessageRef: '' }),
     }
     const registry = {
       acquire: vi.fn(() =>
@@ -203,7 +201,6 @@ describe('persistent channel runtime supervision', () => {
             runtime: {
               close: () => Promise.resolve(),
               handleWebhook: () => Promise.resolve(new Response()),
-              send: () => Promise.resolve({ providerMessageRef: '' }),
             } satisfies ProviderRuntime,
           }),
         ),
@@ -249,7 +246,6 @@ describe('persistent channel runtime supervision', () => {
       close: () => Promise.resolve(),
       handleWebhook: () => Promise.resolve(new Response()),
       runUnit,
-      send: () => Promise.resolve({ providerMessageRef: '' }),
     }
     const registry = {
       acquire: vi.fn(() =>
@@ -317,7 +313,6 @@ describe('persistent channel runtime supervision', () => {
               close: () => Promise.resolve(),
               handleWebhook: () => Promise.resolve(new Response()),
               runUnit,
-              send: () => Promise.resolve({ providerMessageRef: '' }),
             } satisfies ProviderRuntime,
           }),
         ),
@@ -423,7 +418,6 @@ describe('persistent channel runtime supervision', () => {
           close: () => Promise.resolve(),
           handleWebhook: () => Promise.resolve(new Response()),
           runUnit,
-          send: () => Promise.resolve({ providerMessageRef: '' }),
         },
       }),
     )
@@ -470,7 +464,6 @@ describe('persistent channel runtime supervision', () => {
       close: () => Promise.resolve(),
       handleWebhook: () => Promise.resolve(new Response()),
       runUnit,
-      send: () => Promise.resolve({ providerMessageRef: '' }),
     }
     const registry = {
       acquire: vi.fn(() =>
@@ -569,7 +562,6 @@ describe('persistent channel runtime supervision', () => {
               close: () => Promise.resolve(),
               handleWebhook: () => Promise.resolve(new Response()),
               runUnit,
-              send: () => Promise.resolve({ providerMessageRef: '' }),
             },
           }),
         ),
@@ -658,7 +650,6 @@ describe('persistent channel runtime supervision', () => {
       close: () => Promise.resolve(),
       handleWebhook: () => Promise.resolve(new Response()),
       runUnit,
-      send: () => Promise.resolve({ providerMessageRef: '' }),
     }
     const registry = {
       acquire: vi.fn(() =>
@@ -727,7 +718,6 @@ describe('persistent channel runtime supervision', () => {
       close: () => Promise.resolve(),
       handleWebhook: () => Promise.resolve(new Response()),
       runUnit,
-      send: () => Promise.resolve({ providerMessageRef: '' }),
     }
     const registry = {
       acquire: vi.fn(() =>

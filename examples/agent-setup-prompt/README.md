@@ -41,10 +41,9 @@ and retry — don't skip ahead.
      b. "You are a research assistant. Search the web, fetch sources,
         and run code on your machine when analysis helps. Cite your
         sources."
-   - every built-in tool except create_machine and delete_machine —
-     list them from GET /tool-catalog. Include send_integration_message
-     and set_integration_target only if I chose Slack; omit both if I
-     didn't
+   - every configurable built-in tool except create_machine and delete_machine —
+     list them from GET /tool-catalog and include only entries with configurable:
+     true. Channel tools are supplied by live bindings; do not add them to config
    - the granted model and pool
    - if a PAT was collected: create a project-owned secret from the
      temp file without reading or printing its value, delete the

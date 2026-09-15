@@ -6,50 +6,54 @@ icon: "shield-check"
 
 Tools let an agent search the web, run commands, call external services, and more. Normally, an agent can use only the tools listed in its current [config](/agents/configuration). Changing that set requires an explicit [config update](/events/sending-input#change-the-config-mid-conversation), so you can always see exactly what the agent has access to.
 
-Channel messaging is the narrow exception. Omnara injects `list_channels` and `send_channel_message` from the agent's current channel-mode bindings. This keeps external routing outside the agent config and makes revoked bindings take effect without creating a new config. Agents still using only the native Slack compatibility path receive its legacy integration tools instead.
+The five channel tools are supplied by live bindings: `list_channels`, `get_channel`, `set_current_channel`, `read_channel`, and `send_channel_message`. They are not configurable profile tools. Read and send availability follows the corresponding grants and provider capabilities; revoked access takes effect without creating a new config. Slack uses this same toolkit.
 
-Omnara has exactly three kinds of tools, distinguished by *who executes them*:
+Omnara has exactly three kinds of tools, distinguished by _who executes them_:
 
-| Kind | Executed by | Declared as | Default permission |
-| --- | --- | --- | --- |
-| **Built-in** | Omnara | A name from the [built-in set](/tools/built-in), e.g. `web_search` | `always_allow` |
-| **MCP** | A [Model Context Protocol](https://modelcontextprotocol.io) server you point at | An entry under `mcp:`, exposed as `mcp__{server}__{tool}` | `always_ask` |
-| **Custom** | **Your own system**, via the API | `type: custom` with a description and input schema | `always_allow` |
+| Kind         | Executed by                                                                     | Declared as                                                        | Default permission |
+| ------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------ |
+| **Built-in** | Omnara                                                                          | A name from the [built-in set](/tools/built-in), e.g. `web_search` | `always_allow`     |
+| **MCP**      | A [Model Context Protocol](https://modelcontextprotocol.io) server you point at | An entry under `mcp:`, exposed as `mcp__{server}__{tool}`          | `always_ask`       |
+| **Custom**   | **Your own system**, via the API                                                | `type: custom` with a description and input schema                 | `always_allow`     |
 
 ## Permission modes
 
 Each tool has one of three permission modes. For MCP tools, you can set a default for the server and override it for individual tools:
 
-| Mode | What happens on each call |
-| --- | --- |
-| `always_allow` | Runs immediately. No human involved. |
-| `always_ask` | The call pauses in `awaiting_permission` and a **permission [interaction](/events/interactions)** opens. A human approves or denies; the agent continues either way, knowing the outcome. |
-| `always_deny` | The call is refused and the model is told so. Useful for explicitly fencing off one tool from a server that's otherwise allowed. |
+| Mode           | What happens on each call                                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `always_allow` | Runs immediately. No human involved.                                                                                                                                                      |
+| `always_ask`   | The call pauses in `awaiting_permission` and a **permission [interaction](/events/interactions)** opens. A human approves or denies; the agent continues either way, knowing the outcome. |
+| `always_deny`  | The call is refused and the model is told so. Useful for explicitly fencing off one tool from a server that's otherwise allowed.                                                          |
 
 ```yaml
 tools:
-  web_search: {}               # built-in, default always_allow
+  web_search: {} # built-in, default always_allow
   run_command:
     permission:
-      mode: always_ask         # every command needs approval
+      mode: always_ask # every command needs approval
 mcp:
   linear:
     url: https://mcp.linear.app/mcp
     permission:
-      mode: always_ask         # server-wide default
+      mode: always_ask # server-wide default
     tools:
       get_issue:
         permission:
-          mode: always_allow   # reads are fine
+          mode: always_allow # reads are fine
       delete_issue:
         permission:
-          mode: always_deny    # never, even with approval
+          mode: always_deny # never, even with approval
 ```
 
 A permission mode applies to every call. Changing it requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
 
 <Note>
-`send_channel_message` and the native Slack compatibility tool `send_integration_message` support only `always_allow`, so an agent can deliver a reply without opening another approval prompt. This does not grant broad channel access: each send is still limited to an active, send-enabled binding for that agent.
+  The channel toolkit (`list_channels`, `get_channel`, `set_current_channel`,
+  `read_channel`, and `send_channel_message`) is supplied from current channel
+  bindings and supports only `always_allow`. Each operation still checks its
+  required live grant. Send and receive grants do not imply permission to read
+  history; selecting the current channel grants no additional access.
 </Note>
 
 ## What an `always_ask` call looks like

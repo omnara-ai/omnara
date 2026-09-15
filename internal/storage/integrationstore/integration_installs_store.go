@@ -23,8 +23,7 @@ func (s *Store) UpsertIntegrationInstall(
 	ctx context.Context,
 	input UpsertIntegrationInstallInput,
 ) (IntegrationInstallRecord, error) {
-	var err error
-	input, err = normalizeUpsertIntegrationInstallInput(input)
+	input, err := normalizeUpsertIntegrationInstallInput(input)
 	if err != nil {
 		return IntegrationInstallRecord{}, err
 	}
@@ -33,138 +32,130 @@ func (s *Store) UpsertIntegrationInstall(
 		return IntegrationInstallRecord{}, fmt.Errorf("begin upsert integration install: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
+	qtx := s.q.WithTx(tx)
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-	if !isNilID(input.AgentProfileID) || !isNilID(input.AgentID) {
-		if err := s.access.ValidateInstallBinding(
-			ctx,
-			tx,
-			InstallBinding{
-				OrgID:          input.OrgID,
-				ProjectID:      input.ProjectID,
-				AgentProfileID: input.AgentProfileID,
-				AgentID:        input.AgentID,
-			},
-		); err != nil {
-			return IntegrationInstallRecord{}, err
-		}
-	}
-	if err := validateIntegrationInstaller(
-		ctx,
-		qtx,
-		input.OrgID,
-		input.ProjectID,
-		input.InstalledByUserID,
-	); err != nil {
+	if err := validateIntegrationInstaller(ctx, qtx, input.OrgID, input.ProjectID, input.InstalledBy); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-	expectedCredentialKind, nativeApp, err := validateIntegrationInstallApp(ctx, qtx, input)
+	existing, found, err := lockIntegrationInstallIdentityTx(ctx, tx, input)
 	if err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-	if nativeApp {
-		if isNilID(input.AgentProfileID) == isNilID(input.AgentID) {
-			return IntegrationInstallRecord{}, errors.New(
-				"native integration installs require exactly one agent profile or agent",
-			)
-		}
-	} else if !isNilID(input.AgentProfileID) || !isNilID(input.AgentID) {
-		return IntegrationInstallRecord{}, errors.New(
-			"connector integration installs cannot own an agent or agent profile",
-		)
-	}
-	if err := validateIntegrationInstallCredential(
-		ctx, tx, input, expectedCredentialKind,
-	); err != nil {
+	expectedKind, err := validateIntegrationInstallApp(ctx, qtx, input)
+	if err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-
-	row, err := qtx.InsertIntegrationInstall(ctx, dbsqlc.InsertIntegrationInstallParams{
-		OrgID:                    input.OrgID,
-		ProjectID:                input.ProjectID,
-		IntegrationAppID:         sqlcIDFromNil(input.IntegrationAppID),
-		AgentProfileID:           sqlcIDFromNil(input.AgentProfileID),
-		AgentID:                  sqlcIDFromNil(input.AgentID),
-		InstalledByUserID:        input.InstalledByUserID,
-		Provider:                 input.Provider,
-		IntegrationKind:          input.IntegrationKind,
-		ConnectionMode:           input.ConnectionMode,
-		State:                    string(input.State),
-		ProviderTenantID:         input.ProviderTenantID,
-		ProviderAccountRef:       input.ProviderAccountRef,
-		ProviderAgentDisplayName: input.ProviderAgentDisplayName,
-		CredentialSecretID:       sqlcIDFromNil(input.CredentialSecretID),
-		ProviderConfig:           input.ProviderConfig,
-		ProviderIdentity:         input.ProviderIdentity,
-		ProviderMetadata:         input.ProviderMetadata,
-		LastOauthFlowID:          sqlcIDFromNil(input.OAuthFlowID),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		var existing dbsqlc.IntegrationInstall
-		var findErr error
-		if isNilID(input.IntegrationAppID) {
-			existing, findErr = qtx.LockIntegrationInstallByProviderAccount(
-				ctx,
-				dbsqlc.LockIntegrationInstallByProviderAccountParams{
-					Provider:           input.Provider,
-					ProviderTenantID:   sqlcTextFromEmpty(input.ProviderTenantID),
-					ProviderAccountRef: input.ProviderAccountRef,
-				},
-			)
-		} else {
-			existing, findErr = qtx.LockIntegrationInstallByAppProviderAccount(
-				ctx,
-				dbsqlc.LockIntegrationInstallByAppProviderAccountParams{
-					IntegrationAppID:   input.IntegrationAppID,
-					ProviderTenantID:   input.ProviderTenantID,
-					ProviderAccountRef: input.ProviderAccountRef,
-				},
-			)
-		}
-		if findErr != nil {
-			if errors.Is(findErr, pgx.ErrNoRows) {
+	if err := validateIntegrationInstallCredential(ctx, tx, input, expectedKind); err != nil {
+		return IntegrationInstallRecord{}, err
+	}
+	var record IntegrationInstallRecord
+	if found {
+		record, err = updateIntegrationInstallTx(ctx, qtx, existing.ID, input)
+	} else {
+		record, err = insertIntegrationInstallTx(ctx, qtx, input)
+	}
+	if err != nil {
+		return IntegrationInstallRecord{}, err
+	}
+	if input.InitialRoute != nil {
+		route := *input.InitialRoute
+		route.ProjectID, route.IntegrationInstallID = record.ProjectID, record.ID
+		if _, err := s.createIntegrationRouteTx(ctx, tx, route); err != nil {
+			if errors.Is(err, storeerr.ErrIdempotencyConflict) {
 				return IntegrationInstallRecord{}, storeerr.ErrConflict
 			}
-			return IntegrationInstallRecord{}, findErr
+			return IntegrationInstallRecord{}, err
 		}
-		existingRecord := integrationInstallRecordFromSQLC(existing)
-		if existingRecord.OrgID != input.OrgID || existingRecord.ProjectID != input.ProjectID ||
-			existingRecord.AgentProfileID != input.AgentProfileID || existingRecord.AgentID != input.AgentID ||
-			existingRecord.IntegrationKind != input.IntegrationKind ||
-			(!isNilID(input.IntegrationAppID) && existingRecord.IntegrationAppID != input.IntegrationAppID) {
-			return IntegrationInstallRecord{}, storeerr.ErrConflict
-		}
-		record, updateErr := updateIntegrationInstallTx(ctx, qtx, existing.ID, input)
-		if updateErr != nil {
-			return IntegrationInstallRecord{}, integrationChannelWriteError(
-				"update integration install",
-				updateErr,
-			)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return IntegrationInstallRecord{}, fmt.Errorf("commit update integration install: %w", err)
-		}
-		return record, nil
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return IntegrationInstallRecord{}, fmt.Errorf("commit integration installation: %w", err)
+	}
+	return record, nil
+}
+
+func lockIntegrationInstallIdentityTx(
+	ctx context.Context, tx pgx.Tx, input UpsertIntegrationInstallInput,
+) (IntegrationInstallRecord, bool, error) {
+	q := dbsqlc.New(tx)
+	// Serialize first installation and reauthorization by real provider identity,
+	// before any app locks. INSERT's app constraint must never make an upsert
+	// wait for an existing installation while already holding its parent app.
+	if err := q.LockIntegrationInstallIdentity(ctx, dbsqlc.LockIntegrationInstallIdentityParams{
+		IntegrationAppID: input.IntegrationAppID, ProviderTenantID: sqlcTextFromEmpty(input.ProviderTenantID),
+		ProviderAccountRef: input.ProviderAccountRef,
+	}); err != nil {
+		return IntegrationInstallRecord{}, false, err
+	}
+	row, err := q.GetIntegrationInstallByAppProviderAccount(ctx, dbsqlc.GetIntegrationInstallByAppProviderAccountParams{
+		IntegrationAppID: input.IntegrationAppID, ProviderTenantID: sqlcTextFromEmpty(input.ProviderTenantID),
+		ProviderAccountRef: input.ProviderAccountRef,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationInstallRecord{}, false, nil
+	}
+	if err != nil {
+		return IntegrationInstallRecord{}, false, err
+	}
+	if row.OrgID != input.OrgID || row.ProjectID != input.ProjectID {
+		return IntegrationInstallRecord{}, false, storeerr.ErrConflict
+	}
+	if err := q.LockIntegrationInstallLifecycleShared(ctx, dbsqlc.LockIntegrationInstallLifecycleSharedParams{
+		InstallID: row.ID,
+	}); err != nil {
+		return IntegrationInstallRecord{}, false, err
+	}
+	row, err = q.LockIntegrationInstallByAppProviderAccount(ctx, dbsqlc.LockIntegrationInstallByAppProviderAccountParams{
+		IntegrationAppID: sqlcIDFromNil(input.IntegrationAppID), ProviderTenantID: sqlcTextFromEmpty(input.ProviderTenantID),
+		ProviderAccountRef: sqlcTextFromEmpty(input.ProviderAccountRef),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationInstallRecord{}, false, storeerr.ErrConflict
+	}
+	if err != nil {
+		return IntegrationInstallRecord{}, false, err
+	}
+	if row.OrgID != input.OrgID || row.ProjectID != input.ProjectID {
+		return IntegrationInstallRecord{}, false, storeerr.ErrConflict
+	}
+	return integrationInstallRecordFromSQLC(row), true, nil
+}
+
+func insertIntegrationInstallTx(
+	ctx context.Context, qtx *dbsqlc.Queries, input UpsertIntegrationInstallInput,
+) (IntegrationInstallRecord, error) {
+	installerUserID, installerKeyID := identitystore.AccountPrincipalIDs(input.InstalledBy)
+	row, err := qtx.InsertIntegrationInstall(ctx, dbsqlc.InsertIntegrationInstallParams{
+		OrgID:                  input.OrgID,
+		ProjectID:              input.ProjectID,
+		IntegrationAppID:       sqlcIDFromNil(input.IntegrationAppID),
+		InstalledByUserID:      installerUserID,
+		InstalledByOrgApiKeyID: installerKeyID,
+		Provider:               sqlcTextFromEmpty(input.Provider),
+		IntegrationKind:        string(input.IntegrationKind),
+		ConnectionMode:         input.ConnectionMode,
+		State:                  string(input.State),
+		ProviderTenantID:       sqlcTextFromEmpty(input.ProviderTenantID),
+		ProviderAccountRef:     sqlcTextFromEmpty(input.ProviderAccountRef),
+		DisplayName:            input.DisplayName,
+		CredentialSecretID:     sqlcIDFromNil(input.CredentialSecretID),
+		ProviderConfig:         input.ProviderConfig,
+		ProviderIdentity:       input.ProviderIdentity,
+		Metadata:               input.Metadata,
+		LastOauthFlowID:        sqlcIDFromNil(input.OAuthFlowID),
+	})
 	if err != nil {
 		if storeutil.IsUniqueViolationOnConstraint(err, "integration_installs_last_oauth_flow_id_idx") {
 			return IntegrationInstallRecord{}, storeerr.ErrIntegrationOAuthFlowConsumed
 		}
-		if storeutil.IsUniqueViolation(err) {
+		if errors.Is(err, pgx.ErrNoRows) || storeutil.IsUniqueViolation(err) {
 			return IntegrationInstallRecord{}, storeerr.ErrConflict
 		}
-		return IntegrationInstallRecord{}, integrationChannelWriteError(
-			"insert integration install",
-			err,
-		)
+		return IntegrationInstallRecord{}, integrationChannelWriteError("insert integration install", err)
 	}
 	record := integrationInstallRecordFromSQLC(row)
 	record.Created = true
-	if err := tx.Commit(ctx); err != nil {
-		return IntegrationInstallRecord{}, fmt.Errorf("commit insert integration install: %w", err)
-	}
 	return record, nil
 }
 
@@ -237,15 +228,14 @@ func getIntegrationInstallByID(
 	return integrationInstallRecordFromSQLC(row), nil
 }
 
-func (s *Store) GetIntegrationInstallByProviderAccount(
+func (s *Store) GetSlackIntegrationInstallByIdentity(
 	ctx context.Context,
-	provider, providerTenantID, providerAccountRef string,
+	providerTenantID, providerAccountRef string,
 ) (IntegrationInstallRecord, error) {
-	row, err := s.q.GetIntegrationInstallByProviderAccount(
+	row, err := s.q.GetSlackIntegrationInstallByIdentity(
 		ctx,
-		dbsqlc.GetIntegrationInstallByProviderAccountParams{
-			Provider:           provider,
-			ProviderTenantID:   sqlcTextFromEmpty(providerTenantID),
+		dbsqlc.GetSlackIntegrationInstallByIdentityParams{
+			ProviderTenantID:   providerTenantID,
 			ProviderAccountRef: providerAccountRef,
 		},
 	)
@@ -483,47 +473,37 @@ func integrationIdempotencyScope(install IntegrationInstallRecord) string {
 func normalizeUpsertIntegrationInstallInput(
 	input UpsertIntegrationInstallInput,
 ) (UpsertIntegrationInstallInput, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.InstalledByUserID) {
-		return UpsertIntegrationInstallInput{}, errors.New("org, project, and installed-by user are required")
+	if isNilID(input.OrgID) || isNilID(input.ProjectID) {
+		return UpsertIntegrationInstallInput{}, errors.New("org and project are required")
 	}
-	if !isNilID(input.AgentProfileID) && !isNilID(input.AgentID) {
-		return UpsertIntegrationInstallInput{}, errors.New(
-			"at most one of agent profile and agent is allowed",
-		)
+	installer, err := normalizeIntegrationInstaller(input.OrgID, input.InstalledBy)
+	if err != nil {
+		return UpsertIntegrationInstallInput{}, err
 	}
-	if isNilID(input.IntegrationAppID) && isNilID(input.AgentProfileID) && isNilID(input.AgentID) {
-		return UpsertIntegrationInstallInput{}, errors.New(
-			"native integrations require an agent profile or agent",
-		)
+	input.InstalledBy = installer
+	if isNilID(input.IntegrationAppID) {
+		return UpsertIntegrationInstallInput{}, storeerr.InvalidRequest(
+			errors.New("managed installation requires a real app"))
 	}
 	input.Provider = strings.TrimSpace(input.Provider)
-	input.IntegrationKind = strings.TrimSpace(input.IntegrationKind)
+	input.IntegrationKind = IntegrationKind(strings.TrimSpace(string(input.IntegrationKind)))
+	if input.IntegrationKind != IntegrationKindManaged {
+		return UpsertIntegrationInstallInput{}, storeerr.InvalidRequest(
+			errors.New("provider account upsert requires managed integration kind"))
+	}
 	input.ConnectionMode = strings.TrimSpace(input.ConnectionMode)
 	input.ProviderTenantID = strings.TrimSpace(input.ProviderTenantID)
 	input.ProviderAccountRef = strings.TrimSpace(input.ProviderAccountRef)
-	input.ProviderAgentDisplayName = strings.TrimSpace(input.ProviderAgentDisplayName)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	if !registryname.Valid(input.Provider) {
 		return UpsertIntegrationInstallInput{}, errors.New(
 			"provider must be a lowercase registry name",
 		)
 	}
-	if isNilID(input.IntegrationAppID) {
-		if input.ProviderTenantID == "" {
-			return UpsertIntegrationInstallInput{}, errors.New(
-				"provider tenant id is required for native integrations",
-			)
-		}
-		if input.Provider != IntegrationProviderSlack {
-			return UpsertIntegrationInstallInput{}, errors.New(
-				"non-native integration installs require an integration app",
-			)
-		}
-		if isNilID(input.CredentialSecretID) {
-			return UpsertIntegrationInstallInput{}, errors.New(
-				"credential secret is required for native slack integrations",
-			)
-		}
+	if input.Provider == IntegrationProviderSlack && input.ProviderTenantID == "" {
+		return UpsertIntegrationInstallInput{}, storeerr.InvalidRequest(errors.New("slack installation requires a tenant"))
 	}
+
 	if input.State != IntegrationInstallStateActive && input.State != IntegrationInstallStateDisabled {
 		return UpsertIntegrationInstallInput{}, fmt.Errorf("unsupported integration install state %q", input.State)
 	}
@@ -534,12 +514,11 @@ func normalizeUpsertIntegrationInstallInput(
 	}
 	if len(input.IntegrationKind) > 128 || len(input.ConnectionMode) > 128 ||
 		len(input.ProviderTenantID) > 512 || len(input.ProviderAccountRef) > 512 ||
-		len(input.ProviderAgentDisplayName) > 512 {
+		len(input.DisplayName) > 512 {
 		return UpsertIntegrationInstallInput{}, errors.New(
 			"integration installation identifier exceeds its size limit",
 		)
 	}
-	var err error
 	input.ProviderConfig, err = normalizedJSONObject(input.ProviderConfig, "provider_config")
 	if err != nil {
 		return UpsertIntegrationInstallInput{}, err
@@ -548,7 +527,7 @@ func normalizeUpsertIntegrationInstallInput(
 	if err != nil {
 		return UpsertIntegrationInstallInput{}, err
 	}
-	input.ProviderMetadata, err = normalizedJSONObject(input.ProviderMetadata, "provider_metadata")
+	input.Metadata, err = normalizedJSONObject(input.Metadata, "metadata")
 	if err != nil {
 		return UpsertIntegrationInstallInput{}, err
 	}
@@ -559,37 +538,35 @@ func validateIntegrationInstallApp(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input UpsertIntegrationInstallInput,
-) (string, bool, error) {
-	if isNilID(input.IntegrationAppID) {
-		return string(secretstore.SecretKindSlackAppCredentials), true, nil
-	}
-	app, err := qtx.GetIntegrationApp(
+) (string, error) {
+
+	app, err := qtx.LockIntegrationAppForInstallation(
 		ctx,
-		dbsqlc.GetIntegrationAppParams{OrgID: input.OrgID, ID: input.IntegrationAppID},
+		dbsqlc.LockIntegrationAppForInstallationParams{OrgID: input.OrgID, ID: input.IntegrationAppID},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, storeerr.ErrNotFound
+		return "", storeerr.ErrNotFound
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("load integration install app: %w", err)
+		return "", fmt.Errorf("load integration install app: %w", err)
 	}
 	if app.Provider != input.Provider ||
 		(app.OwnerProjectID != nil && *app.OwnerProjectID != input.ProjectID) {
-		return "", false, storeerr.ErrUnauthorized
+		return "", storeerr.ErrUnauthorized
 	}
 	if input.State == IntegrationInstallStateActive &&
 		(app.State != string(IntegrationAppStateActive) || app.DeletedAt != nil) {
-		return "", false, storeerr.ErrStateTransitionConflict
+		return "", storeerr.ErrStateTransitionConflict
 	}
 	expectedKind := stringFromPtr(app.InstallationCredentialKind)
 	if expectedKind == "" && !isNilID(input.CredentialSecretID) {
-		return "", false, errors.New("integration app does not accept installation credentials")
+		return "", errors.New("integration app does not accept installation credentials")
 	}
 	if expectedKind != "" && input.State == IntegrationInstallStateActive &&
 		isNilID(input.CredentialSecretID) {
-		return "", false, errors.New("installation credential secret is required")
+		return "", errors.New("installation credential secret is required")
 	}
-	return expectedKind, strings.HasPrefix(app.ConnectorKey, "native_"), nil
+	return expectedKind, nil
 }
 
 func validateIntegrationInstallCredential(
@@ -617,28 +594,6 @@ func validateIntegrationInstallCredential(
 	return nil
 }
 
-func validateIntegrationInstaller(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	orgID, projectID, userID ID,
-) error {
-	roles, err := qtx.ListProjectAuthorizationRolesForPrincipal(
-		ctx,
-		dbsqlc.ListProjectAuthorizationRolesForPrincipalParams{
-			OrgID:     orgID,
-			ProjectID: projectID,
-			UserID:    &userID,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("validate integration installer: %w", err)
-	}
-	if identitystore.ProjectRolesAllow(roles, identitystore.ProjectActionManage) {
-		return nil
-	}
-	return storeerr.ErrUnauthorized
-}
-
 func ValidateProviderUserTenant(install IntegrationInstallRecord, providerTenantID string) error {
 	if install.Provider == IntegrationProviderSlack &&
 		(providerTenantID == "" || providerTenantID != install.ProviderTenantID) {
@@ -651,35 +606,26 @@ func IdempotencyScope(install IntegrationInstallRecord) string {
 	return integrationIdempotencyScope(install)
 }
 
-func BindingIdempotencyScope(
-	install IntegrationInstallRecord,
-	binding IntegrationTargetBindingRecord,
-) string {
-	return RouteIdempotencyScope(install, binding.IntegrationRouteID)
-}
-
-func RouteIdempotencyScope(install IntegrationInstallRecord, routeID ID) string {
-	return integrationIdempotencyScope(install) + ":route:" + routeID.String()
-}
-
 func updateIntegrationInstallTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	id ID,
 	input UpsertIntegrationInstallInput,
 ) (IntegrationInstallRecord, error) {
+	installerUserID, installerKeyID := identitystore.AccountPrincipalIDs(input.InstalledBy)
 	row, err := qtx.UpdateIntegrationInstall(ctx, dbsqlc.UpdateIntegrationInstallParams{
-		ID:                       id,
-		ProjectID:                input.ProjectID,
-		InstalledByUserID:        input.InstalledByUserID,
-		ConnectionMode:           input.ConnectionMode,
-		State:                    string(input.State),
-		ProviderAgentDisplayName: input.ProviderAgentDisplayName,
-		CredentialSecretID:       sqlcIDFromNil(input.CredentialSecretID),
-		ProviderConfig:           input.ProviderConfig,
-		ProviderIdentity:         input.ProviderIdentity,
-		ProviderMetadata:         input.ProviderMetadata,
-		LastOauthFlowID:          sqlcIDFromNil(input.OAuthFlowID),
+		ID:                     id,
+		ProjectID:              input.ProjectID,
+		InstalledByUserID:      installerUserID,
+		InstalledByOrgApiKeyID: installerKeyID,
+		ConnectionMode:         input.ConnectionMode,
+		State:                  string(input.State),
+		DisplayName:            input.DisplayName,
+		CredentialSecretID:     sqlcIDFromNil(input.CredentialSecretID),
+		ProviderConfig:         input.ProviderConfig,
+		ProviderIdentity:       input.ProviderIdentity,
+		Metadata:               input.Metadata,
+		LastOauthFlowID:        sqlcIDFromNil(input.OAuthFlowID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && !isNilID(input.OAuthFlowID) {
@@ -698,54 +644,54 @@ func updateIntegrationInstallTx(
 
 func integrationInstallRecordFromSQLC(row dbsqlc.IntegrationInstall) IntegrationInstallRecord {
 	return IntegrationInstallRecord{
-		ID:                       row.ID,
-		OrgID:                    row.OrgID,
-		ProjectID:                row.ProjectID,
-		IntegrationAppID:         row.IntegrationAppID,
-		AgentProfileID:           idFromSQLCPtr(row.AgentProfileID),
-		AgentID:                  idFromSQLCPtr(row.AgentID),
-		InstalledByUserID:        row.InstalledByUserID,
-		Provider:                 row.Provider,
-		IntegrationKind:          row.IntegrationKind,
-		ConnectionMode:           row.ConnectionMode,
-		State:                    IntegrationInstallState(row.State),
-		ProviderTenantID:         row.ProviderTenantID,
-		ProviderAccountRef:       row.ProviderAccountRef,
-		ProviderAgentDisplayName: row.ProviderAgentDisplayName,
-		CredentialSecretID:       idFromSQLCPtr(row.CredentialSecretID),
-		ProviderConfig:           row.ProviderConfig,
-		ProviderIdentity:         row.ProviderIdentity,
-		ProviderMetadata:         row.ProviderMetadata,
-		LastOAuthFlowID:          idFromSQLCPtr(row.LastOauthFlowID),
-		ConfigurationRevision:    row.ConfigurationRevision,
-		CreatedAt:                row.CreatedAt,
-		UpdatedAt:                row.UpdatedAt,
+		ID:               row.ID,
+		OrgID:            row.OrgID,
+		ProjectID:        row.ProjectID,
+		IntegrationAppID: idFromSQLCPtr(row.IntegrationAppID),
+		InstalledBy: integrationInstallerPrincipal(
+			row.OrgID, row.InstalledByUserID, row.InstalledByOrgApiKeyID,
+		),
+		Provider:              stringFromPtr(row.Provider),
+		IntegrationKind:       IntegrationKind(row.IntegrationKind),
+		ConnectionMode:        row.ConnectionMode,
+		State:                 IntegrationInstallState(row.State),
+		ProviderTenantID:      stringFromPtr(row.ProviderTenantID),
+		ProviderAccountRef:    stringFromPtr(row.ProviderAccountRef),
+		DisplayName:           row.DisplayName,
+		CredentialSecretID:    idFromSQLCPtr(row.CredentialSecretID),
+		ProviderConfig:        row.ProviderConfig,
+		ProviderIdentity:      row.ProviderIdentity,
+		Metadata:              row.Metadata,
+		LastOAuthFlowID:       idFromSQLCPtr(row.LastOauthFlowID),
+		ConfigurationRevision: row.ConfigurationRevision,
+		CreatedAt:             row.CreatedAt,
+		UpdatedAt:             row.UpdatedAt,
 	}
 }
 
 func integrationInstallRecordFromListSQLC(row dbsqlc.ListIntegrationInstallsForProjectRow) IntegrationInstallRecord {
 	return IntegrationInstallRecord{
-		ID:                       row.ID,
-		OrgID:                    row.OrgID,
-		ProjectID:                row.ProjectID,
-		IntegrationAppID:         row.IntegrationAppID,
-		AgentProfileID:           idFromSQLCPtr(row.AgentProfileID),
-		AgentID:                  idFromSQLCPtr(row.AgentID),
-		InstalledByUserID:        row.InstalledByUserID,
-		Provider:                 row.Provider,
-		IntegrationKind:          row.IntegrationKind,
-		ConnectionMode:           row.ConnectionMode,
-		State:                    IntegrationInstallState(row.State),
-		ProviderTenantID:         row.ProviderTenantID,
-		ProviderAccountRef:       row.ProviderAccountRef,
-		ProviderAgentDisplayName: row.ProviderAgentDisplayName,
-		CredentialSecretID:       idFromSQLCPtr(row.CredentialSecretID),
-		ProviderConfig:           row.ProviderConfig,
-		ProviderIdentity:         row.ProviderIdentity,
-		ProviderMetadata:         row.ProviderMetadata,
-		LastOAuthFlowID:          idFromSQLCPtr(row.LastOauthFlowID),
-		ConfigurationRevision:    row.ConfigurationRevision,
-		CreatedAt:                row.CreatedAt,
-		UpdatedAt:                row.UpdatedAt,
+		ID:               row.ID,
+		OrgID:            row.OrgID,
+		ProjectID:        row.ProjectID,
+		IntegrationAppID: idFromSQLCPtr(row.IntegrationAppID),
+		InstalledBy: integrationInstallerPrincipal(
+			row.OrgID, row.InstalledByUserID, row.InstalledByOrgApiKeyID,
+		),
+		Provider:              stringFromPtr(row.Provider),
+		IntegrationKind:       IntegrationKind(row.IntegrationKind),
+		ConnectionMode:        row.ConnectionMode,
+		State:                 IntegrationInstallState(row.State),
+		ProviderTenantID:      stringFromPtr(row.ProviderTenantID),
+		ProviderAccountRef:    stringFromPtr(row.ProviderAccountRef),
+		DisplayName:           row.DisplayName,
+		CredentialSecretID:    idFromSQLCPtr(row.CredentialSecretID),
+		ProviderConfig:        row.ProviderConfig,
+		ProviderIdentity:      row.ProviderIdentity,
+		Metadata:              row.Metadata,
+		LastOAuthFlowID:       idFromSQLCPtr(row.LastOauthFlowID),
+		ConfigurationRevision: row.ConfigurationRevision,
+		CreatedAt:             row.CreatedAt,
+		UpdatedAt:             row.UpdatedAt,
 	}
 }

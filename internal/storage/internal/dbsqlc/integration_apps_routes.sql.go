@@ -87,56 +87,56 @@ func (q *Queries) GetConnectorIntegrationApp(ctx context.Context, arg GetConnect
 
 const getConnectorIntegrationInstall = `-- name: GetConnectorIntegrationInstall :one
 SELECT install.id, install.org_id, install.project_id, install.integration_app_id,
-  install.agent_profile_id, install.agent_id, install.installed_by_user_id,
+  install.installed_by_user_id,
   install.provider, install.integration_kind, install.connection_mode, install.state,
   install.provider_tenant_id, install.provider_account_ref,
-  install.provider_agent_display_name, install.credential_secret_id,
-  install.provider_config, install.provider_identity, install.provider_metadata,
+  install.display_name, install.credential_secret_id,
+  install.provider_config, install.provider_identity, install.metadata,
   install.last_oauth_flow_id, install.deleted_at, install.created_at, install.updated_at,
-  install.configuration_revision
+  install.configuration_revision, install.installed_by_org_api_key_id
 FROM integration_installs install
 JOIN integration_apps app
   ON app.org_id = install.org_id
  AND app.id = install.integration_app_id
  AND app.state = 'active'
  AND app.deleted_at IS NULL
-WHERE install.integration_app_id = $1
-  AND install.provider_tenant_id = $2
+WHERE install.integration_kind = 'managed'
+  AND install.integration_app_id = $1
+  AND install.provider_tenant_id IS NOT DISTINCT FROM $2
   AND install.provider_account_ref = $3
   AND install.state = 'active'
   AND install.deleted_at IS NULL
 `
 
 type GetConnectorIntegrationInstallParams struct {
-	IntegrationAppID   uuid.UUID
-	ProviderTenantID   string
-	ProviderAccountRef string
+	IntegrationAppID   *uuid.UUID
+	ProviderTenantID   *string
+	ProviderAccountRef *string
 }
 
 type GetConnectorIntegrationInstallRow struct {
-	ID                       uuid.UUID
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	IntegrationAppID         uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
-	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	DeletedAt                *time.Time
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	ConfigurationRevision    int64
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	IntegrationAppID       *uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	Provider               *string
+	IntegrationKind        string
+	ConnectionMode         string
+	State                  string
+	ProviderTenantID       *string
+	ProviderAccountRef     *string
+	DisplayName            string
+	CredentialSecretID     *uuid.UUID
+	ProviderConfig         json.RawMessage
+	ProviderIdentity       json.RawMessage
+	Metadata               json.RawMessage
+	LastOauthFlowID        *uuid.UUID
+	DeletedAt              *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	ConfigurationRevision  int64
+	InstalledByOrgApiKeyID *uuid.UUID
 }
 
 func (q *Queries) GetConnectorIntegrationInstall(ctx context.Context, arg GetConnectorIntegrationInstallParams) (GetConnectorIntegrationInstallRow, error) {
@@ -147,8 +147,6 @@ func (q *Queries) GetConnectorIntegrationInstall(ctx context.Context, arg GetCon
 		&i.OrgID,
 		&i.ProjectID,
 		&i.IntegrationAppID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -156,70 +154,71 @@ func (q *Queries) GetConnectorIntegrationInstall(ctx context.Context, arg GetCon
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
 
 const getConnectorIntegrationInstallByID = `-- name: GetConnectorIntegrationInstallByID :one
 SELECT install.id, install.org_id, install.project_id, install.integration_app_id,
-  install.agent_profile_id, install.agent_id, install.installed_by_user_id,
+  install.installed_by_user_id,
   install.provider, install.integration_kind, install.connection_mode, install.state,
   install.provider_tenant_id, install.provider_account_ref,
-  install.provider_agent_display_name, install.credential_secret_id,
-  install.provider_config, install.provider_identity, install.provider_metadata,
+  install.display_name, install.credential_secret_id,
+  install.provider_config, install.provider_identity, install.metadata,
   install.last_oauth_flow_id, install.deleted_at, install.created_at, install.updated_at,
-  install.configuration_revision
+  install.configuration_revision, install.installed_by_org_api_key_id
 FROM integration_installs install
 JOIN integration_apps app
   ON app.org_id = install.org_id
  AND app.id = install.integration_app_id
  AND app.state = 'active'
  AND app.deleted_at IS NULL
-WHERE install.integration_app_id = $1
+WHERE install.integration_kind = 'managed'
+  AND install.integration_app_id = $1
   AND install.id = $2
   AND install.state = 'active'
   AND install.deleted_at IS NULL
 `
 
 type GetConnectorIntegrationInstallByIDParams struct {
-	IntegrationAppID uuid.UUID
+	IntegrationAppID *uuid.UUID
 	ID               uuid.UUID
 }
 
 type GetConnectorIntegrationInstallByIDRow struct {
-	ID                       uuid.UUID
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	IntegrationAppID         uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
-	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	DeletedAt                *time.Time
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	ConfigurationRevision    int64
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	IntegrationAppID       *uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	Provider               *string
+	IntegrationKind        string
+	ConnectionMode         string
+	State                  string
+	ProviderTenantID       *string
+	ProviderAccountRef     *string
+	DisplayName            string
+	CredentialSecretID     *uuid.UUID
+	ProviderConfig         json.RawMessage
+	ProviderIdentity       json.RawMessage
+	Metadata               json.RawMessage
+	LastOauthFlowID        *uuid.UUID
+	DeletedAt              *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	ConfigurationRevision  int64
+	InstalledByOrgApiKeyID *uuid.UUID
 }
 
 func (q *Queries) GetConnectorIntegrationInstallByID(ctx context.Context, arg GetConnectorIntegrationInstallByIDParams) (GetConnectorIntegrationInstallByIDRow, error) {
@@ -230,8 +229,6 @@ func (q *Queries) GetConnectorIntegrationInstallByID(ctx context.Context, arg Ge
 		&i.OrgID,
 		&i.ProjectID,
 		&i.IntegrationAppID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
 		&i.IntegrationKind,
@@ -239,16 +236,17 @@ func (q *Queries) GetConnectorIntegrationInstallByID(ctx context.Context, arg Ge
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
-		&i.ProviderAgentDisplayName,
+		&i.DisplayName,
 		&i.CredentialSecretID,
 		&i.ProviderConfig,
 		&i.ProviderIdentity,
-		&i.ProviderMetadata,
+		&i.Metadata,
 		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ConfigurationRevision,
+		&i.InstalledByOrgApiKeyID,
 	)
 	return i, err
 }
@@ -291,9 +289,61 @@ func (q *Queries) GetIntegrationApp(ctx context.Context, arg GetIntegrationAppPa
 	return i, err
 }
 
+const getIntegrationAppByProviderRef = `-- name: GetIntegrationAppByProviderRef :one
+SELECT id, org_id, owner_project_id, provider, provider_app_ref, display_name,
+  connector_key, credential_secret_id, installation_credential_kind,
+  provider_config, provider_metadata, configuration_revision, state,
+  deleted_at, created_at, updated_at
+FROM integration_apps
+WHERE org_id = $1
+  AND owner_project_id IS NOT DISTINCT FROM $2::uuid
+  AND provider = $3
+  AND provider_app_ref = $4
+  AND deleted_at IS NULL
+`
+
+type GetIntegrationAppByProviderRefParams struct {
+	OrgID          uuid.UUID
+	OwnerProjectID *uuid.UUID
+	Provider       string
+	ProviderAppRef string
+}
+
+// Physical identity is exact in its organization/project ownership scope.
+// Disabled rows still own their unique identity; callers must check lifecycle
+// and immutable connector/credential policy before reusing a conflict winner.
+func (q *Queries) GetIntegrationAppByProviderRef(ctx context.Context, arg GetIntegrationAppByProviderRefParams) (IntegrationApp, error) {
+	row := q.db.QueryRow(ctx, getIntegrationAppByProviderRef,
+		arg.OrgID,
+		arg.OwnerProjectID,
+		arg.Provider,
+		arg.ProviderAppRef,
+	)
+	var i IntegrationApp
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.OwnerProjectID,
+		&i.Provider,
+		&i.ProviderAppRef,
+		&i.DisplayName,
+		&i.ConnectorKey,
+		&i.CredentialSecretID,
+		&i.InstallationCredentialKind,
+		&i.ProviderConfig,
+		&i.ProviderMetadata,
+		&i.ConfigurationRevision,
+		&i.State,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getIntegrationRoute = `-- name: GetIntegrationRoute :one
 SELECT id, project_id, integration_install_id,
-  deployment_key, handler_key, handler_version, configuration, state,
+  deployment_key, behavior_key, configuration, agent_profile_id, state,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = $1
@@ -315,9 +365,9 @@ func (q *Queries) GetIntegrationRoute(ctx context.Context, arg GetIntegrationRou
 		&i.ProjectID,
 		&i.IntegrationInstallID,
 		&i.DeploymentKey,
-		&i.HandlerKey,
-		&i.HandlerVersion,
+		&i.BehaviorKey,
 		&i.Configuration,
+		&i.AgentProfileID,
 		&i.State,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -328,7 +378,7 @@ func (q *Queries) GetIntegrationRoute(ctx context.Context, arg GetIntegrationRou
 
 const getIntegrationRouteByDeploymentKey = `-- name: GetIntegrationRouteByDeploymentKey :one
 SELECT id, project_id, integration_install_id,
-  deployment_key, handler_key, handler_version, configuration, state,
+  deployment_key, behavior_key, configuration, agent_profile_id, state,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = $1
@@ -350,9 +400,9 @@ func (q *Queries) GetIntegrationRouteByDeploymentKey(ctx context.Context, arg Ge
 		&i.ProjectID,
 		&i.IntegrationInstallID,
 		&i.DeploymentKey,
-		&i.HandlerKey,
-		&i.HandlerVersion,
+		&i.BehaviorKey,
 		&i.Configuration,
+		&i.AgentProfileID,
 		&i.State,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -434,7 +484,7 @@ func (q *Queries) InsertIntegrationApp(ctx context.Context, arg InsertIntegratio
 const insertIntegrationRoute = `-- name: InsertIntegrationRoute :one
 INSERT INTO integration_routes(
   project_id, integration_install_id,
-  deployment_key, handler_key, handler_version, configuration, state,
+  deployment_key, behavior_key, configuration, agent_profile_id, state,
   created_at, updated_at
 )
 SELECT
@@ -453,7 +503,7 @@ WHERE $7::text <> 'active'
    ) < $8::integer
 ON CONFLICT (project_id, integration_install_id, deployment_key) DO NOTHING
 RETURNING id, project_id, integration_install_id,
-  deployment_key, handler_key, handler_version, configuration, state,
+  deployment_key, behavior_key, configuration, agent_profile_id, state,
   deleted_at, created_at, updated_at
 `
 
@@ -461,9 +511,9 @@ type InsertIntegrationRouteParams struct {
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
 	DeploymentKey        string
-	HandlerKey           string
-	HandlerVersion       int32
+	BehaviorKey          string
 	Configuration        json.RawMessage
+	AgentProfileID       *uuid.UUID
 	State                string
 	MaxActiveRoutes      int32
 }
@@ -473,9 +523,9 @@ func (q *Queries) InsertIntegrationRoute(ctx context.Context, arg InsertIntegrat
 		arg.ProjectID,
 		arg.IntegrationInstallID,
 		arg.DeploymentKey,
-		arg.HandlerKey,
-		arg.HandlerVersion,
+		arg.BehaviorKey,
 		arg.Configuration,
+		arg.AgentProfileID,
 		arg.State,
 		arg.MaxActiveRoutes,
 	)
@@ -485,9 +535,9 @@ func (q *Queries) InsertIntegrationRoute(ctx context.Context, arg InsertIntegrat
 		&i.ProjectID,
 		&i.IntegrationInstallID,
 		&i.DeploymentKey,
-		&i.HandlerKey,
-		&i.HandlerVersion,
+		&i.BehaviorKey,
 		&i.Configuration,
+		&i.AgentProfileID,
 		&i.State,
 		&i.DeletedAt,
 		&i.CreatedAt,
@@ -498,7 +548,7 @@ func (q *Queries) InsertIntegrationRoute(ctx context.Context, arg InsertIntegrat
 
 const listActiveIntegrationRoutes = `-- name: ListActiveIntegrationRoutes :many
 SELECT id, project_id, integration_install_id,
-  deployment_key, handler_key, handler_version, configuration, state,
+  deployment_key, behavior_key, configuration, agent_profile_id, state,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = $1
@@ -529,9 +579,9 @@ func (q *Queries) ListActiveIntegrationRoutes(ctx context.Context, arg ListActiv
 			&i.ProjectID,
 			&i.IntegrationInstallID,
 			&i.DeploymentKey,
-			&i.HandlerKey,
-			&i.HandlerVersion,
+			&i.BehaviorKey,
 			&i.Configuration,
+			&i.AgentProfileID,
 			&i.State,
 			&i.DeletedAt,
 			&i.CreatedAt,
@@ -545,6 +595,50 @@ func (q *Queries) ListActiveIntegrationRoutes(ctx context.Context, arg ListActiv
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockIntegrationAppForInstallation = `-- name: LockIntegrationAppForInstallation :one
+SELECT id, org_id, owner_project_id, provider, provider_app_ref, display_name,
+  connector_key, credential_secret_id, installation_credential_kind,
+  provider_config, provider_metadata, configuration_revision, state,
+  deleted_at, created_at, updated_at
+FROM integration_apps
+WHERE org_id = $1 AND id = $2
+FOR SHARE
+`
+
+type LockIntegrationAppForInstallationParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// Lock only after existing installation lifecycle/row locks. Return the locked
+// current row so Go rechecks provider/project scope, lifecycle and credential
+// policy before acquiring credential locks or writing the installation.
+// @sqlc-vet-disable integration-apps-deleted-at
+// Retirement remains observable; the caller must reject deleted/disabled apps.
+func (q *Queries) LockIntegrationAppForInstallation(ctx context.Context, arg LockIntegrationAppForInstallationParams) (IntegrationApp, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationAppForInstallation, arg.OrgID, arg.ID)
+	var i IntegrationApp
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.OwnerProjectID,
+		&i.Provider,
+		&i.ProviderAppRef,
+		&i.DisplayName,
+		&i.ConnectorKey,
+		&i.CredentialSecretID,
+		&i.InstallationCredentialKind,
+		&i.ProviderConfig,
+		&i.ProviderMetadata,
+		&i.ConfigurationRevision,
+		&i.State,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const lockIntegrationInstallForRouteMutation = `-- name: LockIntegrationInstallForRouteMutation :one

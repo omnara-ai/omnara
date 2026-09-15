@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -118,14 +117,14 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
-			InstalledByUserID: project.AdminUserUUID,
-			Provider:          "discord", IntegrationKind: "channel_single_agent", ConnectionMode: "gateway",
+			InstalledBy: identitystore.NewUserPrincipal(project.AdminUserUUID),
+			Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "guild-configuration", ProviderAccountRef: "bot-configuration",
-			ProviderAgentDisplayName: "Configuration bot", CredentialSecretID: installSecret.ID,
+			DisplayName: "Configuration bot", CredentialSecretID: installSecret.ID,
 			ProviderConfig:   json.RawMessage(`{"respond_to":"mentions"}`),
 			ProviderIdentity: json.RawMessage(`{"bot_user_id":"bot-user-1"}`),
-			ProviderMetadata: json.RawMessage(`{"tenant_name":"Test guild"}`),
+			Metadata:         json.RawMessage(`{"tenant_name":"Test guild"}`),
 		},
 	)
 	if err != nil {
@@ -159,11 +158,11 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: project.OrgUUID, ProjectID: secondProject.ID, IntegrationAppID: app.ID,
-			InstalledByUserID: project.AdminUserUUID,
-			Provider:          "discord", IntegrationKind: "channel_single_agent", ConnectionMode: "gateway",
+			InstalledBy: identitystore.NewUserPrincipal(project.AdminUserUUID),
+			Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "guild-second", ProviderAccountRef: "bot-second",
-			ProviderAgentDisplayName: "Second bot", CredentialSecretID: secondInstallSecret.ID,
+			DisplayName: "Second bot", CredentialSecretID: secondInstallSecret.ID,
 		},
 	)
 	if err != nil {
@@ -353,8 +352,8 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		t,
 		handler,
 		http.MethodPost,
-		"/api/v1/channel-connector/deliveries/claim",
-		`{"owner":"wrong-gateway","lease_ms":30000,"limit":1,"capability":{"connector_key":"chat_sdk_v1","provider":"discord"}}`,
+		"/api/v1/channel-connector/events/claim-next",
+		`{"lease_ms":30000,"capability":{"connector_key":"chat_sdk_v1","provider":"discord"}}`,
 		"",
 		http.StatusForbidden,
 		authHeaders(wrongScopeToken),
@@ -501,7 +500,6 @@ func assertChannelConfigurationHasNoTenantAuthority(t *testing.T, value map[stri
 	for _, forbidden := range []string{
 		"org_id",
 		"owner_project_id",
-		"project_id",
 		"credential_secret_id",
 	} {
 		if _, ok := value[forbidden]; ok {
@@ -555,7 +553,7 @@ func assertChannelInstallationConfiguration(
 	assertChannelCredential(t, configuration, map[string]string{"bot_token": credential})
 }
 
-func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
+func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -572,46 +570,12 @@ func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create connector authenticator: %v", err)
 	}
-	const handlerKey = "runtime_ingress_test"
-	var routeAgentID integrationstore.ID
-	deliveryPublisher := &recordingIntegrationDeliveryPublisher{}
 	handler := newIntegrationServer(
 		pool,
 		WithChannelConnectorAuthenticator(authenticator),
-		WithIntegrationDeliveryPublisher(deliveryPublisher),
-		WithChannelRouteHandlers(integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey(handlerKey, 1): integration.ChannelRouteHandlerFunc(
-				func(
-					_ context.Context,
-					_ integration.ChannelRouteContext,
-					envelope integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: envelope.Conversation.Ref,
-						ProviderRefKind: "thread", DisplayName: envelope.Conversation.DisplayName,
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentID: routeAgentID, SendAllowed: true,
-						}},
-					}, nil
-				},
-			),
-		}),
 	)
 	project := bootstrapPublicHTTPProject(t, handler, "connector-runtime-ingress")
 	store := project.Store
-	launched := launchPublicHTTPAgent(
-		t,
-		handler,
-		project,
-		"connector-runtime-ingress-agent",
-		project.AdminToken,
-		http.StatusCreated,
-	)
-	agentPublicID, ok := requiredChannelObject(t, launched, "agent")["id"].(string)
-	require.True(t, ok, "launched agent id must be a string")
-	agentID := mustPublicHTTPID(t, publicid.KindAgent, agentPublicID)
-	routeAgentID = agentID
 	app, err := store.Integrations().CreateIntegrationApp(
 		ctx,
 		integrationstore.CreateIntegrationAppInput{
@@ -628,25 +592,15 @@ func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
-			InstalledByUserID: project.AdminUserUUID,
-			Provider:          "discord", IntegrationKind: "runtime_ingress", ConnectionMode: "gateway",
+			InstalledBy: identitystore.NewUserPrincipal(project.AdminUserUUID),
+			Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "runtime-ingress-guild", ProviderAccountRef: "runtime-ingress-bot",
-			ProviderAgentDisplayName: "Runtime ingress bot",
+			DisplayName: "Runtime ingress bot",
 		},
 	)
 	if err != nil {
 		t.Fatalf("create runtime ingress installation: %v", err)
-	}
-	if _, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID:            project.ProjectUUID,
-			IntegrationInstallID: install.ID, DeploymentKey: "runtime-ingress",
-			HandlerKey: handlerKey, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
-		},
-	); err != nil {
-		t.Fatalf("create runtime ingress route: %v", err)
 	}
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
@@ -661,7 +615,6 @@ func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create runtime ingress unit: %v", err)
 	}
-	appID := testPublicID(t, publicid.KindIntegrationApp, app.ID)
 	unitID := testPublicID(t, publicid.KindIntegrationRuntimeUnit, unit.ID)
 	runtimeClaim := requestJSONWithHeaders(
 		t,
@@ -722,259 +675,6 @@ func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	webhookPath := "/api/v1/channel-connector/apps/" + appID + "/events"
-	runtimePath := "/api/v1/channel-connector/apps/" + appID +
-		"/runtime-units/" + unitID + "/events"
-	event := func(providerEventID string) map[string]any {
-		return map[string]any{
-			"version": "v1", "provider_event_id": providerEventID,
-			"external_tenant_id":   "runtime-ingress-guild",
-			"external_account_ref": "runtime-ingress-bot", "event_type": "message.created",
-			"conversation": map[string]any{
-				"ref": "runtime-thread", "kind": "thread", "display_name": "Runtime thread",
-				"mentioned": true, "direct": false, "metadata": map[string]any{},
-			},
-			"actor": map[string]any{
-				"ref": "runtime-user", "display_name": "Runtime User", "metadata": map[string]any{},
-			},
-			"content_blocks": []any{map[string]any{"type": "text", "text": "hello"}},
-			"occurred_at":    time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
-			"metadata":       map[string]any{},
-		}
-	}
-
-	forgedWebhook := event("forged-webhook-lease")
-	forgedWebhook["runtime_lease"] = map[string]any{
-		"lease_token": leaseToken, "lease_generation": leaseGeneration,
-	}
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		webhookPath,
-		mustMarshalChannelRequest(t, forgedWebhook),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-
-	staleRuntimeBody := map[string]any{
-		"event": event("runtime-event"), "lease_token": leaseToken,
-		"lease_generation": leaseGeneration + 1,
-	}
-	invalidRuntimeProofBody := map[string]any{
-		"event":            event("runtime-event-invalid-proof"),
-		"lease_token":      "00000000-0000-0000-0000-000000000000",
-		"lease_generation": leaseGeneration,
-	}
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		runtimePath,
-		mustMarshalChannelRequest(t, invalidRuntimeProofBody),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		runtimePath,
-		mustMarshalChannelRequest(t, staleRuntimeBody),
-		"",
-		http.StatusConflict,
-		authHeaders(token),
-	)
-	validRuntimeBody := map[string]any{
-		"event": event("runtime-event"), "lease_token": leaseToken,
-		"lease_generation": leaseGeneration,
-	}
-	accepted := requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		runtimePath,
-		mustMarshalChannelRequest(t, validRuntimeBody),
-		"",
-		http.StatusOK,
-		authHeaders(token),
-	)
-	acceptances, ok := accepted["accepted"].([]any)
-	if !ok || len(acceptances) != 1 || accepted["ignored_routes"] != float64(0) {
-		t.Fatalf("runtime ingress response = %+v", accepted)
-	}
-	webhookAccepted := requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		webhookPath,
-		mustMarshalChannelRequest(t, event("webhook-event")),
-		"",
-		http.StatusOK,
-		authHeaders(token),
-	)
-	webhookAcceptances, ok := webhookAccepted["accepted"].([]any)
-	if !ok || len(webhookAcceptances) != 1 {
-		t.Fatalf("webhook ingress response = %+v", webhookAccepted)
-	}
-
-	target, err := store.Integrations().GetIntegrationTargetByProviderRef(
-		ctx,
-		project.ProjectUUID,
-		install.ID,
-		"runtime-thread",
-	)
-	if err != nil {
-		t.Fatalf("load runtime ingress target: %v", err)
-	}
-	binding, err := store.Integrations().GetActiveSendBindingForTarget(
-		ctx,
-		project.ProjectUUID,
-		agentID,
-		target.ID,
-	)
-	if err != nil {
-		t.Fatalf("load runtime ingress binding: %v", err)
-	}
-	deliveryPayload, err := json.Marshal(map[string]any{
-		"context": map[string]any{
-			"agent_id":         testPublicID(t, publicid.KindAgent, agentID),
-			"provider_call_id": "lifecycle-call",
-		},
-		"destination": map[string]any{
-			"channel_id":        testPublicID(t, publicid.KindIntegrationTarget, target.ID),
-			"provider_metadata": map[string]any{},
-			"provider_ref":      target.ProviderRef, "provider_ref_kind": target.ProviderRefKind,
-		},
-		"message": map[string]any{"text": "delivery lifecycle"},
-	})
-	if err != nil {
-		t.Fatalf("encode lifecycle delivery: %v", err)
-	}
-	delivery, err := store.Integrations().CreateIntegrationDelivery(
-		ctx,
-		integrationstore.CreateIntegrationDeliveryInput{
-			ProjectID: project.ProjectUUID, AgentID: agentID,
-			IntegrationTargetBindingID: binding.ID,
-			Transport:                  integrationstore.IntegrationDeliveryTransportConnector,
-			DeliveryKind:               "message", PayloadVersion: "channel-message.v1",
-			Payload: deliveryPayload, IdempotencyScope: "connector-lifecycle",
-			IdempotencyKey: "delivery-1", NotifyRef: target.ID,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create lifecycle delivery: %v", err)
-	}
-	deliveryClaim := requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		"/api/v1/channel-connector/deliveries/claim",
-		`{"owner":"delivery-worker","lease_ms":30000,"limit":1,"capability":{"connector_key":"chat_sdk_v1","provider":"discord"}}`,
-		"",
-		http.StatusOK,
-		authHeaders(token),
-	)
-	deliveries, ok := deliveryClaim["deliveries"].([]any)
-	if !ok || len(deliveries) != 1 {
-		t.Fatalf("delivery claim response = %+v", deliveryClaim)
-	}
-	claimedDelivery, ok := deliveries[0].(map[string]any)
-	deliveryID := testPublicID(t, publicid.KindIntegrationDelivery, delivery.ID)
-	if !ok || claimedDelivery["id"] != deliveryID {
-		t.Fatalf("claimed delivery = %+v, want %s", deliveries[0], deliveryID)
-	}
-	deliveryToken, ok := claimedDelivery["claim_token"].(string)
-	if !ok || deliveryToken == "" {
-		t.Fatalf("claimed delivery token = %#v", claimedDelivery["claim_token"])
-	}
-	deliveryGeneration, ok := claimedDelivery["claim_generation"].(float64)
-	if !ok || deliveryGeneration <= 0 {
-		t.Fatalf("claimed delivery generation = %#v", claimedDelivery["claim_generation"])
-	}
-	completePath := "/api/v1/channel-connector/deliveries/" + deliveryID + "/complete"
-	invalidCompletion := map[string]any{
-		"claim_token": deliveryToken, "claim_generation": deliveryGeneration,
-		"outcome": "delivered", "provider_message_ref": "provider-message-1",
-		"retry_after_ms": 100, "last_error": map[string]any{},
-	}
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		completePath,
-		mustMarshalChannelRequest(t, invalidCompletion),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-	delete(invalidCompletion, "retry_after_ms")
-	invalidCompletion["provider_message_ref"] = strings.Repeat("界", 683)
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		completePath,
-		mustMarshalChannelRequest(t, invalidCompletion),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-	invalidCompletion["provider_message_ref"] = "provider-message-1"
-	invalidCompletion["last_error"] = map[string]any{"message": "bad\x00value"}
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		completePath,
-		mustMarshalChannelRequest(t, invalidCompletion),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-	invalidCompletion["last_error"] = map[string]any{"value": json.Number("1e1000000")}
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		completePath,
-		mustMarshalChannelRequest(t, invalidCompletion),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-	invalidCompletion["last_error"] = postgresTextExpansionObject(t)
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		completePath,
-		mustMarshalChannelRequest(t, invalidCompletion),
-		"",
-		http.StatusBadRequest,
-		authHeaders(token),
-	)
-	invalidCompletion["last_error"] = map[string]any{}
-	completed := requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		completePath,
-		mustMarshalChannelRequest(t, invalidCompletion),
-		"",
-		http.StatusOK,
-		authHeaders(token),
-	)
-	if completed["state"] != "delivered" ||
-		completed["provider_message_ref"] != "provider-message-1" {
-		t.Fatalf("completed delivery = %+v", completed)
-	}
-	if got := deliveryPublisher.notifyRefs(); len(got) != 1 || got[0] != target.ID {
-		t.Fatalf("published delivery notify refs = %v, want [%s]", got, target.ID)
-	}
-
 	releasePath := "/api/v1/channel-connector/runtime-units/" + unitID + "/release"
 	releaseRequest := map[string]any{
 		"lease_token": leaseToken, "lease_generation": leaseGeneration,
@@ -1030,27 +730,6 @@ func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
 	)
 }
 
-type recordingIntegrationDeliveryPublisher struct {
-	mu   sync.Mutex
-	refs []integrationstore.ID
-}
-
-func (p *recordingIntegrationDeliveryPublisher) PublishIntegrationDeliveryUpdate(
-	_ context.Context,
-	notifyRef integrationstore.ID,
-) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.refs = append(p.refs, notifyRef)
-	return nil
-}
-
-func (p *recordingIntegrationDeliveryPublisher) notifyRefs() []integrationstore.ID {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]integrationstore.ID(nil), p.refs...)
-}
-
 func mustMarshalChannelRequest(t *testing.T, body map[string]any) string {
 	t.Helper()
 	raw, err := json.Marshal(body)
@@ -1058,25 +737,6 @@ func mustMarshalChannelRequest(t *testing.T, body map[string]any) string {
 		t.Fatalf("encode channel request: %v", err)
 	}
 	return string(raw)
-}
-
-func postgresTextExpansionObject(t *testing.T) map[string]any {
-	t.Helper()
-	object := map[string]any{
-		"a": json.Number("1e131071"),
-		"b": json.Number("1e131071"),
-	}
-	compact, err := json.Marshal(object)
-	if err != nil {
-		t.Fatalf("marshal PostgreSQL text-expansion fixture: %v", err)
-	}
-	if len(compact) > channelconnector.MaxMetadataBytes {
-		t.Fatalf("text-expansion fixture has %d compact bytes", len(compact))
-	}
-	if _, err := channelconnector.NormalizeOpaqueObject(compact); err == nil {
-		t.Fatal("text-expansion fixture was not rejected before PostgreSQL")
-	}
-	return object
 }
 
 func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
@@ -1098,6 +758,16 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	handler := newIntegrationServer(pool, WithChannelConnectorAuthenticator(authenticator))
 	project := bootstrapPublicHTTPProject(t, handler, "connector-interaction")
 	store := newIntegrationStore(pool)
+	var app integrationstore.IntegrationAppRecord
+	var install integrationstore.IntegrationInstallRecord
+	var route integrationstore.IntegrationRouteRecord
+	var target integrationstore.IntegrationTargetRecord
+	var binding integrationstore.IntegrationTargetBindingRecord
+	var alternateRoute integrationstore.IntegrationRouteRecord
+	var alternateBinding integrationstore.IntegrationTargetBindingRecord
+	var receiveOnlyBinding integrationstore.IntegrationTargetBindingRecord
+	var otherTarget integrationstore.IntegrationTargetRecord
+	var otherInstall integrationstore.IntegrationInstallRecord
 	agentID, interactionID := createHTTPStructuredQuestionInteraction(
 		t,
 		ctx,
@@ -1106,133 +776,156 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		project.OrgUUID,
 		project.ProjectUUID,
 		time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC),
-	)
-	app, err := store.Integrations().CreateIntegrationApp(
-		ctx,
-		integrationstore.CreateIntegrationAppInput{
-			OrgID: project.OrgUUID, OwnerProjectID: project.ProjectUUID,
-			Provider: "discord", ProviderAppRef: "connector-interaction-app",
-			DisplayName: "Connector interaction app", ConnectorKey: "chat_sdk_v1",
-			State: integrationstore.IntegrationAppStateActive,
+		func(agentID executionstore.ID) {
+			app, err = store.Integrations().CreateIntegrationApp(
+				ctx,
+				integrationstore.CreateIntegrationAppInput{
+					OrgID: project.OrgUUID, OwnerProjectID: project.ProjectUUID,
+					Provider: "discord", ProviderAppRef: "connector-interaction-app",
+					DisplayName: "Connector interaction app", ConnectorKey: "chat_sdk_v1",
+					State: integrationstore.IntegrationAppStateActive,
+				},
+			)
+			if err != nil {
+				t.Fatalf("create connector app: %v", err)
+			}
+			install, err = store.Integrations().UpsertIntegrationInstall(
+				ctx,
+				integrationstore.UpsertIntegrationInstallInput{
+					OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
+					InstalledBy: identitystore.NewUserPrincipal(project.AdminUserUUID),
+					Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
+					State:              integrationstore.IntegrationInstallStateActive,
+					ProviderAccountRef: "bot-actions",
+					DisplayName:        "Omnara action bot",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create connector install: %v", err)
+			}
+			route, err = store.Integrations().CreateIntegrationRoute(
+				ctx,
+				integrationstore.CreateIntegrationRouteInput{
+					ProjectID:            project.ProjectUUID,
+					IntegrationInstallID: install.ID, DeploymentKey: "test-actions",
+					BehaviorKey: "test_actions", State: integrationstore.IntegrationRouteStateActive,
+				},
+			)
+			if err != nil {
+				t.Fatalf("create connector route: %v", err)
+			}
+			definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
+				integrationstore.PublishChannelDefinitionInput{
+					ProjectID: project.ProjectUUID, IntegrationInstallID: install.ID,
+					ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+					SendParamsSchema: json.RawMessage(`{"type":"object"}`),
+					Capabilities: integrationstore.ChannelCapabilities{
+						Send: true, Text: true, Questions: true, Permissions: true,
+					},
+					ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}},
+				})
+			if err != nil {
+				t.Fatalf("publish interaction channel definition: %v", err)
+			}
+			target, err = store.Integrations().CreateIntegrationTarget(
+				ctx,
+				integrationstore.CreateIntegrationTargetInput{
+					ProjectID: project.ProjectUUID, ChannelDefinitionID: definition.ID,
+					IntegrationInstallID: install.ID, ProviderRef: "thread-actions",
+					ProviderRefKind: "thread", DisplayName: "Action thread",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create connector target: %v", err)
+			}
+			binding, err = store.Integrations().CreateIntegrationTargetBinding(
+				ctx,
+				integrationstore.CreateIntegrationTargetBindingInput{
+					ProjectID: project.ProjectUUID, AgentID: agentID,
+					IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+					IntegrationRouteID: route.ID, ReceiveAllowed: false, SendAllowed: true,
+					Source: "test",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create connector binding: %v", err)
+			}
+			alternateRoute, err = store.Integrations().CreateIntegrationRoute(
+				ctx,
+				integrationstore.CreateIntegrationRouteInput{
+					ProjectID:            project.ProjectUUID,
+					IntegrationInstallID: install.ID, DeploymentKey: "test-actions-alternate",
+					BehaviorKey: "test_actions_alternate", State: integrationstore.IntegrationRouteStateActive,
+				},
+			)
+			if err != nil {
+				t.Fatalf("create alternate connector route: %v", err)
+			}
+			alternateBinding, err = store.Integrations().CreateIntegrationTargetBinding(
+				ctx,
+				integrationstore.CreateIntegrationTargetBindingInput{
+					ProjectID: project.ProjectUUID, AgentID: agentID,
+					IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+					IntegrationRouteID: alternateRoute.ID, ReceiveAllowed: false, SendAllowed: true,
+					Source: "test",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create alternate connector binding: %v", err)
+			}
+			receiveOnlyBinding, err = store.Integrations().CreateIntegrationTargetBinding(
+				ctx,
+				integrationstore.CreateIntegrationTargetBindingInput{
+					ProjectID: project.ProjectUUID, AgentID: agentID,
+					IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+					ReceiveAllowed: true, SendAllowed: false, Source: "test-receive-only",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create send-only connector binding: %v", err)
+			}
+			otherTarget, err = store.Integrations().CreateIntegrationTarget(
+				ctx,
+				integrationstore.CreateIntegrationTargetInput{
+					ProjectID: project.ProjectUUID, ChannelDefinitionID: definition.ID,
+					IntegrationInstallID: install.ID, ProviderRef: "other-thread-actions",
+					ProviderRefKind: "thread", DisplayName: "Other action thread",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create alternate connector target: %v", err)
+			}
+			otherInstall, err = store.Integrations().UpsertIntegrationInstall(
+				ctx,
+				integrationstore.UpsertIntegrationInstallInput{
+					OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
+					InstalledBy: identitystore.NewUserPrincipal(project.AdminUserUUID),
+					Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
+					State:              integrationstore.IntegrationInstallStateActive,
+					ProviderAccountRef: "other-bot-actions",
+					DisplayName:        "Other action bot",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create alternate connector install: %v", err)
+			}
+
+			if _, err := pool.Exec(ctx,
+				`UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,
+				target.ID,
+				project.ProjectUUID,
+				agentID); err != nil {
+				t.Fatalf("select interaction fixture channel: %v", err)
+			}
 		},
 	)
-	if err != nil {
-		t.Fatalf("create connector app: %v", err)
-	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
-			InstalledByUserID: project.AdminUserUUID,
-			Provider:          "discord", IntegrationKind: "channel_single_agent", ConnectionMode: "gateway",
-			State:                    integrationstore.IntegrationInstallStateActive,
-			ProviderAccountRef:       "bot-actions",
-			ProviderAgentDisplayName: "Omnara action bot",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create connector install: %v", err)
-	}
-	route, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID:            project.ProjectUUID,
-			IntegrationInstallID: install.ID, DeploymentKey: "test-actions",
-			HandlerKey: "test_actions", HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create connector route: %v", err)
-	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: project.ProjectUUID, AgentID: agentID,
-			IntegrationInstallID: install.ID, ProviderRef: "thread-actions",
-			ProviderRefKind: "thread", DisplayName: "Action thread",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create connector target: %v", err)
-	}
-	binding, err := store.Integrations().CreateIntegrationTargetBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetBindingInput{
-			ProjectID: project.ProjectUUID, AgentID: agentID,
-			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
-			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: false,
-			Source: "test",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create connector binding: %v", err)
-	}
-	alternateRoute, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID:            project.ProjectUUID,
-			IntegrationInstallID: install.ID, DeploymentKey: "test-actions-alternate",
-			HandlerKey: "test_actions_alternate", HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create alternate connector route: %v", err)
-	}
-	alternateBinding, err := store.Integrations().CreateIntegrationTargetBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetBindingInput{
-			ProjectID: project.ProjectUUID, AgentID: agentID,
-			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
-			IntegrationRouteID: alternateRoute.ID, ReceiveAllowed: true, SendAllowed: false,
-			Source: "test",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create alternate connector binding: %v", err)
-	}
-	sendOnlyBinding, err := store.Integrations().CreateIntegrationTargetBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetBindingInput{
-			ProjectID: project.ProjectUUID, AgentID: agentID,
-			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
-			ReceiveAllowed: false, SendAllowed: true, Source: "test-send-only",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create send-only connector binding: %v", err)
-	}
-	otherTarget, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: project.ProjectUUID, AgentID: agentID,
-			IntegrationInstallID: install.ID, ProviderRef: "other-thread-actions",
-			ProviderRefKind: "thread", DisplayName: "Other action thread",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create alternate connector target: %v", err)
-	}
-	otherInstall, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
-			InstalledByUserID: project.AdminUserUUID,
-			Provider:          "discord", IntegrationKind: "channel_single_agent", ConnectionMode: "gateway",
-			State:                    integrationstore.IntegrationInstallStateActive,
-			ProviderAccountRef:       "other-bot-actions",
-			ProviderAgentDisplayName: "Other action bot",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create alternate connector install: %v", err)
-	}
 
 	appID := testPublicID(t, publicid.KindIntegrationApp, app.ID)
 	interactionPublicID := testPublicID(t, publicid.KindAgentInteraction, interactionID)
 	targetID := testPublicID(t, publicid.KindIntegrationTarget, target.ID)
 	bindingID := testPublicID(t, publicid.KindIntegrationBinding, binding.ID)
 	body := map[string]any{
-		"version": "v1", "external_tenant_id": "",
+		"external_tenant_id":   "",
 		"external_account_ref": "bot-actions", "integration_target_id": targetID,
 		"integration_target_binding_id": bindingID,
 		"actor": map[string]any{
@@ -1278,11 +971,11 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	}
 	wrongInstallBody := cloneChannelInteractionRequestBody(body)
 	wrongInstallBody["external_account_ref"] = otherInstall.ProviderAccountRef
-	sendOnlyBody := cloneChannelInteractionRequestBody(body)
-	sendOnlyBody["integration_target_binding_id"] = testPublicID(
+	receiveOnlyBody := cloneChannelInteractionRequestBody(body)
+	receiveOnlyBody["integration_target_binding_id"] = testPublicID(
 		t,
 		publicid.KindIntegrationBinding,
-		sendOnlyBinding.ID,
+		receiveOnlyBinding.ID,
 	)
 	wrongTargetBody := cloneChannelInteractionRequestBody(body)
 	wrongTargetBody["integration_target_id"] = testPublicID(
@@ -1290,10 +983,26 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		publicid.KindIntegrationTarget,
 		otherTarget.ID,
 	)
+	otherBinding, err := store.Integrations().CreateIntegrationTargetBinding(ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: project.ProjectUUID, AgentID: agentID, IntegrationInstallID: install.ID,
+			IntegrationTargetID: otherTarget.ID, SendAllowed: true, Source: "other-channel",
+		})
+	require.NoError(t, err)
+	wrongPinBody := cloneChannelInteractionRequestBody(wrongTargetBody)
+	wrongPinBody["integration_target_binding_id"] = testPublicID(t, publicid.KindIntegrationBinding, otherBinding.ID)
+	// The current destination can change without moving the outstanding question.
+	_, err = pool.Exec(ctx,
+		`UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,
+		otherTarget.ID,
+		project.ProjectUUID,
+		agentID)
+	require.NoError(t, err)
 	for _, forbiddenBody := range []map[string]any{
 		wrongInstallBody,
-		sendOnlyBody,
+		receiveOnlyBody,
 		wrongTargetBody,
+		wrongPinBody,
 	} {
 		requestJSONWithHeaders(
 			t,
@@ -1328,6 +1037,16 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	if resolved["status"] != "resolved" || resolved["text"] != "Answers recorded." {
 		t.Fatalf("connector interaction response = %+v", resolved)
 	}
+
+	current, err := store.Execution().GetAgentCurrentChannelID(ctx, project.ProjectUUID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, target.ID, current, "an admitted channel reply selects its origin")
+	_, err = pool.Exec(ctx,
+		`UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,
+		otherTarget.ID,
+		project.ProjectUUID,
+		agentID)
+	require.NoError(t, err)
 
 	var storedTargetID, storedBindingID string
 	var actorProvider, actorTenant, actorUserID string
@@ -1371,7 +1090,8 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		t.Fatalf("decode connector response metadata: %v", err)
 	}
 	channelMetadata, ok := storedMetadata["channel"].(map[string]any)
-	if !ok || channelMetadata["version"] != "v1" {
+	providerMetadata, metadataOK := channelMetadata["metadata"].(map[string]any)
+	if !ok || !metadataOK || providerMetadata["interaction_ref"] != "provider-action-1" {
 		t.Fatalf("connector response metadata = %+v", storedMetadata)
 	}
 
@@ -1388,6 +1108,9 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	if replayed["status"] != "already_resolved" {
 		t.Fatalf("connector interaction replay = %+v", replayed)
 	}
+	current, err = store.Execution().GetAgentCurrentChannelID(ctx, project.ProjectUUID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, otherTarget.ID, current, "replaying a response must not overwrite a later selection")
 	answerConflict := cloneChannelInteractionRequestBody(body)
 	answerConflict["answers"] = []any{map[string]any{"option_indices": []int{1}}}
 	actorConflict := cloneChannelInteractionRequestBody(body)
@@ -1422,13 +1145,22 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		"permission",
 		"run_command",
 		json.RawMessage(`{"command":"printf concurrent"}`),
+		func(agentID executionstore.ID) {
+			if _, err := pool.Exec(ctx,
+				`UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,
+				target.ID,
+				project.ProjectUUID,
+				agentID); err != nil {
+				t.Fatalf("select concurrent interaction channel: %v", err)
+			}
+		},
 	)
 	concurrentBinding, err := store.Integrations().CreateIntegrationTargetBinding(
 		ctx,
 		integrationstore.CreateIntegrationTargetBindingInput{
 			ProjectID: project.ProjectUUID, AgentID: concurrentAgentID,
 			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
-			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: false,
+			IntegrationRouteID: route.ID, ReceiveAllowed: false, SendAllowed: true,
 			Source: "test",
 		},
 	)

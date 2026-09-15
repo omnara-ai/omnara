@@ -86,20 +86,28 @@ SELECT EXISTS (
    AND install.id = target.integration_install_id
    AND install.state = 'active'
    AND install.deleted_at IS NULL
+  LEFT JOIN integration_apps app
+    ON app.org_id = install.org_id AND app.id = install.integration_app_id
+   AND app.state = 'active' AND app.deleted_at IS NULL
   WHERE actor.id = sqlc.arg(actor_id)
     AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id IS NOT DISTINCT FROM nullif(install.provider_tenant_id, '')
+    AND (
+      (install.integration_kind = 'external' AND actor.provider IN ('external', 'omnara'))
+      OR (install.integration_kind = 'managed' AND app.id IS NOT NULL
+        AND actor.provider = install.provider
+        AND actor.provider_tenant_id IS NOT DISTINCT FROM install.provider_tenant_id)
+    )
     AND EXISTS (
       SELECT 1
       FROM integration_target_bindings binding
       WHERE binding.project_id = target.project_id
         AND binding.agent_id = sqlc.arg(agent_id)
         AND binding.integration_target_id = target.id
-        AND binding.receive_allowed
+        AND CASE WHEN sqlc.arg(for_interaction_response)::boolean
+          THEN binding.send_allowed ELSE binding.receive_allowed END
         AND binding.revoked_at IS NULL
         AND (
-          (binding.integration_route_id IS NULL AND binding.source = 'legacy_target')
+          binding.integration_route_id IS NULL
           OR EXISTS (
             SELECT 1
             FROM integration_routes route

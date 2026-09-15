@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -19,7 +20,7 @@ const (
 	ToolTypeMCP           = "mcp"
 	ToolInputSchemaObject = "object"
 
-	MaxChannelMessageTextLength = 64 * 1024
+	MaxChannelMessageTextLength = channelconnector.MaxMessageTextBytes
 	MaxListChannelsPageSize     = 100
 )
 
@@ -41,18 +42,10 @@ const (
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
-	sendIntegrationMessageToolDescription = "Send a user-visible message to the current integration target. " +
-		"When responding to a message received from an integration such as Slack, you must use this tool " +
-		"for every user-visible response, including progress updates, questions, and final answers. " +
-		"Attach artifacts by their artifact_ids only when the response is intentionally sending those files. " +
-		"Normal assistant text is internal and is not delivered to the external user, so use this tool " +
-		"to communicate with them."
-	setIntegrationTargetToolDescription = "Set which integration target future integration messages " +
-		"and prompts use by default."
-	sendChannelMessageToolDescription = "Send a user-visible message through an attached external channel. " +
-		"Omit channel_id when replying to the one unambiguous channel that opened this model call; " +
-		"otherwise pass an exact channel_id returned by list_channels. Normal assistant text is not sent " +
-		"to external channel users."
+	sendChannelMessageToolDescription = "Send one message through a channel bound to this agent. " +
+		"Pass an exact channel_id from list_channels or get_channel, message text and/or artifact_ids, " +
+		"and optional params matching the current get_channel schema. Normal assistant text is not sent " +
+		"to channel users. An unknown send outcome must not be blindly retried."
 	listChannelsToolDescription = "List the external channels currently attached to this agent, including " +
 		"stable channel_id values and whether each channel can send or receive messages. Results are " +
 		"newest first; pass next_cursor to continue when the result is paginated."
@@ -259,13 +252,16 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameAskQuestion], err = askQuestionTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameSendIntegrationMessage], err = integrationSendTool(); err != nil {
-		return Catalog{}, err
-	}
-	if entries[ToolNameSetIntegrationTarget], err = integrationSetTargetTool(); err != nil {
-		return Catalog{}, err
-	}
 	if entries[ToolNameSendChannelMessage], err = channelSendTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameReadChannel], err = channelReadTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameGetChannel], err = channelGetTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSetCurrentChannel], err = channelSetCurrentTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameListChannels], err = toolEntry(
@@ -273,6 +269,11 @@ func buildDefaultCatalog() (Catalog, error) {
 		listChannelsToolDescription,
 		nil,
 		map[string]any{
+			"parent_channel_id": map[string]any{
+				"type":        "string",
+				"pattern":     `^itgt_[a-z2-7]{26}$`,
+				"description": "Return only directly bound children of this channel. Omit to list all bound channels.",
+			},
 			"cursor": map[string]any{
 				"type":        "string",
 				"minLength":   1,
@@ -384,26 +385,39 @@ func askQuestionTool() (Entry, error) {
 	return entry, nil
 }
 
-func integrationSendTool() (Entry, error) {
+func channelSendTool() (Entry, error) {
 	entry, err := toolEntry(
-		ToolNameSendIntegrationMessage,
-		sendIntegrationMessageToolDescription,
-		[]string{"text"},
+		ToolNameSendChannelMessage,
+		sendChannelMessageToolDescription,
+		[]string{"channel_id", "message"},
 		map[string]any{
-			"text": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"maxLength":   MaxChannelMessageTextLength,
-				"description": "User-visible message text to send to the current integration target.",
-			},
-			"artifact_ids": map[string]any{
-				"type":     "array",
-				"maxItems": 20,
-				"items": map[string]any{
-					"type":      "string",
-					"minLength": 1,
+			"message": map[string]any{
+				"type": "object", "additionalProperties": false,
+				"anyOf": []any{
+					map[string]any{"required": []string{"text"}},
+					map[string]any{"required": []string{"artifact_ids"}},
 				},
-				"description": "Use exact artifact_ids returned by Omnara; omit this field or use an empty array for text-only messages.",
+				"properties": map[string]any{
+					"text": map[string]any{
+						"type": "string", "minLength": 1, "maxLength": MaxChannelMessageTextLength,
+						"description": "User-visible text, at most 64 KiB in UTF-8.",
+					},
+					"artifact_ids": map[string]any{
+						"type": "array", "minItems": 1, "maxItems": channelconnector.MaxOperationArtifacts,
+						"uniqueItems": true,
+						"items":       map[string]any{"type": "string", "pattern": `^art_[a-z2-7]{26}$`},
+						"description": "Exact artifact IDs available to this agent; omit for text-only messages.",
+					},
+				},
+			},
+			"params": map[string]any{
+				"type":        "object",
+				"description": "Provider options matching get_channel's current send_params_schema; omission means {}.",
+			},
+			"channel_id": map[string]any{
+				"type":        "string",
+				"pattern":     `^itgt_[a-z2-7]{26}$`,
+				"description": "Exact channel_id returned by list_channels or get_channel.",
 			},
 		},
 	)
@@ -414,42 +428,64 @@ func integrationSendTool() (Entry, error) {
 	return entry, nil
 }
 
-func integrationSetTargetTool() (Entry, error) {
+func channelReadTool() (Entry, error) {
 	entry, err := toolEntry(
-		ToolNameSetIntegrationTarget,
-		setIntegrationTargetToolDescription,
-		[]string{"target_ref"},
+		ToolNameReadChannel,
+		"Read recent message history from a bound channel. Results are chronological within each page; "+
+			"use next_cursor to read older pages. Coverage and coverage_reason describe missing provider content.",
+		[]string{"channel_id"},
 		map[string]any{
-			"target_ref": map[string]any{
-				"type":      "string",
-				"minLength": 1,
-				"description": "Short target_ref of the attached integration target to make current for future " +
-					"integration messages and prompts. Choose one of the integration_targets listed in context.",
+			"channel_id": map[string]any{
+				"type": "string", "pattern": `^itgt_[a-z2-7]{26}$`,
+				"description": "Exact channel_id returned by list_channels or get_channel.",
+			},
+			"limit": map[string]any{
+				"type": "integer", "minimum": 1, "maximum": 100, "default": 50,
+				"description": "Maximum messages in this page, default 50 and at most 100.",
+			},
+			"cursor": map[string]any{
+				"type": "string", "minLength": 1, "maxLength": 8192,
+				"description": "Opaque next_cursor from read_channel for this same channel and agent; omit for recent history.",
 			},
 		},
 	)
 	if err != nil {
 		return Entry{}, err
 	}
+	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
 	return entry, nil
 }
 
-func channelSendTool() (Entry, error) {
+func channelGetTool() (Entry, error) {
 	entry, err := toolEntry(
-		ToolNameSendChannelMessage,
-		sendChannelMessageToolDescription,
-		[]string{"text"},
+		ToolNameGetChannel,
+		"Get details for an attached channel, its parent, supported operations, and the JSON Schema for send params.",
+		[]string{"channel_id"},
 		map[string]any{
-			"text": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"maxLength":   MaxChannelMessageTextLength,
-				"description": "User-visible message text to send.",
-			},
 			"channel_id": map[string]any{
-				"type":        "string",
-				"pattern":     `^itgt_[a-z2-7]{26}$`,
-				"description": "Exact channel_id returned by list_channels. Omit only when the destination is unambiguous.",
+				"type": "string", "pattern": `^itgt_[a-z2-7]{26}$`,
+				"description": "Exact channel_id from an input, a message result, or list_channels.",
+			},
+		},
+	)
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
+	return entry, nil
+}
+
+func channelSetCurrentTool() (Entry, error) {
+	entry, err := toolEntry(
+		ToolNameSetCurrentChannel,
+		"Set the current channel for future approval and question prompts. The selection persists until "+
+			"you change it or a new channel input is delivered. Prompts also remain available in the dashboard. "+
+			"Use get_channel to inspect supported operations. Pass null to clear the selection.",
+		[]string{"channel_id"},
+		map[string]any{
+			"channel_id": map[string]any{
+				"type": []string{"string", "null"}, "pattern": `^itgt_[a-z2-7]{26}$`,
+				"description": "An attached channel ID, or null to keep future prompts in the dashboard.",
 			},
 		},
 	)

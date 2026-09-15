@@ -138,24 +138,6 @@ func genericPermissionChallenge(
 	return permissionChallenge(call, mode, call.Input)
 }
 
-func setIntegrationTargetPermissionChallenge(
-	_ context.Context,
-	_ Executor,
-	_ Turn,
-	call model.ToolCall,
-	mode permissionModeContext,
-) (toolpermission.Request, error) {
-	input, err := resolveIntegrationTargetRequest(call.Input)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	authorizationInput, err := marshalJSON(input)
-	if err != nil {
-		return toolpermission.Request{}, fmt.Errorf("marshal integration target authorization: %w", err)
-	}
-	return permissionChallenge(call, mode, authorizationInput)
-}
-
 func listChannelsPermissionChallenge(
 	_ context.Context,
 	_ Executor,

@@ -10,24 +10,15 @@ func MachinePoolContextEnabled(specs []ToolSpec) bool {
 	return HasTool(specs, toolcatalog.ToolNameCreateMachine)
 }
 
-func IntegrationTargetContextEnabled(specs []ToolSpec) bool {
-	return HasAnyTool(
-		specs,
-		toolcatalog.ToolNameSendIntegrationMessage,
-		toolcatalog.ToolNameSetIntegrationTarget,
-	)
+func CurrentChannelContextEnabled(specs []ToolSpec) bool {
+	return HasTool(specs, toolcatalog.ToolNameSetCurrentChannel)
 }
 
-func IntegrationTargetsContent(targets []IntegrationTargetRef) string {
-	if len(targets) == 0 {
-		return "No external integration targets are currently available for this agent."
+func CurrentChannelContent(channelID string) string {
+	if channelID == "" {
+		return "Current channel: none."
 	}
-	body, err := json.Marshal(targets)
-	if err != nil {
-		return "External integration targets are present but could not be serialized."
-	}
-	return "External integration targets available for this agent. The current target is used by default " +
-		"for outbound integration messages and interaction prompts: " + string(body)
+	return "Current channel: " + channelID + "."
 }
 
 func AvailableMachinePoolsContent(pools []MachinePoolRef) string {

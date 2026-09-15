@@ -404,7 +404,6 @@ func apiOptions(
 		httpapi.WithAgentEventWakeupSubscriber(redisBus),
 		httpapi.WithAgentToolCallUpdateSubscriber(redisBus),
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),
-		httpapi.WithIntegrationDeliveryPublisher(redisBus),
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),

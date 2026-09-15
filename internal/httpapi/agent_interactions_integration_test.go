@@ -1546,14 +1546,14 @@ func TestPermissionApprovalUniquePerToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
+func TestAgentInteractionListsAndResolvesCustomToolPermission(
 	t *testing.T,
 ) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
-	project := bootstrapPublicHTTPProject(t, handler, "interaction-set-target")
+	project := bootstrapPublicHTTPProject(t, handler, "interaction-custom-tool")
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
 	agentID, interactionID := createHTTPInteractionAuthority(
@@ -1565,9 +1565,9 @@ func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
 		project.ProjectUUID,
 		now,
 		"permission",
-		"set_integration_target",
+		"publish_report",
 		json.RawMessage(
-			`{"tool_name":"set_integration_target","input":{"target_ref":"slack-abcd"}}`,
+			`{"tool_name":"publish_report","input":{"report_id":"report-123"}}`,
 		),
 	)
 	agentPublicID := testPublicID(t, publicid.KindAgent, agentID)
@@ -1589,15 +1589,15 @@ func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
 	)
 	data, ok := listed["data"].([]any)
 	if !ok || len(data) != 1 {
-		t.Fatalf("expected one set-target permission interaction, got %+v", listed)
+		t.Fatalf("expected one custom-tool permission interaction, got %+v", listed)
 	}
 	item, ok := data[0].(map[string]any)
 	if !ok || item["id"] != interactionPublicID {
-		t.Fatalf("unexpected set-target permission interaction: %+v", data[0])
+		t.Fatalf("unexpected custom-tool permission interaction: %+v", data[0])
 	}
 	request, ok := item["request"].(map[string]any)
-	if !ok || request["title"] != "Permission requested for set_integration_target" {
-		t.Fatalf("unexpected set-target permission request: %+v", item["request"])
+	if !ok || request["title"] != "Permission requested for publish_report" {
+		t.Fatalf("unexpected custom-tool permission request: %+v", item["request"])
 	}
 	if _, exposed := request["authorization"]; exposed {
 		t.Fatalf("public permission request exposed internal authorization: %+v", request)
@@ -1613,7 +1613,7 @@ func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
 		authHeaders(project.AdminToken),
 	)
 	if resolved["id"] != interactionPublicID || resolved["state"] != "resolved" {
-		t.Fatalf("unexpected resolved set-target permission: %+v", resolved)
+		t.Fatalf("unexpected resolved custom-tool permission: %+v", resolved)
 	}
 }
 
@@ -1812,6 +1812,7 @@ func createHTTPStructuredQuestionInteraction(
 	store *storage.Store,
 	orgID, projectID storage.ID,
 	now time.Time,
+	beforeInteraction ...func(storage.ID),
 ) (storage.ID, storage.ID) {
 	t.Helper()
 	return createHTTPInteractionAuthority(
@@ -1828,6 +1829,7 @@ func createHTTPStructuredQuestionInteraction(
 			`{"questions":[{"prompt":"Ship?","options":[`+
 				`{"label":"Yes"},{"label":"No"}]}]}`,
 		),
+		beforeInteraction...,
 	)
 }
 
@@ -1848,6 +1850,7 @@ func copyHTTPInteractionForTest(
 	  interaction_kind,
 	  state,
 	  request,
+	  integration_target_id,
 	  created_at
 	)
 	SELECT agent_id,
@@ -1855,6 +1858,7 @@ func copyHTTPInteractionForTest(
 	       $4,
 	       'open',
 	       $5::jsonb,
+	       interaction.integration_target_id,
 	       interaction.created_at + INTERVAL '1 microsecond'
 	FROM agent_interaction_read_projection interaction
 	WHERE project_id = $1 AND agent_id = $2 AND id = $3
@@ -1958,6 +1962,7 @@ func createHTTPInteractionAuthority(
 	now time.Time,
 	kind, permissionToolName string,
 	request json.RawMessage,
+	beforeInteraction ...func(storage.ID),
 ) (storage.ID, storage.ID) {
 	t.Helper()
 	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
@@ -2100,6 +2105,9 @@ func createHTTPInteractionAuthority(
 			source,
 			calls,
 		)
+	}
+	for _, configure := range beforeInteraction {
+		configure(agentID)
 	}
 	if kind == "question" {
 		if _, err := store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{

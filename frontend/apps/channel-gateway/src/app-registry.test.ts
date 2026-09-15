@@ -2,6 +2,7 @@ import {
   ApiError,
   type ChannelConnectorRuntimeUnit,
   type ChannelInboundEventRequest,
+  type ChannelInboundEventResponse,
 } from '@omnara/sdk'
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest'
 
@@ -221,7 +222,7 @@ describe('channel app runtime registry', () => {
   })
 
   it('injects inbound submission only into the active webhook context', async () => {
-    const coreSubmit = vi.fn(() => Promise.resolve())
+    const coreSubmit = vi.fn(() => Promise.resolve(testInboundAcceptance))
     const client = {
       ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitInbound: coreSubmit,
@@ -247,7 +248,7 @@ describe('channel app runtime registry', () => {
 
   it('keeps explicit inbound callbacks available to tracked webhook work', async () => {
     const tasks: Promise<unknown>[] = []
-    const coreSubmit = vi.fn(() => Promise.resolve())
+    const coreSubmit = vi.fn(() => Promise.resolve(testInboundAcceptance))
     const client = {
       ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitInbound: coreSubmit,
@@ -279,7 +280,7 @@ describe('channel app runtime registry', () => {
 
   it('does not expose inbound authority through the long-lived factory context', async () => {
     let factoryContext: ProviderFactoryContext | undefined
-    const coreSubmit = vi.fn(() => Promise.resolve())
+    const coreSubmit = vi.fn(() => Promise.resolve(testInboundAcceptance))
     const client = {
       ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitInbound: coreSubmit,
@@ -306,7 +307,7 @@ describe('channel app runtime registry', () => {
   })
 
   it('binds runtime inbound authority to the exact leased unit', async () => {
-    const submitRuntimeInbound = vi.fn(() => Promise.resolve())
+    const submitRuntimeInbound = vi.fn(() => Promise.resolve(testInboundAcceptance))
     const client = {
       ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitRuntimeInbound,
@@ -548,7 +549,6 @@ function testRuntime(): ProviderRuntime & { close: Mock<() => Promise<void>> } {
   return {
     close: vi.fn(() => Promise.resolve()),
     handleWebhook: () => Promise.resolve(new Response()),
-    send: () => Promise.resolve({ providerMessageRef: '' }),
   }
 }
 
@@ -586,23 +586,15 @@ const noopLogger: GatewayLogger = {
   warn: () => undefined,
 }
 
+const testInboundAcceptance: ChannelInboundEventResponse = {
+  receipt_id: 'irec_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+  state: 'pending',
+}
+
 const testInboundEvent: ChannelInboundEventRequest = {
-  actor: { display_name: 'Alice', metadata: {}, ref: 'user-1' },
-  content_blocks: [{ text: 'hello', type: 'text' }],
-  conversation: {
-    direct: false,
-    kind: 'thread',
-    mentioned: true,
-    metadata: {},
-    ref: 'thread-1',
-  },
-  event_type: 'message',
-  external_account_ref: 'account-1',
-  external_tenant_id: 'tenant-1',
-  metadata: {},
-  occurred_at: '2026-08-30T00:00:00Z',
-  provider_event_id: 'event-1',
-  version: 'v1',
+  event_id: 'provider-event-1',
+  integration_install_id: 'iin_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+  payload: { text: 'hello' },
 }
 
 function testRuntimeUnit(): ChannelConnectorRuntimeUnit {

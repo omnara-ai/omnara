@@ -1,0 +1,484 @@
+[
+  {
+    "name": "permission-allow",
+    "operation": {
+      "destination": {
+        "implementation_key": "slack_thread",
+        "provider_ref": "C123:100.000001",
+        "provider_ref_kind": "thread",
+        "provider_metadata": {}
+      },
+      "interaction_id": "int_aaaaaaaaaaaaaaaaaaaaaaaaae",
+      "agent_id": "agt_aaaaaaaaaaaaaaaaaaaaaaaabi",
+      "channel_id": "itgt_aaaaaaaaaaaaaaaaaaaaaaaacq",
+      "kind": "permission",
+      "form": {
+        "title": "Permission required",
+        "context": [
+          {
+            "label": "Tool",
+            "value": "run_command"
+          },
+          {
+            "label": "Command",
+            "value": "echo hello"
+          }
+        ],
+        "questions": [
+          {
+            "prompt": "Run this command?",
+            "options": [
+              {
+                "label": "Allow once"
+              },
+              {
+                "label": "Deny"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "selections": [
+      [
+        0
+      ]
+    ],
+    "rendered": {
+      "channel": "C123",
+      "thread_ts": "100.000001",
+      "text": "Permission required\nTool: run_command\nCommand: echo hello\n1. Run this command?\n   1. Allow once\n   2. Deny",
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "omnara_interaction_int_aaaaaaaaaaaaaaaaaaaaaaaaae",
+          "text": {
+            "type": "plain_text",
+            "text": "Permission required\nTool: run_command\nCommand: echo hello"
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "omnara_question_0",
+          "element": {
+            "type": "radio_buttons",
+            "action_id": "omnara_answer",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Allow once"
+                },
+                "value": "0"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Deny"
+                },
+                "value": "1"
+              }
+            ]
+          },
+          "label": {
+            "type": "plain_text",
+            "text": "Run this command?"
+          }
+        },
+        {
+          "type": "actions",
+          "elements": [
+            {
+              "type": "button",
+              "text": {
+                "type": "plain_text",
+                "text": "Submit"
+              },
+              "action_id": "omnara_interaction",
+              "value": "{\"type\":\"omnara_interaction\",\"interaction_id\":\"int_aaaaaaaaaaaaaaaaaaaaaaaaae\",\"agent_id\":\"agt_aaaaaaaaaaaaaaaaaaaaaaaabi\",\"integration_target_id\":\"itgt_aaaaaaaaaaaaaaaaaaaaaaaacq\"}",
+              "style": "primary"
+            }
+          ]
+        }
+      ]
+    },
+    "callback": {
+      "type": "block_actions",
+      "api_app_id": "A123",
+      "team": {
+        "id": "T123"
+      },
+      "user": {
+        "id": "U123",
+        "team_id": "T123"
+      },
+      "actions": [
+        {
+          "action_id": "omnara_interaction",
+          "value": "{\"type\":\"omnara_interaction\",\"interaction_id\":\"int_aaaaaaaaaaaaaaaaaaaaaaaaae\",\"agent_id\":\"agt_aaaaaaaaaaaaaaaaaaaaaaaabi\",\"integration_target_id\":\"itgt_aaaaaaaaaaaaaaaaaaaaaaaacq\"}"
+        }
+      ],
+      "state": {
+        "values": {
+          "omnara_question_0": {
+            "omnara_answer": {
+              "selected_option": {
+                "value": "0"
+              }
+            }
+          }
+        }
+      }
+    },
+    "resolution": {
+      "answers": [
+        {
+          "option_indices": [
+            0
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "permission-deny",
+    "operation": {
+      "destination": {
+        "implementation_key": "slack_thread",
+        "provider_ref": "C123:100.000001",
+        "provider_ref_kind": "thread",
+        "provider_metadata": {}
+      },
+      "interaction_id": "int_aaaaaaaaaaaaaaaaaaaaaaaaai",
+      "agent_id": "agt_aaaaaaaaaaaaaaaaaaaaaaaabi",
+      "channel_id": "itgt_aaaaaaaaaaaaaaaaaaaaaaaacq",
+      "kind": "permission",
+      "form": {
+        "title": "Permission required",
+        "questions": [
+          {
+            "prompt": "Send the message?",
+            "options": [
+              {
+                "label": "Allow once"
+              },
+              {
+                "label": "Deny"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "selections": [
+      [
+        1
+      ]
+    ],
+    "rendered": {
+      "channel": "C123",
+      "thread_ts": "100.000001",
+      "text": "Permission required\n1. Send the message?\n   1. Allow once\n   2. Deny",
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "omnara_interaction_int_aaaaaaaaaaaaaaaaaaaaaaaaai",
+          "text": {
+            "type": "plain_text",
+            "text": "Permission required"
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "omnara_question_0",
+          "element": {
+            "type": "radio_buttons",
+            "action_id": "omnara_answer",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Allow once"
+                },
+                "value": "0"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Deny"
+                },
+                "value": "1"
+              }
+            ]
+          },
+          "label": {
+            "type": "plain_text",
+            "text": "Send the message?"
+          }
+        },
+        {
+          "type": "actions",
+          "elements": [
+            {
+              "type": "button",
+              "text": {
+                "type": "plain_text",
+                "text": "Submit"
+              },
+              "action_id": "omnara_interaction",
+              "value": "{\"type\":\"omnara_interaction\",\"interaction_id\":\"int_aaaaaaaaaaaaaaaaaaaaaaaaai\",\"agent_id\":\"agt_aaaaaaaaaaaaaaaaaaaaaaaabi\",\"integration_target_id\":\"itgt_aaaaaaaaaaaaaaaaaaaaaaaacq\"}",
+              "style": "primary"
+            }
+          ]
+        }
+      ]
+    },
+    "callback": {
+      "type": "block_actions",
+      "api_app_id": "A123",
+      "team": {
+        "id": "T123"
+      },
+      "user": {
+        "id": "U123",
+        "team_id": "T123"
+      },
+      "actions": [
+        {
+          "action_id": "omnara_interaction",
+          "value": "{\"type\":\"omnara_interaction\",\"interaction_id\":\"int_aaaaaaaaaaaaaaaaaaaaaaaaai\",\"agent_id\":\"agt_aaaaaaaaaaaaaaaaaaaaaaaabi\",\"integration_target_id\":\"itgt_aaaaaaaaaaaaaaaaaaaaaaaacq\"}"
+        }
+      ],
+      "state": {
+        "values": {
+          "omnara_question_0": {
+            "omnara_answer": {
+              "selected_option": {
+                "value": "1"
+              }
+            }
+          }
+        }
+      }
+    },
+    "resolution": {
+      "answers": [
+        {
+          "option_indices": [
+            1
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "question-single-and-multiple",
+    "operation": {
+      "destination": {
+        "implementation_key": "slack_thread",
+        "provider_ref": "C123:100.000001",
+        "provider_ref_kind": "thread",
+        "provider_metadata": {}
+      },
+      "interaction_id": "int_aaaaaaaaaaaaaaaaaaaaaaaaam",
+      "agent_id": "agt_aaaaaaaaaaaaaaaaaaaaaaaabi",
+      "channel_id": "itgt_aaaaaaaaaaaaaaaaaaaaaaaacq",
+      "kind": "question",
+      "form": {
+        "title": "Deployment choices",
+        "context": [
+          {
+            "label": "Repository",
+            "value": "omnara"
+          }
+        ],
+        "questions": [
+          {
+            "prompt": "Region?",
+            "options": [
+              {
+                "label": "US"
+              },
+              {
+                "label": "EU"
+              }
+            ]
+          },
+          {
+            "prompt": "Services?",
+            "multiple": true,
+            "options": [
+              {
+                "label": "API"
+              },
+              {
+                "label": "Worker"
+              },
+              {
+                "label": "Other",
+                "allows_text": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "selections": [
+      [
+        1
+      ],
+      [
+        2,
+        0
+      ]
+    ],
+    "rendered": {
+      "channel": "C123",
+      "thread_ts": "100.000001",
+      "text": "Deployment choices\nRepository: omnara\n1. Region?\n   1. US\n   2. EU\n2. Services?\n   1. API\n   2. Worker\n   3. Other",
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "omnara_interaction_int_aaaaaaaaaaaaaaaaaaaaaaaaam",
+          "text": {
+            "type": "plain_text",
+            "text": "Deployment choices\nRepository: omnara"
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "omnara_question_0",
+          "element": {
+            "type": "radio_buttons",
+            "action_id": "omnara_answer",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "US"
+                },
+                "value": "0"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "EU"
+                },
+                "value": "1"
+              }
+            ]
+          },
+          "label": {
+            "type": "plain_text",
+            "text": "Region?"
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "omnara_question_1",
+          "element": {
+            "type": "checkboxes",
+            "action_id": "omnara_answer",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "API"
+                },
+                "value": "0"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Worker"
+                },
+                "value": "1"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Other"
+                },
+                "value": "2"
+              }
+            ]
+          },
+          "label": {
+            "type": "plain_text",
+            "text": "Services?"
+          }
+        },
+        {
+          "type": "actions",
+          "elements": [
+            {
+              "type": "button",
+              "text": {
+                "type": "plain_text",
+                "text": "Submit"
+              },
+              "action_id": "omnara_interaction",
+              "value": "{\"type\":\"omnara_interaction\",\"interaction_id\":\"int_aaaaaaaaaaaaaaaaaaaaaaaaam\",\"agent_id\":\"agt_aaaaaaaaaaaaaaaaaaaaaaaabi\",\"integration_target_id\":\"itgt_aaaaaaaaaaaaaaaaaaaaaaaacq\"}",
+              "style": "primary"
+            }
+          ]
+        }
+      ]
+    },
+    "callback": {
+      "type": "block_actions",
+      "api_app_id": "A123",
+      "team": {
+        "id": "T123"
+      },
+      "user": {
+        "id": "U123",
+        "team_id": "T123"
+      },
+      "actions": [
+        {
+          "action_id": "omnara_interaction",
+          "value": "{\"type\":\"omnara_interaction\",\"interaction_id\":\"int_aaaaaaaaaaaaaaaaaaaaaaaaam\",\"agent_id\":\"agt_aaaaaaaaaaaaaaaaaaaaaaaabi\",\"integration_target_id\":\"itgt_aaaaaaaaaaaaaaaaaaaaaaaacq\"}"
+        }
+      ],
+      "state": {
+        "values": {
+          "omnara_question_0": {
+            "omnara_answer": {
+              "selected_option": {
+                "value": "1"
+              }
+            }
+          },
+          "omnara_question_1": {
+            "omnara_answer": {
+              "selected_options": [
+                {
+                  "value": "2"
+                },
+                {
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "resolution": {
+      "answers": [
+        {
+          "option_indices": [
+            1
+          ]
+        },
+        {
+          "option_indices": [
+            0,
+            2
+          ]
+        }
+      ]
+    }
+  }
+]

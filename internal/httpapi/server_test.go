@@ -737,8 +737,8 @@ func TestPublicIDEncodingInvariantReturnsHTTP500(t *testing.T) {
 
 func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) {
 	authorization, err := toolpermission.NewAuthorization(
-		"set_integration_target",
-		json.RawMessage(`{"target_ref":"slack-abcd"}`),
+		"publish_report",
+		json.RawMessage(`{"report_id":"report-123"}`),
 	)
 	if err != nil {
 		t.Fatalf("build permission authorization: %v", err)
@@ -751,8 +751,8 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 		t.Fatal("always_ask permission mode missing")
 	}
 	value, err := toolpermission.NewAllowDenyForm(
-		"Permission requested for set_integration_target",
-		[]interactionform.ContextItem{{Label: "Target", Value: "slack-abcd"}},
+		"Permission requested for publish_report",
+		[]interactionform.ContextItem{{Label: "Report", Value: "report-123"}},
 	)
 	if err != nil {
 		t.Fatalf("build permission interaction form: %v", err)
@@ -807,10 +807,10 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 	if _, exposed := request["authorization"]; exposed {
 		t.Fatalf("public response exposed internal authorization: %+v", request)
 	}
-	if request["title"] != "Permission requested for set_integration_target" {
+	if request["title"] != "Permission requested for publish_report" {
 		t.Fatalf("public response lost interaction form title: %+v", request)
 	}
-	if decoded["tool_name"] != "set_integration_target" {
+	if decoded["tool_name"] != "publish_report" {
 		t.Fatalf("public response lost permission tool name: %+v", decoded)
 	}
 	if toolCallID, ok := decoded["tool_call_id"].(string); !ok || !strings.HasPrefix(toolCallID, "tcl_") {

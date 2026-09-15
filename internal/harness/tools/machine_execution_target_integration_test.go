@@ -785,6 +785,11 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 			SourceEventID:      admitted.Events[0].ID,
 			RuntimeLockID:      lock.ID,
 			ModelCallContextID: contextRecord.ID,
+			Tools: map[string]ToolSpec{
+				"run_command": {
+					Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+				},
+			},
 		},
 		call,
 	)

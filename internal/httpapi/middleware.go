@@ -48,7 +48,8 @@ func requestBodyLimit(r *http.Request) int64 {
 		strings.Contains(r.URL.Path, "/tool-calls/") &&
 			strings.HasSuffix(r.URL.Path, "/result"),
 		strings.HasPrefix(r.URL.Path, "/api/v1/channel-connector/apps/") &&
-			strings.HasSuffix(r.URL.Path, "/events"):
+			(strings.HasSuffix(r.URL.Path, "/events") || strings.HasSuffix(r.URL.Path, "/workflows/deliver") ||
+				strings.HasSuffix(r.URL.Path, "/channels/deliver")):
 		return maxAttachmentRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/skills"), isSkillUpdatePath(r.URL.Path):
 		return maxSkillUploadRequestBodyBytes

@@ -1,4 +1,4 @@
-import { deliverySafetyMarginMs } from './delivery-timing'
+import { tmpdir } from 'node:os'
 
 const instanceIdPattern = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,126}$/
 
@@ -8,10 +8,11 @@ export interface GatewayConfig {
   apiBaseUrl: string
   connectorToken: string
   coreRequestTimeoutMs: number
-  deliveryClaimLimit: number
-  deliveryCompletionTimeoutMs: number
-  deliveryLeaseMs: number
-  deliverySendTimeoutMs: number
+  operationMaxDurationMs: number
+  operationMaxConcurrentRequests: number
+  operationMaxRequestBytes: number
+  operationMaxTemporaryBytes: number
+  operationTemporaryDirectory: string
   idlePollMs: number
   httpShutdownTimeoutMs: number
   instanceId: string
@@ -24,8 +25,8 @@ export interface GatewayConfig {
   publicUrl: string
   redisClusterUrls: string[]
   redisSocketTimeoutMs: number
-  redisTopology: RedisTopology
-  redisUrl: string
+  redisTopology?: RedisTopology
+  redisUrl?: string
   refreshAfterMs: number
   runtimeClaimLimit: number
   runtimeLeaseMs: number
@@ -44,32 +45,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
       'OMNARA_CHANNEL_GATEWAY_INSTANCE_ID must be 1-127 ASCII letters, digits, dots, colons, underscores, or hyphens',
     )
   }
-  const deliveryLeaseMs = integer(env.OMNARA_CHANNEL_DELIVERY_LEASE_MS, 30_000, 1_000, 300_000)
-  const deliverySendTimeoutMs = integer(
-    env.OMNARA_CHANNEL_DELIVERY_SEND_TIMEOUT_MS,
-    20_000,
-    100,
-    299_999,
-  )
-  const deliveryCompletionTimeoutMs = integer(
-    env.OMNARA_CHANNEL_DELIVERY_COMPLETION_TIMEOUT_MS,
-    5_000,
-    100,
-    60_000,
-  )
-  if (
-    deliverySendTimeoutMs + deliveryCompletionTimeoutMs + deliverySafetyMarginMs(deliveryLeaseMs) >
-    deliveryLeaseMs
-  ) {
-    throw new Error(
-      'channel delivery send timeout, completion timeout, and safety margin must fit within the delivery lease',
-    )
-  }
-  const redisTopology = redisTopologyValue(env.OMNARA_CHANNEL_REDIS_TOPOLOGY)
+  const redisUrl = nonEmpty(env.OMNARA_CHANNEL_REDIS_URL)
+    ? requiredRedisUrl(env.OMNARA_CHANNEL_REDIS_URL, 'OMNARA_CHANNEL_REDIS_URL')
+    : undefined
   const redisClusterUrls = redisUrls(
     env.OMNARA_CHANNEL_REDIS_CLUSTER_URLS,
     'OMNARA_CHANNEL_REDIS_CLUSTER_URLS',
   )
+  const redisTopology =
+    redisUrl || redisClusterUrls.length > 0 || nonEmpty(env.OMNARA_CHANNEL_REDIS_TOPOLOGY)
+      ? redisTopologyValue(env.OMNARA_CHANNEL_REDIS_TOPOLOGY)
+      : undefined
   if (redisTopology === 'standalone' && redisClusterUrls.length > 0) {
     throw new Error(
       'OMNARA_CHANNEL_REDIS_CLUSTER_URLS requires OMNARA_CHANNEL_REDIS_TOPOLOGY=cluster',
@@ -87,7 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     100,
     300_000,
   )
-  if (redisSocketTimeoutMs > webhookHandlerTimeoutMs) {
+  if (redisTopology && redisSocketTimeoutMs > webhookHandlerTimeoutMs) {
     throw new Error(
       'OMNARA_CHANNEL_REDIS_SOCKET_TIMEOUT_MS must not exceed OMNARA_CHANNEL_WEBHOOK_HANDLER_TIMEOUT_MS',
     )
@@ -96,10 +82,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     apiBaseUrl: requiredHttpUrl(env.OMNARA_CHANNEL_CORE_API_URL, 'OMNARA_CHANNEL_CORE_API_URL'),
     connectorToken: required(env.OMNARA_CHANNEL_CONNECTOR_TOKEN, 'OMNARA_CHANNEL_CONNECTOR_TOKEN'),
     coreRequestTimeoutMs: integer(env.OMNARA_CHANNEL_CORE_REQUEST_TIMEOUT_MS, 10_000, 100, 300_000),
-    deliveryClaimLimit: integer(env.OMNARA_CHANNEL_DELIVERY_CLAIM_LIMIT, 32, 1, 1000),
-    deliveryCompletionTimeoutMs,
-    deliveryLeaseMs,
-    deliverySendTimeoutMs,
+    operationMaxDurationMs: integer(
+      env.OMNARA_CHANNEL_OPERATION_MAX_DURATION_MS,
+      300_000,
+      1000,
+      300_000,
+    ),
+    operationMaxConcurrentRequests: integer(
+      env.OMNARA_CHANNEL_OPERATION_MAX_CONCURRENT_REQUESTS,
+      8,
+      1,
+      1000,
+    ),
+    operationMaxRequestBytes: integer(
+      env.OMNARA_CHANNEL_OPERATION_MAX_REQUEST_BYTES,
+      1024 * 1024 * 1024,
+      512 * 1024,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    operationMaxTemporaryBytes: integer(
+      env.OMNARA_CHANNEL_OPERATION_MAX_TEMPORARY_BYTES,
+      4 * 1024 * 1024 * 1024,
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    operationTemporaryDirectory:
+      nonEmpty(env.OMNARA_CHANNEL_OPERATION_TEMPORARY_DIRECTORY) ?? tmpdir(),
     idlePollMs: integer(env.OMNARA_CHANNEL_IDLE_POLL_MS, 1_000, 50, 60_000),
     httpShutdownTimeoutMs: integer(
       env.OMNARA_CHANNEL_HTTP_SHUTDOWN_TIMEOUT_MS,
@@ -126,7 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     redisClusterUrls,
     redisSocketTimeoutMs,
     redisTopology,
-    redisUrl: requiredRedisUrl(env.OMNARA_CHANNEL_REDIS_URL, 'OMNARA_CHANNEL_REDIS_URL'),
+    redisUrl,
     refreshAfterMs: integer(env.OMNARA_CHANNEL_APP_REFRESH_MS, 60_000, 1_000, 3_600_000),
     runtimeClaimLimit: integer(env.OMNARA_CHANNEL_RUNTIME_CLAIM_LIMIT, 32, 1, 1000),
     runtimeLeaseMs: integer(env.OMNARA_CHANNEL_RUNTIME_LEASE_MS, 30_000, 3_000, 300_000),

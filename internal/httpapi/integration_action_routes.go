@@ -105,7 +105,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if integrationTarget.IntegrationInstallID != install.ID {
 		return nil, storeerr.ErrUnauthorized
 	}
-	binding, err := s.store.Integrations().GetActiveReceiveBindingForTarget(
+	binding, err := s.store.Integrations().GetActiveSendBindingForTarget(
 		r.Context(),
 		install.ProjectID,
 		agentID,
@@ -128,6 +128,9 @@ func (s *Server) resolveIntegrationInteractionAction(
 	}
 	if !found {
 		return nil, storeerr.ErrNotFound
+	}
+	if existing.IntegrationTargetID != integrationTargetID {
+		return nil, storeerr.ErrUnauthorized
 	}
 	if existing.State != executionstore.AgentInteractionStateOpen {
 		return map[string]any{

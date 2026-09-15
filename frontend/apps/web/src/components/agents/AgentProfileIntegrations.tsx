@@ -10,12 +10,15 @@ import { formatDateTime } from '@/lib/format'
 
 const providerLabels = new Map([['slack', 'Slack']])
 
-function providerLabel(provider: string) {
+function providerLabel(provider?: string) {
+  if (!provider) return 'External'
   return providerLabels.get(provider) ?? provider
 }
 
 function installName(install: IntegrationInstall) {
-  return install.provider_agent_display_name || install.provider_account_ref
+  if (install.display_name) return install.display_name
+  if (install.provider_account_ref) return install.provider_account_ref
+  return 'External connection'
 }
 
 export function AgentProfileIntegrations({

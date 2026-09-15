@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -611,9 +612,14 @@ func compilePoolMachineCounts(source AgentConfigMachineSource, index int) (int, 
 	return maxMachines, initialNumMachines, nil
 }
 
-// validateCustomInputSchema enforces the one constraint the source JSON
-// Schema cannot express: every required field must be declared in properties.
+// validateCustomInputSchema compiles the full execution schema without external
+// resource loading, then preserves the source contract's requirement that each
+// top-level required field be declared in properties. Source header validation
+// alone cannot establish that nested schemas or references are valid.
 func validateCustomInputSchema(raw json.RawMessage) error {
+	if err := jsonschema.ValidateSchema(raw); err != nil {
+		return err
+	}
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 		Required   []string                   `json:"required"`

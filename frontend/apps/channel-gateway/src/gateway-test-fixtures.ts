@@ -1,5 +1,5 @@
 import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
-import { type Adapter, Message, type MessageData, type StateAdapter } from 'chat'
+import { Message, type MessageData, type StateAdapter } from 'chat'
 import { vi } from 'vitest'
 
 import type { RuntimeHandle } from './app-registry'
@@ -39,7 +39,6 @@ export function testRuntimeHandle(overrides: Partial<RuntimeHandle> = {}): Runti
     runtime: {
       close: () => Promise.resolve(),
       handleWebhook: unexpectedTestCall,
-      send: unexpectedTestCall,
     },
     ...overrides,
   }
@@ -83,29 +82,6 @@ export function testMessage(overrides: Partial<MessageData> = {}): Message {
     threadId: 'test:thread-1',
     ...overrides,
   })
-}
-
-export function testAdapter(overrides: Partial<Adapter> = {}): Adapter {
-  return {
-    addReaction: unexpectedTestCall,
-    channelIdFromThreadId: () => 'test:channel-1',
-    decodeThreadId: unexpectedTestCall,
-    deleteMessage: unexpectedTestCall,
-    editMessage: unexpectedTestCall,
-    encodeThreadId: unexpectedTestCall,
-    fetchMessages: unexpectedTestCall,
-    fetchThread: unexpectedTestCall,
-    handleWebhook: unexpectedTestCall,
-    initialize: () => Promise.resolve(),
-    name: 'test',
-    parseMessage: unexpectedTestCall,
-    postMessage: unexpectedTestCall,
-    removeReaction: unexpectedTestCall,
-    renderFormatted: unexpectedTestCall,
-    startTyping: unexpectedTestCall,
-    userName: 'omnara-test',
-    ...overrides,
-  }
 }
 
 export function testStateAdapter(overrides: Partial<StateAdapter> = {}): StateAdapter {

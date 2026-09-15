@@ -79,8 +79,8 @@ WHERE id = $1`,
 					context.Background(),
 					integrationstore.UpsertIntegrationInstallInput{
 						OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-						InstalledByUserID: admin.ID, Provider: testChannelProvider,
-						IntegrationKind: "all_messages", ConnectionMode: "gateway",
+						InstalledBy: identitystore.NewUserPrincipal(admin.ID), Provider: testChannelProvider,
+						IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 						State:              test.installState,
 						ProviderTenantID:   "install-app-race-tenant",
 						ProviderAccountRef: "install-app-race-account",
@@ -92,7 +92,7 @@ WHERE id = $1`,
 				t,
 				ctx,
 				pool,
-				"INSERT INTO integration_installs",
+				"-- name: LockIntegrationAppForInstallation ",
 				mutationPID,
 			)
 			if _, err := appMutation.Exec(ctx, test.updateSQL, app.ID); err != nil {
@@ -309,28 +309,28 @@ func TestProjectDeletionSweepsIntegrationAppCreationThatStartedFirst(t *testing.
 	}
 }
 
-func TestNativeInstallCreationCannotRacePastProjectDeletion(t *testing.T) {
+func TestManagedInstallCreationCannotRacePastProjectDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	admin := createIntegrationProjectAdmin(t, ctx, store, "native-install-delete-first@example.com")
-	profile := createIntegrationTestProfile(t, ctx, store, "native-install-delete-first")
+	admin := createIntegrationProjectAdmin(t, ctx, store, "managed-install-delete-first@example.com")
+	profile := createIntegrationTestProfile(t, ctx, store, "managed-install-delete-first")
 	credentialID := createIntegrationCredential(
 		t,
 		ctx,
 		store,
 		testProjectID,
 		admin.ID,
-		"native-install-delete-first",
+		"managed-install-delete-first",
 	)
 	input := slackIntegrationInstallInput(
+		createSlackIntegrationApp(t, ctx, store, testProjectID, "managed-install-delete-first"),
 		profile.ID,
-		integrationstore.NilID,
 		admin.ID,
 		credentialID,
-		"native-install-delete-first",
+		"managed-install-delete-first",
 		"workspace-delete-first",
 	)
 
@@ -376,45 +376,45 @@ func TestNativeInstallCreationCannotRacePastProjectDeletion(t *testing.T) {
 	select {
 	case err := <-installDone:
 		if err == nil {
-			t.Fatal("native install committed after project deletion")
+			t.Fatal("managed install committed after project deletion")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("native install did not finish after project deletion")
+		t.Fatal("managed install did not finish after project deletion")
 	}
 	var apps, installs int
 	if err := pool.QueryRow(ctx, `
 SELECT (SELECT count(*) FROM integration_apps WHERE owner_project_id = $1),
        (SELECT count(*) FROM integration_installs WHERE project_id = $1)
 `, testProjectID).Scan(&apps, &installs); err != nil {
-		t.Fatalf("count native integration rows after project deletion race: %v", err)
+		t.Fatalf("count managed integration rows after project deletion race: %v", err)
 	}
-	if apps != 0 || installs != 0 {
-		t.Fatalf("native rows after project deletion race apps=%d installs=%d", apps, installs)
+	if apps != 1 || installs != 0 {
+		t.Fatalf("preexisting app metadata must survive but no installation may commit: apps=%d installs=%d", apps, installs)
 	}
 }
 
-func TestProjectDeletionSweepsNativeInstallCreationThatStartedFirst(t *testing.T) {
+func TestProjectDeletionSweepsManagedInstallCreationThatStartedFirst(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	admin := createIntegrationProjectAdmin(t, ctx, store, "native-install-create-first@example.com")
-	profile := createIntegrationTestProfile(t, ctx, store, "native-install-create-first")
+	admin := createIntegrationProjectAdmin(t, ctx, store, "managed-install-create-first@example.com")
+	profile := createIntegrationTestProfile(t, ctx, store, "managed-install-create-first")
 	credentialID := createIntegrationCredential(
 		t,
 		ctx,
 		store,
 		testProjectID,
 		admin.ID,
-		"native-install-create-first",
+		"managed-install-create-first",
 	)
 	input := slackIntegrationInstallInput(
+		createSlackIntegrationApp(t, ctx, store, testProjectID, "managed-install-create-first"),
 		profile.ID,
-		integrationstore.NilID,
 		admin.ID,
 		credentialID,
-		"native-install-create-first",
+		"managed-install-create-first",
 		"workspace-create-first",
 	)
 
@@ -433,7 +433,7 @@ func TestProjectDeletionSweepsNativeInstallCreationThatStartedFirst(t *testing.T
 		testOrgID,
 		credentialID,
 	); err != nil {
-		t.Fatalf("lock native integration credential: %v", err)
+		t.Fatalf("lock managed integration credential: %v", err)
 	}
 
 	type installResult struct {
@@ -478,26 +478,26 @@ func TestProjectDeletionSweepsNativeInstallCreationThatStartedFirst(t *testing.T
 		installPID,
 	)
 	if err := credentialBlocker.Commit(ctx); err != nil {
-		t.Fatalf("release native integration credential: %v", err)
+		t.Fatalf("release managed integration credential: %v", err)
 	}
 
 	var created integrationstore.IntegrationInstallRecord
 	select {
 	case result := <-installDone:
 		if result.err != nil {
-			t.Fatalf("create native install before project deletion: %v", result.err)
+			t.Fatalf("create managed install before project deletion: %v", result.err)
 		}
 		created = result.install
 	case <-time.After(5 * time.Second):
-		t.Fatal("native install did not finish after credential release")
+		t.Fatal("managed install did not finish after credential release")
 	}
 	select {
 	case err := <-deleteDone:
 		if err != nil {
-			t.Fatalf("delete project after native install creation: %v", err)
+			t.Fatalf("delete project after managed install creation: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("project deletion did not finish after native install creation")
+		t.Fatal("project deletion did not finish after managed install creation")
 	}
 	var installDeleted, appDeleted bool
 	if err := pool.QueryRow(ctx, `
@@ -506,11 +506,11 @@ FROM integration_installs install
 JOIN integration_apps app ON app.id = install.integration_app_id
 WHERE install.id = $1 AND app.id = $2
 `, created.ID, created.IntegrationAppID).Scan(&installDeleted, &appDeleted); err != nil {
-		t.Fatalf("load raced native integration rows: %v", err)
+		t.Fatalf("load raced managed integration rows: %v", err)
 	}
 	if !installDeleted || !appDeleted {
 		t.Fatalf(
-			"project deletion left native install/app active: install=%t app=%t",
+			"project deletion left managed install/app active: install=%t app=%t",
 			installDeleted,
 			appDeleted,
 		)

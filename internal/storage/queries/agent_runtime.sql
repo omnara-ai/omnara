@@ -3,11 +3,11 @@
 -- Display-only model names must still resolve after the model or provider config is soft deleted.
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, created_at, updated_at
     )
     SELECT
-        sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
+        coalesce(sqlc.narg(id)::uuid, uuidv7()), sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
@@ -135,7 +135,6 @@ SELECT agent.id,
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
- AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
 LEFT JOIN integration_installs install
@@ -205,7 +204,6 @@ SELECT agent.id,
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
- AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
 LEFT JOIN integration_installs install
@@ -259,7 +257,6 @@ SELECT agent.id,
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
- AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
 LEFT JOIN integration_installs install

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -28,9 +29,11 @@ type LaunchAgentInput struct {
 	// MessageActor attributes the initial Message input. When nil, the actor
 	// is derived from LaunchedBy, which must then be a user or org API key
 	// principal.
-	MessageActor   *ActorParams
-	IdempotencyKey string
+	ChannelBindings []LaunchChannelBinding
+	MessageActor    *ActorParams
+	IdempotencyKey  string
 
+	preparedAgentID      ID
 	integrationInstallID ID
 	runtimeLease         *IntegrationRuntimeLeaseProof
 }
@@ -91,6 +94,26 @@ func (s *Store) launchAgentOnce(
 		return LaunchAgentResult{}, fmt.Errorf("begin launch agent: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := s.launchAgentTx(ctx, tx, txNotifications, project, input)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "launch agent"); err != nil {
+		return LaunchAgentResult{}, err
+	}
+	return result, nil
+}
+
+// launchAgentTx composes admission, configuration, machines, and initial input
+// under one caller-owned transaction. Channel workflows use this same unit of
+// work before binding their conversation and committing the incoming event.
+func (s *Store) launchAgentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	txNotifications *notifications.TxNotifications,
+	project identitystore.ProjectRecord,
+	input LaunchAgentInput,
+) (LaunchAgentResult, error) {
 	qtx := s.q.WithTx(tx)
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
@@ -125,10 +148,11 @@ func (s *Store) launchAgentOnce(
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
-			return LaunchAgentResult{}, err
-		}
 		return result, nil
+	}
+	channelBindings, err := s.prepareLaunchChannelBindingsTx(ctx, tx, input)
+	if err != nil {
+		return LaunchAgentResult{}, err
 	}
 	if err := dbsafe.Text(input.Message); err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
@@ -154,6 +178,7 @@ func (s *Store) launchAgentOnce(
 		return LaunchAgentResult{}, err
 	}
 	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
+		ID:              input.preparedAgentID,
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  input.ProfileID,
@@ -165,10 +190,13 @@ func (s *Store) launchAgentOnce(
 		return LaunchAgentResult{}, err
 	}
 	if !inserted {
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
+		return LaunchAgentResult{Agent: agent}, nil
+	}
+	for _, binding := range channelBindings {
+		binding.AgentID = agent.ID
+		if _, err := s.integrations.CreateIntegrationTargetBindingTx(ctx, tx, binding); err != nil {
 			return LaunchAgentResult{}, err
 		}
-		return LaunchAgentResult{Agent: agent}, nil
 	}
 	result := LaunchAgentResult{
 		Agent:       agent,
@@ -305,9 +333,6 @@ func (s *Store) launchAgentOnce(
 		); err != nil {
 			return LaunchAgentResult{}, fmt.Errorf("mark launch agent wakeup: %w", err)
 		}
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "launch agent"); err != nil {
-		return LaunchAgentResult{}, err
 	}
 	return result, nil
 }

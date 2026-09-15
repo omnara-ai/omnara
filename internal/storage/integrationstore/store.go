@@ -25,7 +25,6 @@ type InstallBinding struct {
 	OrgID          ID
 	ProjectID      ID
 	AgentProfileID ID
-	AgentID        ID
 }
 
 type Access interface {
@@ -117,8 +116,6 @@ func isIntegrationJSONBoundsViolation(err error) bool {
 		"integration_routes_configuration_bytes_check",
 		"integration_targets_channel_payload_bounds_check",
 		"integration_target_bindings_metadata_bytes_check",
-		"integration_deliveries_payload_bytes_check",
-		"integration_deliveries_last_error_bytes_check",
 		"integration_runtime_units_configuration_bytes_check",
 		"integration_runtime_units_checkpoint_bytes_check",
 		"integration_runtime_units_last_error_bytes_check":
@@ -126,4 +123,18 @@ func isIntegrationJSONBoundsViolation(err error) bool {
 	default:
 		return false
 	}
+}
+
+func stringFromPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func validateRowLimit(limit int) error {
+	if limit <= 0 || limit > 1000 {
+		return errors.New("row limit must be between 1 and 1000")
+	}
+	return nil
 }

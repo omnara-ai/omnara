@@ -58,26 +58,34 @@ const (
 )
 
 type CreateIntegrationRouteInput struct {
+	AgentProfileID       ID
 	ProjectID            ID
 	IntegrationInstallID ID
 	DeploymentKey        string
-	HandlerKey           string
-	HandlerVersion       int
+	BehaviorKey          string
 	Configuration        json.RawMessage
 	State                IntegrationRouteState
 }
 
 type IntegrationRouteRecord struct {
+	AgentProfileID       ID                    `json:"agent_profile_id,omitempty"`
 	ID                   ID                    `json:"id"`
 	ProjectID            ID                    `json:"project_id"`
 	IntegrationInstallID ID                    `json:"integration_install_id"`
 	DeploymentKey        string                `json:"deployment_key"`
-	HandlerKey           string                `json:"handler_key"`
-	HandlerVersion       int                   `json:"handler_version"`
+	BehaviorKey          string                `json:"behavior_key"`
 	Configuration        json.RawMessage       `json:"configuration"`
 	State                IntegrationRouteState `json:"state"`
 	CreatedAt            time.Time             `json:"created_at"`
 	UpdatedAt            time.Time             `json:"updated_at"`
+}
+
+// ChannelGrants is one explicit, nonempty receive/read/send permission tuple.
+// It grants no authority to create further reply-channel bindings.
+type ChannelGrants struct {
+	ReceiveAllowed bool `json:"receive_allowed"`
+	ReadAllowed    bool `json:"read_allowed"`
+	SendAllowed    bool `json:"send_allowed"`
 }
 
 type CreateIntegrationTargetBindingInput struct {
@@ -87,7 +95,9 @@ type CreateIntegrationTargetBindingInput struct {
 	IntegrationTargetID  ID
 	IntegrationRouteID   ID
 	ReceiveAllowed       bool
+	ReadAllowed          bool
 	SendAllowed          bool
+	ReplyChannelGrants   *ChannelGrants
 	Source               string
 	Metadata             json.RawMessage
 }
@@ -100,24 +110,24 @@ type IntegrationTargetBindingRecord struct {
 	IntegrationTargetID  ID              `json:"integration_target_id"`
 	IntegrationRouteID   ID              `json:"integration_route_id,omitempty"`
 	ReceiveAllowed       bool            `json:"receive_allowed"`
+	ReadAllowed          bool            `json:"read_allowed"`
 	SendAllowed          bool            `json:"send_allowed"`
+	ReplyChannelGrants   *ChannelGrants  `json:"reply_channel_grants,omitempty"`
 	Source               string          `json:"source"`
 	Metadata             json.RawMessage `json:"metadata"`
 	CreatedAt            time.Time       `json:"created_at"`
 	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
-type IntegrationInputOrigin struct {
-	TargetID  ID
-	BindingID ID
-}
-
 type AgentChannelToolEligibility struct {
 	List bool
+	Read bool
 	Send bool
 }
 
 type AgentChannelTarget struct {
+	IntegrationKind      IntegrationKind         `json:"integration_kind"`
+	ParentChannelID      ID                      `json:"parent_channel_id,omitempty"`
 	ID                   ID                      `json:"id"`
 	IntegrationInstallID ID                      `json:"integration_install_id"`
 	TargetRef            string                  `json:"target_ref"`
@@ -129,6 +139,7 @@ type AgentChannelTarget struct {
 	ConnectorKey         string                  `json:"connector_key"`
 	AppState             IntegrationAppState     `json:"app_state"`
 	ReceiveAllowed       bool                    `json:"receive_allowed"`
+	ReadAllowed          bool                    `json:"read_allowed"`
 	SendAllowed          bool                    `json:"send_allowed"`
 	CreatedAt            time.Time               `json:"-"`
 }
@@ -139,116 +150,14 @@ type AgentChannelTargetCursor struct {
 }
 
 type ListAgentChannelTargetsInput struct {
-	Limit int
-	After *AgentChannelTargetCursor
+	ParentChannelID ID
+	Limit           int
+	After           *AgentChannelTargetCursor
 }
 
 type AgentChannelTargetPage struct {
 	Targets []AgentChannelTarget
 	Next    *AgentChannelTargetCursor
-}
-
-type IntegrationDeliveryState string
-
-const (
-	IntegrationDeliveryStatePending   IntegrationDeliveryState = "pending"
-	IntegrationDeliveryStateClaimed   IntegrationDeliveryState = "claimed"
-	IntegrationDeliveryStateRetryWait IntegrationDeliveryState = "retry_wait"
-	IntegrationDeliveryStateDelivered IntegrationDeliveryState = "delivered"
-	IntegrationDeliveryStateFailed    IntegrationDeliveryState = "failed"
-	IntegrationDeliveryStateUnknown   IntegrationDeliveryState = "unknown"
-	IntegrationDeliveryStateCanceled  IntegrationDeliveryState = "canceled"
-
-	MaxProviderMessageRefBytes = 2048
-)
-
-type IntegrationDeliveryTransport string
-
-const (
-	IntegrationDeliveryTransportConnector IntegrationDeliveryTransport = "connector"
-	IntegrationDeliveryTransportNative    IntegrationDeliveryTransport = "native"
-)
-
-type CreateIntegrationDeliveryInput struct {
-	ProjectID                  ID
-	AgentID                    ID
-	IntegrationTargetBindingID ID
-	Transport                  IntegrationDeliveryTransport
-	DeliveryKind               string
-	PayloadVersion             string
-	Payload                    json.RawMessage
-	IdempotencyScope           string
-	IdempotencyKey             string
-	NotifyRef                  ID
-}
-
-type IntegrationDeliveryRecord struct {
-	ID                           ID                           `json:"id"`
-	ProjectID                    ID                           `json:"project_id"`
-	AgentID                      ID                           `json:"agent_id"`
-	IntegrationAppID             ID                           `json:"integration_app_id"`
-	IntegrationInstallID         ID                           `json:"integration_install_id"`
-	IntegrationTargetID          ID                           `json:"integration_target_id"`
-	IntegrationTargetBindingID   ID                           `json:"integration_target_binding_id"`
-	Provider                     string                       `json:"provider"`
-	ConnectorKey                 string                       `json:"connector_key"`
-	Transport                    IntegrationDeliveryTransport `json:"transport"`
-	DeliveryKind                 string                       `json:"delivery_kind"`
-	PayloadVersion               string                       `json:"payload_version"`
-	Payload                      json.RawMessage              `json:"payload"`
-	IdempotencyScope             string                       `json:"idempotency_scope"`
-	IdempotencyKey               string                       `json:"idempotency_key"`
-	State                        IntegrationDeliveryState     `json:"state"`
-	AttemptCount                 int                          `json:"attempt_count"`
-	AvailableAt                  time.Time                    `json:"available_at"`
-	ClaimToken                   ID                           `json:"claim_token,omitempty"`
-	ClaimGeneration              int64                        `json:"claim_generation"`
-	ClaimedBy                    string                       `json:"claimed_by,omitempty"`
-	ClaimedAt                    *time.Time                   `json:"claimed_at,omitempty"`
-	ClaimExpiresAt               *time.Time                   `json:"claim_expires_at,omitempty"`
-	NotifyRef                    ID                           `json:"notify_ref,omitempty"`
-	ProviderMessageRef           string                       `json:"provider_message_ref,omitempty"`
-	LastError                    json.RawMessage              `json:"last_error"`
-	CompletedAt                  *time.Time                   `json:"completed_at,omitempty"`
-	CreatedAt                    time.Time                    `json:"created_at"`
-	UpdatedAt                    time.Time                    `json:"updated_at"`
-	AppConfigurationRevision     int64                        `json:"app_configuration_revision,omitempty"`
-	InstallConfigurationRevision int64                        `json:"install_configuration_revision,omitempty"`
-	Created                      bool                         `json:"-"`
-}
-
-type ClaimIntegrationDeliveriesInput struct {
-	ClaimedBy     string
-	LeaseDuration time.Duration
-	Capability    channelconnector.Capability
-	Limit         int
-}
-
-// MaxIntegrationDeliveryClaims is a final safety backstop for a connector that
-// repeatedly reports that no provider I/O began and another attempt is safe.
-// Provider adapters should use a much lower bound for actual network sends.
-const MaxIntegrationDeliveryClaims = 64
-
-type CompleteIntegrationDeliveryInput struct {
-	ID                 ID
-	ClaimToken         ID
-	ClaimGeneration    int64
-	State              IntegrationDeliveryState
-	RetryAfter         time.Duration
-	ProviderMessageRef string
-	LastError          json.RawMessage
-	Capabilities       []channelconnector.Capability
-}
-
-type IntegrationDeliveryUpdate struct {
-	ID        ID
-	ProjectID ID
-	NotifyRef ID
-}
-
-type DeleteRetainedIntegrationDeliveriesInput struct {
-	Retention time.Duration
-	Limit     int
 }
 
 type IntegrationRuntimeDesiredState string

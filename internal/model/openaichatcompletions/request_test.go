@@ -152,10 +152,7 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 			AvailableMachinePools: []modelcontext.MachinePoolRef{{
 				MachinePoolName: "Build Pool",
 			}},
-			IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-				TargetRef: "slack-abcd",
-				Provider:  "slack",
-			}},
+			CurrentChannelID: "itgt_aaaaaaaaaaaaaaaaaaaaaaaaae",
 		},
 		Policy: model.RequestPolicy{MaxOutputTokens: 64},
 	})
@@ -163,7 +160,7 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 		t.Fatalf("prepare without tools: %v", err)
 	}
 	if strings.Contains(string(withoutTools.Body), "Build Pool") ||
-		strings.Contains(string(withoutTools.Body), "slack-abcd") {
+		strings.Contains(string(withoutTools.Body), "Current channel:") {
 		t.Fatalf("runtime resource context leaked without usable tools: %s", withoutTools.Body)
 	}
 
@@ -172,7 +169,7 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 			SystemPrompt: "sys",
 			ToolSpecs: []modelcontext.ToolSpec{
 				{Name: toolcatalog.ToolNameCreateMachine},
-				{Name: toolcatalog.ToolNameSendIntegrationMessage},
+				{Name: toolcatalog.ToolNameSetCurrentChannel},
 			},
 		},
 		Policy: model.RequestPolicy{MaxOutputTokens: 64},
@@ -182,7 +179,7 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 	}
 	body := string(withTools.Body)
 	if !strings.Contains(body, "no machine pools are currently available") ||
-		!strings.Contains(body, "No external integration targets are currently available") {
+		!strings.Contains(body, "Current channel: none.") {
 		t.Fatalf("missing empty resource context for enabled tools: %s", body)
 	}
 }
@@ -1136,7 +1133,7 @@ func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *tes
 		}},
 		ToolSpecs: []modelcontext.ToolSpec{
 			{Name: toolcatalog.ToolNameCreateMachine},
-			{Name: toolcatalog.ToolNameSendIntegrationMessage},
+			{Name: toolcatalog.ToolNameSetCurrentChannel},
 		},
 	}})
 	if err != nil {

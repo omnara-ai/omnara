@@ -1,6 +1,7 @@
 import type { ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
 
-import { type CoreClient, isCoreNotFoundError } from './core-client'
+import type { CoreClient } from './core-client'
+import { isCoreNotFoundError } from './core-http'
 import { ProviderDeliveryError } from './types'
 
 interface CachedInstallation {
@@ -482,7 +483,7 @@ function externalKey(appId: string, tenantId: string, accountRef: string): strin
 function externalKeyFor(configuration: ChannelConnectorInstallationConfiguration): string {
   return externalKey(
     configuration.integration_app_id,
-    configuration.install.provider_tenant_id,
+    configuration.install.provider_tenant_id ?? '',
     configuration.install.provider_account_ref,
   )
 }

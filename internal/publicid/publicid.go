@@ -26,7 +26,9 @@ const (
 	KindIntegrationRoute        Kind = "integration_route"
 	KindIntegrationTarget       Kind = "integration_target"
 	KindIntegrationBinding      Kind = "integration_binding"
-	KindIntegrationDelivery     Kind = "integration_delivery"
+	KindIntegrationEventReceipt Kind = "integration_event_receipt"
+	KindChannelDefinition       Kind = "channel_definition"
+	KindExternalChannelRequest  Kind = "external_channel_request"
 	KindIntegrationRuntimeUnit  Kind = "integration_runtime_unit"
 	KindAgentEvent              Kind = "agent_event"
 	KindAgentInput              Kind = "agent_input"
@@ -76,7 +78,9 @@ var kindPrefixes = map[Kind]string{
 	KindIntegrationRoute:        "iroute",
 	KindIntegrationTarget:       "itgt",
 	KindIntegrationBinding:      "ibnd",
-	KindIntegrationDelivery:     "idel",
+	KindIntegrationEventReceipt: "irec",
+	KindChannelDefinition:       "cdef",
+	KindExternalChannelRequest:  "creq",
 	KindIntegrationRuntimeUnit:  "irun",
 	KindAgentEvent:              "evt",
 	KindAgentInput:              "ain",

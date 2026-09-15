@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -163,14 +162,6 @@ func publicInteractionResolution(
 		return interactionform.Resolution{}, err
 	}
 	return normalized, nil
-}
-
-func marshalJSON(value any) (json.RawMessage, error) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
 }
 
 func agentInteractionResponseFromRecord(

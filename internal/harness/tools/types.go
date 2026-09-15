@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/mcp"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -36,6 +36,12 @@ type SkillStore interface {
 	) (skillstore.SkillRecord, error)
 }
 
+// ChannelOperationsClient executes one bounded managed operation. Implementations
+// must honor the caller's deadline and must not retry HTTP mutations in core.
+type ChannelOperationsClient interface {
+	Execute(context.Context, channelconnector.OperationRequest) (channelconnector.OperationResult, error)
+}
+
 type Turn struct {
 	OrgID              storage.ID
 	ProjectID          storage.ID
@@ -44,7 +50,6 @@ type Turn struct {
 	SourceEventID      storage.ID
 	RuntimeLockID      storage.ID
 	ModelCallContextID storage.ID
-	OpeningInputIDs    []storage.ID
 	Tools              map[string]ToolSpec
 }
 
@@ -58,8 +63,7 @@ type Executor struct {
 	Store                    *storage.Store
 	Skills                   SkillStore
 	MCP                      mcp.Client
-	IntegrationHTTPClient    *http.Client
-	IntegrationDeliveries    notifications.IntegrationDeliverySubscriber
+	ChannelOperations        ChannelOperationsClient
 	MCPAuthHTTPClient        *http.Client
 	SigV4CredentialCache     *sigv4.CredentialCache
 	WebSearch                webaccess.SearchProvider

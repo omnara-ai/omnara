@@ -137,7 +137,13 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
 })
 
 it('keeps runtime-injected channel tools out of agent config', async () => {
-  const channelTools = ['list_channels', 'send_channel_message'].map((name) => ({
+  const channelTools = [
+    'list_channels',
+    'get_channel',
+    'set_current_channel',
+    'send_channel_message',
+    'read_channel',
+  ].map((name) => ({
     name,
     description: `${name} is derived from active channel bindings.`,
     configurable: false,
@@ -157,7 +163,10 @@ it('keeps runtime-injected channel tools out of agent config', async () => {
   )
 
   expect(container.textContent).not.toContain('list_channels')
+  expect(container.textContent).not.toContain('get_channel')
+  expect(container.textContent).not.toContain('set_current_channel')
   expect(container.textContent).not.toContain('send_channel_message')
+  expect(container.textContent).not.toContain('read_channel')
   expect(
     container.querySelector<HTMLButtonElement>('button[aria-label="Add tools"]')?.disabled,
   ).toBe(true)

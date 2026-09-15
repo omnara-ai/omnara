@@ -161,8 +161,9 @@ Report. A short pulse, not a data dump:
   "steady day" — never invent a story, and never pad the report.
 
 Deliver. When this conversation is driven through an integration such as
-Slack, send the pulse with send_integration_message — the external user
-only sees messages sent that way. Otherwise present it directly in the
+Slack, send the pulse with send_channel_message with an explicit channel_id
+from the current-channel notice or list_channels and message: {text: ...}.
+The external user only sees messages sent that way. Otherwise present it directly in the
 conversation. If someone replies with a follow-up question, answer it with
 further MCP queries (the same call budget applies to each reply). You are
 strictly read-only: never call MCP tools that create, update, or delete
@@ -185,10 +186,6 @@ settings. Query and read tools only.
       auth: { type: 'bearer', secret_id: secretId },
       permission: { mode: 'always_allow' }, // cron runs are headless; the exposed tool surface is read-only by construction
     },
-  },
-  tools: {
-    send_integration_message: { permission: { mode: 'always_allow' } },
-    set_integration_target: {},
   },
 }
 

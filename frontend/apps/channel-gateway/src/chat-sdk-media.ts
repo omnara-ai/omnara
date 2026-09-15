@@ -1,6 +1,7 @@
 import type { CreateAgentInputContentBlock } from '@omnara/sdk'
 import type { Attachment, Message } from 'chat'
 
+import { raceWithAbort } from './async'
 import type { ProviderWebhookContext, ProviderWorkReservation } from './types'
 
 const supportedMediaTypes = new Set([
@@ -170,7 +171,7 @@ async function attachmentBytes(
     }
     const timeoutSignal = AbortSignal.timeout(options.fetchTimeoutMs ?? defaultMediaFetchTimeoutMs)
     const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal
-    const data = await raceWithAbortReason(
+    const data = await raceWithAbort(
       options.fetchAttachmentData(attachment, { maxBytes, signal }),
       signal,
     )
@@ -201,7 +202,7 @@ export async function fetchBoundedMedia(
   let completed = false
   try {
     while (true) {
-      const result = await raceWithAbortReason(reader.read(), context.signal)
+      const result = await raceWithAbort(reader.read(), context.signal)
       if (result.done) {
         completed = true
         return Buffer.concat(chunks, size)
@@ -224,30 +225,6 @@ export async function fetchBoundedMedia(
         .catch(() => undefined)
     }
   }
-}
-
-function raceWithAbortReason<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(abortError(signal))
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      reject(abortError(signal))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    void work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (cause: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(cause instanceof Error ? cause : new Error(String(cause)))
-      },
-    )
-  })
-}
-
-function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error('channel media read aborted')
 }
 
 function normalizedAttachmentFilename(name: string | undefined): string | undefined {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -478,21 +479,22 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	admin, agent, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-reinstall")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID:            testProjectID,
 			IntegrationInstallID: install.ID, DeploymentKey: "runtime-reinstall",
-			HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			BehaviorKey: testChannelHandler, State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create integration route: %v", err)
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "runtime-reinstall-thread",
 			ProviderRefKind: "thread",
 		},
@@ -584,12 +586,12 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "lifecycle_test",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
+			Provider:    testChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
 			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID:         install.ProviderTenantID,
-			ProviderAccountRef:       install.ProviderAccountRef,
-			ProviderAgentDisplayName: "runtime-reinstall",
+			ProviderTenantID:   install.ProviderTenantID,
+			ProviderAccountRef: install.ProviderAccountRef,
+			DisplayName:        "runtime-reinstall",
 		},
 	)
 	if err != nil {

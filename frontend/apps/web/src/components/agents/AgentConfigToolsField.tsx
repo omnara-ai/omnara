@@ -28,7 +28,7 @@ export interface BasicTool {
   permission: PermissionSelection | null
 }
 
-const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
+const hiddenToolNames = new Set(['skill'])
 const toolDescriptions = new Map([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['write_process', 'Send input to a command that is still running.'],

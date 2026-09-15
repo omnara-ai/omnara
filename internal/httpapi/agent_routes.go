@@ -391,7 +391,7 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+	if err := s.server.validateChannelSetupModel(ctx, profile.CurrentConfig); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -507,7 +507,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+	if err := s.server.validateChannelSetupModel(ctx, profile.CurrentConfig); err != nil {
 		return nil, err
 	}
 	appIcon, err := slackSetupAppIcon(*request.Body)
@@ -798,14 +798,19 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
+	channelBindings, err := s.authorizeLaunchChannels(ctx, project, principal, request.Body.ChannelBindings)
+	if err != nil {
+		return nil, err
+	}
 	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:      project.ID,
-		ProfileID:      profileID,
-		AgentConfigID:  configID,
-		LaunchedBy:     principal,
-		Name:           request.Body.Name,
-		Message:        message,
-		IdempotencyKey: idempotencyKey,
+		ChannelBindings: channelBindings,
+		ProjectID:       project.ID,
+		ProfileID:       profileID,
+		AgentConfigID:   configID,
+		LaunchedBy:      principal,
+		Name:            request.Body.Name,
+		Message:         message,
+		IdempotencyKey:  idempotencyKey,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

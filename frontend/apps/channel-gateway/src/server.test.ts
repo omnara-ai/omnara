@@ -1,7 +1,7 @@
 import { ApiError } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
-import { messageContentBlocks } from './chat-sdk-runtime'
+import { messageContentBlocks } from './chat-sdk-media'
 import { testMessage } from './gateway-test-fixtures'
 import {
   deferred,

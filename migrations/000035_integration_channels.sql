@@ -20,23 +20,35 @@ ALTER TABLE actors
         AND octet_length(metadata::text) <= 262144
     );
 
+-- Connections share project ownership while retaining honest physical identity.
+-- Profile ownership is converted to configured behavior before its columns are
+-- removed below. Kind identifies authority, not provider behavior.
+ALTER TABLE integration_installs RENAME COLUMN provider_agent_display_name TO display_name;
+ALTER TABLE integration_installs RENAME COLUMN provider_metadata TO metadata;
+ALTER TABLE integration_installs
+    ALTER COLUMN provider DROP NOT NULL,
+    ALTER COLUMN provider_tenant_id DROP NOT NULL,
+    ALTER COLUMN provider_account_ref DROP NOT NULL;
+UPDATE integration_installs SET integration_kind = 'managed';
+DROP INDEX integration_installs_provider_tenant_account_idx;
+
 ALTER TABLE integration_installs
     DROP CONSTRAINT integration_installs_provider_check,
     DROP CONSTRAINT integration_installs_provider_tenant_id_check,
     DROP CONSTRAINT integration_installs_check,
     ADD CONSTRAINT integration_installs_provider_check
         CHECK (provider ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
-    ADD CONSTRAINT integration_installs_destination_check
-        CHECK (agent_profile_id IS NULL OR agent_id IS NULL),
+    ADD CONSTRAINT integration_installs_tenant_shape_check
+        CHECK (provider_tenant_id IS NULL OR provider_tenant_id <> ''),
     ADD CONSTRAINT integration_installs_channel_payload_bounds_check CHECK (
         octet_length(integration_kind) <= 128
         AND octet_length(connection_mode) <= 128
         AND octet_length(provider_tenant_id) <= 512
         AND octet_length(provider_account_ref) <= 512
-        AND octet_length(provider_agent_display_name) <= 512
+        AND octet_length(display_name) <= 512
         AND octet_length(provider_config::text) <= 262144
         AND octet_length(provider_identity::text) <= 262144
-        AND octet_length(provider_metadata::text) <= 262144
+        AND octet_length(metadata::text) <= 262144
     ),
     ADD COLUMN integration_app_id uuid,
     ADD COLUMN configuration_revision bigint NOT NULL DEFAULT 1,
@@ -45,8 +57,24 @@ ALTER TABLE integration_installs
     ADD CONSTRAINT integration_installs_project_id_id_app_key
         UNIQUE (project_id, id, integration_app_id);
 
+-- Installation attribution is an account subject, not necessarily a human.
+-- Existing user references remain unchanged; API keys use the same exclusive
+-- principal shape as organization memberships and belong to this organization.
+ALTER TABLE integration_installs
+    ALTER COLUMN installed_by_user_id DROP NOT NULL,
+    ADD COLUMN installed_by_org_api_key_id uuid,
+    ADD CONSTRAINT integration_installs_installer_check
+        CHECK (num_nonnulls(installed_by_user_id, installed_by_org_api_key_id) = 1),
+    ADD CONSTRAINT integration_installs_installer_org_api_key_fkey
+        FOREIGN KEY (org_id, installed_by_org_api_key_id)
+        REFERENCES org_api_keys(org_id, id);
+
+CREATE INDEX integration_installs_installer_org_api_key_idx
+    ON integration_installs(org_id, installed_by_org_api_key_id)
+    WHERE installed_by_org_api_key_id IS NOT NULL;
+
 ALTER TABLE integration_targets
-    ALTER COLUMN agent_id DROP NOT NULL,
+    ADD COLUMN parent_channel_id uuid,
     ADD CONSTRAINT integration_targets_channel_payload_bounds_check CHECK (
         octet_length(target_ref) <= 2048
         AND octet_length(provider_ref) <= 2048
@@ -60,11 +88,44 @@ ALTER TABLE integration_targets
     ADD CONSTRAINT integration_targets_project_id_id_created_at_key
         UNIQUE (project_id, id, created_at);
 
--- Connector targets have no agent projection, so NULL must participate in the
--- target-ref identity that the target creator retries on collision.
-DROP INDEX integration_targets_agent_target_ref_idx;
-CREATE UNIQUE INDEX integration_targets_agent_target_ref_idx
-    ON integration_targets(project_id, agent_id, target_ref) NULLS NOT DISTINCT;
+-- The current destination is routing state, not ownership or an access grant.
+ALTER TABLE agents
+    DROP CONSTRAINT agents_project_id_id_integration_target_id_fkey,
+    ADD CONSTRAINT agents_integration_target_fkey
+        FOREIGN KEY (project_id, integration_target_id)
+        REFERENCES integration_targets(project_id, id);
+
+-- Capture the destination once when a prompt is created, including NULL for UI
+-- only. Subsequent inputs and setter calls cannot relocate that prompt.
+ALTER TABLE agent_interactions
+    ADD COLUMN integration_target_id uuid REFERENCES integration_targets(id);
+
+CREATE OR REPLACE VIEW agent_interaction_read_projection AS
+SELECT interaction.id,
+       tool_call.project_id,
+       interaction.agent_id,
+       tool_call.turn_id,
+       tool_call.model_call_context_id,
+       interaction.tool_call_id,
+       tool_call.provider_call_id,
+       interaction.interaction_kind,
+       interaction.state,
+       interaction.request,
+       interaction.resolution,
+       interaction.resolved_by_input_id,
+       interaction.created_at,
+       interaction.resolved_at,
+       interaction.integration_target_id
+FROM agent_interactions interaction
+JOIN tool_call_read_projection tool_call ON tool_call.agent_id = interaction.agent_id
+  AND tool_call.id = interaction.tool_call_id;
+
+-- Parentage records containment only; permissions always come from direct bindings.
+ALTER TABLE integration_targets
+    ADD CONSTRAINT integration_targets_parent_fkey
+        FOREIGN KEY (project_id, integration_install_id, parent_channel_id)
+        REFERENCES integration_targets(project_id, integration_install_id, id),
+    ADD CONSTRAINT integration_targets_not_own_parent CHECK (parent_channel_id <> id);
 
 ALTER TABLE agent_inputs
     ADD COLUMN integration_target_binding_id uuid;
@@ -268,7 +329,7 @@ CREATE TRIGGER integration_apps_advance_configuration_revision
 -- Identity columns across the integration schema are write-once provenance.
 -- Column-specific triggers keep normal lifecycle updates off this function.
 -- +goose StatementBegin
-CREATE FUNCTION reject_immutable_integration_column_update()
+CREATE FUNCTION reject_immutable_column_update()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -284,7 +345,13 @@ CREATE TRIGGER integration_apps_identity_immutable
         connector_key, installation_credential_kind, created_at
     ON integration_apps
     FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
+
+CREATE TRIGGER agent_interactions_destination_immutable
+    BEFORE UPDATE OF integration_target_id ON agent_interactions
+    FOR EACH ROW
+    WHEN (OLD.integration_target_id IS DISTINCT FROM NEW.integration_target_id)
+    EXECUTE FUNCTION reject_immutable_column_update();
 
 -- Old binaries already retire installations, but know nothing about app
 -- registrations. This trigger fences project-owned compatibility apps when an
@@ -317,76 +384,6 @@ CREATE TRIGGER projects_retire_integration_apps
     FOR EACH ROW
     EXECUTE FUNCTION integration_project_retire_apps_on_delete();
 
--- Old API instances and the native Slack path omit integration_app_id while
--- completing OAuth. Keep this compatibility trigger until native Slack moves
--- to explicit app registration.
--- +goose StatementBegin
-CREATE FUNCTION integration_install_fill_compatibility_app()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    app_id uuid;
-BEGIN
-    IF NEW.integration_app_id IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-    IF NEW.provider <> 'slack' THEN
-        RAISE EXCEPTION 'integration app is required for connector installations'
-            USING ERRCODE = '23514';
-    END IF;
-
-    -- Old API binaries do not know about integration_apps or the shared side
-    -- of the scope lifecycle protocol. Acquire organization then project gates
-    -- before creating the compatibility app. The project row lock also
-    -- serializes with binaries that do not use advisory locks at all.
-    PERFORM pg_advisory_xact_lock_shared(hashtextextended('organization_lifecycle:' || NEW.org_id::text, 0));
-    PERFORM pg_advisory_xact_lock_shared(hashtextextended('project_lifecycle:' || NEW.project_id::text, 0));
-    PERFORM 1
-    FROM projects project
-    JOIN orgs organization ON organization.id = project.org_id
-    WHERE project.org_id = NEW.org_id
-      AND project.id = NEW.project_id
-      AND project.deleted_at IS NULL
-      AND organization.deleted_at IS NULL
-    FOR SHARE OF project, organization;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'integration installation requires an active project'
-            USING ERRCODE = '23503';
-    END IF;
-
-    SELECT app.id INTO app_id
-    FROM integration_apps app
-    WHERE app.org_id = NEW.org_id
-      AND app.owner_project_id = NEW.project_id
-      AND app.provider = NEW.provider
-      AND app.provider_app_ref = NEW.provider_account_ref
-      AND app.deleted_at IS NULL;
-
-    IF app_id IS NULL THEN
-        INSERT INTO integration_apps(
-            org_id, owner_project_id, provider, provider_app_ref, display_name,
-            connector_key, installation_credential_kind, state, created_at, updated_at
-        ) VALUES (
-            NEW.org_id, NEW.project_id, NEW.provider, NEW.provider_account_ref,
-            NEW.provider_agent_display_name,
-            'native_slack_v1',
-            'slack_app_credentials',
-            'active',
-            transaction_timestamp(), transaction_timestamp()
-        )
-        ON CONFLICT (owner_project_id, provider, provider_app_ref)
-            WHERE owner_project_id IS NOT NULL AND deleted_at IS NULL
-        DO UPDATE SET updated_at = statement_timestamp()
-        RETURNING id INTO app_id;
-    END IF;
-
-    NEW.integration_app_id := app_id;
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-
 -- An organization-shared app may be installed by any project in its
 -- organization; a restricted app may only be installed by its owner project.
 -- +goose StatementBegin
@@ -397,6 +394,9 @@ AS $$
 DECLARE
     app integration_apps%ROWTYPE;
 BEGIN
+    IF NEW.integration_kind = 'external' THEN
+        RETURN NEW; -- The connection-shape CHECK prohibits all managed fields.
+    END IF;
     SELECT candidate.* INTO app
     FROM integration_apps candidate
     WHERE candidate.org_id = NEW.org_id
@@ -409,15 +409,6 @@ BEGIN
     IF app.provider <> NEW.provider
        OR (app.owner_project_id IS NOT NULL AND app.owner_project_id <> NEW.project_id) THEN
         RAISE EXCEPTION 'integration app is outside the installation scope'
-            USING ERRCODE = '23514';
-    END IF;
-    IF app.connector_key LIKE 'native\_%' ESCAPE '\' THEN
-        IF (NEW.agent_profile_id IS NULL) = (NEW.agent_id IS NULL) THEN
-            RAISE EXCEPTION 'native integration installation requires exactly one destination'
-                USING ERRCODE = '23514';
-        END IF;
-    ELSIF NEW.agent_profile_id IS NOT NULL OR NEW.agent_id IS NOT NULL THEN
-        RAISE EXCEPTION 'connector integration installation cannot own an agent destination'
             USING ERRCODE = '23514';
     END IF;
     IF NEW.deleted_at IS NULL AND app.deleted_at IS NOT NULL THEN
@@ -455,28 +446,27 @@ $$;
 -- +goose StatementEnd
 
 -- A route is one configured inbound behavior implementation. It never owns an
--- agent or profile; matching, attachment, launching, and intentional fanout
--- belong to the registered, versioned handler.
+-- agent; the optional profile authorizes launches by this configured behavior.
 CREATE TABLE integration_routes (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
     integration_install_id uuid NOT NULL,
     deployment_key text NOT NULL,
-    handler_key text NOT NULL,
-    handler_version integer NOT NULL,
+    behavior_key text NOT NULL,
     configuration jsonb NOT NULL DEFAULT '{}'::jsonb,
+    agent_profile_id uuid,
     state text NOT NULL,
     deleted_at timestamptz,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CHECK (deployment_key <> '' AND octet_length(deployment_key) <= 512),
-    CHECK (handler_key ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
-    CHECK (handler_version > 0),
+    CHECK (behavior_key ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
     CHECK (jsonb_typeof(configuration) = 'object'),
     CONSTRAINT integration_routes_configuration_bytes_check
         CHECK (octet_length(configuration::text) <= 262144),
     CHECK (state IN ('active', 'disabled')),
     FOREIGN KEY (project_id, integration_install_id) REFERENCES integration_installs(project_id, id),
+    FOREIGN KEY (project_id, agent_profile_id) REFERENCES agent_profiles(project_id, id),
     UNIQUE (project_id, integration_install_id, id),
     UNIQUE (project_id, integration_install_id, deployment_key)
 );
@@ -485,12 +475,36 @@ CREATE INDEX integration_routes_active_install_idx
     ON integration_routes(project_id, integration_install_id, created_at, id)
     WHERE state = 'active' AND deleted_at IS NULL;
 
+CREATE INDEX integration_routes_profile_idx
+    ON integration_routes(project_id, agent_profile_id)
+    WHERE agent_profile_id IS NOT NULL;
+
 CREATE TRIGGER integration_routes_definition_immutable
     BEFORE UPDATE OF id, project_id, integration_install_id, deployment_key,
-        handler_key, handler_version, configuration, created_at
+        behavior_key, configuration, agent_profile_id, created_at
     ON integration_routes
     FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
+
+-- Behavior instance identity is distinct from an incoming event. A PR or chat
+-- thread keeps its agent across new events, gateway restarts and Redis expiry.
+CREATE TABLE integration_workflows (
+    project_id uuid NOT NULL,
+    integration_install_id uuid NOT NULL,
+    integration_route_id uuid NOT NULL,
+    instance_key text NOT NULL CHECK (instance_key <> '' AND octet_length(instance_key) <= 512),
+    agent_id uuid NOT NULL,
+    created_at timestamptz NOT NULL,
+    PRIMARY KEY (project_id, integration_install_id, integration_route_id, instance_key),
+    FOREIGN KEY (project_id, integration_install_id, integration_route_id)
+        REFERENCES integration_routes(project_id, integration_install_id, id),
+    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id)
+);
+
+CREATE TRIGGER integration_workflows_identity_immutable
+    BEFORE UPDATE ON integration_workflows
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_immutable_column_update();
 
 -- Installation revisions fence its lazily loaded configuration without forcing
 -- every installation of the same app to reload or restart.
@@ -502,11 +516,11 @@ AS $$
 BEGIN
     IF OLD.connection_mode IS DISTINCT FROM NEW.connection_mode
        OR OLD.state IS DISTINCT FROM NEW.state
-       OR OLD.provider_agent_display_name IS DISTINCT FROM NEW.provider_agent_display_name
+       OR OLD.display_name IS DISTINCT FROM NEW.display_name
        OR OLD.credential_secret_id IS DISTINCT FROM NEW.credential_secret_id
        OR OLD.provider_config IS DISTINCT FROM NEW.provider_config
        OR OLD.provider_identity IS DISTINCT FROM NEW.provider_identity
-       OR OLD.provider_metadata IS DISTINCT FROM NEW.provider_metadata
+       OR OLD.metadata IS DISTINCT FROM NEW.metadata
        OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at THEN
         NEW.configuration_revision := OLD.configuration_revision + 1;
         NEW.updated_at := statement_timestamp();
@@ -530,19 +544,23 @@ CREATE TABLE integration_target_bindings (
     target_created_at timestamptz NOT NULL,
     integration_route_id uuid,
     receive_allowed boolean NOT NULL,
+    read_allowed boolean NOT NULL DEFAULT false,
     send_allowed boolean NOT NULL,
+    reply_receive_allowed boolean,
+    reply_read_allowed boolean,
+    reply_send_allowed boolean,
     source text NOT NULL,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     revoked_at timestamptz,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
-    CHECK (receive_allowed OR send_allowed),
-    CHECK (
-        NOT receive_allowed
-        OR integration_route_id IS NOT NULL
-        OR source = 'legacy_target'
+    CHECK (receive_allowed OR read_allowed OR send_allowed),
+    CONSTRAINT integration_target_bindings_reply_grants_check CHECK (
+        num_nonnulls(reply_receive_allowed, reply_read_allowed, reply_send_allowed) IN (0, 3)
+        AND (reply_receive_allowed IS NULL OR (
+            send_allowed AND (reply_receive_allowed OR reply_read_allowed OR reply_send_allowed)
+        ))
     ),
-    CHECK (source <> 'legacy_target' OR integration_route_id IS NULL),
     CHECK (source <> '' AND octet_length(source) <= 128),
     CHECK (jsonb_typeof(metadata) = 'object'),
     CONSTRAINT integration_target_bindings_metadata_bytes_check
@@ -556,51 +574,6 @@ CREATE TABLE integration_target_bindings (
         REFERENCES integration_routes(project_id, integration_install_id, id),
     UNIQUE (project_id, agent_id, integration_target_id, id)
 );
-
--- Route-less receive authority is reserved for targets created by the native
--- compatibility path. Connector-managed targets must obtain receive authority
--- from a real route even when a caller writes the table directly.
--- +goose StatementBegin
-CREATE FUNCTION integration_target_binding_validate_legacy_shape()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    valid_legacy_shape boolean;
-BEGIN
-    IF NEW.source <> 'legacy_target' THEN
-        RETURN NEW;
-    END IF;
-
-    SELECT EXISTS (
-        SELECT 1
-        FROM integration_targets target
-        JOIN integration_installs install
-          ON install.project_id = target.project_id
-         AND install.id = target.integration_install_id
-        JOIN integration_apps app
-          ON app.org_id = install.org_id
-         AND app.id = install.integration_app_id
-        WHERE target.project_id = NEW.project_id
-          AND target.integration_install_id = NEW.integration_install_id
-          AND target.id = NEW.integration_target_id
-          AND target.agent_id = NEW.agent_id
-          AND app.connector_key LIKE 'native\_%' ESCAPE '\'
-    ) INTO valid_legacy_shape;
-
-    IF NOT valid_legacy_shape THEN
-        RAISE EXCEPTION 'legacy integration binding requires its native target owner'
-            USING ERRCODE = '23514';
-    END IF;
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-
-CREATE TRIGGER integration_target_bindings_validate_legacy_shape
-    BEFORE INSERT ON integration_target_bindings
-    FOR EACH ROW
-    EXECUTE FUNCTION integration_target_binding_validate_legacy_shape();
 
 -- Revocation is the binding's only lifecycle transition and is irreversible.
 -- +goose StatementBegin
@@ -622,10 +595,11 @@ $$;
 CREATE TRIGGER integration_target_bindings_definition_immutable
     BEFORE UPDATE OF id, project_id, agent_id, integration_install_id,
         integration_target_id, target_created_at, integration_route_id,
-        receive_allowed, send_allowed, source, metadata, created_at
+        receive_allowed, read_allowed, send_allowed,
+        reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, metadata, created_at
     ON integration_target_bindings
     FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
 
 CREATE TRIGGER integration_target_bindings_revocation_immutable
     BEFORE UPDATE OF revoked_at ON integration_target_bindings
@@ -648,6 +622,10 @@ CREATE INDEX integration_target_bindings_agent_send_idx
     ON integration_target_bindings(project_id, agent_id, integration_target_id, id)
     WHERE send_allowed AND revoked_at IS NULL;
 
+CREATE INDEX integration_target_bindings_operation_order_idx
+    ON integration_target_bindings(project_id, agent_id, integration_target_id, created_at, id)
+    WHERE revoked_at IS NULL;
+
 CREATE INDEX integration_target_bindings_agent_target_order_idx
     ON integration_target_bindings(
         project_id, agent_id, target_created_at DESC, integration_target_id DESC
@@ -658,101 +636,29 @@ CREATE INDEX integration_target_bindings_target_receive_idx
     ON integration_target_bindings(project_id, integration_target_id, integration_route_id, id)
     WHERE receive_allowed AND revoked_at IS NULL;
 
+-- History includes revoked bindings; live delivery pages deduplicate by agent.
+CREATE INDEX integration_target_bindings_target_history_idx
+    ON integration_target_bindings(project_id, integration_install_id, integration_target_id);
+
+CREATE INDEX integration_target_bindings_target_recipients_idx
+    ON integration_target_bindings(project_id, integration_install_id, integration_target_id, agent_id, id)
+    WHERE receive_allowed AND revoked_at IS NULL;
+
 CREATE INDEX integration_target_bindings_install_idx
     ON integration_target_bindings(project_id, integration_install_id, id)
     WHERE revoked_at IS NULL;
 
--- Native compatibility targets retain the legacy creator projection. Modern
--- connector targets are project-owned, so bindings are their only agent link.
+-- Historical inputs keep NULL binding provenance. Every new channel input must
+-- supply its explicit binding; no trigger guesses authority from an old owner.
 -- +goose StatementBegin
-CREATE FUNCTION integration_target_validate_install_shape()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    native_path boolean;
-BEGIN
-    SELECT app.connector_key LIKE 'native\_%' ESCAPE '\' INTO native_path
-    FROM integration_installs install
-    JOIN integration_apps app
-      ON app.org_id = install.org_id
-     AND app.id = install.integration_app_id
-    WHERE install.project_id = NEW.project_id
-      AND install.id = NEW.integration_install_id;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'integration target installation does not exist'
-            USING ERRCODE = '23503';
-    END IF;
-    IF (native_path AND NEW.agent_id IS NULL)
-       OR (NOT native_path AND NEW.agent_id IS NOT NULL) THEN
-        RAISE EXCEPTION 'integration target ownership does not match its connector path'
-            USING ERRCODE = '23514';
-    END IF;
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-
--- Old workers create targets without a binding. Only the native compatibility
--- path receives this implicit creator binding; connector routes write theirs explicitly.
--- +goose StatementBegin
-CREATE FUNCTION integration_target_create_legacy_binding()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    INSERT INTO integration_target_bindings(
-        project_id, agent_id, integration_install_id, integration_target_id,
-        target_created_at, integration_route_id,
-        receive_allowed, send_allowed, source,
-        created_at, updated_at
-    )
-    SELECT NEW.project_id, NEW.agent_id, NEW.integration_install_id, NEW.id,
-           NEW.created_at, NULL, true, true, 'legacy_target',
-           NEW.created_at, NEW.updated_at
-    FROM integration_installs install
-    JOIN integration_apps app
-      ON app.org_id = install.org_id
-     AND app.id = install.integration_app_id
-    WHERE install.project_id = NEW.project_id
-      AND install.id = NEW.integration_install_id
-      AND NEW.agent_id IS NOT NULL
-      AND app.connector_key LIKE 'native\_%' ESCAPE '\'
-    ON CONFLICT DO NOTHING;
-
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-
--- Historical inputs deliberately retain NULL binding provenance. Rewriting the
--- hot immutable input ledger would create an avoidable deployment hazard, while
--- PostgreSQL still enforces the new binding foreign key for every new row.
-
--- Old workers omit binding provenance. Resolve the creator binding before the
--- immutable input row is inserted; new connector code always supplies it explicitly.
--- +goose StatementBegin
-CREATE FUNCTION agent_input_fill_integration_binding()
+CREATE FUNCTION agent_input_require_integration_binding()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
     IF NEW.integration_target_id IS NOT NULL AND NEW.integration_target_binding_id IS NULL THEN
-        SELECT binding.id INTO NEW.integration_target_binding_id
-        FROM integration_target_bindings binding
-        WHERE binding.project_id = NEW.project_id
-          AND binding.agent_id = NEW.agent_id
-          AND binding.integration_target_id = NEW.integration_target_id
-          AND binding.receive_allowed
-          AND binding.source = 'legacy_target'
-          AND binding.integration_route_id IS NULL
-          AND binding.revoked_at IS NULL
-        ORDER BY binding.created_at, binding.id
-        LIMIT 1;
-        IF NEW.integration_target_binding_id IS NULL THEN
-            RAISE EXCEPTION 'target-backed agent input requires an active binding'
-                USING ERRCODE = '23514';
-        END IF;
+        RAISE EXCEPTION 'target-backed agent input requires an explicit binding'
+            USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
 END;
@@ -763,72 +669,99 @@ CREATE TRIGGER agent_inputs_integration_binding_immutable
     BEFORE UPDATE OF integration_target_binding_id ON agent_inputs
     FOR EACH ROW
     WHEN (OLD.integration_target_binding_id IS DISTINCT FROM NEW.integration_target_binding_id)
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
 
--- Connector-backed sends use a project-shard-local outbox. Native Slack remains
--- inline in this release and can opt into the same table later without a migration.
-CREATE TABLE integration_deliveries (
+-- A connection publishes each current address contract once; its destinations
+-- reference it. Schema changes do not rewrite every thread or create versions.
+CREATE TABLE integration_channel_definitions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
-    agent_id uuid NOT NULL,
-    integration_app_id uuid NOT NULL,
     integration_install_id uuid NOT NULL,
-    integration_target_id uuid NOT NULL,
-    integration_target_binding_id uuid NOT NULL,
-    provider text NOT NULL,
+    implementation_key text NOT NULL CHECK (implementation_key ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
+    kind text NOT NULL CHECK (kind IN ('SLACK_CHANNEL', 'SLACK_THREAD', 'EXTERNAL')),
+    description text NOT NULL CHECK (octet_length(description) <= 16384),
+    send_params_schema jsonb NOT NULL CHECK (
+        jsonb_typeof(send_params_schema) = 'object'
+        AND octet_length(send_params_schema::text) <= 262144
+    ),
+    capabilities jsonb NOT NULL CHECK (
+        jsonb_typeof(capabilities) = 'object'
+        AND octet_length(capabilities::text) <= 4096
+    ),
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    FOREIGN KEY (project_id, integration_install_id) REFERENCES integration_installs(project_id, id),
+    UNIQUE (project_id, integration_install_id, id),
+    UNIQUE (project_id, integration_install_id, implementation_key)
+);
+
+CREATE TRIGGER integration_channel_definitions_identity_immutable
+    BEFORE UPDATE OF id, project_id, integration_install_id, implementation_key, kind, created_at
+    ON integration_channel_definitions
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_immutable_column_update();
+
+ALTER TABLE integration_targets
+    ADD COLUMN channel_definition_id uuid,
+    ADD CONSTRAINT integration_targets_definition_fkey
+        FOREIGN KEY (project_id, integration_install_id, channel_definition_id)
+        REFERENCES integration_channel_definitions(project_id, integration_install_id, id);
+
+-- Verified incoming events are persisted before acknowledging their provider.
+-- Processing is replayable; completion is separate from the recipient's atomic
+-- agent/input transaction so neither operation requires a cross-shard commit.
+CREATE TABLE integration_event_receipts (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    project_id uuid NOT NULL,
+    integration_install_id uuid NOT NULL,
+    integration_app_id uuid NOT NULL,
     connector_key text NOT NULL,
-    transport text NOT NULL,
-    delivery_kind text NOT NULL,
-    payload_version text NOT NULL,
-    payload jsonb NOT NULL,
-    idempotency_scope text NOT NULL,
-    idempotency_key text NOT NULL,
-    state text NOT NULL,
-    attempt_count integer NOT NULL DEFAULT 0,
+    provider text NOT NULL,
+    event_id text NOT NULL CHECK (event_id <> '' AND octet_length(event_id) <= 512),
+    payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+    state text NOT NULL CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
+    attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
     available_at timestamptz NOT NULL,
-    claim_token uuid,
-    claim_generation bigint NOT NULL DEFAULT 0,
-    claimed_by text,
-    claimed_at timestamptz,
-    claim_expires_at timestamptz,
-    notify_ref uuid,
-    provider_message_ref text,
-    last_error jsonb NOT NULL DEFAULT '{}'::jsonb,
+    lease_token uuid,
+    lease_generation bigint NOT NULL DEFAULT 0 CHECK (lease_generation >= 0),
+    lease_expires_at timestamptz,
+    last_error jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(last_error) = 'object'),
     completed_at timestamptz,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
-    CHECK (provider ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
-    CHECK (connector_key ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
-    CHECK (transport IN ('connector', 'native')),
-    CHECK (delivery_kind <> '' AND octet_length(delivery_kind) <= 128),
-    CHECK (payload_version <> '' AND octet_length(payload_version) <= 128),
-    CHECK (jsonb_typeof(payload) = 'object'),
-    CONSTRAINT integration_deliveries_payload_bytes_check
-        CHECK (octet_length(payload::text) <= 262144),
-    CHECK (idempotency_scope <> '' AND octet_length(idempotency_scope) <= 512),
-    CHECK (idempotency_key <> '' AND octet_length(idempotency_key) <= 512),
-    CHECK (claimed_by IS NULL OR octet_length(claimed_by) <= 256),
-    CHECK (provider_message_ref IS NULL OR octet_length(provider_message_ref) <= 2048),
-    CHECK (state IN ('pending', 'claimed', 'retry_wait', 'delivered', 'failed', 'unknown', 'canceled')),
-    CHECK (attempt_count >= 0),
-    CHECK (claim_generation >= 0),
-    CHECK (jsonb_typeof(last_error) = 'object'),
-    CONSTRAINT integration_deliveries_last_error_bytes_check
+    CONSTRAINT integration_event_receipts_payload_bytes_check
+        CHECK (octet_length(payload::text) <= 25165824),
+    CONSTRAINT integration_event_receipts_last_error_bytes_check
         CHECK (octet_length(last_error::text) <= 262144),
     CHECK (
-        (state = 'claimed') =
-        (claim_token IS NOT NULL AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL AND claim_expires_at IS NOT NULL)
+        (state = 'processing' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
+        OR (state <> 'processing' AND lease_token IS NULL AND lease_expires_at IS NULL)
     ),
-    CHECK ((state IN ('delivered', 'failed', 'unknown', 'canceled')) = (completed_at IS NOT NULL)),
-    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
+    CHECK ((state IN ('completed', 'failed')) = (completed_at IS NOT NULL)),
     FOREIGN KEY (project_id, integration_install_id, integration_app_id)
         REFERENCES integration_installs(project_id, id, integration_app_id),
-    FOREIGN KEY (project_id, integration_install_id, integration_target_id)
-        REFERENCES integration_targets(project_id, integration_install_id, id),
-    FOREIGN KEY (project_id, agent_id, integration_target_id, integration_target_binding_id)
-        REFERENCES integration_target_bindings(project_id, agent_id, integration_target_id, id),
-    UNIQUE (project_id, agent_id, idempotency_scope, idempotency_key)
+    UNIQUE (project_id, integration_install_id, event_id)
 );
+
+CREATE INDEX integration_event_receipts_due_idx
+    ON integration_event_receipts(connector_key, provider, available_at, id)
+    WHERE state IN ('pending', 'processing');
+
+-- Bound each maintenance candidate page before current-owner checks.
+CREATE INDEX integration_event_receipts_maintenance_idx
+    ON integration_event_receipts(id)
+    WHERE state IN ('pending', 'processing');
+
+CREATE INDEX integration_event_receipts_terminal_retention_idx
+    ON integration_event_receipts(completed_at, id)
+    WHERE state IN ('completed', 'failed');
+
+CREATE TRIGGER integration_event_receipts_identity_immutable
+    BEFORE UPDATE OF id, project_id, integration_install_id, integration_app_id,
+        connector_key, provider, event_id, payload, created_at
+    ON integration_event_receipts
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_immutable_column_update();
 
 -- Shard-local maintenance advances durable cursors through large integration
 -- tables. Cursor IDs deliberately are not foreign keys because lifecycle and
@@ -842,57 +775,11 @@ CREATE TABLE integration_sweep_cursors (
     CHECK (sweep_kind <> '')
 );
 
-INSERT INTO integration_sweep_cursors(
+INSERT INTO integration_sweep_cursors (
     sweep_kind, last_item_id, cycle_end_id, updated_at
-)
-VALUES
-    ('delivery_unavailable', '00000000-0000-0000-0000-000000000000', NULL, transaction_timestamp());
-
-CREATE INDEX integration_deliveries_due_connector_idx
-    ON integration_deliveries(connector_key, provider, available_at, id)
-    WHERE transport = 'connector' AND state IN ('pending', 'retry_wait');
-
-CREATE INDEX integration_deliveries_unavailable_sweep_idx
-    ON integration_deliveries(id)
-    WHERE transport = 'connector' AND state IN ('pending', 'retry_wait');
-
-CREATE INDEX integration_deliveries_expired_claim_idx
-    ON integration_deliveries(claim_expires_at, id)
-    WHERE state = 'claimed';
-
-CREATE INDEX integration_deliveries_terminal_retention_idx
-    ON integration_deliveries(completed_at, id)
-    WHERE state IN ('delivered', 'failed', 'unknown', 'canceled');
-
--- +goose StatementBegin
-CREATE FUNCTION integration_deliveries_reject_terminal_change()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF OLD.state IN ('delivered', 'failed', 'unknown', 'canceled') AND NEW IS DISTINCT FROM OLD THEN
-        RAISE EXCEPTION 'terminal integration deliveries are immutable'
-            USING ERRCODE = '25006';
-    END IF;
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-
-CREATE TRIGGER integration_deliveries_intent_immutable
-    BEFORE UPDATE OF id, project_id, agent_id, integration_app_id,
-        integration_install_id, integration_target_id,
-        integration_target_binding_id, provider, connector_key, transport,
-        delivery_kind, payload_version, payload, idempotency_scope,
-        idempotency_key, notify_ref, created_at
-    ON integration_deliveries
-    FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
-
-CREATE TRIGGER integration_deliveries_terminal_immutable
-    BEFORE UPDATE ON integration_deliveries
-    FOR EACH ROW
-    EXECUTE FUNCTION integration_deliveries_reject_terminal_change();
+) VALUES (
+    'event_unprocessable', '00000000-0000-0000-0000-000000000000', NULL, transaction_timestamp()
+);
 
 -- Persistent transports lease opaque runtime units. Provider-specific checkpoint meaning
 -- stays in the adapter; token plus generation fence every stale owner operation.
@@ -991,7 +878,7 @@ CREATE TRIGGER integration_runtime_units_identity_immutable
         runtime_kind, created_at
     ON integration_runtime_units
     FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
 
 -- Credential rotation advances only the configuration boundary that owns the
 -- secret. This avoids O(all installations) app cache invalidation.
@@ -1030,9 +917,38 @@ END;
 $$;
 -- +goose StatementEnd
 
--- Convert the supported legacy installation shape in three set-based steps.
--- Existing apps are project-restricted because native credentials belong to
--- the project that completed OAuth.
+-- The observed deployed shape is profile-backed Slack. Do not guess a profile
+-- for fixed-agent installs or silently discard an unsupported conversation.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM integration_installs WHERE provider <> 'slack' OR agent_profile_id IS NULL) THEN
+        RAISE EXCEPTION 'channel cutover requires profile-backed Slack installations; inspect unsupported ownership';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM integration_installs install
+        JOIN projects project ON project.id = install.project_id
+        JOIN orgs organization ON organization.id = install.org_id
+        JOIN agent_profiles profile ON profile.project_id = install.project_id AND profile.id = install.agent_profile_id
+        JOIN agent_profile_versions version ON version.project_id = profile.project_id AND version.id = profile.current_version_id
+        WHERE install.state = 'active' AND install.deleted_at IS NULL
+          AND project.deleted_at IS NULL AND organization.deleted_at IS NULL
+          AND (profile.deleted_at IS NOT NULL OR version.deleted_at IS NOT NULL)
+    ) THEN
+        RAISE EXCEPTION 'channel cutover requires live profiles for active Slack installations';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM integration_targets
+        WHERE provider_ref_kind NOT IN ('dm', 'thread') OR octet_length(provider_ref) > 512
+    ) THEN
+        RAISE EXCEPTION 'channel cutover encountered an unsupported Slack conversation address';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
+-- Existing OAuth provider_account_ref is Slack's real api_app_id. Keep the
+-- combined installation credential and project ownership; no app secret is made.
 INSERT INTO integration_apps(
     org_id, owner_project_id, provider, provider_app_ref, display_name,
     connector_key, installation_credential_kind, state, deleted_at,
@@ -1042,12 +958,9 @@ SELECT install.org_id,
        install.project_id,
        install.provider,
        install.provider_account_ref,
-       max(install.provider_agent_display_name),
-       left('native_' || install.provider || '_v1', 128),
-       CASE install.provider
-         WHEN 'slack' THEN 'slack_app_credentials'
-         ELSE 'integration_credentials'
-       END,
+       max(install.display_name),
+       'chat_sdk',
+       'slack_app_credentials',
        CASE
          WHEN project.deleted_at IS NULL AND organization.deleted_at IS NULL
            THEN 'active'
@@ -1073,45 +986,93 @@ WHERE app.org_id = install.org_id
   AND app.provider_app_ref = install.provider_account_ref;
 
 ALTER TABLE integration_installs
-    ALTER COLUMN integration_app_id SET NOT NULL,
     ADD CONSTRAINT integration_installs_app_fkey
         FOREIGN KEY (org_id, integration_app_id)
         REFERENCES integration_apps(org_id, id);
 
+ALTER TABLE integration_installs
+    ADD CONSTRAINT integration_installs_kind_check CHECK (integration_kind IN ('managed', 'external')),
+    ADD CONSTRAINT integration_installs_connection_shape_check CHECK (
+        (integration_kind = 'managed'
+         AND integration_app_id IS NOT NULL AND provider IS NOT NULL AND provider_account_ref IS NOT NULL
+         AND (provider <> 'slack' OR provider_tenant_id IS NOT NULL))
+        OR (integration_kind = 'external' AND connection_mode = 'api'
+         AND integration_app_id IS NULL AND provider IS NULL
+         AND provider_account_ref IS NULL AND provider_tenant_id IS NULL
+         AND credential_secret_id IS NULL AND last_oauth_flow_id IS NULL
+         AND provider_config = '{}'::jsonb AND provider_identity = '{}'::jsonb)
+    );
+
+UPDATE integration_installs SET provider_tenant_id = NULL WHERE provider_tenant_id = '';
 CREATE UNIQUE INDEX integration_installs_app_tenant_account_idx
-    ON integration_installs(
-        integration_app_id, provider_tenant_id, provider_account_ref
-    )
-    WHERE deleted_at IS NULL;
+    ON integration_installs(integration_app_id, provider_tenant_id, provider_account_ref) NULLS NOT DISTINCT
+    WHERE integration_kind = 'managed' AND deleted_at IS NULL;
 
-INSERT INTO integration_target_bindings(
-    project_id, agent_id, integration_install_id, integration_target_id,
-    target_created_at, integration_route_id,
-    receive_allowed, send_allowed, source, revoked_at,
-    created_at, updated_at
+-- Preserve the released Slack callback identity across project-owned logical
+-- app registrations. Other providers keep their app-scoped installation keys.
+CREATE UNIQUE INDEX integration_installs_slack_tenant_account_idx
+    ON integration_installs(provider_tenant_id, provider_account_ref)
+    WHERE integration_kind = 'managed' AND provider = 'slack' AND deleted_at IS NULL;
+
+-- Translate installation setup into the same route created by managed OAuth.
+INSERT INTO integration_routes (
+    project_id, integration_install_id, deployment_key, behavior_key,
+    configuration, agent_profile_id, state, deleted_at, created_at, updated_at
 )
-SELECT target.project_id,
-       target.agent_id,
-       target.integration_install_id,
-       target.id,
-       target.created_at,
-       NULL,
-       true,
-       true,
-       'legacy_target',
-       coalesce(target.deleted_at, install.deleted_at, app.deleted_at),
-       target.created_at,
-       greatest(target.updated_at, install.updated_at, app.updated_at)
-FROM integration_targets target
-JOIN integration_installs install
-  ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
-JOIN integration_apps app
-  ON app.org_id = install.org_id
- AND app.id = install.integration_app_id;
+SELECT install.project_id, install.id, 'slack', 'slack_conversation',
+       '{}'::jsonb, install.agent_profile_id,
+       CASE WHEN app.deleted_at IS NULL THEN install.state ELSE 'disabled' END,
+       coalesce(install.deleted_at, app.deleted_at), install.created_at, install.updated_at
+FROM integration_installs install
+JOIN integration_apps app ON app.org_id = install.org_id AND app.id = install.integration_app_id;
 
--- Historical inputs intentionally retain NULL binding provenance. New native
--- writes fill it before insert; connector writes always provide it explicitly.
+-- These are the current Slack definitions published by the gateway. Provider
+-- capabilities do not grant agents read access or continuation delegation.
+INSERT INTO integration_channel_definitions (
+    project_id, integration_install_id, implementation_key, kind, description,
+    send_params_schema, capabilities, created_at, updated_at
+)
+SELECT install.project_id, install.id, definition.implementation_key, definition.kind, definition.description,
+       '{"type":"object","properties":{},"additionalProperties":false}'::jsonb,
+       jsonb_build_object('read', true, 'send', true, 'text', true, 'artifacts', true,
+           'permissions', true, 'questions', true, 'creates_reply_channel', definition.kind = 'SLACK_CHANNEL'),
+       install.created_at, install.updated_at
+FROM integration_installs install
+CROSS JOIN (VALUES
+    ('slack_channel', 'SLACK_CHANNEL', 'A Slack conversation.'),
+    ('slack_thread', 'SLACK_THREAD', 'A Slack message thread.')
+) AS definition(implementation_key, kind, description);
+
+UPDATE integration_targets target
+SET channel_definition_id = definition.id
+FROM integration_channel_definitions definition
+WHERE definition.project_id = target.project_id AND definition.integration_install_id = target.integration_install_id
+  AND definition.implementation_key = CASE target.provider_ref_kind WHEN 'dm' THEN 'slack_channel' ELSE 'slack_thread' END;
+
+-- Preserve every live conversation's exact agent, including archived agents.
+-- Deleted addresses remain historical targets and revoked bindings, not a live
+-- behavior association that would collide with a subsequently recreated address.
+INSERT INTO integration_workflows (
+    project_id, integration_install_id, integration_route_id, instance_key, agent_id, created_at
+)
+SELECT target.project_id, target.integration_install_id, route.id, target.provider_ref, target.agent_id, target.created_at
+FROM integration_targets target
+JOIN integration_routes route ON route.project_id = target.project_id AND route.integration_install_id = target.integration_install_id
+WHERE target.deleted_at IS NULL;
+
+INSERT INTO integration_target_bindings (
+    project_id, agent_id, integration_install_id, integration_target_id,
+    target_created_at, integration_route_id, receive_allowed, read_allowed, send_allowed,
+    source, revoked_at, created_at, updated_at
+)
+SELECT target.project_id, target.agent_id, target.integration_install_id, target.id,
+       target.created_at, route.id, true, false, true, 'channel',
+       coalesce(target.deleted_at, route.deleted_at), target.created_at,
+       greatest(target.updated_at, route.updated_at)
+FROM integration_targets target
+JOIN integration_routes route ON route.project_id = target.project_id AND route.integration_install_id = target.integration_install_id;
+
+-- Historical inputs intentionally retain their original target and NULL binding.
 ALTER TABLE agent_inputs
     DROP CONSTRAINT agent_inputs_project_id_agent_id_integration_target_id_fkey,
     ADD CONSTRAINT agent_inputs_integration_target_fkey
@@ -1128,17 +1089,16 @@ ALTER TABLE agent_inputs
         integration_target_binding_id IS NULL OR integration_target_id IS NOT NULL
     );
 
--- Compatibility triggers remain while the native Slack path omits explicit
--- app, route, and binding provenance. They synthesize the compatibility app
--- and route-less legacy binding; new target-backed inputs inherit that binding.
-CREATE TRIGGER integration_installs_00_fill_compatibility_app
-    BEFORE INSERT ON integration_installs
-    FOR EACH ROW
-    EXECUTE FUNCTION integration_install_fill_compatibility_app();
+-- All writers now use explicit applications, configured routes and bindings.
+-- Ownership survives in routes/workflows; the connection and target have none.
+ALTER TABLE integration_installs DROP COLUMN agent_profile_id, DROP COLUMN agent_id;
+ALTER TABLE integration_targets DROP COLUMN agent_id, ALTER COLUMN channel_definition_id SET NOT NULL;
+CREATE UNIQUE INDEX integration_targets_target_ref_idx
+    ON integration_targets(project_id, integration_install_id, target_ref);
 
 CREATE TRIGGER integration_installs_validate_app_scope
     BEFORE INSERT OR UPDATE OF org_id, project_id, provider, integration_app_id,
-        agent_profile_id, agent_id, state, deleted_at, credential_secret_id
+        state, deleted_at, credential_secret_id
     ON integration_installs
     FOR EACH ROW
     EXECUTE FUNCTION integration_install_validate_app_scope();
@@ -1146,10 +1106,10 @@ CREATE TRIGGER integration_installs_validate_app_scope
 CREATE TRIGGER integration_installs_identity_immutable
     BEFORE UPDATE OF id, org_id, project_id, integration_app_id, provider,
         integration_kind, provider_tenant_id, provider_account_ref,
-        agent_profile_id, agent_id, created_at
+        created_at
     ON integration_installs
     FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
 
 CREATE TRIGGER integration_installs_advance_configuration_revision
     BEFORE UPDATE ON integration_installs
@@ -1157,28 +1117,124 @@ CREATE TRIGGER integration_installs_advance_configuration_revision
     EXECUTE FUNCTION integration_install_advance_configuration_revision();
 
 CREATE TRIGGER integration_targets_identity_immutable
-    BEFORE UPDATE OF id, project_id, agent_id, integration_install_id,
-        target_ref, provider_ref, provider_ref_kind, created_at
+    BEFORE UPDATE OF id, project_id, integration_install_id,
+        target_ref, provider_ref, provider_ref_kind, parent_channel_id, channel_definition_id, created_at
     ON integration_targets
     FOR EACH ROW
-    EXECUTE FUNCTION reject_immutable_integration_column_update();
+    EXECUTE FUNCTION reject_immutable_column_update();
 
-CREATE TRIGGER integration_targets_validate_install_shape
-    BEFORE INSERT ON integration_targets
-    FOR EACH ROW
-    EXECUTE FUNCTION integration_target_validate_install_shape();
-
-CREATE TRIGGER integration_targets_create_legacy_binding
-    AFTER INSERT ON integration_targets
-    FOR EACH ROW
-    EXECUTE FUNCTION integration_target_create_legacy_binding();
-
-CREATE TRIGGER agent_inputs_fill_integration_binding
+CREATE TRIGGER agent_inputs_require_integration_binding
     BEFORE INSERT ON agent_inputs
     FOR EACH ROW
-    EXECUTE FUNCTION agent_input_fill_integration_binding();
+    EXECUTE FUNCTION agent_input_require_integration_binding();
 
 CREATE TRIGGER secrets_touch_integration_configuration_revisions
     AFTER UPDATE OF current_version_id ON secrets
     FOR EACH ROW
     EXECUTE FUNCTION integration_secret_touch_configuration_revisions();
+
+-- Accepted execution facts owned by an existing tool, interaction, or turn notice.
+-- Polling only projects pending obligations; this is not an outgoing work queue.
+CREATE TABLE external_channel_requests (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    project_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    turn_id uuid NOT NULL,
+    integration_install_id uuid NOT NULL,
+    integration_target_id uuid NOT NULL,
+    integration_target_binding_id uuid NOT NULL,
+    tool_call_id uuid,
+    interaction_id uuid,
+    notice_key text,
+    operation text NOT NULL,
+    payload jsonb NOT NULL,
+    deadline_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    state text NOT NULL DEFAULT 'pending',
+    result jsonb,
+    state_reason_code text,
+    terminal_at timestamptz,
+    CHECK (num_nonnulls(tool_call_id, interaction_id, notice_key) = 1),
+    CHECK ((tool_call_id IS NOT NULL AND operation IN ('send', 'read'))
+        OR (interaction_id IS NOT NULL AND operation = 'interaction')
+        OR (notice_key IS NOT NULL AND operation = 'send')),
+    CHECK (notice_key IS NULL OR (notice_key <> '' AND octet_length(notice_key) <= 128)),
+    CHECK (payload->>'reply_channel_grants' IS NULL OR operation = 'send'),
+    CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 524288),
+    CHECK (deadline_at > created_at AND deadline_at <= created_at + interval '5 minutes'),
+    CHECK (state IN ('pending', 'completed', 'canceled', 'expired')),
+    CHECK ((result IS NOT NULL) = (state = 'completed')),
+    CHECK (result IS NULL OR (jsonb_typeof(result) = 'object' AND octet_length(result::text) <= 1048576)),
+    CHECK ((terminal_at IS NOT NULL) = (state <> 'pending')),
+    CHECK (terminal_at IS NULL OR terminal_at >= created_at),
+    CHECK ((state_reason_code IS NOT NULL) = (state IN ('canceled', 'expired'))),
+    CHECK (state_reason_code IS NULL OR (state_reason_code <> '' AND octet_length(state_reason_code) <= 128)),
+    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
+    FOREIGN KEY (agent_id, turn_id) REFERENCES agent_turns(agent_id, id),
+    FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id),
+    FOREIGN KEY (agent_id, interaction_id) REFERENCES agent_interactions(agent_id, id),
+    FOREIGN KEY (project_id, integration_install_id, integration_target_id)
+        REFERENCES integration_targets(project_id, integration_install_id, id),
+    FOREIGN KEY (project_id, agent_id, integration_target_id, integration_target_binding_id)
+        REFERENCES integration_target_bindings(project_id, agent_id, integration_target_id, id)
+);
+
+CREATE UNIQUE INDEX external_channel_requests_tool_owner_idx
+    ON external_channel_requests(tool_call_id) WHERE tool_call_id IS NOT NULL;
+CREATE UNIQUE INDEX external_channel_requests_interaction_owner_idx
+    ON external_channel_requests(interaction_id) WHERE interaction_id IS NOT NULL;
+CREATE UNIQUE INDEX external_channel_requests_notice_owner_idx
+    ON external_channel_requests(agent_id, turn_id, notice_key) WHERE notice_key IS NOT NULL;
+CREATE INDEX external_channel_requests_pending_poll_idx
+    ON external_channel_requests(project_id, integration_install_id, created_at, id) WHERE state = 'pending';
+CREATE INDEX external_channel_requests_pending_expiry_idx
+    ON external_channel_requests(deadline_at, id) WHERE state = 'pending';
+CREATE INDEX external_channel_requests_pending_turn_idx
+    ON external_channel_requests(agent_id, turn_id, id) WHERE state = 'pending';
+
+CREATE TRIGGER external_channel_requests_facts_immutable
+    BEFORE UPDATE OF id, project_id, agent_id, turn_id, integration_install_id,
+        integration_target_id, integration_target_binding_id, tool_call_id,
+        interaction_id, notice_key, operation, payload, deadline_at, created_at
+    ON external_channel_requests
+    FOR EACH ROW EXECUTE FUNCTION reject_immutable_column_update();
+
+-- +goose StatementBegin
+CREATE FUNCTION external_channel_request_enforce_transition()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'external channel request facts are immutable' USING ERRCODE = '25006';
+    ELSIF TG_OP = 'INSERT' THEN
+        IF NEW.state <> 'pending' THEN
+            RAISE EXCEPTION 'external channel requests start pending' USING ERRCODE = '23514';
+        END IF;
+    ELSIF OLD.state <> 'pending' AND NEW IS DISTINCT FROM OLD THEN
+        RAISE EXCEPTION 'terminal external channel requests are immutable' USING ERRCODE = '25006';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+
+CREATE TRIGGER external_channel_requests_transition
+    BEFORE INSERT OR UPDATE OR DELETE ON external_channel_requests
+    FOR EACH ROW EXECUTE FUNCTION external_channel_request_enforce_transition();
+
+-- Receipt replay remembers the canonical input, whose immutable origin contains
+-- the destination/binding. Outcome lifetime is exactly the receipt retention.
+ALTER TABLE integration_event_receipts ADD UNIQUE (project_id, id);
+CREATE TABLE integration_event_outcomes (
+    project_id uuid NOT NULL,
+    receipt_id uuid NOT NULL,
+    delivery_key text NOT NULL CHECK (delivery_key <> '' AND octet_length(delivery_key) <= 512),
+    agent_id uuid NOT NULL,
+    agent_input_id uuid NOT NULL,
+    PRIMARY KEY (project_id, receipt_id, delivery_key),
+    FOREIGN KEY (project_id, receipt_id) REFERENCES integration_event_receipts(project_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
+    FOREIGN KEY (agent_id, agent_input_id) REFERENCES agent_inputs(agent_id, id)
+);
+CREATE TRIGGER integration_event_outcomes_immutable
+    BEFORE UPDATE ON integration_event_outcomes
+    FOR EACH ROW EXECUTE FUNCTION reject_immutable_column_update();

@@ -28,13 +28,18 @@ func ContentDigest(content []byte) string {
 }
 
 type Metadata struct {
-	Digest    string
+	Digest string
+	// SizeBytes is -1 when a streaming response does not declare its length.
 	SizeBytes int64
 }
 
 type Store interface {
 	PutBlob(ctx context.Context, key string, content []byte) (Metadata, error)
 	GetBlob(ctx context.Context, key string) ([]byte, Metadata, error)
+	// OpenBlob returns an unbuffered reader owned by the caller. The context
+	// governs both opening and reading. Close must release the request and
+	// unblock Read, including when called concurrently with Read.
+	OpenBlob(ctx context.Context, key string) (io.ReadCloser, Metadata, error)
 	DeleteBlob(ctx context.Context, key string) error
 }
 
@@ -108,6 +113,23 @@ func (s *S3Store) PutBlob(ctx context.Context, key string, content []byte) (Meta
 }
 
 func (s *S3Store) GetBlob(ctx context.Context, key string) ([]byte, Metadata, error) {
+	body, metadata, err := s.OpenBlob(ctx, key)
+	if err != nil {
+		return nil, Metadata{}, err
+	}
+	defer func() { _ = body.Close() }()
+	content, err := io.ReadAll(body)
+	if err != nil {
+		return nil, Metadata{}, fmt.Errorf("read blob %q: %w", key, err)
+	}
+	metadata.SizeBytes = int64(len(content))
+	return content, metadata, nil
+}
+
+// OpenBlob exposes the S3 response body without reading the object into memory.
+// The SDK binds the HTTP request and body to ctx; closing the body also interrupts
+// a concurrent read. Metadata is validated before ownership reaches the caller.
+func (s *S3Store) OpenBlob(ctx context.Context, key string) (io.ReadCloser, Metadata, error) {
 	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -119,24 +141,20 @@ func (s *S3Store) GetBlob(ctx context.Context, key string) ([]byte, Metadata, er
 		}
 		return nil, Metadata{}, fmt.Errorf("get blob %q: %w", key, err)
 	}
-	defer func() { _ = output.Body.Close() }()
-	var buf bytes.Buffer
-	if output.ContentLength != nil && *output.ContentLength > 0 {
-		buf.Grow(int(*output.ContentLength))
-	}
-	if _, err := io.Copy(&buf, output.Body); err != nil {
-		return nil, Metadata{}, fmt.Errorf("read blob %q: %w", key, err)
-	}
-	content := buf.Bytes()
 	digest, ok := output.Metadata[digestMetadataKey]
 	if !ok {
+		_ = output.Body.Close()
 		return nil, Metadata{}, fmt.Errorf(
 			"blob %q is missing the %s object metadata; it was not written by this store",
 			key,
 			digestMetadataKey,
 		)
 	}
-	return content, Metadata{Digest: digest, SizeBytes: int64(len(content))}, nil
+	size := int64(-1)
+	if output.ContentLength != nil {
+		size = *output.ContentLength
+	}
+	return output.Body, Metadata{Digest: digest, SizeBytes: size}, nil
 }
 
 func (s *S3Store) DeleteBlob(ctx context.Context, key string) error {

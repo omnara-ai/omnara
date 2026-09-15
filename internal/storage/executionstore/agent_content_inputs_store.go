@@ -61,6 +61,16 @@ func (s *Store) CreateAgentContentInput(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if !isNilID(input.ChannelID) {
+		var replay *createAgentContentInputTxResult
+		input, replay, err = s.resolveExternalInputChannelTx(ctx, tx, qtx, input)
+		if err != nil {
+			return AgentInputRecord{}, nil, false, err
+		}
+		if replay != nil {
+			return replay.agentInput, replay.contentBlocks, false, nil
+		}
+	}
 	agent, err := loadAgentTx(ctx, tx, input.AgentID)
 	if err != nil {
 		return AgentInputRecord{}, nil, false, err
@@ -120,6 +130,62 @@ type createAgentContentInputTxResult struct {
 	canceledInteractionIDs []ID
 }
 
+// Inputs are immutable: a public retry retains its original binding even after
+// access is revoked or replaced. Actor, channel and content still must match.
+func replayAgentContentInputTx(
+	ctx context.Context, tx pgx.Tx, qtx *dbsqlc.Queries, input CreateAgentContentInputInput,
+) (createAgentContentInputTxResult, bool, error) {
+	if input.IdempotencyKey != "" {
+		existingInput, found, err := loadAgentInputByIdempotencyMaybeTx(
+			ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			input.IdempotencyScope,
+			input.IdempotencyKey,
+		)
+		if err != nil {
+			return createAgentContentInputTxResult{}, false, err
+		}
+		if found {
+			existingActorID, actorFound, err := lookupActorIDTx(
+				ctx,
+				qtx,
+				input.ProjectID,
+				input.Actor,
+			)
+			if err != nil {
+				return createAgentContentInputTxResult{}, false, err
+			}
+			existingContentBlocksByInput, err := agentInputContentBlocks(
+				ctx,
+				qtx,
+				existingInput.ProjectID,
+				existingInput.AgentID,
+				[]ID{existingInput.ID},
+			)
+			if err != nil {
+				return createAgentContentInputTxResult{}, false, err
+			}
+			existingContentBlocks := existingContentBlocksByInput[existingInput.ID]
+			if !actorFound ||
+				existingInput.DeliveryMode != input.DeliveryMode ||
+				existingInput.ActorID != existingActorID ||
+				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
+				(isNilID(input.ChannelID) && existingInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID) ||
+				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
+				!sameJSON(existingContentBlocks, input.ContentBlocks) {
+				return createAgentContentInputTxResult{}, false, storeerr.ErrIdempotencyConflict
+			}
+			return createAgentContentInputTxResult{
+				agentInput:    existingInput,
+				contentBlocks: existingContentBlocks,
+			}, true, nil
+		}
+	}
+	return createAgentContentInputTxResult{}, false, nil
+}
+
 func createAgentContentInputTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
@@ -135,53 +201,8 @@ func createAgentContentInputTx(
 	); err != nil {
 		return createAgentContentInputTxResult{}, fmt.Errorf("lock agent for content input: %w", err)
 	}
-	if input.IdempotencyKey != "" {
-		existingInput, found, err := loadAgentInputByIdempotencyMaybeTx(
-			ctx,
-			tx,
-			input.ProjectID,
-			input.AgentID,
-			input.IdempotencyScope,
-			input.IdempotencyKey,
-		)
-		if err != nil {
-			return createAgentContentInputTxResult{}, err
-		}
-		if found {
-			existingActorID, actorFound, err := lookupActorIDTx(
-				ctx,
-				qtx,
-				input.ProjectID,
-				input.Actor,
-			)
-			if err != nil {
-				return createAgentContentInputTxResult{}, err
-			}
-			existingContentBlocksByInput, err := agentInputContentBlocks(
-				ctx,
-				qtx,
-				existingInput.ProjectID,
-				existingInput.AgentID,
-				[]ID{existingInput.ID},
-			)
-			if err != nil {
-				return createAgentContentInputTxResult{}, err
-			}
-			existingContentBlocks := existingContentBlocksByInput[existingInput.ID]
-			if !actorFound ||
-				existingInput.DeliveryMode != input.DeliveryMode ||
-				existingInput.ActorID != existingActorID ||
-				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
-				existingInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID ||
-				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
-				!sameJSON(existingContentBlocks, input.ContentBlocks) {
-				return createAgentContentInputTxResult{}, storeerr.ErrIdempotencyConflict
-			}
-			return createAgentContentInputTxResult{
-				agentInput:    existingInput,
-				contentBlocks: existingContentBlocks,
-			}, nil
-		}
+	if replay, found, err := replayAgentContentInputTx(ctx, tx, qtx, input); err != nil || found {
+		return replay, err
 	}
 	var err error
 	agent, err = loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
@@ -324,6 +345,9 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
+	// ChannelID is an external API origin. Core resolves its live receive binding;
+	// provider workflows instead supply their verified target and binding below.
+	ChannelID                  ID
 	ProjectID                  ID
 	AgentID                    ID
 	Actor                      *ActorParams

@@ -60,6 +60,33 @@ func agentInputRecordFromIdempotencySQLC(row dbsqlc.GetAgentInputByIdempotencyRo
 	)
 }
 
+func agentInputRecordFromGetSQLC(row dbsqlc.GetAgentInputRow) AgentInputRecord {
+	return agentInputRecordFromNewFields(
+		row.ID,
+		row.ProjectID,
+		row.AgentID,
+		row.State,
+		row.InputRank,
+		row.ActorID,
+		row.InputKind,
+		row.IntegrationTargetID,
+		row.IntegrationTargetBindingID,
+		row.IdempotencyScope,
+		row.InputIdempotencyKey,
+		row.QueuedAt,
+		row.AdmittedEventID,
+		row.AdmittedAt,
+		row.CanceledAt,
+		row.DeliveryMode,
+		row.ControlType,
+		row.TargetInteractionID,
+		row.AgentConfigID,
+		row.ResolvedAt,
+		row.RejectedReason,
+		row.Metadata,
+	)
+}
+
 func agentInputRecordFromControlSQLC(row dbsqlc.InsertControlAgentInputRow) AgentInputRecord {
 	return agentInputRecordFromNewFields(
 		row.ID,

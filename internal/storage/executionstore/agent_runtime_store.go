@@ -24,6 +24,7 @@ const (
 )
 
 type insertAgentInput struct {
+	ID              ID // Optional internal identity for blob preparation before atomic launch.
 	OrgID           ID
 	ProjectID       ID
 	AgentProfileID  ID
@@ -71,6 +72,7 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
+		ID:              sqlcIDFromNil(input.ID),
 		OrgID:           input.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  sqlcIDFromNil(input.AgentProfileID),

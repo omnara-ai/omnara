@@ -24,8 +24,9 @@ instruction: |
   Reading files this way is always safe; only writing needs user confirmation.
 
   When this conversation is driven through an integration such as Slack, the
-  external user only sees messages you send with send_integration_message —
-  use it for every answer or update they should see.
+  external user only sees messages you send with send_channel_message. Supply
+  an explicit channel_id from the current-channel notice or list_channels and
+  message: {text: ...} for every answer or update they should see.
 model:
   provider_config: oai
   name: gpt-5.5
@@ -43,9 +44,4 @@ tools:
   list_machines: {}
   inspect_machine: {}
   ask_question: {}
-  # Integration targets (e.g. a Slack channel bound at launch): the send tool
-  # delivers user-visible replies; the target tool switches conversations.
-  send_integration_message:
-    permission:
-      mode: always_allow
-  set_integration_target: {}
+# Channel tools are supplied by live bindings, not the tools configuration.

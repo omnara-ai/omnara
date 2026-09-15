@@ -311,13 +311,14 @@ function testInstallationConfiguration(
   return {
     app_configuration_revision: 1,
     install: {
+      project_id: 'proj_aaaaaaaaaaaaaaaaaaaaaaaaaa',
       configuration_revision: revision,
       id: installId,
       provider_account_ref: accountRef,
-      provider_agent_display_name: 'Test',
+      display_name: 'Test',
       provider_config: {},
       provider_identity: {},
-      provider_metadata: {},
+      metadata: {},
       provider_tenant_id: tenantId,
       updated_at: new Date().toISOString(),
     },

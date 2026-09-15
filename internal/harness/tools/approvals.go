@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -46,27 +45,7 @@ func (e Executor) PrepareToolCallPermission(
 	if err != nil {
 		return err
 	}
-	modeHandler, modeDescriptor, supported, err := permissionModeForTool(
-		toolType,
-		selection,
-		implementation,
-		implemented,
-	)
-	if err != nil {
-		return err
-	}
-	var inputErr error
-	if implemented {
-		inputErr = implementation.validateInput(call.Input)
-	}
-	if inputErr == nil && !implemented && supported {
-		schema := spec.InputSchema
-		if len(schema) == 0 {
-			inputErr = fmt.Errorf("tool %q has no runtime input schema", call.Name)
-		} else if err := jsonschema.Validate(schema, call.Input); err != nil {
-			inputErr = fmt.Errorf("tool %q input: %w", call.Name, err)
-		}
-	}
+	inputErr := validateToolInput(turn, call, implementation)
 	executable := implemented || toolType == toolcatalog.ToolTypeCustom
 	unsupportedErr := toolAvailabilityError(call.Name, turn.Tools, executable)
 	if inputErr != nil || unsupportedErr != nil {
@@ -76,6 +55,15 @@ func (e Executor) PrepareToolCallPermission(
 		}
 		cause := firstError(inputErr, unsupportedErr)
 		return e.completeInvalidToolCall(ctx, turn, proposal.ID, errorCode, cause)
+	}
+	modeHandler, modeDescriptor, supported, err := permissionModeForTool(
+		toolType,
+		selection,
+		implementation,
+		implemented,
+	)
+	if err != nil {
+		return err
 	}
 	if !supported {
 		return fmt.Errorf(

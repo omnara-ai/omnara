@@ -12,7 +12,8 @@ import {
   staleConfigurationError,
   writeNegativeCache,
 } from './configuration-cache'
-import { type CoreClient, isCoreNotFoundError } from './core-client'
+import type { CoreClient } from './core-client'
+import { isCoreNotFoundError } from './core-http'
 import { errorMessage } from './diagnostics'
 import {
   type GatewayAppConfiguration,

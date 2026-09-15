@@ -1,8 +1,9 @@
 import type { ChannelConnectorCapability, ChannelConnectorRuntimeUnit } from '@omnara/sdk'
 
 import type { AppRuntimeRegistry } from './app-registry'
-import { abortableDelay, pollJitterMilliseconds } from './async'
-import { type CoreClient, isTransientCoreError } from './core-client'
+import { abortableDelay, asError, pollJitterMilliseconds, raceWithAbort } from './async'
+import type { CoreClient } from './core-client'
+import { isTransientCoreError } from './core-http'
 import { errorMessage } from './diagnostics'
 import type { GatewayLogger, ProviderWorkReservation, RuntimeCheckpoint } from './types'
 import { WorkReservationScope } from './work-budget'
@@ -331,10 +332,6 @@ interface RuntimeLeaseState {
   unit: ChannelConnectorRuntimeUnit
 }
 
-function asError(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause))
-}
-
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
 }
@@ -356,26 +353,6 @@ async function acquireRuntimeHandle(
     )
     throw error
   }
-}
-
-function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(asError(signal.reason))
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      reject(asError(signal.reason))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (cause: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(asError(cause))
-      },
-    )
-  })
 }
 
 function waitForAbort(signal: AbortSignal): Promise<void> {

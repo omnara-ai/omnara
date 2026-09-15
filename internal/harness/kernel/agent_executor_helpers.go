@@ -40,7 +40,6 @@ func toToolTurn(input ModelWorkExecution) tools.Turn {
 		TurnID:             input.TurnID,
 		RuntimeLockID:      input.RuntimeLockID,
 		ModelCallContextID: input.ModelCallContextID,
-		OpeningInputIDs:    append([]storage.ID(nil), input.InputIDs...),
 	}
 }
 

@@ -46,6 +46,15 @@ func appendToolResultRecordTx(
 	tx pgx.Tx,
 	record ToolCallRecord,
 ) (admittedToolCallResult, error) {
+	// All callers already serialize on the agent. Do not enter connection gates
+	// from this child cleanup: lifecycle cancellation holds them in the other order.
+	if _, err := dbsqlc.New(tx).CancelExternalChannelRequestsForToolCall(ctx,
+		dbsqlc.CancelExternalChannelRequestsForToolCallParams{
+			ProjectID: record.ProjectID, AgentID: record.AgentID, ToolCallID: record.ID,
+			Reason: toolCallCompletedInteractionReason,
+		}); err != nil {
+		return admittedToolCallResult{}, fmt.Errorf("close channel requests for completed tool call: %w", err)
+	}
 	if _, err := dbsqlc.New(tx).CancelOpenAgentInteractionsForToolCall(
 		ctx,
 		dbsqlc.CancelOpenAgentInteractionsForToolCallParams{

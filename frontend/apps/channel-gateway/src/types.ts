@@ -1,10 +1,11 @@
 import type {
   ChannelConnectorAppConfiguration,
   ChannelConnectorCapability,
-  ChannelConnectorDelivery,
+  ChannelConnectorEventReceipt,
   ChannelConnectorInstallationConfiguration,
   ChannelConnectorRuntimeUnit,
   ChannelInboundEventRequest,
+  ChannelInboundEventResponse,
   ResolveChannelConnectorInteractionRequest,
   ResolveChannelConnectorInteractionResponse,
 } from '@omnara/sdk'
@@ -25,18 +26,6 @@ export type GatewayInstallationConfiguration = ChannelConnectorInstallationConfi
 
 export type ProviderCapability = ChannelConnectorCapability
 
-export interface ProviderSendResult {
-  // The gateway omits invalid or oversized references while retaining the
-  // successful delivery outcome. Provider adapters should return at most 2048
-  // UTF-8 bytes and must not include NUL.
-  providerMessageRef: string
-}
-
-export interface ProviderSendContext {
-  installation: GatewayInstallationConfiguration
-  signal: AbortSignal
-}
-
 export interface RuntimeCheckpoint {
   checkpoint: ChannelConnectorRuntimeUnit['checkpoint']
   version: number
@@ -47,7 +36,8 @@ export interface ProviderInboundContext {
     interactionId: string,
     request: ResolveChannelConnectorInteractionRequest,
   ): Promise<ResolveChannelConnectorInteractionResponse>
-  submitInbound(event: ChannelInboundEventRequest): Promise<void>
+  /** A durable acceptance acknowledgement, not completed behavior processing. */
+  submitInbound(event: ChannelInboundEventRequest): Promise<ChannelInboundEventResponse>
 }
 
 export interface RuntimeUnitWorkContext {
@@ -72,14 +62,38 @@ export interface ProviderWorkReservation {
   resize: (bytes: number) => void
 }
 
+export interface ReceiptBehaviorContext {
+  signal: AbortSignal
+  deadlineMs: number
+}
+
+/** Process an already-verified queued event using this exact scoped lease.
+ * Never re-enter handleWebhook, signature verification, or SDK intake dedupe.
+ */
+export type ReceiptBehavior = (
+  receipt: Readonly<ChannelConnectorEventReceipt>,
+  context: ReceiptBehaviorContext,
+) => Promise<void>
+
+/** retryable asserts replay of the entire behavior is safe. Unknown outcomes
+ * must not use it; generic/unclassified exceptions terminalize the receipt.
+ */
+export class ReceiptBehaviorError extends Error {
+  constructor(readonly retryable: boolean) {
+    super(
+      retryable
+        ? 'channel receipt behavior can retry safely'
+        : 'channel receipt behavior failed permanently',
+    )
+    this.name = 'ReceiptBehaviorError'
+  }
+}
+
 export interface ProviderRuntime {
   close: () => Promise<void>
   handleWebhook: (request: Request, context: ProviderWebhookContext) => Promise<Response>
+  processReceipt?: ReceiptBehavior
   runUnit?: (unit: ChannelConnectorRuntimeUnit, context: RuntimeUnitContext) => Promise<void>
-  send: (
-    delivery: ChannelConnectorDelivery,
-    context: ProviderSendContext,
-  ) => Promise<ProviderSendResult>
 }
 
 export interface ProviderFactoryContext {

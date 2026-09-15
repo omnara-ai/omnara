@@ -656,8 +656,8 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationProjects(ctx, dbsqlc.DeleteOrganizationProjectsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization projects: %w", err)
 	}
-	if err := q.DeleteOrganizationOrgAPIKeys(ctx, dbsqlc.DeleteOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("delete organization api keys: %w", err)
+	if err := q.RevokeOrganizationOrgAPIKeys(ctx, dbsqlc.RevokeOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("revoke organization api keys: %w", err)
 	}
 	if err := storeutil.CommitTxWithNotifications(
 		ctx,

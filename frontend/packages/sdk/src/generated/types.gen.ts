@@ -25,12 +25,592 @@ export type IntegrationRouteId = string;
 
 export type IntegrationBindingId = string;
 
-export type IntegrationDeliveryId = string;
+export type IntegrationEventReceiptId = string;
 
 export type IntegrationRuntimeUnitId = string;
 
 export type ChannelOpaqueObject = {
     [key: string]: unknown;
+};
+
+export type ExternalChannelRequestId = string;
+
+export type ChannelOperationKind = 'send' | 'read' | 'interaction';
+
+/**
+ * Completed records a known result. Failed means publication is known not to have happened. Unknown means publication may have happened and must not be blindly retried.
+ */
+export type ChannelOperationOutcome = 'completed' | 'failed' | 'unknown';
+
+export type ExternalChannelRequestState = 'pending' | 'completed' | 'canceled' | 'expired';
+
+export type ExternalChannelRequest = {
+    id: ExternalChannelRequestId;
+    agent_id: AgentId;
+    channel_id: IntegrationTargetId;
+    tool_call_id?: ToolCallId;
+    interaction_id?: AgentInteractionId;
+    operation: ChannelOperationKind;
+    /**
+     * The accepted payload for operation. Artifact IDs can be downloaded through the agent artifact API. Credentials never appear here.
+     */
+    payload: ChannelSendOperation | ChannelReadOperation | ChannelInteractionOperation;
+    state: ExternalChannelRequestState;
+    created_at: Timestamp;
+    deadline_at: Timestamp;
+    terminal_at?: Timestamp;
+    state_reason_code?: string;
+};
+
+export type ListExternalChannelRequestsResponse = {
+    data: Array<ExternalChannelRequest>;
+    next_cursor: string | null;
+};
+
+export type CompleteExternalChannelRequestRequest = {
+    outcome: ChannelOperationOutcome;
+    /**
+     * For completed operations, use ChannelSendOperationResult, ChannelReadOperationResult or ChannelInteractionOperationResult according to the request. Core validates that exact result before accepting it. Failed or unknown outcomes may include code and detail strings of at most 1024 bytes each.
+     */
+    payload: ChannelOpaqueObject;
+};
+
+export type CompleteExternalChannelRequestResponse = {
+    request: ExternalChannelRequest;
+    tool_call?: ToolCall;
+    /**
+     * Canonical tool result, including public continuation-channel IDs or a continuation error after known publication. Omitted for automatic presentations and notices.
+     */
+    tool_result_content_blocks?: Array<ToolResultContentBlock>;
+};
+
+export type ChannelDefinitionId = string;
+
+export type IntegrationTargetId = string;
+
+/**
+ * Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+ */
+export type ChannelKind = 'SLACK_CHANNEL' | 'SLACK_THREAD' | 'EXTERNAL';
+
+export type ChannelCapabilities = {
+    read: boolean;
+    send: boolean;
+    text: boolean;
+    artifacts: boolean;
+    permissions: boolean;
+    questions: boolean;
+    creates_reply_channel: boolean;
+};
+
+export type PublishChannelConnectorDefinitionRequest = {
+    implementation_key: string;
+    kind: ChannelKind;
+    /**
+     * At most 16 KiB of UTF-8 text.
+     */
+    description: string;
+    /**
+     * Valid send-parameter JSON Schema object, at most 256 KiB, without duplicate keys.
+     */
+    send_params_schema: ChannelOpaqueObject;
+    capabilities: ChannelCapabilities;
+};
+
+export type RegisterExternalChannelRequest = {
+    definition_id: ChannelDefinitionId;
+    parent_channel_id?: IntegrationTargetId;
+    /**
+     * Nonblank provider address, at most 2048 UTF-8 bytes, without NUL characters.
+     */
+    provider_ref: string;
+    /**
+     * Nonblank provider address kind, at most 128 UTF-8 bytes, without NUL characters.
+     */
+    provider_ref_kind: string;
+    /**
+     * Provider display label, at most 512 UTF-8 bytes, without NUL characters.
+     */
+    name: string;
+    provider_metadata?: ChannelOpaqueObject;
+};
+
+export type RegisteredChannel = {
+    channel_id: IntegrationTargetId;
+    definition_id: ChannelDefinitionId;
+    parent_channel_id?: IntegrationTargetId;
+    name: string;
+};
+
+export type AttachAgentChannelRequest = {
+    channel_id: IntegrationTargetId;
+    grants: ChannelGrants;
+    /**
+     * Optional nonempty grant for a reply channel created by a successful send. Requires send on this binding and does not authorize further descendants.
+     */
+    reply_channel_grants?: ChannelGrants;
+};
+
+export type AgentChannelBinding = {
+    id: IntegrationBindingId;
+    channel_id: IntegrationTargetId;
+    grants: ChannelGrants;
+    reply_channel_grants?: ChannelGrants;
+};
+
+export type AgentChannel = {
+    channel_id: IntegrationTargetId;
+    parent_channel_id?: IntegrationTargetId;
+    is_current: boolean;
+    kind: ChannelKind;
+    name: string;
+    description: string;
+    active: boolean;
+    /**
+     * Input admission is authorized; the connection behavior determines delivery.
+     */
+    can_receive: boolean;
+    capabilities: ChannelCapabilities;
+    send_params_schema: ChannelOpaqueObject;
+};
+
+export type AgentChannelSummary = {
+    channel_id: IntegrationTargetId;
+    parent_channel_id?: IntegrationTargetId;
+    provider: string;
+    address_kind: string;
+    name: string;
+    state: 'active' | 'disabled';
+    /**
+     * Input admission is authorized; the connection behavior determines delivery.
+     */
+    can_receive: boolean;
+    can_read: boolean;
+    can_send: boolean;
+};
+
+export type ListAgentChannelsResponse = {
+    channels: Array<AgentChannelSummary>;
+    current_channel_id: string | null;
+    next_cursor: string | null;
+};
+
+export type ChannelDefinition = {
+    id: ChannelDefinitionId;
+    implementation_key: string;
+    kind: ChannelKind;
+    description: string;
+    send_params_schema: ChannelOpaqueObject;
+    capabilities: ChannelCapabilities;
+};
+
+export type ChannelEventLease = {
+    receipt_id: IntegrationEventReceiptId;
+    lease_token: string;
+    lease_generation: number;
+};
+
+/**
+ * Explicit access for one agent and channel. At least one grant must be true. Grants authorize operations; application behavior independently decides when to deliver input.
+ */
+export type ChannelGrants = {
+    /**
+     * Authorizes input admission. Connection behavior selects recipients; this grant alone does not subscribe the agent.
+     */
+    receive: boolean;
+    read: boolean;
+    send: boolean;
+};
+
+/**
+ * Content of one logical message. An observation may be empty when its provider content is unavailable; history reports partial coverage. Sending requires nonempty text or accessible artifacts.
+ */
+export type ChannelMessage = {
+    /**
+     * Message text, at most 64 KiB of UTF-8. Whitespace alone requires an attachment.
+     */
+    text?: string;
+    artifact_ids?: Array<ArtifactId>;
+};
+
+export type SendChannelMessageRequest = {
+    channel_id: IntegrationTargetId;
+    message: ChannelSendMessage;
+    /**
+     * Validated against the channel's current send_params_schema. Omission means an empty object; null is invalid.
+     */
+    params?: ChannelOpaqueObject;
+};
+
+/**
+ * Nonempty text, accessible artifacts, or both. An empty history observation is not a valid send.
+ */
+export type ChannelSendMessage = ChannelMessage & {
+    [key: string]: unknown;
+};
+
+export type ReadChannelRequest = {
+    channel_id: IntegrationTargetId;
+    /**
+     * Opaque next_cursor from this agent's previous read of the same channel.
+     */
+    cursor?: string;
+    limit?: number;
+};
+
+/**
+ * Provider publication state, not proof of delivery to or reading by a person.
+ */
+export type ChannelMessagePublication = 'published' | 'draft';
+
+export type ChannelMessageAuthor = {
+    /**
+     * Provider author reference scoped to this channel's connection; not an Omnara authorization principal.
+     */
+    ref?: string;
+    display_name?: string;
+};
+
+export type ChannelMessageReference = {
+    channel_id: IntegrationTargetId;
+    /**
+     * Provider message identity scoped to the containing channel.
+     */
+    message_id: string;
+};
+
+export type ChannelMessageObservation = {
+    content: ChannelMessage;
+    publication: ChannelMessagePublication;
+    /**
+     * Actual containing channel. Omitted when a known publication's containing channel could not be registered; never substituted with its parent.
+     */
+    channel_id?: IntegrationTargetId;
+    /**
+     * Known provider message identity; interpret only with its containing channel.
+     */
+    message_id?: string;
+    reply_to?: ChannelMessageReference;
+    /**
+     * Registered continuation available to this agent. A reference does not independently grant access.
+     */
+    reply_channel_id?: IntegrationTargetId;
+    author?: ChannelMessageAuthor;
+    created_at?: Timestamp;
+    /**
+     * Bounded public provider details, without credentials or private destination configuration.
+     */
+    metadata?: ChannelOpaqueObject;
+};
+
+/**
+ * Completeness of the provider's available history representation, independent of pagination.
+ */
+export type ChannelHistoryCoverage = 'complete' | 'partial';
+
+/**
+ * Publication succeeded, but its continuation could not be made available. This does not mean the message was unsent.
+ */
+export type ChannelContinuationError = {
+    code: string;
+    message: string;
+};
+
+/**
+ * One known message publication, with optional continuation failure. No batch or background-delivery result.
+ */
+export type SendChannelMessageResult = {
+    /**
+     * Stable operation correlation, including the original tool or external request identity.
+     */
+    request_id: string;
+    message: ChannelMessageObservation;
+    continuation_error?: ChannelContinuationError;
+};
+
+export type ChannelHistoryPage = {
+    /**
+     * Messages in chronological order within a page. The first page contains recent messages; subsequent pages move toward older history.
+     */
+    messages: Array<ChannelMessageObservation>;
+    /**
+     * Omitted at the end of available history. Absence does not override partial coverage.
+     */
+    next_cursor?: string;
+    coverage: ChannelHistoryCoverage;
+    /**
+     * Explains a partial representation, such as unavailable message contents or provider history restrictions.
+     */
+    coverage_reason?: string;
+};
+
+/**
+ * Private destination resolved by Omnara after authorization. The model never supplies this address.
+ */
+export type ChannelOperationDestination = {
+    implementation_key: string;
+    provider_ref: string;
+    provider_ref_kind: string;
+    provider_metadata: ChannelOpaqueObject;
+};
+
+export type ChannelSendOperation = {
+    destination: ChannelOperationDestination;
+    message: ChannelSendMessage;
+    params: ChannelOpaqueObject;
+    /**
+     * Permission captured from one exact live binding. Absence prohibits creating a new reply channel. Completion cannot change or extend these grants.
+     */
+    reply_channel_grants?: ChannelGrants;
+};
+
+/**
+ * Provider facts for one direct child of the addressed channel, within the same connection. Core validates and registers the child before exposing an actionable channel ID.
+ */
+export type ChannelReplyDestination = {
+    implementation_key: string;
+    provider_ref: string;
+    provider_ref_kind: string;
+    display_name?: string;
+    provider_metadata?: ChannelOpaqueObject;
+};
+
+/**
+ * Actual containing conversation. A Slack root post belongs to destination even when it opens a reply thread; an inline GitHub finding belongs to reply_channel.
+ */
+export type ChannelMessageLocation = 'destination' | 'reply_channel';
+
+export type ChannelSendOperationResult = {
+    publication: ChannelMessagePublication;
+    message_channel: ChannelMessageLocation;
+    message_id?: string;
+    /**
+     * Required when message_channel is reply_channel. Existing-thread replies use destination and need no new child.
+     */
+    reply_channel?: ChannelReplyDestination;
+    created_at?: Timestamp;
+    metadata?: ChannelOpaqueObject;
+};
+
+export type ChannelReadOperation = {
+    destination: ChannelOperationDestination;
+    limit: number;
+    /**
+     * Provider pagination state decoded from the channel-scoped cursor by core. Never an alternate destination or request URL.
+     */
+    cursor?: string;
+};
+
+/**
+ * Provider history at the requested destination. Core supplies public channel IDs, resolves only already registered authorized reply addresses, reauthorizes artifacts and wraps the cursor. Reading never creates or binds a channel.
+ */
+export type ChannelReadOperationResult = {
+    messages: Array<ChannelProviderMessageObservation>;
+    next_cursor?: string;
+    coverage: ChannelHistoryCoverage;
+    /**
+     * Required when coverage is partial.
+     */
+    coverage_reason?: string;
+};
+
+export type ChannelProviderMessageReference = {
+    message_id: string;
+    /**
+     * Omit when the referenced message belongs to the requested channel.
+     */
+    destination?: ChannelReplyDestination;
+};
+
+export type ChannelProviderMessageObservation = {
+    content: ChannelMessage;
+    publication: ChannelMessagePublication;
+    message_id?: string;
+    reply_to?: ChannelProviderMessageReference;
+    reply_channel?: ChannelReplyDestination;
+    author?: ChannelMessageAuthor;
+    created_at?: Timestamp;
+    metadata?: ChannelOpaqueObject;
+};
+
+/**
+ * A presentation copy of a canonical interaction, pinned to its channel. Delivering this copy does not resolve the interaction; the Omnara dashboard remains actionable.
+ */
+export type ChannelInteractionOperation = {
+    destination: ChannelOperationDestination;
+    interaction_id: AgentInteractionId;
+    agent_id: AgentId;
+    channel_id: IntegrationTargetId;
+    kind: AgentInteractionKind;
+    form: InteractionForm;
+};
+
+/**
+ * Records presentation only. Approval and question answers use the canonical interaction resolution API.
+ */
+export type ChannelInteractionOperationResult = {
+    message_id?: string;
+    metadata?: ChannelOpaqueObject;
+};
+
+export type ChannelConnectorRoute = {
+    id: IntegrationRouteId;
+    behavior_key: string;
+    configuration: ChannelOpaqueObject;
+};
+
+export type ListChannelConnectorRoutesResponse = {
+    routes: Array<ChannelConnectorRoute>;
+};
+
+export type ChannelWorkflowTarget = {
+    definition_id: ChannelDefinitionId;
+    provider_ref: string;
+    provider_ref_kind: string;
+    display_name?: string;
+    parent_channel_id?: IntegrationTargetId;
+    provider_metadata?: ChannelOpaqueObject;
+};
+
+export type ChannelWorkflowGrants = {
+    read: boolean;
+    send: boolean;
+};
+
+export type ChannelWorkflowAuthor = {
+    ref: string;
+    display_name: string;
+};
+
+/**
+ * Provider-selected semantic message identity, scoped to the connection and receiving agent. At most 512 UTF-8 bytes. Different callbacks describing the same message use the same key.
+ */
+export type ChannelInputKey = string;
+
+/**
+ * Checked under the receiving agent's lock before admission. If presence changed, lookup current state and render content again; do not retry the unchanged body. An already accepted receipt or semantic input is returned before this check.
+ */
+export type ChannelInputPrecondition = {
+    input_key: ChannelInputKey;
+    exists: boolean;
+};
+
+export type LookupChannelConnectorWorkflowRequest = {
+    route_id: IntegrationRouteId;
+    instance_key: string;
+    input_keys: Array<ChannelInputKey>;
+};
+
+export type LookupChannelConnectorWorkflowResponse = {
+    exists: boolean;
+    agent_state?: AgentState;
+    /**
+     * Requested keys already accepted by this workflow's agent.
+     */
+    input_keys: Array<ChannelInputKey>;
+};
+
+export type LookupChannelConnectorRecipientsRequest = {
+    /**
+     * Existing provider address within the authenticated installation; at most 512 UTF-8 bytes.
+     */
+    provider_ref: string;
+    receipt: ChannelEventLease;
+    input_keys: Array<ChannelInputKey>;
+    cursor?: string;
+    limit?: number;
+};
+
+export type LookupChannelConnectorRecipientsResponse = {
+    /**
+     * Absent if the provider address has never been registered.
+     */
+    channel_id?: IntegrationTargetId;
+    /**
+     * A receive binding has existed for this channel, including revoked receive grants. Send-only and read-only grants do not establish a receiving conversation. Independent of pagination; an empty live-recipient page does not authorize launching replacement agents.
+     */
+    has_receive_binding_history: boolean;
+    /**
+     * This receipt already has an accepted workflow input for this addressed channel. Behaviors may continue partially completed route fanout on replay without mistaking those newly created bindings for a pre-existing conversation.
+     */
+    workflow_started: boolean;
+    recipients: Array<ChannelConnectorRecipient>;
+    next_cursor: string | null;
+};
+
+export type ChannelConnectorRecipient = {
+    agent_id: AgentId;
+    binding_id: IntegrationBindingId;
+    input_keys: Array<ChannelInputKey>;
+};
+
+/**
+ * Delivers to the existing agent and channel named by an exact receive binding. Creates no workflow, agent, channel or grant. Receipt and semantic replay return the original accepted input. Complete the receipt separately after all selected recipients.
+ */
+export type DeliverChannelConnectorInputRequest = {
+    binding_id: IntegrationBindingId;
+    receipt: ChannelEventLease;
+    input_key: ChannelInputKey;
+    input_precondition?: ChannelInputPrecondition;
+    author: ChannelWorkflowAuthor;
+    /**
+     * Same inline attachment and request limits as workflow input delivery; artifacts and input commit atomically.
+     */
+    content_blocks: Array<CreateAgentInputContentBlock>;
+    metadata?: ChannelOpaqueObject;
+    delivery_mode?: CreateAgentInputDeliveryMode;
+    /**
+     * Only valid with steering delivery; cancel open interactions atomically with admission.
+     */
+    cancel_open_interactions?: boolean;
+};
+
+/**
+ * Uses the authenticated app's real installation and the registered behavior route. Project, launch profile and agent identity are derived internally. One workflow winner retry may prepare fresh uploads outside the database transaction. Complete the incoming receipt separately after successful delivery to all intended workflows.
+ */
+export type DeliverChannelConnectorWorkflowRequest = {
+    route_id: IntegrationRouteId;
+    /**
+     * Stable workflow identity within the configured route; at most 512 UTF-8 bytes.
+     */
+    instance_key: string;
+    receipt: ChannelEventLease;
+    input_key: ChannelInputKey;
+    /**
+     * If creating a workflow, require no receive binding history for the destination unless this receipt already has a workflow outcome for that channel. A conflict requires recipient lookup again; existing workflow and input replay remain unchanged.
+     */
+    only_if_unbound?: boolean;
+    input_precondition?: ChannelInputPrecondition;
+    target: ChannelWorkflowTarget;
+    grants: ChannelWorkflowGrants;
+    author: ChannelWorkflowAuthor;
+    /**
+     * Up to 20 inline attachments, 10 MiB each and 24 MiB decoded combined; at most 1 MiB of other content. The complete request is limited to 48 MiB. Artifact records and canonical input references commit with the workflow.
+     */
+    content_blocks: Array<CreateAgentInputContentBlock>;
+    metadata?: ChannelOpaqueObject;
+    delivery_mode?: CreateAgentInputDeliveryMode;
+    /**
+     * Only valid with steering delivery; cancel open interactions atomically with admission.
+     */
+    cancel_open_interactions?: boolean;
+};
+
+export type ChannelConnectorInputResponse = {
+    /**
+     * Canonical interactions canceled by this newly admitted input; presentation cleanup is best effort and replay may return no IDs.
+     */
+    canceled_interaction_ids?: Array<AgentInteractionId>;
+    agent_id: AgentId;
+    channel_id: IntegrationTargetId;
+    /**
+     * Present for newly admitted inputs. Historical inputs retain their original provenance and may predate bindings.
+     */
+    binding_id?: IntegrationBindingId;
+    agent_input_id: AgentInputId;
+    created_agent: boolean;
+    created_input: boolean;
+    content_blocks: Array<AgentInputContentBlock>;
 };
 
 export type ChannelConnectorApp = {
@@ -47,13 +627,14 @@ export type ChannelConnectorApp = {
 };
 
 export type ChannelConnectorInstall = {
+    project_id: ProjectId;
     id: string;
-    provider_tenant_id: string;
+    provider_tenant_id?: string;
     provider_account_ref: string;
-    provider_agent_display_name: string;
+    display_name: string;
     provider_config: ChannelOpaqueObject;
     provider_identity: ChannelOpaqueObject;
-    provider_metadata: ChannelOpaqueObject;
+    metadata: ChannelOpaqueObject;
     configuration_revision: number;
     updated_at: Timestamp;
 };
@@ -75,17 +656,6 @@ export type ChannelConnectorInstallationConfiguration = {
     credential?: ChannelCredentialPayload;
 };
 
-export type ChannelConversation = {
-    ref: string;
-    kind: string;
-    display_name?: string;
-    parent_ref?: string;
-    reply_to_ref?: string;
-    mentioned: boolean;
-    direct: boolean;
-    metadata: ChannelOpaqueObject;
-};
-
 export type ChannelActor = {
     ref: string;
     display_name: string;
@@ -93,16 +663,19 @@ export type ChannelActor = {
 };
 
 export type ChannelInboundEventRequest = {
-    version: 'v1';
-    provider_event_id: string;
-    external_tenant_id: string;
-    external_account_ref: string;
-    event_type: string;
-    conversation: ChannelConversation;
-    actor: ChannelActor;
-    content_blocks: Array<CreateAgentInputContentBlock>;
-    occurred_at: Timestamp;
-    metadata: ChannelOpaqueObject;
+    /**
+     * Stable provider event identity, scoped to the installation; at most 512 UTF-8 bytes.
+     */
+    event_id: string;
+    integration_install_id: IntegrationInstallId;
+    payload: ChannelEventPayload;
+};
+
+/**
+ * Provider event data for asynchronous processing. Must be one PostgreSQL-safe JSON object without duplicate keys, at most 24 MiB. IDs or runtime proof within this opaque payload do not confer authority.
+ */
+export type ChannelEventPayload = {
+    [key: string]: unknown;
 };
 
 export type ChannelRuntimeInboundEventRequest = {
@@ -111,21 +684,48 @@ export type ChannelRuntimeInboundEventRequest = {
     event: ChannelInboundEventRequest;
 };
 
-export type ChannelInboundAcceptance = {
-    route_id: IntegrationRouteId;
-    agent_id: AgentId;
-    target_id: string;
-    binding_id: IntegrationBindingId;
-    agent_input_id: AgentInputId;
-};
+export type ChannelEventState = 'pending' | 'processing' | 'completed' | 'failed';
 
 export type ChannelInboundEventResponse = {
-    accepted: Array<ChannelInboundAcceptance>;
-    ignored_routes: number;
+    receipt_id: IntegrationEventReceiptId;
+    state: ChannelEventState;
+};
+
+export type ClaimNextChannelConnectorEventRequest = {
+    capability: ChannelConnectorCapability;
+    lease_ms: number;
+};
+
+export type ChannelConnectorEventReceipt = {
+    receipt_id: IntegrationEventReceiptId;
+    integration_app_id: IntegrationAppId;
+    integration_install_id: IntegrationInstallId;
+    event_id: string;
+    payload: ChannelEventPayload;
+    state: ChannelEventState;
+    lease_token: string;
+    lease_generation: number;
+    lease_expires_at: Timestamp;
+    attempt_count: number;
+    last_error: ChannelOpaqueObject;
+};
+
+/**
+ * Pending schedules a bounded-backoff retry; failed is a permanent rejection; completed records successful processing.
+ */
+export type ChannelEventOutcome = 'pending' | 'completed' | 'failed';
+
+export type CompleteChannelConnectorEventRequest = {
+    lease_token: string;
+    lease_generation: number;
+    state: ChannelEventOutcome;
+    /**
+     * A nonempty error object is required for pending or failed. Completed requires an omitted or empty error object.
+     */
+    last_error?: ChannelOpaqueObject;
 };
 
 export type ResolveChannelConnectorInteractionRequest = {
-    version: 'v1';
     external_tenant_id: string;
     external_account_ref: string;
     integration_target_id: string;
@@ -156,57 +756,6 @@ export type ChannelConnectorClaimRequest = {
     lease_ms: number;
     limit: number;
     capability: ChannelConnectorCapability;
-};
-
-export type ChannelDeliveryState = 'pending' | 'claimed' | 'retry_wait' | 'delivered' | 'failed' | 'unknown' | 'canceled';
-
-export type ChannelConnectorDelivery = {
-    id: IntegrationDeliveryId;
-    integration_app_id: IntegrationAppId;
-    integration_install_id: string;
-    integration_target_id: string;
-    integration_target_binding_id: IntegrationBindingId;
-    provider: string;
-    connector_key: string;
-    delivery_kind: string;
-    payload_version: string;
-    payload: ChannelOpaqueObject;
-    state: ChannelDeliveryState;
-    /**
-     * Number of times core has leased this delivery. A connector must separately avoid retrying provider I/O after its own bounded attempt policy is exhausted; core fails a delivery that asks for another safe retry after 64 claims.
-     */
-    attempt_count: number;
-    available_at: Timestamp;
-    claim_token?: string;
-    claim_generation: number;
-    app_configuration_revision?: number;
-    install_configuration_revision?: number;
-    claim_expires_at?: Timestamp;
-    notify_ref?: string;
-    provider_message_ref?: string;
-    last_error?: ChannelOpaqueObject;
-    completed_at?: Timestamp;
-    created_at: Timestamp;
-    updated_at: Timestamp;
-};
-
-export type ChannelConnectorDeliveriesResponse = {
-    deliveries: Array<ChannelConnectorDelivery>;
-};
-
-export type CompleteChannelConnectorDeliveryRequest = {
-    claim_token: string;
-    claim_generation: number;
-    /**
-     * Return retry_wait only when another bounded attempt is safe. Use unknown after provider I/O begins if success cannot be confirmed, so core does not risk a duplicate send. Core converts retry_wait to failed when the delivery has reached 64 claims.
-     */
-    outcome: 'retry_wait' | 'delivered' | 'failed' | 'unknown' | 'canceled';
-    retry_after_ms?: number;
-    /**
-     * Provider message identifier, limited to 2048 UTF-8 bytes by the server.
-     */
-    provider_message_ref: string;
-    last_error: ChannelOpaqueObject;
 };
 
 export type ChannelRuntimeDesiredState = 'running' | 'stopped';
@@ -1070,21 +1619,37 @@ export type CreateIntegrationOAuthSetupRequest = {
 };
 
 /**
- * A project-owned installation of a provider app in an external tenant or account. Native compatibility installations connect exactly one agent profile or agent; connector installations leave both agent_profile_id and agent_id unset and use routes and target bindings instead. Provider credentials are never returned.
+ * Immutable connection ownership. Managed connections use an Omnara-hosted connector; external connections use the customer's authorized API consumer.
+ */
+export type IntegrationKind = 'managed' | 'external';
+
+/**
+ * Register a project-owned customer connector. No provider app, tenant, account, credentials, agent, or agent profile is required or accepted.
+ */
+export type CreateExternalIntegrationInstallRequest = {
+    /**
+     * At most 512 UTF-8 bytes.
+     */
+    display_name?: string;
+    metadata?: ChannelOpaqueObject;
+};
+
+/**
+ * A project-owned connection. Managed connections install a genuine provider app; external connections use a customer API consumer and omit provider identity. Channels and agent bindings are separate resources. Provider credentials are never returned.
  */
 export type IntegrationInstall = {
     id: IntegrationInstallId;
     org_id: OrganizationId;
     project_id: ProjectId;
-    agent_profile_id?: AgentProfileId;
-    agent_id?: AgentId;
-    provider: string;
-    integration_kind: string;
+    integration_app_id?: IntegrationAppId;
+    provider?: string;
+    integration_kind: IntegrationKind;
     connection_mode: string;
     state: 'active' | 'disabled';
-    provider_tenant_id: string;
-    provider_account_ref: string;
-    provider_agent_display_name: string;
+    provider_tenant_id?: string;
+    provider_account_ref?: string;
+    display_name: string;
+    metadata: ChannelOpaqueObject;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -1563,14 +2128,20 @@ export type CreateAgentRequest = {
      */
     name?: AgentName;
     message?: string;
+    /**
+     * Optional initial channel grants, created atomically with a new agent. Requires project management. Launch retries return the original agent and never add or restore grants, even if this list changes.
+     */
+    channel_bindings?: Array<AttachAgentChannelRequest>;
 };
+
+export type AgentState = 'active' | 'archived';
 
 export type Agent = {
     id: AgentId;
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_profile_id?: AgentProfileId;
-    state: 'active' | 'archived';
+    state: AgentState;
     name: AgentName;
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
@@ -1863,6 +2434,10 @@ export type MachineMetadata = {
 };
 
 export type CreateAgentInputRequest = {
+    /**
+     * Optional input origin on an external connection. Requires an existing live receive binding to this agent. Managed provider origins arrive through verified provider intake. An identical retry retains its original binding after revocation or replacement.
+     */
+    channel_id?: IntegrationTargetId;
     /**
      * At most 20 inline media blocks per submission, each holding up to 10 MiB of decoded media and up to 24 MiB decoded across the submission. Non-media blocks may hold up to 1 MiB combined. The whole request body is capped at 48 MiB.
      */
@@ -7327,6 +7902,640 @@ export type ListIntegrationInstallsResponses = {
 };
 
 export type ListIntegrationInstallsResponse2 = ListIntegrationInstallsResponses[keyof ListIntegrationInstallsResponses];
+
+export type CreateExternalIntegrationInstallData = {
+    body: CreateExternalIntegrationInstallRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs';
+};
+
+export type CreateExternalIntegrationInstallErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateExternalIntegrationInstallError = CreateExternalIntegrationInstallErrors[keyof CreateExternalIntegrationInstallErrors];
+
+export type CreateExternalIntegrationInstallResponses = {
+    /**
+     * External connection registered.
+     */
+    201: IntegrationInstall;
+};
+
+export type CreateExternalIntegrationInstallResponse = CreateExternalIntegrationInstallResponses[keyof CreateExternalIntegrationInstallResponses];
+
+export type PublishExternalChannelDefinitionData = {
+    body: PublishChannelConnectorDefinitionRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channel-definitions';
+};
+
+export type PublishExternalChannelDefinitionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type PublishExternalChannelDefinitionError = PublishExternalChannelDefinitionErrors[keyof PublishExternalChannelDefinitionErrors];
+
+export type PublishExternalChannelDefinitionResponses = {
+    /**
+     * Publish an external channel definition.
+     */
+    200: ChannelDefinition;
+};
+
+export type PublishExternalChannelDefinitionResponse = PublishExternalChannelDefinitionResponses[keyof PublishExternalChannelDefinitionResponses];
+
+export type RegisterExternalChannelData = {
+    body: RegisterExternalChannelRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels';
+};
+
+export type RegisterExternalChannelErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type RegisterExternalChannelError = RegisterExternalChannelErrors[keyof RegisterExternalChannelErrors];
+
+export type RegisterExternalChannelResponses = {
+    /**
+     * Register an external channel.
+     */
+    200: RegisteredChannel;
+};
+
+export type RegisterExternalChannelResponse = RegisterExternalChannelResponses[keyof RegisterExternalChannelResponses];
+
+export type AttachAgentChannelData = {
+    body: AttachAgentChannelRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings';
+};
+
+export type AttachAgentChannelErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type AttachAgentChannelError = AttachAgentChannelErrors[keyof AttachAgentChannelErrors];
+
+export type AttachAgentChannelResponses = {
+    /**
+     * Attach a channel to an agent.
+     */
+    200: AgentChannelBinding;
+};
+
+export type AttachAgentChannelResponse = AttachAgentChannelResponses[keyof AttachAgentChannelResponses];
+
+export type RevokeAgentChannelBindingData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+        bindingID: IntegrationBindingId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings/{bindingID}';
+};
+
+export type RevokeAgentChannelBindingErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type RevokeAgentChannelBindingError = RevokeAgentChannelBindingErrors[keyof RevokeAgentChannelBindingErrors];
+
+export type RevokeAgentChannelBindingResponses = {
+    /**
+     * Binding revoked.
+     */
+    204: void;
+};
+
+export type RevokeAgentChannelBindingResponse = RevokeAgentChannelBindingResponses[keyof RevokeAgentChannelBindingResponses];
+
+export type ListAgentChannelsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+        parent_channel_id?: IntegrationTargetId;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels';
+};
+
+export type ListAgentChannelsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListAgentChannelsError = ListAgentChannelsErrors[keyof ListAgentChannelsErrors];
+
+export type ListAgentChannelsResponses = {
+    /**
+     * List agent channels.
+     */
+    200: ListAgentChannelsResponse;
+};
+
+export type ListAgentChannelsResponse2 = ListAgentChannelsResponses[keyof ListAgentChannelsResponses];
+
+export type GetAgentChannelData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+        channelID: IntegrationTargetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/channels/{channelID}';
+};
+
+export type GetAgentChannelErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentChannelError = GetAgentChannelErrors[keyof GetAgentChannelErrors];
+
+export type GetAgentChannelResponses = {
+    /**
+     * Get an agent channel.
+     */
+    200: AgentChannel;
+};
+
+export type GetAgentChannelResponse = GetAgentChannelResponses[keyof GetAgentChannelResponses];
+
+export type ListExternalChannelRequestsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests';
+};
+
+export type ListExternalChannelRequestsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListExternalChannelRequestsError = ListExternalChannelRequestsErrors[keyof ListExternalChannelRequestsErrors];
+
+export type ListExternalChannelRequestsResponses = {
+    /**
+     * Pending requests currently authorized for this connection.
+     */
+    200: ListExternalChannelRequestsResponse;
+};
+
+export type ListExternalChannelRequestsResponse2 = ListExternalChannelRequestsResponses[keyof ListExternalChannelRequestsResponses];
+
+export type CompleteExternalChannelRequestData = {
+    body: CompleteExternalChannelRequestRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+        requestID: ExternalChannelRequestId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/requests/{requestID}/result';
+};
+
+export type CompleteExternalChannelRequestErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CompleteExternalChannelRequestError = CompleteExternalChannelRequestErrors[keyof CompleteExternalChannelRequestErrors];
+
+export type CompleteExternalChannelRequestResponses = {
+    /**
+     * Accepted result, including the owning tool's canonical result when applicable.
+     */
+    200: CompleteExternalChannelRequestResponse;
+};
+
+export type CompleteExternalChannelRequestResponse2 = CompleteExternalChannelRequestResponses[keyof CompleteExternalChannelRequestResponses];
 
 export type DeleteIntegrationInstallData = {
     body?: never;
@@ -13941,6 +15150,394 @@ export type GetChannelConnectorInstallationConfigurationResponses = {
 
 export type GetChannelConnectorInstallationConfigurationResponse = GetChannelConnectorInstallationConfigurationResponses[keyof GetChannelConnectorInstallationConfigurationResponses];
 
+export type ListChannelConnectorRoutesData = {
+    body?: never;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/routes';
+};
+
+export type ListChannelConnectorRoutesErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListChannelConnectorRoutesError = ListChannelConnectorRoutesErrors[keyof ListChannelConnectorRoutesErrors];
+
+export type ListChannelConnectorRoutesResponses = {
+    /**
+     * All active routes, bounded by the connection's route limit.
+     */
+    200: ListChannelConnectorRoutesResponse;
+};
+
+export type ListChannelConnectorRoutesResponse2 = ListChannelConnectorRoutesResponses[keyof ListChannelConnectorRoutesResponses];
+
+export type PublishChannelConnectorDefinitionData = {
+    body: PublishChannelConnectorDefinitionRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channel-definitions/publish';
+};
+
+export type PublishChannelConnectorDefinitionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type PublishChannelConnectorDefinitionError = PublishChannelConnectorDefinitionErrors[keyof PublishChannelConnectorDefinitionErrors];
+
+export type PublishChannelConnectorDefinitionResponses = {
+    /**
+     * Current committed definition for this connection and implementation key.
+     */
+    200: ChannelDefinition;
+};
+
+export type PublishChannelConnectorDefinitionResponse = PublishChannelConnectorDefinitionResponses[keyof PublishChannelConnectorDefinitionResponses];
+
+export type LookupChannelConnectorWorkflowData = {
+    body: LookupChannelConnectorWorkflowRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/lookup';
+};
+
+export type LookupChannelConnectorWorkflowErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type LookupChannelConnectorWorkflowError = LookupChannelConnectorWorkflowErrors[keyof LookupChannelConnectorWorkflowErrors];
+
+export type LookupChannelConnectorWorkflowResponses = {
+    /**
+     * Current workflow and semantic input presence. This observation grants no authority; delivery repeats authorization and any input precondition atomically.
+     */
+    200: LookupChannelConnectorWorkflowResponse;
+};
+
+export type LookupChannelConnectorWorkflowResponse2 = LookupChannelConnectorWorkflowResponses[keyof LookupChannelConnectorWorkflowResponses];
+
+export type DeliverChannelConnectorWorkflowData = {
+    body: DeliverChannelConnectorWorkflowRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/deliver';
+};
+
+export type DeliverChannelConnectorWorkflowErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeliverChannelConnectorWorkflowError = DeliverChannelConnectorWorkflowErrors[keyof DeliverChannelConnectorWorkflowErrors];
+
+export type DeliverChannelConnectorWorkflowResponses = {
+    /**
+     * Committed result; identical receipt replay returns its original accepted input.
+     */
+    200: ChannelConnectorInputResponse;
+};
+
+export type DeliverChannelConnectorWorkflowResponse = DeliverChannelConnectorWorkflowResponses[keyof DeliverChannelConnectorWorkflowResponses];
+
+export type LookupChannelConnectorRecipientsData = {
+    body: LookupChannelConnectorRecipientsRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/recipients';
+};
+
+export type LookupChannelConnectorRecipientsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type LookupChannelConnectorRecipientsError = LookupChannelConnectorRecipientsErrors[keyof LookupChannelConnectorRecipientsErrors];
+
+export type LookupChannelConnectorRecipientsResponses = {
+    /**
+     * Existing channel recipients and receipt progress. This observation grants no authority; delivery rechecks the selected binding and receipt lease.
+     */
+    200: LookupChannelConnectorRecipientsResponse;
+};
+
+export type LookupChannelConnectorRecipientsResponse2 = LookupChannelConnectorRecipientsResponses[keyof LookupChannelConnectorRecipientsResponses];
+
+export type DeliverChannelConnectorInputData = {
+    body: DeliverChannelConnectorInputRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/deliver';
+};
+
+export type DeliverChannelConnectorInputErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeliverChannelConnectorInputError = DeliverChannelConnectorInputErrors[keyof DeliverChannelConnectorInputErrors];
+
+export type DeliverChannelConnectorInputResponses = {
+    /**
+     * Committed result; identical receipt replay returns its original accepted input.
+     */
+    200: ChannelConnectorInputResponse;
+};
+
+export type DeliverChannelConnectorInputResponse = DeliverChannelConnectorInputResponses[keyof DeliverChannelConnectorInputResponses];
+
 export type ResolveChannelConnectorInstallationConfigurationData = {
     body?: never;
     path: {
@@ -14067,9 +15664,9 @@ export type AcceptChannelConnectorEventError = AcceptChannelConnectorEventErrors
 
 export type AcceptChannelConnectorEventResponses = {
     /**
-     * The event was processed across all active routes. Accepted entries are durable; ignored routes and routes with permanent configuration errors are not retried.
+     * The receipt has committed. Identical retries return the same receipt and its current state; a conflicting payload returns 409. Receipt does not imply agent processing.
      */
-    200: ChannelInboundEventResponse;
+    202: ChannelInboundEventResponse;
 };
 
 export type AcceptChannelConnectorEventResponse = AcceptChannelConnectorEventResponses[keyof AcceptChannelConnectorEventResponses];
@@ -14203,9 +15800,9 @@ export type AcceptChannelConnectorRuntimeEventError = AcceptChannelConnectorRunt
 
 export type AcceptChannelConnectorRuntimeEventResponses = {
     /**
-     * The event was processed across all active routes. Accepted entries are durable; ignored routes and routes with permanent configuration errors are not retried.
+     * The receipt has committed. Identical retries return the same receipt and its current state; a conflicting payload returns 409. Receipt does not imply agent processing.
      */
-    200: ChannelInboundEventResponse;
+    202: ChannelInboundEventResponse;
 };
 
 export type AcceptChannelConnectorRuntimeEventResponse = AcceptChannelConnectorRuntimeEventResponses[keyof AcceptChannelConnectorRuntimeEventResponses];
@@ -14279,73 +15876,14 @@ export type ResolveChannelConnectorRuntimeInteractionResponses = {
 
 export type ResolveChannelConnectorRuntimeInteractionResponse = ResolveChannelConnectorRuntimeInteractionResponses[keyof ResolveChannelConnectorRuntimeInteractionResponses];
 
-export type ClaimChannelConnectorDeliveriesData = {
-    body: ChannelConnectorClaimRequest;
+export type ClaimNextChannelConnectorEventData = {
+    body: ClaimNextChannelConnectorEventRequest;
     path?: never;
     query?: never;
-    url: '/channel-connector/deliveries/claim';
+    url: '/channel-connector/events/claim-next';
 };
 
-export type ClaimChannelConnectorDeliveriesErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type ClaimChannelConnectorDeliveriesError = ClaimChannelConnectorDeliveriesErrors[keyof ClaimChannelConnectorDeliveriesErrors];
-
-export type ClaimChannelConnectorDeliveriesResponses = {
-    /**
-     * Claimed deliveries fenced to this claimant.
-     */
-    200: ChannelConnectorDeliveriesResponse;
-};
-
-export type ClaimChannelConnectorDeliveriesResponse = ClaimChannelConnectorDeliveriesResponses[keyof ClaimChannelConnectorDeliveriesResponses];
-
-export type CompleteChannelConnectorDeliveryData = {
-    body: CompleteChannelConnectorDeliveryRequest;
-    path: {
-        deliveryID: IntegrationDeliveryId;
-    };
-    query?: never;
-    url: '/channel-connector/deliveries/{deliveryID}/complete';
-};
-
-export type CompleteChannelConnectorDeliveryErrors = {
+export type ClaimNextChannelConnectorEventErrors = {
     /**
      * The request was invalid.
      */
@@ -14367,9 +15905,74 @@ export type CompleteChannelConnectorDeliveryErrors = {
      */
     409: Error;
     /**
-     * The service dependency required to satisfy the request is unavailable.
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
      */
-    503: Error;
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ClaimNextChannelConnectorEventError = ClaimNextChannelConnectorEventErrors[keyof ClaimNextChannelConnectorEventErrors];
+
+export type ClaimNextChannelConnectorEventResponses = {
+    /**
+     * One durably leased receipt, including its payload and current lease proof.
+     */
+    200: ChannelConnectorEventReceipt;
+    /**
+     * No receipt is currently due for this capability.
+     */
+    204: void;
+};
+
+export type ClaimNextChannelConnectorEventResponse = ClaimNextChannelConnectorEventResponses[keyof ClaimNextChannelConnectorEventResponses];
+
+export type CompleteChannelConnectorEventData = {
+    body: CompleteChannelConnectorEventRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+        receiptID: IntegrationEventReceiptId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/events/{receiptID}/complete';
+};
+
+export type CompleteChannelConnectorEventErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
     /**
      * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
      */
@@ -14392,16 +15995,16 @@ export type CompleteChannelConnectorDeliveryErrors = {
     };
 };
 
-export type CompleteChannelConnectorDeliveryError = CompleteChannelConnectorDeliveryErrors[keyof CompleteChannelConnectorDeliveryErrors];
+export type CompleteChannelConnectorEventError = CompleteChannelConnectorEventErrors[keyof CompleteChannelConnectorEventErrors];
 
-export type CompleteChannelConnectorDeliveryResponses = {
+export type CompleteChannelConnectorEventResponses = {
     /**
-     * Current delivery state.
+     * The receipt outcome has committed.
      */
-    200: ChannelConnectorDelivery;
+    200: ChannelInboundEventResponse;
 };
 
-export type CompleteChannelConnectorDeliveryResponse = CompleteChannelConnectorDeliveryResponses[keyof CompleteChannelConnectorDeliveryResponses];
+export type CompleteChannelConnectorEventResponse = CompleteChannelConnectorEventResponses[keyof CompleteChannelConnectorEventResponses];
 
 export type ClaimChannelConnectorRuntimeUnitsData = {
     body: ChannelConnectorClaimRequest;

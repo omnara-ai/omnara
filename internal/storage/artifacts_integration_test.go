@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -69,6 +70,10 @@ func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
 	}
 	delete(s.content, key)
 	return nil
+}
+
+func (s *recordingBlobStore) OpenBlob(context.Context, string) (io.ReadCloser, blobstore.Metadata, error) {
+	return nil, blobstore.Metadata{}, errors.New("unexpected streaming read in buffered artifact fixture")
 }
 
 func TestCreateArtifactContentRoundTrip(t *testing.T) {

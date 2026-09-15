@@ -221,8 +221,9 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
-		"agent_profiles,agents,cron_triggers,integration_deliveries,integration_installs," +
-		"integration_routes,integration_runtime_units,integration_target_bindings,integration_targets," +
+		"agent_profiles,agents,cron_triggers,external_channel_requests,integration_channel_definitions," +
+		"integration_event_outcomes,integration_event_receipts,integration_installs,integration_routes," +
+		"integration_runtime_units,integration_target_bindings,integration_targets,integration_workflows," +
 		"model_call_contexts,process_actions,processes,project_machine_grants," +
 		"project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
@@ -983,6 +984,8 @@ func TestPostgresPopulatedVersion24PreservesTerminalIntegrationOrigins(t *testin
 	configuredModelRevisionID := uuid.NewString()
 	agentConfigID := uuid.NewString()
 	agentID := uuid.NewString()
+	profileID := uuid.NewString()
+	profileVersionID := uuid.NewString()
 	installID := uuid.NewString()
 	targetID := uuid.NewString()
 	inputID := uuid.NewString()
@@ -1078,25 +1081,35 @@ VALUES (
     statement_timestamp(), statement_timestamp()
 )
 `, agentID, orgID, projectID, agentConfigID)
+	// Use the deployed profile-backed Slack shape; terminal input preservation
+	// remains independent of the application's launch behavior.
+	execSeed("profile", `WITH profile AS (
+    INSERT INTO agent_profiles(id, project_id, name, current_version_id, created_at, updated_at)
+    VALUES ($1, $2, 'Version 24 profile', $3, statement_timestamp(), statement_timestamp())
+    RETURNING id, project_id
+)
+INSERT INTO agent_profile_versions(id, project_id, profile_id, generation, agent_config_id, created_at)
+SELECT $3, project_id, id, 1, $4, statement_timestamp() FROM profile
+`, profileID, projectID, profileVersionID, agentConfigID)
 	execSeed("integration install", `
 INSERT INTO integration_installs(
-    id, org_id, project_id, agent_id, installed_by_user_id, provider,
+    id, org_id, project_id, agent_profile_id, installed_by_user_id, provider,
     integration_kind, connection_mode, state, provider_tenant_id,
     provider_account_ref, provider_agent_display_name, created_at, updated_at
 )
 VALUES (
-    $1, $2, $3, $4, $5, 'slack', 'agent', 'webhook', 'active',
+    $1, $2, $3, $4, $5, 'slack', 'profile', 'webhook', 'active',
     'version-24-workspace', 'version-24-bot', 'Version 24 bot',
     statement_timestamp(), statement_timestamp()
 )
-`, installID, orgID, projectID, agentID, userID)
+`, installID, orgID, projectID, profileID, userID)
 	execSeed("integration target", `
 INSERT INTO integration_targets(
     id, project_id, agent_id, integration_install_id, target_ref,
     provider_ref, provider_ref_kind, display_name, created_at, updated_at
 )
 VALUES (
-    $1, $2, $3, $4, 'version-24-thread', 'version-24-thread',
+    $1, $2, $3, $4, 'version-24-thread', 'C_VERSION24:111.222',
     'thread', 'Version 24 thread', statement_timestamp(), statement_timestamp()
 )
 `, targetID, projectID, agentID, installID)
@@ -1134,20 +1147,20 @@ WHERE input.project_id = $1
 	if bindingID.Valid || inputState != "canceled" {
 		t.Fatalf("preserved terminal origin = binding %v state %q", bindingID, inputState)
 	}
-	var compatibilityBindings int
+	var channelBindings int
 	if err := db.QueryRowContext(ctx, `
 SELECT count(*)
 FROM integration_target_bindings
 WHERE project_id = $1
   AND integration_target_id = $2
-  AND source = 'legacy_target'
+  AND source = 'channel'
   AND receive_allowed
   AND send_allowed
-`, projectID, targetID).Scan(&compatibilityBindings); err != nil {
-		t.Fatalf("load compatibility binding: %v", err)
+`, projectID, targetID).Scan(&channelBindings); err != nil {
+		t.Fatalf("load channel binding: %v", err)
 	}
-	if compatibilityBindings != 1 {
-		t.Fatalf("compatibility bindings = %d, want 1", compatibilityBindings)
+	if channelBindings != 1 {
+		t.Fatalf("channel bindings = %d, want 1", channelBindings)
 	}
 	if _, err := db.ExecContext(ctx, `
 UPDATE agent_inputs

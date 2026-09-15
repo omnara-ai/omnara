@@ -4,80 +4,90 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strings"
 
+	"github.com/omnara-ai/omnara/internal/channelconnector"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// Native target refs used four random characters historically. New refs use
-// twelve, but old refs remain stable identifiers and must stay accepted.
-var integrationTargetRefPattern = regexp.MustCompile(
-	`^[a-z0-9][a-z0-9_.-]{0,127}-[a-z2-9]{4}(?:[a-z2-9]{8})?$`,
-)
-
-type integrationMessageRequest struct {
-	Text        string   `json:"text"`
-	ArtifactIDs []string `json:"artifact_ids,omitempty"`
+type channelSendRequest struct {
+	ChannelID string
+	Message   channelconnector.Message
+	Params    json.RawMessage
 }
 
-type integrationTargetRequest struct {
-	TargetRef string `json:"target_ref"`
-}
-
-type channelMessageRequest struct {
-	Text      string `json:"text"`
-	ChannelID string `json:"channel_id,omitempty"`
-}
-
-func resolveIntegrationMessageRequest(raw json.RawMessage) (integrationMessageRequest, error) {
-	var input integrationMessageRequest
-	if err := decodeSingleStrictJSON(raw, &input, "integration message request"); err != nil {
-		return integrationMessageRequest{}, fmt.Errorf("parse integration message request: %w", err)
+// parseSendChannelMessageRequest preserves raw params and original tool input.
+// In particular, only omission means defaults; encoding/json's null-to-zero
+// conversions cannot make an explicitly null field valid.
+func parseSendChannelMessageRequest(raw json.RawMessage) (channelSendRequest, error) {
+	if err := modelenvelope.ValidateToolInput(raw); err != nil {
+		return channelSendRequest{}, fmt.Errorf("parse send_channel_message request: %w", err)
 	}
-	if strings.TrimSpace(input.Text) == "" {
-		return integrationMessageRequest{}, errors.New("text is required")
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return channelSendRequest{}, err
 	}
-	if len(input.Text) > toolcatalog.MaxChannelMessageTextLength {
-		return integrationMessageRequest{}, errors.New("integration message text exceeds its size limit")
-	}
-	for _, artifactID := range input.ArtifactIDs {
-		if _, err := publicid.Decode(publicid.KindArtifact, artifactID); err != nil {
-			return integrationMessageRequest{}, fmt.Errorf("artifact_ids contains an invalid artifact ID: %w", err)
+	var request channelSendRequest
+	for name, value := range fields {
+		switch name {
+		case "channel_id":
+			var id *string
+			if err := json.Unmarshal(value, &id); err != nil || id == nil {
+				return channelSendRequest{}, errors.New("channel_id must be an explicit channel ID")
+			}
+			if _, err := publicid.Decode(publicid.KindIntegrationTarget, *id); err != nil {
+				return channelSendRequest{}, errors.New("channel_id must be an explicit channel ID")
+			}
+			request.ChannelID = *id
+		case "message":
+			message, err := parseChannelSendMessage(value)
+			if err != nil {
+				return channelSendRequest{}, err
+			}
+			request.Message = message
+		case "params":
+			if _, err := jsoncanonical.ParseObject(value, channelconnector.MaxMetadataBytes); err != nil {
+				return channelSendRequest{}, fmt.Errorf("send params: %w", err)
+			}
+			request.Params = value
+		default:
+			return channelSendRequest{}, errors.New("send_channel_message request contains an unsupported field")
 		}
 	}
-	return input, nil
+	if request.ChannelID == "" {
+		return channelSendRequest{}, errors.New("channel_id is required")
+	}
+	if _, found := fields["message"]; !found {
+		return channelSendRequest{}, errors.New("message is required")
+	}
+	return request, nil
 }
 
-func resolveIntegrationTargetRequest(raw json.RawMessage) (integrationTargetRequest, error) {
-	var input integrationTargetRequest
-	if err := decodeSingleStrictJSON(raw, &input, "integration target request"); err != nil {
-		return integrationTargetRequest{}, fmt.Errorf("parse integration target request: %w", err)
+func parseChannelSendMessage(raw json.RawMessage) (channelconnector.Message, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return channelconnector.Message{}, errors.New("message must be an object")
 	}
-	input.TargetRef = strings.ToLower(strings.TrimSpace(input.TargetRef))
-	if input.TargetRef == "" {
-		return integrationTargetRequest{}, errors.New("target_ref is required")
+	var message channelconnector.Message
+	for name, value := range fields {
+		switch name {
+		case "text":
+			var text *string
+			if err := json.Unmarshal(value, &text); err != nil || text == nil || *text == "" {
+				return channelconnector.Message{}, errors.New("message text must be a nonempty string when supplied")
+			}
+			message.Text = *text
+		case "artifact_ids":
+			if err := json.Unmarshal(value, &message.ArtifactIDs); err != nil || len(message.ArtifactIDs) == 0 {
+				return channelconnector.Message{}, errors.New("message artifact_ids must be a nonempty array when supplied")
+			}
+		default:
+			return channelconnector.Message{}, errors.New("message contains an unsupported field")
+		}
 	}
-	if !integrationTargetRefPattern.MatchString(input.TargetRef) {
-		return integrationTargetRequest{}, errors.New(
-			"target_ref must match an integration target listed in context",
-		)
+	if err := message.Validate(); err != nil {
+		return channelconnector.Message{}, err
 	}
-	return input, nil
-}
-
-func resolveChannelMessageRequest(raw json.RawMessage) (channelMessageRequest, error) {
-	var input channelMessageRequest
-	if err := decodeSingleStrictJSON(raw, &input, "channel message request"); err != nil {
-		return channelMessageRequest{}, fmt.Errorf("parse channel message request: %w", err)
-	}
-	if strings.TrimSpace(input.Text) == "" {
-		return channelMessageRequest{}, errors.New("text is required")
-	}
-	if len(input.Text) > toolcatalog.MaxChannelMessageTextLength {
-		return channelMessageRequest{}, errors.New("channel message text exceeds its size limit")
-	}
-	input.ChannelID = strings.TrimSpace(input.ChannelID)
-	return input, nil
+	return message, nil
 }

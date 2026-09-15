@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -343,7 +344,11 @@ func TestToolSpecDerivedSets(t *testing.T) {
 			Name:       "run_command",
 			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		},
-		{Name: "lookup_customer"},
+		{
+			Name:        "lookup_customer",
+			Type:        toolcatalog.ToolTypeCustom,
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"omnara_channel":{"type":"boolean"}}}`),
+		},
 	}
 	if byName := toolSpecSet(
 		specs,
@@ -352,6 +357,8 @@ func TestToolSpecDerivedSets(t *testing.T) {
 	}
 	executable := executableToolSet(specs)
 	if executable["run_command"].Permission.Mode != toolpermission.ModeAlwaysAllow ||
+		executable["lookup_customer"].Type != toolcatalog.ToolTypeCustom ||
+		string(executable["lookup_customer"].InputSchema) != string(specs[1].InputSchema) ||
 		len(executable) != 2 {
 		t.Fatalf("executable tool set = %+v", executable)
 	}

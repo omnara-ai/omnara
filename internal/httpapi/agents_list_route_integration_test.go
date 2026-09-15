@@ -5,12 +5,14 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -386,9 +388,22 @@ func seedListAgentsSlackTarget(
 		"U-list-agents-bot",
 		"signing-secret-list-agents",
 	)
+	definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
+		integrationstore.PublishChannelDefinitionInput{
+			ProjectID: project.ProjectUUID, IntegrationInstallID: install.ID,
+			ImplementationKey: "slack_thread", Kind: integrationstore.ChannelKindSlackThread,
+			SendParamsSchema: json.RawMessage(`{"type":"object"}`),
+			Capabilities:     integrationstore.ChannelCapabilities{Send: true, Text: true},
+			ConnectorCapabilities: []channelconnector.Capability{{
+				ConnectorKey: channelconnector.BuiltInConnectorKey, Provider: "slack",
+			}},
+		})
+	if err != nil {
+		t.Fatalf("publish target definition: %v", err)
+	}
 	target, err := store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
 		ProjectID:            project.ProjectUUID,
-		AgentID:              agent.ID,
+		ChannelDefinitionID:  definition.ID,
 		IntegrationInstallID: install.ID,
 		ProviderRef:          "C0BAK8REEGY:1783382417.000100",
 		ProviderRefKind:      "thread",
@@ -404,6 +419,13 @@ func seedListAgentsSlackTarget(
 		"agent-testing",
 	); err != nil {
 		t.Fatalf("seed Slack conversation display name: %v", err)
+	}
+	_, err = store.Integrations().CreateIntegrationTargetBinding(ctx, integrationstore.CreateIntegrationTargetBindingInput{
+		ProjectID: project.ProjectUUID, AgentID: agent.ID, IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+		SendAllowed: true, Source: "api",
+	})
+	if err != nil {
+		t.Fatalf("grant target access: %v", err)
 	}
 	if err := storagetest.SeedAgentIntegrationTarget(
 		ctx,

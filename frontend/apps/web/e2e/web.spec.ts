@@ -244,12 +244,15 @@ test('creates an agent with the Builder', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Add tools' }).click()
   await expect(page.getByRole('menuitem', { name: 'skill', exact: true })).toHaveCount(0)
-  await expect(
-    page.getByRole('menuitem', { name: 'send_integration_message', exact: true }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('menuitem', { name: 'set_integration_target', exact: true }),
-  ).toHaveCount(0)
+  for (const name of [
+    'list_channels',
+    'get_channel',
+    'set_current_channel',
+    'read_channel',
+    'send_channel_message',
+  ]) {
+    await expect(page.getByRole('menuitem', { name, exact: true })).toHaveCount(0)
+  }
   await page.keyboard.press('Escape')
 
   const agentName = uniqueName('Builder Agent')

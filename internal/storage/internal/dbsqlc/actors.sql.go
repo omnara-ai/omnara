@@ -26,20 +26,28 @@ SELECT EXISTS (
    AND install.id = target.integration_install_id
    AND install.state = 'active'
    AND install.deleted_at IS NULL
+  LEFT JOIN integration_apps app
+    ON app.org_id = install.org_id AND app.id = install.integration_app_id
+   AND app.state = 'active' AND app.deleted_at IS NULL
   WHERE actor.id = $3
     AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id IS NOT DISTINCT FROM nullif(install.provider_tenant_id, '')
+    AND (
+      (install.integration_kind = 'external' AND actor.provider IN ('external', 'omnara'))
+      OR (install.integration_kind = 'managed' AND app.id IS NOT NULL
+        AND actor.provider = install.provider
+        AND actor.provider_tenant_id IS NOT DISTINCT FROM install.provider_tenant_id)
+    )
     AND EXISTS (
       SELECT 1
       FROM integration_target_bindings binding
       WHERE binding.project_id = target.project_id
         AND binding.agent_id = $4
         AND binding.integration_target_id = target.id
-        AND binding.receive_allowed
+        AND CASE WHEN $5::boolean
+          THEN binding.send_allowed ELSE binding.receive_allowed END
         AND binding.revoked_at IS NULL
         AND (
-          (binding.integration_route_id IS NULL AND binding.source = 'legacy_target')
+          binding.integration_route_id IS NULL
           OR EXISTS (
             SELECT 1
             FROM integration_routes route
@@ -55,10 +63,11 @@ SELECT EXISTS (
 `
 
 type ActorMatchesIntegrationTargetParams struct {
-	ProjectID           uuid.UUID
-	IntegrationTargetID uuid.UUID
-	ActorID             uuid.UUID
-	AgentID             uuid.UUID
+	ProjectID              uuid.UUID
+	IntegrationTargetID    uuid.UUID
+	ActorID                uuid.UUID
+	AgentID                uuid.UUID
+	ForInteractionResponse bool
 }
 
 func (q *Queries) ActorMatchesIntegrationTarget(ctx context.Context, arg ActorMatchesIntegrationTargetParams) (bool, error) {
@@ -67,6 +76,7 @@ func (q *Queries) ActorMatchesIntegrationTarget(ctx context.Context, arg ActorMa
 		arg.IntegrationTargetID,
 		arg.ActorID,
 		arg.AgentID,
+		arg.ForInteractionResponse,
 	)
 	var matches bool
 	err := row.Scan(&matches)

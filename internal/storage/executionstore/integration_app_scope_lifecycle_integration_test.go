@@ -50,8 +50,8 @@ func TestRestrictedIntegrationAppCannotInstallAcrossProjects(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: otherProject.ID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID, Provider: testChannelProvider,
-			IntegrationKind: "scope_test", ConnectionMode: "gateway",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID), Provider: testChannelProvider,
+			IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "restricted-other-tenant", ProviderAccountRef: "restricted-other-account",
 		},
@@ -192,8 +192,8 @@ func TestIntegrationAppAndInstallCredentialsFollowOwnerScopeAndKind(t *testing.T
 	}
 	installInput := integrationstore.UpsertIntegrationInstallInput{
 		OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-		InstalledByUserID: admin.ID, Provider: testChannelProvider,
-		IntegrationKind: "credential_scope", ConnectionMode: "gateway",
+		InstalledBy: identitystore.NewUserPrincipal(admin.ID), Provider: testChannelProvider,
+		IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 		State:            integrationstore.IntegrationInstallStateActive,
 		ProviderTenantID: "credential-scope-tenant", ProviderAccountRef: "credential-scope-account",
 	}
@@ -255,8 +255,8 @@ func TestProjectDeletionPreservesSharedIntegrationAppAndOtherProject(t *testing.
 			ctx,
 			integrationstore.UpsertIntegrationInstallInput{
 				OrgID: testOrgID, ProjectID: projectID, IntegrationAppID: app.ID,
-				InstalledByUserID: admin.ID, Provider: testChannelProvider,
-				IntegrationKind: "shared_scope_test", ConnectionMode: "gateway",
+				InstalledBy: identitystore.NewUserPrincipal(admin.ID), Provider: testChannelProvider,
+				IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 				State:              integrationstore.IntegrationInstallStateActive,
 				ProviderTenantID:   "shared-" + suffix + "-tenant",
 				ProviderAccountRef: "shared-" + suffix + "-account",
@@ -387,8 +387,8 @@ func TestIntegrationAppDeletionImmediatelyFencesLiveInstall(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID, Provider: testChannelProvider,
-			IntegrationKind: "delete_test", ConnectionMode: "gateway",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID), Provider: testChannelProvider,
+			IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "gateway",
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "delete-first-tenant", ProviderAccountRef: "delete-first-account",
 		},

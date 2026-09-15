@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	sjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -19,6 +20,13 @@ func Compile(raw json.RawMessage) (*Validator, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, errors.New("JSON schema is required")
 	}
+	if compiledValidatorsErr != nil {
+		return nil, compiledValidatorsErr
+	}
+	return compiledValidators.compile(raw)
+}
+
+func compileValidator(raw json.RawMessage) (*Validator, error) {
 	schema, err := compile(raw)
 	if err != nil {
 		return nil, fmt.Errorf("compile JSON schema: %w", err)
@@ -40,7 +48,7 @@ func Validate(schemaJSON, valueJSON json.RawMessage) error {
 }
 
 func (v *Validator) Validate(valueJSON json.RawMessage) error {
-	value, err := sjsonschema.UnmarshalJSON(bytes.NewReader(valueJSON))
+	value, err := jsoncanonical.Decode(valueJSON)
 	if err != nil {
 		return fmt.Errorf("decode JSON value: %w", err)
 	}
@@ -48,7 +56,7 @@ func (v *Validator) Validate(valueJSON json.RawMessage) error {
 }
 
 func compile(raw json.RawMessage) (*sjsonschema.Schema, error) {
-	document, err := sjsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	document, err := jsoncanonical.Decode(raw)
 	if err != nil {
 		return nil, err
 	}

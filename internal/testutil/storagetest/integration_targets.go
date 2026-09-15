@@ -31,13 +31,19 @@ WHERE project_id = $1
     OR EXISTS (
       SELECT 1
       FROM integration_targets target
+      JOIN integration_target_bindings binding
+        ON binding.project_id = target.project_id
+       AND binding.integration_target_id = target.id
+       AND binding.agent_id = agents.id
+       AND binding.revoked_at IS NULL
       JOIN integration_installs install
         ON install.project_id = target.project_id
        AND install.id = target.integration_install_id
        AND install.state = 'active'
+       AND install.deleted_at IS NULL
       WHERE target.project_id = agents.project_id
-        AND target.agent_id = agents.id
         AND target.id = $3::uuid
+        AND target.deleted_at IS NULL
     )
   )`,
 		projectID,

@@ -70,7 +70,6 @@ export function providerRuntime(
   return {
     close: () => Promise.resolve(),
     handleWebhook,
-    send: () => Promise.resolve({ providerMessageRef: '' }),
   }
 }
 

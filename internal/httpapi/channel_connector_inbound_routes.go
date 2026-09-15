@@ -6,17 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/interactionform"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
@@ -36,15 +34,11 @@ func (s strictOpenAPIServer) AcceptChannelConnectorEvent(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	envelope, err := channelInboundEnvelope(*request.Body)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	}
-	response, err := s.processChannelInbound(ctx, scope, appID, envelope, nil)
+	response, err := s.receiveChannelConnectorEvent(ctx, scope, appID, *request.Body, nil)
 	if err != nil {
 		return nil, err
 	}
-	return openapi.AcceptChannelConnectorEvent200JSONResponse(response), nil
+	return openapi.AcceptChannelConnectorEvent202JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) AcceptChannelConnectorRuntimeEvent(
@@ -66,123 +60,166 @@ func (s strictOpenAPIServer) AcceptChannelConnectorRuntimeEvent(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	envelope, err := channelInboundEnvelope(request.Body.Event)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	}
-	lease := integration.ChannelRuntimeLease{
-		UnitID: unitID, Token: request.Body.LeaseToken, Generation: request.Body.LeaseGeneration,
-	}
-	response, err := s.processChannelInbound(ctx, scope, appID, envelope, &lease)
+	response, err := s.receiveChannelConnectorEvent(ctx, scope, appID, request.Body.Event,
+		&integrationstore.IntegrationRuntimeLeaseProof{
+			IntegrationAppID: appID, UnitID: unitID,
+			LeaseToken: request.Body.LeaseToken, LeaseGeneration: request.Body.LeaseGeneration,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
-	return openapi.AcceptChannelConnectorRuntimeEvent200JSONResponse(response), nil
+	return openapi.AcceptChannelConnectorRuntimeEvent202JSONResponse(response), nil
 }
 
-func (s strictOpenAPIServer) processChannelInbound(
+func (s strictOpenAPIServer) receiveChannelConnectorEvent(
 	ctx context.Context,
 	scope channelConnectorScope,
 	appID integrationstore.ID,
-	envelope integration.ChannelInboundEnvelope,
-	lease *integration.ChannelRuntimeLease,
+	body openapi.ChannelInboundEventRequest,
+	runtimeLease *integrationstore.IntegrationRuntimeLeaseProof,
 ) (openapi.ChannelInboundEventResponse, error) {
-	input := integration.ProcessChannelInboundInput{
-		IntegrationAppID: appID, Capabilities: scope.Capabilities,
-		Envelope: envelope,
-		PrepareContent: func(
-			_ context.Context,
-			contentBlocks json.RawMessage,
-		) (integration.MaterializeChannelInboundContentFunc, error) {
-			contentPlan, err := preflightInlineMedia(
-				contentBlocks,
-				inlineMediaAgentInput,
-				maxContentBlocksPerInput,
-			)
-			if err != nil {
-				return nil, err
-			}
-			return func(
-				ctx context.Context,
-				input integration.MaterializeChannelInboundContentInput,
-			) (json.RawMessage, error) {
-				return s.server.materializeInlineMedia(ctx, mediaIngestContext{
-					ProjectID: input.ProjectID, AgentID: input.AgentID,
-					IntegrationInstallID: input.IntegrationInstallID,
-					IdempotencyKey:       input.IdempotencyKey,
-					RuntimeLease:         input.RuntimeLease,
-				}, contentPlan)
-			}, nil
-		},
+	installID, ok := parseOpenAPIPublicID(publicid.KindIntegrationInstall, body.IntegrationInstallId)
+	if !ok {
+		return openapi.ChannelInboundEventResponse{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	var (
-		result integration.ProcessChannelInboundResult
-		err    error
-	)
-	if lease == nil {
-		result, err = s.server.channels.ProcessInbound(ctx, input)
-	} else {
-		result, err = s.server.channels.ProcessRuntimeInbound(ctx, input, *lease)
-	}
+	install, err := s.channelConnectorEventInstallation(ctx, scope, appID, installID)
 	if err != nil {
-		return openapi.ChannelInboundEventResponse{}, channelInboundProcessError(ctx, err)
+		return openapi.ChannelInboundEventResponse{}, err
 	}
-	for _, failure := range result.FailedRoutes {
-		logpkg.LoggerFromContext(ctx).WarnContext(
-			ctx,
-			"channel inbound route rejected a permanent configuration error",
-			"integration_route_id",
-			failure.RouteID,
-			"error",
-			failure.Err,
-		)
+	// The installation lookup establishes scope; the store rechecks live authority
+	// and runtime fencing while committing the receipt, before HTTP acknowledgement.
+	receipt, err := s.server.store.Integrations().ReceiveIntegrationEvent(ctx,
+		integrationstore.ReceiveIntegrationEventInput{
+			ProjectID: install.ProjectID, IntegrationInstallID: install.ID,
+			EventID: body.EventId, Payload: body.Payload,
+			Capabilities: scope.Capabilities, RuntimeLease: runtimeLease,
+		},
+	)
+	if err != nil {
+		return openapi.ChannelInboundEventResponse{}, apierror.FromError(err)
 	}
-	accepted := make([]openapi.ChannelInboundAcceptance, 0, len(result.Accepted))
-	for _, item := range result.Accepted {
-		response, err := channelInboundAcceptanceResponse(item)
-		if err != nil {
-			return openapi.ChannelInboundEventResponse{}, err
-		}
-		accepted = append(accepted, response)
-		if item.Launch.Agent.ID != storage.NilID {
-			s.server.startLaunchMachineProvisioning(ctx, logpkg.LoggerFromContext(ctx), item.Launch)
-		}
+	return channelInboundEventResponse(receipt)
+}
+
+func (s strictOpenAPIServer) ClaimNextChannelConnectorEvent(
+	ctx context.Context,
+	request openapi.ClaimNextChannelConnectorEventRequestObject,
+) (openapi.ClaimNextChannelConnectorEventResponseObject, error) {
+	scope, err := channelConnectorScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return openapi.ChannelInboundEventResponse{
-		Accepted: accepted, IgnoredRoutes: int32(result.IgnoredRoutes),
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	capability, err := scope.authorizeClaimCapability(request.Body.Capability)
+	if err != nil {
+		return nil, err
+	}
+	receipt, found, err := s.server.store.Integrations().ClaimNextIntegrationEvent(ctx,
+		integrationstore.ClaimNextIntegrationEventInput{
+			Capability: capability, LeaseDuration: time.Duration(request.Body.LeaseMs) * time.Millisecond,
+		},
+	)
+	if err != nil {
+		return nil, apierror.FromError(err)
+	}
+	if !found {
+		return openapi.ClaimNextChannelConnectorEvent204Response{}, nil
+	}
+	id, err := publicID(publicid.KindIntegrationEventReceipt, receipt.ID)
+	if err != nil {
+		return nil, err
+	}
+	appID, err := publicID(publicid.KindIntegrationApp, receipt.IntegrationAppID)
+	if err != nil {
+		return nil, err
+	}
+	installID, err := publicID(publicid.KindIntegrationInstall, receipt.IntegrationInstallID)
+	if err != nil {
+		return nil, err
+	}
+	if receipt.LeaseExpiresAt == nil {
+		return nil, errors.New("claimed integration event has no lease expiry")
+	}
+	return openapi.ClaimNextChannelConnectorEvent200JSONResponse{
+		ReceiptId: id, IntegrationAppId: appID, IntegrationInstallId: installID,
+		EventId: receipt.EventID, Payload: receipt.Payload, State: openapi.ChannelEventState(receipt.State),
+		LeaseToken: receipt.LeaseToken, LeaseGeneration: receipt.LeaseGeneration,
+		LeaseExpiresAt: *receipt.LeaseExpiresAt, AttemptCount: int32(receipt.AttemptCount),
+		LastError: receipt.LastError,
 	}, nil
 }
 
-func channelInboundProcessError(ctx context.Context, err error) error {
-	if errors.Is(err, integration.ErrChannelRouteHandlerUnavailable) {
-		logpkg.LoggerFromContext(ctx).WarnContext(
-			ctx,
-			"channel inbound route handler is temporarily unavailable",
-			"error",
-			err,
-		)
-		return apierror.FromCode(
-			openapi.ErrorCodeServiceUnavailable,
-			"channel inbound route handler is temporarily unavailable",
-		)
+func (s strictOpenAPIServer) CompleteChannelConnectorEvent(
+	ctx context.Context,
+	request openapi.CompleteChannelConnectorEventRequestObject,
+) (openapi.CompleteChannelConnectorEventResponseObject, error) {
+	scope, err := channelConnectorScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if errors.Is(err, integration.ErrChannelInboundCompletionRetry) {
-		logpkg.LoggerFromContext(ctx).WarnContext(
-			ctx,
-			"channel inbound completion will be retried",
-			"error",
-			err,
-		)
-		return apierror.FromCode(
-			openapi.ErrorCodeServiceUnavailable,
-			"channel inbound completion is temporarily unavailable",
-		)
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	var mediaErr mediaIngestError
-	if errors.As(err, &mediaErr) {
-		return mediaIngestAPIError(err)
+	appID, ok := parseOpenAPIPublicID(publicid.KindIntegrationApp, request.IntegrationAppID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	return apierror.FromError(err)
+	installID, ok := parseOpenAPIPublicID(publicid.KindIntegrationInstall, request.IntegrationInstallID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	receiptID, ok := parseOpenAPIPublicID(publicid.KindIntegrationEventReceipt, request.ReceiptID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	install, err := s.channelConnectorEventInstallation(ctx, scope, appID, installID)
+	if err != nil {
+		return nil, err
+	}
+	receipt, err := s.server.store.Integrations().FinishIntegrationEvent(ctx,
+		integrationstore.FinishIntegrationEventInput{
+			ProjectID: install.ProjectID, IntegrationInstallID: install.ID, ID: receiptID,
+			LeaseToken: request.Body.LeaseToken, LeaseGeneration: request.Body.LeaseGeneration,
+			State:     integrationstore.IntegrationEventState(request.Body.State),
+			LastError: request.Body.LastError, Capabilities: scope.Capabilities,
+		},
+	)
+	if err != nil {
+		return nil, apierror.FromError(err)
+	}
+	response, err := channelInboundEventResponse(receipt)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.CompleteChannelConnectorEvent200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) channelConnectorEventInstallation(
+	ctx context.Context,
+	scope channelConnectorScope,
+	appID, installID integrationstore.ID,
+) (integrationstore.IntegrationInstallRecord, error) {
+	if _, err := s.server.store.Integrations().GetConnectorIntegrationApp(ctx, appID, scope.Capabilities); err != nil {
+		return integrationstore.IntegrationInstallRecord{}, apierror.FromError(err)
+	}
+	install, err := s.server.store.Integrations().GetConnectorIntegrationInstallByID(ctx, appID, installID)
+	if err != nil {
+		return integrationstore.IntegrationInstallRecord{}, apierror.FromError(err)
+	}
+	return install, nil
+}
+
+func channelInboundEventResponse(
+	receipt integrationstore.IntegrationEventReceipt,
+) (openapi.ChannelInboundEventResponse, error) {
+	id, err := publicID(publicid.KindIntegrationEventReceipt, receipt.ID)
+	if err != nil {
+		return openapi.ChannelInboundEventResponse{}, err
+	}
+	return openapi.ChannelInboundEventResponse{ReceiptId: id, State: openapi.ChannelEventState(receipt.State)}, nil
 }
 
 func (s strictOpenAPIServer) ResolveChannelConnectorInteraction(
@@ -329,7 +366,7 @@ func (s strictOpenAPIServer) resolveChannelConnectorInteraction(
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
 	}
 	if binding.IntegrationInstallID != install.ID ||
-		binding.IntegrationTargetID != targetID || !binding.ReceiveAllowed {
+		binding.IntegrationTargetID != targetID || !binding.SendAllowed {
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
 			openapi.ErrorCodeForbidden,
 			"forbidden",
@@ -362,6 +399,11 @@ func (s strictOpenAPIServer) resolveChannelConnectorInteraction(
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
 			openapi.ErrorCodeNotFound,
 			"not found",
+		)
+	}
+	if existing.IntegrationTargetID != targetID {
+		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
+			openapi.ErrorCodeForbidden, "forbidden",
 		)
 	}
 	resolution, err := channelInteractionResolution(existing, body.Answers)
@@ -407,8 +449,8 @@ func channelInteractionResponseMetadata(
 ) (json.RawMessage, error) {
 	metadata, err := json.Marshal(map[string]any{
 		"channel": map[string]any{
-			"version": body.Version, "actor_metadata": body.Actor.Metadata,
-			"metadata": body.Metadata,
+			"actor_metadata": body.Actor.Metadata,
+			"metadata":       body.Metadata,
 		},
 	})
 	if err != nil {
@@ -420,9 +462,6 @@ func channelInteractionResponseMetadata(
 func normalizeChannelInteractionRequest(
 	body openapi.ResolveChannelConnectorInteractionRequest,
 ) (openapi.ResolveChannelConnectorInteractionRequest, json.RawMessage, error) {
-	if string(body.Version) != integration.ChannelEnvelopeVersionV1 {
-		return body, nil, fmt.Errorf("unsupported channel envelope version %q", body.Version)
-	}
 	if strings.TrimSpace(body.ExternalAccountRef) == "" || strings.TrimSpace(body.Actor.Ref) == "" {
 		return body, nil, errors.New("external account and actor refs are required")
 	}
@@ -491,58 +530,4 @@ func resolvedChannelInteractionResponse(
 		Status: openapi.ResolveChannelConnectorInteractionResponseStatus(status),
 		Text:   text,
 	}
-}
-
-func channelInboundEnvelope(body openapi.ChannelInboundEventRequest) (integration.ChannelInboundEnvelope, error) {
-	contentBlocks, err := rawJSONFromContentBlocks(body.ContentBlocks)
-	if err != nil {
-		return integration.ChannelInboundEnvelope{}, err
-	}
-	envelope := integration.ChannelInboundEnvelope{
-		Version: string(body.Version), ProviderEventID: body.ProviderEventId,
-		ExternalTenantID: body.ExternalTenantId, ExternalAccountRef: body.ExternalAccountRef,
-		EventType: body.EventType, ContentBlocks: contentBlocks, OccurredAt: body.OccurredAt,
-		Metadata: body.Metadata,
-		Conversation: integration.ChannelConversation{
-			Ref: body.Conversation.Ref, Kind: body.Conversation.Kind,
-			DisplayName: stringFromPtr(body.Conversation.DisplayName),
-			ParentRef:   stringFromPtr(body.Conversation.ParentRef),
-			ReplyToRef:  stringFromPtr(body.Conversation.ReplyToRef),
-			Mentioned:   body.Conversation.Mentioned, Direct: body.Conversation.Direct,
-			Metadata: body.Conversation.Metadata,
-		},
-		Actor: integration.ChannelActor{
-			Ref: body.Actor.Ref, DisplayName: body.Actor.DisplayName, Metadata: body.Actor.Metadata,
-		},
-	}
-	return envelope, nil
-}
-
-func channelInboundAcceptanceResponse(
-	item integration.ChannelInboundAcceptance,
-) (openapi.ChannelInboundAcceptance, error) {
-	routeID, err := publicID(publicid.KindIntegrationRoute, item.RouteID)
-	if err != nil {
-		return openapi.ChannelInboundAcceptance{}, err
-	}
-	agentID, err := publicID(publicid.KindAgent, item.AgentID)
-	if err != nil {
-		return openapi.ChannelInboundAcceptance{}, err
-	}
-	targetID, err := publicID(publicid.KindIntegrationTarget, item.TargetID)
-	if err != nil {
-		return openapi.ChannelInboundAcceptance{}, err
-	}
-	bindingID, err := publicID(publicid.KindIntegrationBinding, item.BindingID)
-	if err != nil {
-		return openapi.ChannelInboundAcceptance{}, err
-	}
-	agentInputID, err := publicID(publicid.KindAgentInput, item.AgentInputID)
-	if err != nil {
-		return openapi.ChannelInboundAcceptance{}, err
-	}
-	return openapi.ChannelInboundAcceptance{
-		RouteId: routeID, AgentId: agentID, TargetId: targetID,
-		BindingId: bindingID, AgentInputId: agentInputID,
-	}, nil
 }

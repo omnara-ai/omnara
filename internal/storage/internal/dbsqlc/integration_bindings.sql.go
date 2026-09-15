@@ -13,6 +13,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const agentHasChannelBindingHistory = `-- name: AgentHasChannelBindingHistory :one
+SELECT EXISTS (
+  SELECT 1 FROM integration_target_bindings
+  WHERE project_id = $1
+    AND agent_id = $2
+    AND integration_target_id = $3
+)
+`
+
+type AgentHasChannelBindingHistoryParams struct {
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	IntegrationTargetID uuid.UUID
+}
+
+// @sqlc-vet-disable integration-target-bindings-deleted-at
+// Automatic discovery must not recreate a grant the owner already revoked.
+func (q *Queries) AgentHasChannelBindingHistory(ctx context.Context, arg AgentHasChannelBindingHistoryParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentHasChannelBindingHistory, arg.ProjectID, arg.AgentID, arg.IntegrationTargetID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countActiveReceiveBindingsForTargetRoute = `-- name: CountActiveReceiveBindingsForTargetRoute :one
 SELECT count(*)
 FROM integration_target_bindings binding
@@ -40,7 +64,8 @@ const getActiveIntegrationTargetBindingByIdentity = `-- name: GetActiveIntegrati
 SELECT binding.id, binding.project_id, binding.agent_id,
   binding.integration_install_id, binding.integration_target_id,
   binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
   binding.source, binding.metadata, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
@@ -92,7 +117,11 @@ func (q *Queries) GetActiveIntegrationTargetBindingByIdentity(ctx context.Contex
 		&i.TargetCreatedAt,
 		&i.IntegrationRouteID,
 		&i.ReceiveAllowed,
+		&i.ReadAllowed,
 		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
 		&i.Source,
 		&i.Metadata,
 		&i.RevokedAt,
@@ -102,79 +131,59 @@ func (q *Queries) GetActiveIntegrationTargetBindingByIdentity(ctx context.Contex
 	return i, err
 }
 
-const getActiveReceiveBinding = `-- name: GetActiveReceiveBinding :one
-WITH install_authority AS MATERIALIZED (
-  SELECT install.id, install.org_id, install.integration_app_id
-  FROM integration_installs install
-  WHERE install.project_id = $1
-    AND install.id = $3
-    AND install.state = 'active'
-    AND install.deleted_at IS NULL
-  FOR SHARE OF install
-), app_authority AS MATERIALIZED (
-  SELECT install.id
-  FROM integration_apps app
-  JOIN install_authority install
-    ON install.integration_app_id = app.id
-   AND install.org_id = app.org_id
-  WHERE app.state = 'active'
-    AND app.deleted_at IS NULL
-  FOR SHARE OF app
-)
+const getActiveReadBindingForTarget = `-- name: GetActiveReadBindingForTarget :one
 SELECT binding.id, binding.project_id, binding.agent_id,
   binding.integration_install_id, binding.integration_target_id,
   binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
   binding.source, binding.metadata, binding.revoked_at,
   binding.created_at, binding.updated_at
-FROM app_authority install
-JOIN integration_target_bindings binding
-  ON binding.integration_install_id = install.id
+FROM integration_target_bindings binding
 JOIN integration_targets target
   ON target.project_id = binding.project_id
- AND target.integration_install_id = binding.integration_install_id
  AND target.id = binding.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN LATERAL (
-  SELECT route.id
-  FROM integration_routes route
-  WHERE route.project_id = binding.project_id
-    AND route.integration_install_id = binding.integration_install_id
-    AND route.id = binding.integration_route_id
-    AND route.state = 'active'
-    AND route.deleted_at IS NULL
-  FOR SHARE OF route
-) route ON true
-WHERE binding.project_id = $1
+JOIN integration_installs install
+  ON install.project_id = binding.project_id
+ AND install.id = binding.integration_install_id
+ AND install.state = 'active'
+ AND install.deleted_at IS NULL
+LEFT JOIN integration_apps app
+  ON app.org_id = install.org_id
+ AND app.id = install.integration_app_id
+ AND app.state = 'active'
+ AND app.deleted_at IS NULL
+WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+  AND binding.project_id = $1
   AND binding.agent_id = $2
-  AND binding.integration_install_id = $3
-  AND binding.integration_target_id = $4
-  AND binding.id = $5
-  AND binding.receive_allowed
+  AND binding.integration_target_id = $3
+  AND binding.read_allowed
   AND binding.revoked_at IS NULL
   AND (
-    (binding.integration_route_id IS NULL AND binding.source = 'legacy_target')
-    OR route.id IS NOT NULL
+    binding.integration_route_id IS NULL
+    OR EXISTS (
+      SELECT 1 FROM integration_routes route
+      WHERE route.project_id = binding.project_id
+        AND route.integration_install_id = binding.integration_install_id
+        AND route.id = binding.integration_route_id
+        AND route.state = 'active'
+        AND route.deleted_at IS NULL
+    )
   )
-FOR SHARE OF binding
+ORDER BY (binding.integration_route_id IS NULL) DESC,
+  binding.receive_allowed DESC, binding.created_at, binding.id
+LIMIT 1
 `
 
-type GetActiveReceiveBindingParams struct {
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	IntegrationInstallID uuid.UUID
-	IntegrationTargetID  uuid.UUID
-	ID                   uuid.UUID
+type GetActiveReadBindingForTargetParams struct {
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	IntegrationTargetID uuid.UUID
 }
 
-func (q *Queries) GetActiveReceiveBinding(ctx context.Context, arg GetActiveReceiveBindingParams) (IntegrationTargetBinding, error) {
-	row := q.db.QueryRow(ctx, getActiveReceiveBinding,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.IntegrationInstallID,
-		arg.IntegrationTargetID,
-		arg.ID,
-	)
+func (q *Queries) GetActiveReadBindingForTarget(ctx context.Context, arg GetActiveReadBindingForTargetParams) (IntegrationTargetBinding, error) {
+	row := q.db.QueryRow(ctx, getActiveReadBindingForTarget, arg.ProjectID, arg.AgentID, arg.IntegrationTargetID)
 	var i IntegrationTargetBinding
 	err := row.Scan(
 		&i.ID,
@@ -185,7 +194,11 @@ func (q *Queries) GetActiveReceiveBinding(ctx context.Context, arg GetActiveRece
 		&i.TargetCreatedAt,
 		&i.IntegrationRouteID,
 		&i.ReceiveAllowed,
+		&i.ReadAllowed,
 		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
 		&i.Source,
 		&i.Metadata,
 		&i.RevokedAt,
@@ -199,7 +212,8 @@ const getActiveReceiveBindingForTarget = `-- name: GetActiveReceiveBindingForTar
 SELECT binding.id, binding.project_id, binding.agent_id,
   binding.integration_install_id, binding.integration_target_id,
   binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
   binding.source, binding.metadata, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
@@ -213,7 +227,7 @@ JOIN integration_installs install
  AND install.id = binding.integration_install_id
  AND install.state = 'active'
  AND install.deleted_at IS NULL
-JOIN integration_apps app
+LEFT JOIN integration_apps app
   ON app.org_id = install.org_id
  AND app.id = install.integration_app_id
  AND app.state = 'active'
@@ -224,13 +238,14 @@ LEFT JOIN integration_routes route
  AND route.id = binding.integration_route_id
  AND route.state = 'active'
  AND route.deleted_at IS NULL
-WHERE binding.project_id = $1
+WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+  AND binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.integration_target_id = $3
   AND binding.receive_allowed
   AND binding.revoked_at IS NULL
   AND (
-    (binding.integration_route_id IS NULL AND binding.source = 'legacy_target')
+    binding.integration_route_id IS NULL
     OR route.id IS NOT NULL
   )
 ORDER BY binding.send_allowed DESC, binding.created_at, binding.id
@@ -255,75 +270,11 @@ func (q *Queries) GetActiveReceiveBindingForTarget(ctx context.Context, arg GetA
 		&i.TargetCreatedAt,
 		&i.IntegrationRouteID,
 		&i.ReceiveAllowed,
+		&i.ReadAllowed,
 		&i.SendAllowed,
-		&i.Source,
-		&i.Metadata,
-		&i.RevokedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getActiveSendBinding = `-- name: GetActiveSendBinding :one
-SELECT binding.id, binding.project_id, binding.agent_id,
-  binding.integration_install_id, binding.integration_target_id,
-  binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
-  binding.created_at, binding.updated_at
-FROM integration_target_bindings binding
-JOIN integration_targets target
-  ON target.project_id = binding.project_id
- AND target.id = binding.integration_target_id
- AND target.deleted_at IS NULL
-JOIN integration_installs install
-  ON install.project_id = binding.project_id
- AND install.id = binding.integration_install_id
- AND install.state = 'active'
- AND install.deleted_at IS NULL
-JOIN integration_apps app
-  ON app.org_id = install.org_id
- AND app.id = install.integration_app_id
- AND app.state = 'active'
- AND app.deleted_at IS NULL
-WHERE binding.project_id = $1
-  AND binding.agent_id = $2
-  AND binding.id = $3
-  AND binding.send_allowed
-  AND binding.revoked_at IS NULL
-  AND (
-    binding.integration_route_id IS NULL
-    OR EXISTS (
-      SELECT 1 FROM integration_routes route
-      WHERE route.project_id = binding.project_id
-        AND route.integration_install_id = binding.integration_install_id
-        AND route.id = binding.integration_route_id
-        AND route.state = 'active'
-        AND route.deleted_at IS NULL
-    )
-  )
-`
-
-type GetActiveSendBindingParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetActiveSendBinding(ctx context.Context, arg GetActiveSendBindingParams) (IntegrationTargetBinding, error) {
-	row := q.db.QueryRow(ctx, getActiveSendBinding, arg.ProjectID, arg.AgentID, arg.ID)
-	var i IntegrationTargetBinding
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.IntegrationInstallID,
-		&i.IntegrationTargetID,
-		&i.TargetCreatedAt,
-		&i.IntegrationRouteID,
-		&i.ReceiveAllowed,
-		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
 		&i.Source,
 		&i.Metadata,
 		&i.RevokedAt,
@@ -337,7 +288,8 @@ const getActiveSendBindingForTarget = `-- name: GetActiveSendBindingForTarget :o
 SELECT binding.id, binding.project_id, binding.agent_id,
   binding.integration_install_id, binding.integration_target_id,
   binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
   binding.source, binding.metadata, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
@@ -350,12 +302,13 @@ JOIN integration_installs install
  AND install.id = binding.integration_install_id
  AND install.state = 'active'
  AND install.deleted_at IS NULL
-JOIN integration_apps app
+LEFT JOIN integration_apps app
   ON app.org_id = install.org_id
  AND app.id = install.integration_app_id
  AND app.state = 'active'
  AND app.deleted_at IS NULL
-WHERE binding.project_id = $1
+WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+  AND binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.integration_target_id = $3
   AND binding.send_allowed
@@ -394,7 +347,11 @@ func (q *Queries) GetActiveSendBindingForTarget(ctx context.Context, arg GetActi
 		&i.TargetCreatedAt,
 		&i.IntegrationRouteID,
 		&i.ReceiveAllowed,
+		&i.ReadAllowed,
 		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
 		&i.Source,
 		&i.Metadata,
 		&i.RevokedAt,
@@ -405,76 +362,30 @@ func (q *Queries) GetActiveSendBindingForTarget(ctx context.Context, arg GetActi
 }
 
 const getAgentChannelToolEligibility = `-- name: GetAgentChannelToolEligibility :one
-WITH channel_mode AS MATERIALIZED (
-  SELECT EXISTS (
-    SELECT 1
-    FROM integration_target_bindings binding
-    JOIN integration_targets target
-      ON target.project_id = binding.project_id
-     AND target.id = binding.integration_target_id
-     AND target.deleted_at IS NULL
-    JOIN integration_installs install
-      ON install.project_id = binding.project_id
-     AND install.id = binding.integration_install_id
-     AND install.state = 'active'
-     AND install.deleted_at IS NULL
-    JOIN integration_apps app
-      ON app.org_id = install.org_id
-     AND app.id = install.integration_app_id
-     AND app.state = 'active'
-     AND app.deleted_at IS NULL
-    WHERE binding.project_id = $1
-      AND binding.agent_id = $2
-      AND binding.revoked_at IS NULL
-      AND binding.source <> 'legacy_target'
-      AND (
-        binding.integration_route_id IS NULL
-        OR EXISTS (
-          SELECT 1 FROM integration_routes route
-          WHERE route.project_id = binding.project_id
-            AND route.integration_install_id = binding.integration_install_id
-            AND route.id = binding.integration_route_id
-            AND route.state = 'active'
-            AND route.deleted_at IS NULL
-        )
-      )
-  ) AS allowed
-)
-SELECT channel_mode.allowed AS list_allowed,
-  coalesce(channel_mode.allowed AND EXISTS (
-    SELECT 1
-    FROM integration_target_bindings binding
-    JOIN integration_targets target
-      ON target.project_id = binding.project_id
-     AND target.id = binding.integration_target_id
-     AND target.deleted_at IS NULL
-    JOIN integration_installs install
-      ON install.project_id = binding.project_id
-     AND install.id = binding.integration_install_id
-     AND install.state = 'active'
-     AND install.deleted_at IS NULL
-    JOIN integration_apps app
-      ON app.org_id = install.org_id
-     AND app.id = install.integration_app_id
-     AND app.state = 'active'
-     AND app.deleted_at IS NULL
-    WHERE binding.project_id = $1
-      AND binding.agent_id = $2
-      AND binding.send_allowed
-      AND binding.revoked_at IS NULL
-      AND (
-        binding.integration_route_id IS NULL
-        OR EXISTS (
-          SELECT 1 FROM integration_routes route
-          WHERE route.project_id = binding.project_id
-            AND route.integration_install_id = binding.integration_install_id
-            AND route.id = binding.integration_route_id
-            AND route.state = 'active'
-            AND route.deleted_at IS NULL
-        )
-      )
-  ), false)::boolean AS send_allowed
-FROM channel_mode
+SELECT (count(*) > 0)::boolean AS list_allowed,
+  coalesce(bool_or(binding.read_allowed AND definition.capabilities -> 'read' = 'true'::jsonb), false)::boolean AS read_allowed,
+  coalesce(bool_or(binding.send_allowed AND definition.capabilities -> 'send' = 'true'::jsonb), false)::boolean AS send_allowed
+FROM integration_target_bindings binding
+JOIN integration_targets target
+  ON target.project_id = binding.project_id AND target.id = binding.integration_target_id
+ AND target.deleted_at IS NULL
+JOIN integration_installs install
+  ON install.project_id = binding.project_id AND install.id = binding.integration_install_id
+ AND install.state = 'active' AND install.deleted_at IS NULL
+LEFT JOIN integration_apps app
+  ON app.org_id = install.org_id AND app.id = install.integration_app_id
+ AND app.state = 'active' AND app.deleted_at IS NULL
+LEFT JOIN integration_channel_definitions definition
+  ON definition.project_id = target.project_id AND definition.integration_install_id = target.integration_install_id
+ AND definition.id = target.channel_definition_id
+WHERE binding.project_id = $1 AND binding.agent_id = $2
+  AND binding.revoked_at IS NULL
+  AND (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+  AND (binding.integration_route_id IS NULL OR EXISTS (
+    SELECT 1 FROM integration_routes route
+    WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
+      AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+  ))
 `
 
 type GetAgentChannelToolEligibilityParams struct {
@@ -484,13 +395,53 @@ type GetAgentChannelToolEligibilityParams struct {
 
 type GetAgentChannelToolEligibilityRow struct {
 	ListAllowed bool
+	ReadAllowed bool
 	SendAllowed bool
 }
 
+// Discovery remains available with any explicit channel relationship. Read/send
+// additionally require current implementation support and a live direct grant.
 func (q *Queries) GetAgentChannelToolEligibility(ctx context.Context, arg GetAgentChannelToolEligibilityParams) (GetAgentChannelToolEligibilityRow, error) {
 	row := q.db.QueryRow(ctx, getAgentChannelToolEligibility, arg.ProjectID, arg.AgentID)
 	var i GetAgentChannelToolEligibilityRow
-	err := row.Scan(&i.ListAllowed, &i.SendAllowed)
+	err := row.Scan(&i.ListAllowed, &i.ReadAllowed, &i.SendAllowed)
+	return i, err
+}
+
+const getChannelBindingIdentity = `-- name: GetChannelBindingIdentity :one
+SELECT id, project_id, agent_id, integration_install_id, integration_target_id
+FROM integration_target_bindings
+WHERE project_id = $1
+  AND integration_install_id = $2
+  AND id = $3
+`
+
+type GetChannelBindingIdentityParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ID                   uuid.UUID
+}
+
+type GetChannelBindingIdentityRow struct {
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationTargetID  uuid.UUID
+}
+
+// @sqlc-vet-disable integration-target-bindings-deleted-at
+// Replay needs immutable ownership even when the binding or its parents are retired.
+func (q *Queries) GetChannelBindingIdentity(ctx context.Context, arg GetChannelBindingIdentityParams) (GetChannelBindingIdentityRow, error) {
+	row := q.db.QueryRow(ctx, getChannelBindingIdentity, arg.ProjectID, arg.IntegrationInstallID, arg.ID)
+	var i GetChannelBindingIdentityRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.IntegrationInstallID,
+		&i.IntegrationTargetID,
+	)
 	return i, err
 }
 
@@ -498,7 +449,8 @@ const getIntegrationTargetBinding = `-- name: GetIntegrationTargetBinding :one
 SELECT binding.id, binding.project_id, binding.agent_id,
   binding.integration_install_id, binding.integration_target_id,
   binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
   binding.source, binding.metadata, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
@@ -535,7 +487,11 @@ func (q *Queries) GetIntegrationTargetBinding(ctx context.Context, arg GetIntegr
 		&i.TargetCreatedAt,
 		&i.IntegrationRouteID,
 		&i.ReceiveAllowed,
+		&i.ReadAllowed,
 		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
 		&i.Source,
 		&i.Metadata,
 		&i.RevokedAt,
@@ -545,96 +501,24 @@ func (q *Queries) GetIntegrationTargetBinding(ctx context.Context, arg GetIntegr
 	return i, err
 }
 
-const getLatestInputIntegrationOrigin = `-- name: GetLatestInputIntegrationOrigin :one
-SELECT input.integration_target_id, input.integration_target_binding_id
-FROM agent_inputs input
-JOIN agent_events event
-  ON event.agent_id = input.agent_id
- AND event.id = input.admitted_event_id
-WHERE input.project_id = $1
-  AND input.agent_id = $2
-  AND input.id = ANY($3::uuid[])
-  AND input.integration_target_id IS NOT NULL
-ORDER BY event.sequence DESC, input.id DESC
-LIMIT 1
-`
-
-type GetLatestInputIntegrationOriginParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	InputIds  []uuid.UUID
-}
-
-type GetLatestInputIntegrationOriginRow struct {
-	IntegrationTargetID        *uuid.UUID
-	IntegrationTargetBindingID *uuid.UUID
-}
-
-func (q *Queries) GetLatestInputIntegrationOrigin(ctx context.Context, arg GetLatestInputIntegrationOriginParams) (GetLatestInputIntegrationOriginRow, error) {
-	row := q.db.QueryRow(ctx, getLatestInputIntegrationOrigin, arg.ProjectID, arg.AgentID, arg.InputIds)
-	var i GetLatestInputIntegrationOriginRow
-	err := row.Scan(&i.IntegrationTargetID, &i.IntegrationTargetBindingID)
-	return i, err
-}
-
-const getLatestModelCallIntegrationOrigin = `-- name: GetLatestModelCallIntegrationOrigin :one
-SELECT input.integration_target_id, input.integration_target_binding_id
-FROM model_call_contexts context
-CROSS JOIN LATERAL agent_model_call_opening_content_inputs(
-  $1, $2, $3, context.input_event_sequence
-) opening(input_id, event_sequence)
-JOIN agent_inputs input
-  ON input.project_id = context.project_id
- AND input.agent_id = context.agent_id
- AND input.id = opening.input_id
-WHERE context.project_id = $1
-  AND context.agent_id = $2
-  AND context.id = $4
-  AND input.integration_target_id IS NOT NULL
-ORDER BY opening.event_sequence DESC, input.id DESC
-LIMIT 1
-`
-
-type GetLatestModelCallIntegrationOriginParams struct {
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-}
-
-type GetLatestModelCallIntegrationOriginRow struct {
-	IntegrationTargetID        *uuid.UUID
-	IntegrationTargetBindingID *uuid.UUID
-}
-
-func (q *Queries) GetLatestModelCallIntegrationOrigin(ctx context.Context, arg GetLatestModelCallIntegrationOriginParams) (GetLatestModelCallIntegrationOriginRow, error) {
-	row := q.db.QueryRow(ctx, getLatestModelCallIntegrationOrigin,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.TurnID,
-		arg.ModelCallContextID,
-	)
-	var i GetLatestModelCallIntegrationOriginRow
-	err := row.Scan(&i.IntegrationTargetID, &i.IntegrationTargetBindingID)
-	return i, err
-}
-
 const insertIntegrationTargetBinding = `-- name: InsertIntegrationTargetBinding :one
 INSERT INTO integration_target_bindings(
   project_id, agent_id, integration_install_id, integration_target_id,
   target_created_at, integration_route_id,
-  receive_allowed, send_allowed, source, metadata,
+  receive_allowed, read_allowed, send_allowed,
+  reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, metadata,
   created_at, updated_at
 )
 SELECT
   $1, $2, $3,
   target.id, target.created_at, $4,
   $5, $6, $7,
-  $8, transaction_timestamp(), transaction_timestamp()
+  $8, $9, $10, $11,
+  $12, transaction_timestamp(), transaction_timestamp()
 FROM integration_targets target
 WHERE target.project_id = $1
   AND target.integration_install_id = $3
-  AND target.id = $9
+  AND target.id = $13
   AND target.deleted_at IS NULL
   AND EXISTS (
     SELECT 1
@@ -646,7 +530,6 @@ WHERE target.project_id = $1
   AND (
     (
       $4::uuid IS NULL
-      AND NOT $5::boolean
     ) OR EXISTS (
       SELECT 1
       FROM integration_routes route
@@ -659,7 +542,8 @@ WHERE target.project_id = $1
   )
 ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, integration_install_id, integration_target_id,
-  target_created_at, integration_route_id, receive_allowed, send_allowed, source, metadata,
+  target_created_at, integration_route_id, receive_allowed, read_allowed, send_allowed,
+  reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, metadata,
   revoked_at, created_at, updated_at
 `
 
@@ -669,7 +553,11 @@ type InsertIntegrationTargetBindingParams struct {
 	IntegrationInstallID uuid.UUID
 	IntegrationRouteID   *uuid.UUID
 	ReceiveAllowed       bool
+	ReadAllowed          bool
 	SendAllowed          bool
+	ReplyReceiveAllowed  *bool
+	ReplyReadAllowed     *bool
+	ReplySendAllowed     *bool
 	Source               string
 	Metadata             json.RawMessage
 	IntegrationTargetID  uuid.UUID
@@ -682,7 +570,11 @@ func (q *Queries) InsertIntegrationTargetBinding(ctx context.Context, arg Insert
 		arg.IntegrationInstallID,
 		arg.IntegrationRouteID,
 		arg.ReceiveAllowed,
+		arg.ReadAllowed,
 		arg.SendAllowed,
+		arg.ReplyReceiveAllowed,
+		arg.ReplyReadAllowed,
+		arg.ReplySendAllowed,
 		arg.Source,
 		arg.Metadata,
 		arg.IntegrationTargetID,
@@ -697,7 +589,11 @@ func (q *Queries) InsertIntegrationTargetBinding(ctx context.Context, arg Insert
 		&i.TargetCreatedAt,
 		&i.IntegrationRouteID,
 		&i.ReceiveAllowed,
+		&i.ReadAllowed,
 		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
 		&i.Source,
 		&i.Metadata,
 		&i.RevokedAt,
@@ -705,6 +601,31 @@ func (q *Queries) InsertIntegrationTargetBinding(ctx context.Context, arg Insert
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const integrationTargetBindingBelongsToAgent = `-- name: IntegrationTargetBindingBelongsToAgent :one
+SELECT EXISTS (
+  SELECT 1
+  FROM integration_target_bindings binding
+  WHERE binding.project_id = $1
+    AND binding.agent_id = $2
+    AND binding.id = $3
+)
+`
+
+type IntegrationTargetBindingBelongsToAgentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+// @sqlc-vet-disable integration-target-bindings-deleted-at
+// Ownership survives revocation: deleting this exact binding never affects a replacement.
+func (q *Queries) IntegrationTargetBindingBelongsToAgent(ctx context.Context, arg IntegrationTargetBindingBelongsToAgentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, integrationTargetBindingBelongsToAgent, arg.ProjectID, arg.AgentID, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const integrationTargetBindingExists = `-- name: IntegrationTargetBindingExists :one
@@ -730,11 +651,173 @@ func (q *Queries) IntegrationTargetBindingExists(ctx context.Context, arg Integr
 	return exists, err
 }
 
-const listActiveReceiveBindingsForTargetRoute = `-- name: ListActiveReceiveBindingsForTargetRoute :many
-SELECT binding.id, binding.project_id, binding.agent_id,
+const listAgentChannelTargets = `-- name: ListAgentChannelTargets :many
+WITH candidate_targets AS MATERIALIZED (
+  SELECT DISTINCT ON (binding.target_created_at, binding.integration_target_id)
+    binding.integration_target_id AS id,
+    binding.target_created_at AS created_at
+  FROM integration_target_bindings binding
+  JOIN integration_targets target
+    ON target.project_id = binding.project_id
+   AND target.id = binding.integration_target_id
+   AND target.created_at = binding.target_created_at
+   AND target.deleted_at IS NULL
+  JOIN integration_installs install
+    ON install.project_id = binding.project_id
+   AND install.id = binding.integration_install_id
+   AND install.deleted_at IS NULL
+  LEFT JOIN integration_apps app
+    ON app.org_id = install.org_id
+   AND app.id = install.integration_app_id
+   AND app.deleted_at IS NULL
+  WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+  AND binding.project_id = $1
+    AND binding.agent_id = $2
+    AND binding.revoked_at IS NULL
+    AND ($3::uuid IS NULL OR target.parent_channel_id = $3::uuid)
+    AND (
+      NOT $4::boolean
+      OR (binding.target_created_at, binding.integration_target_id) < (
+        $5::timestamptz,
+        $6::uuid
+      )
+    )
+    AND (
+      binding.integration_route_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM integration_routes route
+        WHERE route.project_id = binding.project_id
+          AND route.integration_install_id = binding.integration_install_id
+          AND route.id = binding.integration_route_id
+          AND route.state = 'active'
+          AND route.deleted_at IS NULL
+      )
+    )
+  ORDER BY binding.target_created_at DESC, binding.integration_target_id DESC
+  LIMIT $7
+)
+SELECT target.id, target.integration_install_id, target.target_ref, target.parent_channel_id,
+  target.provider_ref, target.provider_ref_kind, target.display_name,
+  target.created_at,
+  install.provider, install.integration_kind, install.state AS install_state,
+  app.connector_key, app.state AS app_state,
+  bool_or(binding.receive_allowed) AS receive_allowed,
+  bool_or(binding.read_allowed) AS read_allowed,
+  bool_or(binding.send_allowed) AS send_allowed
+FROM candidate_targets candidate
+JOIN integration_targets target
+  ON target.project_id = $1
+ AND target.id = candidate.id
+JOIN integration_target_bindings binding
+  ON binding.project_id = target.project_id
+ AND binding.agent_id = $2
+ AND binding.integration_target_id = target.id
+ AND binding.revoked_at IS NULL
+JOIN integration_installs install
+  ON install.project_id = target.project_id
+ AND install.id = target.integration_install_id
+ AND install.deleted_at IS NULL
+LEFT JOIN integration_apps app
+  ON app.org_id = install.org_id
+ AND app.id = install.integration_app_id
+ AND app.deleted_at IS NULL
+WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL)) AND (
+    binding.integration_route_id IS NULL
+    OR EXISTS (
+      SELECT 1 FROM integration_routes route
+      WHERE route.project_id = binding.project_id
+        AND route.integration_install_id = binding.integration_install_id
+        AND route.id = binding.integration_route_id
+        AND route.state = 'active'
+        AND route.deleted_at IS NULL
+    )
+  )
+GROUP BY target.id, target.integration_install_id, target.target_ref, target.parent_channel_id,
+  target.provider_ref, target.provider_ref_kind, target.display_name, target.created_at,
+  install.provider, install.integration_kind, install.state, app.connector_key, app.state
+ORDER BY target.created_at DESC, target.id DESC
+`
+
+type ListAgentChannelTargetsParams struct {
+	ProjectID       uuid.UUID
+	AgentID         uuid.UUID
+	ParentChannelID *uuid.UUID
+	CursorSet       bool
+	CursorCreatedAt time.Time
+	CursorID        uuid.UUID
+	RowLimit        int32
+}
+
+type ListAgentChannelTargetsRow struct {
+	ID                   uuid.UUID
+	IntegrationInstallID uuid.UUID
+	TargetRef            string
+	ParentChannelID      *uuid.UUID
+	ProviderRef          string
+	ProviderRefKind      string
+	DisplayName          string
+	CreatedAt            time.Time
+	Provider             *string
+	IntegrationKind      string
+	InstallState         string
+	ConnectorKey         *string
+	AppState             *string
+	ReceiveAllowed       bool
+	ReadAllowed          bool
+	SendAllowed          bool
+}
+
+func (q *Queries) ListAgentChannelTargets(ctx context.Context, arg ListAgentChannelTargetsParams) ([]ListAgentChannelTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentChannelTargets,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ParentChannelID,
+		arg.CursorSet,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentChannelTargetsRow{}
+	for rows.Next() {
+		var i ListAgentChannelTargetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.IntegrationInstallID,
+			&i.TargetRef,
+			&i.ParentChannelID,
+			&i.ProviderRef,
+			&i.ProviderRefKind,
+			&i.DisplayName,
+			&i.CreatedAt,
+			&i.Provider,
+			&i.IntegrationKind,
+			&i.InstallState,
+			&i.ConnectorKey,
+			&i.AppState,
+			&i.ReceiveAllowed,
+			&i.ReadAllowed,
+			&i.SendAllowed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelReceiveBindings = `-- name: ListChannelReceiveBindings :many
+SELECT DISTINCT ON (binding.agent_id) binding.id, binding.project_id, binding.agent_id,
   binding.integration_install_id, binding.integration_target_id,
   binding.target_created_at, binding.integration_route_id,
-  binding.receive_allowed, binding.send_allowed,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
   binding.source, binding.metadata, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
@@ -748,45 +831,54 @@ JOIN integration_installs install
  AND install.id = binding.integration_install_id
  AND install.state = 'active'
  AND install.deleted_at IS NULL
-JOIN integration_apps app
+LEFT JOIN integration_apps app
   ON app.org_id = install.org_id
  AND app.id = install.integration_app_id
  AND app.state = 'active'
  AND app.deleted_at IS NULL
-JOIN integration_routes route
+LEFT JOIN integration_routes route
   ON route.project_id = binding.project_id
  AND route.integration_install_id = binding.integration_install_id
  AND route.id = binding.integration_route_id
  AND route.state = 'active'
  AND route.deleted_at IS NULL
+JOIN projects project
+  ON project.id = binding.project_id
+ AND project.org_id = install.org_id
+ AND project.deleted_at IS NULL
+JOIN orgs org
+  ON org.id = project.org_id
+ AND org.deleted_at IS NULL
 JOIN agents agent
   ON agent.project_id = binding.project_id
  AND agent.id = binding.agent_id
  AND agent.state = 'active'
-WHERE binding.project_id = $1
+WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+  AND binding.project_id = $1
   AND binding.integration_install_id = $2
-  AND binding.integration_route_id = $3
-  AND binding.integration_target_id = $4
+  AND binding.integration_target_id = $3
   AND binding.receive_allowed
   AND binding.revoked_at IS NULL
-ORDER BY binding.created_at, binding.id
+  AND binding.agent_id > $4
+  AND (binding.integration_route_id IS NULL OR route.id IS NOT NULL)
+ORDER BY binding.agent_id, binding.id
 LIMIT $5
 `
 
-type ListActiveReceiveBindingsForTargetRouteParams struct {
+type ListChannelReceiveBindingsParams struct {
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
-	IntegrationRouteID   *uuid.UUID
 	IntegrationTargetID  uuid.UUID
+	AfterAgentID         uuid.UUID
 	RowLimit             int32
 }
 
-func (q *Queries) ListActiveReceiveBindingsForTargetRoute(ctx context.Context, arg ListActiveReceiveBindingsForTargetRouteParams) ([]IntegrationTargetBinding, error) {
-	rows, err := q.db.Query(ctx, listActiveReceiveBindingsForTargetRoute,
+func (q *Queries) ListChannelReceiveBindings(ctx context.Context, arg ListChannelReceiveBindingsParams) ([]IntegrationTargetBinding, error) {
+	rows, err := q.db.Query(ctx, listChannelReceiveBindings,
 		arg.ProjectID,
 		arg.IntegrationInstallID,
-		arg.IntegrationRouteID,
 		arg.IntegrationTargetID,
+		arg.AfterAgentID,
 		arg.RowLimit,
 	)
 	if err != nil {
@@ -805,7 +897,11 @@ func (q *Queries) ListActiveReceiveBindingsForTargetRoute(ctx context.Context, a
 			&i.TargetCreatedAt,
 			&i.IntegrationRouteID,
 			&i.ReceiveAllowed,
+			&i.ReadAllowed,
 			&i.SendAllowed,
+			&i.ReplyReceiveAllowed,
+			&i.ReplyReadAllowed,
+			&i.ReplySendAllowed,
 			&i.Source,
 			&i.Metadata,
 			&i.RevokedAt,
@@ -815,241 +911,6 @@ func (q *Queries) ListActiveReceiveBindingsForTargetRoute(ctx context.Context, a
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAgentChannelTargets = `-- name: ListAgentChannelTargets :many
-WITH candidate_targets AS MATERIALIZED (
-  SELECT DISTINCT ON (binding.target_created_at, binding.integration_target_id)
-    binding.integration_target_id AS id,
-    binding.target_created_at AS created_at
-  FROM integration_target_bindings binding
-  JOIN integration_targets target
-    ON target.project_id = binding.project_id
-   AND target.id = binding.integration_target_id
-   AND target.created_at = binding.target_created_at
-   AND target.deleted_at IS NULL
-  JOIN integration_installs install
-    ON install.project_id = binding.project_id
-   AND install.id = binding.integration_install_id
-   AND install.deleted_at IS NULL
-  JOIN integration_apps app
-    ON app.org_id = install.org_id
-   AND app.id = install.integration_app_id
-   AND app.deleted_at IS NULL
-  WHERE binding.project_id = $1
-    AND binding.agent_id = $2
-    AND binding.revoked_at IS NULL
-    AND (
-      NOT $3::boolean
-      OR (binding.target_created_at, binding.integration_target_id) < (
-        $4::timestamptz,
-        $5::uuid
-      )
-    )
-    AND (
-      binding.integration_route_id IS NULL
-      OR EXISTS (
-        SELECT 1 FROM integration_routes route
-        WHERE route.project_id = binding.project_id
-          AND route.integration_install_id = binding.integration_install_id
-          AND route.id = binding.integration_route_id
-          AND route.state = 'active'
-          AND route.deleted_at IS NULL
-      )
-    )
-  ORDER BY binding.target_created_at DESC, binding.integration_target_id DESC
-  LIMIT $6
-)
-SELECT target.id, target.integration_install_id, target.target_ref,
-  target.provider_ref, target.provider_ref_kind, target.display_name,
-  target.created_at,
-  install.provider, install.state AS install_state,
-  app.connector_key, app.state AS app_state,
-  bool_or(binding.receive_allowed) AS receive_allowed,
-  bool_or(binding.send_allowed) AS send_allowed
-FROM candidate_targets candidate
-JOIN integration_targets target
-  ON target.project_id = $1
- AND target.id = candidate.id
-JOIN integration_target_bindings binding
-  ON binding.project_id = target.project_id
- AND binding.agent_id = $2
- AND binding.integration_target_id = target.id
- AND binding.revoked_at IS NULL
-JOIN integration_installs install
-  ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
- AND install.deleted_at IS NULL
-JOIN integration_apps app
-  ON app.org_id = install.org_id
- AND app.id = install.integration_app_id
- AND app.deleted_at IS NULL
-WHERE (
-    binding.integration_route_id IS NULL
-    OR EXISTS (
-      SELECT 1 FROM integration_routes route
-      WHERE route.project_id = binding.project_id
-        AND route.integration_install_id = binding.integration_install_id
-        AND route.id = binding.integration_route_id
-        AND route.state = 'active'
-        AND route.deleted_at IS NULL
-    )
-  )
-GROUP BY target.id, target.integration_install_id, target.target_ref,
-  target.provider_ref, target.provider_ref_kind, target.display_name, target.created_at,
-  install.provider, install.state, app.connector_key, app.state
-ORDER BY target.created_at DESC, target.id DESC
-`
-
-type ListAgentChannelTargetsParams struct {
-	ProjectID       uuid.UUID
-	AgentID         uuid.UUID
-	CursorSet       bool
-	CursorCreatedAt time.Time
-	CursorID        uuid.UUID
-	RowLimit        int32
-}
-
-type ListAgentChannelTargetsRow struct {
-	ID                   uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	CreatedAt            time.Time
-	Provider             string
-	InstallState         string
-	ConnectorKey         string
-	AppState             string
-	ReceiveAllowed       bool
-	SendAllowed          bool
-}
-
-func (q *Queries) ListAgentChannelTargets(ctx context.Context, arg ListAgentChannelTargetsParams) ([]ListAgentChannelTargetsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentChannelTargets,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.CursorSet,
-		arg.CursorCreatedAt,
-		arg.CursorID,
-		arg.RowLimit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListAgentChannelTargetsRow{}
-	for rows.Next() {
-		var i ListAgentChannelTargetsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.IntegrationInstallID,
-			&i.TargetRef,
-			&i.ProviderRef,
-			&i.ProviderRefKind,
-			&i.DisplayName,
-			&i.CreatedAt,
-			&i.Provider,
-			&i.InstallState,
-			&i.ConnectorKey,
-			&i.AppState,
-			&i.ReceiveAllowed,
-			&i.SendAllowed,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listInputIntegrationOriginTargets = `-- name: ListInputIntegrationOriginTargets :many
-SELECT DISTINCT integration_target_id
-FROM agent_inputs
-WHERE project_id = $1
-  AND agent_id = $2
-  AND id = ANY($3::uuid[])
-  AND integration_target_id IS NOT NULL
-ORDER BY integration_target_id
-`
-
-type ListInputIntegrationOriginTargetsParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	InputIds  []uuid.UUID
-}
-
-func (q *Queries) ListInputIntegrationOriginTargets(ctx context.Context, arg ListInputIntegrationOriginTargetsParams) ([]*uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listInputIntegrationOriginTargets, arg.ProjectID, arg.AgentID, arg.InputIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []*uuid.UUID{}
-	for rows.Next() {
-		var integration_target_id *uuid.UUID
-		if err := rows.Scan(&integration_target_id); err != nil {
-			return nil, err
-		}
-		items = append(items, integration_target_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listModelCallIntegrationOriginTargets = `-- name: ListModelCallIntegrationOriginTargets :many
-SELECT DISTINCT input.integration_target_id
-FROM model_call_contexts context
-CROSS JOIN LATERAL agent_model_call_opening_content_inputs(
-  $1, $2, $3, context.input_event_sequence
-) opening(input_id, event_sequence)
-JOIN agent_inputs input
-  ON input.project_id = context.project_id
- AND input.agent_id = context.agent_id
- AND input.id = opening.input_id
-WHERE context.project_id = $1
-  AND context.agent_id = $2
-  AND context.id = $4
-  AND input.integration_target_id IS NOT NULL
-ORDER BY input.integration_target_id
-`
-
-type ListModelCallIntegrationOriginTargetsParams struct {
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-}
-
-func (q *Queries) ListModelCallIntegrationOriginTargets(ctx context.Context, arg ListModelCallIntegrationOriginTargetsParams) ([]*uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listModelCallIntegrationOriginTargets,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.TurnID,
-		arg.ModelCallContextID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []*uuid.UUID{}
-	for rows.Next() {
-		var integration_target_id *uuid.UUID
-		if err := rows.Scan(&integration_target_id); err != nil {
-			return nil, err
-		}
-		items = append(items, integration_target_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1081,9 +942,287 @@ func (q *Queries) LockActiveIntegrationRouteForBinding(ctx context.Context, arg 
 	return id, err
 }
 
+const lockActiveIntegrationTargetBinding = `-- name: LockActiveIntegrationTargetBinding :one
+WITH install_authority AS MATERIALIZED (
+  SELECT install.id, install.org_id, install.integration_app_id, install.integration_kind
+  FROM integration_installs install
+  WHERE install.project_id = $1
+    AND install.id = $3
+    AND install.state = 'active'
+    AND install.deleted_at IS NULL
+  FOR SHARE OF install
+), app_authority AS MATERIALIZED (
+  SELECT install.id
+  FROM install_authority install
+  LEFT JOIN LATERAL (
+    SELECT app.id FROM integration_apps app
+    WHERE app.id = install.integration_app_id AND app.org_id = install.org_id
+      AND app.state = 'active' AND app.deleted_at IS NULL
+    FOR SHARE OF app
+  ) app ON true
+  WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+)
+SELECT binding.id, binding.project_id, binding.agent_id,
+  binding.integration_install_id, binding.integration_target_id,
+  binding.target_created_at, binding.integration_route_id,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
+  binding.source, binding.metadata, binding.revoked_at,
+  binding.created_at, binding.updated_at
+FROM app_authority install
+JOIN integration_target_bindings binding
+  ON binding.integration_install_id = install.id
+JOIN integration_targets target
+  ON target.project_id = binding.project_id
+ AND target.integration_install_id = binding.integration_install_id
+ AND target.id = binding.integration_target_id
+ AND target.deleted_at IS NULL
+LEFT JOIN LATERAL (
+  SELECT route.id
+  FROM integration_routes route
+  WHERE route.project_id = binding.project_id
+    AND route.integration_install_id = binding.integration_install_id
+    AND route.id = binding.integration_route_id
+    AND route.state = 'active'
+    AND route.deleted_at IS NULL
+  FOR SHARE OF route
+) route ON true
+WHERE binding.project_id = $1
+  AND binding.agent_id = $2
+  AND binding.integration_install_id = $3
+  AND binding.integration_target_id = $4
+  AND binding.id = $5
+  AND CASE WHEN $6::boolean
+    THEN binding.send_allowed ELSE binding.receive_allowed END
+  AND binding.revoked_at IS NULL
+  AND (
+    binding.integration_route_id IS NULL
+    OR route.id IS NOT NULL
+  )
+FOR SHARE OF binding
+`
+
+type LockActiveIntegrationTargetBindingParams struct {
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	IntegrationInstallID   uuid.UUID
+	IntegrationTargetID    uuid.UUID
+	ID                     uuid.UUID
+	ForInteractionResponse bool
+}
+
+func (q *Queries) LockActiveIntegrationTargetBinding(ctx context.Context, arg LockActiveIntegrationTargetBindingParams) (IntegrationTargetBinding, error) {
+	row := q.db.QueryRow(ctx, lockActiveIntegrationTargetBinding,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.IntegrationInstallID,
+		arg.IntegrationTargetID,
+		arg.ID,
+		arg.ForInteractionResponse,
+	)
+	var i IntegrationTargetBinding
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.IntegrationInstallID,
+		&i.IntegrationTargetID,
+		&i.TargetCreatedAt,
+		&i.IntegrationRouteID,
+		&i.ReceiveAllowed,
+		&i.ReadAllowed,
+		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
+		&i.Source,
+		&i.Metadata,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockChannelOperationBinding = `-- name: LockChannelOperationBinding :one
+WITH agent_authority AS MATERIALIZED (
+  SELECT agent.id
+  FROM agents agent
+  WHERE agent.project_id = $1
+    AND agent.id = $3
+    AND agent.state = 'active'
+  FOR UPDATE OF agent
+), install_authority AS MATERIALIZED (
+  SELECT install.id, install.org_id, install.integration_app_id, install.integration_kind
+  FROM integration_installs install
+  JOIN agent_authority agent ON true
+  WHERE install.project_id = $1
+    AND install.id = $7
+    AND install.state = 'active'
+    AND install.deleted_at IS NULL
+  FOR SHARE OF install
+), app_authority AS MATERIALIZED (
+  SELECT install.id
+  FROM install_authority install
+  LEFT JOIN LATERAL (
+    SELECT app.id FROM integration_apps app
+    WHERE app.id = install.integration_app_id AND app.org_id = install.org_id
+      AND app.state = 'active' AND app.deleted_at IS NULL
+    FOR SHARE OF app
+  ) app ON true
+  WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
+)
+SELECT binding.id, binding.project_id, binding.agent_id,
+  binding.integration_install_id, binding.integration_target_id,
+  binding.target_created_at, binding.integration_route_id,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
+  binding.source, binding.metadata, binding.revoked_at, binding.created_at, binding.updated_at
+FROM app_authority install
+JOIN integration_targets target ON target.integration_install_id = install.id
+JOIN integration_target_bindings binding
+  ON binding.project_id = target.project_id
+ AND binding.integration_install_id = target.integration_install_id
+ AND binding.integration_target_id = target.id
+LEFT JOIN LATERAL (
+  SELECT route.id
+  FROM integration_routes route
+  WHERE route.project_id = binding.project_id
+    AND route.integration_install_id = binding.integration_install_id
+    AND route.id = binding.integration_route_id
+    AND route.state = 'active' AND route.deleted_at IS NULL
+  FOR SHARE OF route
+) route ON true
+WHERE target.project_id = $1
+  AND target.id = $2
+  AND target.deleted_at IS NULL
+  AND binding.agent_id = $3
+  AND binding.revoked_at IS NULL
+  AND ($4::uuid IS NULL OR binding.id = $4::uuid)
+  AND CASE $5::text
+    WHEN 'read' THEN binding.read_allowed
+    WHEN 'send' THEN binding.send_allowed
+    ELSE false END
+  AND (NOT $6::boolean OR binding.reply_receive_allowed IS NOT NULL)
+  AND (binding.integration_route_id IS NULL OR route.id IS NOT NULL)
+ORDER BY binding.created_at, binding.id
+LIMIT 1
+FOR SHARE OF target, binding
+`
+
+type LockChannelOperationBindingParams struct {
+	ProjectID            uuid.UUID
+	IntegrationTargetID  uuid.UUID
+	AgentID              uuid.UUID
+	BindingID            *uuid.UUID
+	Operation            string
+	CreatesReplyChannel  bool
+	IntegrationInstallID uuid.UUID
+}
+
+// A request pins one eligible binding, never a union of independent grants.
+// Supplying an ID rechecks that exact binding without substituting a replacement.
+func (q *Queries) LockChannelOperationBinding(ctx context.Context, arg LockChannelOperationBindingParams) (IntegrationTargetBinding, error) {
+	row := q.db.QueryRow(ctx, lockChannelOperationBinding,
+		arg.ProjectID,
+		arg.IntegrationTargetID,
+		arg.AgentID,
+		arg.BindingID,
+		arg.Operation,
+		arg.CreatesReplyChannel,
+		arg.IntegrationInstallID,
+	)
+	var i IntegrationTargetBinding
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.IntegrationInstallID,
+		&i.IntegrationTargetID,
+		&i.TargetCreatedAt,
+		&i.IntegrationRouteID,
+		&i.ReceiveAllowed,
+		&i.ReadAllowed,
+		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
+		&i.Source,
+		&i.Metadata,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockInitialChannelBinding = `-- name: LockInitialChannelBinding :one
+SELECT binding.id, binding.project_id, binding.agent_id,
+  binding.integration_install_id, binding.integration_target_id,
+  binding.target_created_at, binding.integration_route_id,
+  binding.receive_allowed, binding.read_allowed, binding.send_allowed,
+  binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
+  binding.source, binding.metadata, binding.revoked_at, binding.created_at, binding.updated_at
+FROM integration_target_bindings binding
+LEFT JOIN LATERAL (
+  SELECT route.id FROM integration_routes route
+  WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
+    AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+  FOR SHARE OF route
+) route ON true
+WHERE binding.project_id = $1 AND binding.agent_id = $2
+  AND binding.integration_target_id = $3
+  AND binding.revoked_at IS NULL
+  AND (NOT $4::boolean OR binding.receive_allowed)
+  AND (binding.integration_route_id IS NULL OR route.id IS NOT NULL)
+ORDER BY binding.created_at, binding.id
+LIMIT 1
+FOR SHARE OF binding
+`
+
+type LockInitialChannelBindingParams struct {
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	IntegrationTargetID uuid.UUID
+	RequireReceive      bool
+}
+
+// The target/install locks are held by initial registration. Reuse one current
+// relationship without widening it; any revoked history forbids auto-recreation.
+func (q *Queries) LockInitialChannelBinding(ctx context.Context, arg LockInitialChannelBindingParams) (IntegrationTargetBinding, error) {
+	row := q.db.QueryRow(ctx, lockInitialChannelBinding,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.IntegrationTargetID,
+		arg.RequireReceive,
+	)
+	var i IntegrationTargetBinding
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.IntegrationInstallID,
+		&i.IntegrationTargetID,
+		&i.TargetCreatedAt,
+		&i.IntegrationRouteID,
+		&i.ReceiveAllowed,
+		&i.ReadAllowed,
+		&i.SendAllowed,
+		&i.ReplyReceiveAllowed,
+		&i.ReplyReadAllowed,
+		&i.ReplySendAllowed,
+		&i.Source,
+		&i.Metadata,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const lockIntegrationTargetForBinding = `-- name: LockIntegrationTargetForBinding :one
 WITH install_authority AS MATERIALIZED (
-  SELECT install.id, install.org_id, install.integration_app_id
+  SELECT install.id, install.org_id, install.integration_app_id, install.integration_kind
   FROM integration_installs install
   WHERE install.project_id = $1
     AND install.id = $2
@@ -1092,12 +1231,14 @@ WITH install_authority AS MATERIALIZED (
   FOR SHARE OF install
 ), app_authority AS MATERIALIZED (
   SELECT install.id
-  FROM integration_apps app
-  JOIN install_authority install ON install.integration_app_id = app.id
-  WHERE app.org_id = install.org_id
-    AND app.state = 'active'
-    AND app.deleted_at IS NULL
-  FOR SHARE OF app
+  FROM install_authority install
+  LEFT JOIN LATERAL (
+    SELECT app.id FROM integration_apps app
+    WHERE app.id = install.integration_app_id AND app.org_id = install.org_id
+      AND app.state = 'active' AND app.deleted_at IS NULL
+    FOR SHARE OF app
+  ) app ON true
+  WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
 )
 SELECT target.id
 FROM integration_targets target
@@ -1120,6 +1261,66 @@ func (q *Queries) LockIntegrationTargetForBinding(ctx context.Context, arg LockI
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const lookupChannelReceiptRouting = `-- name: LookupChannelReceiptRouting :one
+SELECT target.id AS channel_id,
+  EXISTS (
+    SELECT 1 FROM integration_target_bindings binding
+    WHERE binding.project_id = receipt.project_id
+      AND binding.integration_install_id = receipt.integration_install_id
+      AND binding.integration_target_id = target.id
+      AND binding.receive_allowed
+  ) AS has_receive_binding_history,
+  EXISTS (
+    SELECT 1 FROM integration_event_outcomes outcome
+    JOIN agent_inputs input
+      ON input.project_id = outcome.project_id
+     AND input.agent_id = outcome.agent_id
+     AND input.id = outcome.agent_input_id
+     AND input.integration_target_id = target.id
+    WHERE outcome.project_id = receipt.project_id
+      AND outcome.receipt_id = receipt.id
+      AND outcome.delivery_key LIKE 'workflow:%'
+  ) AS workflow_started
+FROM integration_event_receipts receipt
+LEFT JOIN integration_targets target
+  ON target.project_id = receipt.project_id
+ AND target.integration_install_id = receipt.integration_install_id
+ AND target.provider_ref = $1
+ AND target.deleted_at IS NULL
+WHERE receipt.project_id = $2
+  AND receipt.integration_install_id = $3
+  AND receipt.id = $4
+`
+
+type LookupChannelReceiptRoutingParams struct {
+	ProviderRef          string
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ReceiptID            uuid.UUID
+}
+
+type LookupChannelReceiptRoutingRow struct {
+	ChannelID                *uuid.UUID
+	HasReceiveBindingHistory bool
+	WorkflowStarted          bool
+}
+
+// @sqlc-vet-disable integration-target-bindings-deleted-at
+// One snapshot distinguishes prior receive history from this receipt's partial
+// workflow fanout. Revoked receive grants still count; send/read-only grants do
+// not claim listener routing. These observations validate no lease or authority.
+func (q *Queries) LookupChannelReceiptRouting(ctx context.Context, arg LookupChannelReceiptRoutingParams) (LookupChannelReceiptRoutingRow, error) {
+	row := q.db.QueryRow(ctx, lookupChannelReceiptRouting,
+		arg.ProviderRef,
+		arg.ProjectID,
+		arg.IntegrationInstallID,
+		arg.ReceiptID,
+	)
+	var i LookupChannelReceiptRoutingRow
+	err := row.Scan(&i.ChannelID, &i.HasReceiveBindingHistory, &i.WorkflowStarted)
+	return i, err
 }
 
 const revokeIntegrationInstallTargetBindings = `-- name: RevokeIntegrationInstallTargetBindings :exec

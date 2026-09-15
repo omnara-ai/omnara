@@ -69,6 +69,37 @@ func (s *Store) CreateIntegrationApp(
 	return integrationAppRecordFromSQLC(row), nil
 }
 
+// GetOrCreateIntegrationApp registers physical provider identity independently
+// of installations. Existing configuration and disabled state are preserved.
+func (s *Store) GetOrCreateIntegrationApp(
+	ctx context.Context, input CreateIntegrationAppInput,
+) (IntegrationAppRecord, error) {
+	input, err := normalizeCreateIntegrationAppInput(input)
+	if err != nil {
+		return IntegrationAppRecord{}, err
+	}
+	app, err := s.CreateIntegrationApp(ctx, input)
+	if !errors.Is(err, storeerr.ErrConflict) {
+		return app, err
+	}
+	row, err := s.q.GetIntegrationAppByProviderRef(ctx, dbsqlc.GetIntegrationAppByProviderRefParams{
+		OrgID: input.OrgID, OwnerProjectID: sqlcIDFromNil(input.OwnerProjectID),
+		Provider: input.Provider, ProviderAppRef: input.ProviderAppRef,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationAppRecord{}, storeerr.ErrConflict
+	}
+	if err != nil {
+		return IntegrationAppRecord{}, integrationChannelReadError("get existing integration app", err)
+	}
+	if row.ConnectorKey != input.ConnectorKey ||
+		stringFromPtr(row.InstallationCredentialKind) != input.InstallationCredentialKind ||
+		(!isNilID(input.CredentialSecretID) && idFromSQLCPtr(row.CredentialSecretID) != input.CredentialSecretID) {
+		return IntegrationAppRecord{}, storeerr.ErrConflict
+	}
+	return integrationAppRecordFromSQLC(row), nil
+}
+
 func (s *Store) GetIntegrationApp(ctx context.Context, orgID, id ID) (IntegrationAppRecord, error) {
 	if isNilID(orgID) || isNilID(id) {
 		return IntegrationAppRecord{}, errors.New("org and integration app are required")
@@ -129,9 +160,9 @@ func (s *Store) GetConnectorIntegrationInstall(
 		)
 	}
 	row, err := s.q.GetConnectorIntegrationInstall(ctx, dbsqlc.GetConnectorIntegrationInstallParams{
-		IntegrationAppID:   integrationAppID,
-		ProviderTenantID:   providerTenantID,
-		ProviderAccountRef: providerAccountRef,
+		IntegrationAppID:   sqlcIDFromNil(integrationAppID),
+		ProviderTenantID:   sqlcTextFromEmpty(providerTenantID),
+		ProviderAccountRef: sqlcTextFromEmpty(providerAccountRef),
 	})
 	if err != nil {
 		return IntegrationInstallRecord{}, integrationChannelReadError(
@@ -140,11 +171,11 @@ func (s *Store) GetConnectorIntegrationInstall(
 	}
 	return integrationInstallRecordFromConnectorFields(
 		row.ID, row.OrgID, row.ProjectID, row.IntegrationAppID,
-		row.AgentProfileID, row.AgentID, row.InstalledByUserID,
+		row.InstalledByUserID, row.InstalledByOrgApiKeyID,
 		row.Provider, row.IntegrationKind, row.ConnectionMode, row.State,
-		row.ProviderTenantID, row.ProviderAccountRef, row.ProviderAgentDisplayName,
+		row.ProviderTenantID, row.ProviderAccountRef, row.DisplayName,
 		row.CredentialSecretID, row.ProviderConfig, row.ProviderIdentity,
-		row.ProviderMetadata, row.LastOauthFlowID, row.CreatedAt, row.UpdatedAt,
+		row.Metadata, row.LastOauthFlowID, row.CreatedAt, row.UpdatedAt,
 		row.ConfigurationRevision,
 	), nil
 }
@@ -158,7 +189,7 @@ func (s *Store) GetConnectorIntegrationInstallByID(
 	}
 	row, err := s.q.GetConnectorIntegrationInstallByID(
 		ctx,
-		dbsqlc.GetConnectorIntegrationInstallByIDParams{IntegrationAppID: integrationAppID, ID: id},
+		dbsqlc.GetConnectorIntegrationInstallByIDParams{IntegrationAppID: sqlcIDFromNil(integrationAppID), ID: id},
 	)
 	if err != nil {
 		return IntegrationInstallRecord{}, integrationChannelReadError(
@@ -167,50 +198,50 @@ func (s *Store) GetConnectorIntegrationInstallByID(
 	}
 	return integrationInstallRecordFromConnectorFields(
 		row.ID, row.OrgID, row.ProjectID, row.IntegrationAppID,
-		row.AgentProfileID, row.AgentID, row.InstalledByUserID,
+		row.InstalledByUserID, row.InstalledByOrgApiKeyID,
 		row.Provider, row.IntegrationKind, row.ConnectionMode, row.State,
-		row.ProviderTenantID, row.ProviderAccountRef, row.ProviderAgentDisplayName,
+		row.ProviderTenantID, row.ProviderAccountRef, row.DisplayName,
 		row.CredentialSecretID, row.ProviderConfig, row.ProviderIdentity,
-		row.ProviderMetadata, row.LastOauthFlowID, row.CreatedAt, row.UpdatedAt,
+		row.Metadata, row.LastOauthFlowID, row.CreatedAt, row.UpdatedAt,
 		row.ConfigurationRevision,
 	), nil
 }
 
 func integrationInstallRecordFromConnectorFields(
-	id, orgID, projectID, appID ID,
-	agentProfileID, agentID *ID,
-	installedByUserID ID,
-	provider, integrationKind, connectionMode, state,
-	providerTenantID, providerAccountRef, providerAgentDisplayName string,
+	id, orgID, projectID ID,
+	appID *ID,
+	installedByUserID, installedByOrgAPIKeyID *ID,
+	provider *string,
+	integrationKind, connectionMode, state string,
+	providerTenantID, providerAccountRef *string,
+	displayName string,
 	credentialSecretID *ID,
-	providerConfig, providerIdentity, providerMetadata []byte,
+	providerConfig, providerIdentity, metadata []byte,
 	lastOAuthFlowID *ID,
 	createdAt, updatedAt time.Time,
 	configurationRevision int64,
 ) IntegrationInstallRecord {
 	return IntegrationInstallRecord{
-		ID:                       id,
-		OrgID:                    orgID,
-		ProjectID:                projectID,
-		IntegrationAppID:         appID,
-		AgentProfileID:           idFromSQLCPtr(agentProfileID),
-		AgentID:                  idFromSQLCPtr(agentID),
-		InstalledByUserID:        installedByUserID,
-		Provider:                 provider,
-		IntegrationKind:          integrationKind,
-		ConnectionMode:           connectionMode,
-		State:                    IntegrationInstallState(state),
-		ProviderTenantID:         providerTenantID,
-		ProviderAccountRef:       providerAccountRef,
-		ProviderAgentDisplayName: providerAgentDisplayName,
-		CredentialSecretID:       idFromSQLCPtr(credentialSecretID),
-		ProviderConfig:           providerConfig,
-		ProviderIdentity:         providerIdentity,
-		ProviderMetadata:         providerMetadata,
-		LastOAuthFlowID:          idFromSQLCPtr(lastOAuthFlowID),
-		ConfigurationRevision:    configurationRevision,
-		CreatedAt:                createdAt,
-		UpdatedAt:                updatedAt,
+		ID:                    id,
+		OrgID:                 orgID,
+		ProjectID:             projectID,
+		IntegrationAppID:      idFromSQLCPtr(appID),
+		InstalledBy:           integrationInstallerPrincipal(orgID, installedByUserID, installedByOrgAPIKeyID),
+		Provider:              stringFromPtr(provider),
+		IntegrationKind:       IntegrationKind(integrationKind),
+		ConnectionMode:        connectionMode,
+		State:                 IntegrationInstallState(state),
+		ProviderTenantID:      stringFromPtr(providerTenantID),
+		ProviderAccountRef:    stringFromPtr(providerAccountRef),
+		DisplayName:           displayName,
+		CredentialSecretID:    idFromSQLCPtr(credentialSecretID),
+		ProviderConfig:        providerConfig,
+		ProviderIdentity:      providerIdentity,
+		Metadata:              metadata,
+		LastOAuthFlowID:       idFromSQLCPtr(lastOAuthFlowID),
+		ConfigurationRevision: configurationRevision,
+		CreatedAt:             createdAt,
+		UpdatedAt:             updatedAt,
 	}
 }
 
@@ -218,18 +249,31 @@ func (s *Store) CreateIntegrationRoute(
 	ctx context.Context,
 	input CreateIntegrationRouteInput,
 ) (IntegrationRouteRecord, error) {
-	var err error
-	input, err = normalizeCreateIntegrationRouteInput(input)
-	if err != nil {
-		return IntegrationRouteRecord{}, err
-	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return IntegrationRouteRecord{}, fmt.Errorf("begin create integration route: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	route, err := s.createIntegrationRouteTx(ctx, tx, input)
+	if err != nil {
+		return IntegrationRouteRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return IntegrationRouteRecord{}, fmt.Errorf("commit create integration route: %w", err)
+	}
+	return route, nil
+}
+
+func (s *Store) createIntegrationRouteTx(
+	ctx context.Context, tx pgx.Tx, input CreateIntegrationRouteInput,
+) (IntegrationRouteRecord, error) {
+	input, err := normalizeCreateIntegrationRouteInput(input)
+	if err != nil {
+		return IntegrationRouteRecord{}, err
+	}
 	qtx := s.q.WithTx(tx)
-	if _, err := lockIntegrationInstallLifecycleShared(ctx, tx, input.ProjectID, input.IntegrationInstallID); err != nil {
+	install, err := lockIntegrationInstallLifecycleShared(ctx, tx, input.ProjectID, input.IntegrationInstallID)
+	if err != nil {
 		return IntegrationRouteRecord{}, err
 	}
 	if _, err := qtx.LockIntegrationInstallForRouteMutation(
@@ -243,20 +287,24 @@ func (s *Store) CreateIntegrationRoute(
 			err,
 		)
 	}
+	if !isNilID(input.AgentProfileID) {
+		if err := s.access.ValidateInstallBinding(ctx, tx, InstallBinding{
+			OrgID: install.OrgID, ProjectID: input.ProjectID, AgentProfileID: input.AgentProfileID,
+		}); err != nil {
+			return IntegrationRouteRecord{}, err
+		}
+	}
 	row, err := qtx.InsertIntegrationRoute(ctx, dbsqlc.InsertIntegrationRouteParams{
+		AgentProfileID:       sqlcIDFromNil(input.AgentProfileID),
 		ProjectID:            input.ProjectID,
 		IntegrationInstallID: input.IntegrationInstallID,
 		DeploymentKey:        input.DeploymentKey,
-		HandlerKey:           input.HandlerKey,
-		HandlerVersion:       int32(input.HandlerVersion),
+		BehaviorKey:          input.BehaviorKey,
 		Configuration:        input.Configuration,
 		State:                string(input.State),
 		MaxActiveRoutes:      MaxActiveIntegrationRoutesPerInstall,
 	})
 	if err == nil {
-		if err := tx.Commit(ctx); err != nil {
-			return IntegrationRouteRecord{}, fmt.Errorf("commit create integration route: %w", err)
-		}
 		return integrationRouteRecordFromSQLC(row), nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -287,9 +335,6 @@ func (s *Store) CreateIntegrationRoute(
 	if existing.DeletedAt != nil || !integrationRouteDefinitionMatches(existing, input) {
 		return IntegrationRouteRecord{}, storeerr.ErrIdempotencyConflict
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return IntegrationRouteRecord{}, fmt.Errorf("commit integration route create replay: %w", err)
-	}
 	return integrationRouteRecordFromSQLC(existing), nil
 }
 
@@ -299,8 +344,8 @@ func integrationRouteDefinitionMatches(
 ) bool {
 	return record.ProjectID == input.ProjectID &&
 		record.IntegrationInstallID == input.IntegrationInstallID &&
-		record.DeploymentKey == input.DeploymentKey && record.HandlerKey == input.HandlerKey &&
-		int(record.HandlerVersion) == input.HandlerVersion &&
+		record.DeploymentKey == input.DeploymentKey && record.BehaviorKey == input.BehaviorKey &&
+		idFromSQLCPtr(record.AgentProfileID) == input.AgentProfileID &&
 		storeutil.SameJSON(record.Configuration, input.Configuration)
 }
 
@@ -477,9 +522,15 @@ func createIntegrationTargetBinding(
 		IntegrationTargetID:  input.IntegrationTargetID,
 		IntegrationRouteID:   sqlcIDFromNil(input.IntegrationRouteID),
 		ReceiveAllowed:       input.ReceiveAllowed,
+		ReadAllowed:          input.ReadAllowed,
 		SendAllowed:          input.SendAllowed,
 		Source:               input.Source,
 		Metadata:             input.Metadata,
+	}
+	if grants := input.ReplyChannelGrants; grants != nil {
+		params.ReplyReceiveAllowed = &grants.ReceiveAllowed
+		params.ReplyReadAllowed = &grants.ReadAllowed
+		params.ReplySendAllowed = &grants.SendAllowed
 	}
 	existing, err := q.GetActiveIntegrationTargetBindingByIdentity(
 		ctx,
@@ -561,7 +612,9 @@ func integrationTargetBindingDefinitionMatches(
 		record.IntegrationTargetID == input.IntegrationTargetID &&
 		record.IntegrationRouteID == input.IntegrationRouteID &&
 		record.ReceiveAllowed == input.ReceiveAllowed &&
+		record.ReadAllowed == input.ReadAllowed &&
 		record.SendAllowed == input.SendAllowed &&
+		sameChannelGrants(record.ReplyChannelGrants, input.ReplyChannelGrants) &&
 		record.Source == input.Source &&
 		storeutil.SameJSON(record.Metadata, input.Metadata)
 }
@@ -633,10 +686,18 @@ func (s *Store) GetActiveReceiveBindingForTarget(
 	ctx context.Context,
 	projectID, agentID, integrationTargetID ID,
 ) (IntegrationTargetBindingRecord, error) {
+	return getActiveReceiveBindingForTarget(ctx, s.q, projectID, agentID, integrationTargetID)
+}
+
+func getActiveReceiveBindingForTarget(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID, integrationTargetID ID,
+) (IntegrationTargetBindingRecord, error) {
 	if isNilID(projectID) || isNilID(agentID) || isNilID(integrationTargetID) {
 		return IntegrationTargetBindingRecord{}, errors.New("project, agent, and integration target are required")
 	}
-	row, err := s.q.GetActiveReceiveBindingForTarget(
+	row, err := q.GetActiveReceiveBindingForTarget(
 		ctx,
 		dbsqlc.GetActiveReceiveBindingForTargetParams{
 			ProjectID: projectID, AgentID: agentID, IntegrationTargetID: integrationTargetID,
@@ -650,28 +711,29 @@ func (s *Store) GetActiveReceiveBindingForTarget(
 	return integrationTargetBindingRecordFromSQLC(row), nil
 }
 
-func (s *Store) GetActiveSendBinding(
-	ctx context.Context,
-	projectID, agentID, id ID,
-) (IntegrationTargetBindingRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
-		return IntegrationTargetBindingRecord{}, errors.New("project, agent, and binding are required")
-	}
-	row, err := s.q.GetActiveSendBinding(ctx, dbsqlc.GetActiveSendBindingParams{
-		ProjectID: projectID, AgentID: agentID, ID: id,
-	})
-	if err != nil {
-		return IntegrationTargetBindingRecord{}, integrationChannelReadError(
-			"get active send binding", err,
-		)
-	}
-	return integrationTargetBindingRecordFromSQLC(row), nil
-}
-
 func (s *Store) GetActiveReceiveBindingTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	projectID, agentID, integrationInstallID, integrationTargetID, id ID,
+) (IntegrationTargetBindingRecord, error) {
+	return lockActiveInputBinding(ctx, tx, projectID, agentID, integrationInstallID, integrationTargetID, id, false)
+}
+
+// GetActiveInteractionBindingTx authorizes responses to sent prompts independently
+// of a channel's subscription to ordinary incoming messages.
+func (s *Store) GetActiveInteractionBindingTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID, integrationInstallID, integrationTargetID, id ID,
+) (IntegrationTargetBindingRecord, error) {
+	return lockActiveInputBinding(ctx, tx, projectID, agentID, integrationInstallID, integrationTargetID, id, true)
+}
+
+func lockActiveInputBinding(
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID, integrationInstallID, integrationTargetID, id ID,
+	forInteractionResponse bool,
 ) (IntegrationTargetBindingRecord, error) {
 	if isNilID(projectID) || isNilID(agentID) || isNilID(integrationInstallID) ||
 		isNilID(integrationTargetID) || isNilID(id) {
@@ -679,51 +741,16 @@ func (s *Store) GetActiveReceiveBindingTx(
 			"project, agent, integration install, integration target, and binding are required",
 		)
 	}
-	row, err := dbsqlc.New(tx).GetActiveReceiveBinding(ctx, dbsqlc.GetActiveReceiveBindingParams{
+	row, err := dbsqlc.New(tx).LockActiveIntegrationTargetBinding(ctx, dbsqlc.LockActiveIntegrationTargetBindingParams{
 		ProjectID: projectID, AgentID: agentID, IntegrationInstallID: integrationInstallID,
-		IntegrationTargetID: integrationTargetID, ID: id,
+		IntegrationTargetID: integrationTargetID, ID: id, ForInteractionResponse: forInteractionResponse,
 	})
 	if err != nil {
 		return IntegrationTargetBindingRecord{}, integrationChannelReadError(
-			"get active receive binding", err,
+			"lock active input binding", err,
 		)
 	}
 	return integrationTargetBindingRecordFromSQLC(row), nil
-}
-
-func (s *Store) ListActiveReceiveBindingsForTargetRoute(
-	ctx context.Context,
-	projectID, integrationInstallID, integrationRouteID, integrationTargetID ID,
-) ([]IntegrationTargetBindingRecord, error) {
-	if isNilID(projectID) || isNilID(integrationInstallID) || isNilID(integrationRouteID) ||
-		isNilID(integrationTargetID) {
-		return nil, errors.New(
-			"project, installation, route, and target are required",
-		)
-	}
-	rows, err := s.q.ListActiveReceiveBindingsForTargetRoute(
-		ctx,
-		dbsqlc.ListActiveReceiveBindingsForTargetRouteParams{
-			ProjectID: projectID, IntegrationInstallID: integrationInstallID,
-			IntegrationRouteID:  sqlcIDFromNil(integrationRouteID),
-			IntegrationTargetID: integrationTargetID,
-			RowLimit:            MaxActiveReceiveBindingsPerTargetRoute + 1,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list active receive bindings for target route: %w", err)
-	}
-	if len(rows) > MaxActiveReceiveBindingsPerTargetRoute {
-		return nil, storeerr.InvalidRequest(fmt.Errorf(
-			"integration route target exceeds the %d active-binding limit",
-			MaxActiveReceiveBindingsPerTargetRoute,
-		))
-	}
-	out := make([]IntegrationTargetBindingRecord, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, integrationTargetBindingRecordFromSQLC(row))
-	}
-	return out, nil
 }
 
 func (s *Store) ListAgentChannelTargets(
@@ -762,9 +789,10 @@ func listAgentChannelTargets(
 		)
 	}
 	params := dbsqlc.ListAgentChannelTargetsParams{
-		ProjectID: projectID,
-		AgentID:   agentID,
-		RowLimit:  int32(input.Limit + 1),
+		ParentChannelID: sqlcIDFromNil(input.ParentChannelID),
+		ProjectID:       projectID,
+		AgentID:         agentID,
+		RowLimit:        int32(input.Limit + 1),
 	}
 	if input.After != nil {
 		if input.After.CreatedAt.IsZero() || isNilID(input.After.ID) {
@@ -790,17 +818,20 @@ func listAgentChannelTargets(
 	out := make([]AgentChannelTarget, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, AgentChannelTarget{
+			ParentChannelID:      idFromSQLCPtr(row.ParentChannelID),
 			ID:                   row.ID,
 			IntegrationInstallID: row.IntegrationInstallID,
 			TargetRef:            row.TargetRef,
 			ProviderRef:          row.ProviderRef,
 			ProviderRefKind:      row.ProviderRefKind,
 			DisplayName:          row.DisplayName,
-			Provider:             row.Provider,
+			Provider:             stringFromPtr(row.Provider),
+			IntegrationKind:      IntegrationKind(row.IntegrationKind),
 			InstallState:         IntegrationInstallState(row.InstallState),
-			ConnectorKey:         row.ConnectorKey,
-			AppState:             IntegrationAppState(row.AppState),
+			ConnectorKey:         stringFromPtr(row.ConnectorKey),
+			AppState:             IntegrationAppState(stringFromPtr(row.AppState)),
 			ReceiveAllowed:       row.ReceiveAllowed,
+			ReadAllowed:          row.ReadAllowed,
 			SendAllowed:          row.SendAllowed,
 			CreatedAt:            row.CreatedAt,
 		})
@@ -823,132 +854,7 @@ func (s *Store) GetAgentChannelToolEligibility(
 	if err != nil {
 		return AgentChannelToolEligibility{}, fmt.Errorf("get agent channel tool eligibility: %w", err)
 	}
-	return AgentChannelToolEligibility{List: row.ListAllowed, Send: row.SendAllowed}, nil
-}
-
-func (s *Store) ListModelCallIntegrationOriginTargets(
-	ctx context.Context,
-	projectID, agentID, turnID, modelCallContextID ID,
-) ([]ID, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(turnID) || isNilID(modelCallContextID) {
-		return nil, errors.New("project, agent, turn, and model call context are required")
-	}
-	rows, err := s.q.ListModelCallIntegrationOriginTargets(
-		ctx,
-		dbsqlc.ListModelCallIntegrationOriginTargetsParams{
-			ProjectID: projectID, AgentID: agentID, TurnID: turnID,
-			ModelCallContextID: modelCallContextID,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list model call integration origin targets: %w", err)
-	}
-	out := make([]ID, 0, len(rows))
-	for _, row := range rows {
-		if row != nil {
-			out = append(out, *row)
-		}
-	}
-	return out, nil
-}
-
-func (s *Store) ListInputIntegrationOriginTargets(
-	ctx context.Context,
-	projectID, agentID ID,
-	inputIDs []ID,
-) ([]ID, error) {
-	if isNilID(projectID) || isNilID(agentID) || len(inputIDs) == 0 {
-		return nil, errors.New("project, agent, and input ids are required")
-	}
-	for _, inputID := range inputIDs {
-		if isNilID(inputID) {
-			return nil, errors.New("input ids cannot contain a nil id")
-		}
-	}
-	rows, err := s.q.ListInputIntegrationOriginTargets(
-		ctx,
-		dbsqlc.ListInputIntegrationOriginTargetsParams{
-			ProjectID: projectID, AgentID: agentID, InputIds: inputIDs,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list input integration origin targets: %w", err)
-	}
-	out := make([]ID, 0, len(rows))
-	for _, row := range rows {
-		if row != nil {
-			out = append(out, *row)
-		}
-	}
-	return out, nil
-}
-
-func (s *Store) GetLatestModelCallIntegrationOrigin(
-	ctx context.Context,
-	projectID, agentID, turnID, modelCallContextID ID,
-) (IntegrationInputOrigin, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(turnID) || isNilID(modelCallContextID) {
-		return IntegrationInputOrigin{}, false, errors.New(
-			"project, agent, turn, and model call context are required",
-		)
-	}
-	row, err := s.q.GetLatestModelCallIntegrationOrigin(
-		ctx,
-		dbsqlc.GetLatestModelCallIntegrationOriginParams{
-			ProjectID: projectID, AgentID: agentID, TurnID: turnID,
-			ModelCallContextID: modelCallContextID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return IntegrationInputOrigin{}, false, nil
-	}
-	if err != nil {
-		return IntegrationInputOrigin{}, false, fmt.Errorf(
-			"get latest model call integration origin: %w",
-			err,
-		)
-	}
-	if row.IntegrationTargetID == nil {
-		return IntegrationInputOrigin{}, false, nil
-	}
-	return IntegrationInputOrigin{
-		TargetID:  *row.IntegrationTargetID,
-		BindingID: idFromSQLCPtr(row.IntegrationTargetBindingID),
-	}, true, nil
-}
-
-func (s *Store) GetLatestInputIntegrationOrigin(
-	ctx context.Context,
-	projectID, agentID ID,
-	inputIDs []ID,
-) (IntegrationInputOrigin, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || len(inputIDs) == 0 {
-		return IntegrationInputOrigin{}, false, errors.New("project, agent, and input ids are required")
-	}
-	for _, inputID := range inputIDs {
-		if isNilID(inputID) {
-			return IntegrationInputOrigin{}, false, errors.New("input ids cannot contain a nil id")
-		}
-	}
-	row, err := s.q.GetLatestInputIntegrationOrigin(
-		ctx,
-		dbsqlc.GetLatestInputIntegrationOriginParams{
-			ProjectID: projectID, AgentID: agentID, InputIds: inputIDs,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return IntegrationInputOrigin{}, false, nil
-	}
-	if err != nil {
-		return IntegrationInputOrigin{}, false, fmt.Errorf("get latest input integration origin: %w", err)
-	}
-	if row.IntegrationTargetID == nil {
-		return IntegrationInputOrigin{}, false, nil
-	}
-	return IntegrationInputOrigin{
-		TargetID:  *row.IntegrationTargetID,
-		BindingID: idFromSQLCPtr(row.IntegrationTargetBindingID),
-	}, true, nil
+	return AgentChannelToolEligibility{List: row.ListAllowed, Read: row.ReadAllowed, Send: row.SendAllowed}, nil
 }
 
 func normalizeCreateIntegrationAppInput(input CreateIntegrationAppInput) (CreateIntegrationAppInput, error) {
@@ -1013,15 +919,15 @@ func normalizeCreateIntegrationRouteInput(
 		return CreateIntegrationRouteInput{}, errors.New("project and integration install are required")
 	}
 	input.DeploymentKey = strings.TrimSpace(input.DeploymentKey)
-	input.HandlerKey = strings.TrimSpace(input.HandlerKey)
-	if input.DeploymentKey == "" || input.HandlerKey == "" || input.HandlerVersion <= 0 {
+	input.BehaviorKey = strings.TrimSpace(input.BehaviorKey)
+	if input.DeploymentKey == "" || input.BehaviorKey == "" {
 		return CreateIntegrationRouteInput{}, errors.New(
-			"deployment key, handler key, and positive handler version are required",
+			"deployment key and behavior key are required",
 		)
 	}
-	if len(input.DeploymentKey) > 512 || !registryname.Valid(input.HandlerKey) {
+	if len(input.DeploymentKey) > 512 || !registryname.Valid(input.BehaviorKey) {
 		return CreateIntegrationRouteInput{}, errors.New(
-			"integration route handler exceeds its contract",
+			"integration route behavior exceeds its contract",
 		)
 	}
 	if input.State != IntegrationRouteStateActive && input.State != IntegrationRouteStateDisabled {
@@ -1040,22 +946,29 @@ func normalizeCreateIntegrationTargetBindingInput(
 ) (CreateIntegrationTargetBindingInput, error) {
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) ||
 		isNilID(input.IntegrationInstallID) || isNilID(input.IntegrationTargetID) {
-		return CreateIntegrationTargetBindingInput{}, errors.New(
+		return CreateIntegrationTargetBindingInput{}, storeerr.InvalidRequest(errors.New(
 			"project, agent, integration install, and integration target are required",
-		)
+		))
 	}
-	if !input.ReceiveAllowed && !input.SendAllowed {
-		return CreateIntegrationTargetBindingInput{}, errors.New("at least one binding permission is required")
+	if !input.ReceiveAllowed && !input.ReadAllowed && !input.SendAllowed {
+		return CreateIntegrationTargetBindingInput{}, storeerr.InvalidRequest(
+			errors.New("at least one binding permission is required"))
 	}
-	if input.ReceiveAllowed && isNilID(input.IntegrationRouteID) {
-		return CreateIntegrationTargetBindingInput{}, errors.New("receive bindings require an integration route")
+	if grants := input.ReplyChannelGrants; grants != nil {
+		if !input.SendAllowed || (!grants.ReceiveAllowed && !grants.ReadAllowed && !grants.SendAllowed) {
+			return CreateIntegrationTargetBindingInput{}, storeerr.InvalidRequest(
+				errors.New("reply channel grants require binding send permission and at least one child permission"))
+		}
+		grantsCopy := *grants
+		input.ReplyChannelGrants = &grantsCopy
 	}
 	input.Source = strings.TrimSpace(input.Source)
 	if input.Source == "" {
-		return CreateIntegrationTargetBindingInput{}, errors.New("binding source is required")
+		return CreateIntegrationTargetBindingInput{}, storeerr.InvalidRequest(errors.New("binding source is required"))
 	}
 	if len(input.Source) > 128 {
-		return CreateIntegrationTargetBindingInput{}, errors.New("binding source exceeds its size limit")
+		return CreateIntegrationTargetBindingInput{}, storeerr.InvalidRequest(
+			errors.New("binding source exceeds its size limit"))
 	}
 	metadata, err := normalizedJSONObject(input.Metadata, "metadata")
 	if err != nil {
@@ -1122,12 +1035,12 @@ func integrationAppRecordFromSQLC(row dbsqlc.IntegrationApp) IntegrationAppRecor
 
 func integrationRouteRecordFromSQLC(row dbsqlc.IntegrationRoute) IntegrationRouteRecord {
 	return IntegrationRouteRecord{
+		AgentProfileID:       idFromSQLCPtr(row.AgentProfileID),
 		ID:                   row.ID,
 		ProjectID:            row.ProjectID,
 		IntegrationInstallID: row.IntegrationInstallID,
 		DeploymentKey:        row.DeploymentKey,
-		HandlerKey:           row.HandlerKey,
-		HandlerVersion:       int(row.HandlerVersion),
+		BehaviorKey:          row.BehaviorKey,
 		Configuration:        row.Configuration,
 		State:                IntegrationRouteState(row.State),
 		CreatedAt:            row.CreatedAt,
@@ -1146,10 +1059,31 @@ func integrationTargetBindingRecordFromSQLC(
 		IntegrationTargetID:  row.IntegrationTargetID,
 		IntegrationRouteID:   idFromSQLCPtr(row.IntegrationRouteID),
 		ReceiveAllowed:       row.ReceiveAllowed,
+		ReadAllowed:          row.ReadAllowed,
 		SendAllowed:          row.SendAllowed,
 		Source:               row.Source,
 		Metadata:             row.Metadata,
 		CreatedAt:            row.CreatedAt,
 		UpdatedAt:            row.UpdatedAt,
+		ReplyChannelGrants: channelGrantsFromSQLC(
+			row.ReplyReceiveAllowed, row.ReplyReadAllowed, row.ReplySendAllowed),
 	}
+}
+
+func (s *Store) GetActiveReadBindingForTarget(
+	ctx context.Context,
+	projectID, agentID, integrationTargetID ID,
+) (IntegrationTargetBindingRecord, error) {
+	if isNilID(projectID) || isNilID(agentID) || isNilID(integrationTargetID) {
+		return IntegrationTargetBindingRecord{}, errors.New("project, agent, and integration target are required")
+	}
+	row, err := s.q.GetActiveReadBindingForTarget(ctx, dbsqlc.GetActiveReadBindingForTargetParams{
+		ProjectID: projectID, AgentID: agentID, IntegrationTargetID: integrationTargetID,
+	})
+	if err != nil {
+		return IntegrationTargetBindingRecord{}, integrationChannelReadError(
+			"get active read binding", err,
+		)
+	}
+	return integrationTargetBindingRecordFromSQLC(row), nil
 }

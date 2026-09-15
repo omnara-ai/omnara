@@ -29,6 +29,8 @@ func TestToolCatalogMarksBindingManagedToolsNonConfigurable(t *testing.T) {
 	}
 	for _, name := range []string{
 		toolcatalog.ToolNameListChannels,
+		toolcatalog.ToolNameGetChannel,
+		toolcatalog.ToolNameSetCurrentChannel,
 		toolcatalog.ToolNameSendChannelMessage,
 	} {
 		value, exists := configurable[name]

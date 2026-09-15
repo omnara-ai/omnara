@@ -75,20 +75,21 @@ type AgentEventReadProjection struct {
 }
 
 type AgentInteractionReadProjection struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    string
-	State              string
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  *uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         *time.Time
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	IntegrationTargetID *uuid.UUID
 }
 
 type AgentMachineBinding struct {
@@ -244,6 +245,27 @@ type ExpiredIdlePoolMachineCandidate struct {
 	MachineID uuid.UUID
 }
 
+type ExternalChannelRequest struct {
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	TurnID                     uuid.UUID
+	IntegrationInstallID       uuid.UUID
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
+	ToolCallID                 *uuid.UUID
+	InteractionID              *uuid.UUID
+	NoticeKey                  *string
+	Operation                  string
+	Payload                    json.RawMessage
+	DeadlineAt                 time.Time
+	CreatedAt                  time.Time
+	State                      string
+	Result                     *json.RawMessage
+	StateReasonCode            *string
+	TerminalAt                 *time.Time
+}
+
 type IntegrationApp struct {
 	ID                         uuid.UUID
 	OrgID                      uuid.UUID
@@ -263,62 +285,63 @@ type IntegrationApp struct {
 	UpdatedAt                  time.Time
 }
 
-type IntegrationDelivery struct {
-	ID                         uuid.UUID
-	ProjectID                  uuid.UUID
-	AgentID                    uuid.UUID
-	IntegrationAppID           uuid.UUID
-	IntegrationInstallID       uuid.UUID
-	IntegrationTargetID        uuid.UUID
-	IntegrationTargetBindingID uuid.UUID
-	Provider                   string
-	ConnectorKey               string
-	Transport                  string
-	DeliveryKind               string
-	PayloadVersion             string
-	Payload                    json.RawMessage
-	IdempotencyScope           string
-	IdempotencyKey             string
-	State                      string
-	AttemptCount               int32
-	AvailableAt                time.Time
-	ClaimToken                 *uuid.UUID
-	ClaimGeneration            int64
-	ClaimedBy                  *string
-	ClaimedAt                  *time.Time
-	ClaimExpiresAt             *time.Time
-	NotifyRef                  *uuid.UUID
-	ProviderMessageRef         *string
-	LastError                  json.RawMessage
-	CompletedAt                *time.Time
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
+type IntegrationChannelDefinition struct {
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ImplementationKey    string
+	Kind                 string
+	Description          string
+	SendParamsSchema     json.RawMessage
+	Capabilities         json.RawMessage
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type IntegrationEventReceipt struct {
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationAppID     uuid.UUID
+	ConnectorKey         string
+	Provider             string
+	EventID              string
+	Payload              json.RawMessage
+	State                string
+	AttemptCount         int32
+	AvailableAt          time.Time
+	LeaseToken           *uuid.UUID
+	LeaseGeneration      int64
+	LeaseExpiresAt       *time.Time
+	LastError            json.RawMessage
+	CompletedAt          *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type IntegrationInstall struct {
-	ID                       uuid.UUID
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
-	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	DeletedAt                *time.Time
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	IntegrationAppID         uuid.UUID
-	ConfigurationRevision    int64
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	InstalledByUserID      *uuid.UUID
+	Provider               *string
+	IntegrationKind        string
+	ConnectionMode         string
+	State                  string
+	ProviderTenantID       *string
+	ProviderAccountRef     *string
+	DisplayName            string
+	CredentialSecretID     *uuid.UUID
+	ProviderConfig         json.RawMessage
+	ProviderIdentity       json.RawMessage
+	Metadata               json.RawMessage
+	LastOauthFlowID        *uuid.UUID
+	DeletedAt              *time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	IntegrationAppID       *uuid.UUID
+	ConfigurationRevision  int64
+	InstalledByOrgApiKeyID *uuid.UUID
 }
 
 type IntegrationRoute struct {
@@ -326,9 +349,9 @@ type IntegrationRoute struct {
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
 	DeploymentKey        string
-	HandlerKey           string
-	HandlerVersion       int32
+	BehaviorKey          string
 	Configuration        json.RawMessage
+	AgentProfileID       *uuid.UUID
 	State                string
 	DeletedAt            *time.Time
 	CreatedAt            time.Time
@@ -372,7 +395,6 @@ type IntegrationRuntimeUnit struct {
 type IntegrationTarget struct {
 	ID                   uuid.UUID
 	ProjectID            uuid.UUID
-	AgentID              *uuid.UUID
 	IntegrationInstallID uuid.UUID
 	TargetRef            string
 	ProviderRef          string
@@ -382,6 +404,8 @@ type IntegrationTarget struct {
 	DeletedAt            *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	ParentChannelID      *uuid.UUID
+	ChannelDefinitionID  uuid.UUID
 }
 
 type IntegrationTargetBinding struct {
@@ -393,7 +417,11 @@ type IntegrationTargetBinding struct {
 	TargetCreatedAt      time.Time
 	IntegrationRouteID   *uuid.UUID
 	ReceiveAllowed       bool
+	ReadAllowed          bool
 	SendAllowed          bool
+	ReplyReceiveAllowed  *bool
+	ReplyReadAllowed     *bool
+	ReplySendAllowed     *bool
 	Source               string
 	Metadata             json.RawMessage
 	RevokedAt            *time.Time

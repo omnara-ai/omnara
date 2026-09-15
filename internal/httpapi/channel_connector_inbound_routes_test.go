@@ -1,63 +1,16 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
-
-func TestChannelInboundCompletionRetryIsAlwaysOpaqueServiceUnavailable(t *testing.T) {
-	for _, cause := range []error{storeerr.ErrNotFound, storeerr.ErrStateTransitionConflict} {
-		t.Run(cause.Error(), func(t *testing.T) {
-			err := channelInboundProcessError(
-				context.Background(),
-				errors.Join(integration.ErrChannelInboundCompletionRetry, cause),
-			)
-			var response apierror.ResponseError
-			if !errors.As(err, &response) {
-				t.Fatalf("mapped error = %T %v", err, err)
-			}
-			if response.Status != http.StatusServiceUnavailable ||
-				response.Code != openapi.ErrorCodeServiceUnavailable {
-				t.Fatalf("mapped retry error = %+v", response)
-			}
-			if strings.Contains(response.Message, cause.Error()) {
-				t.Fatalf("retry response exposed internal cause: %q", response.Message)
-			}
-		})
-	}
-}
-
-func TestChannelInboundUnavailableHandlerIsOpaqueServiceUnavailable(t *testing.T) {
-	err := channelInboundProcessError(
-		context.Background(),
-		fmt.Errorf("%w: private_handler@9", integration.ErrChannelRouteHandlerUnavailable),
-	)
-	var response apierror.ResponseError
-	if !errors.As(err, &response) {
-		t.Fatalf("mapped error = %T %v", err, err)
-	}
-	if response.Status != http.StatusServiceUnavailable ||
-		response.Code != openapi.ErrorCodeServiceUnavailable {
-		t.Fatalf("mapped handler error = %+v", response)
-	}
-	if strings.Contains(response.Message, "private_handler") {
-		t.Fatalf("handler response exposed internal key: %q", response.Message)
-	}
-}
 
 func TestNormalizeChannelInteractionRequest(t *testing.T) {
 	valid := openapi.ResolveChannelConnectorInteractionRequest{
-		Version:            openapi.ResolveChannelConnectorInteractionRequestVersionV1,
+
 		ExternalTenantId:   "tenant-1",
 		ExternalAccountRef: "account-1",
 		Actor: openapi.ChannelActor{

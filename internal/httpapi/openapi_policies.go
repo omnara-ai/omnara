@@ -62,6 +62,12 @@ func customScope(note string) operationScope {
 type operationID string
 
 const (
+	operationPublishExternalChannelDefinition             operationID = "PublishExternalChannelDefinition"
+	operationRegisterExternalChannel                      operationID = "RegisterExternalChannel"
+	operationAttachAgentChannel                           operationID = "AttachAgentChannel"
+	operationRevokeAgentChannelBinding                    operationID = "RevokeAgentChannelBinding"
+	operationListAgentChannels                            operationID = "ListAgentChannels"
+	operationGetAgentChannel                              operationID = "GetAgentChannel"
 	operationAcceptInvitation                             operationID = "AcceptInvitation"
 	operationBootstrapDaemon                              operationID = "BootstrapDaemon"
 	operationCancelAgent                                  operationID = "CancelAgent"
@@ -102,6 +108,9 @@ const (
 	operationCreateProjectMachinePoolGrant                operationID = "CreateProjectMachinePoolGrant"
 	operationCreateProjectModelGrant                      operationID = "CreateProjectModelGrant"
 	operationCreateSlackSetup                             operationID = "CreateSlackSetup"
+	operationCreateExternalIntegrationInstall             operationID = "CreateExternalIntegrationInstall"
+	operationListExternalChannelRequests                  operationID = "ListExternalChannelRequests"
+	operationCompleteExternalChannelRequest               operationID = "CompleteExternalChannelRequest"
 	operationCreateCronTrigger                            operationID = "CreateCronTrigger"
 	operationListCronTriggers                             operationID = "ListCronTriggers"
 	operationGetCronTrigger                               operationID = "GetCronTrigger"
@@ -212,8 +221,14 @@ const (
 	operationAcceptChannelConnectorRuntimeEvent           operationID = "AcceptChannelConnectorRuntimeEvent"
 	operationResolveChannelConnectorInteraction           operationID = "ResolveChannelConnectorInteraction"
 	operationResolveChannelConnectorRuntimeInteraction    operationID = "ResolveChannelConnectorRuntimeInteraction"
-	operationClaimChannelConnectorDeliveries              operationID = "ClaimChannelConnectorDeliveries"
-	operationCompleteChannelConnectorDelivery             operationID = "CompleteChannelConnectorDelivery"
+	operationClaimNextChannelConnectorEvent               operationID = "ClaimNextChannelConnectorEvent"
+	operationCompleteChannelConnectorEvent                operationID = "CompleteChannelConnectorEvent"
+	operationListChannelConnectorRoutes                   operationID = "ListChannelConnectorRoutes"
+	operationPublishChannelConnectorDefinition            operationID = "PublishChannelConnectorDefinition"
+	operationDeliverChannelConnectorWorkflow              operationID = "DeliverChannelConnectorWorkflow"
+	operationLookupChannelConnectorWorkflow               operationID = "LookupChannelConnectorWorkflow"
+	operationLookupChannelConnectorRecipients             operationID = "LookupChannelConnectorRecipients"
+	operationDeliverChannelConnectorInput                 operationID = "DeliverChannelConnectorInput"
 	operationClaimChannelConnectorRuntimeUnits            operationID = "ClaimChannelConnectorRuntimeUnits"
 	operationHeartbeatChannelConnectorRuntimeUnit         operationID = "HeartbeatChannelConnectorRuntimeUnit"
 	operationReleaseChannelConnectorRuntimeUnit           operationID = "ReleaseChannelConnectorRuntimeUnit"
@@ -328,48 +343,57 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListSkillGrants:            accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListProjectAvailableSkills: accountPolicy(projectScope(identitystore.ProjectActionRead)),
 
-	operationCreateAgentConfig:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteIntegrationInstall:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateIntegrationOAuthSetup:   userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateSlackSetup:              userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListCronTriggers:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetToolCatalog:                accountPolicy(noScope()),
-	operationListMCPServers:                accountPolicy(noScope()),
-	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListAgentProfiles:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListIntegrationInstalls:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListVisibleProjectMachines:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListAgents:                    accountPolicy(projectScope(identitystore.AgentActionRead)),
-	operationListActors:                    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetActor:                      accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationPutActor:                      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateAgent:                   accountPolicy(projectScope(identitystore.AgentActionOperate)),
-	operationCreateProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationSetMemberProjectAccess:        accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationRemoveMemberProjectAccess:     accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectAvailableSecrets:   accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
-	operationGetProjectAvailableSecret:     accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
-	operationListProjectModelGrants:        accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationUpdateProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationDeleteProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectMachineGrants:      accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectMachinePoolGrants:  accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationGetProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationUpdateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationDeleteProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationCreateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationCreateAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateExternalIntegrationInstall: accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationPublishExternalChannelDefinition: accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationRegisterExternalChannel:          accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListExternalChannelRequests:      accountPolicy(projectScope(identitystore.AgentActionRead)),
+	operationCompleteExternalChannelRequest:   accountPolicy(projectScope(identitystore.AgentActionOperate)),
+	operationDeleteIntegrationInstall:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationRenameAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationOAuthSetup:      userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateSlackSetup:                 userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetCronTrigger:                   accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListCronTriggers:                 accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentConfig:                   accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetToolCatalog:                   accountPolicy(noScope()),
+	operationListMCPServers:                   accountPolicy(noScope()),
+	operationListMCPServerTools:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetAgentProfile:                  accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListAgentProfiles:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrationInstalls:          accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListVisibleProjectMachines:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListAgents:                       accountPolicy(projectScope(identitystore.AgentActionRead)),
+	operationListActors:                       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetActor:                         accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationPutActor:                         accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateAgent:                      accountPolicy(projectScope(identitystore.AgentActionOperate)),
+	operationCreateProjectModelGrant:          accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationSetMemberProjectAccess:           accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationRemoveMemberProjectAccess:        accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectAvailableSecrets:      accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
+	operationGetProjectAvailableSecret:        accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
+	operationListProjectModelGrants:           accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationUpdateProjectModelGrant:          accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationDeleteProjectModelGrant:          accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectMachineGrants:         accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectMachinePoolGrants:     accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationGetProjectMachinePoolGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationUpdateProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationDeleteProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationCreateProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 
 	operationGetAgent:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationAttachAgentChannel:           accountPolicy(agentScope(identitystore.ProjectActionManage)),
+	operationRevokeAgentChannelBinding:    accountPolicy(agentScope(identitystore.ProjectActionManage)),
+	operationListAgentChannels:            accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetAgentChannel:              accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListQueuedBacklogInputs:      accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListEvents:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurns:                    accountPolicy(agentScope(identitystore.AgentActionRead)),
@@ -442,11 +466,29 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationResolveChannelConnectorRuntimeInteraction: channelConnectorPolicy(
 		customScope("connector provider/app scope + installation binding + fenced runtime lease"),
 	),
-	operationClaimChannelConnectorDeliveries: channelConnectorPolicy(
-		customScope("connector provider scope"),
+	operationClaimNextChannelConnectorEvent: channelConnectorPolicy(
+		customScope("exact authenticated connector capability pair"),
 	),
-	operationCompleteChannelConnectorDelivery: channelConnectorPolicy(
-		customScope("fenced connector delivery claim"),
+	operationCompleteChannelConnectorEvent: channelConnectorPolicy(
+		customScope("connector app/install scope + current receipt lease; project derived from installation"),
+	),
+	operationListChannelConnectorRoutes: channelConnectorPolicy(
+		customScope("connector app/install scope; project derived from installation"),
+	),
+	operationPublishChannelConnectorDefinition: channelConnectorPolicy(
+		customScope("connector app/install scope + provider kind; project derived from installation"),
+	),
+	operationDeliverChannelConnectorWorkflow: channelConnectorPolicy(
+		customScope("connector app/install + configured route + receipt lease; project and agent derived internally"),
+	),
+	operationLookupChannelConnectorWorkflow: channelConnectorPolicy(
+		customScope("connector app/install + configured route; project and workflow agent derived internally"),
+	),
+	operationLookupChannelConnectorRecipients: channelConnectorPolicy(
+		customScope("connector app/install + receipt lease + provider address; recipient identities derived internally"),
+	),
+	operationDeliverChannelConnectorInput: channelConnectorPolicy(
+		customScope("connector app/install + receipt lease + exact receive binding; project and agent derived internally"),
 	),
 	operationClaimChannelConnectorRuntimeUnits: channelConnectorPolicy(
 		customScope("connector provider scope"),

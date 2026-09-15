@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
@@ -33,8 +34,7 @@ import (
 )
 
 const (
-	integrationHTTPClientTimeout = 5 * time.Minute
-	cronTriggerFireInterval      = 30 * time.Second
+	cronTriggerFireInterval = 30 * time.Second
 )
 
 func main() {
@@ -131,12 +131,12 @@ func main() {
 		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
-	integrationHTTPClient := metrics.NewObservedHTTPClient(
-		outboundhttp.NewPublicClient(
-			outboundhttp.PublicClientOptions{Timeout: integrationHTTPClientTimeout},
-		),
-		httpRecorder,
-	)
+	channelOperations, err := channelconnector.NewOperationsClient(cfg.ChannelConnectors,
+		metrics.NewObservedHTTPClient(nil, httpRecorder, metrics.WithHTTPClientPathLabel("/internal/operations")))
+	if err != nil {
+		log.Error("configure channel operations", "error", err)
+		os.Exit(1)
+	}
 	mcpHTTPClient := outboundhttp.NewPublicClient(
 		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev},
 	)
@@ -200,15 +200,14 @@ func main() {
 		MCPAuthHTTPClient:    mcpHTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
 		ToolExecutor: tools.Executor{
-			Store:                 store,
-			Skills:                store.Skills(),
-			IntegrationHTTPClient: integrationHTTPClient,
-			IntegrationDeliveries: redisBus,
-			WebSearch:             searchProvider,
-			WebFetcher:            webFetcher,
-			MachinePoolManager:    machinePoolManager,
-			BackgroundRunner:      backgroundRunner,
-			SkillBroadcaster:      skillBroadcaster,
+			Store:              store,
+			Skills:             store.Skills(),
+			ChannelOperations:  channelOperations,
+			WebSearch:          searchProvider,
+			WebFetcher:         webFetcher,
+			MachinePoolManager: machinePoolManager,
+			BackgroundRunner:   backgroundRunner,
+			SkillBroadcaster:   skillBroadcaster,
 		},
 		StreamPublisher: redisBus,
 		StreamLog:       log,

@@ -59,21 +59,22 @@ type ResolveAgentInteractionInput struct {
 }
 
 type AgentInteractionRecord struct {
-	ID                 ID
-	ProjectID          ID
-	AgentID            ID
-	TurnID             ID
-	ModelCallContextID ID
-	ToolCallID         ID
-	ProviderCallID     string
-	InteractionKind    AgentInteractionKind
-	State              AgentInteractionState
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  ID
-	CreatedAt          time.Time
-	ResolvedAt         time.Time
-	Replayed           bool `json:"-"`
+	ID                  ID
+	ProjectID           ID
+	AgentID             ID
+	TurnID              ID
+	ModelCallContextID  ID
+	ToolCallID          ID
+	ProviderCallID      string
+	IntegrationTargetID ID
+	InteractionKind     AgentInteractionKind
+	State               AgentInteractionState
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   ID
+	CreatedAt           time.Time
+	ResolvedAt          time.Time
+	Replayed            bool `json:"-"`
 }
 
 func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
@@ -302,7 +303,7 @@ func (s *Store) ResolveAgentInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("lock agent for interaction resolution: %w", err)
 	}
 	if hasIntegrationOrigin {
-		if _, err := s.integrations.GetActiveReceiveBindingTx(
+		if _, err := s.integrations.GetActiveInteractionBindingTx(
 			ctx,
 			tx,
 			input.ProjectID,
@@ -337,6 +338,11 @@ func (s *Store) ResolveAgentInteraction(
 		}
 		return AgentInteractionRecord{}, fmt.Errorf("get agent interaction: %w", err)
 	}
+	// A later input or setter may have changed the agent's current destination.
+	// Only the channel pinned when this prompt was created may answer it.
+	if hasIntegrationOrigin && idFromSQLCPtr(existing.IntegrationTargetID) != input.IntegrationTargetID {
+		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
+	}
 	resolution, err := normalizeAgentInteractionResolution(
 		AgentInteractionKind(existing.InteractionKind),
 		existing.Request,
@@ -357,13 +363,14 @@ func (s *Store) ResolveAgentInteraction(
 		if stopped {
 			return AgentInteractionRecord{}, storeerr.ErrStateTransitionConflict
 		}
-		resolvedByActorID, err := resolveActorTx(
+		resolvedByActorID, err := resolveInputActorTx(
 			ctx,
 			qtx,
 			input.ProjectID,
 			input.AgentID,
 			input.Actor,
 			input.IntegrationTargetID,
+			true,
 		)
 		if err != nil {
 			return AgentInteractionRecord{}, err
@@ -410,6 +417,13 @@ func (s *Store) ResolveAgentInteraction(
 			}
 			return AgentInteractionRecord{}, fmt.Errorf("resolve agent interaction: %w", err)
 		}
+		if _, err := qtx.CancelExternalChannelRequestsForInteraction(ctx,
+			dbsqlc.CancelExternalChannelRequestsForInteractionParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID,
+				InteractionID: input.ID, Reason: "interaction_resolved",
+			}); err != nil {
+			return AgentInteractionRecord{}, fmt.Errorf("close resolved interaction's channel request: %w", err)
+		}
 		row, err := qtx.GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
 			ProjectID: input.ProjectID,
 			AgentID:   input.AgentID,
@@ -429,6 +443,15 @@ func (s *Store) ResolveAgentInteraction(
 			},
 		); err != nil {
 			return AgentInteractionRecord{}, fmt.Errorf("resolve interaction response agent input: %w", err)
+		}
+		if hasIntegrationOrigin {
+			// Interaction responses are admitted here rather than through the
+			// content-input queue. Replay must not reapply this selection.
+			if err := qtx.SetAgentCurrentChannelFromInput(ctx, dbsqlc.SetAgentCurrentChannelFromInputParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ChannelID: input.IntegrationTargetID,
+			}); err != nil {
+				return AgentInteractionRecord{}, fmt.Errorf("select admitted interaction channel: %w", err)
+			}
 		}
 		record = agentInteractionRecordFromSQLC(row)
 		if err := applyPermissionInteractionResolutionTx(ctx, txNotifications, tx, qtx, record); err != nil {

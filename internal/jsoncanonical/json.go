@@ -8,6 +8,8 @@ import (
 	"math/big"
 )
 
+// Normalize preserves encoding/json's replacement of malformed UTF-8 and
+// unpaired surrogates in stored output, and preserves numeric values.
 func Normalize(raw json.RawMessage) (json.RawMessage, error) {
 	value, err := decode(raw)
 	if err != nil {
@@ -16,6 +18,7 @@ func Normalize(raw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(value)
 }
 
+// Equal compares values using the same string normalization as Normalize.
 func Equal(left, right json.RawMessage) bool {
 	leftValue, leftErr := decode(left)
 	rightValue, rightErr := decode(right)

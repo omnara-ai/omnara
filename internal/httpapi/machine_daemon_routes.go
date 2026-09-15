@@ -461,15 +461,3 @@ func daemonRuntimeReconciliationResponse(
 	}
 	return openapi.DaemonRuntimeReconciliation{Processes: processes}, nil
 }
-
-func publicIDs(kind publicid.Kind, ids []storage.ID) ([]string, error) {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		encoded, err := publicID(kind, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, encoded)
-	}
-	return out, nil
-}

@@ -893,7 +893,7 @@ type UpsertIntegrationInstallRuntimeUnitParams struct {
 	Configuration        json.RawMessage
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
-	IntegrationAppID     uuid.UUID
+	IntegrationAppID     *uuid.UUID
 }
 
 func (q *Queries) UpsertIntegrationInstallRuntimeUnit(ctx context.Context, arg UpsertIntegrationInstallRuntimeUnitParams) (IntegrationRuntimeUnit, error) {

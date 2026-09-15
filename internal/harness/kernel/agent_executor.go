@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -19,6 +18,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+const agentRequestFailureMessage = "I couldn't complete this request. " +
+	"Please try again later or contact this bot's owner."
 
 type AgentExecutor struct {
 	Store                *storage.Store
@@ -117,7 +119,7 @@ func (e AgentExecutor) postIntegrationRuntimeError(
 	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
 		postCtx,
 		toToolTurn(input),
-		slack.AgentRequestFailureMessage,
+		agentRequestFailureMessage,
 	)
 }
 

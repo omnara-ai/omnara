@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
@@ -37,7 +38,7 @@ func (s *Store) UpsertIntegrationRuntimeUnit(
 		row, err = s.q.UpsertIntegrationInstallRuntimeUnit(
 			ctx,
 			dbsqlc.UpsertIntegrationInstallRuntimeUnitParams{
-				OrgID: input.OrgID, IntegrationAppID: input.IntegrationAppID,
+				OrgID: input.OrgID, IntegrationAppID: sqlcIDFromNil(input.IntegrationAppID),
 				ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
 				UnitKey: input.UnitKey, RuntimeKind: input.RuntimeKind,
 				DesiredState: string(input.DesiredState), SpecRevision: int32(input.SpecRevision),
@@ -379,4 +380,11 @@ func int64FromPtr(value *int64) int64 {
 		return 0
 	}
 	return *value
+}
+
+func validateLeaseAndLimit(duration time.Duration, limit int) error {
+	if duration < time.Millisecond {
+		return errors.New("lease duration must be at least one millisecond")
+	}
+	return validateRowLimit(limit)
 }

@@ -11,9 +11,23 @@ const validEnv: NodeJS.ProcessEnv = {
 }
 
 describe('channel gateway configuration', () => {
-  it('requires an explicit Redis topology for the independently deployed gateway', () => {
+  it('accepts deployments without Redis configuration', () => {
+    const env = { ...validEnv }
+    delete env.OMNARA_CHANNEL_REDIS_URL
+    delete env.OMNARA_CHANNEL_REDIS_TOPOLOGY
+    env.OMNARA_CHANNEL_WEBHOOK_HANDLER_TIMEOUT_MS = '1000'
+    const config = loadConfig(env)
+    expect(config.redisUrl).toBeUndefined()
+    expect(config.redisTopology).toBeUndefined()
+    expect(config.redisClusterUrls).toEqual([])
+  })
+
+  it('requires an explicit topology when Redis is configured', () => {
     const env = { ...validEnv }
     delete env.OMNARA_CHANNEL_REDIS_TOPOLOGY
+    expect(() => loadConfig(env)).toThrow('OMNARA_CHANNEL_REDIS_TOPOLOGY is required')
+    delete env.OMNARA_CHANNEL_REDIS_URL
+    env.OMNARA_CHANNEL_REDIS_CLUSTER_URLS = 'redis://redis:6379/0'
     expect(() => loadConfig(env)).toThrow('OMNARA_CHANNEL_REDIS_TOPOLOGY is required')
   })
 
@@ -25,9 +39,6 @@ describe('channel gateway configuration', () => {
     expect(config.redisTopology).toBe('standalone')
     expect(config.redisClusterUrls).toEqual([])
     expect(config.redisSocketTimeoutMs).toBe(5_000)
-    expect(config.deliverySendTimeoutMs + config.deliveryCompletionTimeoutMs).toBeLessThan(
-      config.deliveryLeaseMs,
-    )
     expect(config.startupTimeoutMs).toBe(30_000)
   })
 
@@ -38,16 +49,6 @@ describe('channel gateway configuration', () => {
         OMNARA_CHANNEL_GATEWAY_PUBLIC_URL: 'https://channels.example.com/untrusted-path',
       }),
     ).toThrow('must be a public origin')
-  })
-
-  it('rejects a send timeout that can outlive its delivery lease', () => {
-    expect(() =>
-      loadConfig({
-        ...validEnv,
-        OMNARA_CHANNEL_DELIVERY_LEASE_MS: '1000',
-        OMNARA_CHANNEL_DELIVERY_SEND_TIMEOUT_MS: '1000',
-      }),
-    ).toThrow('send timeout, completion timeout, and safety margin must fit')
   })
 
   it('accepts rediss and rejects non-Redis state endpoints', () => {

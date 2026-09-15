@@ -373,6 +373,14 @@ func (s strictOpenAPIServer) createAgentInput(
 			"cancel_open_interactions is allowed only for steering inputs",
 		)
 	}
+	channelID := storage.NilID
+	if request.Body.ChannelId != nil {
+		var ok bool
+		channelID, ok = parseOpenAPIPublicID(publicid.KindIntegrationTarget, *request.Body.ChannelId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid channel_id")
+		}
+	}
 	contentBlocks, err := rawJSONFromContentBlocks(request.Body.ContentBlocks)
 	if err != nil {
 		return nil, err
@@ -388,6 +396,7 @@ func (s strictOpenAPIServer) createAgentInput(
 	agentInput, storedContentBlocks, created, err := s.server.store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
+			ChannelID:              channelID,
 			ProjectID:              project.ID,
 			AgentID:                agent.ID,
 			Actor:                  actor,

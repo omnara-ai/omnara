@@ -17,6 +17,12 @@ vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 - Run the relevant checks described in the README's
   [Development section](README.md#development).
 
+The HTTP integration suite also builds and runs the TypeScript Slack gateway against
+local PostgreSQL and a fake Slack API, using Node from `.node-version`. Run that
+journey alone with `make test-channel-journey` after `make db-up`. It needs no Slack
+credentials and exercises durable receipt, agent creation, duplicate callbacks,
+and continuation in the same thread.
+
 ## Generated files
 
 Do not edit generated files by hand. After changing the OpenAPI contract, run:

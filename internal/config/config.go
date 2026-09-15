@@ -41,7 +41,7 @@ const (
 const defaultDaemonSocketFallbackDrainInterval = 30 * time.Second
 const defaultDaemonSocketFallbackDrainJitter = 10 * time.Second
 const defaultMigrationTimeout = 30 * time.Minute
-const defaultIntegrationDeliveryRetention = 7 * 24 * time.Hour
+const defaultIntegrationEventRetention = 7 * 24 * time.Hour
 
 const (
 	DaemonReleaseURLEnv     = "OMNARA_DAEMON_RELEASE_URL"
@@ -72,7 +72,7 @@ type Config struct {
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
-	IntegrationDeliveryRetention      time.Duration
+	IntegrationEventRetention         time.Duration
 	ExaAPIKey                         string
 	AuthSignupEnabled                 bool
 	AuthPasswordResetEnabled          bool
@@ -258,7 +258,7 @@ func Load() (Config, error) {
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
-		IntegrationDeliveryRetention:      defaultIntegrationDeliveryRetention,
+		IntegrationEventRetention:         defaultIntegrationEventRetention,
 		ExaAPIKey:                         getenv("EXA_API_KEY", ""),
 		AuthSignupEnabled:                 authSignupEnabled,
 		AuthPasswordResetEnabled:          authPasswordResetEnabled,
@@ -377,15 +377,15 @@ func Load() (Config, error) {
 		}
 		cfg.MaintenanceInterval = duration
 	}
-	if raw := os.Getenv("OMNARA_INTEGRATION_DELIVERY_RETENTION"); raw != "" {
+	if raw := os.Getenv("OMNARA_INTEGRATION_EVENT_RETENTION"); raw != "" {
 		duration, err := time.ParseDuration(raw)
 		if err != nil {
-			return Config{}, fmt.Errorf("parse OMNARA_INTEGRATION_DELIVERY_RETENTION: %w", err)
+			return Config{}, fmt.Errorf("parse OMNARA_INTEGRATION_EVENT_RETENTION: %w", err)
 		}
-		if duration <= 0 {
-			return Config{}, fmt.Errorf("OMNARA_INTEGRATION_DELIVERY_RETENTION must be positive")
+		if duration < time.Microsecond {
+			return Config{}, fmt.Errorf("OMNARA_INTEGRATION_EVENT_RETENTION must be at least one microsecond")
 		}
-		cfg.IntegrationDeliveryRetention = duration
+		cfg.IntegrationEventRetention = duration
 	}
 	return cfg, nil
 }
@@ -758,8 +758,8 @@ func (cfg Config) ValidateMaintenance() error {
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
 	}
-	if cfg.IntegrationDeliveryRetention <= 0 {
-		return fmt.Errorf("OMNARA_INTEGRATION_DELIVERY_RETENTION must be positive")
+	if cfg.IntegrationEventRetention < time.Microsecond {
+		return fmt.Errorf("OMNARA_INTEGRATION_EVENT_RETENTION must be at least one microsecond")
 	}
 	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
 		return err

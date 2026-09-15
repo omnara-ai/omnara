@@ -11,46 +11,42 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// CreateIntegrationTarget supports the native integration compatibility path,
-// which still projects its creator onto integration_targets.agent_id.
+// CreateIntegrationTarget registers a project-owned address without creating an
+// agent, binding, or current-channel selection. Its definition belongs to the
+// same project and installation; address replay preserves that immutable scope.
 func (s *Store) CreateIntegrationTarget(
 	ctx context.Context,
 	input CreateIntegrationTargetInput,
 ) (IntegrationTargetRecord, error) {
-	return s.createIntegrationTargetInTransaction(ctx, input, false)
+	if isNilID(input.ChannelDefinitionID) {
+		return IntegrationTargetRecord{}, storeerr.InvalidRequest(errors.New("channel definition is required"))
+	}
+	return s.createIntegrationTargetInTransaction(ctx, input)
 }
 
-// GetOrCreateIntegrationTargetForBinding resolves a project-owned external address
-// without assigning agent ownership. AgentID is the attaching authority context;
-// the caller must create an explicit binding before using the target for input or output.
-func (s *Store) GetOrCreateIntegrationTargetForBinding(
-	ctx context.Context,
-	input CreateIntegrationTargetInput,
-) (IntegrationTargetRecord, error) {
-	return s.createIntegrationTargetInTransaction(ctx, input, true)
-}
-
-func (s *Store) GetOrCreateIntegrationTargetForBindingTx(
+// CreateIntegrationTargetTx composes project-owned registration with the caller's
+// transaction. Agent authority must be checked separately when creating a binding.
+func (s *Store) CreateIntegrationTargetTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	input CreateIntegrationTargetInput,
 ) (IntegrationTargetRecord, error) {
-	if tx == nil {
-		return IntegrationTargetRecord{}, errors.New("transaction is required")
+	if tx == nil || isNilID(input.ChannelDefinitionID) {
+		return IntegrationTargetRecord{}, storeerr.InvalidRequest(
+			errors.New("transaction and channel definition are required"))
 	}
-	return s.createIntegrationTarget(ctx, tx, input, true)
+	return s.createIntegrationTarget(ctx, tx, input)
 }
 
 func (s *Store) createIntegrationTargetInTransaction(
 	ctx context.Context,
 	input CreateIntegrationTargetInput,
-	bindingManaged bool,
 ) (IntegrationTargetRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -61,7 +57,6 @@ func (s *Store) createIntegrationTargetInTransaction(
 		ctx,
 		tx,
 		input,
-		bindingManaged,
 	)
 	if err != nil {
 		return IntegrationTargetRecord{}, err
@@ -76,20 +71,29 @@ func (s *Store) createIntegrationTarget(
 	ctx context.Context,
 	tx pgx.Tx,
 	input CreateIntegrationTargetInput,
-	bindingManaged bool,
 ) (IntegrationTargetRecord, error) {
 	input.ProviderRef = strings.TrimSpace(input.ProviderRef)
 	input.ProviderRefKind = strings.TrimSpace(input.ProviderRefKind)
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.IntegrationInstallID) ||
+	if isNilID(input.ProjectID) || isNilID(input.IntegrationInstallID) ||
 		input.ProviderRef == "" || input.ProviderRefKind == "" {
-		return IntegrationTargetRecord{}, errors.New(
-			"project, agent, integration install, provider ref, and provider ref kind are required",
-		)
+		return IntegrationTargetRecord{}, storeerr.InvalidRequest(errors.New(
+			"project, integration install, provider ref, and provider ref kind are required",
+		))
 	}
 	if len(input.ProviderRef) > 2048 || len(input.ProviderRefKind) > 128 ||
 		len(input.DisplayName) > 512 {
-		return IntegrationTargetRecord{}, errors.New("integration target identifier exceeds its size limit")
+		return IntegrationTargetRecord{}, storeerr.InvalidRequest(
+			errors.New("integration target identifier exceeds its size limit"))
+	}
+	for _, field := range []struct{ name, value string }{
+		{"provider_ref", input.ProviderRef},
+		{"provider_ref_kind", input.ProviderRefKind},
+		{"display_name", input.DisplayName},
+	} {
+		if err := dbsafe.Text(field.value); err != nil {
+			return IntegrationTargetRecord{}, storeerr.InvalidRequest(fmt.Errorf("%s: %w", field.name, err))
+		}
 	}
 	providerMetadataProvided := len(input.ProviderMetadata) != 0
 	providerMetadata, err := normalizedJSONObject(input.ProviderMetadata, "provider_metadata")
@@ -102,40 +106,13 @@ func (s *Store) createIntegrationTarget(
 	if err != nil {
 		return IntegrationTargetRecord{}, err
 	}
-	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
-		ProjectID: input.ProjectID, AgentID: input.AgentID,
-	}}); err != nil {
-		return IntegrationTargetRecord{}, err
-	}
-	agent, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
-		ProjectID: input.ProjectID, ID: input.AgentID,
-	})
-	if err != nil {
-		return IntegrationTargetRecord{}, integrationChannelReadError("revalidate integration target agent", err)
-	}
-	if agent.State != "active" {
-		return IntegrationTargetRecord{}, storeerr.ErrStateTransitionConflict
-	}
 	if install.State != IntegrationInstallStateActive {
 		return IntegrationTargetRecord{}, storeerr.ErrUnauthorized
-	}
-	// This method is the native-integration compatibility path, where the
-	// target's agent_id projection is still required by the existing Slack
-	// implementation. Connector installations are project-owned and must use
-	// GetOrCreateIntegrationTargetForBinding so authorization lives only in
-	// integration_target_bindings.
-	if !bindingManaged && isNilID(install.AgentID) && isNilID(install.AgentProfileID) {
-		return IntegrationTargetRecord{}, errors.New(
-			"connector integration targets require binding-aware resolution",
-		)
-	}
-	if !bindingManaged && !isNilID(install.AgentID) && install.AgentID != input.AgentID {
-		return IntegrationTargetRecord{}, storeerr.ErrConflict
 	}
 	if _, err := q.LockIntegrationTargetCreateAuthority(
 		ctx,
 		dbsqlc.LockIntegrationTargetCreateAuthorityParams{
-			ProjectID: input.ProjectID, AgentID: input.AgentID,
+			ProjectID:            input.ProjectID,
 			IntegrationInstallID: input.IntegrationInstallID,
 		},
 	); err != nil {
@@ -144,9 +121,18 @@ func (s *Store) createIntegrationTarget(
 		}
 		return IntegrationTargetRecord{}, fmt.Errorf("lock integration target authority: %w", err)
 	}
-	creatorAgentID := input.AgentID
-	if bindingManaged {
-		creatorAgentID = NilID
+	if _, err := q.LockChannelDefinition(ctx, dbsqlc.LockChannelDefinitionParams{
+		ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID, ID: input.ChannelDefinitionID,
+	}); err != nil {
+		return IntegrationTargetRecord{}, integrationChannelReadError("lock channel definition", err)
+	}
+	if !isNilID(input.ParentChannelID) {
+		if _, err := q.LockIntegrationChannelParent(ctx, dbsqlc.LockIntegrationChannelParentParams{
+			ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
+			ParentChannelID: input.ParentChannelID,
+		}); err != nil {
+			return IntegrationTargetRecord{}, integrationChannelReadError("lock channel parent", err)
+		}
 	}
 	for range 5 {
 		targetRef, refErr := s.targetRefGenerator(install.Provider)
@@ -155,11 +141,12 @@ func (s *Store) createIntegrationTarget(
 		}
 		row, insertErr := q.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
 			ProjectID:            input.ProjectID,
-			AgentID:              sqlcIDFromNil(creatorAgentID),
 			IntegrationInstallID: input.IntegrationInstallID,
 			TargetRef:            targetRef,
 			ProviderRef:          input.ProviderRef,
 			ProviderRefKind:      input.ProviderRefKind,
+			ParentChannelID:      sqlcIDFromNil(input.ParentChannelID),
+			ChannelDefinitionID:  input.ChannelDefinitionID,
 			DisplayName:          input.DisplayName,
 			ProviderMetadata:     input.ProviderMetadata,
 		})
@@ -186,9 +173,8 @@ func (s *Store) createIntegrationTarget(
 			return IntegrationTargetRecord{}, fmt.Errorf("load existing integration target: %w", getErr)
 		}
 		record := integrationTargetRecordFromProviderRefSQLC(existing)
-		if (bindingManaged && !isNilID(record.AgentID)) ||
-			(!bindingManaged && record.AgentID != input.AgentID) ||
-			record.ProviderRefKind != input.ProviderRefKind {
+		if record.ProviderRefKind != input.ProviderRefKind || record.ParentChannelID != input.ParentChannelID ||
+			record.ChannelDefinitionID != input.ChannelDefinitionID {
 			return IntegrationTargetRecord{}, storeerr.ErrConflict
 		}
 		displayName := input.DisplayName
@@ -306,7 +292,30 @@ func (s *Store) GetIntegrationTargetByProviderRef(
 	projectID, integrationInstallID ID,
 	providerRef string,
 ) (IntegrationTargetRecord, error) {
-	row, err := s.q.GetIntegrationTargetByProviderRef(
+	return getIntegrationTargetByProviderRef(ctx, s.q, projectID, integrationInstallID, providerRef)
+}
+
+// GetIntegrationTargetByProviderRefTx resolves an existing address in the caller's
+// transaction. Callers must separately check live agent access before exposing it.
+func (s *Store) GetIntegrationTargetByProviderRefTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, integrationInstallID ID,
+	providerRef string,
+) (IntegrationTargetRecord, error) {
+	if tx == nil {
+		return IntegrationTargetRecord{}, storeerr.InvalidRequest(errors.New("transaction is required"))
+	}
+	return getIntegrationTargetByProviderRef(ctx, dbsqlc.New(tx), projectID, integrationInstallID, providerRef)
+}
+
+func getIntegrationTargetByProviderRef(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, integrationInstallID ID,
+	providerRef string,
+) (IntegrationTargetRecord, error) {
+	row, err := q.GetIntegrationTargetByProviderRef(
 		ctx,
 		dbsqlc.GetIntegrationTargetByProviderRefParams{
 			ProjectID:            projectID,
@@ -345,7 +354,7 @@ func listIntegrationTargets(
 ) ([]IntegrationTargetSummary, error) {
 	rows, err := q.ListIntegrationTargets(
 		ctx,
-		dbsqlc.ListIntegrationTargetsParams{ProjectID: projectID, AgentID: &agentID},
+		dbsqlc.ListIntegrationTargetsParams{ProjectID: projectID, AgentID: agentID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list integration targets: %w", err)
@@ -362,8 +371,8 @@ func integrationTargetRecordFromInsertSQLC(
 	orgID ID,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
-		row.ID, orgID, row.ProjectID, row.AgentID, row.IntegrationInstallID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.DisplayName,
+		row.ID, orgID, row.ProjectID, row.IntegrationInstallID,
+		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
@@ -372,8 +381,8 @@ func integrationTargetRecordFromGetSQLC(
 	row dbsqlc.GetIntegrationTargetRow,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
-		row.ID, row.OrgID, row.ProjectID, row.AgentID, row.IntegrationInstallID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.DisplayName,
+		row.ID, row.OrgID, row.ProjectID, row.IntegrationInstallID,
+		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
@@ -382,17 +391,19 @@ func integrationTargetRecordFromProviderRefSQLC(
 	row dbsqlc.GetIntegrationTargetByProviderRefRow,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
-		row.ID, row.OrgID, row.ProjectID, row.AgentID, row.IntegrationInstallID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.DisplayName,
+		row.ID, row.OrgID, row.ProjectID, row.IntegrationInstallID,
+		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
 
 func integrationTargetRecordFromFields(
 	id, orgID, projectID ID,
-	agentID *ID,
 	integrationInstallID ID,
-	targetRef, providerRef, providerRefKind, displayName string,
+	targetRef, providerRef, providerRefKind string,
+	parentChannelID *ID,
+	channelDefinitionID ID,
+	displayName string,
 	providerMetadata json.RawMessage,
 	createdAt, updatedAt time.Time,
 ) IntegrationTargetRecord {
@@ -400,11 +411,12 @@ func integrationTargetRecordFromFields(
 		ID:                   id,
 		OrgID:                orgID,
 		ProjectID:            projectID,
-		AgentID:              idFromSQLCPtr(agentID),
 		IntegrationInstallID: integrationInstallID,
 		TargetRef:            targetRef,
 		ProviderRef:          providerRef,
 		ProviderRefKind:      providerRefKind,
+		ParentChannelID:      idFromSQLCPtr(parentChannelID),
+		ChannelDefinitionID:  channelDefinitionID,
 		DisplayName:          displayName,
 		ProviderMetadata:     providerMetadata,
 		CreatedAt:            createdAt,
@@ -417,7 +429,7 @@ func integrationTargetSummaryFromSQLC(row dbsqlc.ListIntegrationTargetsRow) Inte
 		ID:                   row.ID,
 		IntegrationInstallID: row.IntegrationInstallID,
 		TargetRef:            row.TargetRef,
-		Provider:             row.Provider,
+		Provider:             stringFromPtr(row.Provider),
 		InstallState:         IntegrationInstallState(row.InstallState),
 		ProviderRef:          row.ProviderRef,
 		ProviderRefKind:      row.ProviderRefKind,

@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,35 +14,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
-
-type expiringChannelLaunchStore struct {
-	*executionstore.Store
-	beforeRuntimeLaunch func()
-}
-
-type failOnceBoundChannelInputStore struct {
-	*executionstore.Store
-	createCalls int
-	failAt      int
-}
-
-func (s *failOnceBoundChannelInputStore) CreateBoundIntegrationTargetContentInput(
-	ctx context.Context,
-	input executionstore.CreateBoundIntegrationTargetContentInput,
-) (executionstore.CreateBoundIntegrationTargetContentResult, error) {
-	s.createCalls++
-	if s.createCalls == s.failAt {
-		return executionstore.CreateBoundIntegrationTargetContentResult{}, storeerr.ErrStateTransitionConflict
-	}
-	return s.Store.CreateBoundIntegrationTargetContentInput(ctx, input)
-}
 
 type blockingDeleteInstallAccess struct {
 	reachedClear  chan struct{}
@@ -78,26 +53,8 @@ func (a *blockingDeleteInstallAccess) ClearInstallTargetsFromAgents(
 	)
 }
 
-func (s *expiringChannelLaunchStore) LaunchAgentWithIntegrationRuntimeLease(
-	ctx context.Context,
-	input executionstore.LaunchAgentInput,
-	integrationInstallID executionstore.ID,
-	proof *executionstore.IntegrationRuntimeLeaseProof,
-) (executionstore.LaunchAgentResult, error) {
-	if s.beforeRuntimeLaunch != nil {
-		s.beforeRuntimeLaunch()
-		s.beforeRuntimeLaunch = nil
-	}
-	return s.Store.LaunchAgentWithIntegrationRuntimeLease(
-		ctx,
-		input,
-		integrationInstallID,
-		proof,
-	)
-}
-
 const (
-	testChannelConnector = "chat_sdk_v1"
+	testChannelConnector = channelconnector.BuiltInConnectorKey
 	testChannelProvider  = "discord"
 	testChannelHandler   = "test_channel_single_agent"
 )
@@ -108,1264 +65,6 @@ func testChannelCapabilities(provider string) []channelconnector.Capability {
 
 func testChannelCapability(provider string) channelconnector.Capability {
 	return channelconnector.Capability{ConnectorKey: testChannelConnector, Provider: provider}
-}
-
-func TestChannelFoundationInboundFanoutAndDeliveryJourney(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin := createIntegrationProjectAdmin(t, ctx, store, "channel-foundation@example.com")
-	profile := createIntegrationTestProfile(t, ctx, store, "channel-foundation-profile")
-	agent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "channel-foundation-agent")
-
-	app, err := store.Integrations().CreateIntegrationApp(
-		ctx,
-		integrationstore.CreateIntegrationAppInput{
-			OrgID: testOrgID, OwnerProjectID: testProjectID,
-			Provider: testChannelProvider, ProviderAppRef: "discord-app-1",
-			DisplayName: "Discord test app", ConnectorKey: testChannelConnector,
-			ProviderConfig:   json.RawMessage(`{"intents":["messages"]}`),
-			ProviderMetadata: json.RawMessage(`{"environment":"test"}`),
-			State:            integrationstore.IntegrationAppStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create channel app: %v", err)
-	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "channel_single_agent",
-			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID: "guild-1", ProviderAccountRef: "bot-1",
-			ProviderAgentDisplayName: "Omnara test bot",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create connector install: %v", err)
-	}
-	if install.IntegrationAppID != app.ID || install.CredentialSecretID != NilID {
-		t.Fatalf("connector install = %+v", install)
-	}
-	compatibilityRoutes, err := store.Integrations().ListActiveIntegrationRoutes(
-		ctx,
-		testProjectID,
-		install.ID,
-	)
-	if err != nil {
-		t.Fatalf("list connector compatibility routes: %v", err)
-	}
-	if len(compatibilityRoutes) != 0 {
-		t.Fatalf("connector install gained native compatibility routes: %+v", compatibilityRoutes)
-	}
-
-	routes := make([]integrationstore.IntegrationRouteRecord, 0, 2)
-	for index := range 2 {
-		route, err := store.Integrations().CreateIntegrationRoute(
-			ctx,
-			integrationstore.CreateIntegrationRouteInput{
-				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: "test-route-" + string(rune('a'+index)),
-				HandlerKey:    testChannelHandler, HandlerVersion: 1,
-				Configuration: json.RawMessage(`{"respond_to":"all"}`), State: integrationstore.IntegrationRouteStateActive,
-			},
-		)
-		if err != nil {
-			t.Fatalf("create connector route %d: %v", index, err)
-		}
-		routes = append(routes, route)
-	}
-
-	service := integration.NewChannelService(
-		store.Execution(),
-		store.Integrations(),
-		integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey(testChannelHandler, 1): integration.ChannelRouteHandlerFunc(
-				func(
-					_ context.Context,
-					_ integration.ChannelRouteContext,
-					envelope integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: envelope.Conversation.Ref,
-						ProviderRefKind: "thread", DisplayName: envelope.Conversation.DisplayName,
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentID: agent.ID, SendAllowed: true,
-							Metadata: json.RawMessage(`{"behavior":"all_messages"}`),
-						}},
-					}, nil
-				},
-			),
-		},
-	)
-	envelope := integration.ChannelInboundEnvelope{
-		Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "discord-event-1",
-		ExternalTenantID: "guild-1", ExternalAccountRef: "bot-1", EventType: "message.created",
-		Conversation: integration.ChannelConversation{
-			Ref: "thread-1", Kind: "thread", DisplayName: "support thread",
-			ParentRef: "channel-1", Metadata: json.RawMessage(`{"channel_name":"support"}`),
-		},
-		Actor: integration.ChannelActor{
-			Ref: "user-1", DisplayName: "Customer One",
-			Metadata: json.RawMessage(`{"role":"member"}`),
-		},
-		ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-		OccurredAt:    time.Now().UTC(), Metadata: json.RawMessage(`{"raw_type":0}`),
-	}
-	process := func() integration.ProcessChannelInboundResult {
-		result, err := service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-			IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-			Envelope:       envelope,
-			PrepareContent: passthroughChannelInboundContent,
-		})
-		if err != nil {
-			t.Fatalf("process connector inbound: %v", err)
-		}
-		return result
-	}
-	first := process()
-	if first.IgnoredRoutes != 0 || len(first.Accepted) != len(routes) {
-		t.Fatalf("first connector acceptance = %+v", first)
-	}
-	if first.Accepted[0].AgentInputID == first.Accepted[1].AgentInputID ||
-		first.Accepted[0].BindingID == first.Accepted[1].BindingID {
-		t.Fatalf("intentional route fanout collapsed: %+v", first.Accepted)
-	}
-	second := process()
-	for index := range first.Accepted {
-		if second.Accepted[index].AgentInputID != first.Accepted[index].AgentInputID ||
-			second.Accepted[index].BindingID != first.Accepted[index].BindingID {
-			t.Fatalf("route %d replay was not idempotent: first=%+v second=%+v", index, first, second)
-		}
-	}
-	concurrentEnvelope := envelope
-	concurrentEnvelope.ProviderEventID = "discord-event-concurrent"
-	concurrentEnvelope.Conversation.Ref = "thread-concurrent"
-	type processResult struct {
-		result integration.ProcessChannelInboundResult
-		err    error
-	}
-	start := make(chan struct{})
-	concurrent := make(chan processResult, 2)
-	for range 2 {
-		go func() {
-			<-start
-			result, err := service.ProcessInbound(context.Background(), integration.ProcessChannelInboundInput{
-				IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-				Envelope: concurrentEnvelope, PrepareContent: passthroughChannelInboundContent,
-			})
-			concurrent <- processResult{result: result, err: err}
-		}()
-	}
-	close(start)
-	concurrentByRoute := make([]map[integrationstore.ID]integration.ChannelInboundAcceptance, 0, 2)
-	for range 2 {
-		processed := <-concurrent
-		if processed.err != nil || len(processed.result.Accepted) != len(routes) {
-			t.Fatalf("concurrent inbound replay = %+v, %v", processed.result, processed.err)
-		}
-		byRoute := make(map[integrationstore.ID]integration.ChannelInboundAcceptance, len(routes))
-		for _, acceptance := range processed.result.Accepted {
-			byRoute[acceptance.RouteID] = acceptance
-		}
-		concurrentByRoute = append(concurrentByRoute, byRoute)
-	}
-	for _, route := range routes {
-		left, leftFound := concurrentByRoute[0][route.ID]
-		right, rightFound := concurrentByRoute[1][route.ID]
-		if !leftFound || !rightFound || left.AgentInputID != right.AgentInputID ||
-			left.BindingID != right.BindingID || left.TargetID != right.TargetID {
-			t.Fatalf("concurrent route %s replay diverged: left=%+v right=%+v", route.ID, left, right)
-		}
-	}
-
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE integration_routes SET state = 'disabled' WHERE id = $1`,
-		routes[0].ID,
-	); err != nil {
-		t.Fatalf("disable inbound route: %v", err)
-	}
-	disabledEnvelope := envelope
-	disabledEnvelope.ProviderEventID = "discord-event-disabled-route"
-	disabledEnvelope.Conversation.Ref = "thread-disabled-route"
-	disabledResult, err := service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-		IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-		Envelope: disabledEnvelope, PrepareContent: passthroughChannelInboundContent,
-	})
-	if err != nil || len(disabledResult.Accepted) != 1 ||
-		disabledResult.Accepted[0].RouteID != routes[1].ID {
-		t.Fatalf("disabled inbound route result = %+v, %v", disabledResult, err)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE integration_routes SET state = 'active' WHERE id = $1`,
-		routes[0].ID,
-	); err != nil {
-		t.Fatalf("re-enable inbound route: %v", err)
-	}
-
-	for _, acceptance := range first.Accepted {
-		var actorProvider string
-		var targetID, bindingID uuid.UUID
-		var inputMetadata json.RawMessage
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT actor.provider, input.integration_target_id, input.integration_target_binding_id,
-			        input.metadata
-			 FROM agent_inputs input
-			 JOIN actors actor ON actor.project_id = input.project_id AND actor.id = input.actor_id
-			 WHERE input.project_id = $1 AND input.id = $2`,
-			testProjectID,
-			acceptance.AgentInputID,
-		).Scan(&actorProvider, &targetID, &bindingID, &inputMetadata); err != nil {
-			t.Fatalf("load accepted channel input: %v", err)
-		}
-		if actorProvider != testChannelProvider || targetID != acceptance.TargetID ||
-			bindingID != acceptance.BindingID {
-			t.Fatalf(
-				"accepted input provenance provider=%q target=%s binding=%s, want %+v",
-				actorProvider,
-				targetID,
-				bindingID,
-				acceptance,
-			)
-		}
-		var metadata map[string]json.RawMessage
-		if err := json.Unmarshal(inputMetadata, &metadata); err != nil {
-			t.Fatalf("decode accepted channel input metadata: %v", err)
-		}
-		if !sameJSON(metadata["binding_metadata"], json.RawMessage(`{"behavior":"all_messages"}`)) {
-			t.Fatalf("accepted input binding metadata = %s", metadata["binding_metadata"])
-		}
-		if _, legacyName := metadata["route_metadata"]; legacyName {
-			t.Fatalf("accepted input metadata retained misleading route_metadata: %s", inputMetadata)
-		}
-	}
-	backlog, err := store.Execution().ListQueuedBacklogInputs(
-		ctx,
-		executionstore.ListQueuedBacklogInputsInput{
-			ProjectID: testProjectID,
-			AgentID:   agent.ID,
-			Limit:     len(first.Accepted),
-		},
-	)
-	if err != nil {
-		t.Fatalf("list channel input backlog: %v", err)
-	}
-	if len(backlog.Inputs) != len(first.Accepted) {
-		t.Fatalf("channel input backlog = %+v, want %d inputs", backlog, len(first.Accepted))
-	}
-	wantBindings := make(map[executionstore.ID]bool, len(first.Accepted))
-	for _, acceptance := range first.Accepted {
-		wantBindings[acceptance.BindingID] = false
-	}
-	for _, input := range backlog.Inputs {
-		if _, found := wantBindings[input.IntegrationTargetBindingID]; !found {
-			t.Fatalf("backlog input lost channel binding provenance: %+v", input)
-		}
-		wantBindings[input.IntegrationTargetBindingID] = true
-	}
-	for bindingID, found := range wantBindings {
-		if !found {
-			t.Fatalf("channel binding %s missing from backlog records", bindingID)
-		}
-	}
-	unchangedAgent, err := store.Execution().GetAgentInProject(ctx, testProjectID, agent.ID)
-	if err != nil {
-		t.Fatalf("load connector-bound agent: %v", err)
-	}
-	if unchangedAgent.IntegrationTargetID != NilID {
-		t.Fatalf("connector input changed legacy sticky target to %s", unchangedAgent.IntegrationTargetID)
-	}
-	channelPage, err := store.Integrations().ListAgentChannelTargets(
-		ctx,
-		testProjectID,
-		agent.ID,
-		integrationstore.ListAgentChannelTargetsInput{Limit: 10},
-	)
-	if err != nil {
-		t.Fatalf("list agent channels: %v", err)
-	}
-	channels := channelPage.Targets
-	if len(channels) != 3 {
-		t.Fatalf("agent channels = %+v", channels)
-	}
-	foundOriginalChannel := false
-	for _, channel := range channels {
-		if !channel.ReceiveAllowed || !channel.SendAllowed ||
-			channel.Provider != testChannelProvider || channel.ConnectorKey != testChannelConnector {
-			t.Fatalf("agent channel = %+v", channel)
-		}
-		if channel.ProviderRef == envelope.Conversation.Ref {
-			foundOriginalChannel = true
-		}
-	}
-	if !foundOriginalChannel {
-		t.Fatalf("original channel missing from %+v", channels)
-	}
-
-	deliveryInput := integrationstore.CreateIntegrationDeliveryInput{
-		ProjectID: testProjectID, AgentID: agent.ID,
-		IntegrationTargetBindingID: first.Accepted[0].BindingID,
-		Transport:                  integrationstore.IntegrationDeliveryTransportConnector,
-		DeliveryKind:               "message", PayloadVersion: "channel-message.v1",
-		Payload:          json.RawMessage(`{"destination":{"provider_ref":"thread-1"},"message":{"text":"reply"}}`),
-		IdempotencyScope: "test/channel-send", IdempotencyKey: "tool-call-1",
-		NotifyRef: first.Accepted[0].AgentInputID,
-	}
-	delivery, err := store.Integrations().CreateIntegrationDelivery(ctx, deliveryInput)
-	if err != nil {
-		t.Fatalf("create connector delivery: %v", err)
-	}
-	replayedDelivery, err := store.Integrations().CreateIntegrationDelivery(ctx, deliveryInput)
-	if err != nil {
-		t.Fatalf("replay connector delivery: %v", err)
-	}
-	if !delivery.Created || replayedDelivery.Created || replayedDelivery.ID != delivery.ID {
-		t.Fatalf("delivery idempotency first=%+v replay=%+v", delivery, replayedDelivery)
-	}
-	for name, statement := range map[string]string{
-		"id":         `UPDATE integration_deliveries SET id = uuidv7() WHERE id = $1`,
-		"notify ref": `UPDATE integration_deliveries SET notify_ref = NULL WHERE id = $1`,
-	} {
-		if _, err := pool.Exec(ctx, statement, delivery.ID); !isPgCode(err, "25006") {
-			t.Fatalf("change delivery %s error = %v, want SQLSTATE 25006", name, err)
-		}
-	}
-	mismatched := deliveryInput
-	mismatched.Payload = json.RawMessage(`{"destination":{"provider_ref":"thread-1"},"message":{"text":"different"}}`)
-	if _, err := store.Integrations().CreateIntegrationDelivery(ctx, mismatched); !errors.Is(err, storeerr.ErrConflict) {
-		t.Fatalf("mismatched delivery replay error = %v, want conflict", err)
-	}
-	mismatched = deliveryInput
-	mismatched.NotifyRef = NilID
-	if _, err := store.Integrations().CreateIntegrationDelivery(ctx, mismatched); !errors.Is(err, storeerr.ErrConflict) {
-		t.Fatalf("mismatched delivery notify replay error = %v, want conflict", err)
-	}
-	wrongClaims, err := store.Integrations().ClaimIntegrationDeliveries(
-		ctx,
-		integrationstore.ClaimIntegrationDeliveriesInput{
-			ClaimedBy: "wrong-provider", LeaseDuration: time.Minute,
-			Capability: testChannelCapability("telegram"), Limit: 10,
-		},
-	)
-	if err != nil || len(wrongClaims) != 0 {
-		t.Fatalf("wrong provider claims = %+v, %v", wrongClaims, err)
-	}
-	claims, err := store.Integrations().ClaimIntegrationDeliveries(
-		ctx,
-		integrationstore.ClaimIntegrationDeliveriesInput{
-			ClaimedBy: "gateway-a", LeaseDuration: time.Minute,
-			Capability: testChannelCapability(testChannelProvider), Limit: 10,
-		},
-	)
-	if err != nil {
-		t.Fatalf("claim connector delivery: %v", err)
-	}
-	if len(claims) != 1 || claims[0].ID != delivery.ID || claims[0].ClaimToken == NilID ||
-		claims[0].ClaimGeneration != 1 ||
-		claims[0].AppConfigurationRevision != app.ConfigurationRevision ||
-		claims[0].InstallConfigurationRevision != install.ConfigurationRevision {
-		t.Fatalf("connector delivery claims = %+v", claims)
-	}
-	completed, err := store.Integrations().CompleteIntegrationDelivery(
-		ctx,
-		integrationstore.CompleteIntegrationDeliveryInput{
-			ID: delivery.ID, ClaimToken: claims[0].ClaimToken,
-			ClaimGeneration:    claims[0].ClaimGeneration,
-			State:              integrationstore.IntegrationDeliveryStateDelivered,
-			ProviderMessageRef: "provider-message-1", LastError: json.RawMessage(`{}`),
-			Capabilities: testChannelCapabilities(testChannelProvider),
-		},
-	)
-	if err != nil || completed.State != integrationstore.IntegrationDeliveryStateDelivered ||
-		completed.ProviderMessageRef != "provider-message-1" {
-		t.Fatalf("complete connector delivery = %+v, %v", completed, err)
-	}
-	if _, err := store.Integrations().CompleteIntegrationDelivery(
-		ctx,
-		integrationstore.CompleteIntegrationDeliveryInput{
-			ID: delivery.ID, ClaimToken: claims[0].ClaimToken,
-			ClaimGeneration: claims[0].ClaimGeneration,
-			State:           integrationstore.IntegrationDeliveryStateDelivered,
-			LastError:       json.RawMessage(`{}`),
-			Capabilities:    testChannelCapabilities(testChannelProvider),
-		},
-	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("stale delivery completion error = %v", err)
-	}
-	if _, err := store.Integrations().DeleteRetainedIntegrationDeliveries(
-		ctx,
-		integrationstore.DeleteRetainedIntegrationDeliveriesInput{Limit: 10},
-	); err == nil {
-		t.Fatal("zero delivery retention was accepted")
-	}
-	deleted, err := store.Integrations().DeleteRetainedIntegrationDeliveries(
-		ctx,
-		integrationstore.DeleteRetainedIntegrationDeliveriesInput{
-			Retention: time.Microsecond,
-			Limit:     10,
-		},
-	)
-	if err != nil || deleted != 1 {
-		t.Fatalf("delete retained connector delivery = %d, %v", deleted, err)
-	}
-	if _, err := store.Integrations().GetIntegrationDelivery(
-		ctx,
-		testProjectID,
-		delivery.ID,
-	); !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("retained connector delivery still exists: %v", err)
-	}
-
-	assertUnavailableDelivery := func(
-		label, disableStatement, enableStatement string,
-		authorityID integrationstore.ID,
-	) {
-		t.Helper()
-		candidate := deliveryInput
-		candidate.IdempotencyKey = "unavailable-" + label
-		candidate.NotifyRef = NilID
-		pending, err := store.Integrations().CreateIntegrationDelivery(ctx, candidate)
-		if err != nil {
-			t.Fatalf("create %s-gated delivery: %v", label, err)
-		}
-		if _, err := pool.Exec(ctx, disableStatement, authorityID); err != nil {
-			t.Fatalf("disable %s: %v", label, err)
-		}
-		blocked := candidate
-		blocked.IdempotencyKey = "blocked-" + label
-		if _, err := store.Integrations().CreateIntegrationDelivery(ctx, blocked); !errors.Is(
-			err,
-			storeerr.ErrUnauthorized,
-		) {
-			t.Fatalf("create delivery through disabled %s error = %v, want unauthorized", label, err)
-		}
-		claims, err := store.Integrations().ClaimIntegrationDeliveries(
-			ctx,
-			integrationstore.ClaimIntegrationDeliveriesInput{
-				ClaimedBy: "gateway-state-gate", LeaseDuration: time.Minute,
-				Capability: testChannelCapability(testChannelProvider), Limit: 10,
-			},
-		)
-		if err != nil || len(claims) != 0 {
-			t.Fatalf("claims through disabled %s = %+v, %v", label, claims, err)
-		}
-		canceled, err := store.Integrations().CancelUnavailableIntegrationDeliveries(ctx, 10)
-		if err != nil || len(canceled) != 1 || canceled[0].ID != pending.ID {
-			t.Fatalf("cancel delivery through disabled %s = %+v, %v", label, canceled, err)
-		}
-		stored, err := store.Integrations().GetIntegrationDelivery(
-			ctx,
-			testProjectID,
-			pending.ID,
-		)
-		if err != nil || stored.State != integrationstore.IntegrationDeliveryStateCanceled {
-			t.Fatalf("canceled %s-gated delivery = %+v, %v", label, stored, err)
-		}
-		if _, err := pool.Exec(ctx, enableStatement, authorityID); err != nil {
-			t.Fatalf("re-enable %s: %v", label, err)
-		}
-	}
-	assertUnavailableDelivery(
-		"route",
-		`UPDATE integration_routes SET state = 'disabled' WHERE id = $1`,
-		`UPDATE integration_routes SET state = 'active' WHERE id = $1`,
-		first.Accepted[0].RouteID,
-	)
-	assertUnavailableDelivery(
-		"installation",
-		`UPDATE integration_installs SET state = 'disabled' WHERE id = $1`,
-		`UPDATE integration_installs SET state = 'active' WHERE id = $1`,
-		install.ID,
-	)
-	assertUnavailableDelivery(
-		"app",
-		`UPDATE integration_apps SET state = 'disabled' WHERE id = $1`,
-		`UPDATE integration_apps SET state = 'active' WHERE id = $1`,
-		app.ID,
-	)
-}
-
-func TestChannelFoundationUnavailableDeliverySweepMakesBoundedProgress(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "bounded-delivery-sweep")
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
-			IntegrationInstallID: install.ID, ProviderRef: "bounded-sweep-thread",
-			ProviderRefKind: "thread",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create bounded sweep target: %v", err)
-	}
-	type candidate struct {
-		delivery integrationstore.IntegrationDeliveryRecord
-		route    integrationstore.IntegrationRouteRecord
-	}
-	candidates := make([]candidate, 0, 8)
-	createCandidate := func(index int) {
-		t.Helper()
-		route, err := store.Integrations().CreateIntegrationRoute(
-			ctx,
-			integrationstore.CreateIntegrationRouteInput{
-				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: fmt.Sprintf("bounded-sweep-%d", index),
-				HandlerKey:    "bounded_sweep", HandlerVersion: index + 1, State: integrationstore.IntegrationRouteStateActive,
-			},
-		)
-		if err != nil {
-			t.Fatalf("create bounded sweep route %d: %v", index, err)
-		}
-		binding, err := store.Integrations().CreateIntegrationTargetBinding(
-			ctx,
-			integrationstore.CreateIntegrationTargetBindingInput{
-				ProjectID: testProjectID, AgentID: agent.ID,
-				IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
-				IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
-				Source: "bounded-sweep",
-			},
-		)
-		if err != nil {
-			t.Fatalf("create bounded sweep binding %d: %v", index, err)
-		}
-		delivery, err := store.Integrations().CreateIntegrationDelivery(
-			ctx,
-			integrationstore.CreateIntegrationDeliveryInput{
-				ProjectID: testProjectID, AgentID: agent.ID,
-				IntegrationTargetBindingID: binding.ID,
-				Transport:                  integrationstore.IntegrationDeliveryTransportConnector,
-				DeliveryKind:               "message", PayloadVersion: "channel-message.v1",
-				Payload:          json.RawMessage(`{"message":{"text":"hello"}}`),
-				IdempotencyScope: "bounded-sweep", IdempotencyKey: route.ID.String(),
-			},
-		)
-		if err != nil {
-			t.Fatalf("create bounded sweep delivery %d: %v", index, err)
-		}
-		candidates = append(candidates, candidate{delivery: delivery, route: route})
-	}
-	waitForNextDeliveryMillisecond := func() {
-		t.Helper()
-		// UUIDv7 IDs created in a later millisecond sort beyond this batch.
-		lastID := candidates[len(candidates)-1].delivery.ID
-		waitForIntegrationDatabaseTimeAfter(t, ctx, pool, time.Unix(lastID.Time().UnixTime()).Add(time.Millisecond))
-	}
-	for index := range 4 {
-		createCandidate(index)
-	}
-	sort.Slice(candidates, func(left, right int) bool {
-		return candidates[left].delivery.ID.String() < candidates[right].delivery.ID.String()
-	})
-	unavailable := candidates[0]
-	wantCursor := candidates[1].delivery.ID
-	first, err := store.Integrations().CancelUnavailableIntegrationDeliveries(ctx, 2)
-	if err != nil || len(first) != 0 {
-		t.Fatalf("first bounded unavailable sweep = %+v, %v", first, err)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE integration_routes SET state = 'disabled' WHERE id = $1`,
-		unavailable.route.ID,
-	); err != nil {
-		t.Fatalf("disable bounded sweep route: %v", err)
-	}
-	waitForNextDeliveryMillisecond()
-	for index := 4; index < 6; index++ {
-		createCandidate(index)
-	}
-	second, err := store.Integrations().CancelUnavailableIntegrationDeliveries(ctx, 2)
-	if err != nil || len(second) != 0 {
-		t.Fatalf("second bounded unavailable sweep = %+v, %v", second, err)
-	}
-	waitForNextDeliveryMillisecond()
-	for index := 6; index < 8; index++ {
-		createCandidate(index)
-	}
-	third, err := store.Integrations().CancelUnavailableIntegrationDeliveries(ctx, 2)
-	if err != nil || len(third) != 1 || third[0].ID != unavailable.delivery.ID {
-		t.Fatalf("third bounded unavailable sweep = %+v, %v", third, err)
-	}
-	var cursor uuid.UUID
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT last_item_id FROM integration_sweep_cursors
-		 WHERE sweep_kind = 'delivery_unavailable'`,
-	).Scan(&cursor); err != nil {
-		t.Fatalf("load unavailable sweep cursor: %v", err)
-	}
-	if cursor != wantCursor {
-		t.Fatalf("unavailable sweep cursor = %s, want %s", cursor, wantCursor)
-	}
-}
-
-func TestChannelFoundationIdleUnavailableDeliverySweepDoesNotRewriteCursor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-
-	var before uint64
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT xmin::text::bigint FROM integration_sweep_cursors
-		 WHERE sweep_kind = 'delivery_unavailable'`,
-	).Scan(&before); err != nil {
-		t.Fatalf("load idle unavailable sweep cursor version: %v", err)
-	}
-	canceled, err := store.Integrations().CancelUnavailableIntegrationDeliveries(ctx, 10)
-	if err != nil || len(canceled) != 0 {
-		t.Fatalf("idle unavailable sweep = %+v, %v", canceled, err)
-	}
-	var after uint64
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT xmin::text::bigint FROM integration_sweep_cursors
-		 WHERE sweep_kind = 'delivery_unavailable'`,
-	).Scan(&after); err != nil {
-		t.Fatalf("reload idle unavailable sweep cursor version: %v", err)
-	}
-	if after != before {
-		t.Fatalf("idle unavailable sweep rewrote cursor xmin %d -> %d", before, after)
-	}
-}
-
-func TestChannelFoundationProfileRouteLaunchesDistinctAgentsForOneTarget(t *testing.T) {
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin := createIntegrationProjectAdmin(t, ctx, store, "channel-profile-route@example.com")
-	profile := createIntegrationTestProfile(t, ctx, store, "channel-profile-route")
-	app, err := store.Integrations().CreateIntegrationApp(
-		ctx,
-		integrationstore.CreateIntegrationAppInput{
-			OrgID: testOrgID, OwnerProjectID: testProjectID,
-			Provider: testChannelProvider, ProviderAppRef: "discord-profile-route-app",
-			DisplayName: "Profile route app", ConnectorKey: testChannelConnector,
-			State: integrationstore.IntegrationAppStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create profile route app: %v", err)
-	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "new_agent_per_message",
-			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID: "profile-route-guild", ProviderAccountRef: "profile-route-bot",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create profile route installation: %v", err)
-	}
-	route, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "profile-route", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			Configuration: json.RawMessage(`{"launch":"per_message"}`), State: integrationstore.IntegrationRouteStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create profile route: %v", err)
-	}
-	routeCalls := 0
-	service := integration.NewChannelService(
-		store.Execution(),
-		store.Integrations(),
-		integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey(testChannelHandler, 1): integration.ChannelRouteHandlerFunc(
-				func(
-					_ context.Context,
-					_ integration.ChannelRouteContext,
-					envelope integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					routeCalls++
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: envelope.Conversation.Ref,
-						ProviderRefKind: "channel", DisplayName: envelope.Conversation.DisplayName,
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentProfileID: profile.ID, InstanceKey: envelope.ProviderEventID, SendAllowed: true,
-						}},
-					}, nil
-				},
-			),
-		},
-	)
-	preflightErr := errors.New("invalid channel content")
-	_, err = service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-		IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-		Envelope: integration.ChannelInboundEnvelope{
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "invalid-profile-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType:    "message.created",
-			Conversation: integration.ChannelConversation{Ref: "invalid-channel", Kind: "channel"},
-			Actor:        integration.ChannelActor{Ref: "user-1"},
-			ContentBlocks: json.RawMessage(
-				`[{"type":"media","media_type":"image/png","data":"invalid"}]`,
-			),
-		},
-		PrepareContent: func(
-			context.Context,
-			json.RawMessage,
-		) (integration.MaterializeChannelInboundContentFunc, error) {
-			return nil, preflightErr
-		},
-	})
-	if !errors.Is(err, preflightErr) {
-		t.Fatalf("invalid profile content error = %v, want preflight error", err)
-	}
-	var agents, targets, mutationBindings, inputs, artifacts int
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT
-		   (SELECT count(*) FROM agents WHERE project_id = $1 AND agent_profile_id = $2),
-		   (SELECT count(*) FROM integration_targets WHERE project_id = $1 AND integration_install_id = $3),
-		   (SELECT count(*) FROM integration_target_bindings WHERE project_id = $1 AND integration_route_id = $4),
-		   (SELECT count(*) FROM agent_inputs WHERE project_id = $1),
-		   (SELECT count(*) FROM artifacts artifact
-		      JOIN agents artifact_agent ON artifact_agent.id = artifact.agent_id
-		      WHERE artifact_agent.project_id = $1)`,
-		testProjectID,
-		profile.ID,
-		install.ID,
-		route.ID,
-	).Scan(&agents, &targets, &mutationBindings, &inputs, &artifacts); err != nil {
-		t.Fatalf("count mutations after invalid profile content: %v", err)
-	}
-	if routeCalls != 0 || agents != 0 || targets != 0 || mutationBindings != 0 ||
-		inputs != 0 || artifacts != 0 {
-		t.Fatalf(
-			"invalid profile content mutated route_calls=%d agents=%d targets=%d bindings=%d inputs=%d artifacts=%d",
-			routeCalls,
-			agents,
-			targets,
-			mutationBindings,
-			inputs,
-			artifacts,
-		)
-	}
-	for name, envelope := range map[string]integration.ChannelInboundEnvelope{
-		"nul conversation display": {
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "nul-display-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType: "message.created",
-			Conversation: integration.ChannelConversation{
-				Ref: "nul-display-channel", Kind: "channel", DisplayName: "bad\x00display",
-			},
-			Actor:         integration.ChannelActor{Ref: "user-1"},
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-		},
-		"nul metadata": {
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "nul-metadata-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType:    "message.created",
-			Conversation: integration.ChannelConversation{Ref: "nul-metadata-channel", Kind: "channel"},
-			Actor:        integration.ChannelActor{Ref: "user-1"},
-			ContentBlocks: json.RawMessage(
-				`[{"type":"text","text":"hello"}]`,
-			),
-			Metadata: json.RawMessage(`{"bad":"\u0000"}`),
-		},
-		"nul content text": {
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "nul-content-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType:    "message.created",
-			Conversation: integration.ChannelConversation{Ref: "nul-content-channel", Kind: "channel"},
-			Actor:        integration.ChannelActor{Ref: "user-1"},
-			ContentBlocks: json.RawMessage(
-				`[{"type":"text","text":"bad\u0000content"}]`,
-			),
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			prepareCalls := 0
-			_, err := service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-				IntegrationAppID: app.ID,
-				Capabilities:     testChannelCapabilities(testChannelProvider),
-				Envelope:         envelope,
-				PrepareContent: func(
-					context.Context,
-					json.RawMessage,
-				) (integration.MaterializeChannelInboundContentFunc, error) {
-					prepareCalls++
-					return nil, errors.New("unexpected content preparation")
-				},
-			})
-			if err == nil {
-				t.Fatal("invalid external text was accepted")
-			}
-			if prepareCalls != 0 {
-				t.Fatalf("content preparation calls = %d, want 0", prepareCalls)
-			}
-		})
-	}
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT
-		   (SELECT count(*) FROM agents WHERE project_id = $1 AND agent_profile_id = $2),
-		   (SELECT count(*) FROM integration_targets WHERE project_id = $1 AND integration_install_id = $3),
-		   (SELECT count(*) FROM integration_target_bindings WHERE project_id = $1 AND integration_route_id = $4),
-		   (SELECT count(*) FROM agent_inputs WHERE project_id = $1),
-		   (SELECT count(*) FROM artifacts artifact
-		      JOIN agents artifact_agent ON artifact_agent.id = artifact.agent_id
-		      WHERE artifact_agent.project_id = $1)`,
-		testProjectID,
-		profile.ID,
-		install.ID,
-		route.ID,
-	).Scan(&agents, &targets, &mutationBindings, &inputs, &artifacts); err != nil {
-		t.Fatalf("count mutations after invalid external text: %v", err)
-	}
-	if routeCalls != 0 || agents != 0 || targets != 0 || mutationBindings != 0 ||
-		inputs != 0 || artifacts != 0 {
-		t.Fatalf(
-			"invalid external text mutated route_calls=%d agents=%d targets=%d bindings=%d inputs=%d artifacts=%d",
-			routeCalls,
-			agents,
-			targets,
-			mutationBindings,
-			inputs,
-			artifacts,
-		)
-	}
-	process := func(eventID string) integration.ChannelInboundAcceptance {
-		t.Helper()
-		result, err := service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-			IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-			Envelope: integration.ChannelInboundEnvelope{
-				Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: eventID,
-				ExternalTenantID:   install.ProviderTenantID,
-				ExternalAccountRef: install.ProviderAccountRef, EventType: "message.created",
-				Conversation: integration.ChannelConversation{
-					Ref: "shared-channel", Kind: "channel", DisplayName: "Shared channel",
-				},
-				Actor:         integration.ChannelActor{Ref: "user-1", DisplayName: "Customer"},
-				ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-				OccurredAt:    time.Now().UTC(),
-			},
-			PrepareContent: passthroughChannelInboundContent,
-		})
-		if err != nil {
-			t.Fatalf("process profile route event %q: %v", eventID, err)
-		}
-		if len(result.Accepted) != 1 || result.IgnoredRoutes != 0 {
-			t.Fatalf("profile route event %q = %+v", eventID, result)
-		}
-		return result.Accepted[0]
-	}
-	first := process("profile-event-1")
-	second := process("profile-event-2")
-	if first.AgentID == second.AgentID || first.BindingID == second.BindingID {
-		t.Fatalf("distinct route sessions collapsed: first=%+v second=%+v", first, second)
-	}
-	if first.TargetID != second.TargetID || first.RouteID != route.ID || second.RouteID != route.ID {
-		t.Fatalf("shared provider target was not preserved: first=%+v second=%+v", first, second)
-	}
-	replayed := process("profile-event-1")
-	if replayed.AgentID != first.AgentID || replayed.TargetID != first.TargetID ||
-		replayed.BindingID != first.BindingID || replayed.AgentInputID != first.AgentInputID {
-		t.Fatalf("profile route replay was not idempotent: first=%+v replay=%+v", first, replayed)
-	}
-	var bindings int
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT count(*)
-		 FROM integration_target_bindings
-		 WHERE project_id = $1 AND integration_target_id = $2
-		   AND integration_route_id = $3 AND receive_allowed AND revoked_at IS NULL`,
-		testProjectID,
-		first.TargetID,
-		route.ID,
-	).Scan(&bindings); err != nil {
-		t.Fatalf("count shared-target bindings: %v", err)
-	}
-	if bindings != 2 {
-		t.Fatalf("shared-target receive bindings = %d, want 2", bindings)
-	}
-}
-
-func TestChannelFoundationRetriesWholeEventAfterProfileLaunchCompletionRace(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin := createIntegrationProjectAdmin(t, ctx, store, "channel-profile-retry@example.com")
-	existingProfile := createIntegrationTestProfile(t, ctx, store, "channel-profile-retry-existing")
-	existingAgent := createIntegrationBoundAgent(
-		t,
-		ctx,
-		store,
-		existingProfile,
-		admin.ID,
-		"channel-profile-retry-existing-agent",
-	)
-	spawnProfile := createIntegrationTestProfile(t, ctx, store, "channel-profile-retry-spawn")
-	app, err := store.Integrations().CreateIntegrationApp(
-		ctx,
-		integrationstore.CreateIntegrationAppInput{
-			OrgID: testOrgID, OwnerProjectID: testProjectID,
-			Provider: testChannelProvider, ProviderAppRef: "channel-profile-retry-app",
-			DisplayName: "Profile retry app", ConnectorKey: testChannelConnector,
-			State: integrationstore.IntegrationAppStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create profile retry app: %v", err)
-	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID, Provider: testChannelProvider,
-			IntegrationKind: "profile_retry", ConnectionMode: "gateway",
-			State:            integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID: "profile-retry-tenant", ProviderAccountRef: "profile-retry-account",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create profile retry install: %v", err)
-	}
-	createRoute := func(deploymentKey, handlerKey string) integrationstore.IntegrationRouteRecord {
-		t.Helper()
-		route, err := store.Integrations().CreateIntegrationRoute(
-			ctx,
-			integrationstore.CreateIntegrationRouteInput{
-				ProjectID:            testProjectID,
-				IntegrationInstallID: install.ID, DeploymentKey: deploymentKey,
-				HandlerKey: handlerKey, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
-			},
-		)
-		if err != nil {
-			t.Fatalf("create profile retry route %q: %v", deploymentKey, err)
-		}
-		return route
-	}
-	existingRoute := createRoute("profile-retry-existing", "profile_retry_existing")
-	waitForIntegrationDatabaseTimeAfter(t, ctx, pool, existingRoute.CreatedAt)
-	spawnRoute := createRoute("profile-retry-spawn", "profile_retry_spawn")
-	execution := &failOnceBoundChannelInputStore{Store: store.Execution(), failAt: 2}
-	service := integration.NewChannelService(
-		execution,
-		store.Integrations(),
-		integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey("profile_retry_existing", 1): integration.ChannelRouteHandlerFunc(
-				func(
-					context.Context,
-					integration.ChannelRouteContext,
-					integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: "profile-retry-thread", ProviderRefKind: "thread",
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentID: existingAgent.ID, SendAllowed: true,
-						}},
-					}, nil
-				},
-			),
-			integration.ChannelRouteHandlerKey("profile_retry_spawn", 1): integration.ChannelRouteHandlerFunc(
-				func(
-					_ context.Context,
-					_ integration.ChannelRouteContext,
-					envelope integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: "profile-retry-thread", ProviderRefKind: "thread",
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentProfileID: spawnProfile.ID,
-							InstanceKey:    envelope.ProviderEventID,
-							SendAllowed:    true,
-						}},
-					}, nil
-				},
-			),
-		},
-	)
-	input := integration.ProcessChannelInboundInput{
-		IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-		Envelope: integration.ChannelInboundEnvelope{
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "profile-retry-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType: "message.created",
-			Conversation: integration.ChannelConversation{
-				Ref: "profile-retry-thread", Kind: "thread", DisplayName: "Retry thread",
-			},
-			Actor:         integration.ChannelActor{Ref: "profile-retry-user"},
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"retry me"}]`),
-		},
-		PrepareContent: passthroughChannelInboundContent,
-	}
-	if _, err := service.ProcessInbound(ctx, input); !errors.Is(
-		err,
-		integration.ErrChannelInboundCompletionRetry,
-	) || !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("first profile completion attempt error = %v", err)
-	}
-	if execution.createCalls != 2 {
-		t.Fatalf("first profile completion create calls = %d, want 2", execution.createCalls)
-	}
-
-	var existingInputID, launchedAgentID uuid.UUID
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT input.id
-		 FROM agent_inputs input
-		 WHERE input.project_id = $1 AND input.agent_id = $2
-		   AND input.input_idempotency_key = $3`,
-		testProjectID,
-		existingAgent.ID,
-		input.Envelope.ProviderEventID,
-	).Scan(&existingInputID); err != nil {
-		t.Fatalf("load earlier committed route input: %v", err)
-	}
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT id FROM agents WHERE project_id = $1 AND agent_profile_id = $2`,
-		testProjectID,
-		spawnProfile.ID,
-	).Scan(&launchedAgentID); err != nil {
-		t.Fatalf("load profile agent committed before retry: %v", err)
-	}
-	var launchedInputs int
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM agent_inputs
-		 WHERE project_id = $1 AND agent_id = $2 AND integration_target_id IS NOT NULL`,
-		testProjectID,
-		launchedAgentID,
-	).Scan(&launchedInputs); err != nil {
-		t.Fatalf("count profile inputs before retry: %v", err)
-	}
-	if launchedInputs != 0 {
-		t.Fatalf("profile agent inputs before retry = %d, want 0", launchedInputs)
-	}
-
-	result, err := service.ProcessInbound(ctx, input)
-	if err != nil {
-		t.Fatalf("retry profile completion: %v", err)
-	}
-	if execution.createCalls != 4 || len(result.Accepted) != 2 || len(result.FailedRoutes) != 0 {
-		t.Fatalf("profile completion retry result = %+v, create calls %d", result, execution.createCalls)
-	}
-	acceptedByRoute := make(map[integrationstore.ID]integration.ChannelInboundAcceptance, 2)
-	for _, acceptance := range result.Accepted {
-		acceptedByRoute[acceptance.RouteID] = acceptance
-	}
-	if acceptedByRoute[existingRoute.ID].AgentInputID != existingInputID {
-		t.Fatalf("earlier route input was duplicated on replay: %+v", acceptedByRoute)
-	}
-	spawned := acceptedByRoute[spawnRoute.ID]
-	if spawned.AgentID != launchedAgentID || spawned.Launch.Created {
-		t.Fatalf("profile retry did not reuse launched agent: %+v", spawned)
-	}
-
-	var targets, bindings, inputs, spawnedAgents int
-	if err := pool.QueryRow(ctx, `
-SELECT
-  (SELECT count(*) FROM integration_targets WHERE project_id = $1 AND integration_install_id = $2),
-  (SELECT count(*) FROM integration_target_bindings
-     WHERE project_id = $1 AND integration_install_id = $2 AND revoked_at IS NULL),
-  (SELECT count(*) FROM agent_inputs
-     WHERE project_id = $1 AND integration_target_id IN (
-       SELECT id FROM integration_targets WHERE project_id = $1 AND integration_install_id = $2
-     )),
-  (SELECT count(*) FROM agents WHERE project_id = $1 AND agent_profile_id = $3)
-`, testProjectID, install.ID, spawnProfile.ID).Scan(
-		&targets,
-		&bindings,
-		&inputs,
-		&spawnedAgents,
-	); err != nil {
-		t.Fatalf("count profile completion retry rows: %v", err)
-	}
-	if targets != 1 || bindings != 2 || inputs != 2 || spawnedAgents != 1 {
-		t.Fatalf(
-			"profile retry rows targets=%d bindings=%d inputs=%d spawned_agents=%d",
-			targets,
-			bindings,
-			inputs,
-			spawnedAgents,
-		)
-	}
-}
-
-func TestChannelFoundationStaleRuntimeCannotLaunchProfileAgent(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin := createIntegrationProjectAdmin(t, ctx, store, "channel-stale-profile@example.com")
-	profile := createIntegrationTestProfile(t, ctx, store, "channel-stale-profile")
-	app, err := store.Integrations().CreateIntegrationApp(
-		ctx,
-		integrationstore.CreateIntegrationAppInput{
-			OrgID: testOrgID, OwnerProjectID: testProjectID,
-			Provider: testChannelProvider, ProviderAppRef: "stale-profile-app",
-			DisplayName: "Stale profile app", ConnectorKey: testChannelConnector,
-			State: integrationstore.IntegrationAppStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale profile app: %v", err)
-	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "new_agent_per_message",
-			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID: "stale-profile-guild", ProviderAccountRef: "stale-profile-bot",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale profile installation: %v", err)
-	}
-	if _, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "stale-profile", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			State: integrationstore.IntegrationRouteStateActive,
-		},
-	); err != nil {
-		t.Fatalf("create stale profile route: %v", err)
-	}
-	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
-		ctx,
-		integrationstore.UpsertIntegrationRuntimeUnitInput{
-			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			UnitKey: "stale-profile", RuntimeKind: "provider_socket",
-			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
-			SpecRevision: 1,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale profile runtime: %v", err)
-	}
-	claim := func(owner string) integrationstore.IntegrationRuntimeUnitRecord {
-		t.Helper()
-		claims, err := store.Integrations().ClaimIntegrationRuntimeUnits(
-			ctx,
-			integrationstore.ClaimIntegrationRuntimeUnitsInput{
-				LeaseOwner: owner, LeaseDuration: time.Minute,
-				Capability: testChannelCapability(testChannelProvider), Limit: 1,
-			},
-		)
-		if err != nil || len(claims) != 1 || claims[0].ID != unit.ID {
-			t.Fatalf("claim stale profile runtime as %q = %+v, %v", owner, claims, err)
-		}
-		return claims[0]
-	}
-	stale := claim("stale-profile-owner")
-	execution := &expiringChannelLaunchStore{Store: store.Execution()}
-	execution.beforeRuntimeLaunch = func() {
-		if _, err := store.Integrations().ReleaseIntegrationRuntimeUnit(
-			ctx,
-			integrationstore.ReleaseIntegrationRuntimeUnitInput{
-				ID: stale.ID, LeaseToken: stale.LeaseToken,
-				LeaseGeneration: stale.LeaseGeneration, LastError: json.RawMessage(`{}`),
-				Capabilities: testChannelCapabilities(testChannelProvider),
-			},
-		); err != nil {
-			t.Fatalf("release runtime during profile launch: %v", err)
-		}
-		current := claim("current-profile-owner")
-		if current.LeaseGeneration <= stale.LeaseGeneration {
-			t.Fatalf("profile runtime generation did not advance: stale=%+v current=%+v", stale, current)
-		}
-	}
-	service := integration.NewChannelService(
-		execution,
-		store.Integrations(),
-		integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey(testChannelHandler, 1): integration.ChannelRouteHandlerFunc(
-				func(
-					_ context.Context,
-					_ integration.ChannelRouteContext,
-					envelope integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: envelope.Conversation.Ref,
-						ProviderRefKind: "channel", DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentProfileID: profile.ID, InstanceKey: envelope.ProviderEventID, SendAllowed: true,
-						}},
-					}, nil
-				},
-			),
-		},
-	)
-	prepareCalls := 0
-	_, err = service.ProcessRuntimeInbound(
-		ctx,
-		integration.ProcessChannelInboundInput{
-			IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-			Envelope: integration.ChannelInboundEnvelope{
-				Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "stale-profile-event",
-				ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-				EventType:    "message.created",
-				Conversation: integration.ChannelConversation{Ref: "stale-profile-channel", Kind: "channel"},
-				Actor:        integration.ChannelActor{Ref: "stale-profile-user"},
-				ContentBlocks: json.RawMessage(`[{
-					"type":"text","text":"must not launch"
-				}]`),
-			},
-			PrepareContent: func(
-				_ context.Context,
-				content json.RawMessage,
-			) (integration.MaterializeChannelInboundContentFunc, error) {
-				return func(
-					context.Context,
-					integration.MaterializeChannelInboundContentInput,
-				) (json.RawMessage, error) {
-					prepareCalls++
-					return content, nil
-				}, nil
-			},
-		},
-		integration.ChannelRuntimeLease{
-			UnitID: stale.ID, Token: stale.LeaseToken, Generation: stale.LeaseGeneration,
-		},
-	)
-	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("stale profile launch error = %v, want state conflict", err)
-	}
-	var agents int
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM agents WHERE project_id = $1 AND agent_profile_id = $2`,
-		testProjectID,
-		profile.ID,
-	).Scan(&agents); err != nil {
-		t.Fatalf("count agents after stale profile launch: %v", err)
-	}
-	if agents != 0 || prepareCalls != 0 {
-		t.Fatalf("stale profile launch created agents=%d prepare_calls=%d", agents, prepareCalls)
-	}
 }
 
 func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
@@ -1391,11 +90,11 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "runtime_install",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
+			Provider:    testChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
 			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "runtime-guild", ProviderAccountRef: "runtime-bot",
-			ProviderAgentDisplayName: "Runtime bot",
+			DisplayName: "Runtime bot",
 		},
 	)
 	if err != nil {
@@ -1732,333 +431,6 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 	}
 }
 
-func TestChannelFoundationStaleRuntimeCannotReplaceBinding(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	_, agent, app, install := createChannelLifecycleFixture(t, ctx, store, "stale-binding-runtime")
-	route, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "stale-runtime", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			State: integrationstore.IntegrationRouteStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale runtime route: %v", err)
-	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
-			IntegrationInstallID: install.ID, ProviderRef: "stale-runtime-thread",
-			ProviderRefKind: "thread", DisplayName: "Original thread",
-			ProviderMetadata: json.RawMessage(`{"revision":1}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale runtime target: %v", err)
-	}
-	binding, err := store.Integrations().CreateIntegrationTargetBinding(
-		ctx,
-		integrationstore.CreateIntegrationTargetBindingInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
-			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
-			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
-			Source: "channel_route", Metadata: json.RawMessage(`{"policy":"reply"}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale runtime binding: %v", err)
-	}
-	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
-		ctx,
-		integrationstore.UpsertIntegrationRuntimeUnitInput{
-			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			UnitKey: "stale-binding", RuntimeKind: "provider_socket",
-			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
-			SpecRevision: 1,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create stale binding runtime unit: %v", err)
-	}
-	claim := func(owner string) integrationstore.IntegrationRuntimeUnitRecord {
-		t.Helper()
-		claims, err := store.Integrations().ClaimIntegrationRuntimeUnits(
-			ctx,
-			integrationstore.ClaimIntegrationRuntimeUnitsInput{
-				LeaseOwner: owner, LeaseDuration: time.Minute,
-				Capability: testChannelCapability(testChannelProvider), Limit: 1,
-			},
-		)
-		if err != nil || len(claims) != 1 {
-			t.Fatalf("claim stale binding runtime as %q = %+v, %v", owner, claims, err)
-		}
-		return claims[0]
-	}
-	stale := claim("stale-owner")
-	if stale.ID != unit.ID {
-		t.Fatalf("claimed stale runtime = %+v, want %s", stale, unit.ID)
-	}
-	if _, err := store.Integrations().ReleaseIntegrationRuntimeUnit(
-		ctx,
-		integrationstore.ReleaseIntegrationRuntimeUnitInput{
-			ID: stale.ID, LeaseToken: stale.LeaseToken,
-			LeaseGeneration: stale.LeaseGeneration, LastError: json.RawMessage(`{}`),
-			Capabilities: testChannelCapabilities(testChannelProvider),
-		},
-	); err != nil {
-		t.Fatalf("release stale binding runtime: %v", err)
-	}
-	current := claim("current-owner")
-	if current.LeaseGeneration <= stale.LeaseGeneration {
-		t.Fatalf("runtime generation did not advance: stale=%+v current=%+v", stale, current)
-	}
-	_, err = store.Execution().CreateBoundIntegrationTargetContentInput(
-		ctx,
-		executionstore.CreateBoundIntegrationTargetContentInput{
-			Target: integrationstore.CreateIntegrationTargetInput{
-				ProjectID: testProjectID, AgentID: agent.ID,
-				IntegrationInstallID: install.ID, ProviderRef: target.ProviderRef,
-				ProviderRefKind: target.ProviderRefKind, DisplayName: "Mutated thread",
-				ProviderMetadata: json.RawMessage(`{"revision":2}`),
-			},
-			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: false,
-			BindingSource:    "channel_route",
-			BindingMetadata:  json.RawMessage(`{"policy":"receive_only"}`),
-			ProviderTenantID: install.ProviderTenantID, ProviderUserID: "stale-user",
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"stale"}]`),
-			Metadata:      json.RawMessage(`{}`), DeliveryMode: executionstore.DeliveryModeQueued,
-			IdempotencyKey: "stale-runtime-event",
-			RuntimeLease: &executionstore.IntegrationRuntimeLeaseProof{
-				IntegrationAppID: app.ID, UnitID: stale.ID, LeaseToken: stale.LeaseToken,
-				LeaseGeneration: stale.LeaseGeneration,
-			},
-		},
-	)
-	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("stale runtime binding replacement error = %v, want state conflict", err)
-	}
-	var displayName string
-	var providerMetadata json.RawMessage
-	var activeBinding uuid.UUID
-	var staleInputs int
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT target.display_name, target.provider_metadata,
-		        (SELECT active.id
-		         FROM integration_target_bindings active
-		         WHERE active.project_id = target.project_id
-		           AND active.agent_id = $2
-		           AND active.integration_target_id = target.id
-		           AND active.integration_route_id = $3
-		           AND active.revoked_at IS NULL),
-		        (SELECT count(*) FROM agent_inputs input
-		         WHERE input.project_id = target.project_id
-		           AND input.agent_id = $2
-		           AND input.input_idempotency_key = 'stale-runtime-event')
-		 FROM integration_targets target
-		 WHERE target.id = $1`,
-		target.ID,
-		agent.ID,
-		route.ID,
-	).Scan(&displayName, &providerMetadata, &activeBinding, &staleInputs); err != nil {
-		t.Fatalf("load state after stale runtime rejection: %v", err)
-	}
-	if displayName != "Original thread" ||
-		!sameJSON(providerMetadata, json.RawMessage(`{"revision":1}`)) ||
-		activeBinding != binding.ID || staleInputs != 0 {
-		t.Fatalf(
-			"stale runtime mutated state display=%q metadata=%s binding=%s inputs=%d",
-			displayName,
-			providerMetadata,
-			activeBinding,
-			staleInputs,
-		)
-	}
-}
-
-func TestChannelFoundationRetriesWhenAHandlerVersionIsUnavailable(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	_, agent, app, install := createChannelLifecycleFixture(t, ctx, store, "route-preflight")
-
-	for _, handler := range []string{testChannelHandler, "missing_handler"} {
-		if _, err := store.Integrations().CreateIntegrationRoute(
-			ctx,
-			integrationstore.CreateIntegrationRouteInput{
-				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: "preflight-" + handler, HandlerKey: handler, HandlerVersion: 1,
-				State: integrationstore.IntegrationRouteStateActive,
-			},
-		); err != nil {
-			t.Fatalf("create %s route: %v", handler, err)
-		}
-	}
-	service := integration.NewChannelService(
-		store.Execution(),
-		store.Integrations(),
-		integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey(testChannelHandler, 1): integration.ChannelRouteHandlerFunc(
-				func(
-					context.Context,
-					integration.ChannelRouteContext,
-					integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: "preflight-thread", ProviderRefKind: "thread",
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentID: agent.ID, SendAllowed: true,
-						}},
-					}, nil
-				},
-			),
-		},
-	)
-	prepareCalls := 0
-	_, err := service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-		IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-		Envelope: integration.ChannelInboundEnvelope{
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "preflight-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType: "message.created", Conversation: integration.ChannelConversation{
-				Ref: "preflight-thread", Kind: "thread",
-			},
-			Actor:         integration.ChannelActor{Ref: "preflight-user"},
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-		},
-		PrepareContent: func(
-			_ context.Context,
-			content json.RawMessage,
-		) (integration.MaterializeChannelInboundContentFunc, error) {
-			return func(
-				context.Context,
-				integration.MaterializeChannelInboundContentInput,
-			) (json.RawMessage, error) {
-				prepareCalls++
-				return content, nil
-			}, nil
-		},
-	})
-	if !errors.Is(err, integration.ErrChannelRouteHandlerUnavailable) {
-		t.Fatalf("process error = %v, want unavailable handler", err)
-	}
-	if prepareCalls != 0 {
-		t.Fatalf("content materialization calls = %d, want 0", prepareCalls)
-	}
-	var targets, bindings, inputs int
-	if err := pool.QueryRow(ctx, `
-SELECT
-  (SELECT count(*) FROM integration_targets WHERE integration_install_id = $1),
-  (SELECT count(*) FROM integration_target_bindings WHERE integration_install_id = $1),
-  (SELECT count(*) FROM agent_inputs WHERE agent_id = $2 AND input_idempotency_key = 'preflight-event')
-`, install.ID, agent.ID).Scan(&targets, &bindings, &inputs); err != nil {
-		t.Fatalf("count route preflight mutations: %v", err)
-	}
-	if targets != 0 || bindings != 0 || inputs != 0 {
-		t.Fatalf("unavailable handler mutations targets=%d bindings=%d inputs=%d", targets, bindings, inputs)
-	}
-}
-
-func TestChannelFoundationPreflightsAggregateInputMetadata(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	_, agent, app, install := createChannelLifecycleFixture(t, ctx, store, "metadata-preflight")
-
-	if _, err := store.Integrations().CreateIntegrationRoute(
-		ctx,
-		integrationstore.CreateIntegrationRouteInput{
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "metadata-preflight", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			State: integrationstore.IntegrationRouteStateActive,
-		},
-	); err != nil {
-		t.Fatalf("create metadata preflight route: %v", err)
-	}
-	largeObject := json.RawMessage(`{"value":"` + strings.Repeat("x", 150*1024) + `"}`)
-	service := integration.NewChannelService(
-		store.Execution(),
-		store.Integrations(),
-		integration.ChannelRouteHandlers{
-			integration.ChannelRouteHandlerKey(testChannelHandler, 1): integration.ChannelRouteHandlerFunc(
-				func(
-					context.Context,
-					integration.ChannelRouteContext,
-					integration.ChannelInboundEnvelope,
-				) (integration.ChannelRouteDecision, error) {
-					return integration.ChannelRouteDecision{
-						Accept: true, ProviderRef: "metadata-preflight-thread", ProviderRefKind: "thread",
-						DeliveryMode: executionstore.DeliveryModeQueued,
-						Attachments: []integration.ChannelAttachmentAction{{
-							AgentID: agent.ID, SendAllowed: true, Metadata: largeObject,
-						}},
-					}, nil
-				},
-			),
-		},
-	)
-	prepareCalls := 0
-	result, err := service.ProcessInbound(ctx, integration.ProcessChannelInboundInput{
-		IntegrationAppID: app.ID, Capabilities: testChannelCapabilities(testChannelProvider),
-		Envelope: integration.ChannelInboundEnvelope{
-			Version: integration.ChannelEnvelopeVersionV1, ProviderEventID: "metadata-preflight-event",
-			ExternalTenantID: install.ProviderTenantID, ExternalAccountRef: install.ProviderAccountRef,
-			EventType: "message.created", Conversation: integration.ChannelConversation{
-				Ref: "metadata-preflight-thread", Kind: "thread",
-			},
-			Actor:         integration.ChannelActor{Ref: "metadata-preflight-user"},
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-			Metadata:      largeObject,
-		},
-		PrepareContent: func(
-			_ context.Context,
-			content json.RawMessage,
-		) (integration.MaterializeChannelInboundContentFunc, error) {
-			return func(
-				context.Context,
-				integration.MaterializeChannelInboundContentInput,
-			) (json.RawMessage, error) {
-				prepareCalls++
-				return content, nil
-			}, nil
-		},
-	})
-	if err != nil {
-		t.Fatalf("process invalid route metadata: %v", err)
-	}
-	if len(result.FailedRoutes) != 1 ||
-		!strings.Contains(result.FailedRoutes[0].Err.Error(), "channel input metadata exceeds") {
-		t.Fatalf("aggregate metadata route failure = %+v", result.FailedRoutes)
-	}
-	if prepareCalls != 0 {
-		t.Fatalf("content preparation calls = %d, want 0", prepareCalls)
-	}
-	var targets, bindings, inputs int
-	if err := pool.QueryRow(ctx, `
-SELECT
-  (SELECT count(*) FROM integration_targets WHERE integration_install_id = $1),
-  (SELECT count(*) FROM integration_target_bindings WHERE integration_install_id = $1),
-  (SELECT count(*) FROM agent_inputs WHERE agent_id = $2 AND input_idempotency_key = 'metadata-preflight-event')
-`, install.ID, agent.ID).Scan(&targets, &bindings, &inputs); err != nil {
-		t.Fatalf("count metadata preflight mutations: %v", err)
-	}
-	if targets != 0 || bindings != 0 || inputs != 0 {
-		t.Fatalf("metadata preflight mutations targets=%d bindings=%d inputs=%d", targets, bindings, inputs)
-	}
-}
-
 func TestChannelFoundationLifecycleDeletion(t *testing.T) {
 	t.Parallel()
 	t.Run("install after app disable", func(t *testing.T) {
@@ -2221,21 +593,22 @@ func TestChannelFoundationInstallDeletionRevokesConcurrentBinding(t *testing.T) 
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "delete-binding-race")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "delete-binding-race", HandlerKey: testChannelHandler, HandlerVersion: 1,
+			DeploymentKey: "delete-binding-race", BehaviorKey: testChannelHandler,
 			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create deletion-race route: %v", err)
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "delete-binding-race-target",
 			ProviderRefKind: "thread", DisplayName: "Deletion race",
 		},
@@ -2320,18 +693,19 @@ func TestChannelFoundationInstallDeletionFencesConcurrentTargetCreation(t *testi
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "delete-target-race")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "delete-target-race")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 
 	creatorTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin concurrent target create: %v", err)
 	}
 	t.Cleanup(func() { _ = creatorTx.Rollback(ctx) })
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBindingTx(
+	target, err := store.Integrations().CreateIntegrationTargetTx(
 		ctx,
 		creatorTx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "delete-target-race-target",
 			ProviderRefKind: "thread", DisplayName: "Deletion target race",
 		},
@@ -2406,8 +780,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -2417,8 +790,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			Configuration: json.RawMessage(`{ "mode": "mentions" }`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{ "mode": "mentions" }`), State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil || replayed.ID != route.ID {
@@ -2428,8 +800,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", HandlerKey: testChannelHandler, HandlerVersion: 2,
-			Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: "changed-behavior", Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
 		},
 	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("changed route create replay error = %v, want idempotency conflict", err)
@@ -2454,8 +825,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil || disabledReplay.ID != route.ID ||
@@ -2472,6 +842,7 @@ func TestChannelFoundationTargetAndBindingDefinitionsAreImmutable(t *testing.T) 
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "immutable-address")
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 
 	createRoute := func(handler string) integrationstore.IntegrationRouteRecord {
 		t.Helper()
@@ -2479,8 +850,7 @@ func TestChannelFoundationTargetAndBindingDefinitionsAreImmutable(t *testing.T) 
 			ctx,
 			integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: "route-" + handler, HandlerKey: handler, HandlerVersion: 1,
-				State: integrationstore.IntegrationRouteStateActive,
+				DeploymentKey: "route-" + handler, BehaviorKey: handler, State: integrationstore.IntegrationRouteStateActive,
 			},
 		)
 		if err != nil {
@@ -2493,26 +863,23 @@ func TestChannelFoundationTargetAndBindingDefinitionsAreImmutable(t *testing.T) 
 	if _, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
-			IntegrationInstallID: install.ID, ProviderRef: "legacy-shaped-connector-target",
+			ProjectID:            testProjectID,
+			IntegrationInstallID: install.ID, ProviderRef: "missing-definition-target",
 			ProviderRefKind: "thread",
 		},
 	); err == nil {
-		t.Fatal("legacy target creation accepted a connector installation")
+		t.Fatal("target creation accepted a missing definition")
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "immutable-address-thread",
 			ProviderRefKind: "thread", DisplayName: "Original address",
 		},
 	)
 	if err != nil {
 		t.Fatalf("create immutable target: %v", err)
-	}
-	if !isNilID(target.AgentID) {
-		t.Fatalf("connector target retained creator agent %s", target.AgentID)
 	}
 	binding, err := store.Integrations().CreateIntegrationTargetBinding(
 		ctx,
@@ -2556,10 +923,10 @@ VALUES (
 	).Scan(&bindingXmin, &bindingUpdatedAt); err != nil {
 		t.Fatalf("load binding replay markers: %v", err)
 	}
-	replayedTarget, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	replayedTarget, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "immutable-address-thread",
 			ProviderRefKind: "thread", DisplayName: "Original address",
 		},
@@ -2603,10 +970,10 @@ VALUES (
 		t.Fatalf("exact binding replay wrote the row: xmin %s -> %s, updated %s -> %s",
 			bindingXmin, replayedBindingXmin, bindingUpdatedAt, replayedBindingUpdatedAt)
 	}
-	metadataRefresh, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	metadataRefresh, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "immutable-address-thread",
 			ProviderRefKind: "thread", ProviderMetadata: json.RawMessage(`{"fresh":true}`),
 		},
@@ -2618,10 +985,10 @@ VALUES (
 		!sameJSON(metadataRefresh.ProviderMetadata, json.RawMessage(`{"fresh":true}`)) {
 		t.Fatalf("metadata-only target refresh = %+v", metadataRefresh)
 	}
-	omittedMetadata, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	omittedMetadata, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "immutable-address-thread",
 			ProviderRefKind: "thread",
 		},
@@ -2632,10 +999,10 @@ VALUES (
 	) {
 		t.Fatalf("omitted target metadata replay = %+v, %v", omittedMetadata, err)
 	}
-	clearedMetadata, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	clearedMetadata, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "immutable-address-thread",
 			ProviderRefKind: "thread", ProviderMetadata: json.RawMessage(`{}`),
 		},
@@ -2735,10 +1102,11 @@ func TestDeleteIntegrationRouteRevokesOnlyItsBindings(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, "delete-single-route")
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agent.ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "delete-single-route-channel",
 			ProviderRefKind: "channel",
 		},
@@ -2756,7 +1124,7 @@ func TestDeleteIntegrationRouteRevokesOnlyItsBindings(t *testing.T) {
 			integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: install.ID,
 				DeploymentKey: "delete-single-route-" + label,
-				HandlerKey:    "delete_single_route", HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+				BehaviorKey:   "delete_single_route", State: integrationstore.IntegrationRouteStateActive,
 			},
 		)
 		if err != nil {
@@ -2809,19 +1177,11 @@ WHERE project_id = $1 AND id = $2`,
 	if !deletedBindingRevoked {
 		t.Fatal("deleted route binding remains active")
 	}
-	if _, err := store.Integrations().GetActiveSendBinding(
+	if active, err := store.Integrations().GetActiveSendBindingForTarget(
 		ctx,
 		testProjectID,
 		agent.ID,
-		deletedBinding.ID,
-	); !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("deleted route send binding error = %v, want not found", err)
-	}
-	if active, err := store.Integrations().GetActiveSendBinding(
-		ctx,
-		testProjectID,
-		agent.ID,
-		siblingBinding.ID,
+		target.ID,
 	); err != nil || active.ID != siblingBinding.ID {
 		t.Fatalf("sibling route send binding = %+v, %v", active, err)
 	}
@@ -2900,31 +1260,31 @@ func TestChannelFoundationReceiveBindingLimitIsWriteSafe(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "binding_limit",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
+			Provider:    testChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
 			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "binding-limit-tenant", ProviderAccountRef: "binding-limit-account",
-			ProviderAgentDisplayName: "Binding limit bot",
+			DisplayName: "Binding limit bot",
 		},
 	)
 	if err != nil {
 		t.Fatalf("create binding-limit install: %v", err)
 	}
+	definitionID := createChannelTestDefinition(t, ctx, store, install)
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "binding-limit", HandlerKey: testChannelHandler, HandlerVersion: 1,
-			State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "binding-limit", BehaviorKey: testChannelHandler, State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create binding-limit route: %v", err)
 	}
-	target, err := store.Integrations().GetOrCreateIntegrationTargetForBinding(
+	target, err := store.Integrations().CreateIntegrationTarget(
 		ctx,
 		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: testProjectID, AgentID: agents[0].ID,
+			ProjectID: testProjectID, ChannelDefinitionID: definitionID,
 			IntegrationInstallID: install.ID, ProviderRef: "binding-limit-channel",
 			ProviderRefKind: "channel", DisplayName: "Binding limit channel",
 		},
@@ -3099,17 +1459,35 @@ func createChannelLifecycleFixture(
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: app.ID,
-			InstalledByUserID: admin.ID,
-			Provider:          testChannelProvider, IntegrationKind: "lifecycle_test",
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
+			Provider:    testChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
 			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: suffix + "-tenant", ProviderAccountRef: suffix + "-account",
-			ProviderAgentDisplayName: suffix,
+			DisplayName: suffix,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create lifecycle integration install: %v", err)
 	}
 	return admin, agent, app, install
+}
+
+func createChannelTestDefinition(
+	t *testing.T, ctx context.Context, store *Store, install integrationstore.IntegrationInstallRecord,
+) ID {
+	t.Helper()
+	definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
+		integrationstore.PublishChannelDefinitionInput{
+			ProjectID: install.ProjectID, IntegrationInstallID: install.ID,
+			ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+			SendParamsSchema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
+			Capabilities:          integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true},
+			ConnectorCapabilities: testChannelCapabilities(install.Provider),
+		})
+	if err != nil {
+		t.Fatalf("publish test channel definition: %v", err)
+	}
+	return definition.ID
 }
 
 func assertChannelLifecycleRowsDeleted(

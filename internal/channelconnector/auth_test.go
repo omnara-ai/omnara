@@ -72,7 +72,6 @@ func TestAuthenticatorRejectsUnsafeConfiguration(t *testing.T) {
 	}
 	tests := []Config{
 		{ID: "", Token: token, Capabilities: []Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}}},
-		{ID: "gateway-a", Token: token, Capabilities: []Capability{{ConnectorKey: "native_slack_v1", Provider: "slack"}}},
 		{ID: "gateway-a", Token: token},
 		{ID: "gateway-a", Token: token, Capabilities: []Capability{{ConnectorKey: "chat_sdk_v1"}}},
 	}

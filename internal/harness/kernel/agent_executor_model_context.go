@@ -89,17 +89,12 @@ func (e AgentExecutor) modelContextToolRuntime(
 		e.Store.Artifacts(),
 		e.Store.Integrations(),
 	)
-	integrationTargets, err := contextStore.ListIntegrationTargets(ctx, projectID, agentID)
-	if err != nil {
-		return nil, err
-	}
 	channelTools, err := contextStore.GetAgentChannelToolEligibility(ctx, projectID, agentID)
 	if err != nil {
 		return nil, err
 	}
-	contract, err = modelcontext.WithImplicitIntegrationTools(
+	contract, err = modelcontext.WithImplicitChannelTools(
 		contract,
-		integrationTargets,
 		channelTools,
 	)
 	if err != nil {

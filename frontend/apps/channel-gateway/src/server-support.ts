@@ -1,5 +1,6 @@
 import { type IncomingMessage, validateHeaderValue } from 'node:http'
 
+import { abortError, raceWithAbort } from './async'
 import type { ProviderWebhookWorkContext, ProviderWorkReservation } from './types'
 import { GatewayAtCapacityError, WorkReservationScope } from './work-budget'
 
@@ -95,32 +96,6 @@ export function providerResponseHeaders(headers: Headers): Headers {
     else validateHeaderValue(name, value)
   }
   return forwarded
-}
-
-export async function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) throw abortError(signal)
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      reject(abortError(signal))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (cause: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(cause instanceof Error ? cause : new Error(String(cause)))
-      },
-    )
-  })
-}
-
-export function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new Error('channel webhook request was aborted')
 }
 
 export interface BufferedBody {

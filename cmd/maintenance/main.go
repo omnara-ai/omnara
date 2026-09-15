@@ -30,7 +30,7 @@ import (
 
 const (
 	runtimeLockReapBatchSize         int32 = 100
-	integrationDeliveryBatchSize           = 1000
+	integrationEventBatchSize              = 1000
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
 	idleMachineReconcileInterval           = time.Minute
@@ -211,8 +211,7 @@ func main() {
 		logger,
 		store,
 		cfg.MaintenanceInterval,
-		cfg.IntegrationDeliveryRetention,
-		redisBus,
+		cfg.IntegrationEventRetention,
 		healthErr,
 	)
 	cancel()
@@ -332,8 +331,7 @@ func runCoreMaintenanceLoop(
 	log *slog.Logger,
 	store *storage.Store,
 	interval time.Duration,
-	integrationDeliveryRetention time.Duration,
-	integrationDeliveryPublisher notifications.IntegrationDeliveryPublisher,
+	integrationEventRetention time.Duration,
 	healthErr <-chan error,
 ) int {
 	ticker := time.NewTicker(interval)
@@ -345,8 +343,7 @@ func runCoreMaintenanceLoop(
 			loopCtx,
 			log,
 			store,
-			integrationDeliveryRetention,
-			integrationDeliveryPublisher,
+			integrationEventRetention,
 		)
 		event.Done(loopCtx)
 		select {
@@ -369,8 +366,7 @@ func runCoreMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
-	integrationDeliveryRetention time.Duration,
-	integrationDeliveryPublisher notifications.IntegrationDeliveryPublisher,
+	integrationEventRetention time.Duration,
 ) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -395,26 +391,19 @@ func runCoreMaintenanceTick(
 			executionstore.ProcessToolMachineUnreachableGrace,
 		)
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
+	expiredChannelRequests, expireChannelRequestsErr := store.Execution().ExpireExternalChannelRequests(ctx, 100)
+	expireChannelRequestsOutcome := completedMaintenanceOutcome(ctx, expireChannelRequestsErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
-	expiredDeliveries, expireDeliveriesErr := store.Integrations().ExpireIntegrationDeliveryClaims(
+	failedEvents, failEventsErr := store.Integrations().FailUnprocessableIntegrationEvents(ctx, integrationEventBatchSize)
+	failEventsOutcome := completedMaintenanceOutcome(ctx, failEventsErr)
+	deletedEvents, deleteEventsErr := store.Integrations().DeleteRetainedIntegrationEvents(
 		ctx,
-		integrationDeliveryBatchSize,
-	)
-	expireDeliveriesOutcome := completedMaintenanceOutcome(ctx, expireDeliveriesErr)
-	canceledDeliveries, cancelDeliveriesErr := store.Integrations().CancelUnavailableIntegrationDeliveries(
-		ctx,
-		integrationDeliveryBatchSize,
-	)
-	cancelDeliveriesOutcome := completedMaintenanceOutcome(ctx, cancelDeliveriesErr)
-	deletedDeliveries, deleteDeliveriesErr := store.Integrations().DeleteRetainedIntegrationDeliveries(
-		ctx,
-		integrationstore.DeleteRetainedIntegrationDeliveriesInput{
-			Retention: integrationDeliveryRetention,
-			Limit:     integrationDeliveryBatchSize,
+		integrationstore.DeleteRetainedIntegrationEventsInput{
+			Retention: integrationEventRetention, Limit: integrationEventBatchSize,
 		},
 	)
-	deleteDeliveriesOutcome := completedMaintenanceOutcome(ctx, deleteDeliveriesErr)
+	deleteEventsOutcome := completedMaintenanceOutcome(ctx, deleteEventsErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
@@ -424,10 +413,9 @@ func runCoreMaintenanceTick(
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredProcessTools > 0 ||
+		expiredChannelRequests > 0 ||
 		authCleanupDeleted ||
-		len(expiredDeliveries) > 0 ||
-		len(canceledDeliveries) > 0 ||
-		deletedDeliveries > 0
+		failedEvents > 0 || deletedEvents > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -437,10 +425,10 @@ func runCoreMaintenanceTick(
 			reapRuntimeLocksOutcome.err,
 			expireDaemonRuntimesOutcome.err,
 			expireProcessToolsOutcome.err,
+			expireChannelRequestsOutcome.err,
 			authCleanupOutcome.err,
-			expireDeliveriesOutcome.err,
-			cancelDeliveriesOutcome.err,
-			deleteDeliveriesOutcome.err,
+			failEventsOutcome.err,
+			deleteEventsOutcome.err,
 		),
 	)
 	if expireDaemonRuntimesOutcome.err != nil {
@@ -452,6 +440,11 @@ func runCoreMaintenanceTick(
 		log.Error("expire process tool calls", "error", expireProcessToolsOutcome.err)
 	} else if !expireProcessToolsOutcome.interrupted && expiredProcessTools > 0 {
 		log.Info("expired process tool calls", "count", expiredProcessTools)
+	}
+	if expireChannelRequestsOutcome.err != nil {
+		log.Error("expire external channel requests", "error", expireChannelRequestsOutcome.err)
+	} else if !expireChannelRequestsOutcome.interrupted && expiredChannelRequests > 0 {
+		log.Info("expired external channel requests", "count", expiredChannelRequests)
 	}
 	if authCleanupOutcome.err != nil {
 		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)
@@ -472,58 +465,14 @@ func runCoreMaintenanceTick(
 			authCleanup.DeletedOAuthTokens,
 		)
 	}
-	logIntegrationDeliveryMaintenance(
-		ctx,
-		log,
-		integrationDeliveryPublisher,
-		expiredDeliveries,
-		canceledDeliveries,
-		deletedDeliveries,
-		expireDeliveriesOutcome.interrupted ||
-			cancelDeliveriesOutcome.interrupted ||
-			deleteDeliveriesOutcome.interrupted,
-		expireDeliveriesOutcome.err,
-		cancelDeliveriesOutcome.err,
-		deleteDeliveriesOutcome.err,
-	)
-}
-
-func logIntegrationDeliveryMaintenance(
-	ctx context.Context,
-	log *slog.Logger,
-	publisher notifications.IntegrationDeliveryPublisher,
-	expired, canceled []integrationstore.IntegrationDeliveryUpdate,
-	deleted int64,
-	interrupted bool,
-	expireErr, cancelErr, deleteErr error,
-) {
-	if expireErr != nil {
-		log.Error("expire channel delivery claims", "error", expireErr)
+	if failEventsOutcome.err != nil {
+		log.Error("fail unprocessable incoming events", "error", failEventsOutcome.err)
 	}
-	if cancelErr != nil {
-		log.Error("cancel unavailable channel deliveries", "error", cancelErr)
+	if deleteEventsOutcome.err != nil {
+		log.Error("delete retained incoming events", "error", deleteEventsOutcome.err)
 	}
-	if deleteErr != nil {
-		log.Error("delete retained channel deliveries", "error", deleteErr)
-	}
-	if !interrupted && (len(expired) > 0 || len(canceled) > 0 || deleted > 0) {
-		log.Info(
-			"maintained channel deliveries",
-			"expired_claims", len(expired),
-			"canceled", len(canceled),
-			"deleted", deleted,
-		)
-	}
-	if interrupted {
-		return
-	}
-	for _, update := range append(expired, canceled...) {
-		if update.NotifyRef == storage.NilID || publisher == nil {
-			continue
-		}
-		if err := publisher.PublishIntegrationDeliveryUpdate(ctx, update.NotifyRef); err != nil {
-			log.Warn("publish maintained channel delivery update", "delivery_id", update.ID, "error", err)
-		}
+	if !failEventsOutcome.interrupted && !deleteEventsOutcome.interrupted && (failedEvents > 0 || deletedEvents > 0) {
+		log.Info("maintained incoming event receipts", "failed", failedEvents, "deleted", deletedEvents)
 	}
 }
 

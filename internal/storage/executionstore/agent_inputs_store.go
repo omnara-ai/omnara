@@ -593,6 +593,18 @@ func admitLockedAgentInputsAndOpenTurnTx(
 		admittedInputs = append(admittedInputs, agentInput)
 		admittedEvents = append(admittedEvents, event)
 	}
+	// Inputs are now visible in this turn. Select the final channel in that
+	// same order; enqueue and replay never change the current destination.
+	for i := len(admittedInputs) - 1; i >= 0; i-- {
+		if channelID := admittedInputs[i].IntegrationTargetID; !isNilID(channelID) {
+			if err := qtx.SetAgentCurrentChannelFromInput(ctx, dbsqlc.SetAgentCurrentChannelFromInputParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ChannelID: channelID,
+			}); err != nil {
+				return AdmittedAgentInputTurn{}, fmt.Errorf("select admitted input channel: %w", err)
+			}
+			break
+		}
+	}
 	sequence, err := qtx.NextTurnSequence(
 		ctx,
 		dbsqlc.NextTurnSequenceParams{ProjectID: input.ProjectID, AgentID: input.AgentID},

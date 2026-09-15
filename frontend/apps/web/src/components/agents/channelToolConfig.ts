@@ -1,6 +1,13 @@
 import { type Document, isAlias, isMap, isNode, isScalar, type Node, visit } from 'yaml'
 
-export const legacyBindingManagedToolNames = new Set(['list_channels', 'send_channel_message'])
+// Keep catalog-independent YAML cleanup aligned with toolcatalog.IsBindingManagedTool.
+export const legacyBindingManagedToolNames = new Set([
+  'list_channels',
+  'get_channel',
+  'read_channel',
+  'set_current_channel',
+  'send_channel_message',
+])
 
 export function withoutLegacyBindingManagedTools(document: Document): Document {
   const draft = document.clone()

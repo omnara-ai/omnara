@@ -97,7 +97,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		{
 			ID:    "call_lookup_customer",
 			Name:  "lookup_customer",
-			Input: json.RawMessage(`{"email":"ada@example.com"}`),
+			Input: json.RawMessage(`{"email":"ada@example.com","omnara_channel":"business value"}`),
 		},
 		{
 			ID:    "call_lookup_customer_2",
@@ -448,6 +448,21 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	readyByProviderID := publicToolCallsByProviderID(t, readyCalls)
+	deliveryInput, err := json.Marshal(readyByProviderID["call_lookup_customer"]["input"])
+	if err != nil || string(deliveryInput) != `{"email":"ada@example.com","omnara_channel":"business value"}` {
+		t.Fatalf("custom listener input = %s err=%v, want every original business argument", deliveryInput, err)
+	}
+	storedCall, err := store.Execution().GetToolCall(ctx, project.ProjectUUID, agent.ID, calls[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedInput map[string]json.RawMessage
+	if err := json.Unmarshal(storedCall.Input, &storedInput); err != nil {
+		t.Fatal(err)
+	}
+	if string(storedInput["omnara_channel"]) != `"business value"` {
+		t.Fatalf("custom delivery rewrote recorded input: %s", storedCall.Input)
+	}
 	if len(readyByProviderID) != 4 {
 		t.Fatalf("ready custom tool calls = %+v, want four", readyByProviderID)
 	}

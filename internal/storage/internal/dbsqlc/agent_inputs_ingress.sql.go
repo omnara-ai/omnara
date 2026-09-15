@@ -13,6 +13,75 @@ import (
 	"github.com/google/uuid"
 )
 
+const getAgentInput = `-- name: GetAgentInput :one
+SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+FROM agent_inputs
+WHERE project_id = $1
+  AND agent_id = $2
+  AND id = $3
+`
+
+type GetAgentInputParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetAgentInputRow struct {
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	State                      string
+	InputRank                  int64
+	ActorID                    *uuid.UUID
+	InputKind                  string
+	IntegrationTargetID        *uuid.UUID
+	IntegrationTargetBindingID *uuid.UUID
+	IdempotencyScope           string
+	InputIdempotencyKey        string
+	QueuedAt                   time.Time
+	AdmittedEventID            *uuid.UUID
+	AdmittedAt                 *time.Time
+	CanceledAt                 *time.Time
+	DeliveryMode               string
+	ControlType                string
+	TargetInteractionID        *uuid.UUID
+	AgentConfigID              *uuid.UUID
+	ResolvedAt                 *time.Time
+	RejectedReason             string
+	Metadata                   json.RawMessage
+}
+
+func (q *Queries) GetAgentInput(ctx context.Context, arg GetAgentInputParams) (GetAgentInputRow, error) {
+	row := q.db.QueryRow(ctx, getAgentInput, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetAgentInputRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.State,
+		&i.InputRank,
+		&i.ActorID,
+		&i.InputKind,
+		&i.IntegrationTargetID,
+		&i.IntegrationTargetBindingID,
+		&i.IdempotencyScope,
+		&i.InputIdempotencyKey,
+		&i.QueuedAt,
+		&i.AdmittedEventID,
+		&i.AdmittedAt,
+		&i.CanceledAt,
+		&i.DeliveryMode,
+		&i.ControlType,
+		&i.TargetInteractionID,
+		&i.AgentConfigID,
+		&i.ResolvedAt,
+		&i.RejectedReason,
+		&i.Metadata,
+	)
+	return i, err
+}
+
 const getAgentInputByIdempotency = `-- name: GetAgentInputByIdempotency :one
 SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 FROM agent_inputs
@@ -87,6 +156,94 @@ func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentIn
 		&i.Metadata,
 	)
 	return i, err
+}
+
+const getExistingChannelInputKeys = `-- name: GetExistingChannelInputKeys :many
+SELECT input_idempotency_key::text AS input_idempotency_key
+FROM agent_inputs
+WHERE project_id = $1 AND agent_id = $2
+  AND idempotency_scope = $3::text
+  AND input_idempotency_key = ANY($4::text[])
+ORDER BY input_idempotency_key
+`
+
+type GetExistingChannelInputKeysParams struct {
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	IdempotencyScope string
+	InputKeys        []string
+}
+
+func (q *Queries) GetExistingChannelInputKeys(ctx context.Context, arg GetExistingChannelInputKeysParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getExistingChannelInputKeys,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.IdempotencyScope,
+		arg.InputKeys,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var input_idempotency_key string
+		if err := rows.Scan(&input_idempotency_key); err != nil {
+			return nil, err
+		}
+		items = append(items, input_idempotency_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getExistingChannelInputKeysForAgents = `-- name: GetExistingChannelInputKeysForAgents :many
+SELECT agent_id, input_idempotency_key::text AS input_idempotency_key
+FROM agent_inputs
+WHERE project_id = $1
+  AND agent_id = ANY($2::uuid[])
+  AND idempotency_scope = $3::text
+  AND input_idempotency_key = ANY($4::text[])
+ORDER BY agent_id, input_idempotency_key
+`
+
+type GetExistingChannelInputKeysForAgentsParams struct {
+	ProjectID        uuid.UUID
+	AgentIds         []uuid.UUID
+	IdempotencyScope string
+	InputKeys        []string
+}
+
+type GetExistingChannelInputKeysForAgentsRow struct {
+	AgentID             uuid.UUID
+	InputIdempotencyKey string
+}
+
+func (q *Queries) GetExistingChannelInputKeysForAgents(ctx context.Context, arg GetExistingChannelInputKeysForAgentsParams) ([]GetExistingChannelInputKeysForAgentsRow, error) {
+	rows, err := q.db.Query(ctx, getExistingChannelInputKeysForAgents,
+		arg.ProjectID,
+		arg.AgentIds,
+		arg.IdempotencyScope,
+		arg.InputKeys,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetExistingChannelInputKeysForAgentsRow{}
+	for rows.Next() {
+		var i GetExistingChannelInputKeysForAgentsRow
+		if err := rows.Scan(&i.AgentID, &i.InputIdempotencyKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const insertAgentInput = `-- name: InsertAgentInput :one

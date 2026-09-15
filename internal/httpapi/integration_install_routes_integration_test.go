@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
@@ -90,7 +93,7 @@ func TestListIntegrationInstalls(t *testing.T) {
 
 	first := testutil.RequireType[map[string]any](t, data[0])
 	second := testutil.RequireType[map[string]any](t, data[1])
-	if first["provider_agent_display_name"] != "Beta App" || second["provider_agent_display_name"] != "Alpha App" {
+	if first["display_name"] != "Beta App" || second["display_name"] != "Alpha App" {
 		t.Fatalf("expected newest-first ordering Beta App, Alpha App, got %+v", data)
 	}
 	wantAlphaID, err := publicid.Encode(publicid.KindIntegrationInstall, installAlpha.ID)
@@ -104,13 +107,16 @@ func TestListIntegrationInstalls(t *testing.T) {
 	if first["id"] != wantBetaID || second["id"] != wantAlphaID {
 		t.Fatalf("unexpected install ids: %+v", data)
 	}
-	if first["agent_profile_id"] != profileBetaID || second["agent_profile_id"] != profileAlphaID {
-		t.Fatalf("unexpected install profile bindings: %+v", data)
+	for _, item := range data {
+		row := testutil.RequireType[map[string]any](t, item)
+		if _, exists := row["agent_profile_id"]; exists {
+			t.Fatalf("profile ownership belongs to routes, not the connection: %+v", row)
+		}
 	}
 	if first["provider"] != integrationstore.IntegrationProviderSlack || first["state"] != "active" {
 		t.Fatalf("unexpected install provider/state: %+v", first)
 	}
-	if first["integration_kind"] != slack.IntegrationKindAgentProfile ||
+	if first["integration_kind"] != string(integrationstore.IntegrationKindManaged) ||
 		first["connection_mode"] != slack.ConnectionModeWebhook {
 		t.Fatalf("unexpected install kind/mode: %+v", first)
 	}
@@ -126,6 +132,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		"provider_identity",
 		"provider_metadata",
 		"installed_by_user_id",
+		"installed_by_org_api_key_id",
+		"installed_by",
 	} {
 		if _, ok := first[hidden]; ok {
 			t.Fatalf("install response should not expose %s: %+v", hidden, first)
@@ -284,21 +292,34 @@ func createListInstallsFixture(
 		appID+"-credentials",
 		credentialPayload,
 	)
+	app, err := project.Store.Integrations().CreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
+		OrgID: project.OrgUUID, OwnerProjectID: project.ProjectUUID, Provider: "slack", ProviderAppRef: appID,
+		DisplayName: "Slack", ConnectorKey: channelconnector.BuiltInConnectorKey,
+		State:                      integrationstore.IntegrationAppStateActive,
+		InstallationCredentialKind: string(secretstore.SecretKindSlackAppCredentials),
+	})
+	if err != nil {
+		t.Fatalf("create install app: %v", err)
+	}
 	install, err := project.Store.Integrations().UpsertIntegrationInstall(
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
-			OrgID:                    project.OrgUUID,
-			ProjectID:                project.ProjectUUID,
-			AgentProfileID:           profileID,
-			InstalledByUserID:        project.AdminUserUUID,
-			Provider:                 integrationstore.IntegrationProviderSlack,
-			IntegrationKind:          slack.IntegrationKindAgentProfile,
-			ConnectionMode:           slack.ConnectionModeWebhook,
-			State:                    integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID:         workspaceID,
-			ProviderAccountRef:       appID,
-			ProviderAgentDisplayName: displayName,
-			CredentialSecretID:       credentialSecret,
+			OrgID:            project.OrgUUID,
+			ProjectID:        project.ProjectUUID,
+			IntegrationAppID: app.ID,
+			InitialRoute: &integrationstore.CreateIntegrationRouteInput{
+				AgentProfileID: profileID, DeploymentKey: "slack", BehaviorKey: "slack_conversation",
+				State: integrationstore.IntegrationRouteStateActive,
+			},
+			InstalledBy:        identitystore.NewUserPrincipal(project.AdminUserUUID),
+			Provider:           integrationstore.IntegrationProviderSlack,
+			IntegrationKind:    integrationstore.IntegrationKindManaged,
+			ConnectionMode:     slack.ConnectionModeWebhook,
+			State:              integrationstore.IntegrationInstallStateActive,
+			ProviderTenantID:   workspaceID,
+			ProviderAccountRef: appID,
+			DisplayName:        displayName,
+			CredentialSecretID: credentialSecret,
 		},
 	)
 	if err != nil {

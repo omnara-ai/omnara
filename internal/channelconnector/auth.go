@@ -16,6 +16,9 @@ type Config struct {
 	ID           string       `json:"id"`
 	Token        string       `json:"token"`
 	Capabilities []Capability `json:"capabilities"`
+	// OperationsURL is the complete private endpoint, owned by deployment config.
+	// An empty value permits inbound authentication but provides no outbound route.
+	OperationsURL string `json:"operations_url,omitempty"`
 }
 
 type Identity struct {
@@ -97,6 +100,10 @@ func normalizeConfig(config Config) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	config.OperationsURL, err = normalizeOperationsURL(config.OperationsURL)
+	if err != nil {
+		return Config{}, err
+	}
 	return config, nil
 }
 
@@ -111,9 +118,6 @@ func NormalizeCapabilities(values []Capability) ([]Capability, error) {
 		value.Provider = strings.TrimSpace(value.Provider)
 		if !registryname.Valid(value.ConnectorKey) || !registryname.Valid(value.Provider) {
 			return nil, errors.New("capabilities must contain lowercase registry names")
-		}
-		if strings.HasPrefix(value.ConnectorKey, "native_") {
-			return nil, errors.New("native connector keys cannot be delegated")
 		}
 		key := value.ConnectorKey + "\x00" + value.Provider
 		if _, exists := seen[key]; exists {

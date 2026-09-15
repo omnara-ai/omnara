@@ -1115,7 +1115,6 @@ func TestValidateWorkerRequiresPublicURLOutsideDev(t *testing.T) {
 func TestValidateMaintenanceDoesNotRequireProjectOrModel(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_MAINTENANCE_INTERVAL", "2s")
-	t.Setenv("OMNARA_INTEGRATION_DELIVERY_RETENTION", "168h")
 
 	cfg, err := Load()
 	if err != nil {
@@ -1126,9 +1125,6 @@ func TestValidateMaintenanceDoesNotRequireProjectOrModel(t *testing.T) {
 	}
 	if cfg.MaintenanceInterval != 2*time.Second {
 		t.Fatalf("expected maintenance interval from env, got %s", cfg.MaintenanceInterval)
-	}
-	if cfg.IntegrationDeliveryRetention != 7*24*time.Hour {
-		t.Fatalf("expected integration delivery retention from env, got %s", cfg.IntegrationDeliveryRetention)
 	}
 }
 

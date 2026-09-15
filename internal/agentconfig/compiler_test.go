@@ -177,27 +177,23 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 }
 
-func TestIntegrationSendPermissionIsAlwaysAllowOnly(t *testing.T) {
+func TestChannelSendPermissionIsAlwaysAllowOnly(t *testing.T) {
+	t.Parallel()
 	catalog, err := toolcatalog.Default()
-	if err != nil {
-		t.Fatalf("default tool catalog: %v", err)
-	}
-	entry, ok := catalog.Lookup("send_integration_message")
-	if !ok {
-		t.Fatal("send_integration_message catalog entry missing")
-	}
-	if len(entry.PermissionModes) != 1 ||
-		entry.PermissionModes[0].Name != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("send_integration_message permission modes = %+v", entry.PermissionModes)
-	}
-	_, err = Compile(SourceFormatYAML, []byte(validAgentSource(`
-tools:
-  send_integration_message:
-    permission:
-      mode: always_ask
-`)), CompileOptions{})
-	if err == nil {
-		t.Fatal("expected always_ask send_integration_message permission to be rejected")
+	require.NoError(t, err)
+	entry, ok := catalog.Lookup(toolcatalog.ToolNameSendChannelMessage)
+	require.True(t, ok, "send_channel_message catalog entry is required")
+	require.Len(t, entry.PermissionModes, 1)
+	require.Equal(t, toolpermission.ModeAlwaysAllow, entry.PermissionModes[0].Name)
+	// Channel grants control exposure; even an allowed permission mode does not
+	// turn this into a configurable profile tool.
+	for _, mode := range []string{"always_allow", "always_ask"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			source := fmt.Sprintf("tools:\n  send_channel_message:\n    permission:\n      mode: %s\n", mode)
+			_, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
+			require.ErrorContains(t, err, "managed by live channel bindings")
+		})
 	}
 }
 
@@ -1562,6 +1558,9 @@ tools:
 func TestCompileYAMLRejectsBindingManagedTools(t *testing.T) {
 	for _, name := range []string{
 		toolcatalog.ToolNameListChannels,
+		toolcatalog.ToolNameGetChannel,
+		toolcatalog.ToolNameReadChannel,
+		toolcatalog.ToolNameSetCurrentChannel,
 		toolcatalog.ToolNameSendChannelMessage,
 	} {
 		for _, enabled := range []bool{true, false} {
@@ -1576,7 +1575,7 @@ func TestCompileYAMLRejectsBindingManagedTools(t *testing.T) {
 	}
 }
 
-func TestRuntimeContractIgnoresLegacyConfiguredBindingManagedTools(t *testing.T) {
+func TestRuntimeContractRejectsConfiguredBindingManagedTools(t *testing.T) {
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
   run_command: {}
@@ -1587,6 +1586,9 @@ tools:
 
 	for _, name := range []string{
 		toolcatalog.ToolNameListChannels,
+		toolcatalog.ToolNameGetChannel,
+		toolcatalog.ToolNameReadChannel,
+		toolcatalog.ToolNameSetCurrentChannel,
 		toolcatalog.ToolNameSendChannelMessage,
 	} {
 		for _, enabled := range []bool{true, false} {
@@ -1599,30 +1601,36 @@ tools:
 				if !ok {
 					t.Fatalf("compiled tools shape = %#v", body["tools"])
 				}
-				legacyTool, ok := tools[toolcatalog.ToolNameRunCommand].(map[string]any)
+				configuredTool, ok := tools[toolcatalog.ToolNameRunCommand].(map[string]any)
 				if !ok {
 					t.Fatalf("compiled tool shape = %#v", tools[toolcatalog.ToolNameRunCommand])
 				}
-				legacyTool["enabled"] = enabled
-				tools[name] = legacyTool
+				configuredTool["enabled"] = enabled
+				tools[name] = configuredTool
 				delete(tools, toolcatalog.ToolNameRunCommand)
 				raw, err := json.Marshal(body)
 				if err != nil {
 					t.Fatalf("marshal mutated compiled config: %v", err)
 				}
 				contract, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw))
-				if err != nil {
-					t.Fatalf("runtime contract: %v", err)
+				if err == nil || !strings.Contains(err.Error(), "managed by live channel bindings") {
+					t.Fatalf("runtime error = %v, want binding-managed tool rejection", err)
 				}
 				if len(contract.Tools) != 0 {
-					t.Fatalf("legacy binding-managed tools = %+v, want ignored", contract.Tools)
+					t.Fatalf("invalid compiled declaration produced tools: %+v", contract.Tools)
 				}
-				contract, err = contract.WithImplicitBuiltInTool(name)
+				_, err = RuntimeContractFromCompiled(raw, CompilerVersion, compiled.Hash)
+				if err == nil || !strings.Contains(err.Error(), "definition hash mismatch") {
+					t.Fatalf("runtime error = %v, want hash checked before tool declarations", err)
+				}
+				configuredTool["type"] = toolcatalog.ToolTypeCustom
+				raw, err = json.Marshal(body)
 				if err != nil {
-					t.Fatalf("inject binding-managed tool: %v", err)
+					t.Fatalf("marshal custom declaration: %v", err)
 				}
-				if len(contract.Tools) != 1 || contract.Tools[0].Name != name {
-					t.Fatalf("implicit binding-managed tools = %+v", contract.Tools)
+				_, err = RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw))
+				if err == nil || !strings.Contains(err.Error(), "managed by live channel bindings") {
+					t.Fatalf("runtime error = %v, want custom declaration rejected too", err)
 				}
 			})
 		}

@@ -8,19 +8,24 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:journey": "esbuild src/testdata/slack-journey.ts --bundle --platform=node --format=cjs --target=node24 --outfile=../../../.local/channel-gateway/slack-journey.cjs",
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@chat-adapter/slack": "4.39.0",
+    "@fastify/busboy": "3.2.2",
     "@hono/node-server": "2.1.1",
     "chat": "4.39.0",
     "hono": "4.13.7",
-    "redis": "5.11.0"
+    "redis": "5.11.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@omnara/sdk": "workspace:*",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
     "tsup": "^8.5.1",
     "typescript": "^5.6.0",
     "vitest": "4.1.9"

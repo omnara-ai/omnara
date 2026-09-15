@@ -255,26 +255,35 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameSendIntegrationMessage,
-			semanticInputValidator: validateIntegrationMessageInput,
-			handler:                toolHandler{Async: runIntegrationMessageAsync},
-			permissionModes:        alwaysAllowPermissionModeHandlers(),
-		},
-		{
-			name:                   toolcatalog.ToolNameSetIntegrationTarget,
-			semanticInputValidator: validateIntegrationTargetInput,
-			handler:                toolHandler{Transactional: setIntegrationTarget},
-			permissionModes: commonPermissionModeHandlers(
-				setIntegrationTargetPermissionChallenge,
-			),
+			name: toolcatalog.ToolNameSetCurrentChannel,
+			semanticInputValidator: func(input json.RawMessage) error {
+				_, err := parseSetCurrentChannelRequest(input)
+				return err
+			},
+			handler:         toolHandler{Transactional: setCurrentChannel},
+			permissionModes: alwaysAllowPermissionModeHandlers(),
 		},
 		{
 			name: toolcatalog.ToolNameSendChannelMessage,
 			semanticInputValidator: func(input json.RawMessage) error {
-				_, err := resolveChannelMessageRequest(input)
+				_, err := parseSendChannelMessageRequest(input)
 				return err
 			},
-			handler:         toolHandler{Async: runChannelMessageAsync},
+			handler:         toolHandler{Transactional: prepareChannelSend, Async: runManagedChannelSendAsync},
+			permissionModes: alwaysAllowPermissionModeHandlers(),
+		},
+		{
+			name:            toolcatalog.ToolNameReadChannel,
+			handler:         toolHandler{Transactional: prepareChannelRead, Async: runManagedChannelReadAsync},
+			permissionModes: alwaysAllowPermissionModeHandlers(),
+		},
+		{
+			name: toolcatalog.ToolNameGetChannel,
+			semanticInputValidator: func(input json.RawMessage) error {
+				_, err := parseGetChannelRequest(input)
+				return err
+			},
+			handler:         toolHandler{Transactional: getChannel},
 			permissionModes: alwaysAllowPermissionModeHandlers(),
 		},
 		{

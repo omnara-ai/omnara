@@ -474,6 +474,11 @@ describe('createBasicConfigSession apply', () => {
     const source = `${minimalYaml}tools:
   ask_question: {}
   list_channels: {}
+  get_channel: {}
+  set_current_channel:
+    permission:
+      mode: always_ask
+  read_channel: {}
   send_channel_message:
     enabled: false
 `
@@ -487,8 +492,18 @@ describe('createBasicConfigSession apply', () => {
       instruction: 'Updated instruction.',
       tools: { ask_question: {} },
     })
-    expect(updated).not.toContain('list_channels')
-    expect(updated).not.toContain('send_channel_message')
+    expect(parse(updated)).toHaveProperty('tools', { ask_question: {} })
+  })
+
+  it.each([
+    'list_channels',
+    'get_channel',
+    'set_current_channel',
+    'send_channel_message',
+    'read_channel',
+  ])('omits binding-managed tool %s supplied in a builder draft', (name) => {
+    const draft = { ...mustDeserialize(minimalYaml), tools: [{ name, permission: null }] }
+    expect(parse(applyToSource(minimalYaml, draft))).not.toHaveProperty('tools')
   })
 
   it('preserves a user-authored empty tools map on an unrelated edit', () => {

@@ -117,9 +117,6 @@ func RuntimeContractFromCompiled(
 	}
 	configuredTools := make(map[string]struct{}, len(compiled.Tools))
 	for name := range compiled.Tools {
-		if toolcatalog.IsBindingManagedTool(name) {
-			continue
-		}
 		configuredTools[name] = struct{}{}
 	}
 	contract := RuntimeContract{
@@ -163,12 +160,6 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 	sort.Strings(names)
 	out := make([]RuntimeTool, 0, len(names))
 	for _, name := range names {
-		// Older compiler instances could persist these catalog entries before
-		// binding-managed tools became non-configurable. Ignore that legacy
-		// artifact so current live bindings remain their only authority.
-		if toolcatalog.IsBindingManagedTool(name) {
-			continue
-		}
 		tool := compiled[name]
 		entry, builtInName := catalog.Lookup(name)
 		if err := validateRuntimeTool(name, tool, entry, builtInName); err != nil {
@@ -214,6 +205,9 @@ func validateRuntimeTool(
 	entry toolcatalog.Entry,
 	builtInName bool,
 ) error {
+	if toolcatalog.IsBindingManagedTool(name) {
+		return fmt.Errorf("compiled tool %q is managed by live channel bindings and cannot be configured", name)
+	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
 		if toolcatalog.UsesMCPRuntimeNamespace(name) {
 			return fmt.Errorf("compiled custom tool %q uses the reserved MCP tool namespace", name)

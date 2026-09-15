@@ -302,17 +302,21 @@ func channelConnectorInstallationConfigurationResponse(
 	if err != nil {
 		return openapi.ChannelConnectorInstallationConfiguration{}, err
 	}
+	projectID, err := publicID(publicid.KindProject, install.ProjectID)
+	if err != nil {
+		return openapi.ChannelConnectorInstallationConfiguration{}, err
+	}
 	return openapi.ChannelConnectorInstallationConfiguration{
 		IntegrationAppId: publicAppID, AppConfigurationRevision: app.ConfigurationRevision,
 		Install: openapi.ChannelConnectorInstall{
-			Id: installID, ProviderTenantId: install.ProviderTenantID,
-			ProviderAccountRef:       install.ProviderAccountRef,
-			ProviderAgentDisplayName: install.ProviderAgentDisplayName,
-			ProviderConfig:           install.ProviderConfig,
-			ProviderIdentity:         install.ProviderIdentity,
-			ProviderMetadata:         install.ProviderMetadata,
-			ConfigurationRevision:    install.ConfigurationRevision,
-			UpdatedAt:                install.UpdatedAt,
+			Id: installID, ProjectId: projectID, ProviderTenantId: ptrFromNonEmpty(install.ProviderTenantID),
+			ProviderAccountRef:    install.ProviderAccountRef,
+			DisplayName:           install.DisplayName,
+			ProviderConfig:        install.ProviderConfig,
+			ProviderIdentity:      install.ProviderIdentity,
+			Metadata:              install.Metadata,
+			ConfigurationRevision: install.ConfigurationRevision,
+			UpdatedAt:             install.UpdatedAt,
 		},
 		Credential: credential,
 	}, nil

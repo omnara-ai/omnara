@@ -5,15 +5,15 @@ import { getRequestListener, type HttpBindings, RequestError } from '@hono/node-
 import { type Context, Hono } from 'hono'
 
 import type { AppRuntimeRegistry, RuntimeHandle } from './app-registry'
-import { isCoreNotFoundError } from './core-client'
+import { abortError, raceWithAbort } from './async'
+import { isCoreNotFoundError } from './core-http'
 import { errorMessage, isString } from './diagnostics'
+import { OperationsHandler, type OperationsOptions, operationsRoute } from './operations'
 import {
-  abortError,
   BackgroundTaskTracker,
   BodyTooLargeError,
   declaredBodyExceedsLimit,
   providerResponseHeaders,
-  raceWithAbort,
   readBody,
   readProviderResponseBody,
 } from './server-support'
@@ -35,9 +35,10 @@ export interface GatewayServerOptions {
   isReady?: () => boolean | Promise<boolean>
   logger: GatewayLogger
   maxConcurrentRequests: number
+  operations?: Omit<OperationsOptions, 'workBudget' | 'logger'>
   port: number
   publicUrl: string
-  registry: Pick<AppRuntimeRegistry, 'acquire'>
+  registry?: Pick<AppRuntimeRegistry, 'acquire'>
   workBudget: WorkByteBudget
 }
 
@@ -47,8 +48,17 @@ export class GatewayServer {
   private rejectedRequests = 0
   private requestCount = 0
   private server?: Server
+  private readonly operations?: OperationsHandler
 
-  constructor(private readonly options: GatewayServerOptions) {}
+  constructor(private readonly options: GatewayServerOptions) {
+    if (options.operations) {
+      this.operations = new OperationsHandler({
+        ...options.operations,
+        logger: options.logger,
+        workBudget: options.workBudget,
+      })
+    }
+  }
 
   async listen(): Promise<number> {
     if (this.server) throw new Error('channel gateway server is already listening')
@@ -77,7 +87,10 @@ export class GatewayServer {
       void listener(request, response)
     })
     server.headersTimeout = this.options.handlerTimeoutMs
-    server.requestTimeout = this.options.handlerTimeoutMs
+    server.requestTimeout = Math.max(
+      this.options.handlerTimeoutMs,
+      this.options.operations?.maxDurationMs ?? 0,
+    )
     server.keepAliveTimeout = Math.min(this.options.handlerTimeoutMs, 5_000)
     server.maxConnections = this.options.maxConcurrentRequests + 16
     server.maxRequestsPerSocket = 1_000
@@ -98,9 +111,13 @@ export class GatewayServer {
   }
 
   async close(): Promise<void> {
+    const operationsClosed = this.operations?.close()
     const server = this.server
     this.server = undefined
-    if (!server) return
+    if (!server) {
+      await operationsClosed
+      return
+    }
     const closed = new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) reject(error)
@@ -108,7 +125,7 @@ export class GatewayServer {
       })
     })
     const requests = Promise.allSettled(this.activeRequests.values())
-    const completed = Promise.all([closed, requests]).then(() => true)
+    const completed = Promise.all([closed, requests, operationsClosed]).then(() => true)
     let shutdownTimer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<false>((resolve) => {
       shutdownTimer = setTimeout(() => {
@@ -161,6 +178,11 @@ export class GatewayServer {
         'content-type': 'text/plain; version=0.0.4; charset=utf-8',
       }),
     )
+    app.all(operationsRoute, (context) => {
+      if (!this.operations) return context.text('not found', 404)
+      if (context.req.method !== 'POST') return context.text('method not allowed', 405)
+      return this.operations.handle(context.env.incoming, context.env.outgoing)
+    })
     app.all(webhookRoute, (context) =>
       this.handleWebhook(
         context,
@@ -181,6 +203,8 @@ export class GatewayServer {
     integrationAppId: string,
     provider: string,
   ): Promise<Response> {
+    const registry = this.options.registry
+    if (!registry) return context.text('not found', 404)
     const { incoming } = context.env
     this.requestCount += 1
     if (this.activeRequests.size >= this.options.maxConcurrentRequests) {
@@ -227,7 +251,7 @@ export class GatewayServer {
       if (declaredBodyExceedsLimit(incoming, this.options.bodyLimitBytes)) {
         throw new BodyTooLargeError()
       }
-      const acquisition = this.options.registry.acquire(integrationAppId)
+      const acquisition = registry.acquire(integrationAppId)
       try {
         handle = await raceWithAbort(acquisition, signal)
       } catch (error) {
