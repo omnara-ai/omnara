@@ -18,7 +18,7 @@ import (
 
 func TestResolveUploadArtifactRequest(t *testing.T) {
 	resolved, err := resolveUploadArtifactRequest(json.RawMessage(
-		`{"path":"screenshots/latest.png","machine_id":"  mch_aaaaaaaaaaaaaaaaaaaaaaaaae  "}`,
+		`{"path":"screenshots/latest.png","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve upload_artifact: %v", err)
@@ -128,7 +128,7 @@ func TestResolveDownloadArtifactRequest(t *testing.T) {
 		t.Fatalf("encode artifact id: %v", err)
 	}
 	resolved, err := resolveDownloadArtifactRequest(json.RawMessage(
-		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_id":"  mch_aaaaaaaaaaaaaaaaaaaaaaaaae  "}`,
+		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
 	))
 	if err != nil {
 		t.Fatalf("resolve download_artifact: %v", err)

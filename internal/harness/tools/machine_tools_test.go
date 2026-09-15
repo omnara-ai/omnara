@@ -7,12 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func TestMachineToolInputValidation(t *testing.T) {
@@ -314,7 +312,7 @@ func machinePublicIDForTest(t *testing.T, id storage.ID) string {
 	return value
 }
 
-func TestMachineToolsRequirePublicMachineIDs(t *testing.T) {
+func TestMachineToolsRequireCanonicalPublicMachineIDs(t *testing.T) {
 	id := integrationToolTestID("public-machine")
 	publicID := machinePublicIDForTest(t, id)
 	for _, tc := range []struct{ name, input string }{
@@ -327,48 +325,17 @@ func TestMachineToolsRequirePublicMachineIDs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, value := range []string{
 				publicID, "  " + publicID + "  ", id.String(), "mchr-abc234", "agt_aaaaaaaaaaaaaaaaaaaaaaaaae",
+				"", " ", "mch_AAAAAAAAAAAAAAAAAAAAAAAAAE", "mch_aaaaaaaaaaaaaaaaaaaaaaaaaf",
 			} {
 				input := json.RawMessage(fmt.Sprintf(tc.input, "machine_id", value))
 				err := validateRegisteredToolInput(tc.name, input)
-				if (err == nil) != (strings.TrimSpace(value) == publicID) {
+				if (err == nil) != (value == publicID) {
 					t.Fatalf("machine_id %q: unexpected validation result: %v", value, err)
 				}
 			}
 			input := json.RawMessage(fmt.Sprintf(tc.input, "machine_ref", "mchr-abc234"))
 			if err := validateRegisteredToolInput(tc.name, input); err == nil {
 				t.Fatal("legacy machine_ref was accepted")
-			}
-		})
-	}
-}
-
-func TestInspectMachinePermissionUsesCanonicalMachineID(t *testing.T) {
-	selection := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
-	descriptor, ok := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), selection.Mode)
-	if !ok {
-		t.Fatal("always_ask descriptor missing")
-	}
-	want := json.RawMessage(`{"mode":"inspect","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)
-	for _, machineID := range []string{
-		"mch_aaaaaaaaaaaaaaaaaaaaaaaaae",
-		"  mch_aaaaaaaaaaaaaaaaaaaaaaaaae  ",
-		"mch_AAAAAAAAAAAAAAAAAAAAAAAAAE",
-		"mch_aaaaaaaaaaaaaaaaaaaaaaaaaf",
-	} {
-		t.Run(machineID, func(t *testing.T) {
-			call := model.ToolCall{
-				Name:  "inspect_machine",
-				Input: json.RawMessage(fmt.Sprintf(`{"machine_id":%q}`, machineID)),
-			}
-			request, err := inspectMachinePermissionChallenge(
-				t.Context(), Executor{}, Turn{}, call,
-				permissionModeContext{selection: selection, descriptor: descriptor},
-			)
-			if err != nil {
-				t.Fatalf("prepare inspect permission: %v", err)
-			}
-			if !jsoncanonical.Equal(request.Authorization.Input, want) {
-				t.Fatalf("inspection authorization = %s, want %s", request.Authorization.Input, want)
 			}
 		})
 	}

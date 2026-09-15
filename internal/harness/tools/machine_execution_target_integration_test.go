@@ -1368,7 +1368,7 @@ func TestMissedMachineBackgroundProvisioningCanBeReconciled(t *testing.T) {
 	}
 }
 
-func TestApprovedPaddedMachineDeletionCanBeReconciled(t *testing.T) {
+func TestApprovedMachineDeletionCanBeReconciled(t *testing.T) {
 	ctx := context.Background()
 	fixture := newMachineDispatchFixture(t, ctx, "runtime-interruption")
 	pool := fixture.Pool
@@ -1439,7 +1439,7 @@ func TestApprovedPaddedMachineDeletionCanBeReconciled(t *testing.T) {
 	call := model.ToolCall{
 		ID:    "call_delete_replay",
 		Name:  "delete_machine",
-		Input: json.RawMessage(`{"machine_id":"  ` + machinePublicIDForTest(t, created.Machine.Binding.MachineID) + `  "}`),
+		Input: json.RawMessage(`{"machine_id":"` + machinePublicIDForTest(t, created.Machine.Binding.MachineID) + `"}`),
 	}
 	providerResponse, err := model.NewResponseEnvelopeForStorage(
 		"tools-test",

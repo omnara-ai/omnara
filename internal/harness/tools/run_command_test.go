@@ -87,20 +87,6 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			waitMs:   processaction.MaxWaitMilliseconds,
 			ioMode:   "pipe",
 		},
-		{
-			name:     "blank machine ID",
-			input:    json.RawMessage(`{"command":"echo ok","machine_id":""}`),
-			command:  "echo ok",
-			selector: "default",
-			ioMode:   "pipe",
-		},
-		{
-			name:     "space padded machine ID",
-			input:    json.RawMessage(`{"command":"echo ok","machine_id":" "}`),
-			command:  "echo ok",
-			selector: "default",
-			ioMode:   "pipe",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
