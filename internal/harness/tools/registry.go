@@ -248,11 +248,8 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameSpawnAgent,
 			semanticInputValidator: validateSpawnAgentInput,
-			handler: toolHandler{
-				Transactional: spawnAgent,
-				Background:    provisionSubagentMachinesInBackground,
-			},
-			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+			handler:                toolHandler{Transactional: spawnAgent},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameReadAgent,

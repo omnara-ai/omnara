@@ -70,7 +70,7 @@ func workerTestKeyWrapper(t *testing.T) secrets.KeyWrapper {
 	return wrapper
 }
 
-func workerControlBus(t *testing.T) (*notifications.RedisBus, *notifications.RoutedPublisher) {
+func workerControlBus(t *testing.T, pool *pgxpool.Pool) (*notifications.RedisBus, *notifications.RoutedPublisher) {
 	t.Helper()
 	redisClient := integrationredis.OpenClient(t)
 	bus, err := notifications.NewRedisBus(redisClient, nil)
@@ -85,7 +85,8 @@ func workerControlBus(t *testing.T) (*notifications.RedisBus, *notifications.Rou
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,
@@ -362,7 +363,7 @@ func TestWorkerCancelControlCancelsActiveTurnAndDeletesWakeup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pool := openWorkerIntegrationDB(t, ctx)
-	bus, publisher := workerControlBus(t)
+	bus, publisher := workerControlBus(t, pool)
 	store := storage.NewStore(
 		pool,
 		storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)),
@@ -501,7 +502,7 @@ func TestWorkerConcurrentRuntimesShareRouteAndCancelIndependently(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pool := openWorkerIntegrationDB(t, ctx)
-	bus, publisher := workerControlBus(t)
+	bus, publisher := workerControlBus(t, pool)
 	store := storage.NewStore(
 		pool,
 		storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)),
@@ -659,7 +660,7 @@ func TestWorkerRunContinuesAfterUnexpectedTurnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pool := openWorkerIntegrationDB(t, ctx)
-	bus, _ := workerControlBus(t)
+	bus, _ := workerControlBus(t, pool)
 	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
 	now := time.Date(2026, 5, 16, 20, 3, 0, 0, time.UTC)
 	agentID, userID := createWorkerAgentWithUser(t, ctx, store, now)
@@ -775,7 +776,7 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pool := openWorkerIntegrationDB(t, ctx)
-	bus, publisher := workerControlBus(t)
+	bus, publisher := workerControlBus(t, pool)
 	store := storage.NewStore(
 		pool,
 		storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)),

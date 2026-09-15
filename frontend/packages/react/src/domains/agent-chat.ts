@@ -4,7 +4,7 @@ import {
   type AgentInput,
   type OmnaraClient,
 } from '@omnara/sdk'
-import { getAgentOptions } from '@omnara/sdk/tanstack'
+import { getAgentOptions, getAgentQueryKey } from '@omnara/sdk/tanstack'
 import {
   type InfiniteData,
   type QueryClient,
@@ -17,7 +17,6 @@ import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
 import { agentChatHistoryQueryKey, useAgentChatHistory } from './agent-chat-history'
 import {
-  hasToolCalls,
   isControlEvent,
   isTerminalEvent,
   type ModelOutputDelta,
@@ -26,6 +25,11 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import {
+  invalidateAgentChange,
+  invalidateAgentChildList,
+  refreshAgentQuery,
+} from './agent-chat-notifications'
 import {
   createAgentChatInput,
   isDefiniteSendFailure,
@@ -336,16 +340,14 @@ export class AgentChatSession {
     if (isTerminalEvent(event)) {
       this.deltas = this.deltas.filter((delta) => delta.turn_id !== event.turn_id)
     }
-    if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
+    if (isControlEvent(event)) {
       this.invalidateInteractions()
     }
     this.notify()
   }
 
   private invalidateInteractions(): void {
-    void this.queryClient.invalidateQueries({
-      queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
-    })
+    refreshAgentQuery(this.queryClient, openAgentInteractionsQueryKey(this.client, this.scope))
   }
 
   private handleDelta(delta: ModelOutputDelta): void {
@@ -378,7 +380,9 @@ export class AgentChatSession {
       this.notify()
       return
     }
-    if (state.reconnected) this.invalidateInteractions()
+    refreshAgentQuery(this.queryClient, getAgentQueryKey({ client: this.client, path: this.scope }))
+    this.invalidateInteractions()
+    invalidateAgentChildList(this.queryClient, this.client, this.scope)
   }
 
   disconnect = (): void => {
@@ -407,9 +411,23 @@ export class AgentChatSession {
       })
       for await (const data of stream) {
         const parsed = parseStreamData(data)
-        if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
-        else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else this.invalidateInteractions()
+        switch (parsed.kind) {
+          case 'delta':
+            this.handleDelta(parsed.delta)
+            break
+          case 'event':
+            this.handleEvent(parsed.event)
+            break
+          case 'agent_change':
+            invalidateAgentChange(this.queryClient, this.client, this.scope, parsed.change)
+            break
+          case 'tool_call_update':
+            break
+          default: {
+            const unhandled: never = parsed
+            throw new Error(`Unhandled agent stream frame: ${JSON.stringify(unhandled)}`)
+          }
+        }
       }
     } catch (error) {
       if (signal.aborted) return

@@ -1692,7 +1692,7 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for all tools on the streamed agent and custom tools on every descendant. Query the tool-call list with `include_subagents` for the current rows. Interaction changes use `agent_change` independently of tool-call states.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
@@ -1701,6 +1701,15 @@ export type ToolCallUpdate = {
      */
     agent_id?: AgentId;
     state: ToolCallState;
+};
+
+/**
+ * Best-effort notification to refetch current agent details or interactions. Sent as `agent_change` without an SSE id. Agent changes reach the owner and its direct parent; interaction changes reach the owner and all ancestors. IDs always identify the changed agent and its actual direct parent, even when received by a more distant ancestor. Refetch only child lists filtered by this parent_agent_id. Reconnect or manual GET refresh recovers updates missed while disconnected.
+ */
+export type AgentChange = {
+    agent_id: AgentId;
+    parent_agent_id: AgentId | null;
+    changes: Array<'agent' | 'interactions'>;
 };
 
 export type ListToolCallsResponse = {
@@ -1954,9 +1963,9 @@ export type ModelOutputDelta = {
 };
 
 /**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, agent change, model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
  */
-export type AgentEventStreamData = AgentEvent | ToolCallUpdate | ModelOutputDelta | Error;
+export type AgentEventStreamData = AgentEvent | ToolCallUpdate | AgentChange | ModelOutputDelta | Error;
 
 export type ListAgentEventsResponse = {
     data: Array<AgentEvent>;
@@ -9352,7 +9361,7 @@ export type StreamEventsError = StreamEventsErrors[keyof StreamEventsErrors];
 
 export type StreamEventsResponses = {
     /**
-     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`: all tools on this agent and custom tools on descendants. Changes to agent details and interaction lists use `agent_change`. Agent changes cover this agent and direct children; interaction changes also cover deeper descendants. Refetch the matching list/detail endpoints for current state. Model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload. Best-effort updates are not replayed; refetch child lists and interactions on reconnect or manual refresh to recover current state. Descendant text, durable events, and model previews are not forwarded.
      */
     200: AgentEventStreamData;
 };

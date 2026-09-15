@@ -180,11 +180,5 @@ func TestStopAgentInBackgroundDeletesReleasedMachines(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "command result") {
 		t.Fatalf("stop agent background with a missing command result: err = %v, want a wiring error", err)
 	}
-	err = provisionSubagentMachinesInBackground(context.Background(), backgroundToolContext{
-		Executor:      Executor{MachinePoolManager: manager},
-		CommandResult: machines,
-	})
-	if err == nil || !strings.Contains(err.Error(), "command result") {
-		t.Fatalf("spawn agent background with a wrong command result: err = %v, want a wiring error", err)
-	}
+
 }

@@ -280,7 +280,7 @@ func newIntegrationServerWithStoreOptions(
 		[]Option{
 			WithSecretKeyWrapper(keyWrapper),
 			WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-			WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+			WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 			WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 			WithModelDiscoverer(func(
 				context.Context,
@@ -341,7 +341,7 @@ func mustNewServer(t testing.TB, store *storage.Store, opts ...Option) *Server {
 	serverOpts := append(
 		[]Option{
 			WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-			WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+			WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 			WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		},
 		opts...,

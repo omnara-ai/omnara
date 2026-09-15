@@ -226,7 +226,7 @@ func (s *Store) MarkToolCallReady(
 		return ToolCallRecord{}, fmt.Errorf("mark tool call ready: %w", err)
 	}
 	record := toolCallRecordFromReadySQLC(row)
-	txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State))
+	txNotifications.AddToolCallUpdate(record.ProjectID, record.AgentID, record.ID, record.Type, string(record.State))
 	if err := s.commitTxWithNotifications(
 		ctx,
 		tx,
@@ -257,7 +257,7 @@ func (s *Store) ReleaseToolCallRuntimeOwnership(
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	changed, err := qtx.ReleaseToolCallRuntimeOwnership(
+	toolType, err := qtx.ReleaseToolCallRuntimeOwnership(
 		ctx,
 		dbsqlc.ReleaseToolCallRuntimeOwnershipParams{
 			ProjectID:     input.ProjectID,
@@ -266,10 +266,10 @@ func (s *Store) ReleaseToolCallRuntimeOwnership(
 			RuntimeLockID: input.RuntimeLockID,
 		},
 	)
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("release tool call runtime ownership: %w", err)
 	}
-	if changed == 0 {
+	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err := qtx.GetToolCallDispatchState(
 			ctx,
 			dbsqlc.GetToolCallDispatchStateParams{
@@ -293,8 +293,10 @@ func (s *Store) ReleaseToolCallRuntimeOwnership(
 		}
 	} else {
 		txNotifications.AddToolCallUpdate(
+			input.ProjectID,
 			input.AgentID,
 			input.ToolCallID,
+			toolType,
 			string(ToolCallStateWaiting),
 		)
 	}
@@ -328,7 +330,7 @@ func (s *Store) RequeueRuntimeToolCall(
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	changed, err := qtx.RequeueRuntimeToolCall(
+	toolType, err := qtx.RequeueRuntimeToolCall(
 		ctx,
 		dbsqlc.RequeueRuntimeToolCallParams{
 			ProjectID:     input.ProjectID,
@@ -337,10 +339,10 @@ func (s *Store) RequeueRuntimeToolCall(
 			RuntimeLockID: input.RuntimeLockID,
 		},
 	)
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("requeue runtime tool call: %w", err)
 	}
-	if changed == 0 {
+	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err := qtx.GetToolCallDispatchState(
 			ctx,
 			dbsqlc.GetToolCallDispatchStateParams{
@@ -358,8 +360,10 @@ func (s *Store) RequeueRuntimeToolCall(
 		}
 	} else {
 		txNotifications.AddToolCallUpdate(
+			input.ProjectID,
 			input.AgentID,
 			input.ToolCallID,
+			toolType,
 			string(ToolCallStateReady),
 		)
 	}

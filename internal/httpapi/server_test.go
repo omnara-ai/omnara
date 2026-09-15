@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -68,7 +69,7 @@ func mustNewUnitServer(t *testing.T, opts ...Option) *Server {
 	serverOpts := append(
 		[]Option{
 			WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-			WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+			WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 			WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		},
 		opts...,
@@ -117,7 +118,7 @@ func TestNewRejectsIncompleteDaemonNotificationConfiguration(t *testing.T) {
 				slog.New(slog.NewTextHandler(io.Discard, nil)),
 				tc.store,
 				WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-				WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+				WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 				WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 				tc.option,
 			)
@@ -315,7 +316,7 @@ func TestWithTrustedProxyCIDRsLogsInvalidCIDR(t *testing.T) {
 		log,
 		nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 		WithTrustedProxyCIDRs([]string{"10.0.0.0/24", "not-a-cidr"}),
 	)
@@ -2164,5 +2165,58 @@ func assertNoJSONField(t *testing.T, value any, field string) {
 	}
 	if _, ok := fields[field]; ok {
 		t.Fatalf("field %q must not be present in %s", field, body)
+	}
+}
+
+func TestWriteAgentChangeFramePreservesSourceAndNullableParentWithoutCursor(t *testing.T) {
+	owner, parent := uuid.New(), uuid.New()
+	for _, parentID := range []*uuid.UUID{nil, &parent} {
+		rec := httptest.NewRecorder()
+		if !writeAgentUpdateFrame(rec, notifications.AgentUpdate{Change: &notifications.AgentChangeCommitted{
+			AgentID:       owner,
+			ParentAgentID: parentID,
+			Changes: []notifications.AgentChangeKind{
+				notifications.AgentChangeAgent,
+				notifications.AgentChangeInteractions,
+			},
+		}}) {
+			t.Fatal("write agent change failed")
+		}
+		body := rec.Body.String()
+		if !strings.HasPrefix(body, "event: agent_change\ndata: ") || strings.Contains(body, "\nid: ") {
+			t.Fatalf("invalid best-effort frame: %q", body)
+		}
+		var data map[string]any
+		payload := strings.TrimSpace(strings.TrimPrefix(body, "event: agent_change\ndata: "))
+		if err := json.Unmarshal([]byte(payload), &data); err != nil {
+			t.Fatal(err)
+		}
+		ownerPublicID, err := publicid.Encode(publicid.KindAgent, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if data["agent_id"] != ownerPublicID {
+			t.Fatalf("source owner changed: %+v", data)
+		}
+		value, present := data["parent_agent_id"]
+		if !present {
+			t.Fatalf("missing nullable parent: %+v", data)
+		}
+		if parentID == nil {
+			if value != nil {
+				t.Fatalf("root parent=%v, want null", value)
+			}
+		} else {
+			parentPublicID, err := publicid.Encode(publicid.KindAgent, *parentID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value != parentPublicID {
+				t.Fatalf("parent=%v, want %s", value, parentPublicID)
+			}
+		}
+		if !reflect.DeepEqual(data["changes"], []any{"agent", "interactions"}) {
+			t.Fatalf("changes=%v", data["changes"])
+		}
 	}
 }

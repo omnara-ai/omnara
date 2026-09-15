@@ -102,9 +102,10 @@ func (b *daemonSocketRouteTestBus) PublishAgentEventWakeup(context.Context, uuid
 	return nil
 }
 
-func (b *daemonSocketRouteTestBus) PublishAgentToolCallUpdate(
+func (b *daemonSocketRouteTestBus) PublishAgentUpdate(
 	context.Context,
-	notifications.ToolCallUpdatedCommitted,
+	uuid.UUID,
+	notifications.AgentUpdate,
 ) error {
 	return nil
 }
@@ -162,9 +163,10 @@ func (daemonSocketRouteFailingPublishBus) PublishAgentEventWakeup(context.Contex
 	return nil
 }
 
-func (daemonSocketRouteFailingPublishBus) PublishAgentToolCallUpdate(
+func (daemonSocketRouteFailingPublishBus) PublishAgentUpdate(
 	context.Context,
-	notifications.ToolCallUpdatedCommitted,
+	uuid.UUID,
+	notifications.AgentUpdate,
 ) error {
 	return nil
 }
@@ -372,7 +374,8 @@ func TestDaemonSocketRouteOfferAcceptReportJourney(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     testBus,
 			AgentEventWakeups: testBus,
-			ToolCallUpdates:   testBus,
+			AgentUpdates:      testBus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    testBus,
 		},
 		presence,
@@ -1066,7 +1069,8 @@ func TestDaemonSocketRouteReceivesRealRoutedRedisWakes(t *testing.T) {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,
@@ -1238,7 +1242,8 @@ func TestDaemonSocketRouteFallbackDrainDeliversAfterMissedRedisWakeup(
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     bus,
 			AgentEventWakeups: bus,
-			ToolCallUpdates:   bus,
+			AgentUpdates:      bus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(pool),
 			WorkerControls:    bus,
 		},
 		presence,

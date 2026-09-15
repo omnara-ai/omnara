@@ -15,8 +15,12 @@ import (
 
 // Canonical order: organization, project, and integration-install gates; account
 // principals; agent profiles; agent sources; configured models; pools and grants;
-// machines; existing agents; environment keys; then child state. Account mutations
-// lock users before organization rows and memberships; organization teardown
+// machines; existing agents; environment keys; then child state. Agent launches
+// lock inherited machines before parent admission or child insertion. They take
+// the creation quota after all existing row locks and immediately before insert,
+// so a busy machine cannot stall unrelated launches through the project quota.
+// Resource quotas remain behind their resource's earlier serialization locks.
+// Account mutations lock users before organization rows and memberships; organization teardown
 // locks memberships before their project memberships and user-owned resources.
 // A transaction may enter at the earliest class shared with competing work, such
 // as an agent child serializing at the agent. Re-entering an earlier class is
@@ -26,6 +30,13 @@ import (
 // exclude competing multi-row lockers, as pool locks do for their grants.
 // A lock outside this ladder must have a fixed class or be reachable only behind
 // the same earlier serialization lock.
+//
+// Agent writers use FOR NO KEY UPDATE: agent identities are immutable, and this
+// still serializes edits, archival, and runtime ownership. FOR UPDATE also blocks
+// foreign-key KEY SHARE checks, so repeated child updates can deadlock with a
+// parent writer waiting for the child even when explicit agent locks are ordered.
+// Queries that lock agents directly must use the same strength, including event
+// allocation and tool completion; upgrading later would recreate that cycle.
 
 type PoolRef struct {
 	OrgID  uuid.UUID

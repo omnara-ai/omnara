@@ -250,6 +250,9 @@ func cancelAgentTx(
 		if cancelErr != nil {
 			return CancelAgentResult{}, fmt.Errorf("cancel open agent interactions: %w", cancelErr)
 		}
+		if len(interactionIDs) > 0 {
+			txNotifications.AddAgentChange(projectID, agentID, notifications.AgentChangeInteractions)
+		}
 		interactionRows, err = qtx.ListAgentInteractionsByIDs(
 			ctx,
 			dbsqlc.ListAgentInteractionsByIDsParams{
@@ -394,6 +397,9 @@ func cancelAgentTx(
 		}); err != nil {
 			return CancelAgentResult{}, err
 		}
+	}
+	if affected || runtimeCancelRequested {
+		txNotifications.AddAgentChange(projectID, agentID, notifications.AgentChangeAgent)
 	}
 	return CancelAgentResult{
 		Event:                  event,

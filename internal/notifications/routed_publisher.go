@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 )
 
 const publisherQueueSize = 4096
@@ -16,14 +17,17 @@ const publisherPublishTimeout = 2 * time.Second
 const workerControlPublishTimeout = 500 * time.Millisecond
 const publisherCloseDrainTimeout = 2 * time.Second
 const publisherCoalesceLimit = 256
+const publisherAncestryCacheSize = 8192
 
 var errInvalidNotificationIntent = errors.New("invalid notification intent")
 
 type RoutedPublisher struct {
 	daemonWakeupPublisher     DaemonWakeupPublisher
 	agentEventWakeupPublisher AgentEventWakeupPublisher
-	toolCallUpdatePublisher   AgentToolCallUpdatePublisher
+	agentUpdatePublisher      AgentUpdatePublisher
 	workerControlPublisher    WorkerControlPublisher
+	agentAncestry             AgentAncestryReader
+	ancestryCache             *simplelru.LRU[agentNotificationKey, []uuid.UUID]
 	presence                  DaemonPresenceStore
 	log                       *slog.Logger
 	recorder                  Recorder
@@ -41,7 +45,8 @@ type RoutedPublisher struct {
 type RoutedPublisherPorts struct {
 	DaemonWakeups     DaemonWakeupPublisher
 	AgentEventWakeups AgentEventWakeupPublisher
-	ToolCallUpdates   AgentToolCallUpdatePublisher
+	AgentUpdates      AgentUpdatePublisher
+	AgentAncestry     AgentAncestryReader
 	WorkerControls    WorkerControlPublisher
 }
 
@@ -57,8 +62,11 @@ func NewRoutedPublisher(
 	if ports.AgentEventWakeups == nil {
 		return nil, errors.New("agent event wakeup publisher is required")
 	}
-	if ports.ToolCallUpdates == nil {
-		return nil, errors.New("tool call update publisher is required")
+	if ports.AgentUpdates == nil {
+		return nil, errors.New("agent update publisher is required")
+	}
+	if ports.AgentAncestry == nil {
+		return nil, errors.New("agent ancestry reader is required")
 	}
 	if ports.WorkerControls == nil {
 		return nil, errors.New("worker control publisher is required")
@@ -66,12 +74,18 @@ func NewRoutedPublisher(
 	if presence == nil {
 		return nil, errors.New("daemon presence store is required")
 	}
+	ancestryCache, err := simplelru.NewLRU[agentNotificationKey, []uuid.UUID](publisherAncestryCacheSize, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create agent ancestry cache: %w", err)
+	}
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	p := &RoutedPublisher{
 		daemonWakeupPublisher:     ports.DaemonWakeups,
 		agentEventWakeupPublisher: ports.AgentEventWakeups,
-		toolCallUpdatePublisher:   ports.ToolCallUpdates,
+		agentUpdatePublisher:      ports.AgentUpdates,
 		workerControlPublisher:    ports.WorkerControls,
+		agentAncestry:             ports.AgentAncestry,
+		ancestryCache:             ancestryCache,
 		presence:                  presence,
 		log:                       log,
 		recorder:                  recorder,
@@ -102,7 +116,8 @@ func (p *RoutedPublisher) PublishPostCommit(ctx context.Context, intent PostComm
 		DaemonRuntimeEndedCommitted,
 		DaemonProcessTerminationCommitted,
 		AgentEventCommitted,
-		ToolCallUpdatedCommitted:
+		ToolCallUpdatedCommitted,
+		AgentChangeCommitted:
 	default:
 		return
 	}
@@ -206,6 +221,11 @@ func (p *RoutedPublisher) publishCoalesced(ctx context.Context, first PostCommit
 	workByMachine := map[uuid.UUID]struct{}{}
 	eventByAgent := map[uuid.UUID]struct{}{}
 	var direct []PostCommitIntent
+	type queuedChange struct {
+		index  int
+		change AgentChangeCommitted
+	}
+	changes := map[agentNotificationKey]queuedChange{}
 
 	accumulate := func(intent PostCommitIntent) {
 		switch v := intent.(type) {
@@ -213,6 +233,16 @@ func (p *RoutedPublisher) publishCoalesced(ctx context.Context, first PostCommit
 			workByMachine[v.MachineID] = struct{}{}
 		case AgentEventCommitted:
 			eventByAgent[v.AgentID] = struct{}{}
+		case AgentChangeCommitted:
+			key := agentNotificationKey{projectID: v.ProjectID, agentID: v.AgentID}
+			if queued, ok := changes[key]; ok {
+				queued.change.Changes = mergeAgentChangeKinds(queued.change.Changes, v.Changes)
+				changes[key] = queued
+				direct[queued.index] = queued.change
+			} else {
+				changes[key] = queuedChange{index: len(direct), change: v}
+				direct = append(direct, v)
+			}
 		default:
 			direct = append(direct, intent)
 		}
@@ -236,26 +266,31 @@ func (p *RoutedPublisher) flushCoalesced(
 	workByMachine, eventByAgent map[uuid.UUID]struct{},
 	direct []PostCommitIntent,
 ) {
+	ancestry := agentAncestryCache{}
 	for machineID := range workByMachine {
-		if !p.publishDuringRun(ctx, DaemonWorkCommitted{MachineID: machineID}) {
+		if !p.publishDuringRun(ctx, DaemonWorkCommitted{MachineID: machineID}, ancestry) {
 			return
 		}
 	}
 	for agentID := range eventByAgent {
-		if !p.publishDuringRun(ctx, AgentEventCommitted{AgentID: agentID}) {
+		if !p.publishDuringRun(ctx, AgentEventCommitted{AgentID: agentID}, ancestry) {
 			return
 		}
 	}
 	for _, intent := range direct {
-		if !p.publishDuringRun(ctx, intent) {
+		if !p.publishDuringRun(ctx, intent, ancestry) {
 			return
 		}
 	}
 }
 
-func (p *RoutedPublisher) publishDuringRun(ctx context.Context, intent PostCommitIntent) bool {
+func (p *RoutedPublisher) publishDuringRun(
+	ctx context.Context,
+	intent PostCommitIntent,
+	ancestry agentAncestryCache,
+) bool {
 	if ctx.Err() == nil {
-		p.publishWithTimeout(ctx, intent, publisherPublishTimeout)
+		p.publishWithAncestryCache(ctx, intent, publisherPublishTimeout, ancestry)
 		return true
 	}
 	deadline := p.shutdownDeadline()
@@ -267,28 +302,39 @@ func (p *RoutedPublisher) publishDuringRun(ctx context.Context, intent PostCommi
 	if shutdown.Err() != nil {
 		return false
 	}
-	p.publishWithTimeout(shutdown, intent, publisherPublishTimeout)
+	p.publishWithAncestryCache(shutdown, intent, publisherPublishTimeout, ancestry)
 	return true
 }
 
 func (p *RoutedPublisher) publishWithTimeout(ctx context.Context, intent PostCommitIntent, timeout time.Duration) {
+	p.publishWithAncestryCache(ctx, intent, timeout, nil)
+}
+
+func (p *RoutedPublisher) publishWithAncestryCache(
+	ctx context.Context,
+	intent PostCommitIntent,
+	timeout time.Duration,
+	ancestry agentAncestryCache,
+) {
 	if timeout <= 0 {
-		p.publish(ctx, intent)
+		p.publish(ctx, intent, ancestry)
 		return
 	}
 	publishCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	p.publish(publishCtx, intent)
+	p.publish(publishCtx, intent, ancestry)
 }
 
-func (p *RoutedPublisher) publish(ctx context.Context, intent PostCommitIntent) {
+func (p *RoutedPublisher) publish(ctx context.Context, intent PostCommitIntent, ancestry agentAncestryCache) {
 	switch v := intent.(type) {
 	case DaemonWorkCommitted, DaemonRuntimeEndedCommitted, DaemonProcessTerminationCommitted:
 		p.publishDaemon(ctx, intent)
 	case AgentEventCommitted:
 		p.publishAgentEvent(ctx, v)
 	case ToolCallUpdatedCommitted:
-		p.publishToolCallUpdate(ctx, v)
+		p.publishToolCallUpdate(ctx, v, ancestry)
+	case AgentChangeCommitted:
+		p.publishAgentChange(ctx, v, ancestry)
 	}
 }
 
@@ -342,29 +388,6 @@ func (p *RoutedPublisher) publishAgentEvent(ctx context.Context, event AgentEven
 		return
 	}
 	p.record(event, "published", "none")
-}
-
-func (p *RoutedPublisher) publishToolCallUpdate(ctx context.Context, update ToolCallUpdatedCommitted) {
-	if update.AgentID == uuid.Nil || update.ToolCallID == uuid.Nil || update.State == "" {
-		p.record(update, "skipped", "invalid_intent")
-		return
-	}
-	if err := p.toolCallUpdatePublisher.PublishAgentToolCallUpdate(ctx, update); err != nil {
-		p.record(update, "error", "publish_failed")
-		if p.log != nil {
-			p.log.Warn(
-				"publish tool-call update notification intent failed",
-				"agent_id",
-				update.AgentID,
-				"tool_call_id",
-				update.ToolCallID,
-				"error",
-				err,
-			)
-		}
-		return
-	}
-	p.record(update, "published", "none")
 }
 
 func (p *RoutedPublisher) publishWorkerControlWithTimeout(
@@ -480,6 +503,8 @@ func notificationIntentLabel(intent PostCommitIntent) string {
 		return "agent_event"
 	case ToolCallUpdatedCommitted:
 		return "tool_call_update"
+	case AgentChangeCommitted:
+		return "agent_change"
 	case WorkerControlCommitted:
 		return "worker_control"
 	default:

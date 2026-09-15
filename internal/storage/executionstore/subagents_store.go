@@ -112,16 +112,15 @@ func (s *Store) AgentDepth(ctx context.Context, projectID, agentID uuid.UUID) (i
 	return int(depth), nil
 }
 
-// lockParentMachineBindingsForSharingTx lists the parent's attached machines
-// and takes their lifecycle locks. It runs after the child row is inserted so
-// subagent launches take the agent quota before machine locks, in the same
-// order as top-level launches take the quota before pool and machine locks.
+// lockParentMachineBindingsForSharingTx runs with the parent's sources lock held,
+// before locking the parent or inserting the child (whose FK also locks the
+// parent). Revalidate the bindings after acquiring the parent lock.
 func lockParentMachineBindingsForSharingTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	orgID, projectID, parentAgentID uuid.UUID,
-) ([]dbsqlc.ListParentMachineBindingsForSharingRow, error) {
+) (map[uuid.UUID]struct{}, error) {
 	sharedBindings, err := qtx.ListParentMachineBindingsForSharing(
 		ctx,
 		dbsqlc.ListParentMachineBindingsForSharingParams{ProjectID: projectID, AgentID: parentAgentID},
@@ -130,13 +129,40 @@ func lockParentMachineBindingsForSharingTx(
 		return nil, fmt.Errorf("list parent machine bindings: %w", err)
 	}
 	machineRefs := make([]lifecyclelock.MachineRef, 0, len(sharedBindings))
+	lockedMachineIDs := make(map[uuid.UUID]struct{}, len(sharedBindings))
 	for _, row := range sharedBindings {
 		machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: row.MachineID})
+		lockedMachineIDs[row.MachineID] = struct{}{}
 	}
 	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
 		return nil, err
 	}
-	return sharedBindings, nil
+	return lockedMachineIDs, nil
+}
+
+func revalidateParentMachineBindingsForSharingTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, parentAgentID uuid.UUID,
+	lockedMachineIDs map[uuid.UUID]struct{},
+) ([]dbsqlc.ListParentMachineBindingsForSharingRow, error) {
+	// READ COMMITTED must see current eligibility and binding settings after the
+	// machine and parent lock waits, including any deletion that finished first.
+	rows, err := qtx.ListParentMachineBindingsForSharing(
+		ctx,
+		dbsqlc.ListParentMachineBindingsForSharingParams{ProjectID: projectID, AgentID: parentAgentID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("revalidate parent machine bindings: %w", err)
+	}
+	for _, row := range rows {
+		if _, locked := lockedMachineIDs[row.MachineID]; !locked {
+			// Never acquire another machine after the parent. If eligibility grew
+			// outside the sources lock, rebuild the lock set in a fresh transaction.
+			return nil, fmt.Errorf("parent machines changed during launch: %w", storeutil.ErrRetryTransaction)
+		}
+	}
+	return rows, nil
 }
 
 func admitSubagentLaunchTx(
@@ -173,6 +199,9 @@ func admitSubagentLaunchTx(
 		return storeerr.InvalidRequest(
 			fmt.Errorf("subagent depth limit of %d reached", launch.MaxDepth),
 		)
+	}
+	if launch.MaxInstances == nil && launch.MaxSubagents == nil {
+		return nil
 	}
 	siblings, err := qtx.CountActiveChildAgentsForLaunch(ctx, dbsqlc.CountActiveChildAgentsForLaunchParams{
 		SubagentKey:   launch.Key,
@@ -445,7 +474,7 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 	case SubagentMessageKindFailed:
 		header = label + " failed:"
 	case SubagentMessageKindQuestion:
-		header = label + " asked a question and is paused until a human answers it. " +
+		header = label + " asked a question and is paused until it is answered. " +
 			"Messaging it with send_agent_message cancels the question."
 	case SubagentMessageKindCanceled:
 		header = label + " was canceled."

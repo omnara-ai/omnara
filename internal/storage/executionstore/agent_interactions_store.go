@@ -130,6 +130,7 @@ func (s *Store) CreatePermissionInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("load created agent interaction: %w", err)
 	}
 	record := agentInteractionRecordFromSQLC(row)
+	txNotifications.AddAgentChange(input.ProjectID, input.AgentID, notifications.AgentChangeInteractions)
 	if err := markToolCallAwaitingPermissionTx(
 		ctx,
 		txNotifications,
@@ -214,6 +215,7 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	}
 	t.hasDurableCompletionOwner = true
 	record := agentInteractionRecordFromSQLC(row)
+	t.notifications.AddAgentChange(t.input.ProjectID, t.input.AgentID, notifications.AgentChangeInteractions)
 	if err := handleSubagentQuestionTx(ctx, t.notifications, t.tx, t.q, record); err != nil {
 		return AgentInteractionRecord{}, err
 	}
@@ -227,7 +229,7 @@ func markToolCallAwaitingPermissionTx(
 	qtx *dbsqlc.Queries,
 	projectID, agentID, toolCallID, runtimeLockID uuid.UUID,
 ) error {
-	_, err := qtx.MarkToolCallAwaitingPermission(
+	toolType, err := qtx.MarkToolCallAwaitingPermission(
 		ctx,
 		dbsqlc.MarkToolCallAwaitingPermissionParams{
 			ProjectID:     projectID,
@@ -241,8 +243,10 @@ func markToolCallAwaitingPermissionTx(
 	}
 	if err == nil {
 		txNotifications.AddToolCallUpdate(
+			projectID,
 			agentID,
 			toolCallID,
+			toolType,
 			string(ToolCallStateAwaitingPermission),
 		)
 		return nil
@@ -404,6 +408,7 @@ func resolveAgentInteractionTx(
 			return AgentInteractionRecord{}, fmt.Errorf("resolve interaction response agent input: %w", err)
 		}
 		record = agentInteractionRecordFromSQLC(row)
+		txNotifications.AddAgentChange(input.ProjectID, input.AgentID, notifications.AgentChangeInteractions)
 		if err := applyPermissionInteractionResolutionTx(ctx, txNotifications, tx, qtx, record); err != nil {
 			return AgentInteractionRecord{}, err
 		}
@@ -500,7 +505,7 @@ func applyPermissionInteractionResolutionTx(
 			}
 			return fmt.Errorf("mark permitted tool call ready: %w", err)
 		}
-		txNotifications.AddToolCallUpdate(row.AgentID, row.ID, row.State)
+		txNotifications.AddToolCallUpdate(row.ProjectID, row.AgentID, row.ID, row.Type, row.State)
 		return nil
 	}
 	return completePermissionDeniedToolCallTx(

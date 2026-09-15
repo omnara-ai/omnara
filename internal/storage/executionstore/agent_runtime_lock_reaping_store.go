@@ -197,5 +197,6 @@ func reapExpiredAgentRuntimeLockTx(
 	); err != nil {
 		return false, fmt.Errorf("reconcile wakeup after expired runtime lock reap: %w", err)
 	}
+	txNotifications.AddAgentChange(locked.ProjectID, locked.AgentID, notifications.AgentChangeAgent)
 	return true, nil
 }

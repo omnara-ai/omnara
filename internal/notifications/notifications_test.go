@@ -71,6 +71,7 @@ type fakeBus struct {
 	agentPublished   []uuid.UUID
 	workerPublished  []WorkerControlCommitted
 	toolCallUpdates  []ToolCallUpdatedCommitted
+	updates          []routedAgentUpdate
 	daemonPublishErr error
 	agentPublishErr  error
 	workerPublishErr error
@@ -186,13 +187,19 @@ func (b *fakeBus) PublishAgentEventWakeup(_ context.Context, agentID uuid.UUID) 
 	return nil
 }
 
-func (b *fakeBus) PublishAgentToolCallUpdate(_ context.Context, update ToolCallUpdatedCommitted) error {
+func (b *fakeBus) PublishAgentUpdate(ctx context.Context, destinationID uuid.UUID, update AgentUpdate) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.toolCallError != nil {
 		return b.toolCallError
 	}
-	b.toolCallUpdates = append(b.toolCallUpdates, update)
+	b.updates = append(b.updates, routedAgentUpdate{destinationID: destinationID, update: update})
+	if update.ToolCallUpdate != nil {
+		b.toolCallUpdates = append(b.toolCallUpdates, *update.ToolCallUpdate)
+	}
 	return nil
 }
 
@@ -256,8 +263,13 @@ func newTestRoutedPublisher(
 	if ports.AgentEventWakeups == nil {
 		ports.AgentEventWakeups = fallback
 	}
-	if ports.ToolCallUpdates == nil {
-		ports.ToolCallUpdates = fallback
+	if ports.AgentUpdates == nil {
+		ports.AgentUpdates = fallback
+	}
+	if ports.AgentAncestry == nil {
+		ports.AgentAncestry = agentAncestryReaderFunc(func(context.Context, uuid.UUID, uuid.UUID) ([]uuid.UUID, error) {
+			return nil, nil
+		})
 	}
 	if ports.WorkerControls == nil {
 		ports.WorkerControls = fallback
@@ -275,41 +287,32 @@ func newTestRoutedPublisher(
 
 func TestNewRoutedPublisherRejectsMissingDependencies(t *testing.T) {
 	bus := &fakeBus{}
-	validPorts := RoutedPublisherPorts{
-		DaemonWakeups:     bus,
-		AgentEventWakeups: bus,
-		ToolCallUpdates:   bus,
-		WorkerControls:    bus,
-	}
-	for _, tc := range []struct {
-		name     string
-		ports    RoutedPublisherPorts
-		presence DaemonPresenceStore
-	}{
-		{
-			name:     "daemon wakeups",
-			ports:    RoutedPublisherPorts{AgentEventWakeups: bus, ToolCallUpdates: bus, WorkerControls: bus},
-			presence: fakePresenceStore{},
-		},
-		{
-			name:     "agent event wakeups",
-			ports:    RoutedPublisherPorts{DaemonWakeups: bus, ToolCallUpdates: bus, WorkerControls: bus},
-			presence: fakePresenceStore{},
-		},
-		{
-			name:     "worker controls",
-			ports:    RoutedPublisherPorts{DaemonWakeups: bus, AgentEventWakeups: bus, ToolCallUpdates: bus},
-			presence: fakePresenceStore{},
-		},
-		{
-			name:     "tool call updates",
-			ports:    RoutedPublisherPorts{DaemonWakeups: bus, AgentEventWakeups: bus, WorkerControls: bus},
-			presence: fakePresenceStore{},
-		},
-		{name: "presence", ports: validPorts},
+	for _, name := range []string{
+		"daemon wakeups", "agent event wakeups", "agent updates", "agent ancestry", "worker controls", "presence",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			publisher, err := NewRoutedPublisher(tc.ports, tc.presence, nil, nil)
+		t.Run(name, func(t *testing.T) {
+			ports := RoutedPublisherPorts{
+				DaemonWakeups: bus, AgentEventWakeups: bus, AgentUpdates: bus, WorkerControls: bus,
+				AgentAncestry: agentAncestryReaderFunc(func(context.Context, uuid.UUID, uuid.UUID) ([]uuid.UUID, error) {
+					return nil, nil
+				}),
+			}
+			var presence DaemonPresenceStore = fakePresenceStore{}
+			switch name {
+			case "daemon wakeups":
+				ports.DaemonWakeups = nil
+			case "agent event wakeups":
+				ports.AgentEventWakeups = nil
+			case "agent updates":
+				ports.AgentUpdates = nil
+			case "agent ancestry":
+				ports.AgentAncestry = nil
+			case "worker controls":
+				ports.WorkerControls = nil
+			case "presence":
+				presence = nil
+			}
+			publisher, err := NewRoutedPublisher(ports, presence, nil, nil)
 			if err == nil {
 				publisher.Close()
 				t.Fatal("NewRoutedPublisher accepted missing dependency")
@@ -342,8 +345,8 @@ func TestNotificationChannelsUseCanonicalUUIDs(t *testing.T) {
 		},
 		{
 			name: "agent tool call update",
-			got:  agentToolCallUpdateChannel(id),
-			want: "omnara:agent_tool_call_updates:00112233-4455-6677-8899-aabbccddeeff",
+			got:  agentUpdateChannel(id),
+			want: "omnara:agent_updates:00112233-4455-6677-8899-aabbccddeeff",
 		},
 		{
 			name: "worker control",
@@ -565,14 +568,18 @@ func TestRoutedPublisherPreservesToolCallUpdates(t *testing.T) {
 	agentID := uuid.New()
 	toolCallID := uuid.New()
 	bus := &fakeBus{}
-	publisher := newTestRoutedPublisher(t, RoutedPublisherPorts{ToolCallUpdates: bus}, nil, nil)
+	publisher := newTestRoutedPublisher(t, RoutedPublisherPorts{AgentUpdates: bus}, nil, nil)
 
 	publisher.PublishPostCommit(context.Background(), ToolCallUpdatedCommitted{
+		ProjectID:  testProjectID,
+		ToolType:   "built_in",
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
 		State:      "awaiting_authorization",
 	})
 	publisher.PublishPostCommit(context.Background(), ToolCallUpdatedCommitted{
+		ProjectID:  testProjectID,
+		ToolType:   "built_in",
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
 		State:      "ready",
@@ -580,8 +587,9 @@ func TestRoutedPublisherPreservesToolCallUpdates(t *testing.T) {
 	publisher.Close()
 
 	want := []ToolCallUpdatedCommitted{
-		{AgentID: agentID, ToolCallID: toolCallID, State: "awaiting_authorization"},
-		{AgentID: agentID, ToolCallID: toolCallID, State: "ready"},
+		{ProjectID: testProjectID, ToolType: "built_in", AgentID: agentID, ToolCallID: toolCallID,
+			State: "awaiting_authorization"},
+		{ProjectID: testProjectID, ToolType: "built_in", AgentID: agentID, ToolCallID: toolCallID, State: "ready"},
 	}
 	if got := bus.toolCallSnapshot(); !slices.Equal(got, want) {
 		t.Fatalf("tool call updates = %+v, want %+v", got, want)
@@ -1080,6 +1088,7 @@ func TestNotificationIntentLabels(t *testing.T) {
 		{DaemonProcessTerminationCommitted{}, "daemon_process_terminate"},
 		{AgentEventCommitted{}, "agent_event"},
 		{ToolCallUpdatedCommitted{}, "tool_call_update"},
+		{AgentChangeCommitted{}, "agent_change"},
 		{WorkerControlCommitted{}, "worker_control"},
 	}
 	for _, tc := range cases {
@@ -1234,8 +1243,8 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	tx.AddAgentEvent(agentA)
 	tx.AddAgentEvent(agentA)
 	tx.AddAgentEvent(agentB)
-	tx.AddToolCallUpdate(agentA, toolCallID, "awaiting_authorization")
-	tx.AddToolCallUpdate(agentA, toolCallID, "ready")
+	tx.AddToolCallUpdate(testProjectID, agentA, toolCallID, "custom", "awaiting_authorization")
+	tx.AddToolCallUpdate(testProjectID, agentA, toolCallID, "custom", "ready")
 	tx.AddWorkerControlCancel(workerID, workerAgentID, workerRuntimeID)
 
 	publisher := &capturingPublisher{}

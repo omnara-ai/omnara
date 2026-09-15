@@ -45,6 +45,9 @@ func cancelOpenInteractionsForSteeringInputTx(
 	if err != nil {
 		return nil, fmt.Errorf("cancel open interactions for steering input: %w", err)
 	}
+	if len(interactionIDs) > 0 {
+		txNotifications.AddAgentChange(projectID, agentID, notifications.AgentChangeInteractions)
+	}
 	rows, err := qtx.ListAgentInteractionsByIDs(ctx, dbsqlc.ListAgentInteractionsByIDsParams{
 		ProjectID: projectID,
 		AgentID:   agentID,

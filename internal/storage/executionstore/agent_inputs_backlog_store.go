@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -127,6 +128,7 @@ func (s *Store) changeAgentInputDeliveryMode(
 	}); err != nil {
 		return fmt.Errorf("reconcile wakeup after input delivery mode change: %w", err)
 	}
+	txNotifications.AddAgentChange(projectID, agentID, notifications.AgentChangeAgent)
 	return s.commitTxWithNotifications(
 		ctx,
 		tx,

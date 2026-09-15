@@ -34,7 +34,7 @@ const allocateEventSequence = `-- name: AllocateEventSequence :one
 SELECT project_id, next_event_sequence
 FROM agents AS agents
 WHERE id = $1
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type AllocateEventSequenceParams struct {

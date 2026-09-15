@@ -143,7 +143,7 @@ WITH existing_agent AS MATERIALIZED (
   FROM agents agent
   WHERE agent.project_id = $1
     AND agent.id = $2
-  FOR UPDATE
+  FOR NO KEY UPDATE
 ),
 watermark AS MATERIALIZED (
   SELECT coalesce(max(event.sequence), 0)::bigint AS input_event_sequence

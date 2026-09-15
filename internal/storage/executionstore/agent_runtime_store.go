@@ -76,12 +76,31 @@ type IntegrationTargetDisplay struct {
 	DisplayName      string `json:"display_name,omitempty"`
 }
 
+// insertAdmittedAgentTx takes the project quota immediately before insertion.
+// Call it after replay and all existing pool, machine, and agent locks.
 func insertAdmittedAgentTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
+	if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
+		return AgentRecord{}, false, err
+	}
+	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return AgentRecord{}, false, err
+	}
+	agentCount, err := qtx.CountActiveAgentsForProject(
+		ctx,
+		dbsqlc.CountActiveAgentsForProjectParams{ProjectID: input.ProjectID},
+	)
+	if err != nil {
+		return AgentRecord{}, false, fmt.Errorf("count active agents: %w", err)
+	}
+	if agentCount >= limits.MaxActiveAgentsPerProject {
+		return AgentRecord{}, false, resourceLimitExceeded("active agents", limits.MaxActiveAgentsPerProject)
+	}
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
 		OrgID:                   input.OrgID,
 		ProjectID:               input.ProjectID,
@@ -96,26 +115,6 @@ func insertAdmittedAgentTx(
 	if err == nil {
 		record := agentRecordFromInsertSQLC(row)
 		record.Created = true
-		if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
-			return AgentRecord{}, false, err
-		}
-		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return AgentRecord{}, false, err
-		}
-		agentCount, err := qtx.CountActiveAgentsForProject(
-			ctx,
-			dbsqlc.CountActiveAgentsForProjectParams{ProjectID: input.ProjectID},
-		)
-		if err != nil {
-			return AgentRecord{}, false, fmt.Errorf("count active agents: %w", err)
-		}
-		if agentCount > limits.MaxActiveAgentsPerProject {
-			return AgentRecord{}, false, resourceLimitExceeded(
-				"active agents",
-				limits.MaxActiveAgentsPerProject,
-			)
-		}
 		return record, true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -540,6 +539,7 @@ func archiveAgentTx(
 	if err := qtx.ReleaseExplicitAgentMachineBindingsForAgent(ctx, releaseParams); err != nil {
 		return nil, fmt.Errorf("release archived agent explicit machine bindings: %w", err)
 	}
+	txNotifications.AddAgentChange(projectID, agentID, notifications.AgentChangeAgent)
 	machines := make([]MachineRecord, 0, len(machineRows))
 	for _, row := range machineRows {
 		machines = append(machines, machineRecordFromMarkArchivedAgentPoolMachinesDeletingSQLC(row))

@@ -53,24 +53,13 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 		return events.Event{}, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, q, err := s.beginParentNotifyingRuntimeMutation(
+		ctx, input.ProjectID, input.AgentID, input.RuntimeLockID,
+	)
 	if err != nil {
-		return events.Event{}, fmt.Errorf("begin record model call error: %w", err)
+		return events.Event{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := lockAgentWithParentTx(ctx, tx, q, input.ProjectID, input.AgentID); err != nil {
-		return events.Event{}, err
-	}
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
-		return events.Event{}, err
-	}
 	result, err := recordTerminalModelCallFailureTx(
 		ctx,
 		txNotifications,

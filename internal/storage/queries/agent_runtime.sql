@@ -323,10 +323,10 @@ SELECT EXISTS (
 SELECT id, org_id
 FROM agents
 WHERE project_id = $1 AND id = $2
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- name: TryLockAgentInProject :one
 SELECT id, org_id
 FROM agents
 WHERE project_id = $1 AND id = $2
-FOR UPDATE SKIP LOCKED;
+FOR NO KEY UPDATE SKIP LOCKED;

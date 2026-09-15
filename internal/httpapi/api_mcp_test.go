@@ -16,7 +16,7 @@ func TestAPIDispatchEmitsRequestEvent(t *testing.T) {
 		log,
 		nil,
 		WithAgentEventWakeupSubscriber(noopAgentNotificationSubscriber{}),
-		WithAgentToolCallUpdateSubscriber(noopAgentNotificationSubscriber{}),
+		WithAgentUpdateSubscriber(noopAgentNotificationSubscriber{}),
 		WithAgentStreamDeltaSubscriber(noopAgentNotificationSubscriber{}),
 	)
 	if err != nil {

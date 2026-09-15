@@ -31,6 +31,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -109,7 +110,8 @@ func main() {
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
 			AgentEventWakeups: redisBus,
-			ToolCallUpdates:   redisBus,
+			AgentUpdates:      redisBus,
+			AgentAncestry:     executionstore.NewAgentNotificationReader(db),
 			WorkerControls:    redisBus,
 		},
 		presenceStore,
@@ -397,7 +399,7 @@ func apiOptions(
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),
 		httpapi.WithDaemonReplyPublisher(redisBus),
 		httpapi.WithAgentEventWakeupSubscriber(redisBus),
-		httpapi.WithAgentToolCallUpdateSubscriber(redisBus),
+		httpapi.WithAgentUpdateSubscriber(redisBus),
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),

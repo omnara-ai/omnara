@@ -24,8 +24,8 @@ export function openAgentInteractionsQueryKey(
 
 /**
  * Open interactions for an agent and its subagents. The chat session refreshes
- * this query from stream frames: tool-call events and tool_call_update frames,
- * which the stream sends for the agent and every subagent beneath it.
+ * this query on agent_change frames that include interactions, control events,
+ * and every successful connection. Descendant changes retain their original owner IDs.
  */
 export function useAgentInteractions(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
