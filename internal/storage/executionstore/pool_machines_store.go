@@ -374,7 +374,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	if err != nil {
 		return PoolMachineRecord{}, fmt.Errorf("mark pool machine deleting: %w", err)
 	}
-	record.Binding = agentMachineBindingRecordFromSQLC(binding)
+	record.Binding = agentMachineBindingRecordFromSQLC(dbsqlc.GetAgentMachineBindingByMachineRow(binding))
 	record.Machine = machineRecordFromMarkPoolMachineDeletingSQLC(machineRow)
 	return record, nil
 }

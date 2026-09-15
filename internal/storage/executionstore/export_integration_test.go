@@ -550,7 +550,7 @@ func IntegrationToolCallRecordFromInsertSQLC(row dbsqlc.InsertToolCallRow) ToolC
 }
 
 func IntegrationAgentMachineBindingRecordFromSQLC(
-	row dbsqlc.AgentMachineBinding,
+	row dbsqlc.GetAgentMachineBindingByMachineRow,
 ) AgentMachineBindingRecord {
 	return agentMachineBindingRecordFromSQLC(row)
 }

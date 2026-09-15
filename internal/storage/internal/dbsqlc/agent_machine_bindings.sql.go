@@ -56,9 +56,29 @@ type GetAgentMachineBindingByCreateToolCallParams struct {
 	CreateToolCallID uuid.UUID
 }
 
-func (q *Queries) GetAgentMachineBindingByCreateToolCall(ctx context.Context, arg GetAgentMachineBindingByCreateToolCallParams) (AgentMachineBinding, error) {
+type GetAgentMachineBindingByCreateToolCallRow struct {
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	DeleteToolCallID       *uuid.UUID
+	MachineID              uuid.UUID
+	BindingKind            string
+	State                  string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeleteAfterIdleMinutes *int32
+}
+
+func (q *Queries) GetAgentMachineBindingByCreateToolCall(ctx context.Context, arg GetAgentMachineBindingByCreateToolCallParams) (GetAgentMachineBindingByCreateToolCallRow, error) {
 	row := q.db.QueryRow(ctx, getAgentMachineBindingByCreateToolCall, arg.ProjectID, arg.AgentID, arg.CreateToolCallID)
-	var i AgentMachineBinding
+	var i GetAgentMachineBindingByCreateToolCallRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -95,9 +115,29 @@ type GetAgentMachineBindingByDeleteToolCallParams struct {
 	DeleteToolCallID uuid.UUID
 }
 
-func (q *Queries) GetAgentMachineBindingByDeleteToolCall(ctx context.Context, arg GetAgentMachineBindingByDeleteToolCallParams) (AgentMachineBinding, error) {
+type GetAgentMachineBindingByDeleteToolCallRow struct {
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	DeleteToolCallID       *uuid.UUID
+	MachineID              uuid.UUID
+	BindingKind            string
+	State                  string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeleteAfterIdleMinutes *int32
+}
+
+func (q *Queries) GetAgentMachineBindingByDeleteToolCall(ctx context.Context, arg GetAgentMachineBindingByDeleteToolCallParams) (GetAgentMachineBindingByDeleteToolCallRow, error) {
 	row := q.db.QueryRow(ctx, getAgentMachineBindingByDeleteToolCall, arg.ProjectID, arg.AgentID, arg.DeleteToolCallID)
-	var i AgentMachineBinding
+	var i GetAgentMachineBindingByDeleteToolCallRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -140,7 +180,27 @@ type GetAgentMachineBindingByMachineParams struct {
 	IncludeReleased bool
 }
 
-func (q *Queries) GetAgentMachineBindingByMachine(ctx context.Context, arg GetAgentMachineBindingByMachineParams) (AgentMachineBinding, error) {
+type GetAgentMachineBindingByMachineRow struct {
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	DeleteToolCallID       *uuid.UUID
+	MachineID              uuid.UUID
+	BindingKind            string
+	State                  string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeleteAfterIdleMinutes *int32
+}
+
+func (q *Queries) GetAgentMachineBindingByMachine(ctx context.Context, arg GetAgentMachineBindingByMachineParams) (GetAgentMachineBindingByMachineRow, error) {
 	row := q.db.QueryRow(ctx, getAgentMachineBindingByMachine,
 		arg.ProjectID,
 		arg.AgentID,
@@ -148,7 +208,7 @@ func (q *Queries) GetAgentMachineBindingByMachine(ctx context.Context, arg GetAg
 		arg.BindingKind,
 		arg.IncludeReleased,
 	)
-	var i AgentMachineBinding
+	var i GetAgentMachineBindingByMachineRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -235,7 +295,27 @@ type InsertAgentMachineBindingParams struct {
 	AgentID                uuid.UUID
 }
 
-func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgentMachineBindingParams) (AgentMachineBinding, error) {
+type InsertAgentMachineBindingRow struct {
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	DeleteToolCallID       *uuid.UUID
+	MachineID              uuid.UUID
+	BindingKind            string
+	State                  string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeleteAfterIdleMinutes *int32
+}
+
+func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgentMachineBindingParams) (InsertAgentMachineBindingRow, error) {
 	row := q.db.QueryRow(ctx, insertAgentMachineBinding,
 		arg.CreateToolCallID,
 		arg.BindingKind,
@@ -249,7 +329,7 @@ func (q *Queries) InsertAgentMachineBinding(ctx context.Context, arg InsertAgent
 		arg.ProjectID,
 		arg.AgentID,
 	)
-	var i AgentMachineBinding
+	var i InsertAgentMachineBindingRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -573,14 +653,34 @@ type MarkAgentMachineBindingDeleteRequestedParams struct {
 	ID               uuid.UUID
 }
 
-func (q *Queries) MarkAgentMachineBindingDeleteRequested(ctx context.Context, arg MarkAgentMachineBindingDeleteRequestedParams) (AgentMachineBinding, error) {
+type MarkAgentMachineBindingDeleteRequestedRow struct {
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	DeleteToolCallID       *uuid.UUID
+	MachineID              uuid.UUID
+	BindingKind            string
+	State                  string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeleteAfterIdleMinutes *int32
+}
+
+func (q *Queries) MarkAgentMachineBindingDeleteRequested(ctx context.Context, arg MarkAgentMachineBindingDeleteRequestedParams) (MarkAgentMachineBindingDeleteRequestedRow, error) {
 	row := q.db.QueryRow(ctx, markAgentMachineBindingDeleteRequested,
 		arg.DeleteToolCallID,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ID,
 	)
-	var i AgentMachineBinding
+	var i MarkAgentMachineBindingDeleteRequestedRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
