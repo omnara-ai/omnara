@@ -10,6 +10,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"net/http"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -18,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	_ "golang.org/x/image/webp"
@@ -42,23 +44,26 @@ type searchFilesRequest struct {
 }
 
 func validateReadFileInput(raw json.RawMessage) error {
-	_, _, err := resolveReadFileRequest(raw)
+	_, err := resolveReadFileRequest(raw)
 	return err
 }
 
-func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, uuid.UUID, error) {
+func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
-		return readFileRequest{}, uuid.Nil, fmt.Errorf("parse read_file request: %w", err)
+		return readFileRequest{}, fmt.Errorf("parse read_file request: %w", err)
 	}
-	id, err := resolveArtifactPath(input.Path)
-	if err != nil {
-		return readFileRequest{}, uuid.Nil, errors.New("path must be /artifacts/<artifact_id>")
+	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
+		if _, _, err := memorystore.ParsePath(input.Path); err != nil {
+			return readFileRequest{}, err
+		}
+	} else if _, err := resolveArtifactPath(input.Path); err != nil {
+		return readFileRequest{}, errors.New("path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
 	}
 	charMode := input.OffsetChar != nil || input.LimitChars != nil
 	lineMode := input.OffsetLine != nil || input.LimitLines != nil
 	if charMode && lineMode {
-		return readFileRequest{}, uuid.Nil, errors.New(
+		return readFileRequest{}, errors.New(
 			"character paging cannot be combined with line paging",
 		)
 	}
@@ -73,7 +78,7 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, uuid.UUID, er
 		}
 		if *input.OffsetChar < 0 || *input.LimitChars < 1 ||
 			*input.LimitChars > toolcatalog.ReadFileMaxChars {
-			return readFileRequest{}, uuid.Nil, errors.New("invalid artifact character range")
+			return readFileRequest{}, errors.New("invalid file character range")
 		}
 	} else {
 		if input.OffsetLine == nil {
@@ -86,10 +91,10 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, uuid.UUID, er
 		}
 		if *input.OffsetLine < 1 || *input.LimitLines < 1 ||
 			*input.LimitLines > toolcatalog.ReadFileMaxLines {
-			return readFileRequest{}, uuid.Nil, errors.New("invalid artifact line range")
+			return readFileRequest{}, errors.New("invalid file line range")
 		}
 	}
-	return input, id, nil
+	return input, nil
 }
 
 func validateSearchFilesInput(raw json.RawMessage) error {
@@ -136,20 +141,36 @@ func runReadFileAsync(
 	ctx context.Context,
 	call asyncToolContext,
 ) (asyncPhaseResult, error) {
-	input, artifactID, err := resolveReadFileRequest(call.Call.Input)
+	input, err := resolveReadFileRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
-	content, record, err := loadArtifactContent(ctx, call, artifactID)
-	if err != nil {
-		return nil, err
+	var content []byte
+	var digest, contentType string
+	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
+		digest, content, err = call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
+		if err != nil {
+			return nil, err
+		}
+		contentType = http.DetectContentType(content)
+	} else {
+		artifactID, err := resolveArtifactPath(input.Path)
+		if err != nil {
+			return nil, err
+		}
+		var record artifactstore.ArtifactRecord
+		content, record, err = loadArtifactContent(ctx, call, artifactID)
+		if err != nil {
+			return nil, err
+		}
+		if isViewableImage(record.ContentType, content) {
+			return completeImageRead(input.Path, record.ContentType, record.Digest, len(content), artifactID)
+		}
+		digest, contentType = record.Digest, record.ContentType
 	}
-	if isViewableImage(record.ContentType, content) {
-		return completeImageRead(input.Path, record.ContentType, len(content), artifactID)
-	}
-	if !isReadableText(content) {
+	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
 		return nil, errors.New(
-			"artifact must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP image",
+			"file must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP artifact image",
 		)
 	}
 	var result map[string]any
@@ -158,8 +179,9 @@ func runReadFileAsync(
 	} else {
 		result = readFileLines(content, input.Path, *input.OffsetLine, *input.LimitLines)
 	}
-	result["content_type"] = record.ContentType
+	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
+	result["digest"] = digest
 	return completeFileTool(result)
 }
 
@@ -184,6 +206,20 @@ func runSearchFilesAsync(
 		input.ContextLines,
 	)
 	return completeFileTool(result)
+}
+
+func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
+	name, relativePath, err := memorystore.ParsePath(filePath)
+	if err != nil {
+		return "", nil, err
+	}
+	store, err := e.Store.Memories().Resolve(ctx, turn.ProjectID, name)
+	if err != nil {
+		return "", nil, err
+	}
+	return e.Store.Memories().Read(ctx, memorystore.Scope{
+		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
+	}, store.ID, relativePath)
 }
 
 func loadReadableArtifact(
@@ -254,6 +290,7 @@ func isViewableImage(contentType string, content []byte) bool {
 func completeImageRead(
 	path string,
 	contentType string,
+	digest string,
 	sizeBytes int,
 	artifactID uuid.UUID,
 ) (asyncPhaseResult, error) {
@@ -261,6 +298,7 @@ func completeImageRead(
 		"path":         path,
 		"content_type": contentType,
 		"size_bytes":   sizeBytes,
+		"digest":       digest,
 	})
 	if err != nil {
 		return nil, err
@@ -286,7 +324,7 @@ func readFileChars(
 	end, count := start, 0
 	for count < limit && end < len(content) {
 		_, size := utf8.DecodeRune(content[end:])
-		if end-start+size > toolcatalog.ArtifactPageBytes {
+		if end-start+size > toolcatalog.FilePageBytes {
 			break
 		}
 		end += size
@@ -324,7 +362,7 @@ func readFileLines(content []byte, path string, offsetLine, limitLines int) map[
 		} else {
 			length++
 		}
-		if end-start+length > toolcatalog.ArtifactPageBytes {
+		if end-start+length > toolcatalog.FilePageBytes {
 			break
 		}
 		end += length
@@ -336,8 +374,8 @@ func readFileLines(content []byte, path string, offsetLine, limitLines int) map[
 		"lines_read":  count,
 	}
 	if count == 0 && start < len(content) {
-		chunk := content[start:min(start+toolcatalog.ArtifactPageBytes+utf8.UTFMax, len(content))]
-		end = start + len(textutil.TruncateBytes(string(chunk), toolcatalog.ArtifactPageBytes))
+		chunk := content[start:min(start+toolcatalog.FilePageBytes+utf8.UTFMax, len(content))]
+		end = start + len(textutil.TruncateBytes(string(chunk), toolcatalog.FilePageBytes))
 		result["notice"] = "The requested line exceeds one page; continue in character mode."
 	}
 	result["content"] = string(content[start:end])
@@ -412,7 +450,7 @@ func searchFilesLines(
 			blockBytes += len(text) + 32
 			currentLine++
 		}
-		if renderedBytes+blockBytes > toolcatalog.ArtifactPageBytes {
+		if renderedBytes+blockBytes > toolcatalog.FilePageBytes {
 			nextOffsetLine = lineNumber
 			break
 		}
