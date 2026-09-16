@@ -209,7 +209,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 			if !bytes.Equal(rec.Body.Bytes(), content) {
 				t.Fatal("download bytes differ from upload")
 			}
-			return map[string]any{"digest": rec.Header().Get("X-Omnara-Memory-Digest")}
+			return map[string]any{"digest": rec.Header().Get("X-Omnara-File-Digest")}
 		}
 		var body map[string]any
 		if err = json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -218,6 +218,9 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		return body
 	}
 	uploaded := call(upload, http.MethodPost, http.StatusCreated)
+	if uploaded["path"] != "/memory/engineering/empty.md" {
+		t.Fatalf("incorrect upload path: %v", uploaded)
+	}
 	if uploaded["digest"] != fmt.Sprintf("sha256:%x", sha256.Sum256(content)) {
 		t.Fatalf("incorrect upload digest: %v", uploaded)
 	}
@@ -227,8 +230,8 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		content = content[:daemonprotocol.MaxFileTransferBytes]
 	}
 	replay := call(upload, http.MethodPost, http.StatusCreated)
-	if replay["digest"] != uploaded["digest"] {
-		t.Fatal("upload replay changed the digest")
+	if replay["path"] != uploaded["path"] || replay["digest"] != uploaded["digest"] {
+		t.Fatal("upload replay changed the path or digest")
 	}
 	call(upload, http.MethodGet, http.StatusNotFound)
 	download := makeFixture("memory-download", "download_file")

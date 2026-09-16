@@ -1272,6 +1272,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			artifactID := uuid.New()
 			filename := "screenshot.png"
 			sizeBytes := int64(2048)
+			digest := "sha256:" + strings.Repeat("a", 64)
 			if test.createArtifact {
 				idempotencyKey := executionstore.UploadArtifactIdempotencyKey(toolCallID)
 				if _, err := fixture.Store.q.InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
@@ -1280,6 +1281,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					AgentID:        fixture.AgentID,
 					ContentType:    "image/png",
 					Filename:       &filename,
+					Digest:         &digest,
 					SizeBytes:      &sizeBytes,
 					IdempotencyKey: &idempotencyKey,
 				}); err != nil {
@@ -1325,7 +1327,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
 				wantContent := []byte(
 					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
-						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
+						`","digest":"` + digest + `"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
 						`","exclude_from_model_context":true}]`,
 				)
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
@@ -1354,7 +1356,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					)
 				}
 				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}]`,
+					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `","digest":"` + digest + `"}}]`,
 				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {

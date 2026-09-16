@@ -95,7 +95,13 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 		if err != nil {
 			return nil, err
 		}
-		return openapi.UploadDaemonFile201JSONResponse{ArtifactId: &artifact}, nil
+		artifactID, err := publicID(publicid.KindArtifact, artifact.ID)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.UploadDaemonFile201JSONResponse{
+			Path: toolcatalog.ArtifactVFSRoot + "/" + artifactID, Digest: artifact.Digest,
+		}, nil
 	}
 	target, err := s.daemonMemoryScope(ctx, process)
 	if err != nil {
@@ -122,7 +128,7 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	return openapi.UploadDaemonFile201JSONResponse{Digest: &digest}, nil
+	return openapi.UploadDaemonFile201JSONResponse{Path: process.Path, Digest: digest}, nil
 }
 
 func (s strictOpenAPIServer) DownloadDaemonFile(
@@ -150,9 +156,10 @@ func (s strictOpenAPIServer) DownloadDaemonFile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
+	etag := `"` + digest + `"`
 	return openapi.DownloadDaemonFile200AsteriskResponse{
 		Body: bytes.NewReader(body), ContentType: "application/octet-stream", ContentLength: int64(len(body)),
-		Headers: openapi.DownloadDaemonFile200ResponseHeaders{XOmnaraMemoryDigest: &digest},
+		Headers: openapi.DownloadDaemonFile200ResponseHeaders{ETag: &etag, XOmnaraFileDigest: &digest},
 	}, nil
 }
 
@@ -161,35 +168,49 @@ func (s strictOpenAPIServer) uploadDaemonArtifact(
 	publicToolCallID, filename string,
 	body io.Reader,
 	uploadScope executionstore.DaemonArtifactProcessScope,
-) (string, error) {
+) (artifactstore.ArtifactRecord, error) {
 	toolCallID, err := publicid.Decode(publicid.KindToolCall, publicToolCallID)
 	if err != nil {
-		return "", apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	if filename == "" || !utf8.ValidString(filename) ||
 		utf8.RuneCountInString(filename) > 255 || strings.Contains(filename, "\x00") {
-		return "", apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid filename")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest, "invalid filename",
+		)
 	}
 	httpRequest, ok := openAPIHTTPRequest(ctx)
 	if !ok {
-		return "", apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "artifact upload request is unavailable")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeServiceUnavailable, "artifact upload request is unavailable",
+		)
 	}
 	if httpRequest.ContentLength == 0 {
-		return "", apierror.FromCode(openapi.ErrorCodeInvalidRequest, "artifact content is required")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest, "artifact content is required",
+		)
 	}
 	if httpRequest.ContentLength > daemonprotocol.MaxFileTransferBytes {
-		return "", apierror.FromCode(openapi.ErrorCodeRequestTooLarge, "artifact content exceeds the size limit")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeRequestTooLarge, "artifact content exceeds the size limit",
+		)
 	}
 	content, err := io.ReadAll(body)
 	var maxBytesError *http.MaxBytesError
 	if errors.As(err, &maxBytesError) {
-		return "", apierror.FromCode(openapi.ErrorCodeRequestTooLarge, "artifact content exceeds the size limit")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeRequestTooLarge, "artifact content exceeds the size limit",
+		)
 	}
 	if err != nil {
-		return "", apierror.FromCode(openapi.ErrorCodeInvalidRequest, "read artifact content")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest, "read artifact content",
+		)
 	}
 	if len(content) == 0 {
-		return "", apierror.FromCode(openapi.ErrorCodeInvalidRequest, "artifact content is required")
+		return artifactstore.ArtifactRecord{}, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest, "artifact content is required",
+		)
 	}
 	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
 	if contentType == "" {
@@ -205,13 +226,9 @@ func (s strictOpenAPIServer) uploadDaemonArtifact(
 		IdempotencyKey: executionstore.UploadArtifactIdempotencyKey(toolCallID),
 	})
 	if err != nil {
-		return "", apierror.OrgScoped(err)
+		return artifactstore.ArtifactRecord{}, apierror.OrgScoped(err)
 	}
-	artifactID, err := publicID(publicid.KindArtifact, artifact.ID)
-	if err != nil {
-		return "", err
-	}
-	return artifactID, nil
+	return artifact, nil
 }
 
 func (s strictOpenAPIServer) downloadDaemonArtifact(

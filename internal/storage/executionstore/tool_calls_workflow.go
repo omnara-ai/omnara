@@ -277,7 +277,8 @@ func uploadArtifactProcessToolResultContentParts(
 		{
 			"type": "structured_data",
 			"value": map[string]any{
-				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
+				"path":   toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
+				"digest": artifact.Digest,
 			},
 		},
 		{

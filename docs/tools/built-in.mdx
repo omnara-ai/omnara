@@ -190,15 +190,15 @@ Use `upload_file` to copy a file from an attached machine into Omnara's virtual 
 
 Files may be up to 10 MiB. Artifacts must be non-empty; memory files may be empty. The upload process has a 30-second execution timeout.
 
-On success, an artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their paths in `paths` to `send_integration_message`.
+On success, an artifact appears in the conversation and the durable tool result contains its `path`, `digest`, and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their paths in `paths` to `send_integration_message`.
 
-A memory upload requires write access and returns its `digest` in the process output. To replace changed memory content, pass the digest from a download as `expected_digest`; omit it to create a new file. This parameter is not supported for artifacts. If another writer has changed the contents, the upload fails with a conflict. Download the file, reapply the changes, and retry. Uploading identical current contents succeeds without changing the file, even with a stale digest. Files keep only their current contents; there is no edit history.
+A memory upload requires write access and returns its `path` and `digest` in the process output. To replace changed memory content, pass the digest from a download as `expected_digest`; omit it to create a new file. This parameter is not supported for artifacts. If another writer has changed the contents, the upload fails with a conflict. Download the file, reapply the changes, and retry. Uploading identical current contents succeeds without changing the file, even with a stale digest. Files keep only their current contents; there is no edit history.
 
 ### `download_file`
 
 Use `download_file` to copy a file from Omnara's virtual filesystem to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
 
-Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Memory downloads include the file's `digest` in the process output; use it when uploading an edited copy.
+Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads include the file's `digest` in the process output; use it when uploading an edited memory file.
 
 Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 
