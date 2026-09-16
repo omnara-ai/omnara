@@ -41,7 +41,7 @@ func TestSteeringChannelReachesNextModelContextAtAdmission(t *testing.T) {
 	definition, err := fixture.Store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: kernelTestProjectID, IntegrationInstallID: install.ID,
-			ImplementationKey: "test-thread", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "test-thread", Kind: integrationstore.ChannelKindDiscordThread,
 			SendParamsSchema: json.RawMessage(`{"type":"object"}`), Capabilities: integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true},
 			ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: app.ConnectorKey, Provider: app.Provider}},
 		})

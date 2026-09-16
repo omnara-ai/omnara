@@ -440,59 +440,79 @@ it('creates Slack app credentials through the ordinary secret form', async () =>
   ])
 })
 
-it('locks app ownership and dismissal while inline credentials are being created', async () => {
-  let release: () => void = () => undefined
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  const close = vi.fn()
-  const { api } = await render(<CreateIntegrationAppDialog orgId={orgId} onClose={close} />, [
-    {
-      method: 'POST',
-      path: base + '/secrets',
-      respond: async () => {
-        await gate
-        return jsonResponse(secret, 201)
+it.each([false, true])(
+  'restores the app form after credential creation, including retry (failFirst=%s)',
+  async (failFirst) => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const close = vi.fn()
+    let attempts = 0
+    const { api } = await render(<CreateIntegrationAppDialog orgId={orgId} onClose={close} />, [
+      {
+        method: 'POST',
+        path: base + '/secrets',
+        respond: async () => {
+          await gate
+          if (failFirst && ++attempts === 1)
+            return jsonResponse({ code: 'service_unavailable', error: 'Try again' }, 503)
+          return jsonResponse(secret, 201)
+        },
       },
-    },
-  ])
-  await enter('Name', 'team-github')
-  act(() => {
-    button('Search secrets…').click()
-  })
-  await waitForUI(() => {
-    expect(button('New secret')).toBeDefined()
-  })
-  act(() => {
-    button('New secret').click()
-  })
-  expect(document.getElementById('app-provider')?.hasAttribute('disabled')).toBe(true)
-  expect(document.getElementById('app-project')?.hasAttribute('disabled')).toBe(true)
+    ])
+    await enter('Name', 'team-github')
+    act(() => {
+      button('Search secrets…').click()
+    })
+    await waitForUI(() => {
+      expect(button('New secret')).toBeDefined()
+    })
+    act(() => {
+      button('New secret').click()
+    })
+    expect(document.getElementById('app-provider')?.hasAttribute('disabled')).toBe(true)
+    expect(document.getElementById('app-project')?.hasAttribute('disabled')).toBe(true)
 
-  await enter('Private key', 'synthetic-private-key')
-  await enter('Webhook secret', 'synthetic-webhook-secret')
-  await enter('Client secret', 'synthetic-client-secret')
-  act(() => {
-    button('Create secret').click()
-  })
-  await waitForUI(() => {
-    expect(api.requestsTo('POST', base + '/secrets')).toHaveLength(1)
-  })
-  expect(document.querySelector('form > fieldset')?.hasAttribute('disabled')).toBe(true)
-  expect(document.getElementById('app-project')?.hasAttribute('disabled')).toBe(true)
-  act(() => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-  })
-  expect(close).not.toHaveBeenCalled()
-  await act(async () => {
-    release()
-    await gate
-  })
-  await waitForUI(() => {
-    expect(document.querySelector('form > fieldset')?.hasAttribute('disabled')).toBe(false)
-  })
-  expect(api.requestsTo('POST', base + '/integration-apps')).toHaveLength(0)
-})
+    await enter('Private key', 'synthetic-private-key')
+    await enter('Webhook secret', 'synthetic-webhook-secret')
+    await enter('Client secret', 'synthetic-client-secret')
+    act(() => {
+      button('Create secret').click()
+    })
+    await waitForUI(() => {
+      expect(api.requestsTo('POST', base + '/secrets')).toHaveLength(1)
+    })
+    expect(document.querySelector('form > fieldset')?.hasAttribute('disabled')).toBe(true)
+    expect(document.getElementById('app-project')?.hasAttribute('disabled')).toBe(true)
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(close).not.toHaveBeenCalled()
+    await act(async () => {
+      release()
+      await gate
+    })
+    await waitForUI(() => {
+      expect(document.querySelector('form > fieldset')?.hasAttribute('disabled')).toBe(false)
+    })
+    if (failFirst) {
+      expect(field('Private key').value).toBe('synthetic-private-key')
+      expect(document.getElementById('app-provider')?.hasAttribute('disabled')).toBe(true)
+      expect(button('Create secret').disabled).toBe(false)
+      act(() => {
+        button('Create secret').click()
+      })
+    }
+    await waitForUI(() => {
+      expect(document.getElementById('app-provider')?.hasAttribute('disabled')).toBe(false)
+      expect(document.getElementById('app-project')?.hasAttribute('disabled')).toBe(false)
+      expect(document.querySelector('form > fieldset')?.hasAttribute('disabled')).toBe(false)
+    })
+    expect(api.requestsTo('POST', base + '/secrets')).toHaveLength(failFirst ? 2 : 1)
+    expect(api.requestsTo('POST', base + '/integration-apps')).toHaveLength(0)
+  },
+)
 
 it('does not save an old credential selection while drafting a replacement secret', async () => {
   await render(<EditIntegrationAppDialog orgId={orgId} appId={app.id} onClose={vi.fn()} />, [

@@ -23,6 +23,7 @@ export function useRegisteredChannels(
         client,
       }),
     ),
+    enabled: integrationInstallID !== '',
     select: (data) => ({
       ...data,
       pages: data.pages.map((page) => ({ ...page, data: page.channels })),

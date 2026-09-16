@@ -38,6 +38,26 @@ const ProjectCombobox = createResourceCombobox<VisibleProject>({
 
 export type IntegrationAppFormInput = CreateIntegrationAppRequest & { state: IntegrationAppState }
 
+interface IntegrationAppDraft {
+  name: string
+  provider: IntegrationAppProvider
+  appRef: string
+  clientId: string
+  secretId: string
+  state: IntegrationAppState
+}
+
+function initialIntegrationAppDraft(app?: IntegrationApp): IntegrationAppDraft {
+  return {
+    name: app?.name ?? '',
+    provider: integrationProviders.find((item) => item.value === app?.provider)?.value ?? 'github',
+    appRef: app?.provider_app_ref ?? '',
+    clientId: app?.provider_config.client_id ?? '',
+    secretId: app?.credential_secret_id ?? '',
+    state: app?.state ?? 'active',
+  }
+}
+
 export function IntegrationAppForm({
   orgId,
   app,
@@ -53,28 +73,17 @@ export function IntegrationAppForm({
   pending: boolean
   onCredentialsPendingChange: (pending: boolean) => void
 }) {
-  const [name, setName] = useState(app?.name ?? '')
-  const [provider, setProvider] = useState<IntegrationAppProvider>(
-    integrationProviders.find((item) => item.value === app?.provider)?.value ?? 'github',
-  )
-  const [appRef, setAppRef] = useState(app?.provider_app_ref ?? '')
-  const [clientId, setClientId] = useState(app?.provider_config.client_id ?? '')
+  const [draft, setDraft] = useState(() => initialIntegrationAppDraft(app))
+  const { name, provider, appRef, clientId, secretId, state } = draft
   const [project, setProject] = useState<VisibleProject | null>(null)
-  const [secretId, setSecretId] = useState(app?.credential_secret_id ?? '')
-  const [state, setState] = useState<IntegrationAppState>(app?.state ?? 'active')
   const [error, setError] = useState('')
   const [draftingCredentials, setDraftingCredentials] = useState(false)
-  const projectsQuery = useVisibleProjectsList(orgId, { enabled: !app })
-  const projects = useInfiniteQueryItems(projectsQuery)
   const ownerProjectId = app ? app.owner_project_id : project?.id
-  const valid =
-    !draftingCredentials &&
-    (name === app?.name || resourceNameValid(name)) &&
-    appRef.trim() !== '' &&
-    (secretId !== '' || (app !== undefined && !app.credential_secret_id)) &&
-    (provider === 'discord' ||
-      clientId.trim() !== '' ||
-      (app !== undefined && !app.provider_config.client_id && clientId === ''))
+  const valid = !draftingCredentials && integrationAppFieldsValid(draft, app)
+
+  function patchDraft(patch: Partial<IntegrationAppDraft>) {
+    setDraft((current) => ({ ...current, ...patch }))
+  }
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -101,104 +110,22 @@ export function IntegrationAppForm({
     <form autoComplete="off" onSubmit={(event) => void submit(event)}>
       <fieldset disabled={pending}>
         <FieldGroup className="gap-4">
-          <Field>
-            <FieldLabel htmlFor="app-name">Name</FieldLabel>
-            <Input
-              id="app-name"
-              required={!app || name !== app.name}
-              value={name}
-              placeholder="team-github"
-              onChange={(event) => {
-                setName(event.target.value)
-              }}
-            />
-            {name !== app?.name && <ResourceNameFieldError value={name} />}
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="app-provider">Provider</FieldLabel>
-            <Select
-              value={provider}
-              disabled={Boolean(app) || pending || draftingCredentials}
-              onValueChange={(next) => {
-                const option = integrationProviders.find((item) => item.value === next)
-                if (!option) return
-                setProvider(option.value)
-                setAppRef('')
-                setClientId('')
-                setSecretId('')
-              }}
-            >
-              <SelectTrigger id="app-provider">
-                <SelectValue>{integrationProviderLabel(provider)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {integrationProviders.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="provider-app-id">
-              {provider === 'discord' ? 'Application ID' : 'App ID'}
-            </FieldLabel>
-            <Input
-              id="provider-app-id"
-              required
-              readOnly={Boolean(app)}
-              maxLength={512}
-              value={appRef}
-              onChange={(event) => {
-                setAppRef(event.target.value)
-              }}
-            />
-          </Field>
-          {provider !== 'discord' && (
-            <Field>
-              <FieldLabel htmlFor="app-client-id">Client ID</FieldLabel>
-              <Input
-                id="app-client-id"
-                required={!app || Boolean(app.provider_config.client_id)}
-                maxLength={512}
-                value={clientId}
-                onChange={(event) => {
-                  setClientId(event.target.value)
-                }}
-              />
-              {clientId !== '' && !clientId.trim() && (
-                <FieldDescription>Enter a client ID.</FieldDescription>
-              )}
-            </Field>
-          )}
-          <Field>
-            <FieldLabel htmlFor="app-project">Available to</FieldLabel>
-            {app ? (
-              <p className="text-sm">
-                {app.owner_project_id
-                  ? `Project ${app.owner_project_id}`
-                  : 'All projects in this organization'}
-              </p>
-            ) : (
-              <ProjectCombobox
-                id="app-project"
-                items={projects}
-                value={project}
-                query={projectsQuery}
-                disabled={pending || draftingCredentials}
-                placeholder="All projects in this organization"
-                onValueChange={(next) => {
-                  setProject(next)
-                  setSecretId('')
-                }}
-              />
-            )}
-            <FieldDescription>
-              Choose one project to restrict this app. Availability is fixed when the app is
-              created.
-            </FieldDescription>
-          </Field>
+          <IntegrationAppIdentityFields
+            app={app}
+            draft={draft}
+            onChange={patchDraft}
+            providerDisabled={Boolean(app) || pending || draftingCredentials}
+          />
+          <IntegrationAppAvailabilityField
+            orgId={orgId}
+            app={app}
+            project={project}
+            disabled={pending || draftingCredentials}
+            onChange={(next) => {
+              setProject(next)
+              patchDraft({ secretId: '' })
+            }}
+          />
           <CredentialSecretField
             key={`${provider}:${ownerProjectId ?? 'org'}`}
             orgId={orgId}
@@ -209,7 +136,9 @@ export function IntegrationAppForm({
               ownerProjectId ? { kind: 'project', project_id: ownerProjectId } : { kind: 'org' }
             }
             value={secretId}
-            onChange={setSecretId}
+            onChange={(secretId) => {
+              patchDraft({ secretId })
+            }}
             onPendingChange={onCredentialsPendingChange}
             onCreatingChange={setDraftingCredentials}
             label="Credentials"
@@ -217,29 +146,13 @@ export function IntegrationAppForm({
             emptyDescription="Create app credentials or select an existing secret with all required fields."
           />
           {app && (
-            <Field>
-              <FieldLabel htmlFor="app-state">Status</FieldLabel>
-              <Select
-                value={state}
-                disabled={pending}
-                onValueChange={(next) => {
-                  if (next === 'active' || next === 'disabled') setState(next)
-                }}
-              >
-                <SelectTrigger id="app-state">
-                  <SelectValue>{state === 'active' ? 'Active' : 'Disabled'}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="disabled">Disabled</SelectItem>
-                </SelectContent>
-              </Select>
-              {state === 'disabled' && (
-                <FieldDescription>
-                  Disabling this app stops its connections in all projects that use it.
-                </FieldDescription>
-              )}
-            </Field>
+            <IntegrationAppStatusField
+              value={state}
+              onChange={(state) => {
+                patchDraft({ state })
+              }}
+              disabled={pending}
+            />
           )}
           {error && (
             <p role="alert" className="text-destructive text-sm">
@@ -257,5 +170,180 @@ export function IntegrationAppForm({
         </FieldGroup>
       </fieldset>
     </form>
+  )
+}
+
+function integrationAppFieldsValid(fields: IntegrationAppDraft, app?: IntegrationApp) {
+  return (
+    (fields.name === app?.name || resourceNameValid(fields.name)) &&
+    fields.appRef.trim() !== '' &&
+    (fields.secretId !== '' || (app !== undefined && !app.credential_secret_id)) &&
+    (fields.provider === 'discord' ||
+      fields.clientId.trim() !== '' ||
+      (app !== undefined && !app.provider_config.client_id && fields.clientId === ''))
+  )
+}
+
+function IntegrationAppAvailabilityField({
+  orgId,
+  app,
+  project,
+  disabled,
+  onChange,
+}: {
+  orgId: string
+  app?: IntegrationApp
+  project: VisibleProject | null
+  disabled: boolean
+  onChange: (project: VisibleProject | null) => void
+}) {
+  const projectsQuery = useVisibleProjectsList(orgId, { enabled: !app })
+  const projects = useInfiniteQueryItems(projectsQuery)
+  return (
+    <Field>
+      <FieldLabel htmlFor="app-project">Available to</FieldLabel>
+      {app ? (
+        <p className="text-sm">
+          {app.owner_project_id
+            ? `Project ${app.owner_project_id}`
+            : 'All projects in this organization'}
+        </p>
+      ) : (
+        <ProjectCombobox
+          id="app-project"
+          items={projects}
+          value={project}
+          query={projectsQuery}
+          disabled={disabled}
+          placeholder="All projects in this organization"
+          onValueChange={onChange}
+        />
+      )}
+      <FieldDescription>
+        Choose one project to restrict this app. Availability is fixed when the app is created.
+      </FieldDescription>
+    </Field>
+  )
+}
+
+function IntegrationAppStatusField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: IntegrationAppState
+  onChange: (value: IntegrationAppState) => void
+  disabled: boolean
+}) {
+  return (
+    <Field>
+      <FieldLabel htmlFor="app-state">Status</FieldLabel>
+      <Select
+        value={value}
+        disabled={disabled}
+        onValueChange={(next) => {
+          if (next === 'active' || next === 'disabled') onChange(next)
+        }}
+      >
+        <SelectTrigger id="app-state">
+          <SelectValue>{value === 'active' ? 'Active' : 'Disabled'}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="active">Active</SelectItem>
+          <SelectItem value="disabled">Disabled</SelectItem>
+        </SelectContent>
+      </Select>
+      {value === 'disabled' && (
+        <FieldDescription>
+          Disabling this app stops its connections in all projects that use it.
+        </FieldDescription>
+      )}
+    </Field>
+  )
+}
+
+function IntegrationAppIdentityFields({
+  app,
+  draft,
+  providerDisabled,
+  onChange,
+}: {
+  app?: IntegrationApp
+  draft: IntegrationAppDraft
+  providerDisabled: boolean
+  onChange: (patch: Partial<IntegrationAppDraft>) => void
+}) {
+  const { name, provider, appRef, clientId } = draft
+  return (
+    <>
+      <Field>
+        <FieldLabel htmlFor="app-name">Name</FieldLabel>
+        <Input
+          id="app-name"
+          required={!app || name !== app.name}
+          value={name}
+          placeholder="team-github"
+          onChange={(event) => {
+            onChange({ name: event.target.value })
+          }}
+        />
+        {name !== app?.name && <ResourceNameFieldError value={name} />}
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="app-provider">Provider</FieldLabel>
+        <Select
+          value={provider}
+          disabled={providerDisabled}
+          onValueChange={(next) => {
+            const option = integrationProviders.find((item) => item.value === next)
+            if (!option) return
+            onChange({ provider: option.value, appRef: '', clientId: '', secretId: '' })
+          }}
+        >
+          <SelectTrigger id="app-provider">
+            <SelectValue>{integrationProviderLabel(provider)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {integrationProviders.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="provider-app-id">
+          {provider === 'discord' ? 'Application ID' : 'App ID'}
+        </FieldLabel>
+        <Input
+          id="provider-app-id"
+          required
+          readOnly={Boolean(app)}
+          maxLength={512}
+          value={appRef}
+          onChange={(event) => {
+            onChange({ appRef: event.target.value })
+          }}
+        />
+      </Field>
+      {provider !== 'discord' && (
+        <Field>
+          <FieldLabel htmlFor="app-client-id">Client ID</FieldLabel>
+          <Input
+            id="app-client-id"
+            required={!app || Boolean(app.provider_config.client_id)}
+            maxLength={512}
+            value={clientId}
+            onChange={(event) => {
+              onChange({ clientId: event.target.value })
+            }}
+          />
+          {clientId !== '' && !clientId.trim() && (
+            <FieldDescription>Enter a client ID.</FieldDescription>
+          )}
+        </Field>
+      )}
+    </>
   )
 }

@@ -132,7 +132,8 @@ func (f channelReceiptHTTPFixture) post(t *testing.T, path, body, token string, 
 }
 
 const channelReceiptClaimPath = "/api/v1/channel-connector/events/claim-next"
-const channelReceiptClaimBody = `{"lease_ms":60000,"capability":{"connector_key":"test_connector","provider":"discord"}}`
+const channelReceiptClaimBody = `{"lease_ms":60000,` +
+	`"capability":{"connector_key":"test_connector","provider":"discord"}}`
 
 func TestChannelConnectorReceiptCommitAndReplay(t *testing.T) {
 	t.Parallel()

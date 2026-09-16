@@ -5,7 +5,7 @@ import type {
   IntegrationInstall,
   RegisteredChannel,
 } from '@omnara/sdk'
-import { useCallback, useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { channelBindingError } from '@/components/agents/cron-channel-bindings'
 import { Button } from '@/components/ui/button'
@@ -32,27 +32,18 @@ function channelLabel(channel: RegisteredChannel) {
 }
 
 function ChannelChoice({
-  orgId,
-  projectId,
-  installId,
+  query,
+  channels,
   bindings,
   disabled,
   onAdd,
-  onChannelsLoaded,
 }: {
-  orgId: string
-  projectId: string
-  installId: string
+  query: ReturnType<typeof useRegisteredChannels>
+  channels: RegisteredChannel[]
   bindings: AttachAgentChannelRequest[]
   disabled: boolean
   onAdd: (channel: RegisteredChannel) => void
-  onChannelsLoaded: (channels: RegisteredChannel[]) => void
 }) {
-  const query = useRegisteredChannels(orgId, projectId, installId)
-  const channels = useInfiniteQueryItems(query)
-  useEffect(() => {
-    if (query.data) onChannelsLoaded(query.data.pages.flatMap((page) => page.data))
-  }, [query.data, onChannelsLoaded])
   const [selected, setSelected] = useState<RegisteredChannel | null>(null)
   return (
     <Field>
@@ -136,24 +127,16 @@ export function CronChannelBindingsField({
   })
   const connections = useInfiniteQueryItems(connectionsQuery)
   const [connection, setConnection] = useState<IntegrationInstall | null>(null)
+  const channelsQuery = useRegisteredChannels(orgId, projectId, connection?.id ?? '')
+  const channels = useInfiniteQueryItems(channelsQuery)
   const [names, setNames] = useState<Record<string, string>>({})
-  const [replyDrafts, setReplyDrafts] = useState<Record<string, ChannelGrants>>({})
+  const replyDrafts = useRef<Record<string, ChannelGrants>>({})
   const connectionName = connection
     ? connection.display_name || (connection.provider_account_ref ?? connection.id)
     : ''
-  const rememberChannels = useCallback(
-    (channels: RegisteredChannel[]) => {
-      setNames((current) => {
-        const next = { ...current }
-        for (const channel of channels)
-          next[channel.channel_id] = `${connectionName} · ${channelLabel(channel)}`
-        return channels.some((channel) => next[channel.channel_id] !== current[channel.channel_id])
-          ? next
-          : current
-      })
-    },
-    [connectionName],
-  )
+  const channelNames = { ...names }
+  for (const channel of channels)
+    channelNames[channel.channel_id] = `${connectionName} · ${channelLabel(channel)}`
   function update(binding: AttachAgentChannelRequest) {
     if (!disabled)
       onChange(value.map((item) => (item.channel_id === binding.channel_id ? binding : item)))
@@ -169,7 +152,7 @@ export function CronChannelBindingsField({
         </FieldDescription>
       </div>
       {value.map((binding) => {
-        const label = names[binding.channel_id] ?? binding.channel_id
+        const label = channelNames[binding.channel_id] ?? binding.channel_id
         const error = channelBindingError(binding)
         return (
           <fieldset
@@ -196,7 +179,7 @@ export function CronChannelBindingsField({
               onChange={(event) => {
                 const next = { ...binding }
                 if (event.target.checked)
-                  next.reply_channel_grants = replyDrafts[binding.channel_id] ?? {
+                  next.reply_channel_grants = replyDrafts.current[binding.channel_id] ?? {
                     receive: true,
                     read: true,
                     send: true,
@@ -204,7 +187,7 @@ export function CronChannelBindingsField({
                 else {
                   if (binding.reply_channel_grants) {
                     const grants = binding.reply_channel_grants
-                    setReplyDrafts((current) => ({ ...current, [binding.channel_id]: grants }))
+                    replyDrafts.current[binding.channel_id] = grants
                   }
                   delete next.reply_channel_grants
                 }
@@ -252,7 +235,10 @@ export function CronChannelBindingsField({
           search={search}
           query={connectionsQuery}
           value={connection}
-          onValueChange={setConnection}
+          onValueChange={(next) => {
+            setNames(channelNames)
+            setConnection(next)
+          }}
           disabled={disabled || value.length >= 64}
         />
       </Field>
@@ -264,12 +250,10 @@ export function CronChannelBindingsField({
       {connection && (
         <ChannelChoice
           key={connection.id}
-          orgId={orgId}
-          projectId={projectId}
-          installId={connection.id}
+          query={channelsQuery}
+          channels={channels}
           bindings={value}
           disabled={disabled || value.length >= 64}
-          onChannelsLoaded={rememberChannels}
           onAdd={(channel) => {
             if (
               disabled ||

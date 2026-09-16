@@ -33,9 +33,6 @@ export function RegisteredChannelsDialog({
   const query = useRegisteredChannels(orgId, projectId, install.id)
   const paged = usePagedQuery(query, install.id)
   const register = useRegisterChannel(orgId, projectId, install.id)
-  const [address, setAddress] = useState('')
-  const [error, setError] = useState('')
-  const [registeredName, setRegisteredName] = useState('')
   const githubRepository =
     install.provider === 'github' && /^[1-9][0-9]*$/.test(install.provider_account_ref ?? '')
       ? install.provider_account_ref
@@ -45,30 +42,6 @@ export function RegisteredChannelsDialog({
     install.integration_kind === 'managed' &&
     install.state === 'active' &&
     (install.provider === 'slack' || install.provider === 'discord' || Boolean(githubRepository))
-  const label = install.provider === 'github' ? 'Pull request number' : 'Channel ID'
-  async function submit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!canRegister || !address.trim() || register.isPending) return
-    setError('')
-    setRegisteredName('')
-    const value = address.trim()
-    if (githubRepository && (!/^[1-9][0-9]*$/.test(value) || Number(value) > 2_147_483_647)) {
-      setError('Enter a valid pull request number.')
-      return
-    }
-    try {
-      const body: RegisterManagedChannelRequest = {
-        source: 'managed',
-        provider_ref: githubRepository ? `repo:${githubRepository}:pr:${value}` : value,
-      }
-      if (githubRepository) body.provider_ref_kind = 'pr'
-      const channel = await register.mutateAsync(body)
-      setAddress('')
-      setRegisteredName(channel.name || channel.provider_ref)
-    } catch (err) {
-      setError(errorMessage(err, 'Could not add channel'))
-    }
-  }
   return (
     <Dialog
       open
@@ -121,50 +94,95 @@ export function RegisteredChannelsDialog({
           </p>
         )}
         {canRegister && (
-          <form onSubmit={(event) => void submit(event)}>
-            <fieldset disabled={register.isPending} className="grid gap-3">
-              <Field>
-                <FieldLabel htmlFor="channel-address">{label}</FieldLabel>
-                <Input
-                  id="channel-address"
-                  required
-                  inputMode={githubRepository ? 'numeric' : undefined}
-                  value={address}
-                  maxLength={2048}
-                  onChange={(event) => {
-                    setAddress(event.target.value)
-                  }}
-                />
-                <FieldDescription>
-                  {install.provider === 'github'
-                    ? 'Use a pull request in the connected repository.'
-                    : install.provider === 'slack'
-                      ? 'For a thread, enter channel ID:timestamp.'
-                      : 'Use a channel or thread in the connected server.'}
-                </FieldDescription>
-              </Field>
-              {error && (
-                <p role="alert" className="text-destructive text-sm">
-                  {error}
-                </p>
-              )}
-              {registeredName && (
-                <p role="status" className="text-sm">
-                  Added {registeredName}.
-                </p>
-              )}
-              <Button
-                type="submit"
-                className="justify-self-end"
-                loading={register.isPending}
-                disabled={register.isPending || !address.trim()}
-              >
-                Add channel
-              </Button>
-            </fieldset>
-          </form>
+          <RegisterChannelForm
+            register={register}
+            provider={install.provider}
+            githubRepository={githubRepository}
+          />
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function RegisterChannelForm({
+  register,
+  provider,
+  githubRepository,
+}: {
+  register: ReturnType<typeof useRegisterChannel>
+  provider: IntegrationInstall['provider']
+  githubRepository: string | undefined
+}) {
+  const [address, setAddress] = useState('')
+  const [error, setError] = useState('')
+  const [registeredName, setRegisteredName] = useState('')
+  const label = provider === 'github' ? 'Pull request number' : 'Channel ID'
+  async function submit(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!address.trim() || register.isPending) return
+    setError('')
+    setRegisteredName('')
+    const value = address.trim()
+    if (githubRepository && (!/^[1-9][0-9]*$/.test(value) || Number(value) > 2_147_483_647)) {
+      setError('Enter a valid pull request number.')
+      return
+    }
+    try {
+      const body: RegisterManagedChannelRequest = {
+        source: 'managed',
+        provider_ref: githubRepository ? `repo:${githubRepository}:pr:${value}` : value,
+      }
+      if (githubRepository) body.provider_ref_kind = 'pr'
+      const channel = await register.mutateAsync(body)
+      setAddress('')
+      setRegisteredName(channel.name || channel.provider_ref)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not add channel'))
+    }
+  }
+  return (
+    <form onSubmit={(event) => void submit(event)}>
+      <fieldset disabled={register.isPending} className="grid gap-3">
+        <Field>
+          <FieldLabel htmlFor="channel-address">{label}</FieldLabel>
+          <Input
+            id="channel-address"
+            required
+            inputMode={githubRepository ? 'numeric' : undefined}
+            value={address}
+            maxLength={2048}
+            onChange={(event) => {
+              setAddress(event.target.value)
+            }}
+          />
+          <FieldDescription>
+            {provider === 'github'
+              ? 'Use a pull request in the connected repository.'
+              : provider === 'slack'
+                ? 'For a thread, enter channel ID:timestamp.'
+                : 'Use a channel or thread in the connected server.'}
+          </FieldDescription>
+        </Field>
+        {error && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
+          </p>
+        )}
+        {registeredName && (
+          <p role="status" className="text-sm">
+            Added {registeredName}.
+          </p>
+        )}
+        <Button
+          type="submit"
+          className="justify-self-end"
+          loading={register.isPending}
+          disabled={register.isPending || !address.trim()}
+        >
+          Add channel
+        </Button>
+      </fieldset>
+    </form>
   )
 }

@@ -526,6 +526,63 @@ it('resolves saved channel labels from loaded pages without changing saved permi
   expect(api.requestsTo('PATCH', updatePath)[0]?.body).not.toHaveProperty('channel_bindings')
 })
 
+it('keeps saved channel labels across connection changes and refreshes them from later pages', async () => {
+  const second = { ...connection, id: `iin_${'b'.repeat(26)}`, display_name: 'Second server' }
+  let channelName = channel.name
+  const api = await render(edit(), [
+    {
+      method: 'GET',
+      path: base + '/integration-installs',
+      respond: () => jsonResponse({ data: [connection, second], next_cursor: null }),
+    },
+    {
+      method: 'GET',
+      path: channelsPath,
+      respond: (request) =>
+        jsonResponse(
+          request.url.searchParams.has('cursor')
+            ? { channels: [{ ...channel, name: channelName }], next_cursor: null }
+            : { channels: [], next_cursor: 'next-channel' },
+        ),
+    },
+    {
+      method: 'GET',
+      path: `${base}/integration-installs/${second.id}/channels`,
+      respond: () => jsonResponse({ channels: [], next_cursor: null }),
+    },
+  ])
+  expect(api.requests.some((request) => request.url.pathname.endsWith('/channels'))).toBe(false)
+  await openChoice('cron-connection')
+  await selectOption(connection.display_name)
+  await openChoice('cron-channel')
+  await waitForUI(() => {
+    expect(button('Load more results')).toBeDefined()
+  })
+  act(() => {
+    button('Load more results').click()
+  })
+  await waitForUI(() => {
+    expect(button('Remove Team server · announcements (12345)')).toBeDefined()
+  })
+  act(() => {
+    document.getElementById('cron-channel')?.click()
+  })
+  await openChoice('cron-connection')
+  await selectOption(second.display_name)
+  expect(button('Remove Team server · announcements (12345)')).toBeDefined()
+  channelName = 'renamed-announcements'
+  await openChoice('cron-connection')
+  await selectOption(connection.display_name)
+  await waitForUI(() => {
+    expect(button('Remove Team server · renamed-announcements (12345)')).toBeDefined()
+  })
+  await submit()
+  await waitForUI(() => {
+    expect(api.requestsTo('PATCH', updatePath)).toHaveLength(1)
+  })
+  expect(api.requestsTo('PATCH', updatePath)[0]?.body).not.toHaveProperty('channel_bindings')
+})
+
 it('preserves customized reply grants when reply threads are toggled off and back on', async () => {
   const saved = {
     ...trigger,

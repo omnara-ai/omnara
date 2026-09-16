@@ -1,6 +1,6 @@
 import { useCreateSecret } from '@omnara/react'
 import type { IntegrationAppProvider, Secret, SecretOwnerInput } from '@omnara/sdk'
-import { type KeyboardEvent, useState } from 'react'
+import { type KeyboardEvent, useRef, useState } from 'react'
 
 import { AWSCredentialsSecretFields } from '@/components/org/AWSCredentialsSecretFields'
 import {
@@ -54,7 +54,7 @@ export function CredentialSecretField({
 }) {
   const [creating, setCreating] = useState(false)
   const [createdSecret, setCreatedSecret] = useState<Secret>()
-  const [previousSecretId, setPreviousSecretId] = useState('')
+  const previousSecretId = useRef('')
 
   if (!creating) {
     return (
@@ -76,7 +76,7 @@ export function CredentialSecretField({
         }
         onCreateSecret={() => {
           onCreatingChange?.(true)
-          setPreviousSecretId(value)
+          previousSecretId.current = value
           onChange('')
           setCreating(true)
         }}
@@ -95,7 +95,7 @@ export function CredentialSecretField({
       onPendingChange={onPendingChange}
       onCancel={() => {
         onCreatingChange?.(false)
-        onChange(previousSecretId)
+        onChange(previousSecretId.current)
         setCreating(false)
       }}
       onCreated={(secret) => {
@@ -150,17 +150,16 @@ function InlineNewSecretFields({
         : secretValue !== '')
 
   async function submit() {
-    if (!valid || createSecret.isPending) return
+    const material =
+      kind === 'integration_credentials'
+        ? integrationMaterial
+        : kind === 'aws_credentials'
+          ? awsMaterial
+          : { kind: 'generic' as const, value: secretValue }
+    if (!valid || material === undefined || createSecret.isPending) return
     setError('')
     onPendingChange?.(true)
     try {
-      const material =
-        kind === 'integration_credentials'
-          ? integrationMaterial
-          : kind === 'aws_credentials'
-            ? awsMaterial
-            : { kind: 'generic' as const, value: secretValue }
-      if (material === undefined) return
       const secret = await createSecret.mutateAsync({
         owner,
         name,
@@ -169,9 +168,8 @@ function InlineNewSecretFields({
       onCreated(secret)
     } catch (err) {
       setError(errorMessage(err, 'Could not create secret'))
-    } finally {
-      onPendingChange?.(false)
     }
+    onPendingChange?.(false)
   }
 
   function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {

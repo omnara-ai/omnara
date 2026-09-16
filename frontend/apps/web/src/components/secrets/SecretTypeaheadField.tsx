@@ -55,35 +55,40 @@ function selectedSecret(
   return null
 }
 
-export function SecretSelect({
-  orgId,
-  projectId,
-  enabled,
-  value,
-  onChange,
-  placeholder = 'Search secrets…',
-  onCreateSecret,
-  knownSecret,
-  emptyDescription,
-  kind = 'generic',
-  owner,
-  requiredPayloadKeys,
-}: {
+interface SecretChoiceOptions {
   orgId: string
   /** When set, offers project-available secrets instead of org-owned ones. */
   projectId?: string
   enabled: boolean
   value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  onCreateSecret?: () => void
   knownSecret?: Secret
-  emptyDescription?: string
   kind?: SecretKind
   /** Limits choices to this exact owner, excluding grants. */
   owner?: SecretOwnerInput
   requiredPayloadKeys?: string[]
-}) {
+}
+
+function eligibleSecret(secret: Secret, owner?: SecretOwnerInput, requiredPayloadKeys?: string[]) {
+  if (owner && secret.owner.kind !== owner.kind) return false
+  if (
+    owner?.kind === 'project' &&
+    (secret.owner.kind !== 'project' || secret.owner.project_id !== owner.project_id)
+  )
+    return false
+  const payloadKeys = new Set(secret.payload_keys)
+  return requiredPayloadKeys?.every((key) => payloadKeys.has(key)) ?? true
+}
+
+function useSecretChoices({
+  orgId,
+  projectId,
+  enabled,
+  value,
+  knownSecret,
+  kind = 'generic',
+  owner,
+  requiredPayloadKeys,
+}: SecretChoiceOptions) {
   const search = useTypeaheadSearch()
   const orgQuery = useSecrets(orgId, owner ?? { kind: 'org' }, {
     filters: { ...search.filters, kind },
@@ -100,12 +105,7 @@ export function SecretSelect({
   const query = projectId === undefined ? orgQuery : projectQuery
   const orgSecrets = useInfiniteQueryItems(orgQuery)
   const projectSecrets = useInfiniteQueryItems(projectQuery).map((access) => access.secret)
-  const eligible = (secret: Secret) =>
-    (!owner ||
-      (secret.owner.kind === owner.kind &&
-        (owner.kind !== 'project' ||
-          (secret.owner.kind === 'project' && secret.owner.project_id === owner.project_id)))) &&
-    (requiredPayloadKeys?.every((key) => secret.payload_keys.includes(key)) ?? true)
+  const eligible = (secret: Secret) => eligibleSecret(secret, owner, requiredPayloadKeys)
   const secrets = includeKnownSecret(
     listedSecrets(orgSecrets, projectSecrets, projectId, kind),
     knownSecret,
@@ -124,6 +124,44 @@ export function SecretSelect({
     value,
     kind,
   )
+  return {
+    search,
+    query,
+    secrets,
+    selected,
+    isResolvingSelected: selectedOrgSecret.isFetching || selectedProjectSecret.isFetching,
+  }
+}
+
+export function SecretSelect({
+  orgId,
+  projectId,
+  enabled,
+  value,
+  onChange,
+  placeholder = 'Search secrets…',
+  onCreateSecret,
+  knownSecret,
+  emptyDescription,
+  kind = 'generic',
+  owner,
+  requiredPayloadKeys,
+}: SecretChoiceOptions & {
+  onChange: (value: string) => void
+  placeholder?: string
+  onCreateSecret?: () => void
+  emptyDescription?: string
+}) {
+  const { search, query, secrets, selected, isResolvingSelected } = useSecretChoices({
+    orgId,
+    projectId,
+    enabled,
+    value,
+    knownSecret,
+    kind,
+    owner,
+    requiredPayloadKeys,
+  })
   const empty = !query.isPending && !query.isError && secrets.length === 0
 
   return (
@@ -150,17 +188,13 @@ export function SecretSelect({
           )
         }
       />
-      {requiredPayloadKeys &&
-        value !== '' &&
-        !selected &&
-        !selectedOrgSecret.isFetching &&
-        !selectedProjectSecret.isFetching && (
-          <FieldDescription>
-            The selected credentials are unavailable or missing required fields. Choose a matching
-            secret to replace them. Existing app credentials stay unchanged until you choose a
-            replacement.
-          </FieldDescription>
-        )}
+      {requiredPayloadKeys && value !== '' && !selected && !isResolvingSelected && (
+        <FieldDescription>
+          The selected credentials are unavailable or missing required fields. Choose a matching
+          secret to replace them. Existing app credentials stay unchanged until you choose a
+          replacement.
+        </FieldDescription>
+      )}
       {empty && emptyDescription && <FieldDescription>{emptyDescription}</FieldDescription>}
     </>
   )
