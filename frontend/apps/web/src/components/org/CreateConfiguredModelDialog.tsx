@@ -40,7 +40,7 @@ export function CreateConfiguredModelDialog({
   onOpenChange,
   orgId,
   providers,
-  defaultProviderId = '',
+  defaultProviderId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -58,7 +58,7 @@ export function CreateConfiguredModelDialog({
     error: '',
   })
   const form = useForm({
-    defaultValues: { ...configuredModelFormDefaults, providerId: defaultProviderId },
+    defaultValues: { ...configuredModelFormDefaults, providerId: defaultProviderId ?? '' },
     onSubmit: async ({ value }) => {
       const provider = providers.find((item) => item.id === value.providerId) ?? providers[0]
       if (phase.kind === 'form' && !configuredModelFormValid(value, provider)) {
