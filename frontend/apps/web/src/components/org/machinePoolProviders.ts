@@ -5,13 +5,14 @@ import { providerOptionStrings } from '@/lib/provider-options'
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
+    optional?: boolean
     key: string
     label: string
     placeholder: string
     description?: string
     descriptionHref?: string
   }
-  location: {
+  location?: {
     key: string
     label: string
     placeholder: string
@@ -147,10 +148,24 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
+const tenki: MachinePoolProviderDefinition = {
+  label: 'Tenki',
+  resource: {
+    key: 'image',
+    label: 'Image (optional)',
+    placeholder: 'Tenki base image',
+    optional: true,
+    description:
+      'Leave empty to use the Tenki base image, or enter a Tenki registry image reference.',
+    descriptionHref: 'https://tenki.cloud/docs/sandbox/quickstart',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
+export const machinePoolProviderDefinitions: Record<
   MachinePoolProvider,
   MachinePoolProviderDefinition
->
+> = { unikraft, blaxel, daytona, modal, tenki }
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)

@@ -188,6 +188,11 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 	if err != nil {
 		return err
 	}
+	if machine.ProviderProvisionAttemptedAt == nil {
+		if guarded, ok := provider.(providers.CreationGuardedProvider); ok {
+			guarded.AuthorizeCreation(installationID, machine.ID)
+		}
+	}
 	machine.ProviderProvisionAttemptedAt = &providerProvisioning.ProviderProvisionAttemptedAt
 	machine.UpdatedAt = providerProvisioning.UpdatedAt
 	providerCtx, cancel = context.WithTimeout(ctx, provider.ProvisioningTimeout())

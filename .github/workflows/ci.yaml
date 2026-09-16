@@ -270,6 +270,7 @@ jobs:
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
         run: |
           configured=false
           if [ -z "$OPENAI_API_KEY" ]; then
@@ -301,6 +302,13 @@ jobs:
             echo "sandboxes=false" >> "$GITHUB_OUTPUT"
             echo "No complete sandbox-provider credentials are configured; skipping live sandbox tests."
           fi
+          if [ -n "$TENKI_API_KEY" ]; then
+            echo "tenki=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          else
+            echo "tenki=false" >> "$GITHUB_OUTPUT"
+            echo "TENKI_API_KEY is not configured; skipping live Tenki E2E."
+          fi
           echo "configured=$configured" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -322,7 +330,7 @@ jobs:
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-live-
 
       - uses: ./.github/actions/setup-test-db
-        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.tenki == 'true'
 
       - run: make test-live-openai-responses
         if: steps.secrets.outputs.openai == 'true'
@@ -358,11 +366,24 @@ jobs:
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
+
+      - name: Install cloudflared for Tenki E2E
+        if: steps.secrets.outputs.tenki == 'true'
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-amd64 -o "$RUNNER_TEMP/cloudflared"
+          chmod +x "$RUNNER_TEMP/cloudflared"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - run: make test-live-tenki-provider test-live-tenki-e2e
+        if: steps.secrets.outputs.tenki == 'true'
+        env:
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
 
       - name: Show database logs on failure
-        if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')
+        if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.tenki == 'true')
         run: docker compose logs postgres redis
 
       - name: Stop test database
-        if: always() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')
+        if: always() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.tenki == 'true')
         run: docker compose down -v
