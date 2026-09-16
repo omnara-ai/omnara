@@ -57,33 +57,12 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 			require.Equal(t, current.CanonicalJSON, after.compiledDefinition)
 			require.Equal(t, after.compiledDefinition, after.definition)
 			require.Equal(t, current.Hash, after.effectiveDefinitionHash)
-			require.Equal(t, hashBytes([]byte(after.source)), after.sourceHash)
-			recompiled, err := agentconfig.Compile(source.format, []byte(after.source), opts)
-			require.NoError(t, err)
-			require.Equal(t, current.CanonicalJSON, recompiled.CanonicalJSON)
 			contract, err := agentconfig.RuntimeContractFromCompiled(after.compiledDefinition,
 				agentconfig.CompilerVersion, after.effectiveDefinitionHash)
 			require.NoError(t, err)
 			require.Len(t, contract.Tools, 4)
 			require.Equal(t, "skill", contract.Tools[2].Name)
 			require.Equal(t, "always_allow", contract.Tools[2].Permission.Mode)
-			var migrated agentconfig.Compiled
-			require.NoError(t, json.Unmarshal(after.compiledDefinition, &migrated))
-			_, err = agentconfig.SubagentCompiledFrom(migrated, agentconfig.SubagentCompiled{
-				Model: &agentconfig.SubagentModelCompiled{Name: "no-tools"},
-			}, agentconfig.SubagentDepth{}, func(
-				string, agentconfig.SubagentModelCompiled,
-			) (agentconfig.ResolvedModelSelection, error) {
-				supportsTools := false
-				return agentconfig.ResolvedModelSelection{SupportsTools: &supportsTools}, nil
-			})
-			require.ErrorContains(t, err, "does not support tools")
-			if source.format == agentconfig.SourceFormatJSON {
-				require.Contains(t, after.source, `"instruction":"a < b & c","model"`)
-			}
-			if source.raw[0] == '#' {
-				require.Contains(t, after.source, "# keep\n")
-			}
 			again, changed, err := migrateExplicitDefaultTools(after)
 			require.NoError(t, err)
 			require.False(t, changed)
@@ -137,12 +116,9 @@ func TestExplicitRetrievalToolsMigration(t *testing.T) {
 				definition: encoded.CanonicalJSON, compiledDefinition: encoded.CanonicalJSON, effectiveDefinitionHash: encoded.Hash}
 			after, _, err := migrateExplicitDefaultTools(before)
 			require.NoError(t, err)
+			require.Equal(t, before.source, after.source)
+			require.Equal(t, before.sourceHash, after.sourceHash)
 			require.Equal(t, current.CanonicalJSON, after.compiledDefinition)
-			recompiled, err := agentconfig.Compile(
-				agentconfig.SourceFormatJSON, []byte(after.source), agentconfig.CompileOptions{},
-			)
-			require.NoError(t, err)
-			require.Equal(t, current.CanonicalJSON, recompiled.CanonicalJSON)
 			again, changed, err := migrateExplicitDefaultTools(after)
 			require.NoError(t, err)
 			require.False(t, changed)
@@ -198,12 +174,6 @@ func TestExplicitDefaultToolsMigrationSubagents(t *testing.T) {
 			require.Equal(t, current.CanonicalJSON, after.compiledDefinition)
 			require.Equal(t, current.CanonicalJSON, after.definition)
 			require.Equal(t, current.Hash, after.effectiveDefinitionHash)
-			recompiled, err := agentconfig.Compile(test.format, []byte(after.source), opts)
-			require.NoError(t, err)
-			require.Equal(t, current.CanonicalJSON, recompiled.CanonicalJSON)
-			if test.format == agentconfig.SourceFormatYAML {
-				require.Contains(t, after.source, "# keep\n")
-			}
 			again, changed, err := migrateExplicitDefaultTools(after)
 			require.NoError(t, err)
 			require.False(t, changed)

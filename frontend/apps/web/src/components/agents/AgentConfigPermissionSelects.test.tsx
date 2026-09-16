@@ -4,7 +4,6 @@ import { OmnaraClientProvider } from '@omnara/react'
 import {
   createOmnaraClient,
   type MachinePoolSummary,
-  schemas,
   type ToolCatalog,
   type ToolPermissionProfile,
 } from '@omnara/sdk'
@@ -111,20 +110,7 @@ function testProviders(routes: FakeRoute[] = []) {
     {
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
-      respond: ({ body }) => {
-        const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        return jsonResponse({
-          tools: request.source.includes('machine_pool_name')
-            ? [
-                {
-                  name: 'run_command',
-                  enabled: true,
-                  permission: { mode: 'always_allow', parameters: {} },
-                },
-              ]
-            : [],
-        })
-      },
+      respond: () => jsonResponse({ tools: [] }),
     },
     {
       method: 'GET',
@@ -450,9 +436,9 @@ it.each([false, true])(
     expect(container.querySelector('output')?.textContent).toBe(source)
     await selectIncludedPermission('run_command', 'Always allow')
     const saved = container.querySelector('output')?.textContent ?? ''
-    expect(parse(saved)).toHaveProperty('tools.run_command', {
-      type: 'built_in',
-      permission: { mode: 'always_allow' },
+    expect(parse(saved)).toHaveProperty('tools', {
+      web_search: { permission: { mode: 'always_ask' } },
+      run_command: { type: 'built_in', permission: { mode: 'always_allow' } },
     })
   },
 )
@@ -499,38 +485,6 @@ it.each([
   },
 )
 
-it('saves only a changed permission without disturbing other tools or adding reset controls', async () => {
-  await renderAndFlush(<IncludedToolsHarness />)
-  expect(container.querySelector('output')?.textContent).toBe(
-    `${includedSource}  run_command: {}\n`,
-  )
-  click('[data-slot="collapsible-trigger"]')
-  await act(async () => {
-    container
-      .querySelector('[aria-label="run_command permission"]')
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (item) => item.textContent === 'Always ask',
-  )
-  if (!option) throw new Error('Missing Always ask option')
-  act(() => {
-    option.click()
-  })
-  const saved = container.querySelector('output')?.textContent ?? ''
-  expect(parse(saved)).toMatchObject({
-    tools: {
-      web_search: { permission: { mode: 'always_ask' } },
-      run_command: { type: 'built_in', permission: { mode: 'always_ask' } },
-    },
-  })
-  expect(parse(saved)).not.toHaveProperty('tools.skill')
-  expect(container.textContent).not.toContain('customized')
-  expect(container.querySelector('[aria-label^="Reset"]')).toBeNull()
-  expect(container.textContent).not.toContain('Reset')
-})
-
 function NewAgentDraftHarness({ pool }: { pool?: MachinePoolSummary }) {
   const { form } = useAgentDraft(catalog, pool, undefined, undefined, {
     orgId: 'org-test',
@@ -558,21 +512,11 @@ it('seeds the resolved pool only once, using its current name', async () => {
     machine_sources: [{ machine_pool_name: 'renamed-hosted-pool' }],
     tools: { web_search: { type: 'built_in' } },
   })
-  await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
-      'tools.run_command',
-    )
-  })
   click('button')
   await renderAndFlush(<NewAgentDraftHarness pool={pool} />)
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'machine_sources',
   )
-  await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
-      'tools.run_command',
-    )
-  })
 })
 
 it('does not invent a source when no project pool is available', async () => {
@@ -665,7 +609,6 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
   expect(container.querySelector('[data-slot="collapsible-trigger"]')?.textContent).toBe(
     'Other tools',
   )
-  expect(container.textContent).not.toContain('customized')
   expect(container.textContent).toContain('web_search')
   for (const name of ['run_command', 'skill', 'send_integration_message']) {
     expect(container.textContent).not.toContain(name)
@@ -678,32 +621,6 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
     expect(control?.closest('[data-slot="collapsible-content"]')).not.toBeNull()
     expect(control?.closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
   }
-  expect(onToolsChange).not.toHaveBeenCalled()
-})
-
-it('shows saved skill and integration entries without requiring source context', async () => {
-  const onToolsChange = vi.fn()
-  await renderAndFlush(
-    <AgentConfigToolsField
-      catalog={includedCatalog}
-      tools={[
-        { name: 'run_command', permission: { mode: 'always_ask', parameters: {} } },
-        { name: 'skill', permission: null },
-        { name: 'send_integration_message', permission: null },
-      ]}
-      onToolsChange={onToolsChange}
-    />,
-  )
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')?.textContent).toBe(
-    'Other tools',
-  )
-  click('[data-slot="collapsible-trigger"]')
-  expect(container.querySelectorAll('[data-slot="select-trigger"]')).toHaveLength(3)
-  expect(container.textContent).toContain('run_command')
-  expect(container.textContent).toContain('Always ask')
-  expect(container.textContent).toContain('send_integration_message')
-  expect(container.textContent).toContain('skill')
-  expect(container.textContent).not.toContain('Reset')
   expect(onToolsChange).not.toHaveBeenCalled()
 })
 

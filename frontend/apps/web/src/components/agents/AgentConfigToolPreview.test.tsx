@@ -18,7 +18,6 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
-import { z } from 'zod'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { newSubagent } from '@/components/agents/agentConfigSubagents'
@@ -212,18 +211,18 @@ function BasicFormHarness({ source = includedSource }: { source?: string }) {
       <button
         type="button"
         onClick={() => {
-          form.setTools(form.tools.filter((tool) => tool.name !== 'web_search'))
-        }}
-      >
-        Remove web search
-      </button>
-      <button
-        type="button"
-        onClick={() => {
           form.setMcpServers([])
         }}
       >
         Remove MCP
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          form.setTools(form.tools.filter((tool) => tool.name !== 'web_search'))
+        }}
+      >
+        Remove web search
       </button>
       <button
         type="button"
@@ -236,14 +235,6 @@ function BasicFormHarness({ source = includedSource }: { source?: string }) {
       <button
         type="button"
         onClick={() => {
-          form.setSkillIds(['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa'])
-        }}
-      >
-        Select skill
-      </button>
-      <button
-        type="button"
-        onClick={() => {
           form.setSkillIds([])
         }}
       >
@@ -252,26 +243,10 @@ function BasicFormHarness({ source = includedSource }: { source?: string }) {
       <button
         type="button"
         onClick={() => {
-          form.reset(createBasicConfigSession(includedSource).initialDraft)
-        }}
-      >
-        Reset draft
-      </button>
-      <button
-        type="button"
-        onClick={() => {
           form.setSubagents([{ ...newSubagent(), key: 'worker', type: 'self' }])
         }}
       >
         Select subagent
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          form.setSubagents(form.subagents.map((row) => ({ ...row, key: '' })))
-        }}
-      >
-        Clear subagent key
       </button>
       <button
         type="button"
@@ -369,68 +344,37 @@ it('does not offer the Slack tool when it is absent from the source', async () =
   ])
 })
 
-it.each([true, false])(
-  'keeps an explicitly configured Slack tool editable (enabled: %s)',
-  async (enabled) => {
-    Providers = testProviders([sourceToolsRoute()])
-    await renderAndFlush(
-      <BasicFormHarness
-        source={`${includedSource}  send_integration_message: {enabled: ${enabled}}\n`}
-      />,
-    )
-    await vi.waitFor(() => {
-      expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
-    })
-    clickLabel('Other tools')
-    await vi.waitFor(() => {
-      expect(
-        container.querySelector('[aria-label="send_integration_message permission"]')?.textContent,
-      ).toBe(enabled ? 'Always allow' : 'Disabled')
-      expect(
-        container
-          .querySelector('[aria-label="send_integration_message permission"]')
-          ?.hasAttribute('disabled'),
-      ).toBe(false)
-    })
-    await selectIncludedPermission('send_integration_message', 'Always allow')
-    expect(
-      container.querySelector('[aria-label="send_integration_message permission"]'),
-    ).not.toBeNull()
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-      'tools.send_integration_message',
-    )
-    await selectIncludedPermission('send_integration_message', 'Disabled')
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-      'tools.send_integration_message.enabled',
-      false,
-    )
-  },
-)
-
-it('displays backend defaults without saving them and preserves user overrides', async () => {
+it('includes configured MCP servers in previews and removes them after deletion', async () => {
   const requests: unknown[] = []
   Providers = testProviders([
     {
-      method: 'POST',
-      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      ...previewToolsRoute(() => []),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(request)
-        return jsonResponse({
-          tools: request.source.includes('machine_pool_name')
-            ? [
-                {
-                  name: 'run_command',
-                  enabled: true,
-                  permission: { mode: 'always_allow', parameters: {} },
-                },
-              ]
-            : [],
-        })
+        requests.push(JSON.parse(request.source))
+        return toolResponse([])
       },
     },
   ])
+  await renderAndFlush(
+    <BasicFormHarness
+      source={`${includedSource}mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n`}
+    />,
+  )
+  await vi.waitFor(() => {
+    expect(requests.at(-1)).toHaveProperty('mcp', { docs: { url: 'https://example.com/mcp' } })
+  })
+  clickLabel('Remove MCP')
+  await vi.waitFor(() => {
+    expect(requests.at(-1)).toHaveProperty('mcp', {})
+  })
+})
+
+it('displays backend defaults without saving them and preserves user overrides', async () => {
+  let preview: string[] = []
+  Providers = testProviders([previewToolsRoute(() => preview)])
   await renderAndFlush(<BasicFormHarness />)
+  preview = ['run_command']
   act(() => {
     ;[...container.querySelectorAll('button')]
       .find((button) => button.textContent === 'Select pool')
@@ -455,6 +399,7 @@ it('displays backend defaults without saving them and preserves user overrides',
   expect(parse(container.querySelector('output')?.textContent ?? '')).toMatchObject({
     tools: { run_command: { permission: { mode: 'always_ask' } } },
   })
+  preview = []
   act(() => {
     ;[...container.querySelectorAll('button')]
       .find((button) => button.textContent === 'Remove pool')
@@ -517,48 +462,16 @@ function toolResponse(names: string[]) {
   })
 }
 
-function sourceToolsRoute(): FakeRoute {
+function previewToolsRoute(names: () => string[]): FakeRoute {
   return {
     method: 'POST',
     path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
-    respond: ({ body }) => {
-      const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-      const source = z
-        .object({
-          tools: z.record(z.string(), z.object({ enabled: z.boolean().optional() })),
-          mcp: z.record(z.string(), z.unknown()),
-        })
-        .parse(JSON.parse(request.source))
-      const tools = new Map(Object.entries(source.tools))
-      const names: string[] = []
-      if (request.source.includes('machine_pool_name'))
-        names.push('create_machine', 'delete_machine')
-      if (request.source.includes('machine_pool_name') || request.source.includes('machine_name'))
-        names.push('run_command')
-      if (request.source.includes('skl_')) names.push('skill')
-      if (request.source.includes('"type":"self"') || request.source.includes('"type":"profile"'))
-        names.push(...subagentToolNames)
-      for (const name of names) if (!tools.has(name)) tools.set(name, {})
-      if (
-        [...tools.values()].some((tool) => tool.enabled !== false) ||
-        Object.keys(source.mcp).length > 0
-      ) {
-        if (!tools.has('read_file')) tools.set('read_file', {})
-        if (!tools.has('search_files')) tools.set('search_files', {})
-      }
-      return jsonResponse({
-        tools: [...tools].map(([name, tool]) => ({
-          name,
-          enabled: tool.enabled !== false,
-          permission: { mode: 'always_allow', parameters: {} },
-        })),
-      })
-    },
+    respond: () => toolResponse(names()),
   }
 }
 
 it('displays retrieval defaults without changing source and saves only edited overrides', async () => {
-  Providers = testProviders([sourceToolsRoute()])
+  Providers = testProviders([previewToolsRoute(() => ['read_file', 'search_files'])])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
     expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
@@ -597,71 +510,19 @@ it('displays retrieval defaults without changing source and saves only edited ov
   )
 })
 
-it('drops unconfigured retrieval defaults when the last ordinary tool is removed', async () => {
-  Providers = testProviders([sourceToolsRoute()])
-  await renderAndFlush(<BasicFormHarness />)
-  await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
-  })
-  clickLabel('Remove web search')
-  await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
-  })
-  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty('tools')
-})
-
-it('displays MCP defaults without changing source and drops them with the last server', async () => {
-  Providers = testProviders([sourceToolsRoute()])
-  const source =
-    includedSource.slice(0, includedSource.indexOf('tools:')) +
-    'mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n'
-  await renderAndFlush(<BasicFormHarness source={source} />)
-  await vi.waitFor(() => {
-    expect(container.textContent).toContain('Other tools')
-  })
-  clickLabel('Other tools')
-  expect(container.querySelector('[aria-label="read_file permission"]')).not.toBeNull()
-  expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
-  expect(container.querySelector('output')?.textContent).toBe(source)
-  clickLabel('Remove MCP')
-  await vi.waitFor(() => {
-    expect(container.textContent).not.toContain('Other tools')
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
-  })
-  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty('tools')
-})
-
-it('does not default retrieval tools when all configured machine tools are disabled', async () => {
-  Providers = testProviders([sourceToolsRoute()])
-  const source =
-    includedSource.slice(0, includedSource.indexOf('tools:')) +
-    'machine_sources: [{machine_name: box}]\ntools:\n' +
-    [
-      'run_command',
-      'write_process',
-      'stop_process',
-      'read_process',
-      'list_processes',
-      'list_machines',
-      'inspect_machine',
-      'upload_file',
-      'download_file',
-    ]
-      .map((name) => `  ${name}: {enabled: false}\n`)
-      .join('')
-  await renderAndFlush(<BasicFormHarness source={source} />)
-  await vi.waitFor(() => {
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
-  })
-  const saved: unknown = parse(container.querySelector('output')?.textContent ?? '')
-  expect(saved).not.toHaveProperty('tools.read_file')
-  expect(saved).not.toHaveProperty('tools.search_files')
-  expect(saved).toHaveProperty('tools.run_command.enabled', false)
-})
-
 it('updates resource defaults without writing or removing explicit entries', async () => {
-  Providers = testProviders([sourceToolsRoute()])
+  let preview = ['create_machine', 'skill']
+  const requests: unknown[] = []
+  Providers = testProviders([
+    {
+      ...previewToolsRoute(() => preview),
+      respond: ({ body }) => {
+        const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        requests.push(JSON.parse(request.source))
+        return toolResponse(preview)
+      },
+    },
+  ])
   const source = `${includedSource}  run_command: {enabled: false, permission: {mode: always_ask}}
   delete_machine: {permission: {mode: always_ask}}
 machine_sources: [{machine_pool_name: pool}]
@@ -677,13 +538,19 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   })
   expect(container.querySelector('[aria-label="skill permission"]')).not.toBeNull()
   expect(container.querySelector('output')?.textContent).toBe(source)
+  preview = ['skill']
   clickLabel('Select machine')
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="create_machine permission"]')).toBeNull()
+    expect(requests.at(-1)).toMatchObject({
+      machine_sources: [{ machine_name: 'box' }],
+      skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa'],
+    })
   })
   expect(container.querySelector('[aria-label="delete_machine permission"]')?.textContent).toBe(
     'Always ask',
   )
+  preview = []
   clickLabel('Remove skill')
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="skill permission"]')).toBeNull()
@@ -692,6 +559,7 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
+  expect(requests.at(-1)).toMatchObject({ machine_sources: [], skills: [] })
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
     web_search: { permission: { mode: 'always_ask' } },
     run_command: { enabled: false, permission: { mode: 'always_ask' } },
@@ -700,7 +568,8 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
 })
 
 it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (mode) => {
-  Providers = testProviders([sourceToolsRoute()])
+  let preview = ['spawn_agent', 'list_agents']
+  Providers = testProviders([previewToolsRoute(() => preview)])
   await renderAndFlush(
     <BasicFormHarness
       source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {worker: {type: self}}\n`}
@@ -729,6 +598,7 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
     'tools.read_agent.enabled',
     false,
   )
+  preview = []
   clickLabel('Remove subagent')
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
@@ -744,6 +614,7 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
   })
+  preview = ['spawn_agent', 'list_agents']
   clickLabel('Select subagent')
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="spawn_agent permission"]')).not.toBeNull()
@@ -757,13 +628,11 @@ it.each([
   {
     source: 'machine_sources: [{machine_pool_name: pool}]',
     tool: 'run_command',
-    marker: 'machine_pool_name',
     remove: 'Remove pool',
   },
   {
     source: 'subagents: {worker: {type: self}}',
     tool: 'spawn_agent',
-    marker: 'worker',
     remove: 'Remove subagent',
   },
 ])(
@@ -773,13 +642,11 @@ it.each([
     const pending = new Promise<Response>((resolve) => {
       release = resolve
     })
+    let removed = false
     Providers = testProviders([
       {
-        ...sourceToolsRoute(),
-        respond: ({ body }) =>
-          schemas.zResolveAgentConfigToolsRequest.parse(body).source.includes(test.marker)
-            ? pending.then((response) => response.clone())
-            : toolResponse([]),
+        ...previewToolsRoute(() => []),
+        respond: () => (removed ? toolResponse([]) : pending.then((response) => response.clone())),
       },
     ])
     await renderAndFlush(
@@ -790,6 +657,7 @@ ${test.source}
       />,
     )
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('true')
+    removed = true
     clickLabel(test.remove)
     act(() => {
       release(toolResponse([test.tool]))

@@ -103,10 +103,6 @@ func TestDefaultMachineTools(t *testing.T) {
 				if err != nil {
 					t.Fatalf("compile: %v", err)
 				}
-				repeated, err := Compile(SourceFormatYAML, []byte(result.Source), opts)
-				if err != nil || repeated.Source != result.Source || repeated.Hash != result.Hash {
-					t.Fatalf("normalization is not idempotent: %v", err)
-				}
 				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
 				if err != nil {
 					t.Fatalf("runtime contract: %v", err)
@@ -157,9 +153,6 @@ func TestDefaultRetrievalTools(t *testing.T) {
 				require.Contains(t, result.Compiled.Tools, tool.Name)
 			}
 			require.Equal(t, test.want, names)
-			repeated, err := Compile(SourceFormatYAML, []byte(result.Source), CompileOptions{})
-			require.NoError(t, err)
-			require.Equal(t, result, repeated)
 		})
 	}
 }

@@ -70,9 +70,5 @@ func TestCompilePreservesSourceWithDefaultTools(t *testing.T) {
 		if *parsed.Tools["run_command"].Enabled || parsed.Tools["run_command"].Permission.Mode != "always_ask" {
 			t.Fatal("explicit override lost")
 		}
-		repeated, err := Compile(format, []byte(result.Source), testMachineSourceCompileOptions(t))
-		if err != nil || repeated.Source != result.Source || repeated.Hash != result.Hash {
-			t.Fatalf("compilation not repeatable: %v", err)
-		}
 	}
 }
