@@ -18,6 +18,7 @@ const (
 	Daytona   = "daytona"
 	Freestyle = "freestyle"
 	Modal     = "modal"
+	Tenki     = "tenki"
 	Unikraft  = "unikraft"
 )
 
@@ -92,6 +93,13 @@ type Provider interface {
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
+}
+
+// CreationGuardedProvider uses Omnara's durable attempt marker when a provider
+// cannot deduplicate create requests. Retries may adopt resources but must not
+// issue another create, even when the first request's outcome is unknown.
+type CreationGuardedProvider interface {
+	AuthorizeCreation(installationID, machineID uuid.UUID)
 }
 
 type Definition interface {
