@@ -390,8 +390,9 @@ export class GatewayServer {
 
 function closeIncompleteRequest(request: IncomingMessage, response: ServerResponse): void {
   if (request.complete || request.destroyed) return
-  // Also close GET/HEAD connections, whose bodies the adapter does not drain.
-  // Let Node finish its socket writes; response finish is not client receipt.
+  // Only GET/HEAD skip the adapter's bounded body drain. Closing a POST during
+  // its upload can make the client's write error win over our rejection reply.
+  if (request.method !== 'GET' && request.method !== 'HEAD') return
   response.shouldKeepAlive = false
   response.setHeader('connection', 'close')
 }

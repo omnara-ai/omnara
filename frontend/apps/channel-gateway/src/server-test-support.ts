@@ -122,6 +122,7 @@ export async function incompleteRequest(
 ): Promise<{ connection: string | undefined; status: number }> {
   return new Promise((resolve, reject) => {
     let response: { connection: string | undefined; status: number } | undefined
+    let complete = false
     const request = httpRequest(
       { headers, host: '127.0.0.1', method: 'POST', path, port },
       (incoming) => {
@@ -129,23 +130,27 @@ export async function incompleteRequest(
           connection: incoming.headers.connection,
           status: incoming.statusCode ?? 0,
         }
+        incoming.on('error', reject)
+        incoming.once('end', () => {
+          complete = incoming.complete
+        })
         incoming.resume()
       },
     )
     const timeout = setTimeout(() => {
+      request.socket?.destroy()
       request.destroy()
-      reject(new Error('incomplete request connection was not closed'))
+      reject(new Error('incomplete request socket was not closed'))
     }, timeoutMs)
-    request.on('close', () => {
-      clearTimeout(timeout)
-      if (response) resolve(response)
-      else reject(new Error('incomplete request closed before receiving a response'))
+    request.once('socket', (socket) => {
+      socket.once('close', () => {
+        clearTimeout(timeout)
+        if (response && complete) resolve(response)
+        else reject(new Error('incomplete request socket closed without a complete response'))
+      })
     })
     request.on('error', (error) => {
-      if (!response) {
-        clearTimeout(timeout)
-        reject(error)
-      }
+      if (!complete) reject(error)
     })
     request.write('a')
   })

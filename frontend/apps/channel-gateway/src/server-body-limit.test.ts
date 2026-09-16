@@ -108,7 +108,7 @@ describe('provider webhook body limit at HTTP entry', () => {
         await incompleteRequest(f.port, webhookPath, {
           'content-length': String(providerLimit + 1),
         }),
-      ).toEqual({ status: 413, connection: 'close' })
+      ).toMatchObject({ status: 413 })
       expect(f.registry.webhookBodyLimitBytes).toHaveBeenCalledWith('test_connector', 'github')
       expect(f.registry.acquire).toHaveBeenCalledOnce()
       expect(f.release).toHaveBeenCalledOnce()

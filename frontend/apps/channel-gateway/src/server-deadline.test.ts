@@ -72,7 +72,7 @@ describe('provider webhook deadline from HTTP entry', () => {
         await incompleteRequest(f.port, `/hooks/${app.app.id}/github/events`, {
           'content-length': String(2 * 1024 * 1024 + 1),
         }),
-      ).toEqual({ status: 413, connection: 'close' })
+      ).toMatchObject({ status: 413 })
       expect(f.handles.get(app.app.id)?.handleWebhook).not.toHaveBeenCalled()
       expect(f.handles.get(app.app.id)?.release).toHaveBeenCalledOnce()
       expect(f.submitInbound).not.toHaveBeenCalled()
@@ -102,7 +102,7 @@ describe('provider webhook deadline from HTTP entry', () => {
       const [acquisitionResponse, bodyResponse] = await Promise.all([acquisition, body])
       expect(acquisitionResponse.status).toBe(500)
       expect(await acquisitionResponse.text()).toBe('internal server error')
-      expect(bodyResponse).toEqual({ status: 500, connection: 'close' })
+      expect(bodyResponse).toMatchObject({ status: 500 })
       expect(Date.now() - started).toBeGreaterThanOrEqual(8_900)
       expect(Date.now() - started).toBeLessThan(11_000)
       expect(f.handles.has(slowAppId)).toBe(false)

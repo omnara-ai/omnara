@@ -56,19 +56,27 @@ describe('rejected operation upload HTTP cleanup', () => {
         },
       )
       const timeout = setTimeout(() => {
-        request.destroy(new Error('rejected upload connection did not close'))
+        const error = new Error('rejected upload socket did not close')
+        request.socket?.destroy(error)
+        request.destroy(error)
+        reject(error)
       }, 1_000)
       request.on('error', reject)
-      request.on('close', () => {
-        clearTimeout(timeout)
-        if (result) resolve(result)
-        else reject(new Error('upload closed without a complete rejection'))
+      request.once('socket', (socket) => {
+        // ClientRequest close only ends the HTTP exchange; the socket can still
+        // hold an incomplete upload until the adapter's bounded drain expires.
+        socket.once('close', () => {
+          clearTimeout(timeout)
+          if (result) resolve(result)
+          else reject(new Error('upload socket closed without a complete rejection'))
+        })
       })
       // Intentionally leave most of the declared body unsent. Intake rejects
       // the first file bytes; cleanup must not wait for EOF or resume execution.
       request.write(multipart(Buffer.alloc(32 * 1024, 'x')))
     })
-    expect(received).toMatchObject({ status: 503, complete: true, connection: 'close' })
+    expect(received).toMatchObject({ status: 503, complete: true })
+    expect(received.connection).not.toBe('close')
     expect(JSON.parse(received.body)).toEqual({ request_id: 'request-1', outcome: 'failed' })
     expect(execute).not.toHaveBeenCalled()
     expect(workBudget.usedBytes).toBe(0)

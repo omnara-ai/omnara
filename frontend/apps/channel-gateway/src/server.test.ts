@@ -84,7 +84,6 @@ describe('channel webhook server', () => {
       })
 
       expect(response.status).toBe(413)
-      expect(response.connection).toBe('close')
     } finally {
       await server.close()
     }
@@ -98,7 +97,6 @@ describe('channel webhook server', () => {
       })
 
       expect([408, 500]).toContain(response.status)
-      expect(response.connection).toBe('close')
     } finally {
       await server.close()
     }

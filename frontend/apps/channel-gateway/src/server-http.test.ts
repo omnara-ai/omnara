@@ -144,7 +144,8 @@ describe('channel gateway HTTP adapter', () => {
         await ended
         await finished.promise
         expect(response).toMatch(/^HTTP\/1\.1 200 /)
-        expect(response).toMatch(/\r\nconnection: close\r\n/i)
+        if (method === 'POST') expect(response).not.toMatch(/\r\nconnection: close\r\n/i)
+        else expect(response).toMatch(/\r\nconnection: close\r\n/i)
         expect(response.split('\r\n\r\n')[1]).toBe(method === 'HEAD' ? '' : '{"ok":true}')
         expect(incomplete).toBe(true)
         expect(status).toBe(200)
@@ -166,7 +167,7 @@ describe('channel gateway HTTP adapter', () => {
     const { port, server } = await startServer(providerRuntime())
     try {
       const response = await incompleteRequest(port, path, { 'content-length': '100' })
-      expect(response).toEqual({ connection: 'close', status })
+      expect(response).toMatchObject({ status })
     } finally {
       await server.close()
     }

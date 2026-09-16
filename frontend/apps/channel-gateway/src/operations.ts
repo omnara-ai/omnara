@@ -350,7 +350,6 @@ function rejection(status: number, code: string, requestId?: string): Response {
       headers: {
         'content-type': 'application/json',
         'cache-control': 'no-store',
-        connection: 'close',
       },
     },
   )

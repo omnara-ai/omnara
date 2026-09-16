@@ -134,8 +134,9 @@ describe('private channel operations HTTP receiver', () => {
       expect(response.status).toBe(401)
       expect(await response.text()).not.toContain(credential)
     }
-    expect(await incompleteRequest(port, operationsRoute, { 'content-length': '500' })).toEqual({
-      connection: 'close',
+    expect(
+      await incompleteRequest(port, operationsRoute, { 'content-length': '500' }),
+    ).toMatchObject({
       status: 401,
     })
     expect(execute).not.toHaveBeenCalled()
