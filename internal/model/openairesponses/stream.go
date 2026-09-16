@@ -274,13 +274,16 @@ func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 		),
 		Source:     a.protocol.errorSource(),
 		StatusCode: a.statusCode,
-		Code: firstNonEmpty(
-			frame.ErrorType,
-			frame.Error.codeText(),
-			frame.Error.Type,
-			providererrors.CodeText(frame.Code),
+		Code: providererrors.UserFacingCode(
+			firstNonEmpty(
+				frame.ErrorType,
+				frame.Error.codeText(),
+				frame.Error.Type,
+				providererrors.CodeText(frame.Code),
+			),
+			message,
 		),
-		Message:    message,
+		Message:    providererrors.UserFacingMessage(message),
 		RequestID:  model.RequestIDFromHeader(a.header),
 		RetryAfter: model.RetryAfterFromHeader(a.header),
 	}

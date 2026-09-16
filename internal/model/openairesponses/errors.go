@@ -57,8 +57,8 @@ func responseFailureError(
 		),
 		Source:     source,
 		StatusCode: statusCode,
-		Code:       code,
-		Message:    message,
+		Code:       providererrors.UserFacingCode(code, message),
+		Message:    providererrors.UserFacingMessage(message),
 		RequestID:  model.RequestIDFromHeader(header),
 		RetryAfter: model.RetryAfterFromHeader(header),
 	}
@@ -95,8 +95,8 @@ func classifyHTTPError(source string, statusCode int, header http.Header, body [
 		),
 		Source:     source,
 		StatusCode: statusCode,
-		Code:       code,
-		Message:    message,
+		Code:       providererrors.UserFacingCode(code, message),
+		Message:    providererrors.UserFacingMessage(message),
 		RequestID:  model.RequestIDFromHeader(header),
 		RetryAfter: model.RetryAfterFromHeader(header),
 	}

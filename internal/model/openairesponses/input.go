@@ -75,14 +75,13 @@ func buildInput(
 			return nil, fmt.Errorf("unsupported canonical message role %q", entry.Message.Role)
 		}
 		for _, result := range entry.ToolResults {
-			if clientToolSearch {
+			if clientToolSearch && result.Name == toolcatalog.ToolNameToolSearch {
+				var discovered []modelcontext.ToolSpec
 				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-					items = append(items, toolSearchOutputItem(
-						result.ProviderCallID,
-						modelcontext.DiscoveredToolSpecs(bundle.ToolSpecs, search),
-					))
-					continue
+					discovered = modelcontext.DiscoveredToolSpecs(bundle.ToolSpecs, search)
 				}
+				items = append(items, toolSearchOutputItem(result.ProviderCallID, discovered))
+				continue
 			}
 			items = append(
 				items,

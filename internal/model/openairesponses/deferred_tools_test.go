@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -189,4 +190,85 @@ func TestClientToolSearchReplayMatchesCanonicalHistory(t *testing.T) {
 func messageAtSequenceResponses(message modelcontext.Message, sequence int64) modelcontext.Message {
 	message.Sequence = sequence
 	return message
+}
+
+func TestRespondRewritesUnsupportedToolSearchError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(
+			`{"error":{"message":"Tool 'tool_search' is not supported with gpt-4.1.",` +
+				`"type":"invalid_request_error","param":"tools","code":null}}`,
+		))
+	}))
+	defer server.Close()
+
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindInvalidRequest ||
+		providerErr.Code != providererrors.DeferredToolsUnsupportedCode ||
+		providerErr.Message != providererrors.DeferredToolsUnsupportedMessage {
+		t.Fatalf("openai deferred tools error = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestStreamRewritesUnsupportedToolSearchError(t *testing.T) {
+	stream := openAISSE([2]string{
+		"response.error",
+		`{"type":"response.error","error":{"type":"invalid_request_error",` +
+			`"message":"Tool 'tool_search' is not supported with gpt-5-mini."}}`,
+	})
+	_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Code != providererrors.DeferredToolsUnsupportedCode ||
+		providerErr.Message != providererrors.DeferredToolsUnsupportedMessage {
+		t.Fatalf("openai stream deferred tools error = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestClientToolSearchFailureReplaysAsEmptyToolSearchOutput(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "gpt-test",
+	}
+	replay := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		json.RawMessage(`[{"id":"tsc_1","type":"tool_search_call","execution":"client","call_id":"call_search","status":"completed","arguments":{"pattern":"("}}]`),
+	)
+	assistant := withToolCallLinks(openAIReplayMessage("mcc_1", replay), "tcl_1")
+	assistant.Sequence = 2
+	failed := toolSearchResult()
+	failed.Input = json.RawMessage(`{"pattern":"("}`)
+	failed.Outcome = executionstore.ToolResultOutcomeFailed
+	failed.ContentParts = json.RawMessage(`[{"type":"structured_data","value":{"error_code":"invalid_tool_input",` +
+		`"error":"invalid regular expression pattern","message":"invalid regular expression pattern","retryable":true}}]`)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 1, Content: json.RawMessage(`[{"type":"text","text":"weather?"}]`)},
+			assistant,
+		},
+		ToolSpecs:   deferredToolSpecs(),
+		ToolResults: []modelcontext.ToolResultRef{failed},
+	}})
+	require.NoError(t, err)
+	var body struct {
+		Input []struct {
+			Type   string            `json:"type"`
+			CallID string            `json:"call_id"`
+			Tools  []json.RawMessage `json:"tools"`
+		} `json:"input"`
+	}
+	require.NoError(t, json.Unmarshal(prepared.Body, &body))
+	var outputs []string
+	for _, item := range body.Input {
+		if item.CallID == "call_search" && item.Type != "tool_search_call" {
+			outputs = append(outputs, item.Type)
+			require.Empty(t, item.Tools)
+		}
+	}
+	require.Equal(t, []string{"tool_search_output"}, outputs)
 }
