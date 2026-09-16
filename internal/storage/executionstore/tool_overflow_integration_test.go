@@ -3,10 +3,12 @@
 package executionstore_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +58,14 @@ func (b *overflowBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstor
 		return nil, blobstore.Metadata{}, blobstore.ErrNotFound
 	}
 	return content, blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
+}
+
+func (b *overflowBlobs) OpenBlob(ctx context.Context, key string) (io.ReadCloser, blobstore.Metadata, error) {
+	content, metadata, err := b.GetBlob(ctx, key)
+	if err != nil {
+		return nil, blobstore.Metadata{}, err
+	}
+	return io.NopCloser(bytes.NewReader(content)), metadata, nil
 }
 
 func (b *overflowBlobs) DeleteBlob(_ context.Context, key string) error {

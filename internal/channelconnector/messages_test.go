@@ -81,3 +81,25 @@ func TestSendParamsValidateCurrentConditionalSchema(t *testing.T) {
 	_, err = ValidateSendParams(json.RawMessage(`{"type":"object","required":["new_field"]}`), json.RawMessage(`{}`))
 	require.Error(t, err, "changing the registered schema must change validation")
 }
+
+func TestSendParamsRequirePairedOptionalFields(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{"start_line":{"type":"integer"},"start_side":{"type":"string"}},
+		"dependentRequired":{"start_line":["start_side"],"start_side":["start_line"]},
+		"additionalProperties":false
+	}`)
+	for raw, valid := range map[string]bool{
+		`{}`:                                    true,
+		`{"start_line":1,"start_side":"RIGHT"}`: true,
+		`{"start_line":1}`:                      false,
+		`{"start_side":"RIGHT"}`:                false,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			_, err := ValidateSendParams(schema, json.RawMessage(raw))
+			require.Equal(t, valid, err == nil, "%v", err)
+		})
+	}
+}

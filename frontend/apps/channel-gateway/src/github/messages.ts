@@ -23,7 +23,7 @@ export interface GitHubMessage {
   text: string
   authorRef?: string
   createdAt: string
-  publication: 'draft' | 'published'
+  publication: 'published'
   commitID?: string
   replyTo?: string
   path?: string
@@ -44,11 +44,7 @@ export function githubMessage(
     text: value.body,
     createdAt: value.createdAt,
     authorRef: value.author?.login,
-    publication:
-      ('state' in value && value.state === 'PENDING') ||
-      ('pullRequestReview' in value && value.pullRequestReview?.state === 'PENDING')
-        ? 'draft'
-        : 'published',
+    publication: 'published',
   }
   if ('submittedAt' in value) {
     message.commitID = value.commit?.oid
@@ -191,7 +187,8 @@ async function requireNoPendingReview(
     context,
   )
   const pr = result.node?.pullRequest
-  if (!pr?.reviews) throw new GitHubAPIError('provider_unavailable')
+  if (!pr) throw new GitHubAPIError('resource_unavailable')
+  if (!pr.reviews) throw new GitHubAPIError('provider_unavailable')
   assertGitHubPRScope(client, number, pr)
   if (result.node?.id !== client.configuration.repositoryNodeID)
     throw new GitHubAPIError('repository_scope_mismatch')
