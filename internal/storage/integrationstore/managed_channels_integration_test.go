@@ -116,6 +116,8 @@ func TestManagedChannelRegistrationRejectsExternalConnection(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	user := createIntegrationProjectAdmin(t, ctx, store, "managed-rejects-external@example.com")
+	profile := createIntegrationTestProfile(t, ctx, store, "managed-rejects-external-profile")
+	createIntegrationBoundAgent(t, ctx, store, profile, user.ID, "managed-rejects-external-agent")
 	install, err := store.Integrations().CreateExternalIntegrationInstall(ctx, externalConnectionInput(user.ID))
 	require.NoError(t, err)
 	definition, err := store.Integrations().PublishExternalChannelDefinition(ctx, externalDefinitionInput(install.ID))

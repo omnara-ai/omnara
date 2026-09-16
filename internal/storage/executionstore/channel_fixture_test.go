@@ -17,7 +17,6 @@ import (
 const (
 	testChannelConnector = storagetest.ChannelConnector
 	testChannelProvider  = storagetest.ChannelProvider
-	testChannelHandler   = storagetest.ChannelHandler
 )
 
 func createIntegrationProjectAdmin(
