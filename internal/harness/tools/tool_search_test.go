@@ -84,6 +84,18 @@ func TestRunToolSearchLoadsMatchingDeferredTools(t *testing.T) {
 		Pattern:            "weather|orders",
 		ToolNames:          []string{"get_weather", "mcp__crm__list_orders"},
 		TotalDeferredTools: 2,
+		Tools: []modelcontext.ToolSearchDefinition{
+			{
+				Name:        "get_weather",
+				Description: "Get the current weather for a city.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+			},
+			{
+				Name:        "mcp__crm__list_orders",
+				Description: "List open orders for a customer.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+			},
+		},
 	}, search)
 }
 

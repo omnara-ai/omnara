@@ -34,17 +34,31 @@ func TestSearchDeferredToolsMatchesNameDescriptionAndArguments(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		ToolSearchResult{Pattern: "WEATHER", ToolNames: []string{"get_weather"}, TotalDeferredTools: 2},
+		ToolSearchResult{
+			Pattern:            "WEATHER",
+			ToolNames:          []string{"get_weather"},
+			TotalDeferredTools: 2,
+			Tools: []ToolSearchDefinition{{
+				Name:        "get_weather",
+				Description: "Get the current weather for a city.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+			}},
+		},
 		byName,
 	)
 
 	byArgument, err := SearchDeferredTools(specs, "stock market", 5)
 	require.NoError(t, err)
 	require.Equal(t, []string{"get_stock_price"}, byArgument.ToolNames)
+	require.Len(t, byArgument.Tools, 1)
+	require.Equal(t, "get_stock_price", byArgument.Tools[0].Name)
+	require.Equal(t, "Get the latest price for a ticker symbol.", byArgument.Tools[0].Description)
+	require.NotEmpty(t, byArgument.Tools[0].InputSchema)
 
 	loadedOnly, err := SearchDeferredTools(specs, "timezone", 5)
 	require.NoError(t, err)
 	require.Empty(t, loadedOnly.ToolNames)
+	require.Empty(t, loadedOnly.Tools)
 
 	capped, err := SearchDeferredTools(specs, "get_.*", 1)
 	require.NoError(t, err)
@@ -66,22 +80,26 @@ func TestToolSearchResultFromToolResult(t *testing.T) {
 		Name: "tool_search",
 		ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"outcome":"succeeded"}},` +
 			`{"type":"text","text":"Loaded 1 tool(s)"},` +
-			`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":2}}]`),
+			`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":2,` +
+			`"tools":[{"name":"get_weather","description":"Get the current weather for a city.",` +
+			`"input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}}]`),
 	}
 	search, ok := ToolSearchResultFromToolResult(result)
 	require.True(t, ok)
 	require.Equal(
 		t,
-		ToolSearchResult{Pattern: "weather", ToolNames: []string{"get_weather"}, TotalDeferredTools: 2},
+		ToolSearchResult{
+			Pattern:            "weather",
+			ToolNames:          []string{"get_weather"},
+			TotalDeferredTools: 2,
+			Tools: []ToolSearchDefinition{{
+				Name:        "get_weather",
+				Description: "Get the current weather for a city.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+			}},
+		},
 		search,
 	)
-
-	discovered := DiscoveredToolSpecs(
-		deferredTestSpecs(),
-		ToolSearchResult{ToolNames: []string{"get_weather", "get_time", "missing"}},
-	)
-	require.Len(t, discovered, 1)
-	require.Equal(t, "get_weather", discovered[0].Name)
 
 	_, ok = ToolSearchResultFromToolResult(ToolResultRef{Name: "web_search", ContentParts: result.ContentParts})
 	require.False(t, ok)
@@ -98,4 +116,18 @@ func TestDeferredToolSpecPartitions(t *testing.T) {
 	require.False(t, DeferredToolsEnabled(specs[:2]))
 	require.Len(t, LoadedToolSpecs(specs), 2)
 	require.Len(t, DeferredToolSpecs(specs), 2)
+}
+
+func TestDeferredToolSearchDefinitionsUsesCurrentSpecs(t *testing.T) {
+	specs := deferredTestSpecs()
+	search := ToolSearchResult{Tools: []ToolSearchDefinition{
+		{Name: "get_weather", Description: "stale", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "get_removed", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "get_time", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	}}
+	definitions := DeferredToolSearchDefinitions(specs, search)
+	require.Len(t, definitions, 1)
+	require.Equal(t, "get_weather", definitions[0].Name)
+	require.Equal(t, "Get the current weather for a city.", definitions[0].Description)
+	require.JSONEq(t, `{"type":"object","properties":{"city":{"type":"string"}}}`, string(definitions[0].InputSchema))
 }

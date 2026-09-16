@@ -34,7 +34,8 @@ func toolSearchResult() modelcontext.ToolResultRef {
 		Outcome:            executionstore.ToolResultOutcomeSucceeded,
 		ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"outcome":"succeeded"}},` +
 			`{"type":"text","text":"Loaded 1 tool(s)"},` +
-			`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1}}]`),
+			`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1,` +
+			`"tools":[{"name":"get_weather","description":"Get the weather.","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}}]`),
 	}
 }
 
@@ -100,7 +101,7 @@ func TestPrepareRendersClientToolSearchAndDeferredFunctions(t *testing.T) {
 	require.Equal(t, "completed", output.Status)
 	require.Len(t, output.Tools, 1)
 	require.Equal(t, "get_weather", output.Tools[0].Name)
-	require.True(t, output.Tools[0].DeferLoading)
+	require.False(t, output.Tools[0].DeferLoading)
 	require.JSONEq(t, `{"type":"object","properties":{"city":{"type":"string"}}}`, string(output.Tools[0].Parameters))
 }
 
@@ -228,7 +229,7 @@ func TestStreamRewritesUnsupportedToolSearchError(t *testing.T) {
 	}
 }
 
-func TestClientToolSearchFailureReplaysAsEmptyToolSearchOutput(t *testing.T) {
+func TestClientToolSearchFailureReportsErrorAfterEmptyToolSearchOutput(t *testing.T) {
 	client := Client{
 		ModelProviderConfigID: testModelProviderConfigID,
 		EndpointPath:          testEndpointPath,
@@ -257,18 +258,134 @@ func TestClientToolSearchFailureReplaysAsEmptyToolSearchOutput(t *testing.T) {
 	require.NoError(t, err)
 	var body struct {
 		Input []struct {
-			Type   string            `json:"type"`
-			CallID string            `json:"call_id"`
-			Tools  []json.RawMessage `json:"tools"`
+			Type    string            `json:"type"`
+			Role    string            `json:"role"`
+			CallID  string            `json:"call_id"`
+			Tools   []json.RawMessage `json:"tools"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
 		} `json:"input"`
 	}
 	require.NoError(t, json.Unmarshal(prepared.Body, &body))
-	var outputs []string
-	for _, item := range body.Input {
-		if item.CallID == "call_search" && item.Type != "tool_search_call" {
-			outputs = append(outputs, item.Type)
-			require.Empty(t, item.Tools)
-		}
+	require.Len(t, body.Input, 4)
+	require.Equal(t, "tool_search_output", body.Input[2].Type)
+	require.Equal(t, "call_search", body.Input[2].CallID)
+	require.Empty(t, body.Input[2].Tools)
+	require.Equal(t, "user", body.Input[3].Role)
+	require.Len(t, body.Input[3].Content, 1)
+	require.Contains(t, body.Input[3].Content[0].Text, "invalid regular expression pattern")
+}
+
+func TestClientToolSearchOutputUsesCurrentDeferredDefinitions(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "gpt-test",
 	}
-	require.Equal(t, []string{"tool_search_output"}, outputs)
+	stale := toolSearchResult()
+	stale.ContentParts = json.RawMessage(`[{"type":"text","text":"Loaded 2 tool(s)"},` +
+		`{"type":"structured_data","value":{"pattern":"get","tool_names":["get_removed","get_weather"],"total_deferred_tools":2,` +
+		`"tools":[{"name":"get_removed","input_schema":{"type":"object"}},` +
+		`{"name":"get_weather","description":"Old description.","input_schema":{"type":"object"}}]}}]`)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 1, Content: json.RawMessage(`[{"type":"text","text":"weather?"}]`)},
+			messageAtSequenceResponses(assistantToolCallMessage("mcc_1", "tcl_1"), 2),
+		},
+		ToolSpecs:   deferredToolSpecs(),
+		ToolResults: []modelcontext.ToolResultRef{stale},
+	}})
+	require.NoError(t, err)
+	var payload struct {
+		Input []json.RawMessage `json:"input"`
+	}
+	require.NoError(t, json.Unmarshal(prepared.Body, &payload))
+	require.Len(t, payload.Input, 3)
+	var output struct {
+		Type  string `json:"type"`
+		Tools []struct {
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(payload.Input[2], &output))
+	require.Equal(t, "tool_search_output", output.Type)
+	require.Len(t, output.Tools, 1)
+	require.Equal(t, "get_weather", output.Tools[0].Name)
+	require.Equal(t, "Get the weather.", output.Tools[0].Description)
+	require.JSONEq(t, `{"type":"object","properties":{"city":{"type":"string"}}}`, string(output.Tools[0].Parameters))
+}
+
+func TestClientToolSearchReplayFallsBackWhenDeferralModeChanges(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "gpt-test",
+	}
+	searchAsClientItem := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		json.RawMessage(`[{"id":"tsc_1","type":"tool_search_call","execution":"client","call_id":"call_search","status":"completed","arguments":{"pattern":"weather"}}]`),
+	)
+	searchAsFunction := testProviderReplay(
+		"gpt-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		json.RawMessage(`[{"id":"fc_1","type":"function_call","call_id":"call_search","name":"tool_search","arguments":"{\"pattern\":\"weather\"}","status":"completed"}]`),
+	)
+	withoutDeferred := deferredToolSpecs()[1:]
+	cases := []struct {
+		name       string
+		replay     providerReplayFixture
+		specs      []modelcontext.ToolSpec
+		wantCall   string
+		wantResult string
+	}{
+		{
+			name:       "client item replayed without deferred tools",
+			replay:     searchAsClientItem,
+			specs:      withoutDeferred,
+			wantCall:   "function_call",
+			wantResult: "function_call_output",
+		},
+		{
+			name:       "function replayed with deferred tools",
+			replay:     searchAsFunction,
+			specs:      deferredToolSpecs(),
+			wantCall:   "tool_search_call",
+			wantResult: "tool_search_output",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assistant := withToolCallLinks(openAIReplayMessage("mcc_1", tc.replay), "tcl_1")
+			assistant.Sequence = 2
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+				Messages: []modelcontext.Message{
+					{Role: modelprotocol.RoleUser, Sequence: 1, Content: json.RawMessage(`[{"type":"text","text":"weather?"}]`)},
+					assistant,
+				},
+				ToolSpecs:   tc.specs,
+				ToolResults: []modelcontext.ToolResultRef{toolSearchResult()},
+			}})
+			require.NoError(t, err)
+			var body struct {
+				Input []struct {
+					ID     string `json:"id"`
+					Type   string `json:"type"`
+					CallID string `json:"call_id"`
+				} `json:"input"`
+			}
+			require.NoError(t, json.Unmarshal(prepared.Body, &body))
+			var types []string
+			for _, item := range body.Input {
+				if item.CallID == "call_search" {
+					require.Empty(t, item.ID)
+					types = append(types, item.Type)
+				}
+			}
+			require.Equal(t, []string{tc.wantCall, tc.wantResult}, types)
+		})
+	}
 }

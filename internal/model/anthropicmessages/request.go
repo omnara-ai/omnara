@@ -154,6 +154,15 @@ type toolReference struct {
 	Name string `json:"name"`
 }
 
+func declaredDeferredToolNames(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) []string {
+	definitions := modelcontext.DeferredToolSearchDefinitions(specs, search)
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		names = append(names, definition.Name)
+	}
+	return names
+}
+
 func toolAdditionBlocks(names []string) []any {
 	blocks := make([]any, 0, len(names))
 	for _, name := range names {
@@ -301,9 +310,10 @@ func buildMessages(
 					IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
 				})
 				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-					for _, spec := range modelcontext.DiscoveredToolSpecs(bundle.ToolSpecs, search) {
-						pendingToolAdditions = append(pendingToolAdditions, spec.Name)
-					}
+					pendingToolAdditions = append(
+						pendingToolAdditions,
+						declaredDeferredToolNames(bundle.ToolSpecs, search)...,
+					)
 				}
 			}
 			messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)

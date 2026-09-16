@@ -11,10 +11,25 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
+type ToolSearchDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+
 type ToolSearchResult struct {
-	Pattern            string   `json:"pattern"`
-	ToolNames          []string `json:"tool_names"`
-	TotalDeferredTools int      `json:"total_deferred_tools"`
+	Pattern            string                 `json:"pattern"`
+	ToolNames          []string               `json:"tool_names"`
+	TotalDeferredTools int                    `json:"total_deferred_tools"`
+	Tools              []ToolSearchDefinition `json:"tools"`
+}
+
+func toolSearchDefinition(spec ToolSpec) ToolSearchDefinition {
+	schema := spec.InputSchema
+	if len(schema) == 0 {
+		schema = json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	return ToolSearchDefinition{Name: spec.Name, Description: spec.Description, InputSchema: schema}
 }
 
 func DeferredToolsEnabled(specs []ToolSpec) bool {
@@ -55,6 +70,16 @@ func ToolSpecByName(specs []ToolSpec, name string) (ToolSpec, bool) {
 	return ToolSpec{}, false
 }
 
+func DeferredToolSearchDefinitions(specs []ToolSpec, search ToolSearchResult) []ToolSearchDefinition {
+	definitions := make([]ToolSearchDefinition, 0, len(search.Tools))
+	for _, definition := range search.Tools {
+		if spec, ok := ToolSpecByName(specs, definition.Name); ok && spec.Deferred {
+			definitions = append(definitions, toolSearchDefinition(spec))
+		}
+	}
+	return definitions
+}
+
 func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (ToolSearchResult, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
@@ -81,6 +106,7 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 		Pattern:            pattern,
 		ToolNames:          []string{},
 		TotalDeferredTools: len(deferred),
+		Tools:              []ToolSearchDefinition{},
 	}
 	for _, spec := range deferred {
 		if matcher.MatchString(toolSearchText(spec)) {
@@ -90,6 +116,11 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 	sort.Strings(result.ToolNames)
 	if len(result.ToolNames) > maxResults {
 		result.ToolNames = result.ToolNames[:maxResults]
+	}
+	for _, name := range result.ToolNames {
+		if spec, ok := ToolSpecByName(deferred, name); ok {
+			result.Tools = append(result.Tools, toolSearchDefinition(spec))
+		}
 	}
 	return result, nil
 }
@@ -161,14 +192,4 @@ func ToolSearchResultFromToolResult(result ToolResultRef) (ToolSearchResult, boo
 		return search, true
 	}
 	return ToolSearchResult{}, false
-}
-
-func DiscoveredToolSpecs(specs []ToolSpec, search ToolSearchResult) []ToolSpec {
-	discovered := make([]ToolSpec, 0, len(search.ToolNames))
-	for _, name := range search.ToolNames {
-		if spec, ok := ToolSpecByName(specs, name); ok && spec.Deferred {
-			discovered = append(discovered, spec)
-		}
-	}
-	return discovered
 }

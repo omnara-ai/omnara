@@ -40,7 +40,7 @@ func toolSearchBundle() modelcontext.Bundle {
 			Outcome:            executionstore.ToolResultOutcomeSucceeded,
 			ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"outcome":"succeeded"}},` +
 				`{"type":"text","text":"Loaded 1 tool(s) matching \"weather\":\n- get_weather: Get the weather."},` +
-				`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1}}]`),
+				`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1,"tools":[{"name":"get_weather","description":"Get the weather.","input_schema":{"type":"object"}}]}}]`),
 		}},
 	}
 }

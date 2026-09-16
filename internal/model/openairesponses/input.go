@@ -76,11 +76,17 @@ func buildInput(
 		}
 		for _, result := range entry.ToolResults {
 			if clientToolSearch && result.Name == toolcatalog.ToolNameToolSearch {
-				var discovered []modelcontext.ToolSpec
+				var loaded []modelcontext.ToolSearchDefinition
 				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-					discovered = modelcontext.DiscoveredToolSpecs(bundle.ToolSpecs, search)
+					loaded = modelcontext.DeferredToolSearchDefinitions(bundle.ToolSpecs, search)
 				}
-				items = append(items, toolSearchOutputItem(result.ProviderCallID, discovered))
+				items = append(items, toolSearchOutputItem(result.ProviderCallID, loaded))
+				if len(loaded) == 0 {
+					items = append(items, map[string]any{
+						"role":    responsesRoleUser,
+						"content": toolResultOutput(result, bundle.ResolvedMedia),
+					})
+				}
 				continue
 			}
 			items = append(
@@ -114,10 +120,10 @@ func buildInput(
 	return items, nil
 }
 
-func toolSearchOutputItem(callID string, discovered []modelcontext.ToolSpec) map[string]any {
-	tools := make([]responsesTool, 0, len(discovered))
-	for _, spec := range discovered {
-		tools = append(tools, functionToolDefinition(spec))
+func toolSearchOutputItem(callID string, loaded []modelcontext.ToolSearchDefinition) map[string]any {
+	tools := make([]responsesTool, 0, len(loaded))
+	for _, definition := range loaded {
+		tools = append(tools, discoveredToolDefinition(definition))
 	}
 	return map[string]any{
 		"type":      "tool_search_output",
@@ -137,7 +143,7 @@ func appendAssistantResponseEntry(
 	clientToolSearch bool,
 ) ([]any, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
-		if replayItems, ok := completeResponseReplay(source, content, replayIdentity); ok {
+		if replayItems, ok := completeResponseReplay(source, content, replayIdentity, clientToolSearch); ok {
 			for _, replayItem := range replayItems {
 				items = append(items, replayItem)
 			}
@@ -206,17 +212,19 @@ func appendCanonicalAssistantResponse(
 }
 
 type responseReplaySemantic struct {
-	kind      string
-	text      string
-	callID    string
-	name      string
-	arguments json.RawMessage
+	kind           string
+	text           string
+	callID         string
+	name           string
+	arguments      json.RawMessage
+	toolSearchItem bool
 }
 
 func completeResponseReplay(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	target modelenvelope.ProviderReplayIdentity,
+	clientToolSearch bool,
 ) ([]json.RawMessage, bool) {
 	if !source.ProviderReplaySource.Matches(target) {
 		return nil, false
@@ -226,7 +234,7 @@ func completeResponseReplay(
 		return nil, false
 	}
 	replayed, ok := responseReplaySemantics(items)
-	if !ok {
+	if !ok || !replayMatchesToolSearchMode(replayed, clientToolSearch) {
 		return nil, false
 	}
 	canonical, ok := canonicalResponseSemantics(content)
@@ -234,6 +242,15 @@ func completeResponseReplay(
 		return nil, false
 	}
 	return items, true
+}
+
+func replayMatchesToolSearchMode(replayed []responseReplaySemantic, clientToolSearch bool) bool {
+	for _, semantic := range replayed {
+		if semantic.name == toolcatalog.ToolNameToolSearch && semantic.toolSearchItem != clientToolSearch {
+			return false
+		}
+	}
+	return true
 }
 
 func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic, bool) {
@@ -304,10 +321,11 @@ func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic,
 			}
 			reasoningNeedsContinuation = false
 			semantics = append(semantics, responseReplaySemantic{
-				kind:      "tool_call",
-				callID:    item.CallID,
-				name:      toolcatalog.ToolNameToolSearch,
-				arguments: arguments,
+				kind:           "tool_call",
+				callID:         item.CallID,
+				name:           toolcatalog.ToolNameToolSearch,
+				arguments:      arguments,
+				toolSearchItem: true,
 			})
 		default:
 			if !validProviderOnlyResponseItem(item) {

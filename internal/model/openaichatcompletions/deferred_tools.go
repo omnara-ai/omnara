@@ -17,17 +17,11 @@ type deferredToolCall struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-type deferredToolDefinition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
-}
-
 type toolSearchOutput struct {
-	Pattern            string                   `json:"pattern"`
-	ToolNames          []string                 `json:"tool_names"`
-	TotalDeferredTools int                      `json:"total_deferred_tools"`
-	Tools              []deferredToolDefinition `json:"tools"`
+	Pattern            string                              `json:"pattern"`
+	ToolNames          []string                            `json:"tool_names"`
+	TotalDeferredTools int                                 `json:"total_deferred_tools"`
+	Tools              []modelcontext.ToolSearchDefinition `json:"tools"`
 }
 
 func callDeferredToolDefinition(compat compat) chatToolDefinition {
@@ -60,10 +54,15 @@ func unwrapDeferredToolCall(name string, arguments json.RawMessage) (string, jso
 	if decoder.Decode(&call) != nil || strings.TrimSpace(call.ToolName) == "" {
 		return name, arguments
 	}
-	if len(call.Arguments) == 0 || bytes.Equal(bytes.TrimSpace(call.Arguments), []byte("null")) {
+	input := bytes.TrimSpace(call.Arguments)
+	var encoded string
+	if json.Unmarshal(input, &encoded) == nil {
+		input = bytes.TrimSpace([]byte(encoded))
+	}
+	if len(input) == 0 || bytes.Equal(input, []byte("null")) {
 		return call.ToolName, json.RawMessage(`{}`)
 	}
-	return call.ToolName, call.Arguments
+	return call.ToolName, json.RawMessage(input)
 }
 
 func wrapDeferredToolCall(name string, input json.RawMessage) (json.RawMessage, error) {
@@ -78,29 +77,18 @@ func deferredToolNames(specs []modelcontext.ToolSpec) map[string]bool {
 	return names
 }
 
-func toolSearchOutputContent(
-	search modelcontext.ToolSearchResult,
-	discovered []modelcontext.ToolSpec,
-) (string, error) {
+func toolSearchOutputContent(search modelcontext.ToolSearchResult) (string, error) {
 	output := toolSearchOutput{
 		Pattern:            search.Pattern,
 		ToolNames:          search.ToolNames,
 		TotalDeferredTools: search.TotalDeferredTools,
-		Tools:              make([]deferredToolDefinition, 0, len(discovered)),
+		Tools:              search.Tools,
 	}
 	if output.ToolNames == nil {
 		output.ToolNames = []string{}
 	}
-	for _, spec := range discovered {
-		schema := spec.InputSchema
-		if len(schema) == 0 {
-			schema = json.RawMessage(`{"type":"object","properties":{}}`)
-		}
-		output.Tools = append(output.Tools, deferredToolDefinition{
-			Name:        spec.Name,
-			Description: spec.Description,
-			InputSchema: schema,
-		})
+	if output.Tools == nil {
+		output.Tools = []modelcontext.ToolSearchDefinition{}
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {

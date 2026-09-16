@@ -166,6 +166,17 @@ func functionToolDefinition(spec modelcontext.ToolSpec) responsesTool {
 	}
 }
 
+func discoveredToolDefinition(definition modelcontext.ToolSearchDefinition) responsesTool {
+	strict := false
+	return responsesTool{
+		Type:        "function",
+		Name:        definition.Name,
+		Description: definition.Description,
+		Parameters:  definition.InputSchema,
+		Strict:      &strict,
+	}
+}
+
 func toolParameters(spec modelcontext.ToolSpec) json.RawMessage {
 	if len(spec.InputSchema) == 0 {
 		return json.RawMessage(`{"type":"object","properties":{}}`)

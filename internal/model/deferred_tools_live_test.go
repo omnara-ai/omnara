@@ -93,14 +93,32 @@ func liveDeferredToolsRoutes() []liveDeferredToolsRoute {
 	}
 	return []liveDeferredToolsRoute{
 		{name: "anthropic opus", keyEnv: "ANTHROPIC_API_KEY", client: anthropic("claude-opus-5")},
-		{name: "anthropic sonnet unsupported", keyEnv: "ANTHROPIC_API_KEY", client: anthropic(modeltest.LiveAnthropicProviderModelSlug), unsupportedTurn: 2},
+		{
+			name:            "anthropic sonnet unsupported",
+			keyEnv:          "ANTHROPIC_API_KEY",
+			client:          anthropic(modeltest.LiveAnthropicProviderModelSlug),
+			unsupportedTurn: 2,
+		},
 		{name: "openai responses", keyEnv: "OPENAI_API_KEY", client: openAIResponses(modeltest.LiveOpenAIProviderModelSlug)},
 		{name: "openai responses gpt-5.4", keyEnv: "OPENAI_API_KEY", client: openAIResponses("gpt-5.4")},
-		{name: "openai responses gpt-4.1 unsupported", keyEnv: "OPENAI_API_KEY", client: openAIResponses("gpt-4.1"), unsupportedTurn: 1},
+		{
+			name:            "openai responses gpt-4.1 unsupported",
+			keyEnv:          "OPENAI_API_KEY",
+			client:          openAIResponses("gpt-4.1"),
+			unsupportedTurn: 1,
+		},
 		{name: "openai chat gpt-5.4", keyEnv: "OPENAI_API_KEY", client: openAIChat("gpt-5.4")},
 		{name: "openai chat gpt-4.1", keyEnv: "OPENAI_API_KEY", client: openAIChat("gpt-4.1")},
-		{name: "openrouter claude", keyEnv: "OPENROUTER_API_KEY", client: openRouter("anthropic/" + modeltest.LiveAnthropicProviderModelSlug)},
-		{name: "openrouter automatic", keyEnv: "OPENROUTER_API_KEY", client: openRouter(modeltest.LiveOpenRouterProviderModelSlug)},
+		{
+			name:   "openrouter claude",
+			keyEnv: "OPENROUTER_API_KEY",
+			client: openRouter("anthropic/" + modeltest.LiveAnthropicProviderModelSlug),
+		},
+		{
+			name:   "openrouter automatic",
+			keyEnv: "OPENROUTER_API_KEY",
+			client: openRouter(modeltest.LiveOpenRouterProviderModelSlug),
+		},
 	}
 }
 

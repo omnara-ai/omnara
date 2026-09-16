@@ -79,7 +79,8 @@ func TestPrepareRendersToolSearchResultWithDefinitionsAndWrapsDeferredCalls(t *t
 				Outcome:            executionstore.ToolResultOutcomeSucceeded,
 				ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"outcome":"succeeded"}},` +
 					`{"type":"text","text":"Loaded 1 tool(s)"},` +
-					`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1}}]`),
+					`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1,` +
+					`"tools":[{"name":"get_weather","description":"Get the weather.","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}}]`),
 			},
 			{
 				ToolCallID:         "tcl_2",
@@ -169,4 +170,20 @@ func TestUnwrapDeferredToolCallLeavesMalformedWrappersAlone(t *testing.T) {
 	name, arguments = unwrapDeferredToolCall("run_command", json.RawMessage(`{"command":"ls"}`))
 	require.Equal(t, "run_command", name)
 	require.JSONEq(t, `{"command":"ls"}`, string(arguments))
+}
+
+func TestUnwrapDeferredToolCallDecodesStringEncodedArguments(t *testing.T) {
+	name, arguments := unwrapDeferredToolCall(
+		toolcatalog.ToolNameCallDeferredTool,
+		json.RawMessage(`{"tool_name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}`),
+	)
+	require.Equal(t, "get_weather", name)
+	require.JSONEq(t, `{"city":"Tokyo"}`, string(arguments))
+
+	name, arguments = unwrapDeferredToolCall(
+		toolcatalog.ToolNameCallDeferredTool,
+		json.RawMessage(`{"tool_name":"get_weather","arguments":""}`),
+	)
+	require.Equal(t, "get_weather", name)
+	require.JSONEq(t, `{}`, string(arguments))
 }
