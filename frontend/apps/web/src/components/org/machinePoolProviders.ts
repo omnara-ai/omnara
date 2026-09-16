@@ -1,5 +1,6 @@
 import type { CreateMachinePoolRequest, MachinePool } from '@omnara/sdk'
 
+import { memoryGbDraft, memoryGbToMb } from '@/lib/machine-memory'
 import { providerOptionStrings } from '@/lib/provider-options'
 
 interface MachinePoolProviderDefinition {
@@ -32,6 +33,10 @@ interface MachinePoolProviderDefinition {
     emptyDescription: string
     defaultSecretName: string
     secretValuePlaceholder: string
+  }
+  resourceBounds?: {
+    cpu: { min: number; max: number }
+    memoryMb: { min: number; max: number; step: number }
   }
   resources: {
     cpu: MachinePoolResourceMode
@@ -160,6 +165,10 @@ const tenki: MachinePoolProviderDefinition = {
     descriptionHref: 'https://tenki.cloud/docs/sandbox/quickstart',
   },
   resources: { cpu: 'configured', memoryMb: 'configured' },
+  resourceBounds: {
+    cpu: { min: 1, max: 16 },
+    memoryMb: { min: 512, max: 65536, step: 2 },
+  },
 }
 
 export const machinePoolProviderDefinitions: Record<
@@ -169,4 +178,27 @@ export const machinePoolProviderDefinitions: Record<
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)
+}
+
+export function machinePoolResourcesInBounds(
+  provider: MachinePoolProvider,
+  cpu: string,
+  memoryGb: string,
+) {
+  const bounds = machinePoolProviderDefinitions[provider].resourceBounds
+  if (!bounds) return true
+  const cores = Number(cpu)
+  const memoryMb = memoryGbToMb(memoryGb)
+  return (
+    cores >= bounds.cpu.min &&
+    cores <= bounds.cpu.max &&
+    memoryMb >= bounds.memoryMb.min &&
+    memoryMb <= bounds.memoryMb.max &&
+    memoryMb % bounds.memoryMb.step === 0
+  )
+}
+
+export function machinePoolMemoryDraft(provider: MachinePoolProvider, memoryMb: number | null) {
+  const bounds = machinePoolProviderDefinitions[provider].resourceBounds
+  return bounds && memoryMb !== null ? String(memoryMb / 1024) : memoryGbDraft(memoryMb)
 }

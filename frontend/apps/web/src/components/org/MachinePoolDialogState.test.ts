@@ -103,6 +103,44 @@ describe('Tenki machine pools', () => {
     )
   })
 
+  it.each([
+    { cpu: '0', memoryGb: '1', valid: false },
+    { cpu: '17', memoryGb: '1', valid: false },
+    { cpu: '20', memoryGb: '1', valid: false },
+    { cpu: '1.5', memoryGb: '1', valid: false },
+    { cpu: '1', memoryGb: String(510 / 1024), valid: false },
+    { cpu: '1', memoryGb: String(65538 / 1024), valid: false },
+    { cpu: '1', memoryGb: String(1025 / 1024), valid: false },
+    { cpu: '1', memoryGb: '0.5', valid: true },
+    { cpu: '16', memoryGb: '64', valid: true },
+    { cpu: '2', memoryGb: String(544 / 1024), valid: true },
+  ])('validates CPU=$cpu and GB=$memoryGb for create and edit', ({ cpu, memoryGb, valid }) => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'tenki' as const,
+      name: 'tenki-pool',
+      secretId: 'sec_tenki',
+      cpu,
+      memoryGb,
+    }
+    expect(machinePoolFormValid(values)).toBe(valid)
+    expect(machinePoolFormValid(values, 'tenant-edit')).toBe(valid)
+    expect(machinePoolFormValid(values, 'cluster-edit')).toBe(valid)
+  })
+
+  it('preserves aligned memory when loading an existing pool for edit', () => {
+    const pool = machinePool({
+      provider: 'tenki',
+      default_machine_memory_mb: 544,
+      max_machine_memory_mb: 544,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Tenki pool form')
+    expect(values.memoryGb).toBe(String(544 / 1024))
+    expect(machinePoolFormValid(values, 'tenant-edit')).toBe(true)
+    expect(machinePoolUpdateRequest(pool, values).default_machine_memory_mb).toBe(544)
+  })
+
   it('clears a custom image while preserving disk size when editing', () => {
     const pool = machinePool({
       provider: 'tenki',
