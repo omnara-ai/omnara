@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/omnara-ai/omnara/internal/textutil"
 )
 
 type ShellSelector string
@@ -152,13 +153,5 @@ func ShellArgvTemplate(shell ShellSelector, goos string) ([]string, error) {
 }
 
 func CommandLabel(command string) string {
-	const maxBytes = 160
-	if len(command) <= maxBytes {
-		return command
-	}
-	end := maxBytes
-	for !utf8.RuneStart(command[end]) {
-		end--
-	}
-	return command[:end]
+	return textutil.TruncateBytes(command, 160)
 }

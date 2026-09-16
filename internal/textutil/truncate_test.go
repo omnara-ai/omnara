@@ -43,3 +43,27 @@ func TestTruncateRunes(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncateBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		limit int
+		want  string
+	}{
+		{name: "negative limit", input: "hello", limit: -1, want: ""},
+		{name: "zero limit", input: "hello", limit: 0, want: ""},
+		{name: "short input", input: "hi", limit: 5, want: "hi"},
+		{name: "ascii", input: "hello", limit: 3, want: "hel"},
+		{name: "partial rune", input: "aéz", limit: 2, want: "a"},
+		{name: "rune boundary", input: "aéz", limit: 3, want: "aé"},
+		{name: "partial emoji", input: "😀x", limit: 3, want: ""},
+		{name: "whole emoji", input: "😀x", limit: 4, want: "😀"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TruncateBytes(tc.input, tc.limit); got != tc.want {
+				t.Fatalf("TruncateBytes(%q, %d) = %q, want %q", tc.input, tc.limit, got, tc.want)
+			}
+		})
+	}
+}

@@ -199,9 +199,9 @@ model:
 	if err != nil {
 		t.Fatalf("reload model context tool runtime: %v", err)
 	}
-	if len(specs) != 1 ||
-		specs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
-		specs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(specs) != 3 ||
+		specs[2].Name != toolcatalog.ToolNameSendIntegrationMessage ||
+		specs[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("reloaded tool specs = %+v, want implicit send_integration_message", specs)
 	}
 }

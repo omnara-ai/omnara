@@ -106,6 +106,7 @@
       ],
       "properties": {
         "cwd": {
+          "maxLength": 4096,
           "type": "string"
         },
         "delete_after_idle_minutes": {
@@ -121,6 +122,7 @@
           ]
         },
         "description": {
+          "maxLength": 4096,
           "type": "string"
         },
         "env_overlay": {

@@ -22,6 +22,8 @@ const (
 	ToolNameSetIntegrationTarget   = "set_integration_target"
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
+	ToolNameReadFile               = "read_file"
+	ToolNameSearchFiles            = "search_files"
 	ToolNameUploadFile             = "upload_file"
 	ToolNameDownloadFile           = "download_file"
 	ToolNameSkill                  = "skill"
