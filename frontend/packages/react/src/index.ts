@@ -17,6 +17,12 @@ export {
   type UseAgentChatResult,
 } from './domains/agent-chat'
 export {
+  abbreviate,
+  agentEventPreview,
+  agentEventPreviewWidth,
+  blockText,
+} from './domains/agent-event-preview'
+export {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
   type AgentInputBacklogPreview,

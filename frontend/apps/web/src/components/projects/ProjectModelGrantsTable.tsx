@@ -23,6 +23,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { modelPricingDetailItems } from '@/lib/model-pricing'
 
@@ -48,6 +49,7 @@ export function ProjectModelGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Model grants"
+        guide={guides.modelProviders}
         toolbar={
           <ResourceListToolbar
             search={list.search}

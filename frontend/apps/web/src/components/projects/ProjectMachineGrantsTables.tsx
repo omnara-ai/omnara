@@ -26,6 +26,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
@@ -90,6 +91,7 @@ export function ProjectMachineGrantsTables({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine pool grants"
+          guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
               search={poolList.search}
@@ -223,6 +225,7 @@ export function ProjectMachineGrantsTables({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine grants"
+          guide={guides.machines}
           toolbar={
             <ResourceListToolbar
               search={machineList.search}

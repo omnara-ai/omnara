@@ -1,7 +1,7 @@
 import { useAgents, useAgentUsage, useMachine, useServerInfo } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile, UsageReport } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
@@ -139,13 +139,17 @@ export function AgentSidebar({
   )
 }
 
+function SidebarEmptyText({ children }: { children: ReactNode }) {
+  return <p className="text-muted-foreground truncate py-1.5 text-sm">{children}</p>
+}
+
 function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: string[] }) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="px-0 text-sm">Machines</SidebarGroupLabel>
       <SidebarGroupContent>
         {machineIds.length === 0 ? (
-          <p className="text-muted-foreground truncate py-1.5 text-sm">No machines attached.</p>
+          <SidebarEmptyText>No machines</SidebarEmptyText>
         ) : (
           <SidebarMenu>
             {machineIds.map((machineId) => (
@@ -177,9 +181,9 @@ function AgentSubagentsGroup({
       <SidebarGroupLabel className="px-0 text-sm">Subagents</SidebarGroupLabel>
       <SidebarGroupContent>
         {query.isPending ? (
-          <p className="text-muted-foreground truncate py-1.5 text-sm">Loading…</p>
+          <SidebarEmptyText>Loading…</SidebarEmptyText>
         ) : subagents.length === 0 ? (
-          <p className="text-muted-foreground truncate py-1.5 text-sm">No subagents.</p>
+          <SidebarEmptyText>No subagents</SidebarEmptyText>
         ) : (
           <SidebarMenu>
             {subagents.map((subagent) => (
@@ -410,7 +414,8 @@ function AgentCronGroup({
           projectId={projectId}
           canManage={canManage}
           filters={{ agent_id: agentId }}
-          emptyMessage="No schedules attached."
+          emptyMessage="No schedules"
+          emptyState={<SidebarEmptyText>No schedules</SidebarEmptyText>}
         />
       </SidebarGroupContent>
     </SidebarGroup>
@@ -425,7 +430,7 @@ function AgentMcpGroup({ connections }: { connections: AgentMcpConnection[] }) {
       <SidebarGroupLabel className="px-0 text-sm">MCP servers</SidebarGroupLabel>
       <SidebarGroupContent>
         {active.length === 0 ? (
-          <p className="text-muted-foreground truncate py-1.5 text-sm">No MCP servers connected.</p>
+          <SidebarEmptyText>No MCP servers</SidebarEmptyText>
         ) : (
           <SidebarMenu>
             {active.map((connection) => (
