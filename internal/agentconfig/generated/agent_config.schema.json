@@ -46,6 +46,9 @@
             }
           ]
         },
+        "deferred": {
+          "type": "boolean"
+        },
         "permission": {
           "$ref": "#/$defs/ToolPermissionSelection"
         },
@@ -72,6 +75,16 @@
     "AgentConfigMCPToolSource": {
       "additionalProperties": false,
       "properties": {
+        "deferred": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "enabled": {
           "anyOf": [
             {
@@ -420,6 +433,9 @@
         "type": "object"
       },
       "properties": {
+        "deferred": {
+          "type": "boolean"
+        },
         "description": {
           "minLength": 1,
           "type": "string"

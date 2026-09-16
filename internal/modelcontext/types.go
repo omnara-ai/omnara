@@ -116,6 +116,7 @@ type ToolSpec struct {
 	Name        string                   `json:"name"`
 	Description string                   `json:"description"`
 	InputSchema json.RawMessage          `json:"input_schema"`
+	Deferred    bool                     `json:"deferred,omitempty"`
 	Type        string                   `json:"-"`
 	Permission  toolpermission.Selection `json:"-"`
 }

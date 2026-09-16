@@ -68,6 +68,7 @@ type RuntimeTool struct {
 	Name        string
 	Type        string
 	Permission  toolpermission.Selection
+	Deferred    bool
 	Description string
 	InputSchema json.RawMessage
 }
@@ -158,7 +159,27 @@ func RuntimeContractFromCompiled(
 			}
 		}
 	}
+	if contract.DefersAnyTool() {
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameToolSearch)
+		if err != nil {
+			return RuntimeContract{}, err
+		}
+	}
 	return contract, nil
+}
+
+func (contract RuntimeContract) DefersAnyTool() bool {
+	for _, tool := range contract.Tools {
+		if tool.Deferred {
+			return true
+		}
+	}
+	for _, server := range contract.MCPServers {
+		if server.DefersAnyTool() {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {
@@ -200,6 +221,7 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 				Name:        name,
 				Type:        toolcatalog.ToolTypeCustom,
 				Permission:  tool.Permission,
+				Deferred:    tool.Deferred,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
 			})
@@ -208,7 +230,9 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 		if !builtInName {
 			return nil, fmt.Errorf("compiled tool %q is not registered", name)
 		}
-		out = append(out, runtimeBuiltInTool(entry, tool.Permission))
+		runtime := runtimeBuiltInTool(entry, tool.Permission)
+		runtime.Deferred = tool.Deferred
+		out = append(out, runtime)
 	}
 	return out, nil
 }
@@ -236,6 +260,9 @@ func validateRuntimeTool(
 		if toolcatalog.UsesMCPRuntimeNamespace(name) {
 			return fmt.Errorf("compiled custom tool %q uses the reserved MCP tool namespace", name)
 		}
+		if toolcatalog.IsReservedWireToolName(name) {
+			return fmt.Errorf("compiled custom tool %q uses a reserved name", name)
+		}
 		if builtInName {
 			return fmt.Errorf("compiled custom tool %q collides with a built-in tool", name)
 		}
@@ -249,6 +276,9 @@ func validateRuntimeTool(
 	}
 	if !builtInName {
 		return fmt.Errorf("compiled tool %q is not registered", name)
+	}
+	if tool.Deferred && name == toolcatalog.ToolNameToolSearch {
+		return fmt.Errorf("compiled built-in tool %q cannot be deferred", name)
 	}
 	if _, err := toolpermission.ValidateSelection(
 		tool.Permission,
