@@ -23,9 +23,11 @@ flowchart LR
   api --> pg
   api --> redis[("Redis")]
   api --> blob[("Blob storage")]
+  api --> memory[("Memory filesystem")]
   worker --> pg
   worker --> redis
   worker --> blob
+  worker --> memory
   worker -- "model calls" --> providers["Model providers"]
   maintenance --> pg
   maintenance --> redis
@@ -53,6 +55,8 @@ flowchart LR
 **Redis** carries notifications and rate limits, this is primarily for SSE streaming and notifications.
 
 **Blob storage** holds artifact content, like file attachments and tool outputs.
+
+**Memory filesystem** holds the current contents of memory files. API and workers share the same persistent filesystem: a local volume on one host, or a shared mount across hosts.
 
 ## Next steps
 

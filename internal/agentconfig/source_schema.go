@@ -36,6 +36,12 @@ type AgentConfigSource struct {
 	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
 	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
 	MaxDepth       *int                                 `json:"max_depth,omitempty"`
+	MemoryStores   []MemoryStoreSource                  `json:"memory_stores,omitempty"`
+}
+
+type MemoryStoreSource struct {
+	Name   string `json:"name"`
+	Access string `json:"access"`
 }
 
 type AgentConfigModelSource struct {
@@ -345,6 +351,16 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPServerKeyPattern))),
 			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPSource")),
 		)),
+		kjsonschema.Prop("memory_stores", kjsonschema.Array(kjsonschema.Items(kjsonschema.Object(
+			kjsonschema.Prop("name", kjsonschema.String(
+				kjsonschema.MinLength(1),
+				kjsonschema.MaxLength(64),
+				kjsonschema.Pattern(`^[a-z0-9]+(-[a-z0-9]+)*$`),
+			)),
+			kjsonschema.Prop("access", kjsonschema.Enum("read_only", "read_write")),
+			kjsonschema.Required("name", "access"),
+			kjsonschema.AdditionalProps(false),
+		)))),
 		kjsonschema.Prop("skills", kjsonschema.AnyOf(
 			kjsonschema.Array(
 				kjsonschema.Items(kjsonschema.String(

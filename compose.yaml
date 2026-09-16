@@ -90,6 +90,7 @@ services:
     image: ghcr.io/omnara-ai/omnara-api:${OMNARA_RELEASE:-latest}
     environment:
       <<: [*app-env, *blob-env]
+      OMNARA_MEMORY_DIR: /var/lib/omnara/memory
       OMNARA_EMAIL_DRIVER: ${OMNARA_EMAIL_DRIVER:-console}
       OMNARA_EMAIL_FROM: ${OMNARA_EMAIL_FROM:-}
       OMNARA_SMTP_ADDR: ${OMNARA_SMTP_ADDR:-}
@@ -103,6 +104,8 @@ services:
       OMNARA_TRUSTED_PROXY_CIDRS: ${OMNARA_TRUSTED_PROXY_CIDRS:-}
       OMNARA_BILLING_URL: ${OMNARA_BILLING_URL:-}
       OMNARA_DAEMON_RELEASE_URL: ${OMNARA_DAEMON_RELEASE_URL:-https://github.com/omnara-ai/omnara/releases/download/omnarad-stable}
+    volumes:
+      - memory-data:/var/lib/omnara/memory
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -117,10 +120,13 @@ services:
     image: ghcr.io/omnara-ai/omnara-worker:${OMNARA_RELEASE:-latest}
     environment:
       <<: [*app-env, *blob-env]
+      OMNARA_MEMORY_DIR: /var/lib/omnara/memory
       OMNARA_WORKER_CAPACITY: ${OMNARA_WORKER_CAPACITY:-4}
       OMNARA_WORKER_ASYNC_TOOL_CAPACITY: ${OMNARA_WORKER_ASYNC_TOOL_CAPACITY:-32}
       OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY: ${OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY:-8}
       EXA_API_KEY: ${EXA_API_KEY:-}
+    volumes:
+      - memory-data:/var/lib/omnara/memory
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -163,6 +169,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  memory-data:
   postgres18-data:
   minio-data:
 

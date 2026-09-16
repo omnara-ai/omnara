@@ -120,6 +120,14 @@ Artifact content lives in S3-compatible object storage; a bucket is required.
 | `OMNARA_BLOB_S3_ACCESS_KEY_ID` / `OMNARA_BLOB_S3_SECRET_ACCESS_KEY` | Static credentials; set both or neither. Leave empty to use the AWS default credential chain. | — | No |
 | `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (MinIO) | `0` | No |
 
+## Memory storage
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_MEMORY_DIR` | Absolute directory on the same persistent filesystem for API and every worker | *dev:* absolute `.local/memory` in the working directory; Compose: `/var/lib/omnara/memory` | API and worker |
+
+The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. Native development on a case-insensitive volume does not support distinct names differing only in case. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
+
 ## Machine daemon and pools
 
 ### API daemon configuration

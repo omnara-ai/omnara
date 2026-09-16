@@ -89,7 +89,7 @@ verify-go: verify-static unit race-unit
 verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
 fmt-check:
-	@files="$$(find . \( -path './.tools' -o -path './.cache' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print | xargs gofmt -l)"; \
+	@files="$$(find . \( -path './.tools' -o -path './.cache' -o -path './.context' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print | xargs gofmt -l)"; \
 	test -z "$$files" || { printf 'gofmt needed:\n%s\n' "$$files"; exit 1; }
 
 golangci-version-check:

@@ -22,7 +22,13 @@ const (
 	defaultPoolInitialNumMachines = 1
 )
 
+type MemoryStoreCompiled struct {
+	PublicID string `json:"public_id"`
+	Access   string `json:"access"`
+}
+
 type Compiled struct {
+	MemoryStores   []MemoryStoreCompiled        `json:"memory_stores,omitempty"`
 	Version        string                       `json:"version,omitempty"`
 	Instruction    string                       `json:"instruction"`
 	Model          ModelCompiled                `json:"model,omitempty"`
@@ -150,6 +156,7 @@ type Result struct {
 }
 
 type CompileOptions struct {
+	ResolveMemoryStoreName    func(string) (string, error)
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID string, expectedKind secrets.Kind) error
@@ -241,6 +248,24 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 			return Compiled{}, err
 		}
 		compiled.MCP = mcpServers
+	}
+	seenMemoryStores := make(map[string]bool)
+	for i, store := range source.MemoryStores {
+		if opts.ResolveMemoryStoreName == nil {
+			return Compiled{}, issuef(jsonPointer("memory_stores"), "memory store resolution is unavailable")
+		}
+		id, err := opts.ResolveMemoryStoreName(store.Name)
+		if err != nil {
+			return Compiled{}, issueOr(jsonPointer("memory_stores", i), err)
+		}
+		if _, err = publicid.Decode(publicid.KindMemoryStore, id); err != nil {
+			return Compiled{}, issuef(jsonPointer("memory_stores"), "invalid resolved memory store")
+		}
+		if seenMemoryStores[id] {
+			return Compiled{}, issuef(jsonPointer("memory_stores"), "duplicate memory store %q", store.Name)
+		}
+		seenMemoryStores[id] = true
+		compiled.MemoryStores = append(compiled.MemoryStores, MemoryStoreCompiled{PublicID: id, Access: store.Access})
 	}
 	if len(source.Skills) > 0 {
 		skills, err := compileSkills(source.Skills, opts)

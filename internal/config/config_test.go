@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -329,6 +330,7 @@ func TestValidateAPIDoesNotRequireWorkerConfig(t *testing.T) {
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -363,6 +365,7 @@ func TestValidateAPIBlobStoreConfig(t *testing.T) {
 
 	// Non-https endpoints outside localhost fail outside dev.
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_BLOB_S3_ENDPOINT", "http://blobs.example.com")
 	cfg, err = Load()
 	if err != nil {
@@ -408,6 +411,7 @@ func TestValidateAPIAuthEmailDriverGate(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 
 	cfg, err := Load()
 	if err != nil {
@@ -436,6 +440,7 @@ func TestValidateAPIEmailDrivers(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 
 	t.Setenv("OMNARA_EMAIL_DRIVER", "console")
 	cfg, err := Load()
@@ -517,6 +522,7 @@ func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -686,6 +692,7 @@ func TestValidateAPIAuthConnectorURLsRequireHTTPSOutsideDev(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -923,6 +930,7 @@ func TestValidateAPIAcceptsPublicURL(t *testing.T) {
 			t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 			t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 			t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+			t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 			t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 			t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 			t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -959,6 +967,7 @@ func TestValidateAPIRejectsNonOriginPublicURLs(t *testing.T) {
 			t.Setenv("OMNARA_SECRET_ENCRYPTION_KEYS", testSecretEncryptionKeys())
 			t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 			t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+			t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 			t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 			t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 			t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -1029,6 +1038,7 @@ func TestValidateWorkerRequiresPublicURLOutsideDev(t *testing.T) {
 	t.Setenv("OMNARA_DATABASE_URL", "postgres://example/db")
 	t.Setenv("OMNARA_REDIS_URL", "redis://example:6379")
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_PUBLIC_URL", "")
 
@@ -1259,5 +1269,37 @@ func TestValidateAPIRequiresDatabaseURLWithoutInsecureDevOptIn(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil {
 		t.Fatal("expected missing database url error")
+	}
+}
+
+func TestMemoryDirectoryConfiguration(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_MEMORY_DIR", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		t.Fatalf("development memory directory is not absolute: %q", cfg.MemoryDir)
+	}
+	for _, dir := range []string{"", "relative/memory"} {
+		cfg.MemoryDir = dir
+		if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("API accepted memory directory %q: %v", dir, err)
+		}
+		if err := cfg.ValidateWorker(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("worker accepted memory directory %q: %v", dir, err)
+		}
+	}
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatal(err)
 	}
 }

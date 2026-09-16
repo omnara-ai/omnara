@@ -54,7 +54,7 @@ const (
 	sendIntegrationMessageToolDescription = "Send a user-visible message to the current integration target. " +
 		"When responding to a message received from an integration such as Slack, you must use this tool " +
 		"for every user-visible response, including progress updates, questions, and final answers. " +
-		"Attach artifacts by their artifact_ids only when the response is intentionally sending those files. " +
+		"Attach files by their paths only when the response is intentionally sending those files. " +
 		"Normal assistant text is internal and is not delivered to the external user, so use this tool " +
 		"to communicate with them."
 	setIntegrationTargetToolDescription = "Set which integration target future integration messages " +
@@ -65,20 +65,20 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	readFileToolDescription = "Read a text file in Omnara's virtual filesystem. " +
+	readFileToolDescription = "Read a text file stored in Omnara. " +
 		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
 		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
-	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +
+	searchFilesToolDescription = "Search text inside files stored in Omnara using a regular expression. " +
 		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +
 		"Returns matching lines with line numbers and optional surrounding lines. " +
 		"Use read_file to read more around a match."
-	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
-		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
-		"Successful uploads return the created file's path."
-	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
-		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
-		"If the download is still running after the initial wait, use the returned process_id with the process tools."
+	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
+		"Returns paths and metadata without file contents; narrow the pattern when truncated."
+	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
+		"Returns path for artifacts or digest for memory."
+	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns digest for memory. " +
+		"Use process_id with the process tools if the transfer is still running."
 	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
@@ -259,6 +259,28 @@ func buildDefaultCatalog() (Catalog, error) {
 	); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameListFiles], err = toolEntry(
+		ToolNameListFiles,
+		listFilesToolDescription,
+		[]string{"pattern"},
+		map[string]any{
+			"pattern": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"description": "Absolute path pattern: /* lists /artifacts and /memory, /memory/* lists attached stores, " +
+					"/artifacts/*.pdf matches artifact filenames, and /memory/<store>/**/*.md matches notes recursively. " +
+					"* matches within a segment, ** spans directory levels, and ? matches one character.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     100,
+				"description": "Maximum entries to return. Defaults to 50.",
+			},
+		},
+	); err != nil {
+		return Catalog{}, err
+	}
 	if entries[ToolNameListMachines], err = toolEntry(
 		ToolNameListMachines,
 		listMachinesToolDescription,
@@ -418,14 +440,14 @@ func integrationSendTool() (Entry, error) {
 				"minLength":   1,
 				"description": "User-visible message text to send to the current integration target.",
 			},
-			"artifact_ids": map[string]any{
+			"paths": map[string]any{
 				"type":     "array",
 				"maxItems": 20,
 				"items": map[string]any{
 					"type":      "string",
 					"minLength": 1,
 				},
-				"description": "Use artifact IDs; for an upload_file result, use the final component of its /artifacts/<artifact_id> path. " +
+				"description": "Exact file paths: /artifacts/<artifact_id> or /memory/<store>/<file>. Directories and glob expansion are not supported. " +
 					"Omit this field or use an empty array for text-only messages.",
 			},
 		},
@@ -570,7 +592,7 @@ func readFileTool() (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact VFS path /artifacts/<artifact_id>.",
+				"description": "Exact file path: /artifacts/<artifact_id>.",
 			},
 			"offset_line": map[string]any{
 				"type":    "integer",
@@ -611,7 +633,7 @@ func searchFilesTool() (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact VFS path /artifacts/<artifact_id>.",
+				"description": "Exact file path: /artifacts/<artifact_id>.",
 			},
 			"pattern": map[string]any{
 				"type":        "string",
@@ -651,18 +673,26 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 		[]string{"path", "source"},
 		map[string]any{
 			"path": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "Destination path in Omnara's virtual filesystem. Currently supports /artifacts, which creates a new artifact.",
-				"enum":        []string{ArtifactVFSRoot},
+				"type":      "string",
+				"minLength": 1,
+				"pattern":   "^(/artifacts|/memory/[^/]+/.+)$",
+				"description": "Destination path in Omnara: /artifacts creates an artifact; " +
+					"/memory/<store>/<path> creates or replaces a memory file. " +
+					"Memory files may be empty; artifacts must be non-empty.",
 			},
 			"source": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Path to a regular file on the selected machine. " +
+				"description": "Path to a regular file of any type on the selected machine, at most 10 MiB. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineID,
+			"expected_digest": map[string]any{
+				"type":    "string",
+				"pattern": `^sha256:[0-9a-f]{64}$`,
+				"description": "To replace changed memory content, use digest from download_file. " +
+					"Conflicts if current content changed; identical content is a no-op. Omit to create. Memory only.",
+			},
 		},
 	)
 }
@@ -676,8 +706,8 @@ func downloadFileTool(machineID map[string]any) (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Source path in Omnara's virtual filesystem. Currently supports /artifacts/<artifact_id>.",
-				"pattern":     "^" + ArtifactVFSRoot + "/art_[a-z2-7]{26}$",
+				"pattern":     "^(/artifacts/art_[a-z2-7]{26}|/memory/[^/]+/.+)$",
+				"description": "Source path in Omnara: /artifacts/<artifact_id> or /memory/<store>/<path>.",
 			},
 			"destination": map[string]any{
 				"type":      "string",

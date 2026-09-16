@@ -201,6 +201,8 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
+	MaxActiveMemoryStoresPerProject           int64
+	MaxMemoriesPerStore                       int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {
@@ -317,6 +319,17 @@ type McpServerCatalog struct {
 	RefreshError          string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+}
+
+type MemoryStore struct {
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	Name        string
+	Description string
+	ReadOnly    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 }
 
 type ModelProviderConfig struct {
