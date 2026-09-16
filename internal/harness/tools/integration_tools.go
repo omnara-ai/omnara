@@ -243,18 +243,8 @@ func (e Executor) dispatchIntegrationMessageSend(
 
 func (e Executor) loadIntegrationFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
 	if strings.HasPrefix(filePath, memorystore.Root+"/") {
-		name, relativePath, err := memorystore.ParsePath(filePath)
-		if err != nil {
-			return "", nil, err
-		}
-		store, err := e.Store.Memories().Resolve(ctx, turn.ProjectID, name)
-		if err != nil {
-			return "", nil, err
-		}
-		_, content, err := e.Store.Memories().Read(ctx, memorystore.Scope{
-			OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
-		}, store.ID, relativePath)
-		return path.Base(relativePath), content, err
+		_, content, err := e.readMemoryFile(ctx, turn, filePath)
+		return path.Base(filePath), content, err
 	}
 	artifactPublicID, ok := strings.CutPrefix(filePath, toolcatalog.ArtifactVFSRoot+"/")
 	if !ok {
