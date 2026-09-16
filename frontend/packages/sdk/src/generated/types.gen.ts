@@ -501,87 +501,17 @@ export type ListChannelConnectorRoutesResponse = {
     routes: Array<ChannelConnectorRoute>;
 };
 
-export type GitHubReviewOperationScope = {
-    request_id: ToolCallId;
-    agent_id: AgentId;
-    channel_id: IntegrationTargetId;
-};
-
-export type GitHubReviewObservation = {
-    review_id: string;
-    /**
-     * Native observed commit when available; nullable provider commits do not prevent identifying the creator. create_response evidence must supply the original requested commit.
-     */
-    commit_id?: string;
-    /**
-     * Supply only when an exact Omnara marker was positively read from this bot-authored review. Author identity or an absent marker is never ownership evidence.
-     */
-    creating_tool_call_id?: ToolCallId;
-};
-
-export type LookupChannelConnectorGitHubReviewsRequest = {
-    scope: GitHubReviewOperationScope;
-    observations: Array<GitHubReviewObservation>;
-};
-
-export type GitHubReviewOwnership = 'owned' | 'other_agent' | 'unknown';
-
-export type GitHubReviewOwnershipObservation = {
-    review_id: string;
-    ownership: GitHubReviewOwnership;
-    /**
-     * Present only for owned observations.
-     */
-    creating_tool_call_id?: ToolCallId;
-    /**
-     * Immutable creator pin, present only for owned observations.
-     */
-    commit_id?: string;
-};
-
-export type LookupChannelConnectorGitHubReviewsResponse = {
-    observations: Array<GitHubReviewOwnershipObservation>;
-};
-
-export type GitHubReviewIdentityEvidence = 'create_response' | 'marker';
-
-export type RecordChannelConnectorGitHubReviewRequest = {
-    scope: GitHubReviewOperationScope;
-    /**
-     * The exact creating call is required for recording. The native review ID is immutable once recorded.
-     */
-    observation: GitHubReviewObservation & {
-        creating_tool_call_id: ToolCallId;
-    };
-    evidence: GitHubReviewIdentityEvidence;
-};
-
-export type RecordChannelConnectorGitHubReviewResponse = {
-    /**
-     * The native identity is durably recorded; identical acknowledgment is idempotent.
-     */
-    recorded: boolean;
-    /**
-     * True only for the original creating call with its live runtime and original send binding. Record identity before adding the first finding; false does not delete the draft or grant replacement authority.
-     */
-    continue: boolean;
-};
-
 /**
- * Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded. Review references may be supplied only for the issuing agent's own review.
+ * Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded.
  */
 export type ChannelOperationFailure = {
     code: ChannelOperationFailureCode;
-    metadata?: {
-        review_id?: string;
-        commit_id?: string;
-    };
 };
 
 /**
- * Fixed diagnostic. review_operation_unknown requires an unknown outcome; all other codes require failed.
+ * Fixed diagnostic for a failed operation.
  */
-export type ChannelOperationFailureCode = 'invalid_address' | 'address_unavailable' | 'unsupported_address' | 'review_not_owned' | 'review_creation_in_progress' | 'provider_pending_review_conflict' | 'review_state_unavailable' | 'pending_review_exists' | 'review_commit_mismatch' | 'review_creation_already_recorded' | 'review_finding_failed' | 'review_operation_unknown';
+export type ChannelOperationFailureCode = 'invalid_address' | 'address_unavailable' | 'unsupported_address';
 
 /**
  * Read-only managed setup. Resolve a provider locator without an agent, binding, or tool call; returns a ChannelRegistrationTarget.
@@ -17041,134 +16971,6 @@ export type PublishChannelConnectorDefinitionResponses = {
 };
 
 export type PublishChannelConnectorDefinitionResponse = PublishChannelConnectorDefinitionResponses[keyof PublishChannelConnectorDefinitionResponses];
-
-export type LookupChannelConnectorGitHubReviewsData = {
-    body: LookupChannelConnectorGitHubReviewsRequest;
-    path: {
-        integrationAppID: IntegrationAppId;
-        integrationInstallID: IntegrationInstallId;
-    };
-    query?: never;
-    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/lookup';
-};
-
-export type LookupChannelConnectorGitHubReviewsErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The request conflicts with current resource state or idempotency history.
-     */
-    409: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type LookupChannelConnectorGitHubReviewsError = LookupChannelConnectorGitHubReviewsErrors[keyof LookupChannelConnectorGitHubReviewsErrors];
-
-export type LookupChannelConnectorGitHubReviewsResponses = {
-    /**
-     * Scoped review observations.
-     */
-    200: LookupChannelConnectorGitHubReviewsResponse;
-};
-
-export type LookupChannelConnectorGitHubReviewsResponse2 = LookupChannelConnectorGitHubReviewsResponses[keyof LookupChannelConnectorGitHubReviewsResponses];
-
-export type RecordChannelConnectorGitHubReviewData = {
-    body: RecordChannelConnectorGitHubReviewRequest;
-    path: {
-        integrationAppID: IntegrationAppId;
-        integrationInstallID: IntegrationInstallId;
-    };
-    query?: never;
-    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/record';
-};
-
-export type RecordChannelConnectorGitHubReviewErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The request conflicts with current resource state or idempotency history.
-     */
-    409: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type RecordChannelConnectorGitHubReviewError = RecordChannelConnectorGitHubReviewErrors[keyof RecordChannelConnectorGitHubReviewErrors];
-
-export type RecordChannelConnectorGitHubReviewResponses = {
-    /**
-     * Scoped review observations.
-     */
-    200: RecordChannelConnectorGitHubReviewResponse;
-};
-
-export type RecordChannelConnectorGitHubReviewResponse2 = RecordChannelConnectorGitHubReviewResponses[keyof RecordChannelConnectorGitHubReviewResponses];
 
 export type LookupChannelConnectorWorkflowData = {
     body: LookupChannelConnectorWorkflowRequest;

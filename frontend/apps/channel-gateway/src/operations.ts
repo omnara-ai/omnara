@@ -59,33 +59,7 @@ export type OperationExecutionResult =
   | { outcome: 'completed'; payload: JsonBody }
   | { outcome: 'failed' | 'unknown'; payload?: ChannelOperationFailure }
 
-const failureSchema = schemas.zChannelOperationFailure
-  .extend({
-    metadata: schemas.zChannelOperationFailure.shape.metadata.unwrap().strict().optional(),
-  })
-  .strict()
-  .refine(
-    (failure) =>
-      failure.metadata === undefined ||
-      Object.keys(failure.metadata).length === 0 ||
-      [
-        'pending_review_exists',
-        'review_commit_mismatch',
-        'review_creation_already_recorded',
-        'review_finding_failed',
-        'review_operation_unknown',
-      ].includes(failure.code),
-  )
-const resolveFailureSchema = schemas.zChannelOperationFailure
-  .pick({ code: true })
-  .extend({
-    code: schemas.zChannelOperationFailureCode.extract([
-      'invalid_address',
-      'address_unavailable',
-      'unsupported_address',
-    ]),
-  })
-  .strict()
+const failureSchema = schemas.zChannelOperationFailure.strict()
 
 export interface OperationsOptions {
   credential: string
@@ -348,22 +322,10 @@ function completion(operation: GatewayOperation, result: OperationExecutionResul
   }
   const outcome =
     result.outcome === 'unknown' && isReadOnlyOperation(operation.kind) ? 'failed' : result.outcome
-  const failure =
-    result.outcome === 'failed' ||
-    (result.outcome === 'unknown' && !isReadOnlyOperation(operation.kind))
-      ? operation.kind === 'resolve_address'
-        ? resolveFailureSchema.safeParse(result.payload)
-        : failureSchema.safeParse(result.payload)
-      : undefined
+  const diagnostic =
+    result.outcome === 'failed' ? failureSchema.safeParse(result.payload).data : undefined
   const body = { request_id: operation.requestId, outcome }
-  const diagnostic = failure?.data
-  const expectedOutcome = diagnostic?.code === 'review_operation_unknown' ? 'unknown' : 'failed'
-  const payload =
-    result.outcome === 'completed'
-      ? result.payload
-      : outcome === expectedOutcome
-        ? diagnostic
-        : undefined
+  const payload = result.outcome === 'completed' ? result.payload : diagnostic
   const raw = serializeOperationResult(payload === undefined ? body : { ...body, payload })
   const fields = parseObjectFields(raw, maxOperationResponseBytes)
   if (result.outcome === 'completed')

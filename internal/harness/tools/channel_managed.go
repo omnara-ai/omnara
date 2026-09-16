@@ -81,25 +81,6 @@ func runManagedChannelSendAsync(ctx context.Context, call asyncToolContext) (asy
 }
 
 func channelSendPreparationFailure(requestID string, err error) (asyncPhaseResult, error) {
-	var reviewError *executionstore.GitHubReviewError
-	if errors.As(err, &reviewError) {
-		metadata := map[string]string{}
-		if reviewError.ReviewID != "" {
-			metadata["review_id"] = reviewError.ReviewID
-		}
-		if reviewError.CommitID != "" {
-			metadata["commit_id"] = reviewError.CommitID
-		}
-		content, encodeErr := structuredToolResultContent(channelOperationToolResult{
-			RequestID: requestID, Status: channelconnector.OperationFailed,
-			Code: string(reviewError.Code), Metadata: metadata,
-			Detail: (channelconnector.OperationFailure{Code: reviewError.Code}).Detail(),
-		})
-		if encodeErr != nil {
-			return nil, encodeErr
-		}
-		return failAsynchronously(content, reviewError), nil
-	}
 	if errors.Is(err, storeerr.ErrInvalidRequest) {
 		return channelOperationFailure(requestID, "invalid_send_params", err.Error(), channelconnector.OperationFailed)
 	}

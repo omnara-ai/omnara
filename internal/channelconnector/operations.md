@@ -144,14 +144,12 @@ no payload. That rejection cancels any unfinished upload instead of waiting for
 it to complete. Missing/malformed/oversized replies, uncorrelated HTTP errors,
 redirects, and disconnects after dispatch produce a non-nil `OperationError`:
 unknown for mutations, failed for reads. Only the correlated gateway envelope
-can establish a known mutation failure. Failed/unknown gateway payloads may contain
-only the fixed codes and bounded recovery facts accepted by
-[DecodeOperationFailure](operation_failures.go). For example, an uncertain finding
-can retain its already-recorded review ID without claiming the finding was unsent.
-Core supplies fixed explanatory text; raw provider diagnostics and unexpected
-fields are discarded. Foreign-review conflicts cannot disclose creator references.
-No HTTP mutation
-is retried by this client. No receipt, 202, or pending result is completion.
+can establish a known mutation failure. Failed gateway payloads may contain only
+the fixed address diagnostics accepted by
+[DecodeOperationFailure](operation_failures.go). Unknown outcomes do not carry
+those diagnostics. Core supplies fixed explanatory text; raw provider diagnostics
+and unexpected fields are discarded. No HTTP mutation is retried by this client.
+No receipt, 202, or pending result is completion.
 
 The new gateway helper exposes:
 
@@ -193,26 +191,16 @@ artifact. The [Slack sender journey](../httpapi/slack_sender_journey_integration
 exercises provider execution, transactional completion, child-channel grants,
 and subsequent inbound replies against Go HTTP and PostgreSQL.
 
-## GitHub review identity callbacks
+## Provider-specific send parameters
 
-A first review finding records its creator, PR, original send binding and commit
-in the same core transaction that validates the actual tool call. These are
-historical facts, not a local copy of GitHub's pending-review state. The gateway
-creates the native review, records its returned ID through the connector API,
-and adds the first finding only when that acknowledgment permits continuation.
+A channel definition supplies its `send_params_schema`. `get_channel` exposes it
+to the agent; send admission validates the actual persisted tool arguments against
+the current schema without altering the values or applying defaults. Omitting
+`params` means `{}`. Both managed and external channels use this contract.
 
-The installation-scoped `github-reviews/lookup` and `github-reviews/record`
-callbacks derive scope from the durable send tool call and the connector's exact
-capability. Lookup classifies bounded native observations as owned, other-agent,
-or unknown. A draft reply requires an owned result for that exact native review;
-an ordinary published-thread reply does not transfer draft ownership. An omitted
-native commit does not erase ownership: the result retains the creator's original
-commit pin. The `create_response` recording requires that original commit and
-issuing call; recovery by an exact native marker can omit the observed commit.
-
-Recording the same native ID is idempotent; replacing it conflicts. Recording
-commits before checking continuation so a late response after Stop or disconnect
-can retain the ID while returning `continue: false`. Neither callback grants new
-send authority. Stop, archive, disconnect, revocation, new commits and PR closure
-never delete or publish GitHub content. Only explicit agent actions change it;
-an already-dispatched action may still finish after cancellation.
+Core validates channel access, the schema and tool completion. It does not
+interpret provider-specific fields. The connector translates the parameters into
+native API operations. For example, GitHub inline comments need a commit, path
+and diff location, while a normal PR comment needs no location parameters.
+GitHub sends publish individual comments; pending review ownership and staged
+publication are not part of the channel protocol.

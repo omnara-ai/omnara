@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { CoreClient } from '../core-client'
 import { createGitHubFactory } from '../github/factory'
 import { createGitHubGateway, githubCapability } from '../github/gateway'
+import { OperationRetryError } from '../operation-retry'
 import { initialReceiptWorkBytes } from '../receipt-http'
 import type { ProviderFactoryContext } from '../types'
 import { WorkByteBudget } from '../work-budget'
@@ -166,8 +167,8 @@ async function main() {
       }
       if (controlBudget.usedBytes) throw new Error('control reservation leaked')
     }
-    for (const operation of input.operations) {
-      phase = operation.kind
+    for (const [index, operation] of input.operations.entries()) {
+      phase = `${operation.kind} ${index + 1}`
       const result = await gateway.executeOperation(
         {
           kind: operation.kind,
@@ -192,8 +193,12 @@ async function main() {
   )
 }
 void main()
-  .catch(() => {
-    process.stderr.write(`GitHub journey failed during ${phase}\n`)
+  .catch((cause: unknown) => {
+    const diagnostic =
+      cause instanceof OperationRetryError
+        ? `: ${cause.code}, attempts=${cause.attempts}, unknown=${cause.outcomeUnknown}`
+        : ''
+    process.stderr.write(`GitHub journey failed during ${phase}${diagnostic}\n`)
     process.exitCode = 1
   })
   .finally(() => {

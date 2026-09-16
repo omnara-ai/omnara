@@ -3,7 +3,6 @@ package executionstore
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
@@ -14,8 +13,7 @@ import (
 )
 
 // PrepareChannelSend validates the persisted tool's params against the current
-// definition under the final dispatch locks. Provider-specific creator facts
-// commit in that same transaction, before any remote request is dispatched.
+// definition under the final dispatch locks before any remote request is dispatched.
 func (s *Store) PrepareChannelSend(
 	ctx context.Context,
 	prepared PreparedChannelOperation,
@@ -54,14 +52,6 @@ func (s *Store) PrepareChannelSend(
 	params, err := channelconnector.ValidateSendParams(access.SendParamsSchema, input.Params)
 	if err != nil {
 		return empty, nil, storeerr.InvalidRequest(err)
-	}
-	if access.Provider == integrationstore.IntegrationProviderGitHub && access.ImplementationKey == "github_pr" {
-		if access.Kind != integrationstore.ChannelKindGitHubPR {
-			return empty, nil, storeerr.InvalidRequest(errors.New("invalid GitHub PR definition"))
-		}
-		if err := s.prepareGitHubReviewTx(ctx, tx, prepared, params); err != nil {
-			return empty, nil, err
-		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return empty, nil, err

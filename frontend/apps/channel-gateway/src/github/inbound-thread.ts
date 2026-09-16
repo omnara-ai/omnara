@@ -39,6 +39,16 @@ export async function githubInboundThread(
   if (data.node.state !== 'SUBMITTED' || data.node.pullRequestReview?.state === 'PENDING')
     throw new GitHubAPIError('private_inbound_comment')
   const rootID = data.node.replyTo?.id ?? data.node.id
+  return findGitHubReviewThread(client, number, rootID, context)
+}
+
+/** Locate an already-verified published root without fetching its comment again. */
+export async function findGitHubReviewThread(
+  client: GitHubClient,
+  number: number,
+  rootID: string,
+  context: OperationAttemptContext,
+): Promise<{ rootID: string; threadID: string }> {
   let after: string | undefined
   const seen = new Set<string>()
   for (let page = 0; page < 100; page += 1) {

@@ -33,8 +33,6 @@ const path = z
   .min(1)
   .refine((text) => Buffer.byteLength(text) <= 1024 && !text.includes('\u0000'))
 const findingFields = {
-  review_comment: z.literal(true),
-  review_id: githubNodeID.optional(),
   commit_id: githubCommitID,
   path,
 }
@@ -47,58 +45,28 @@ export const githubLineFinding = z
     start_line: line.optional(),
     start_side: side.optional(),
   })
-  .refine((value) => value.start_side === undefined || value.start_line !== undefined)
+  .refine((value) => (value.start_side === undefined) === (value.start_line === undefined))
 export const githubFileFinding = z.strictObject({
   ...findingFields,
   subject_type: z.literal('file'),
 })
-export const githubPRParams = z.union([
-  z.strictObject({}),
-  githubLineFinding,
-  githubFileFinding,
-  z.strictObject({ publish_review: z.literal(true), review_id: githubNodeID.optional() }),
-])
+export const githubPRParams = z.union([z.strictObject({}), githubLineFinding, githubFileFinding])
 export type GitHubFinding = z.infer<typeof githubLineFinding> | z.infer<typeof githubFileFinding>
 export type GitHubPRParams = z.infer<typeof githubPRParams>
 
-// Supported native input fields from GitHub's public GraphQL input objects.
-// COMMENT is the only review event exposed by this adapter.
-export interface GitHubFindingInput {
-  pullRequestReviewId: string
-  body: string
-  path: string
-  subjectType: 'LINE' | 'FILE'
-  line?: number
-  side?: 'LEFT' | 'RIGHT'
-  startLine?: number
-  startSide?: 'LEFT' | 'RIGHT'
-}
-export interface GitHubThreadReplyInput {
-  pullRequestReviewThreadId: string
-  pullRequestReviewId?: string
-  body: string
-}
 export interface GitHubVariables {
   repository?: string
   number?: number
   thread?: string
-  review?: string
   comment?: string
   limit?: number
   before?: string
   after?: string
   author?: string
-  input?:
-    | { subjectId: string; body: string }
-    | { pullRequestId: string; body: string; commitOID?: string; event?: 'COMMENT' }
-    | { pullRequestReviewId: string; body: string; event: 'COMMENT' }
-    | GitHubFindingInput
-    | GitHubThreadReplyInput
+  input?: { subjectId: string; body: string }
 }
 
-/** The definition and transport validate the same fixed shape; no coercion or defaults.
- * A draft thread's owned review ID comes from core preparation, not hidden params.
- */
+/** The definition and transport validate the same fixed shape; no coercion or defaults. */
 export function parseGitHubParams(raw = '{}', kind: 'pr' | 'review_thread' = 'pr'): GitHubPRParams {
   try {
     parseObjectFields(raw, 16 * 1024)
@@ -112,7 +80,7 @@ export function parseGitHubParams(raw = '{}', kind: 'pr' | 'review_thread' = 'pr
 
 export const githubSendParamsSchema = {
   ...z.toJSONSchema(githubPRParams, { unrepresentable: 'any' }),
-  dependentRequired: { start_side: ['start_line'] },
+  dependentRequired: { start_side: ['start_line'], start_line: ['start_side'] },
 }
 export const githubThreadParamsSchema = z.toJSONSchema(z.strictObject({}))
 export const githubAuthor = z.object({ login: z.string().min(1).max(256) }).nullable()

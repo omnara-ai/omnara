@@ -10,9 +10,6 @@ const reviewComment = `${comment} fullDatabaseId state path line originalCommit 
 
 export const githubDocuments = {
   viewer: 'query GitHubViewer { viewer { id login } }',
-  reviewIdentity: `query GitHubReviewIdentity($review: ID!) {
-    node(id: $review) { ... on PullRequestReview { ${review} pullRequest { ${identity} } } }
-  }`,
   commentIdentity: `query GitHubCommentIdentity($comment: ID!) {
     node(id: $comment) { ... on PullRequestReviewComment {
       ${reviewComment} pullRequest { ${identity} }
@@ -26,10 +23,7 @@ export const githubDocuments = {
   pendingReviews: `query GitHubPendingReviews($repository: ID!, $number: Int!, $author: String!) {
     node(id: $repository) { ... on Repository { id pullRequest(number: $number) {
       ${identity}
-      reviews(first: 100, states: [PENDING], author: $author) {
-        nodes { ${review} }
-        pageInfo { hasNextPage endCursor }
-      }
+      reviews(first: 1, states: [PENDING], author: $author) { nodes { id } }
     } } }
   }`,
   timeline: `query GitHubTimeline($repository: ID!, $number: Int!, $limit: Int!, $before: String) {
@@ -77,24 +71,6 @@ export const githubDocuments = {
   }`,
   timelineComment: `mutation GitHubTimelineComment($input: AddCommentInput!) {
     addComment(input: $input) { commentEdge { node { ${comment} } } }
-  }`,
-  createReview: `mutation GitHubCreateReview($input: AddPullRequestReviewInput!) {
-    addPullRequestReview(input: $input) { pullRequestReview { id } }
-  }`,
-  reviewSummary: `mutation GitHubReviewSummary($input: AddPullRequestReviewInput!) {
-    addPullRequestReview(input: $input) { pullRequestReview { ${review} } }
-  }`,
-  addFinding: `mutation GitHubAddFinding($input: AddPullRequestReviewThreadInput!) {
-    addPullRequestReviewThread(input: $input) { thread {
-      id pullRequest { ${identity} }
-      comments(first: 1) { nodes { ${reviewComment} } }
-    } }
-  }`,
-  submitReview: `mutation GitHubSubmitReview($input: SubmitPullRequestReviewInput!) {
-    submitPullRequestReview(input: $input) { pullRequestReview { ${review} } }
-  }`,
-  threadReply: `mutation GitHubThreadReply($input: AddPullRequestReviewThreadReplyInput!) {
-    addPullRequestReviewThreadReply(input: $input) { comment { ${reviewComment} } }
   }`,
 } as const
 export type GitHubDocument = keyof typeof githubDocuments

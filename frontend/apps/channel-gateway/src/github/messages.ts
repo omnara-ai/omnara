@@ -2,20 +2,16 @@ import { z } from 'zod'
 
 import type { OperationAttemptContext } from '../operation-retry'
 import type { GitHubClient } from './client'
-import type { GitHubFindingInput, GitHubThreadReplyInput } from './protocol'
 import {
   GitHubAPIError,
   type GitHubComment,
   githubComment,
   githubCommitID,
-  githubFileFinding,
   type GitHubFinding,
-  githubLineFinding,
   githubNodeID,
   githubPRIdentity,
   githubPRNumber,
   type GitHubReview,
-  githubReview,
   type GitHubReviewComment,
   githubReviewComment,
   providerValue,
@@ -28,7 +24,6 @@ export interface GitHubMessage {
   authorRef?: string
   createdAt: string
   publication: 'draft' | 'published'
-  reviewID?: string
   commitID?: string
   replyTo?: string
   path?: string
@@ -49,14 +44,16 @@ export function githubMessage(
     text: value.body,
     createdAt: value.createdAt,
     authorRef: value.author?.login,
-    publication: 'state' in value && value.state === 'PENDING' ? 'draft' : 'published',
+    publication:
+      ('state' in value && value.state === 'PENDING') ||
+      ('pullRequestReview' in value && value.pullRequestReview?.state === 'PENDING')
+        ? 'draft'
+        : 'published',
   }
   if ('submittedAt' in value) {
-    message.reviewID = value.id
     message.commitID = value.commit?.oid
   }
   if ('pullRequestReview' in value) {
-    message.reviewID = value.pullRequestReview?.id
     message.commitID = value.originalCommit?.oid
     message.replyTo = value.replyTo?.id
     message.path = value.path
@@ -111,32 +108,6 @@ export async function getGitHubPullRequest(
   return pr
 }
 
-/** No orchestration: this method creates only the container. The caller must record
- * its returned ID durably and receive continuation authority before addFinding.
- */
-export async function createGitHubPendingReview(
-  client: GitHubClient,
-  number: number,
-  commitID: string,
-  marker: string,
-  context: OperationAttemptContext,
-): Promise<{ id: string }> {
-  providerValue(githubCommitID, commitID)
-  validateGitHubText(marker)
-  const pr = await getGitHubPullRequest(client, number, context)
-  const data = await client.query(
-    'createReview',
-    {
-      input: { pullRequestId: pr.id, commitOID: commitID, body: marker },
-    },
-    z.object({
-      addPullRequestReview: z.object({ pullRequestReview: z.object({ id: githubNodeID }) }),
-    }),
-    context,
-  )
-  return data.addPullRequestReview.pullRequestReview
-}
-
 export async function postGitHubTimelineComment(
   client: GitHubClient,
   number: number,
@@ -154,93 +125,6 @@ export async function postGitHubTimelineComment(
     context,
   )
   return githubMessage(data.addComment.commentEdge.node, true)
-}
-
-export async function addGitHubReviewFinding(
-  client: GitHubClient,
-  number: number,
-  reviewID: string,
-  text: string,
-  params: GitHubFinding,
-  context: OperationAttemptContext,
-) {
-  providerValue(githubNodeID, reviewID)
-  providerValue(z.union([githubLineFinding, githubFileFinding]), params)
-  validateGitHubText(text)
-  if (params.review_id !== undefined && params.review_id !== reviewID)
-    throw new GitHubAPIError('review_not_owned')
-  await getGitHubPullRequest(client, number, context)
-  // FILE has no invented line/side. Both branches explicitly target the recorded review.
-  const input: GitHubFindingInput = {
-    pullRequestReviewId: reviewID,
-    body: text,
-    path: params.path,
-    subjectType: params.subject_type === 'file' ? 'FILE' : 'LINE',
-  }
-  if (params.subject_type !== 'file') {
-    input.line = params.line
-    input.side = params.side
-    if (params.start_line !== undefined) input.startLine = params.start_line
-    if (params.start_side !== undefined) input.startSide = params.start_side
-  }
-  const data = await client.query(
-    'addFinding',
-    {
-      input,
-    },
-    z.object({ addPullRequestReviewThread: z.object({ thread: threadIdentity }) }),
-    context,
-  )
-  const thread = data.addPullRequestReviewThread.thread
-  assertGitHubPRScope(client, number, thread.pullRequest, true)
-  const comment = thread.comments.nodes[0]
-  if (!comment || comment.pullRequestReview?.id !== reviewID || comment.state !== 'PENDING')
-    throw new GitHubAPIError('invalid_review_response', { outcomeUnknown: true })
-  return { threadID: thread.id, message: githubMessage(comment, true) }
-}
-
-export async function submitGitHubReview(
-  client: GitHubClient,
-  number: number,
-  reviewID: string,
-  summary: string,
-  context: OperationAttemptContext,
-): Promise<GitHubMessage> {
-  providerValue(githubNodeID, reviewID)
-  validateGitHubText(summary)
-  await getGitHubPullRequest(client, number, context)
-  const data = await client.query(
-    'submitReview',
-    {
-      input: { pullRequestReviewId: reviewID, event: 'COMMENT', body: summary },
-    },
-    z.object({ submitPullRequestReview: z.object({ pullRequestReview: githubReview }) }),
-    context,
-  )
-  const review = data.submitPullRequestReview.pullRequestReview
-  if (review.id !== reviewID || review.state !== 'COMMENTED')
-    throw new GitHubAPIError('invalid_review_response', { outcomeUnknown: true })
-  return githubMessage(review, true)
-}
-
-/** Caller must first run the bounded pending guard; this does not create a local draft. */
-export async function postGitHubReviewSummary(
-  client: GitHubClient,
-  number: number,
-  summary: string,
-  context: OperationAttemptContext,
-): Promise<GitHubMessage> {
-  validateGitHubText(summary)
-  const pr = await getGitHubPullRequest(client, number, context)
-  const data = await client.query(
-    'reviewSummary',
-    { input: { pullRequestId: pr.id, event: 'COMMENT', body: summary } },
-    z.object({ addPullRequestReview: z.object({ pullRequestReview: githubReview }) }),
-    context,
-  )
-  if (data.addPullRequestReview.pullRequestReview.state !== 'COMMENTED')
-    throw new GitHubAPIError('invalid_review_response', { outcomeUnknown: true })
-  return githubMessage(data.addPullRequestReview.pullRequestReview, true)
 }
 
 const threadIdentity = z.object({
@@ -269,81 +153,117 @@ export async function getGitHubReviewThread(
   return data.node
 }
 
-export async function getGitHubReview(
+/** Refuse any current draft belonging to this shared native bot. There is no
+ * local ownership, adoption, submission or deletion. A concurrent native conflict
+ * is still handled by the REST response; no GraphQL mutation fallback exists.
+ * GitHub documents no bypass guarantee for an existing bot draft. This bounded
+ * preflight is conservative, not atomic isolation; publication is read back too.
+ */
+async function requireNoPendingReview(
   client: GitHubClient,
   number: number,
-  reviewID: string,
   context: OperationAttemptContext,
-) {
-  providerValue(githubNodeID, reviewID)
-  const data = await client.query(
-    'reviewIdentity',
-    { review: reviewID },
-    z.object({ node: githubReview.extend({ pullRequest: githubPRIdentity }).nullable() }),
+): Promise<void> {
+  providerValue(githubPRNumber, number)
+  const { viewer } = await client.query(
+    'viewer',
+    {},
+    z.object({ viewer: z.object({ login: z.string().min(1).max(256) }) }),
     context,
   )
-  if (!data.node) throw new GitHubAPIError('review_state_unavailable')
-  assertGitHubPRScope(client, number, data.node.pullRequest)
-  if (data.node.id !== reviewID) throw new GitHubAPIError('invalid_review_response')
-  return data.node
+  const result = await client.query(
+    'pendingReviews',
+    { repository: client.configuration.repositoryNodeID, number, author: viewer.login },
+    z.object({
+      node: z
+        .object({
+          id: githubNodeID,
+          pullRequest: githubPRIdentity
+            .extend({
+              reviews: z
+                .object({ nodes: z.array(z.object({ id: githubNodeID })).max(1) })
+                .nullable(),
+            })
+            .nullable(),
+        })
+        .nullable(),
+    }),
+    context,
+  )
+  const pr = result.node?.pullRequest
+  if (!pr?.reviews) throw new GitHubAPIError('provider_unavailable')
+  assertGitHubPRScope(client, number, pr)
+  if (result.node?.id !== client.configuration.repositoryNodeID)
+    throw new GitHubAPIError('repository_scope_mismatch')
+  if (pr.reviews.nodes.length) throw new GitHubAPIError('pending_review_conflict')
 }
 
-/** Drafts require core-proven ownership. Published threads use REST; an existing
- * native pending review can reject that request, with no mutation fallback.
+/** REST returns a comment identity but no publication state. An accepted write
+ * followed by an unavailable/contradictory read is unknown, never a safe resend.
  */
+async function publishedCommentResult(
+  client: GitHubClient,
+  number: number,
+  id: string,
+  rootID: string | undefined,
+  context: OperationAttemptContext,
+): Promise<GitHubMessage> {
+  try {
+    const result = await client.query(
+      'commentIdentity',
+      { comment: id },
+      z.object({ node: githubReviewComment.extend({ pullRequest: githubPRIdentity }).nullable() }),
+      context,
+    )
+    const value = result.node
+    if (
+      !value ||
+      value.id !== id ||
+      value.state !== 'SUBMITTED' ||
+      value.pullRequestReview?.state === 'PENDING' ||
+      value.replyTo?.id !== rootID
+    )
+      throw new GitHubAPIError('invalid_response')
+    assertGitHubPRScope(client, number, value.pullRequest)
+    return githubMessage(value, true)
+  } catch {
+    throw new GitHubAPIError('send_outcome_unknown', { outcomeUnknown: true })
+  }
+}
+
+export async function postGitHubInlineComment(
+  client: GitHubClient,
+  number: number,
+  text: string,
+  params: GitHubFinding,
+  context: OperationAttemptContext,
+): Promise<GitHubMessage> {
+  validateGitHubText(text)
+  await requireNoPendingReview(client, number, context)
+  const id = await client.publishedComment(number, text, params, context)
+  return publishedCommentResult(client, number, id, undefined, context)
+}
+
 export async function replyToGitHubReviewThread(
   client: GitHubClient,
   number: number,
   threadID: string,
+  rootID: string,
   text: string,
   context: OperationAttemptContext,
-  ownedReviewID?: string,
 ): Promise<GitHubMessage> {
   validateGitHubText(text)
-  if (ownedReviewID !== undefined) providerValue(githubNodeID, ownedReviewID)
   const thread = await getGitHubReviewThread(client, number, threadID, context)
   const root = thread.comments.nodes[0]
-  if (root?.state === 'PENDING' && (!ownedReviewID || ownedReviewID !== root.pullRequestReview?.id))
-    throw new GitHubAPIError('review_not_owned')
-  if (root?.state === 'SUBMITTED') {
-    if (!root.fullDatabaseId) throw new GitHubAPIError('resource_unavailable')
-    const id = await client.publishedReply(number, root.fullDatabaseId, text, context)
-    // REST exposes node_id but not publication state. Inspect the created comment;
-    // failure of this read must never repeat the already-accepted REST mutation.
-    try {
-      const result = await client.query(
-        'commentIdentity',
-        { comment: id },
-        z.object({
-          node: githubReviewComment.extend({ pullRequest: githubPRIdentity }).nullable(),
-        }),
-        context,
-      )
-      const value = result.node
-      if (
-        !value ||
-        value.id !== id ||
-        value.state !== 'SUBMITTED' ||
-        value.pullRequestReview?.state === 'PENDING' ||
-        value.replyTo?.id !== root.id
-      )
-        throw new GitHubAPIError('invalid_review_response')
-      assertGitHubPRScope(client, number, value.pullRequest)
-      return githubMessage(value, true)
-    } catch {
-      throw new GitHubAPIError('reply_outcome_unknown', { outcomeUnknown: true })
-    }
-  }
-  const input: GitHubThreadReplyInput = { pullRequestReviewThreadId: threadID, body: text }
-  if (ownedReviewID !== undefined) input.pullRequestReviewId = ownedReviewID
-  const data = await client.query(
-    'threadReply',
-    { input },
-    z.object({ addPullRequestReviewThreadReply: z.object({ comment: githubReviewComment }) }),
-    context,
+  if (
+    !root ||
+    root.id !== rootID ||
+    root.state !== 'SUBMITTED' ||
+    root.pullRequestReview?.state === 'PENDING' ||
+    !root.fullDatabaseId
   )
-  const reply = data.addPullRequestReviewThreadReply.comment
-  if (reply.pullRequestReview?.id !== ownedReviewID)
-    throw new GitHubAPIError('invalid_review_response', { outcomeUnknown: true })
-  return githubMessage(reply, true)
+    throw new GitHubAPIError('resource_unavailable')
+  await requireNoPendingReview(client, number, context)
+  const id = await client.publishedReply(number, root.fullDatabaseId, text, context)
+  return publishedCommentResult(client, number, id, root.id, context)
 }

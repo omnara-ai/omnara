@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { listGitHubPendingReviews, readGitHubHistory } from './read'
+import { readGitHubHistory } from './read'
 import {
   attempt,
   comment,
@@ -61,7 +61,7 @@ describe('GitHub bounded history', () => {
     expect(fixture.calls).toHaveLength(count)
   })
 
-  it('reads thread messages with native reply/review identities and publication state', async () => {
+  it('reads published thread messages with native reply identity', async () => {
     const fixture = await githubFixture((_request, response) => {
       json(response, {
         data: {
@@ -82,7 +82,7 @@ describe('GitHub bounded history', () => {
     )
     expect(page).toMatchObject({
       coverage: 'complete',
-      messages: [{ id: 'PRRC_1', replyTo: 'PRRC_root', publication: 'draft', reviewID: 'PRR_1' }],
+      messages: [{ id: 'PRRC_1', replyTo: 'PRRC_root', publication: 'published' }],
     })
     expect(page.nextCursor).toBeUndefined()
   })
@@ -141,60 +141,54 @@ describe('GitHub bounded history', () => {
     })
   })
 
-  it.each([true, false])(
-    'returns native pending facts and completeness=%s without adoption or additional scans',
-    async (complete) => {
+  it.each(['summary', 'comment', 'parent'] as const)(
+    'omits pending %s content while advancing an empty filtered page',
+    async (kind) => {
+      const before: unknown[] = []
       const fixture = await githubFixture((request, response) => {
-        if (request.query.startsWith('query GitHubViewer'))
-          json(response, { data: { viewer: { login: 'example[bot]' } } })
-        else
-          json(response, {
-            data: {
-              node: {
-                id: 'R_selected',
-                pullRequest: {
-                  ...pr,
-                  reviews: {
-                    nodes: [review],
-                    pageInfo: { hasNextPage: !complete, endCursor: 'more' },
-                  },
-                },
-              },
-            },
-          })
-      })
-      const result = await listGitHubPendingReviews(fixture.client, 7, attempt())
-      expect(result).toEqual({ reviews: [review], complete })
-      const graphCalls = fixture.calls.filter((call) => call.path === '/graphql')
-      expect(graphCalls).toHaveLength(2)
-      expect(graphCalls[1]?.body).toMatchObject({
-        variables: { repository: 'R_selected', number: 7, author: 'example[bot]' },
-      })
-    },
-  )
-
-  it('rejects a pending listing that ignores the requested bot author', async () => {
-    const fixture = await githubFixture((request, response) => {
-      if (request.query.startsWith('query GitHubViewer'))
-        json(response, { data: { viewer: { login: 'example[bot]' } } })
-      else
+        before.push(request.variables.before)
+        const older = request.variables.before === 'older'
+        const pending =
+          kind === 'summary'
+            ? { ...review, body: 'Private summary', __typename: 'PullRequestReview' }
+            : {
+                ...finding,
+                body: 'Private finding',
+                state: kind === 'comment' ? 'PENDING' : 'SUBMITTED',
+                pullRequestReview: { id: 'PRR_private', state: 'PENDING' },
+              }
+        const published = kind === 'summary' ? { ...comment, __typename: 'IssueComment' } : finding
+        const page = {
+          nodes: [older ? published : pending],
+          pageInfo: { hasPreviousPage: !older, startCursor: older ? 'end' : 'older' },
+        }
         json(response, {
           data: {
-            node: {
-              id: 'R_selected',
-              pullRequest: {
-                ...pr,
-                reviews: {
-                  nodes: [{ ...review, author: { login: 'someone-else' } }],
-                  pageInfo: { hasNextPage: false, endCursor: null },
-                },
-              },
-            },
+            node:
+              kind === 'summary'
+                ? { id: 'R_selected', pullRequest: { ...pr, timelineItems: page } }
+                : { ...thread, comments: page },
           },
         })
-    })
-    await expect(listGitHubPendingReviews(fixture.client, 7, attempt())).rejects.toMatchObject({
-      code: 'invalid_review_response',
-    })
-  })
+      })
+      const input = { number: 7, limit: 1, threadID: kind === 'summary' ? undefined : thread.id }
+      const first = await readGitHubHistory(fixture.client, input, attempt())
+      expect(first).toMatchObject({
+        messages: [],
+        coverage: 'partial',
+        reason: 'private_pending_reviews_omitted',
+      })
+      expect(first.nextCursor).toBeDefined()
+      const second = await readGitHubHistory(
+        fixture.client,
+        { ...input, cursor: first.nextCursor },
+        attempt(),
+      )
+      expect(second.messages).toHaveLength(1)
+      expect(second.messages[0]?.publication).toBe('published')
+      expect(second.nextCursor).toBeUndefined()
+      expect(before).toEqual([undefined, 'older'])
+      expect(JSON.stringify([first, second])).not.toContain('Private')
+    },
+  )
 })

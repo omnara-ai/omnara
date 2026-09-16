@@ -52,27 +52,31 @@ ID and message text. For a reply to an inline discussion, use that review thread
 channel ID. `read_channel` paginates history and reports incomplete or unavailable
 provider content explicitly.
 
-To collect findings before publishing a review, send each finding separately to
-the PR channel with `review_comment: true`, the exact `commit_id`, and its file
-location (`path`, `line`, `side`; optional range fields). File-level findings use
-`subject_type: "file"` without line coordinates. The first successful call returns
-a review ID; pass that `review_id` on subsequent findings. Finally send a summary
-with `publish_review: true` and that same ID. Publication submits a comment review,
-not an approval or request for changes. The current channel's parameter schema is
-the source of truth for valid combinations.
+To post an inline comment, send the comment text to the PR channel and supply
+its location in `params`: the exact `commit_id`, `path`, `line` and `side`, with
+`start_line` and `start_side` together for a multiline comment. File-level
+comments use `subject_type: "file"` without line coordinates. `get_channel`
+returns the current parameter schema. Each successful send publishes its comment
+immediately. When the agent has permission to connect to the new discussion,
+the result also identifies its reply channel. If that channel cannot be resolved
+or registered, the result preserves the publication and reports the continuation
+failure; the comment should not be sent again.
 
-Pending reviews belong to the agent that created them. Another agent cannot
-adopt a pending review simply because it can send to the PR. Ordinary timeline
-comments remain independent of pending reviews. Native GitHub restrictions can
-still reject a requested operation; the tool reports the result rather than
-publishing or deleting something to work around it.
+The integration does not create draft reviews or offer a separate publish step.
+Pending drafts are excluded from history and cannot receive replies through this
+integration. Before an inline comment or reply, the connector checks for an
+existing draft belonging to the bot and refuses the send if it finds one. It also
+verifies publication after sending. These checks do not lock GitHub against
+concurrent changes; an uncertain result is reported without automatically
+repeating the write. Omnara never adopts, publishes or deletes a draft to work
+around a conflict.
 
 ## Lifecycle and recovery
 
 Closing a PR is input for the agent; it does not authorize cleanup. Disconnecting
 the integration, archiving an agent or canceling work does not delete comments,
-discard drafts or publish reviews on GitHub. Those changes require explicit
-agent actions. Questions and tool approvals remain in the Omnara dashboard.
+discard drafts or publish reviews on GitHub. Questions and tool approvals remain
+in the Omnara dashboard.
 
 Incoming communication is saved before acknowledgment and retried from Omnara's
 inbox. GitHub does not automatically redeliver webhooks that fail before they are

@@ -25,6 +25,13 @@ type managedOperationFixture struct {
 
 func newManagedOperationFixture(t *testing.T, ctx context.Context, name string) managedOperationFixture {
 	t.Helper()
+	return newManagedOperationFixtureWithParams(t, ctx, name, nil)
+}
+
+func newManagedOperationFixtureWithParams(
+	t *testing.T, ctx context.Context, name string, params json.RawMessage,
+) managedOperationFixture {
+	t.Helper()
 	f, _, claim := newStartedNormalModelCallTestFixture(t, ctx, name)
 	_, _, _, install := createChannelLifecycleFixture(t, ctx, f.Store, "managed-op")
 	definition, err := f.Store.Integrations().PublishConnectorChannelDefinition(ctx,
@@ -52,9 +59,13 @@ func newManagedOperationFixture(t *testing.T, ctx context.Context, name string) 
 	require.NoError(t, err)
 	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, target.ID)
 	require.NoError(t, err)
+	paramsField := ""
+	if len(params) != 0 {
+		paramsField = `,"params":` + string(params)
+	}
 	_, calls := recordToolCallBatchForContextTest(t, ctx, f, claim.Context.ID, name,
 		[]toolCallForContextTest{{ProviderCallID: "send", Name: toolcatalog.ToolNameSendChannelMessage,
-			Input: json.RawMessage(`{"channel_id":"` + channelID + `","message":{"text":"hello"}}`),
+			Input: json.RawMessage(`{"channel_id":"` + channelID + `","message":{"text":"hello"}` + paramsField + `}`),
 			Type:  toolcatalog.ToolTypeBuiltIn}}, f.Now)
 	markToolCallReadyForTest(t, ctx, f, calls[0].ID, f.Now)
 	return managedOperationFixture{processDaemonFixture: f, binding: binding,

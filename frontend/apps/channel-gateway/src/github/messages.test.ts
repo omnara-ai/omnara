@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  addGitHubReviewFinding,
-  createGitHubPendingReview,
-  postGitHubReviewSummary,
+  postGitHubInlineComment,
   postGitHubTimelineComment,
   replyToGitHubReviewThread,
-  submitGitHubReview,
 } from './messages'
+import { operationFixture } from './operations-test-support'
+import type { GitHubFinding } from './protocol'
 import {
   attempt,
   comment,
@@ -17,27 +16,11 @@ import {
   mutationInputs,
   oldCommit,
   pr,
-  review,
   thread,
 } from './test-support'
 
-describe('GitHub communication primitives', () => {
-  it('requires only the native identity when creating a pending container', async () => {
-    const { client } = await githubFixture((_request, response) => {
-      json(response, {
-        data: { addPullRequestReview: { pullRequestReview: { id: 'PRR_1' } } },
-      })
-    })
-    const result = await createGitHubPendingReview(
-      client,
-      7,
-      oldCommit,
-      '<!-- omnara-review:tc_test -->',
-      attempt(),
-    )
-    expect(result).toEqual({ id: 'PRR_1' })
-  })
-  it('posts one unchanged timeline message, with no review side effect', async () => {
+describe('GitHub immediate communication primitives', () => {
+  it('posts unchanged timeline text without checking or changing pending reviews', async () => {
     const fixture = await githubFixture((_request, response) => {
       json(response, { data: { addComment: { commentEdge: { node: comment } } } })
     })
@@ -48,281 +31,205 @@ describe('GitHub communication primitives', () => {
     expect(result).toMatchObject({ text: comment.body, publication: 'published', id: 'IC_1' })
   })
 
-  it.each(['line', 'file'] as const)(
-    'creates only a container; a separate explicit call adds one %s finding to its recorded ID',
-    async (subjectType) => {
-      const fixture = await githubFixture((request, response) => {
-        if (request.query.startsWith('mutation GitHubCreateReview'))
-          json(response, { data: { addPullRequestReview: { pullRequestReview: review } } })
-        else json(response, { data: { addPullRequestReviewThread: { thread } } })
-      })
-      const created = await createGitHubPendingReview(
-        fixture.client,
-        7,
-        oldCommit,
-        '<!-- omnara-review:tc_test -->',
-        attempt(),
-      )
-      expect(mutationInputs(fixture.calls)).toEqual([
-        {
-          pullRequestId: 'PR_selected',
-          commitOID: oldCommit,
-          body: '<!-- omnara-review:tc_test -->',
-        },
-      ])
-      const params =
-        subjectType === 'file'
-          ? {
-              review_comment: true as const,
-              commit_id: oldCommit,
-              path: 'src/main.ts',
-              subject_type: 'file' as const,
-            }
-          : {
-              review_comment: true as const,
-              commit_id: oldCommit,
-              path: 'src/main.ts',
-              line: 12,
-              side: 'RIGHT' as const,
-            }
-      const result = await addGitHubReviewFinding(
-        fixture.client,
-        7,
-        created.id,
-        finding.body,
-        params,
-        attempt(),
-      )
-      expect(mutationInputs(fixture.calls)[1]).toMatchObject({
-        pullRequestReviewId: 'PRR_1',
-        body: finding.body,
-        path: 'src/main.ts',
-        subjectType: subjectType.toUpperCase(),
-      })
-      if (subjectType === 'file') {
-        expect(mutationInputs(fixture.calls)[1]).not.toHaveProperty('line')
-        expect(mutationInputs(fixture.calls)[1]).not.toHaveProperty('side')
-      }
-      expect(result).toMatchObject({
-        threadID: 'PRRT_1',
-        message: { publication: 'draft', reviewID: 'PRR_1', commitID: oldCommit },
-      })
+  it.each<GitHubFinding>([
+    { commit_id: oldCommit, path: 'src/main.ts', line: 12, side: 'RIGHT' },
+    { commit_id: oldCommit, path: 'src/main.ts', line: 9, side: 'LEFT', subject_type: 'line' },
+    {
+      commit_id: oldCommit,
+      path: 'src/main.ts',
+      line: 12,
+      side: 'RIGHT',
+      start_line: 10,
+      start_side: 'RIGHT',
     },
-  )
-
-  it('submits the exact owned old-commit review as COMMENT even when PR metadata is closed/newer', async () => {
-    const fixture = await githubFixture((_request, response) => {
-      json(response, {
-        data: {
-          submitPullRequestReview: {
-            pullRequestReview: {
-              ...review,
-              state: 'COMMENTED',
-              body: 'Summary',
-              submittedAt: '2026-09-15T13:00:00Z',
-            },
-          },
-        },
-      })
-    })
-    const result = await submitGitHubReview(fixture.client, 7, 'PRR_1', 'Summary', attempt())
-    expect(mutationInputs(fixture.calls)).toEqual([
-      { pullRequestReviewId: 'PRR_1', event: 'COMMENT', body: 'Summary' },
-    ])
-    expect(result).toMatchObject({
-      publication: 'published',
-      commitID: oldCommit,
-      reviewID: 'PRR_1',
-    })
-  })
-
-  it('summary-only submission uses the native COMMENT path without a pending container', async () => {
-    const fixture = await githubFixture((_request, response) => {
-      json(response, {
-        data: {
-          addPullRequestReview: {
-            pullRequestReview: {
-              ...review,
-              state: 'COMMENTED',
-              body: 'Summary',
-              submittedAt: '2026-09-15T13:00:00Z',
-            },
-          },
-        },
-      })
-    })
-    await postGitHubReviewSummary(fixture.client, 7, 'Summary', attempt())
-    expect(mutationInputs(fixture.calls)).toEqual([
-      { pullRequestId: 'PR_selected', event: 'COMMENT', body: 'Summary' },
-    ])
-  })
-
-  it('requires the explicit owned ID for a draft reply and forwards it to GitHub', async () => {
-    const fixture = await githubFixture((request, response) => {
-      if (request.query.startsWith('query ')) json(response, { data: { node: thread } })
-      else
+    { commit_id: oldCommit, path: 'src/main.ts', subject_type: 'file' },
+  ])('publishes the exact REST location and original body: %j', async (params) => {
+    const f = await operationFixture({
+      native: (request, response) => {
+        if (!request.query.includes('GitHubCommentIdentity')) return false
         json(response, {
           data: {
-            addPullRequestReviewThreadReply: {
-              comment: { ...finding, id: 'PRRC_reply', replyTo: { id: 'PRRC_1' } },
+            node: {
+              ...finding,
+              path: params.path,
+              line: params.subject_type === 'file' ? null : params.line,
+              pullRequest: pr,
             },
           },
         })
+        return true
+      },
     })
-    await expect(
-      replyToGitHubReviewThread(fixture.client, 7, thread.id, 'Reply', attempt()),
-    ).rejects.toMatchObject({ code: 'review_not_owned' })
-    expect(mutationInputs(fixture.calls)).toHaveLength(0)
-    const result = await replyToGitHubReviewThread(
-      fixture.client,
-      7,
-      thread.id,
-      'Reply',
-      attempt(),
-      'PRR_1',
-    )
-    expect(mutationInputs(fixture.calls)).toEqual([
-      { pullRequestReviewThreadId: 'PRRT_1', pullRequestReviewId: 'PRR_1', body: 'Reply' },
+    const result = await postGitHubInlineComment(f.client, 7, finding.body, params, attempt())
+    const writes = f.calls.filter((call) => call.path.includes('/pulls/7/comments'))
+    expect(writes).toEqual([
+      expect.objectContaining({
+        path: '/repos/new-owner/renamed/pulls/7/comments',
+        body: { body: finding.body, ...params },
+      }),
     ])
-    expect(result).toMatchObject({ publication: 'draft', replyTo: 'PRRC_1', reviewID: 'PRR_1' })
+    expect(result).toMatchObject({ id: finding.id, publication: 'published', text: finding.body })
+    expect(result.path).toBe(params.path)
+    expect(result.line).toBe(params.subject_type === 'file' ? undefined : params.line)
+    expect(mutationInputs(f.calls)).toEqual([])
+    expect(
+      f.calls.some((call) =>
+        JSON.stringify(call.body ?? null).includes('query GitHubPullRequest('),
+      ),
+    ).toBe(false)
   })
 
-  it('uses the lossless root ID and REST for a published thread, without a GraphQL mutation', async () => {
-    const fixture = await githubFixture(
-      (request, response) => {
-        if (request.query.includes('GitHubThreadIdentity'))
-          json(response, { data: { node: publishedThread() } })
-        else
-          json(response, {
-            data: {
-              node: {
-                ...finding,
-                id: 'PRRC_reply',
-                state: 'SUBMITTED',
-                pullRequest: pr,
-                replyTo: { id: finding.id },
-                pullRequestReview: { id: 'PRR_reply', state: 'COMMENTED' },
-              },
-            },
-          })
-      },
-      (call, response) => {
-        expect(call.path).toBe('/repos/new-owner/renamed/pulls/7/comments/9007199254740993/replies')
-        expect(call.body).toEqual({ body: 'Reply' })
-        json(response, { node_id: 'PRRC_reply' }, 201)
-      },
+  it('normalizes only provider SHA encoding, keeping the accepted params intact', async () => {
+    const f = await operationFixture()
+    const params = {
+      commit_id: oldCommit.toUpperCase(),
+      path: 'file',
+      subject_type: 'file' as const,
+    }
+    await postGitHubInlineComment(f.client, 7, 'File comment', params, attempt())
+    expect(f.calls.find((call) => call.path.endsWith('/comments'))?.body).toEqual({
+      body: 'File comment',
+      ...params,
+      commit_id: oldCommit,
+    })
+    expect(params.commit_id).toBe(oldCommit.toUpperCase())
+  })
+
+  it('replies to the published root through REST with a lossless decimal ID', async () => {
+    const f = await operationFixture()
+    const result = await replyToGitHubReviewThread(
+      f.client,
+      7,
+      thread.id,
+      finding.id,
+      'Reply',
+      attempt(),
     )
-    const result = await replyToGitHubReviewThread(fixture.client, 7, thread.id, 'Reply', attempt())
     expect(result).toMatchObject({
       id: 'PRRC_reply',
       publication: 'published',
-      reviewID: 'PRR_reply',
+      replyTo: finding.id,
     })
-    expect(mutationInputs(fixture.calls)).toEqual([])
+    expect(f.calls.find((call) => call.path.endsWith('/replies'))).toMatchObject({
+      path: '/repos/new-owner/renamed/pulls/7/comments/9007199254740993/replies',
+      body: { body: 'Reply' },
+    })
+    expect(mutationInputs(f.calls)).toEqual([])
   })
 
-  it('does not fall back to GraphQL when REST rejects a foreign pending review', async () => {
-    const fixture = await githubFixture(
-      (_request, response) => {
-        json(response, { data: { node: publishedThread() } })
-      },
-      (_call, response) => {
-        json(
-          response,
-          { message: 'user_id can only have one pending review per pull request' },
-          422,
-        )
-      },
-    )
-    await expect(
-      replyToGitHubReviewThread(fixture.client, 7, thread.id, 'Reply', attempt()),
-    ).rejects.toMatchObject({ outcomeUnknown: false })
-    expect(mutationInputs(fixture.calls)).toEqual([])
-    expect(fixture.calls.filter((call) => call.path.endsWith('/replies'))).toHaveLength(1)
-  })
+  it.each(['inline', 'reply'] as const)(
+    'rejects a bot draft before any %s write',
+    async (action) => {
+      const f = await operationFixture({ pending: true })
+      const send =
+        action === 'inline'
+          ? postGitHubInlineComment(
+              f.client,
+              7,
+              finding.body,
+              { commit_id: oldCommit, path: 'file', subject_type: 'file' },
+              attempt(),
+            )
+          : replyToGitHubReviewThread(f.client, 7, thread.id, finding.id, 'Reply', attempt())
+      await expect(send).rejects.toMatchObject({
+        code: 'pending_review_conflict',
+        outcomeUnknown: false,
+      })
+      expect(f.events).toEqual([])
+      const pending = f.calls.find((call) =>
+        JSON.stringify(call.body ?? null).includes('GitHubPendingReviews'),
+      )
+      expect(pending?.body).toMatchObject({
+        variables: { author: 'example[bot]', repository: 'R_selected', number: 7 },
+      })
+      expect(JSON.stringify(pending?.body)).toContain('reviews(first: 1, states: [PENDING]')
+    },
+  )
 
-  it('never reports REST reply success if native readback puts it in a pending review', async () => {
-    const fixture = await githubFixture(
-      (request, response) => {
-        if (request.query.includes('GitHubThreadIdentity'))
-          json(response, { data: { node: publishedThread() } })
-        else
+  it.each(['root', 'parent', 'mismatched'] as const)(
+    'refuses a pending or mismatched %s thread',
+    async (problem) => {
+      const f = await operationFixture({
+        native: (request, response) => {
+          if (!request.query.includes('GitHubThreadIdentity')) return false
           json(response, {
             data: {
-              node: { ...finding, id: 'PRRC_reply', pullRequest: pr, replyTo: { id: finding.id } },
+              node: {
+                ...thread,
+                comments: {
+                  nodes: [
+                    {
+                      ...finding,
+                      id: problem === 'mismatched' ? 'PRRC_other' : finding.id,
+                      state: problem === 'root' ? 'PENDING' : 'SUBMITTED',
+                      pullRequestReview: {
+                        id: 'PRR_any',
+                        state: problem === 'parent' ? 'PENDING' : 'COMMENTED',
+                      },
+                    },
+                  ],
+                },
+              },
             },
           })
-      },
-      (_call, response) => {
-        json(response, { node_id: 'PRRC_reply' }, 201)
-      },
-    )
-    await expect(
-      replyToGitHubReviewThread(fixture.client, 7, thread.id, 'Reply', attempt()),
-    ).rejects.toMatchObject({ outcomeUnknown: true })
-    expect(mutationInputs(fixture.calls)).toEqual([])
-    expect(fixture.calls.filter((call) => call.path.endsWith('/replies'))).toHaveLength(1)
-  })
-
-  it('reports unknown after a known REST creation whose publication read fails', async () => {
-    const fixture = await githubFixture(
-      (request, response) => {
-        if (request.query.includes('GitHubThreadIdentity'))
-          json(response, { data: { node: publishedThread() } })
-        else json(response, {}, 500)
-      },
-      (_call, response) => {
-        json(response, { node_id: 'PRRC_reply' }, 201)
-      },
-    )
-    await expect(
-      replyToGitHubReviewThread(fixture.client, 7, thread.id, 'Reply', attempt()),
-    ).rejects.toMatchObject({ outcomeUnknown: true, retryable: false })
-    expect(mutationInputs(fixture.calls)).toEqual([])
-    expect(fixture.calls.filter((call) => call.path.endsWith('/replies'))).toHaveLength(1)
-  })
-
-  it('rejects missing numeric root identity before REST dispatch', async () => {
-    const fixture = await githubFixture((_request, response) => {
-      json(response, {
-        data: {
-          node: {
-            ...publishedThread(),
-            comments: { nodes: [{ ...finding, state: 'SUBMITTED', fullDatabaseId: null }] },
-          },
+          return true
         },
       })
-    })
-    await expect(
-      replyToGitHubReviewThread(fixture.client, 7, thread.id, 'Reply', attempt()),
-    ).rejects.toMatchObject({ code: 'resource_unavailable' })
-    expect(fixture.calls.filter((call) => call.path.endsWith('/replies'))).toEqual([])
-  })
+      await expect(
+        replyToGitHubReviewThread(f.client, 7, thread.id, finding.id, 'Reply', attempt()),
+      ).rejects.toMatchObject({ code: 'resource_unavailable', outcomeUnknown: false })
+      expect(f.events).toEqual([])
+    },
+  )
 
-  it('treats NOT_FOUND as unavailable without asserting deletion', async () => {
-    const { client } = await githubFixture((_request, response) => {
-      json(response, {
-        data: { submitPullRequestReview: null },
-        errors: [{ type: 'NOT_FOUND', message: 'private details' }],
+  it.each(['comment', 'parent', 'wrong-pr', 'wrong-id', 'wrong-root', 'unavailable'] as const)(
+    'never declares an accepted reply published from %s readback',
+    async (problem) => {
+      const f = await operationFixture({
+        native: (request, response) => {
+          if (!request.query.includes('GitHubCommentIdentity')) return false
+          if (problem === 'unavailable') json(response, {}, 503)
+          else
+            json(response, {
+              data: {
+                node: {
+                  ...finding,
+                  id: problem === 'wrong-id' ? 'PRRC_other' : 'PRRC_reply',
+                  state: problem === 'comment' ? 'PENDING' : 'SUBMITTED',
+                  pullRequestReview: {
+                    id: 'PRR_any',
+                    state: problem === 'parent' ? 'PENDING' : 'COMMENTED',
+                  },
+                  replyTo: { id: problem === 'wrong-root' ? 'PRRC_other' : finding.id },
+                  pullRequest: problem === 'wrong-pr' ? { ...pr, number: 8 } : pr,
+                },
+              },
+            })
+          return true
+        },
       })
+      await expect(
+        replyToGitHubReviewThread(f.client, 7, thread.id, finding.id, 'Reply', attempt()),
+      ).rejects.toMatchObject({
+        code: 'send_outcome_unknown',
+        outcomeUnknown: true,
+        retryable: false,
+      })
+      expect(f.events).toEqual(['reply'])
+    },
+  )
+
+  it('rejects a concurrent native pending conflict without a GraphQL fallback', async () => {
+    const f = await operationFixture({
+      rest: (_call, response) => {
+        json(response, { message: 'private pending review conflict' }, 422)
+        return true
+      },
     })
     await expect(
-      submitGitHubReview(client, 7, 'PRR_1', 'Summary', attempt()),
-    ).rejects.toMatchObject({ code: 'review_unavailable', outcomeUnknown: false })
+      replyToGitHubReviewThread(f.client, 7, thread.id, finding.id, 'Reply', attempt()),
+    ).rejects.toMatchObject({ outcomeUnknown: false, retryable: false })
+    expect(f.events).toEqual(['reply'])
+    expect(mutationInputs(f.calls)).toEqual([])
   })
 })
-
-function publishedThread() {
-  return {
-    ...thread,
-    comments: {
-      nodes: [
-        {
-          ...finding,
-          state: 'SUBMITTED',
-          pullRequestReview: { id: 'PRR_old', state: 'COMMENTED' },
-        },
-      ],
-    },
-  }
-}

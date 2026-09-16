@@ -7,7 +7,7 @@ import type { OperationsOptions } from '../operations'
 import { maxOperationPayloadBytes, parseObjectFields } from '../operations-json'
 import { GitHubClient } from './client'
 import { githubConfiguration } from './configuration'
-import { GitHubOperationError, readGitHubOperation, sendGitHubOperation } from './operations'
+import { readGitHubOperation, sendGitHubOperation } from './operations'
 import { GitHubAPIError } from './protocol'
 import { GitHubAddressError, resolveGitHubAddress } from './resolve'
 
@@ -19,11 +19,7 @@ export const githubCapability: Readonly<ChannelConnectorCapability> = {
 export interface GitHubGatewayOptions {
   core: Pick<
     CoreClient,
-    | 'getAppConfiguration'
-    | 'getInstallationConfiguration'
-    | 'lookupGitHubReviews'
-    | 'recordGitHubReview'
-    | 'publishDefinition'
+    'getAppConfiguration' | 'getInstallationConfiguration' | 'publishDefinition'
   >
   /** Trusted deployment/test endpoint; never taken from a tool, event or route. */
   apiUrl?: string
@@ -124,29 +120,18 @@ export function createGitHubGateway(options: GitHubGatewayOptions) {
         operation.kind === 'send'
           ? await sendGitHubOperation(
               client,
-              options.core,
               sendSchema.parse(raw),
               operation.scope,
               retry,
+              (scope, body, signal) => options.core.publishDefinition(scope, body, signal),
             )
-          : await readGitHubOperation(
-              client,
-              options.core,
-              readSchema.parse(raw),
-              operation.scope,
-              retry,
-            )
+          : await readGitHubOperation(client, readSchema.parse(raw), operation.scope, retry)
       return { outcome: 'completed', payload: z.json().parse(JSON.parse(JSON.stringify(result))) }
     } catch (cause) {
       if (operation.kind === 'resolve_address')
         return cause instanceof GitHubAddressError
           ? { outcome: 'failed', payload: { code: cause.code } }
           : { outcome: 'failed' }
-      if (cause instanceof GitHubOperationError)
-        return {
-          outcome: operation.kind === 'send' && cause.outcomeUnknown ? 'unknown' : 'failed',
-          payload: cause.payload,
-        }
       if (cause instanceof OperationRetryError) throw cause
       if (!dispatched || (cause instanceof GitHubAPIError && !cause.outcomeUnknown))
         return { outcome: 'failed' }

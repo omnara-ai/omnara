@@ -50,7 +50,6 @@ export function githubWorkflowInput(
     metadata.comment_node_id = event.comment.node_id
   }
   if (event.review) {
-    metadata.review_id = event.review.id
     metadata.review_node_id = event.review.node_id
   }
   const input = {

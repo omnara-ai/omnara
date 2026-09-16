@@ -324,8 +324,6 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"post /channel-connector/control-events/claim-next":                                                                  true,
 		"post /channel-connector/apps/{integrationAppID}/control-events/{receiptID}/complete":                                true,
 		"post /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/provider-state":                true,
-		"post /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/lookup":         true,
-		"post /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/record":         true,
 		"post /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/workflows/lookup":              true,
 		"post /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/recipients":           true,
 		"post /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/channels/deliver":              true,

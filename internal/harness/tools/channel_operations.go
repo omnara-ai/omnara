@@ -33,7 +33,6 @@ type channelOperationToolResult struct {
 	Message   *channelconnector.MessageObservation `json:"message,omitempty"`
 	Code      string                               `json:"code,omitempty"`
 	Detail    string                               `json:"detail,omitempty"`
-	Metadata  map[string]string                    `json:"metadata,omitempty"`
 }
 
 func (e Executor) prepareChannelOperation(
@@ -160,7 +159,7 @@ func channelTransportFailure(
 			failure.MatchesOutcome(outcome) {
 			content, encodeErr := structuredToolResultContent(channelOperationToolResult{
 				RequestID: requestID, Status: outcome, Code: string(failure.Code),
-				Metadata: failure.Metadata, Detail: failure.Detail(),
+				Detail: failure.Detail(),
 			})
 			if encodeErr != nil {
 				return nil, encodeErr

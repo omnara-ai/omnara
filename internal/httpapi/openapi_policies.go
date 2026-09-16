@@ -236,8 +236,6 @@ const (
 	operationCompleteChannelConnectorControlEvent         operationID = "CompleteChannelConnectorControlEvent"
 	operationAcceptChannelConnectorEvent                  operationID = "AcceptChannelConnectorEvent"
 	operationAcceptChannelConnectorRuntimeEvent           operationID = "AcceptChannelConnectorRuntimeEvent"
-	operationLookupChannelConnectorGitHubReviews          operationID = "LookupChannelConnectorGitHubReviews"
-	operationRecordChannelConnectorGitHubReview           operationID = "RecordChannelConnectorGitHubReview"
 	operationResolveChannelConnectorInteraction           operationID = "ResolveChannelConnectorInteraction"
 	operationResolveChannelConnectorRuntimeInteraction    operationID = "ResolveChannelConnectorRuntimeInteraction"
 	operationClaimNextChannelConnectorEvent               operationID = "ClaimNextChannelConnectorEvent"
@@ -513,12 +511,6 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	),
 	operationAcceptChannelConnectorRuntimeEvent: channelConnectorPolicy(
 		customScope("connector provider/app scope + fenced runtime lease"),
-	),
-	operationLookupChannelConnectorGitHubReviews: channelConnectorPolicy(
-		customScope("exact connector capability + admitted tool/agent/channel scope + own review observations"),
-	),
-	operationRecordChannelConnectorGitHubReview: channelConnectorPolicy(
-		customScope("exact connector capability + immutable creating tool scope; live original binding for continuation"),
 	),
 	operationResolveChannelConnectorInteraction: channelConnectorPolicy(
 		customScope("connector app/install + pinned prompt destination + live send binding"),

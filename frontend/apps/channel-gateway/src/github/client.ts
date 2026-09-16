@@ -9,6 +9,9 @@ import { type GitHubDocument, githubDocuments } from './documents'
 import {
   GitHubAPIError,
   githubDatabaseID,
+  githubFileFinding,
+  type GitHubFinding,
+  githubLineFinding,
   githubNodeID,
   githubPRNumber,
   type GitHubVariables,
@@ -34,6 +37,13 @@ const graphqlEnvelope = z.object({
     .array(z.object({ type: z.string().optional(), message: z.string().optional() }))
     .optional(),
 })
+
+// REST comment responses also contain numeric database IDs that may exceed JS
+// precision. These writes consume only the opaque node ID; readback verifies its
+// publication and scope. Project before numeric decoding, without rounding IDs.
+function commentIdentityJSON(fields: ReadonlyMap<string, string>): string {
+  return `{"node_id":${fields.get('node_id') ?? 'null'}}`
+}
 
 /** Shared only within one app/install revision. Mutable repository observations
  * and request signals belong to each client, never to this runtime auth memo.
@@ -138,7 +148,7 @@ export class GitHubClient {
           (type) => type === 'NOT_FOUND' || type === 'FORBIDDEN' || type === 'UNPROCESSABLE',
         )
       throw new GitHubAPIError(
-        types.every((type) => type === 'NOT_FOUND') ? 'review_unavailable' : 'provider_rejected',
+        types.every((type) => type === 'NOT_FOUND') ? 'resource_unavailable' : 'provider_rejected',
         {
           outcomeUnknown: mutation && !definite,
         },
@@ -170,7 +180,39 @@ export class GitHubClient {
       JSON.stringify({ body: text }),
       context,
       true,
+      commentIdentityJSON,
     )
+    if (result.status !== 201)
+      throw new GitHubAPIError('invalid_response', { outcomeUnknown: true })
+    return providerValue(z.object({ node_id: githubNodeID }), result.body, true).node_id
+  }
+
+  /** One immediate inline/file comment. No pending review ID or publication step.
+   * https://docs.github.com/en/rest/pulls/comments#create-a-review-comment-for-a-pull-request
+   */
+  async publishedComment(
+    number: number,
+    text: string,
+    params: GitHubFinding,
+    context: OperationAttemptContext,
+  ): Promise<string> {
+    providerValue(githubPRNumber, number)
+    providerValue(z.union([githubLineFinding, githubFileFinding]), params)
+    validateGitHubText(text)
+    const token = await this.installationToken(context)
+    const repository = await this.verifyRepository(token, context)
+    const path = `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/pulls/${number}/comments`
+    const result = await this.request(
+      'POST',
+      path,
+      token,
+      JSON.stringify({ body: text, ...params, commit_id: params.commit_id.toLowerCase() }),
+      context,
+      true,
+      commentIdentityJSON,
+    )
+    if (result.status !== 201)
+      throw new GitHubAPIError('invalid_response', { outcomeUnknown: true })
     return providerValue(z.object({ node_id: githubNodeID }), result.body, true).node_id
   }
 
@@ -239,7 +281,8 @@ export class GitHubClient {
     data: string | undefined,
     context: OperationAttemptContext,
     mutation: boolean,
-  ): Promise<{ body: JsonBody; headers: Headers }> {
+    projectResponse?: (fields: ReadonlyMap<string, string>) => string,
+  ): Promise<{ body: JsonBody; headers: Headers; status: number }> {
     context.signal.throwIfAborted()
     if (Date.now() >= context.deadlineMs) throw new GitHubAPIError('deadline_exceeded')
     if (data !== undefined && Buffer.byteLength(data) > 256 * 1024)
@@ -324,10 +367,9 @@ export class GitHubClient {
         throw new GitHubAPIError('repository_scope_mismatch')
       }
       const decoded: unknown = JSON.parse(
-        raw,
+        projectResponse ? projectResponse(fields) : raw,
         (_key: string, value: JsonBody, source?: { source?: string }) => {
-          // Octokit's bigint decoder rejected unsafe integer literals at z.json.
-          // Preserve that boundary rather than rounding IDs during replacement.
+          // Never silently round integer fields in the consumed response.
           if (source?.source && /^-?\d+$/.test(source.source) && !Number.isSafeInteger(value))
             throw new GitHubAPIError('invalid_response', { outcomeUnknown: mutation })
           return value
@@ -336,7 +378,7 @@ export class GitHubClient {
       const parsed = z.json().safeParse(decoded)
       if (!parsed.success)
         throw new GitHubAPIError('invalid_response', { outcomeUnknown: mutation })
-      return { body: parsed.data, headers: response.headers }
+      return { body: parsed.data, headers: response.headers, status: response.status }
     } catch (error) {
       if (error instanceof GitHubAPIError) throw error
       throw new GitHubAPIError('provider_unavailable', {

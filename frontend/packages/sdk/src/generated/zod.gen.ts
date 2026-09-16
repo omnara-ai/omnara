@@ -287,46 +287,20 @@ export const zListChannelConnectorRoutesResponse = z.object({
     routes: z.array(zChannelConnectorRoute).max(64)
 });
 
-export const zGitHubReviewOwnership = z.enum([
-    'owned',
-    'other_agent',
-    'unknown'
-]);
-
-export const zGitHubReviewIdentityEvidence = z.enum(['create_response', 'marker']);
-
-export const zRecordChannelConnectorGitHubReviewResponse = z.object({
-    recorded: z.boolean(),
-    continue: z.boolean()
-});
-
 /**
- * Fixed diagnostic. review_operation_unknown requires an unknown outcome; all other codes require failed.
+ * Fixed diagnostic for a failed operation.
  */
 export const zChannelOperationFailureCode = z.enum([
     'invalid_address',
     'address_unavailable',
-    'unsupported_address',
-    'review_not_owned',
-    'review_creation_in_progress',
-    'provider_pending_review_conflict',
-    'review_state_unavailable',
-    'pending_review_exists',
-    'review_commit_mismatch',
-    'review_creation_already_recorded',
-    'review_finding_failed',
-    'review_operation_unknown'
+    'unsupported_address'
 ]);
 
 /**
- * Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded. Review references may be supplied only for the issuing agent's own review.
+ * Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded.
  */
 export const zChannelOperationFailure = z.object({
-    code: zChannelOperationFailureCode,
-    metadata: z.object({
-        review_id: z.string().min(1).max(512).optional(),
-        commit_id: z.string().regex(/^[0-9a-fA-F]{40}$/).optional()
-    }).optional()
+    code: zChannelOperationFailureCode
 });
 
 /**
@@ -723,42 +697,6 @@ export const zAgentTurnId = z.string().regex(/^trn_[a-z2-7]{26}$/);
 export const zAgentInteractionId = z.string().regex(/^int_[a-z2-7]{26}$/);
 
 export const zToolCallId = z.string().regex(/^tcl_[a-z2-7]{26}$/);
-
-export const zGitHubReviewOperationScope = z.object({
-    request_id: zToolCallId,
-    agent_id: zAgentId,
-    channel_id: zIntegrationTargetId
-});
-
-export const zGitHubReviewObservation = z.object({
-    review_id: z.string().min(1).max(512),
-    commit_id: z.string().regex(/^[0-9a-fA-F]{40}$/).optional(),
-    creating_tool_call_id: zToolCallId.optional()
-});
-
-export const zLookupChannelConnectorGitHubReviewsRequest = z.object({
-    scope: zGitHubReviewOperationScope,
-    observations: z.array(zGitHubReviewObservation).max(100)
-});
-
-export const zGitHubReviewOwnershipObservation = z.object({
-    review_id: z.string(),
-    ownership: zGitHubReviewOwnership,
-    creating_tool_call_id: zToolCallId.optional(),
-    commit_id: z.string().regex(/^[0-9a-f]{40}$/).optional()
-});
-
-export const zLookupChannelConnectorGitHubReviewsResponse = z.object({
-    observations: z.array(zGitHubReviewOwnershipObservation).max(100)
-});
-
-export const zRecordChannelConnectorGitHubReviewRequest = z.object({
-    scope: zGitHubReviewOperationScope,
-    observation: zGitHubReviewObservation.and(z.object({
-        creating_tool_call_id: zToolCallId
-    })),
-    evidence: zGitHubReviewIdentityEvidence
-});
 
 export const zContextCheckpointId = z.string().regex(/^ccp_[a-z2-7]{26}$/);
 
@@ -6087,30 +6025,6 @@ export const zPublishChannelConnectorDefinitionPath = z.object({
  * Current committed definition for this connection and implementation key.
  */
 export const zPublishChannelConnectorDefinitionResponse = zChannelDefinition;
-
-export const zLookupChannelConnectorGitHubReviewsBody = zLookupChannelConnectorGitHubReviewsRequest;
-
-export const zLookupChannelConnectorGitHubReviewsPath = z.object({
-    integrationAppID: zIntegrationAppId,
-    integrationInstallID: zIntegrationInstallId
-});
-
-/**
- * Scoped review observations.
- */
-export const zLookupChannelConnectorGitHubReviewsResponse2 = zLookupChannelConnectorGitHubReviewsResponse;
-
-export const zRecordChannelConnectorGitHubReviewBody = zRecordChannelConnectorGitHubReviewRequest;
-
-export const zRecordChannelConnectorGitHubReviewPath = z.object({
-    integrationAppID: zIntegrationAppId,
-    integrationInstallID: zIntegrationInstallId
-});
-
-/**
- * Scoped review observations.
- */
-export const zRecordChannelConnectorGitHubReviewResponse2 = zRecordChannelConnectorGitHubReviewResponse;
 
 export const zLookupChannelConnectorWorkflowBody = zLookupChannelConnectorWorkflowRequest;
 

@@ -73,21 +73,29 @@ export async function readGitHubHistoryAttempt(
   const { hasPreviousPage, startCursor } = page.pageInfo
   if (hasPreviousPage && (!startCursor || startCursor === before || !page.nodes.length))
     throw new GitHubAPIError('nonadvancing_history')
-  const messages = page.nodes
+  const published = page.nodes.filter(
+    (node) =>
+      !('state' in node && node.state === 'PENDING') &&
+      !('pullRequestReview' in node && node.pullRequestReview?.state === 'PENDING'),
+  )
+  const omittedDrafts = published.length !== page.nodes.length
+  const messages = published
     .filter((node) => node.body.length > 0)
     .map((node) => githubMessage(node))
   if (Buffer.byteLength(JSON.stringify(messages)) > 1024 * 1024)
     throw new GitHubAPIError('history_too_large')
-  const omittedEmpty = messages.length !== page.nodes.length
-  const partial = !input.threadID || omittedEmpty
+  const omittedEmpty = messages.length !== published.length
+  const partial = !input.threadID || omittedEmpty || omittedDrafts
   return {
     messages,
     coverage: partial ? 'partial' : 'complete',
-    reason: !input.threadID
-      ? 'timeline_excludes_inline_discussion_and_non_comment_events'
-      : omittedEmpty
-        ? 'empty_comment_bodies_omitted'
-        : undefined,
+    reason: omittedDrafts
+      ? 'private_pending_reviews_omitted'
+      : !input.threadID
+        ? 'timeline_excludes_inline_discussion_and_non_comment_events'
+        : omittedEmpty
+          ? 'empty_comment_bodies_omitted'
+          : undefined,
     nextCursor: hasPreviousPage
       ? Buffer.from(
           JSON.stringify({
@@ -189,65 +197,6 @@ function decodeCursor(client: GitHubClient, input: GitHubReadInput): string | un
   } catch {
     throw new GitHubAPIError('invalid_history_cursor')
   }
-}
-
-/** Facts only: core maps each native ID/marker to a creator. A truncated listing
- * cannot authorize an omitted-ID create/summary, and absence is not deletion proof.
- */
-export async function listGitHubPendingReviews(
-  client: GitHubClient,
-  number: number,
-  context: OperationAttemptContext,
-) {
-  providerValue(githubPRNumber, number)
-  const { viewer } = await client.query(
-    'viewer',
-    {},
-    z.object({
-      viewer: z.object({ login: z.string().min(1).max(256) }),
-    }),
-    context,
-  )
-  const data = await client.query(
-    'pendingReviews',
-    {
-      repository: client.configuration.repositoryNodeID,
-      number,
-      author: viewer.login,
-    },
-    z.object({
-      node: z
-        .object({
-          id: githubNodeID,
-          pullRequest: githubPRIdentity
-            .extend({
-              reviews: z
-                .object({
-                  nodes: z.array(githubReview).max(100),
-                  pageInfo: z.object({
-                    hasNextPage: z.boolean(),
-                    endCursor: z.string().max(2048).nullable(),
-                  }),
-                })
-                .nullable(),
-            })
-            .nullable(),
-        })
-        .nullable(),
-    }),
-    context,
-  )
-  const pr = data.node?.pullRequest
-  if (!pr?.reviews) throw new GitHubAPIError('review_state_unavailable')
-  assertGitHubPRScope(client, number, pr)
-  if (
-    data.node?.id !== client.configuration.repositoryNodeID ||
-    pr.reviews.nodes.some(
-      (review) => review.state !== 'PENDING' || review.author?.login !== viewer.login,
-    )
-  )
-    throw new GitHubAPIError('invalid_review_response')
-  return { reviews: pr.reviews.nodes, complete: !pr.reviews.pageInfo.hasNextPage }
 }
 
 function validateHistoryInput(client: GitHubClient, input: GitHubReadInput): string | undefined {

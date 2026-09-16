@@ -1118,36 +1118,6 @@ CREATE TRIGGER secrets_touch_integration_configuration_revisions
     FOR EACH ROW
     EXECUTE FUNCTION integration_secret_touch_configuration_revisions();
 
--- Historical identity of an explicitly created GitHub review. GitHub owns its
--- current draft/published state; cancellation and disconnect never clean it up.
-CREATE TABLE github_pr_reviews (
-    project_id uuid NOT NULL,
-    agent_id uuid NOT NULL,
-    creating_tool_call_id uuid NOT NULL,
-    integration_install_id uuid NOT NULL,
-    pr_channel_id uuid NOT NULL,
-    creating_binding_id uuid NOT NULL,
-    commit_id text NOT NULL CHECK (commit_id ~ '^[0-9a-f]{40}$'),
-    provider_review_id text CHECK (provider_review_id <> '' AND octet_length(provider_review_id) <= 512),
-    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
-    PRIMARY KEY (agent_id, creating_tool_call_id),
-    FOREIGN KEY (agent_id, creating_tool_call_id) REFERENCES tool_calls(agent_id, id),
-    FOREIGN KEY (project_id, integration_install_id, pr_channel_id)
-        REFERENCES integration_targets(project_id, integration_install_id, id),
-    FOREIGN KEY (project_id, agent_id, pr_channel_id, creating_binding_id)
-        REFERENCES integration_target_bindings(project_id, agent_id, integration_target_id, id),
-    UNIQUE (project_id, integration_install_id, provider_review_id)
-);
-
-CREATE INDEX github_pr_reviews_creator_channel_idx
-    ON github_pr_reviews(project_id, agent_id, pr_channel_id);
-
-CREATE TRIGGER github_pr_reviews_creator_immutable
-    BEFORE UPDATE OF project_id, agent_id, creating_tool_call_id,
-        integration_install_id, pr_channel_id, creating_binding_id, commit_id, created_at
-    ON github_pr_reviews
-    FOR EACH ROW EXECUTE FUNCTION reject_immutable_column_update();
-
 -- Accepted execution facts owned by an existing tool, interaction, or turn notice.
 -- Polling only projects pending obligations; this is not an outgoing work queue.
 CREATE TABLE external_channel_requests (

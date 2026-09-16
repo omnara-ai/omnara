@@ -12,12 +12,8 @@ import {
   type ChannelInboundEventResponse,
   createOmnaraClient,
   type HeartbeatChannelConnectorRuntimeUnitRequest,
-  type LookupChannelConnectorGitHubReviewsRequest,
-  type LookupChannelConnectorGitHubReviewsResponse,
   type LookupChannelConnectorWorkflowRequest,
   type PublishChannelConnectorDefinitionRequest,
-  type RecordChannelConnectorGitHubReviewRequest,
-  type RecordChannelConnectorGitHubReviewResponse,
   type ReleaseChannelConnectorRuntimeUnitRequest,
   type ResolveChannelConnectorInteractionRequest,
   type ResolveChannelConnectorInteractionResponse,
@@ -32,11 +28,6 @@ import {
   type ControlCompletion,
   submitControlEvent,
 } from './core-controls'
-import {
-  type GitHubReviewInstallation,
-  lookupGitHubReviews,
-  recordGitHubReview,
-} from './core-github-reviews'
 import { receiptFailure, requireData, retryCoreRequest } from './core-http'
 import {
   deliverBoundInput,
@@ -373,29 +364,6 @@ export class CoreClient {
       receipt,
       request,
       this.requestSignal(parentSignal),
-    )
-  }
-
-  async lookupGitHubReviews(
-    installation: GitHubReviewInstallation,
-    request: LookupChannelConnectorGitHubReviewsRequest,
-    signal?: AbortSignal,
-  ): Promise<LookupChannelConnectorGitHubReviewsResponse> {
-    const requestSignal = this.requestSignal(signal)
-    return this.retryCoreRequest(requestSignal, () =>
-      lookupGitHubReviews(this.client, installation, request, requestSignal),
-    )
-  }
-
-  async recordGitHubReview(
-    installation: GitHubReviewInstallation,
-    request: RecordChannelConnectorGitHubReviewRequest,
-    signal?: AbortSignal,
-  ): Promise<RecordChannelConnectorGitHubReviewResponse> {
-    const requestSignal = this.requestSignal(signal)
-    // Identical acknowledgment is idempotent and grants no replacement authority.
-    return this.retryCoreRequest(requestSignal, () =>
-      recordGitHubReview(this.client, installation, request, requestSignal),
     )
   }
 

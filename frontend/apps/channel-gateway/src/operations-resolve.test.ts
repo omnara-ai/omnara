@@ -84,9 +84,9 @@ describe('resolve_address transport', () => {
 
   it.each([
     { code: 'private provider error' },
-    { code: 'review_not_owned' },
+    { code: 'unsupported_provider' },
     { code: 'invalid_address', detail: 'private provider error' },
-    { code: 'invalid_address', metadata: { review_id: 'private review' } },
+    { code: 'invalid_address', metadata: { token: 'private token' } },
     { code: 'invalid_address', metadata: {} },
     { code: 'invalid_address', extra: null },
     null,
@@ -117,28 +117,6 @@ describe('resolve_address transport', () => {
     })
     expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
   })
-
-  it.each([
-    { metadata: { review_id: 'owned-review', commit_id: 'a'.repeat(40) }, valid: true },
-    { metadata: { review_id: 'owned-review', extra: 'private provider error' }, valid: false },
-    { metadata: { commit_id: 'not a commit' }, valid: false },
-  ])(
-    'strictly preserves generated failure metadata for other operations: %j',
-    async ({ metadata, valid }) => {
-      const payload = { code: 'review_commit_mismatch' as const, metadata }
-      const { url } = await start(() => Promise.resolve({ outcome: 'failed', payload }))
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { ...auth, 'content-type': 'application/json' },
-        body: JSON.stringify(envelope()),
-      })
-      expect(await response.json()).toEqual(
-        valid
-          ? { request_id: 'request-1', outcome: 'failed', payload }
-          : { request_id: 'request-1', outcome: 'failed' },
-      )
-    },
-  )
 
   it('rejects even an undeclared multipart artifact before resolve dispatch', async () => {
     const execute = vi.fn<OperationsOptions['execute']>()

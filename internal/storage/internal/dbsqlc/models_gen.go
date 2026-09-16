@@ -257,18 +257,6 @@ type ExternalChannelRequest struct {
 	TerminalAt                 *time.Time
 }
 
-type GithubPrReview struct {
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	CreatingToolCallID   uuid.UUID
-	IntegrationInstallID uuid.UUID
-	PrChannelID          uuid.UUID
-	CreatingBindingID    uuid.UUID
-	CommitID             string
-	ProviderReviewID     *string
-	CreatedAt            time.Time
-}
-
 type IntegrationApp struct {
 	ID                         uuid.UUID
 	OrgID                      uuid.UUID

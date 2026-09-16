@@ -6,16 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GatewayOperation } from '../operations'
 import { createGitHubGateway, githubCapability, type GitHubGatewayOptions } from './gateway'
 import { input, operationFixture, options, requestID } from './operations-test-support'
-import {
-  configuration,
-  finding,
-  json,
-  mutationInputs,
-  noPrevious,
-  oldCommit,
-  pr,
-  thread,
-} from './test-support'
+import { configuration, finding, json, mutationInputs, noPrevious, thread } from './test-support'
 
 const suffix = 'aaaaaaaaaaaaaaaaaaaaaaaaaa'
 const scope = {
@@ -75,8 +66,6 @@ async function fixture(settings?: Parameters<typeof operationFixture>[0]) {
     getInstallationConfiguration: vi
       .fn<GitHubGatewayOptions['core']['getInstallationConfiguration']>()
       .mockResolvedValue(installation),
-    lookupGitHubReviews: native.core.lookupGitHubReviews.bind(native.core),
-    recordGitHubReview: native.core.recordGitHubReview.bind(native.core),
     publishDefinition: vi
       .fn<GitHubGatewayOptions['core']['publishDefinition']>()
       .mockImplementation((_scope, body) => Promise.resolve({ ...body, id: `cdef_${suffix}` })),
@@ -103,9 +92,45 @@ function operation(
 const signal = () => new AbortController().signal
 
 describe('GitHub gateway operation composition', () => {
-  it('uses the admitted read scope to filter private pending history without recording or mutating', async () => {
+  it('publishes the generic child definition before native creation through the real operation envelope', async () => {
     const f = await fixture({
-      ownership: 'other_agent',
+      rest: (_call, response) => {
+        expect(f.core.publishDefinition).toHaveBeenCalledWith(
+          scope,
+          expect.objectContaining({
+            implementation_key: 'github_review_thread',
+            kind: 'GITHUB_REVIEW_THREAD',
+          }),
+          expect.any(AbortSignal),
+        )
+        json(response, { node_id: finding.id }, 201)
+        return true
+      },
+    })
+    const result = await f.executeOperation(operation(), [], signal())
+    expect(result).toMatchObject({
+      outcome: 'completed',
+      payload: {
+        publication: 'published',
+        message_channel: 'reply_channel',
+        message_id: finding.id,
+        reply_channel: { provider_metadata: { thread_id: thread.id } },
+      },
+    })
+    expect(f.events).toEqual(['comment'])
+    expect(f.core.getAppConfiguration).toHaveBeenCalledWith(
+      scope.integration_app_id,
+      expect.any(AbortSignal),
+    )
+    expect(f.core.getInstallationConfiguration).toHaveBeenCalledWith(
+      scope.integration_app_id,
+      scope.integration_install_id,
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('omits all private drafts from a scoped read without ownership callbacks', async () => {
+    const f = await fixture({
       native: (request, response) => {
         if (!request.query.includes('query GitHubReviewThread(')) return false
         json(response, {
@@ -114,8 +139,8 @@ describe('GitHub gateway operation composition', () => {
               ...thread,
               comments: {
                 nodes: [
+                  { ...finding, id: 'PRRC_private', body: 'Private draft', state: 'PENDING' },
                   finding,
-                  { ...finding, id: 'PRRC_public', body: 'Published', state: 'SUBMITTED' },
                 ],
                 pageInfo: noPrevious,
               },
@@ -132,187 +157,25 @@ describe('GitHub gateway operation composition', () => {
     )
     expect(result).toMatchObject({
       outcome: 'completed',
-      payload: { coverage: 'partial', messages: [{ content: { text: 'Published' } }] },
+      payload: { coverage: 'partial', messages: [{ message_id: finding.id }] },
     })
-    expect(JSON.stringify(result)).not.toContain(finding.body)
-    expect(f.lookups[0]?.scope).toEqual({
-      request_id: requestID,
-      agent_id: scope.agent_id,
-      channel_id: scope.channel_id,
-    })
-    expect(f.records).toEqual([])
-    expect(mutationInputs(f.calls)).toEqual([])
-  })
-  it('runs the prepared scope through native creation, core recording and child result serialization', async () => {
-    const f = await fixture()
-    const result = await f.executeOperation(operation(), [], signal())
-    expect(result).toMatchObject({
-      outcome: 'completed',
-      payload: {
-        publication: 'draft',
-        message_channel: 'reply_channel',
-        metadata: { review_id: 'PRR_1', commit_id: oldCommit },
-      },
-    })
-    expect(f.events).toEqual(['create', 'record', 'finding'])
-    expect(f.records[0]?.scope).toEqual({
-      request_id: requestID,
-      agent_id: scope.agent_id,
-      channel_id: scope.channel_id,
-    })
-    expect(f.core.getAppConfiguration).toHaveBeenCalledWith(
-      scope.integration_app_id,
-      expect.any(AbortSignal),
-    )
-    expect(f.core.getInstallationConfiguration).toHaveBeenCalledWith(
-      scope.integration_app_id,
-      scope.integration_install_id,
-      expect.any(AbortSignal),
-    )
+    expect(JSON.stringify(result)).not.toContain('Private draft')
+    expect(f.events).toEqual([])
   })
 
-  it('preserves a known owned review reference when the finding acknowledgment is lost', async () => {
+  it('carries an uncertain send through the shared generic error contract', async () => {
     const f = await fixture({
-      native: (request, response) => {
-        if (!request.query.includes('GitHubAddFinding')) return false
+      rest: (_call, response) => {
         response.destroy()
         return true
       },
     })
-    const result = await f.executeOperation(operation(), [], signal())
-    expect(result).toEqual({
-      outcome: 'unknown',
-      payload: {
-        code: 'review_operation_unknown',
-        metadata: { review_id: 'PRR_1', commit_id: oldCommit },
-      },
+    await expect(f.executeOperation(operation(), [], signal())).rejects.toMatchObject({
+      outcomeUnknown: true,
+      attempts: 1,
     })
-    expect(mutationInputs(f.calls)).toHaveLength(2)
+    expect(f.events).toEqual(['comment'])
   })
-
-  it.each(['publish', 'reply'] as const)(
-    'preserves owned references with a neutral unknown %s result after a lost acknowledgment',
-    async (action) => {
-      const document = action === 'publish' ? 'GitHubSubmitReview' : 'GitHubThreadReply'
-      const f = await fixture({
-        native: (request, response) => {
-          if (!request.query.includes(document)) return false
-          response.destroy()
-          return true
-        },
-      })
-      const send =
-        action === 'publish'
-          ? { ...input, params: { publish_review: true, review_id: 'PRR_1' } }
-          : f.threadInput
-      expect(await f.executeOperation(operation(send), [], signal())).toEqual({
-        outcome: 'unknown',
-        payload: {
-          code: 'review_operation_unknown',
-          metadata: { review_id: 'PRR_1', commit_id: oldCommit },
-        },
-      })
-      expect(mutationInputs(f.calls)).toHaveLength(1)
-      expect(f.lookups[0]?.observations).toEqual([{ review_id: 'PRR_1' }])
-    },
-  )
-
-  it('keeps a definite publish rejection failed instead of using the unknown code', async () => {
-    const f = await fixture({
-      native: (request, response) => {
-        if (!request.query.includes('GitHubSubmitReview')) return false
-        json(response, {
-          errors: [{ type: 'UNPROCESSABLE' }],
-          data: { submitPullRequestReview: null },
-        })
-        return true
-      },
-    })
-    const result = await f.executeOperation(
-      operation({ ...input, params: { publish_review: true, review_id: 'PRR_1' } }),
-      [],
-      signal(),
-    )
-    expect(result.outcome).toBe('failed')
-    expect(JSON.stringify(result)).not.toContain('review_operation_unknown')
-    expect(mutationInputs(f.calls)).toHaveLength(1)
-  })
-
-  it('uses the exact lookup-owned draft ID and refuses a native review change before dispatch', async () => {
-    let reads = 0
-    const f = await fixture({
-      native: (request, response) => {
-        if (!request.query.includes('GitHubThreadIdentity')) return false
-        reads += 1
-        const root =
-          reads === 1
-            ? finding
-            : { ...finding, pullRequestReview: { id: 'PRR_other', state: 'PENDING' } }
-        json(response, { data: { node: { ...thread, comments: { nodes: [root] } } } })
-        return true
-      },
-    })
-    const result = await f.executeOperation(operation(f.threadInput), [], signal())
-    expect(result).toEqual({ outcome: 'failed', payload: { code: 'review_not_owned' } })
-    expect(f.lookups[0]?.observations).toEqual([{ review_id: 'PRR_1' }])
-    expect(mutationInputs(f.calls)).toEqual([])
-  })
-
-  it.each(['comment', 'review'] as const)(
-    'never reports published REST reply success when the %s readback is PENDING',
-    async (pending) => {
-      const f = await fixture({
-        native: (request, response) => {
-          if (request.query.includes('GitHubThreadIdentity')) {
-            json(response, {
-              data: {
-                node: {
-                  ...thread,
-                  comments: {
-                    nodes: [
-                      {
-                        ...finding,
-                        state: 'SUBMITTED',
-                        pullRequestReview: { id: 'PRR_old', state: 'COMMENTED' },
-                      },
-                    ],
-                  },
-                },
-              },
-            })
-            return true
-          }
-          if (request.query.includes('GitHubCommentIdentity')) {
-            json(response, {
-              data: {
-                node: {
-                  ...finding,
-                  id: 'PRRC_reply',
-                  pullRequest: pr,
-                  state: pending === 'comment' ? 'PENDING' : 'SUBMITTED',
-                  pullRequestReview: { id: 'PRR_other', state: 'PENDING' },
-                  replyTo: { id: finding.id },
-                },
-              },
-            })
-            return true
-          }
-          return false
-        },
-        rest: (_call, response) => {
-          json(response, { node_id: 'PRRC_reply' }, 201)
-        },
-      })
-      const result = await f.executeOperation(operation(f.threadInput), [], signal())
-      expect(result).toMatchObject({
-        outcome: 'unknown',
-        payload: { code: 'review_operation_unknown' },
-      })
-      expect(f.calls.filter((call) => call.path.endsWith('/replies'))).toHaveLength(1)
-      expect(mutationInputs(f.calls)).toEqual([])
-      expect(JSON.stringify(result)).not.toContain('PRR_other')
-    },
-  )
 
   it.each(['app', 'install', 'project', 'revision', 'capability'] as const)(
     'rejects mismatched %s scope before native calls',
@@ -412,7 +275,6 @@ describe('GitHub gateway operation composition', () => {
       payload: { provider_ref: 'repo:456:pr:7', provider_ref_kind: 'pr' },
     })
     expect(f.core.publishDefinition).toHaveBeenCalledOnce()
-    expect(f.records).toEqual([])
     expect(mutationInputs(f.calls)).toEqual([])
   })
 

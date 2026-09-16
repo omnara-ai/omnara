@@ -43,7 +43,6 @@ const comment = z.object({
   body: bodyText,
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
-  pull_request_review_id: githubDatabaseID.optional(),
   in_reply_to_id: githubDatabaseID.optional(),
   path: text.max(1024).optional(),
   line: githubPRNumber.nullable().optional(),
@@ -175,7 +174,7 @@ export function projectGitHubEvent(
 function projectedComment(raw: string) {
   const fields = parseObjectFields(raw, githubWebhookBytes)
   return comment.parse({
-    ...nativeObject(raw, ['id', 'pull_request_review_id', 'in_reply_to_id']),
+    ...nativeObject(raw, ['id', 'in_reply_to_id']),
     user: nativeObject(required(fields, 'user'), ['id']),
   })
 }

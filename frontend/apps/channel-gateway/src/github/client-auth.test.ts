@@ -159,7 +159,7 @@ describe('GitHub scoped authentication and direct fetch', () => {
   })
 
   it.each(['9007199254740993', '-9007199254740993'])(
-    'preserves the former SDK rejection of unsafe integer literal %s',
+    'rejects unsafe integer literal %s in GraphQL responses',
     async (raw) => {
       const f = await githubFixture((_request, response) => {
         response.writeHead(200, { 'content-type': 'application/json' })
@@ -173,7 +173,25 @@ describe('GitHub scoped authentication and direct fetch', () => {
     },
   )
 
-  it('keeps the SDK floating-point exponent behavior without applying an integer-ID rule to floats', async () => {
+  it('rejects unsafe token response IDs before caching authentication or accessing the repository', async () => {
+    const paths: (string | undefined)[] = []
+    const authentication: GitHubAuthentication = {}
+    const url = await localServer((request, response) => {
+      paths.push(request.url)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        `{"token":"local-token","expires_at":"${new Date(Date.now() + 3_600_000).toISOString()}",` +
+          '"repositories":[{"id":9007199254740993}]}',
+      )
+    })
+    await expect(
+      new GitHubClient(configuration, url, authentication).viewerID(attempt()),
+    ).rejects.toMatchObject({ code: 'invalid_response', outcomeUnknown: false })
+    expect(paths).toEqual(['/app/installations/123/access_tokens'])
+    expect(authentication.token).toBeUndefined()
+  })
+
+  it('accepts finite exponent notation in non-identity numeric fields', async () => {
     const f = await githubFixture((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end('{"data":{"value":1e30}}')

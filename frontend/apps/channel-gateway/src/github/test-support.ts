@@ -53,11 +53,11 @@ export const finding = {
   ...comment,
   id: 'PRRC_1',
   fullDatabaseId: '9007199254740993',
-  state: 'PENDING',
+  state: 'SUBMITTED',
   path: 'src/main.ts',
   line: 12,
   originalCommit: { oid: oldCommit },
-  pullRequestReview: { id: 'PRR_1', state: 'PENDING' },
+  pullRequestReview: { id: 'PRR_1', state: 'COMMENTED' },
   replyTo: null,
 }
 export const thread = { id: 'PRRT_1', pullRequest: pr, comments: { nodes: [finding] } }
