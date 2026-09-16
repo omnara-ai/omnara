@@ -16,13 +16,17 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := missingDefaultToolNames(source)
-	if len(names) != 10 {
-		t.Fatalf("expected 10 missing pool tools, got %v", names)
+	if len(names) != 12 {
+		t.Fatalf("expected 12 missing pool and retrieval tools, got %v", names)
 	}
 	for _, name := range names {
 		if _, configured := source.Tools[name]; configured {
 			t.Fatalf("returned an already configured tool: %s", name)
 		}
+	}
+	compiled, err := compileTools(source)
+	if err != nil || len(compiled) != 13 || compiled["run_command"].Enabled {
+		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
 	if len(source.Tools) != 1 || *source.Tools["run_command"].Enabled {
 		t.Fatal("source tools were modified")
@@ -33,6 +37,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 	skillID := testMachineSourcePublicID(t, publicid.KindSkill, "preview-skill")
 	for _, source := range []string{
 		"",
+		"mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n",
 		"machine_sources: [{machine_name: build-box}]\n",
 		"machine_sources: [{machine_pool_name: build-pool, max_machines: 0, initial_num_machines: 0}]\n",
 		"skills: [" + skillID + "]\n",
@@ -103,8 +108,8 @@ func TestToolPreviewDrafts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 11 {
-		t.Fatalf("got %d entries, want 11", len(entries))
+	if len(entries) != 13 {
+		t.Fatalf("got %d entries, want 13", len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Name == "run_command" && (entry.Enabled || entry.Permission.Mode != toolpermission.ModeAlwaysAsk) {
@@ -112,7 +117,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
-		`{}`, `{"instruction":"", "model":{}, "mcp":{"unfinished":{}}}`,
+		`{}`, `{"instruction":"", "model":{}, "mcp":{}}`,
 	} {
 		tools, err := ToolsFromSource(SourceFormatJSON, []byte(raw))
 		if err != nil || len(tools) != 0 {

@@ -1,12 +1,14 @@
 package agentconfig
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultMachineTools(t *testing.T) {
@@ -77,6 +79,11 @@ func TestDefaultMachineTools(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			wantTools := slices.Clone(test.wantTools)
+			if len(wantTools) > 0 {
+				wantTools = append(wantTools, "read_file", "search_files")
+				slices.Sort(wantTools)
+			}
 			for _, supportsTools := range []bool{true, false} {
 				opts := testMachineSourceCompileOptions(t)
 				opts.ResolveModelSelection = func(_, _ string) (ResolvedModelSelection, error) {
@@ -115,10 +122,57 @@ func TestDefaultMachineTools(t *testing.T) {
 						t.Fatalf("%s permission = %s, want %s", tool.Name, tool.Permission.Mode, wantPermission)
 					}
 				}
-				if diff := cmp.Diff(test.wantTools, got); diff != "" {
+				if diff := cmp.Diff(wantTools, got); diff != "" {
 					t.Fatalf("tools mismatch (-want +got):\n%s", diff)
 				}
 			}
 		})
 	}
+}
+
+func TestDefaultRetrievalTools(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+		want   []string
+	}{
+		{"empty", "", nil},
+		{"disabled tool", "tools: {web_fetch: {enabled: false}}\n", nil},
+		{"enabled tool", "tools: {web_fetch: {}}\n", []string{"read_file", "search_files", "web_fetch"}},
+		{"MCP default disabled", "mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n",
+			[]string{"read_file", "search_files"}},
+		{"retrieval disabled", "tools: {web_fetch: {}, read_file: {enabled: false}, search_files: {enabled: false}}\n",
+			[]string{"web_fetch"}},
+		{"one retrieval tool", "tools: {read_file: {}}\n", []string{"read_file", "search_files"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.source)), CompileOptions{})
+			require.NoError(t, err)
+			require.Equal(t, validAgentSource(test.source), result.Source)
+			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+			require.NoError(t, err)
+			var names []string
+			for _, tool := range contract.Tools {
+				names = append(names, tool.Name)
+				require.Contains(t, result.Compiled.Tools, tool.Name)
+			}
+			require.Equal(t, test.want, names)
+			repeated, err := Compile(SourceFormatYAML, []byte(result.Source), CompileOptions{})
+			require.NoError(t, err)
+			require.Equal(t, result, repeated)
+		})
+	}
+}
+
+func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource("tools: {web_fetch: {}}\n")), CompileOptions{})
+	require.NoError(t, err)
+	delete(result.Compiled.Tools, "read_file")
+	delete(result.Compiled.Tools, "search_files")
+	encoded, err := EncodeCompiled(result.Compiled)
+	require.NoError(t, err)
+	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	require.NoError(t, err)
+	require.Len(t, contract.Tools, 1)
+	require.Equal(t, "web_fetch", contract.Tools[0].Name)
 }

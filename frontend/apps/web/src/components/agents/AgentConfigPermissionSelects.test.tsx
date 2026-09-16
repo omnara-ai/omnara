@@ -70,7 +70,7 @@ const includedCatalog: ToolCatalog = {
   built_in_tools: ['run_command', 'skill', 'send_integration_message'].map((name) => ({
     name,
     description: name,
-    automatically_added: true,
+    implicit: true,
     default_permission: alwaysAllowProfile.default_permission,
     permission_modes:
       name === 'send_integration_message'
@@ -217,13 +217,13 @@ it('uses catalog classification rather than recognizing tool names', async () =>
       {
         name: 'future_resource_tool',
         description: 'Future tool.',
-        automatically_added: true,
+        implicit: true,
         ...alwaysAllowProfile,
       },
       {
         name: 'run_command',
         description: 'Manual tool.',
-        automatically_added: false,
+        implicit: false,
         ...alwaysAllowProfile,
       },
     ],
@@ -291,7 +291,7 @@ it('keeps included tools out of normal rows and preserves their overrides', asyn
       ...machineTools.map(({ name }) => ({
         name,
         description: name,
-        automatically_added: true,
+        implicit: true,
         ...alwaysAllowProfile,
       })),
     ],
@@ -474,9 +474,13 @@ it('reopens disabled tools and preserves their permission until a new one is cho
   expect(container.querySelector('output')?.textContent).toBe(source)
 })
 
-it.each(['run_command', 'skill', 'send_integration_message'])(
-  'shows the catalog description for %s on hover and keyboard focus',
-  async (name) => {
+it.each([
+  ['run_command', 'Run shell commands on an attached machine.'],
+  ['skill', 'skill'],
+  ['send_integration_message', 'send_integration_message'],
+])(
+  'shows the frontend description or catalog fallback for %s on hover and keyboard focus',
+  async (name, description) => {
     await renderAndFlush(<IncludedToolsHarness source={`${includedSource}  ${name}: {}\n`} />)
     click('[data-slot="collapsible-trigger"]')
     const trigger = container.querySelector<HTMLButtonElement>(`[aria-label="About ${name}"]`)
@@ -485,13 +489,13 @@ it.each(['run_command', 'skill', 'send_integration_message'])(
       trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(name)
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(description)
     await act(async () => {
       trigger.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
       trigger.focus()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(name)
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(description)
   },
 )
 
@@ -555,7 +559,7 @@ it('seeds the resolved pool only once, using its current name', async () => {
     tools: { web_search: { type: 'built_in' } },
   })
   await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
       'tools.run_command',
     )
   })

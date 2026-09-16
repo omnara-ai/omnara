@@ -56,6 +56,7 @@ export function AgentConfigBasicForm({
           <AgentConfigToolsField
             catalog={toolCatalog.data}
             tools={form.tools}
+            resolvedTools={form.resolvedTools}
             onToolsChange={form.setTools}
           />
           {form.toolsPending && (

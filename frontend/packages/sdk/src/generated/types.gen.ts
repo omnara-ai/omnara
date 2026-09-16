@@ -947,9 +947,9 @@ export type ToolCatalogEntry = {
     name: string;
     description: string;
     /**
-     * Whether this tool is added automatically based on config resources or integration context rather than selected manually.
+     * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
      */
-    automatically_added?: boolean;
+    implicit?: boolean;
     default_permission: ToolPermissionSelection;
     permission_modes: Array<ToolPermissionMode>;
 };

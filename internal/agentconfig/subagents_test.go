@@ -101,10 +101,7 @@ max_subagents: 5
 	if names[toolcatalog.ToolNameStopAgent] {
 		t.Fatalf("stop_agent should stay disabled when configured with enabled: false")
 	}
-	persisted, _, err := parseSource(SourceFormatYAML, []byte(result.Source))
-	require.NoError(t, err)
 	for _, name := range toolcatalog.SubagentToolNames() {
-		require.Contains(t, persisted.Tools, name)
 		require.Contains(t, result.Compiled.Tools, name)
 	}
 	recompiled, err := Compile(SourceFormatYAML, []byte(result.Source), subagentCompileOptions())

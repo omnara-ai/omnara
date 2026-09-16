@@ -41,7 +41,6 @@ export function useAgentConfigEditor({
   )
 
   const switchMode = (nextMode: AgentConfigMode) => {
-    if (nextMode === 'yaml' && form.toolsPending) return
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)
       if (adopted.initialDraft != null) {

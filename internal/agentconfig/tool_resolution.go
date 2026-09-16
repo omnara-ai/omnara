@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 
@@ -17,16 +18,23 @@ type ResolvedTool struct {
 	Permission toolpermission.Selection
 }
 
-func compileTools(source map[string]AgentConfigToolSource) (map[string]ToolCompiled, error) {
-	compiled := make(map[string]ToolCompiled, len(source))
-	if len(source) == 0 {
+func compileTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
+	tools := maps.Clone(source.Tools)
+	for _, name := range missingDefaultToolNames(source) {
+		if tools == nil {
+			tools = make(map[string]AgentConfigToolSource)
+		}
+		tools[name] = AgentConfigToolSource{}
+	}
+	compiled := make(map[string]ToolCompiled, len(tools))
+	if len(tools) == 0 {
 		return compiled, nil
 	}
 	catalog, err := toolcatalog.Default()
 	if err != nil {
 		return nil, err
 	}
-	for name, tool := range source {
+	for name, tool := range tools {
 		enabled := tool.Enabled == nil || *tool.Enabled
 		var entry ToolCompiled
 		if tool.Type == toolcatalog.ToolTypeCustom {
@@ -46,7 +54,7 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 	schema := agentConfigSourceSchema()
 	schema.Required = nil
 	for name := range *schema.Properties {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" {
+		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
 			delete(*schema.Properties, name)
 		}
 	}
@@ -70,7 +78,7 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 		return nil, fmt.Errorf("agent config source must be an object")
 	}
 	for name := range fields {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" {
+		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
 			delete(fields, name)
 		}
 	}
@@ -93,13 +101,7 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	if err := json.Unmarshal(jsonSource, &source); err != nil {
 		return nil, err
 	}
-	if source.Tools == nil {
-		source.Tools = make(map[string]AgentConfigToolSource)
-	}
-	for _, name := range missingDefaultToolNames(source) {
-		source.Tools[name] = AgentConfigToolSource{}
-	}
-	tools, err := compileTools(source.Tools)
+	tools, err := compileTools(source)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
 	}

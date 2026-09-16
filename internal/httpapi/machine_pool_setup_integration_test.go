@@ -1472,15 +1472,15 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusCreated,
 	)
 	savedSource := testutil.RequireType[string](t, config["source"])
-	if !strings.Contains(savedSource, "run_command:") || !strings.Contains(savedSource, "delete_machine:") {
-		t.Fatalf("default tools missing from saved source: %s", savedSource)
+	if savedSource != sourceYAML {
+		t.Fatalf("compilation changed source: %s", savedSource)
 	}
 	repeated := createPublicHTTPAgentConfig(
 		t, handler, project, "default-pool-agent-config-repeat", "yaml", savedSource,
 		project.AdminToken, http.StatusOK,
 	)
 	if repeated["id"] != config["id"] || repeated["source"] != savedSource {
-		t.Fatalf("normalized config did not deduplicate: %+v", repeated)
+		t.Fatalf("compiled config did not deduplicate: %+v", repeated)
 	}
 
 	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +

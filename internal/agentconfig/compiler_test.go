@@ -1878,9 +1878,9 @@ skills:
 	if !contract.RequiresModelToolSupport() {
 		t.Fatal("skill-only runtime contract must require model tool support")
 	}
-	if len(contract.Tools) != 1 ||
-		contract.Tools[0].Name != "skill" ||
-		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(contract.Tools) != 3 ||
+		contract.Tools[2].Name != "skill" ||
+		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
@@ -2101,8 +2101,8 @@ tools:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(implicit.Tools) != 3 {
-		t.Fatal("late implicit tool lacks retrieval tools")
+	if len(implicit.Tools) != 1 || implicit.Tools[0].Name != toolcatalog.ToolNameSendIntegrationMessage {
+		t.Fatal("late implicit tool must not add retrieval tools")
 	}
 }
 

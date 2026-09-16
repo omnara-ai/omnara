@@ -2374,7 +2374,7 @@ paths:
       tags: [Configs and Profiles]
       summary: Resolve agent config tools
       description: >-
-        Returns configured built-in and custom tools plus missing machine, skill, and subagent
+        Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval
         defaults, including disabled entries. Accepts YAML/JSON source. Source
         previews validate tool-related fields only; they do not validate whether
         the config can be saved or launched. Does not resolve contextual integration
@@ -8596,9 +8596,9 @@ components:
           type: string
         description:
           type: string
-        automatically_added:
+        implicit:
           type: boolean
-          description: Whether this tool is added automatically based on config resources or integration context rather than selected manually.
+          description: Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
         default_permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
         permission_modes:

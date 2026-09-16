@@ -42,8 +42,8 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		t.Fatal(diff)
 	}
 	tools := testutil.RequireType[[]any](t, preview["tools"])
-	if len(tools) != 16 {
-		t.Fatalf("expected 11 pool tools and 5 subagent tools, got %v", tools)
+	if len(tools) != 18 {
+		t.Fatalf("expected 11 pool tools, 5 subagent tools, and 2 retrieval tools, got %v", tools)
 	}
 	for _, item := range tools {
 		tool := testutil.RequireType[map[string]any](t, item)
@@ -58,6 +58,12 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	response := request(empty, project.AdminToken, http.StatusOK)
 	if len(testutil.RequireType[[]any](t, response["tools"])) != 0 {
 		t.Fatalf("unexpected contextual tools: %v", response)
+	}
+	mcp := request(map[string]any{
+		"source": `{"mcp":{"docs":{"url":"https://example.com/mcp","default_enabled":false}}}`, "source_format": "json",
+	}, project.AdminToken, http.StatusOK)
+	if len(testutil.RequireType[[]any](t, mcp["tools"])) != 2 {
+		t.Fatalf("MCP-only config missing retrieval tools: %v", mcp)
 	}
 	for _, body := range []map[string]any{
 		{}, {"source": "{}"}, {"source_format": "json"},

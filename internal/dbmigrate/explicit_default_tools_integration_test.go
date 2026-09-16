@@ -74,6 +74,8 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 			var numericLegacy agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(normalized.CanonicalJSON, &numericLegacy))
 			delete(numericLegacy.Tools, "skill")
+			delete(numericLegacy.Tools, "read_file")
+			delete(numericLegacy.Tools, "search_files")
 			for _, name := range toolcatalog.SubagentToolNames() {
 				delete(numericLegacy.Tools, name)
 			}
@@ -85,12 +87,28 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 			subagentSource := `{"subagents":{"worker":{"type":"self"}},"tools":{"spawn_agent":{"enabled":false},"read_agent":{"permission":{"mode":"always_ask"}}}}`
 			subagentCompiled := `{"subagents":{"worker":{"type":"self"}},"tools":{"read_agent":{"enabled":true,"permission":{"mode":"always_ask","parameters":{}}},"spawn_agent":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}}}}}`
 			require.NoError(t, insert(subagentID, subagentSource, subagentCompiled))
-			if collision {
-				source, err := agentconfig.AddSourceTools(agentconfig.SourceFormatJSON, []byte(legacySource), []string{"skill"})
+			retrievalConfigs := make(map[uuid.UUID]agentconfig.Result)
+			for _, extra := range []string{
+				`"tools":{"web_fetch":{}}`,
+				`"mcp":{"docs":{"url":"https://example.com/mcp","default_enabled":false}}`,
+			} {
+				source := `{"instruction":"Help","model":{"provider_config":"openai","name":"test"},` + extra + `}`
+				current, err := agentconfig.Compile(agentconfig.SourceFormatJSON, []byte(source), agentconfig.CompileOptions{})
 				require.NoError(t, err)
-				require.NoError(t, insert(uuid.New(), string(source),
-					`{"skills":[{"public_id":"skill"}],"tools":{"skill":`+
-						`{"enabled":true,"permission":{"mode":"always_allow","parameters":{}}}}}`))
+				var legacy agentconfig.Compiled
+				require.NoError(t, json.Unmarshal(current.CanonicalJSON, &legacy))
+				delete(legacy.Tools, "read_file")
+				delete(legacy.Tools, "search_files")
+				encoded, err := agentconfig.EncodeCompiled(legacy)
+				require.NoError(t, err)
+				id := uuid.New()
+				require.NoError(t, insert(id, source, string(encoded.CanonicalJSON)))
+				retrievalConfigs[id] = current
+			}
+			if collision {
+				tool := `{"enabled":true,"permission":{"mode":"always_allow","parameters":{}}}`
+				require.NoError(t, insert(uuid.New(), legacySource,
+					`{"skills":[{"public_id":"skill"}],"tools":{"read_file":`+tool+`,"search_files":`+tool+`,"skill":`+tool+`}}`))
 			}
 			var migration *goose.Migration
 			for _, candidate := range schemamigrations.GoMigrations() {
@@ -107,6 +125,19 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 				require.ErrorContains(t, err, "duplicate key")
 			} else {
 				require.NoError(t, err)
+				for id, expected := range retrievalConfigs {
+					var source string
+					var compiled []byte
+					require.NoError(t, db.QueryRowContext(ctx,
+						`SELECT source, compiled_definition FROM agent_configs WHERE id=$1`, id,
+					).Scan(&source, &compiled))
+					require.JSONEq(t, string(expected.CanonicalJSON), string(compiled))
+					recompiled, err := agentconfig.Compile(
+						agentconfig.SourceFormatJSON, []byte(source), agentconfig.CompileOptions{},
+					)
+					require.NoError(t, err)
+					require.Equal(t, expected.CanonicalJSON, recompiled.CanonicalJSON)
+				}
 			}
 			var source, sourceHash, effectiveHash string
 			var compiled, definition []byte
@@ -115,38 +146,21 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 				FROM agent_configs WHERE id=$1`, configID).Scan(&source, &sourceHash, &definition, &compiled, &effectiveHash))
 			require.JSONEq(t, string(compiled), string(definition))
 			require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(source))), sourceHash)
+			require.Equal(t, legacySource, source)
 			if collision {
-				require.Equal(t, legacySource, source)
 				require.JSONEq(t, legacyCompiled, string(compiled))
 				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiled))), effectiveHash)
 			} else {
 				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
 				require.NoError(t, err)
-				require.Len(t, contract.Tools, 1)
-				require.Equal(t, "skill", contract.Tools[0].Name)
-				require.Equal(t, "always_allow", contract.Tools[0].Permission.Mode)
+				require.Len(t, contract.Tools, 3)
+				require.Equal(t, "skill", contract.Tools[2].Name)
+				require.Equal(t, "always_allow", contract.Tools[2].Permission.Mode)
 				var references int
 				require.NoError(t, db.QueryRowContext(ctx, `
 					SELECT count(*) FROM config_references r JOIN agent_configs c ON c.id=r.config_id
 					WHERE c.id=$1 AND c.compiled_definition->'tools' ? 'skill'`, configID).Scan(&references))
 				require.Equal(t, 3, references)
-				require.ErrorContains(t, insert(uuid.New(), legacySource, legacyCompiled), "agent_configs_explicit_default_tools")
-				require.ErrorContains(t, insert(uuid.New(), subagentSource, subagentCompiled),
-					"agent_configs_explicit_default_tools")
-				for _, missing := range toolcatalog.SubagentToolNames() {
-					incomplete := numericLegacy
-					incomplete.Tools = make(map[string]agentconfig.ToolCompiled)
-					for name, tool := range normalized.Compiled.Tools {
-						if name != missing {
-							incomplete.Tools[name] = tool
-						}
-					}
-					encoded, err := agentconfig.EncodeCompiled(incomplete)
-					require.NoError(t, err)
-					require.ErrorContains(t, insert(uuid.New(), numericSource, string(encoded.CanonicalJSON)),
-						"agent_configs_explicit_default_tools")
-				}
-				require.NoError(t, insert(uuid.New(), `{}`, `{}`))
 				_, err = provider.Up(ctx)
 				require.NoError(t, err)
 			}
@@ -155,13 +169,13 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 			require.NoError(t, db.QueryRowContext(ctx, `
 				SELECT source, compiled_definition, effective_definition_hash FROM agent_configs WHERE id=$1`,
 				subagentID).Scan(&source, &compiled, &effectiveHash))
+			require.Equal(t, subagentSource, source)
 			if collision {
-				require.Equal(t, subagentSource, source)
 				require.JSONEq(t, subagentCompiled, string(compiled))
 			} else {
 				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
 				require.NoError(t, err)
-				require.Len(t, contract.Tools, 4)
+				require.Len(t, contract.Tools, 6)
 				for _, tool := range contract.Tools {
 					require.NotEqual(t, "spawn_agent", tool.Name)
 					if tool.Name == "read_agent" {
@@ -175,8 +189,8 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 				numericID).Scan(&source, &compiled, &effectiveHash))
 			_, err = agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
 			require.NoError(t, err)
+			require.Equal(t, numericSource, source)
 			if collision {
-				require.Equal(t, numericSource, source)
 				require.Equal(t, numericEncoded.Hash, effectiveHash)
 			} else {
 				recompiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, []byte(source), opts)

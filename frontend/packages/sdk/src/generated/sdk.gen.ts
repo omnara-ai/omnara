@@ -1279,7 +1279,7 @@ export const deleteIntegrationInstall = <ThrowOnError extends boolean = true>(op
 /**
  * Resolve agent config tools
  *
- * Returns configured built-in and custom tools plus missing machine, skill, and subagent defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual integration tools, discover MCP tools, or change any configuration.
+ * Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual integration tools, discover MCP tools, or change any configuration.
  */
 export const resolveAgentConfigTools = <ThrowOnError extends boolean = true>(options: Options<ResolveAgentConfigToolsData, ThrowOnError>): RequestResult<ResolveAgentConfigToolsResponses, ResolveAgentConfigToolsErrors, ThrowOnError> => (options.client ?? client).post<ResolveAgentConfigToolsResponses, ResolveAgentConfigToolsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zResolveAgentConfigToolsResponse),

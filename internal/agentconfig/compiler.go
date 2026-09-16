@@ -166,17 +166,6 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 	if err != nil {
 		return Result{}, err
 	}
-	additions := missingDefaultToolNames(source)
-	if len(additions) > 0 {
-		raw, err = AddSourceTools(format, raw, additions)
-		if err != nil {
-			return Result{}, err
-		}
-		source, _, err = parseSource(format, raw)
-		if err != nil {
-			return Result{}, err
-		}
-	}
 	compiled, err := compile(source, opts)
 	if err != nil {
 		return Result{}, validationErrorFrom(err, root)
@@ -239,7 +228,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	if len(machines) > 0 {
 		compiled.MachineSources = machines
 	}
-	compiled.Tools, err = compileTools(source.Tools)
+	compiled.Tools, err = compileTools(source)
 	if err != nil {
 		return Compiled{}, err
 	}
@@ -333,10 +322,25 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
-	return slices.DeleteFunc(names, func(name string) bool {
+	names = slices.DeleteFunc(names, func(name string) bool {
 		_, configured := source.Tools[name]
 		return configured
 	})
+	hasTools := len(names) > 0 || len(source.MCP) > 0
+	for _, tool := range source.Tools {
+		if tool.Enabled == nil || *tool.Enabled {
+			hasTools = true
+			break
+		}
+	}
+	if hasTools {
+		for _, name := range []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles} {
+			if _, configured := source.Tools[name]; !configured {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 // compileSkills validates and pins the attached skill set. Skills do not

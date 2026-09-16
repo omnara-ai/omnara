@@ -3,6 +3,8 @@ package agentconfig
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubagentSourceFromRegeneratesCompilableYAML(t *testing.T) {
@@ -97,4 +99,31 @@ max_subagents: 2
 	if !strings.Contains(deeperYAML, "max_depth: 2\n") || !strings.Contains(deeperYAML, "subagents:\n") {
 		t.Fatalf("deeper yaml = %q", deeperYAML)
 	}
+}
+
+func TestSubagentSourcePreservesRetrievalDefaultsAtDepthLimit(t *testing.T) {
+	source := validAgentSource(`
+subagents: {worker: {type: self}}
+tools:
+  read_agent: {enabled: false}
+  send_agent_message: {enabled: false}
+  stop_agent: {enabled: false}
+  list_agents: {enabled: false}
+`)
+	result, err := Compile(SourceFormatYAML, []byte(source), subagentCompileOptions())
+	require.NoError(t, err)
+	parsed, err := ParseSource(SourceFormatYAML, []byte(source))
+	require.NoError(t, err)
+	depth := SubagentDepth{Depth: 1}
+	subagent := result.Compiled.Subagents["worker"]
+	child := SubagentSourceFrom(parsed, subagent, depth)
+	encoded, err := EncodeSourceYAML(child)
+	require.NoError(t, err)
+	recompiled, err := Compile(SourceFormatYAML, []byte(encoded), subagentCompileOptions())
+	require.NoError(t, err)
+	expected, err := SubagentCompiledFrom(result.Compiled, subagent, depth, nil)
+	require.NoError(t, err)
+	require.Equal(t, expected, recompiled.Compiled)
+	require.Len(t, parsed.Tools, 4)
+	require.Equal(t, source, result.Source)
 }

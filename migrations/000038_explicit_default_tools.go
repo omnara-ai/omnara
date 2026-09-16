@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/pressly/goose/v3"
 )
 
@@ -29,6 +28,11 @@ func upExplicitDefaultTools(ctx context.Context, tx *sql.Tx) error {
 		   OR (COALESCE(NULLIF(compiled_definition->'subagents', 'null'::jsonb), '{}'::jsonb) <> '{}'::jsonb
 		       AND NOT COALESCE(compiled_definition->'tools', '{}'::jsonb) ?&
 		           ARRAY['spawn_agent', 'read_agent', 'send_agent_message', 'stop_agent', 'list_agents'])
+		   OR ((EXISTS (SELECT 1
+		                FROM jsonb_each(COALESCE(NULLIF(compiled_definition->'tools', 'null'::jsonb), '{}'::jsonb)) AS tool
+		                WHERE tool.value->'enabled' = 'true'::jsonb)
+		        OR COALESCE(NULLIF(compiled_definition->'mcp', 'null'::jsonb), '{}'::jsonb) <> '{}'::jsonb)
+		       AND NOT COALESCE(compiled_definition->'tools', '{}'::jsonb) ?& ARRAY['read_file', 'search_files'])
 		ORDER BY id`)
 	if err != nil {
 		return err
@@ -61,9 +65,9 @@ func upExplicitDefaultTools(ctx context.Context, tx *sql.Tx) error {
 		}
 		for _, config := range updates {
 			if _, err := tx.ExecContext(ctx, `
-				UPDATE agent_configs SET source = $2, source_hash = $3, definition = $4::jsonb,
-				    compiled_definition = $5::jsonb, effective_definition_hash = $6
-				WHERE id = $1::uuid`, config.id, config.source, config.sourceHash,
+				UPDATE agent_configs SET definition = $2::jsonb,
+				    compiled_definition = $3::jsonb, effective_definition_hash = $4
+				WHERE id = $1::uuid`, config.id,
 				config.definition, config.compiledDefinition, config.effectiveDefinitionHash); err != nil {
 				return fmt.Errorf("update default tools in config %s: %w", config.id, err)
 			}
@@ -72,13 +76,7 @@ func upExplicitDefaultTools(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `ALTER TABLE agent_configs ADD CONSTRAINT agent_configs_explicit_default_tools
-		CHECK ((COALESCE(jsonb_array_length(NULLIF(compiled_definition->'skills', 'null'::jsonb)), 0) = 0
-		        OR COALESCE(compiled_definition->'tools', '{}'::jsonb) ? 'skill')
-		   AND (COALESCE(NULLIF(compiled_definition->'subagents', 'null'::jsonb), '{}'::jsonb) = '{}'::jsonb
-		        OR COALESCE(compiled_definition->'tools', '{}'::jsonb) ?&
-		            ARRAY['spawn_agent', 'read_agent', 'send_agent_message', 'stop_agent', 'list_agents']))`)
-	return err
+	return nil
 }
 
 func migrateExplicitDefaultTools(config storedAgentConfig) (storedAgentConfig, bool, error) {
@@ -104,14 +102,6 @@ func migrateExplicitDefaultTools(config storedAgentConfig) (storedAgentConfig, b
 	if err != nil {
 		return config, false, err
 	}
-	source, err := agentconfig.AddSourceTools(
-		agentconfig.SourceFormat(config.sourceFormat), []byte(config.source), additions,
-	)
-	if err != nil {
-		return config, false, err
-	}
-	config.source = string(source)
-	config.sourceHash = hashBytes(source)
 	config.definition = definition
 	config.compiledDefinition = compiled
 	config.effectiveDefinitionHash = updatedHash
@@ -164,6 +154,30 @@ func addExplicitDefaultTools(raw []byte) ([]byte, []string, error) {
 		_, configured := tools[name]
 		return configured
 	})
+	var mcp map[string]json.RawMessage
+	if len(fields["mcp"]) > 0 {
+		if err := json.Unmarshal(fields["mcp"], &mcp); err != nil {
+			return nil, nil, err
+		}
+	}
+	hasTools := len(additions) > 0 || len(mcp) > 0
+	for _, raw := range tools {
+		var tool struct{ Enabled bool }
+		if err := json.Unmarshal(raw, &tool); err != nil {
+			return nil, nil, err
+		}
+		if tool.Enabled {
+			hasTools = true
+			break
+		}
+	}
+	if hasTools {
+		for _, name := range []string{"read_file", "search_files"} {
+			if _, configured := tools[name]; !configured {
+				additions = append(additions, name)
+			}
+		}
+	}
 	if len(additions) == 0 {
 		return raw, nil, nil
 	}

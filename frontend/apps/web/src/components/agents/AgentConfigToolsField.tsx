@@ -31,8 +31,19 @@ export interface BasicTool {
 }
 
 const toolDescriptions = new Map([
+  ['run_command', 'Run shell commands on an attached machine.'],
+  ['write_process', 'Send input to a command that is still running.'],
+  ['stop_process', 'Stop a command that is still running.'],
+  ['read_process', 'Read output from a command, including after it finishes.'],
+  ['list_processes', 'List commands and processes that are currently running.'],
+  ['create_machine', 'Create another machine for the agent to use.'],
+  ['delete_machine', 'Delete a machine created for the agent.'],
+  ['list_machines', 'List the machines available to the agent.'],
+  ['inspect_machine', 'View details about a machine available to the agent.'],
   ['read_file', "Read a text file in Omnara's virtual filesystem."],
   ['search_files', "Search text inside files in Omnara's virtual filesystem."],
+  ['upload_file', "Copy a file into Omnara's virtual filesystem."],
+  ['download_file', "Copy a file from Omnara's virtual filesystem to a machine."],
   ['ask_question', 'Ask the user a question and wait for their response.'],
   ['web_search', 'Search the public web for current information.'],
   ['web_fetch', 'Read the contents of a public webpage.'],
@@ -41,25 +52,31 @@ const toolDescriptions = new Map([
 export function AgentConfigToolsField({
   catalog,
   tools,
+  resolvedTools,
   onToolsChange,
 }: {
   catalog?: ToolCatalog
   tools: BasicTool[]
+  resolvedTools?: { name: string; enabled: boolean }[]
   onToolsChange: (tools: BasicTool[]) => void
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
-  const includedTools = tools.filter((tool) => catalogByName.get(tool.name)?.automatically_added)
+  const displayedTools = [
+    ...tools,
+    ...(resolvedTools ?? [])
+      .filter((tool) => !tools.some((configured) => configured.name === tool.name))
+      .map((tool) => ({ name: tool.name, enabled: tool.enabled, permission: null })),
+  ]
+  const includedTools = displayedTools.filter((tool) => catalogByName.get(tool.name)?.implicit)
   const visibleTools = catalog
-    ? tools.filter(
-        (tool) =>
-          !catalogByName.get(tool.name)?.automatically_added &&
-          tool.name !== 'set_integration_target',
+    ? displayedTools.filter(
+        (tool) => !catalogByName.get(tool.name)?.implicit && tool.name !== 'set_integration_target',
       )
     : []
   const availableTools = catalogTools.filter(
     (entry) =>
-      !entry.automatically_added &&
+      !entry.implicit &&
       entry.name !== 'set_integration_target' &&
       tools.every((tool) => tool.name !== entry.name),
   )
@@ -158,7 +175,11 @@ export function AgentConfigToolsField({
         catalog={catalog}
         tools={includedTools}
         onToolChange={(updated) => {
-          onToolsChange(tools.map((tool) => (tool.name === updated.name ? updated : tool)))
+          onToolsChange(
+            tools.some((tool) => tool.name === updated.name)
+              ? tools.map((tool) => (tool.name === updated.name ? updated : tool))
+              : [...tools, updated],
+          )
         }}
       />
     </AgentConfigSectionCard>

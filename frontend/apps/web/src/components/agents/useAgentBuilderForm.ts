@@ -130,41 +130,33 @@ export function useAgentBuilderForm(
   seedConfig: BasicConfig | undefined,
   scope: { orgId: string; projectId: string },
 ) {
-  const [storedDraft, setDraft] = useState<BasicConfig>(
+  const [draft, setDraft] = useState<BasicConfig>(
     seedConfig ?? session.initialDraft ?? emptyBasicConfig,
   )
-  const tools = useAgentBuilderTools(storedDraft, scope)
-  const draft = { ...storedDraft, tools: tools.normalize(storedDraft.tools) }
+  const tools = useAgentBuilderTools(draft, scope)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
 
   const blocked =
-    tools.pending ||
-    tools.error ||
     unavailableSkillIds.length > 0 ||
     unavailableSourceIds.length > 0 ||
     modelUnavailable ||
     !basicConfigValid(draft)
 
   const patch = (fields: Partial<BasicConfig>) => {
-    setDraft((prev) => ({ ...prev, tools: tools.normalize(prev.tools), ...fields }))
-  }
-
-  const changeSources = (fields: Partial<BasicConfig>) => {
-    tools.sourcesChanged()
-    patch(fields)
+    setDraft((prev) => ({ ...prev, ...fields }))
   }
 
   return {
     draft,
     yaml: session.apply(draft),
     blocked,
-    toolsPending: tools.pending,
-    toolsError: tools.error,
-    retryTools: tools.retry,
+    resolvedTools: tools.data?.tools,
+    toolsPending: tools.isPending,
+    toolsError: tools.isError,
+    retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
-      tools.reset()
       setDraft(config ?? emptyBasicConfig)
     },
     instruction: draft.instruction,
@@ -183,21 +175,19 @@ export function useAgentBuilderForm(
       patch({ providerConfig: model.providerConfig, modelName: model.modelName })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
-      changeSources({ machineSources })
+      patch({ machineSources })
     },
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
     },
     setSkillIds: (skillIds: string[]) => {
-      changeSources({ skillIds })
+      patch({ skillIds })
     },
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
-      changeSources(
-        subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents },
-      )
+      patch(subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents })
     },
     setMaxSubagents: (maxSubagents: string) => {
       patch({ maxSubagents })

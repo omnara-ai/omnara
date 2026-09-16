@@ -718,7 +718,7 @@ export const zToolPermissionProfile = z.object({
 export const zToolCatalogEntry = z.object({
     name: z.string(),
     description: z.string(),
-    automatically_added: z.boolean().optional(),
+    implicit: z.boolean().optional(),
     default_permission: zToolPermissionSelection,
     permission_modes: z.array(zToolPermissionMode)
 });

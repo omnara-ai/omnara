@@ -18,6 +18,7 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { newSubagent } from '@/components/agents/agentConfigSubagents'
@@ -80,18 +81,25 @@ const subagentToolNames = ['spawn_agent', 'read_agent', 'list_agents']
 
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'send_integration_message', ...subagentToolNames].map(
-    (name) => ({
-      name,
-      description: name,
-      automatically_added: true,
-      default_permission: alwaysAllowProfile.default_permission,
-      permission_modes:
-        name === 'send_integration_message'
-          ? alwaysAllowProfile.permission_modes.slice(0, 1)
-          : alwaysAllowProfile.permission_modes,
-    }),
-  ),
+  built_in_tools: [
+    'run_command',
+    'create_machine',
+    'delete_machine',
+    'skill',
+    'send_integration_message',
+    'read_file',
+    'search_files',
+    ...subagentToolNames,
+  ].map((name) => ({
+    name,
+    description: name,
+    implicit: true,
+    default_permission: alwaysAllowProfile.default_permission,
+    permission_modes:
+      name === 'send_integration_message'
+        ? alwaysAllowProfile.permission_modes.slice(0, 1)
+        : alwaysAllowProfile.permission_modes,
+  })),
 }
 
 let container: HTMLDivElement
@@ -201,6 +209,22 @@ function BasicFormHarness({ source = includedSource }: { source?: string }) {
   })
   return (
     <>
+      <button
+        type="button"
+        onClick={() => {
+          form.setTools(form.tools.filter((tool) => tool.name !== 'web_search'))
+        }}
+      >
+        Remove web search
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          form.setMcpServers([])
+        }}
+      >
+        Remove MCP
+      </button>
       <button
         type="button"
         onClick={() => {
@@ -326,12 +350,21 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     },
   ])
   await renderAndFlush(<BasicFormHarness />)
+  await vi.waitFor(() => {
+    expect(requests).toHaveLength(1)
+  })
   expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
   expect(requests).toEqual([
     {
       source_format: 'json',
-      source: JSON.stringify({ machine_sources: [], skills: [], subagents: {} }),
+      source: JSON.stringify({
+        tools: { web_search: {} },
+        mcp: {},
+        machine_sources: [],
+        skills: [],
+        subagents: {},
+      }),
     },
   ])
 })
@@ -348,7 +381,7 @@ it.each([true, false])(
     await vi.waitFor(() => {
       expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
     })
-    click('[data-slot="collapsible-trigger"]')
+    clickLabel('Other tools')
     await vi.waitFor(() => {
       expect(
         container.querySelector('[aria-label="send_integration_message permission"]')?.textContent,
@@ -374,7 +407,7 @@ it.each([true, false])(
   },
 )
 
-it('uses backend tool names for source changes while keeping permission edits local', async () => {
+it('displays backend defaults without saving them and preserves user overrides', async () => {
   const requests: unknown[] = []
   Providers = testProviders([
     {
@@ -384,21 +417,15 @@ it('uses backend tool names for source changes while keeping permission edits lo
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
         requests.push(request)
         return jsonResponse({
-          tools:
-            request.source ===
-            JSON.stringify({
-              machine_sources: [{ machine_pool_name: 'pool' }],
-              skills: [],
-              subagents: {},
-            })
-              ? [
-                  {
-                    name: 'run_command',
-                    enabled: true,
-                    permission: { mode: 'always_allow', parameters: {} },
-                  },
-                ]
-              : [],
+          tools: request.source.includes('machine_pool_name')
+            ? [
+                {
+                  name: 'run_command',
+                  enabled: true,
+                  permission: { mode: 'always_allow', parameters: {} },
+                },
+              ]
+            : [],
         })
       },
     },
@@ -420,27 +447,25 @@ it('uses backend tool names for source changes while keeping permission edits lo
   expect(container.querySelector('[aria-label="run_command permission"]')?.textContent).toBe(
     'Always allow',
   )
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.run_command',
-    { type: 'built_in' },
   )
   expect(container.textContent).not.toContain('create_machine')
-  const requestCount = requests.length
-  await selectIncludedPermission('run_command', 'Disabled')
+  await selectIncludedPermission('run_command', 'Always ask')
   expect(parse(container.querySelector('output')?.textContent ?? '')).toMatchObject({
-    tools: { run_command: { enabled: false } },
+    tools: { run_command: { permission: { mode: 'always_ask' } } },
   })
-  expect(requests).toHaveLength(requestCount)
   act(() => {
     ;[...container.querySelectorAll('button')]
       .find((button) => button.textContent === 'Remove pool')
       ?.click()
   })
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
-  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
-    'tools.run_command',
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.run_command.permission.mode',
+    'always_ask',
   )
 })
 
@@ -498,6 +523,13 @@ function sourceToolsRoute(): FakeRoute {
     path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
     respond: ({ body }) => {
       const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
+      const source = z
+        .object({
+          tools: z.record(z.string(), z.object({ enabled: z.boolean().optional() })),
+          mcp: z.record(z.string(), z.unknown()),
+        })
+        .parse(JSON.parse(request.source))
+      const tools = new Map(Object.entries(source.tools))
       const names: string[] = []
       if (request.source.includes('machine_pool_name'))
         names.push('create_machine', 'delete_machine')
@@ -506,12 +538,129 @@ function sourceToolsRoute(): FakeRoute {
       if (request.source.includes('skl_')) names.push('skill')
       if (request.source.includes('"type":"self"') || request.source.includes('"type":"profile"'))
         names.push(...subagentToolNames)
-      return toolResponse(names)
+      for (const name of names) if (!tools.has(name)) tools.set(name, {})
+      if (
+        [...tools.values()].some((tool) => tool.enabled !== false) ||
+        Object.keys(source.mcp).length > 0
+      ) {
+        if (!tools.has('read_file')) tools.set('read_file', {})
+        if (!tools.has('search_files')) tools.set('search_files', {})
+      }
+      return jsonResponse({
+        tools: [...tools].map(([name, tool]) => ({
+          name,
+          enabled: tool.enabled !== false,
+          permission: { mode: 'always_allow', parameters: {} },
+        })),
+      })
     },
   }
 }
 
-it('cleans up only tools whose last relevant source was removed', async () => {
+it('displays retrieval defaults without changing source and saves only edited overrides', async () => {
+  Providers = testProviders([sourceToolsRoute()])
+  await renderAndFlush(<BasicFormHarness />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+  })
+  expect(container.querySelector('output')?.textContent).toBe(includedSource)
+  clickLabel('Other tools')
+  expect(container.querySelector('[aria-label="read_file permission"]')?.textContent).toBe(
+    'Always allow',
+  )
+  await selectIncludedPermission('read_file', 'Disabled')
+  await vi.waitFor(() => {
+    expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
+  })
+  await selectIncludedPermission('search_files', 'Always ask')
+  await vi.waitFor(() => {
+    const saved = container.querySelector('output')?.textContent ?? ''
+    expect(parse(saved)).toHaveProperty('tools.read_file.enabled', false)
+    expect(parse(saved)).toHaveProperty('tools.search_files.permission.mode', 'always_ask')
+    expect(
+      createBasicConfigSession(saved).initialDraft?.tools.find((tool) => tool.name === 'read_file')
+        ?.enabled,
+    ).toBe(false)
+  })
+  clickLabel('Remove web search')
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+  })
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.read_file.enabled',
+    false,
+  )
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.search_files.permission.mode',
+    'always_ask',
+  )
+})
+
+it('drops unconfigured retrieval defaults when the last ordinary tool is removed', async () => {
+  Providers = testProviders([sourceToolsRoute()])
+  await renderAndFlush(<BasicFormHarness />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+  })
+  clickLabel('Remove web search')
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+  })
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty('tools')
+})
+
+it('displays MCP defaults without changing source and drops them with the last server', async () => {
+  Providers = testProviders([sourceToolsRoute()])
+  const source =
+    includedSource.slice(0, includedSource.indexOf('tools:')) +
+    'mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n'
+  await renderAndFlush(<BasicFormHarness source={source} />)
+  await vi.waitFor(() => {
+    expect(container.textContent).toContain('Other tools')
+  })
+  clickLabel('Other tools')
+  expect(container.querySelector('[aria-label="read_file permission"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
+  expect(container.querySelector('output')?.textContent).toBe(source)
+  clickLabel('Remove MCP')
+  await vi.waitFor(() => {
+    expect(container.textContent).not.toContain('Other tools')
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+  })
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty('tools')
+})
+
+it('does not default retrieval tools when all configured machine tools are disabled', async () => {
+  Providers = testProviders([sourceToolsRoute()])
+  const source =
+    includedSource.slice(0, includedSource.indexOf('tools:')) +
+    'machine_sources: [{machine_name: box}]\ntools:\n' +
+    [
+      'run_command',
+      'write_process',
+      'stop_process',
+      'read_process',
+      'list_processes',
+      'list_machines',
+      'inspect_machine',
+      'upload_file',
+      'download_file',
+    ]
+      .map((name) => `  ${name}: {enabled: false}\n`)
+      .join('')
+  await renderAndFlush(<BasicFormHarness source={source} />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+  })
+  const saved: unknown = parse(container.querySelector('output')?.textContent ?? '')
+  expect(saved).not.toHaveProperty('tools.read_file')
+  expect(saved).not.toHaveProperty('tools.search_files')
+  expect(saved).toHaveProperty('tools.run_command.enabled', false)
+})
+
+it('updates resource defaults without writing or removing explicit entries', async () => {
   Providers = testProviders([sourceToolsRoute()])
   const source = `${includedSource}  run_command: {enabled: false, permission: {mode: always_ask}}
   delete_machine: {permission: {mode: always_ask}}
@@ -520,109 +669,80 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
 `
   await renderAndFlush(<BasicFormHarness source={source} />)
   await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-      'tools.skill',
-    )
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
+  clickLabel('Other tools')
+  await vi.waitFor(() => {
+    expect(container.querySelector('[aria-label="create_machine permission"]')).not.toBeNull()
+  })
+  expect(container.querySelector('[aria-label="skill permission"]')).not.toBeNull()
+  expect(container.querySelector('output')?.textContent).toBe(source)
   clickLabel('Select machine')
   await vi.waitFor(() => {
-    const config: unknown = parse(container.querySelector('output')?.textContent ?? '')
-    expect(config).not.toHaveProperty('tools.delete_machine')
-    expect(config).not.toHaveProperty('tools.create_machine')
-    expect(config).toHaveProperty('tools.run_command.enabled', false)
-    expect(config).toHaveProperty('tools.skill')
+    expect(container.querySelector('[aria-label="create_machine permission"]')).toBeNull()
   })
+  expect(container.querySelector('[aria-label="delete_machine permission"]')?.textContent).toBe(
+    'Always ask',
+  )
   clickLabel('Remove skill')
   await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
-      'tools.skill',
-    )
+    expect(container.querySelector('[aria-label="skill permission"]')).toBeNull()
   })
   clickLabel('Remove pool')
   await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
-      web_search: { permission: { mode: 'always_ask' } },
-    })
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
-  clickLabel('Select pool')
-  await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-      'tools.run_command',
-      { type: 'built_in' },
-    )
-  })
-  clickLabel('Reset draft')
-  await vi.waitFor(() => {
-    expect(container.querySelector('output')?.textContent).toBe(includedSource)
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
+    web_search: { permission: { mode: 'always_ask' } },
+    run_command: { enabled: false, permission: { mode: 'always_ask' } },
+    delete_machine: { permission: { mode: 'always_ask' } },
   })
 })
 
-it('adds subagent defaults, preserves edits, and cleans up after incomplete or removed subagents', async () => {
+it('displays subagent defaults without saving them and preserves explicit edits', async () => {
   Providers = testProviders([sourceToolsRoute()])
   await renderAndFlush(
-    <BasicFormHarness
-      source={`${includedSource}  spawn_agent: {enabled: false}
-  read_agent: {permission: {mode: always_ask}}
-subagents: {worker: {type: self}}
-`}
-    />,
+    <BasicFormHarness source={`${includedSource}subagents: {worker: {type: self}}\n`} />,
   )
   await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-      'tools.list_agents',
-    )
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   await vi.waitFor(() => {
     expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
   })
-  click('[data-slot="collapsible-trigger"]')
-  expect(container.querySelector('[aria-label="spawn_agent permission"]')?.textContent).toBe(
-    'Disabled',
-  )
-  expect(container.querySelector('[aria-label="read_agent permission"]')?.textContent).toBe(
-    'Always ask',
-  )
-  await selectIncludedPermission('list_agents', 'Disabled')
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.list_agents.enabled',
-    false,
-  )
-  clickLabel('Clear subagent key')
+  clickLabel('Other tools')
   await vi.waitFor(() => {
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
-    const config: unknown = parse(container.querySelector('output')?.textContent ?? '')
-    expect(config).toHaveProperty('tools.spawn_agent.enabled', false)
-    expect(config).toHaveProperty('tools.read_agent.permission.mode', 'always_ask')
-    expect(config).toHaveProperty('tools.list_agents.enabled', false)
-  })
-  clickLabel('Select subagent')
-  await vi.waitFor(() => {
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-      'tools.list_agents.enabled',
-      false,
+    expect(container.querySelector('[aria-label="spawn_agent permission"]')?.textContent).toBe(
+      'Always allow',
     )
   })
-  clickLabel('Clear subagent key')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
+    'tools.spawn_agent',
+  )
+  await selectIncludedPermission('read_agent', 'Disabled')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.read_agent.enabled',
+    false,
+  )
   clickLabel('Remove subagent')
   await vi.waitFor(() => {
-    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
-      web_search: { permission: { mode: 'always_ask' } },
-    })
-    expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
+    expect(container.querySelector('[aria-label="spawn_agent permission"]')).toBeNull()
+    expect(container.querySelector('[aria-label="list_agents permission"]')).toBeNull()
   })
+  expect(container.querySelector('[aria-label="read_agent permission"]')?.textContent).toBe(
+    'Disabled',
+  )
   clickLabel('Incomplete subagent')
   await vi.waitFor(() => {
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
     expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
   })
   clickLabel('Select subagent')
   await vi.waitFor(() => {
-    const config: unknown = parse(container.querySelector('output')?.textContent ?? '')
-    for (const name of subagentToolNames) {
-      expect(config).toHaveProperty(['tools', name], { type: 'built_in' })
-    }
+    expect(container.querySelector('[aria-label="spawn_agent permission"]')).not.toBeNull()
   })
+  expect(container.querySelector('[aria-label="read_agent permission"]')?.textContent).toBe(
+    'Disabled',
+  )
 })
 
 it.each([
@@ -639,7 +759,7 @@ it.each([
     remove: 'Remove subagent',
   },
 ])(
-  'removes saved $tool even when its source is removed before its first lookup completes',
+  'preserves explicit $tool when its source is removed before its first lookup completes',
   async (test) => {
     let release: (response: Response) => void = () => undefined
     const pending = new Promise<Response>((resolve) => {
@@ -669,8 +789,9 @@ ${test.source}
     await vi.waitFor(() => {
       expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
       expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
-      expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
-        `tools.${test.tool}`,
+      expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+        `tools.${test.tool}.enabled`,
+        false,
       )
     })
   },

@@ -123,9 +123,11 @@ tools:
 
 Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
 
-When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_file`, and `download_file` to the saved config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. These defaults are applied in the builder and when compiling YAML or JSON submitted through the API. Explicit disables and permissions are preserved.
+When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_file`, and `download_file` to the compiled config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. Compilation leaves your YAML or JSON source unchanged. Explicit disables and permissions take precedence.
 
-In the builder, use **Tools → Other tools** to change permissions or select **Disabled**. Removing the last relevant machine source, skill, or subagent in the builder also removes its associated tool entries. Compilation itself never removes explicit tools. While the relevant source remains, omitting a tool adds it back; set `enabled: false` to disable it.
+The builder displays these defaults under **Tools → Other tools** without writing them into your source. Changing a permission or selecting **Disabled** saves an explicit override. Defaults disappear when their relevant source is removed; explicitly configured tools remain.
+
+Existing machine configs gain missing machine-tool defaults only when saved again. The builder previews that saved result, not the tools currently stored for an existing config.
 
 Slack's `send_integration_message` remains contextual: it is available in Slack conversations without being added to the saved config, unless explicitly disabled. The builder only shows this tool when it is explicitly listed in the config.
 
@@ -168,7 +170,7 @@ Environment names beginning with `OMNARA_` are reserved case-insensitively and c
 
 ## Subagents
 
-`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key adds missing entries for the five subagent tools (`spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`) to the saved config during compilation; existing entries keep their enablement and permissions. `spawn_agent` requires at least one key, but the other four can be listed under `tools` without any keys, so an agent whose config dropped its `subagents` can still read, message, and stop the subagents it already has.
+`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key adds missing entries for the five subagent tools (`spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`) to the compiled config without changing source; existing entries keep their enablement and permissions. `spawn_agent` requires at least one key, but the other four can be listed under `tools` without any keys, so an agent whose config dropped its `subagents` can still read, message, and stop the subagents it already has.
 
 ```yaml
 subagents:
@@ -203,7 +205,7 @@ max_depth: 2
 | `max_subagents` | Top-level cap on active subagents across every key. |
 | `max_depth` | Top-level cap on how many levels of subagents can nest below this agent, at most 8. Defaults to 1, so subagents cannot spawn their own. The value is carried into every subagent config in the tree and cannot be raised by a subagent or by a profile it launches from. |
 
-Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. Each subagent launches from a new config derived from its base with the key's overrides applied; a subagent at the tree's `max_depth` has `subagents` and the subagent tools removed. Subagents share the parent's attached machines, including its pool machines, instead of provisioning from the base config's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent; `read_agent` reads its timeline on demand. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
+Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. Each subagent launches from a new config derived from its base with the key's overrides applied; a subagent at the tree's `max_depth` has `subagents` and `spawn_agent` removed. Subagents share the parent's attached machines, including its pool machines, instead of provisioning from the base config's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent; `read_agent` reads its timeline on demand. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
 
 ## Create a config
 

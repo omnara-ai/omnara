@@ -19,6 +19,14 @@ func SubagentSourceFrom(base AgentConfigSource, subagent SubagentCompiled, depth
 		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + subagent.InstructionAppend
 	}
 	if !depth.CanSpawn() {
+		if len(base.Subagents) > 0 {
+			if child.Tools == nil {
+				child.Tools = make(map[string]AgentConfigToolSource)
+			}
+			for _, name := range missingDefaultToolNames(base) {
+				child.Tools[name] = AgentConfigToolSource{}
+			}
+		}
 		child.Subagents = nil
 		child.MaxSubagents = nil
 		delete(child.Tools, toolcatalog.ToolNameSpawnAgent)
