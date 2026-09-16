@@ -1752,7 +1752,7 @@ skills:
 	}
 }
 
-func TestCompileExplicitSkillToolOverridesImplicitAttachment(t *testing.T) {
+func TestCompileExplicitSkillToolOverridesDefaults(t *testing.T) {
 	explicit, err := Compile(
 		SourceFormatYAML,
 		[]byte(validAgentSource(`
@@ -1881,7 +1881,7 @@ skills:
 	if len(contract.Tools) != 1 ||
 		contract.Tools[0].Name != "skill" ||
 		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("implicit skill tool was not materialized: %+v", contract.Tools)
+		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
 

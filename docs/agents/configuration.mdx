@@ -125,7 +125,7 @@ Permission modes decide whether a tool runs immediately, asks a person first, or
 
 When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_file`, and `download_file` to the saved config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. These defaults are applied in the builder and when compiling YAML or JSON submitted through the API. Explicit disables and permissions are preserved.
 
-In the builder, use **Tools → Other tools** to change permissions or select **Disabled**. Removing the last relevant machine source or skill in the builder also removes its associated tool entries. Compilation itself never removes explicit tools. While the relevant source remains, omitting a tool adds it back; set `enabled: false` to disable it.
+In the builder, use **Tools → Other tools** to change permissions or select **Disabled**. Removing the last relevant machine source, skill, or subagent in the builder also removes its associated tool entries. Compilation itself never removes explicit tools. While the relevant source remains, omitting a tool adds it back; set `enabled: false` to disable it.
 
 Slack's `send_integration_message` remains contextual: it is available in Slack conversations without being added to the saved config, unless explicitly disabled. The builder only shows this tool when it is explicitly listed in the config.
 
@@ -168,7 +168,7 @@ Environment names beginning with `OMNARA_` are reserved case-insensitively and c
 
 ## Subagents
 
-`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key implicitly adds the five subagent tools (`spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`); list one under `tools` to disable it or change its permission mode. `spawn_agent` requires at least one key, but the other four can be listed under `tools` without any keys, so an agent whose config dropped its `subagents` can still read, message, and stop the subagents it already has.
+`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key adds missing entries for the five subagent tools (`spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`) to the saved config during compilation; existing entries keep their enablement and permissions. `spawn_agent` requires at least one key, but the other four can be listed under `tools` without any keys, so an agent whose config dropped its `subagents` can still read, message, and stop the subagents it already has.
 
 ```yaml
 subagents:

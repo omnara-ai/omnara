@@ -29,10 +29,11 @@ func (s strictOpenAPIServer) GetToolCatalog(
 			return nil, err
 		}
 		tools = append(tools, openapi.ToolCatalogEntry{
-			Name:              entry.Name,
-			Description:       entry.Description,
-			DefaultPermission: defaultPermission,
-			PermissionModes:   modes,
+			Name:               entry.Name,
+			Description:        entry.Description,
+			AutomaticallyAdded: &entry.AutomaticallyAdded,
+			DefaultPermission:  defaultPermission,
+			PermissionModes:    modes,
 		})
 	}
 	customPermissions, err := toolPermissionProfileResponse(

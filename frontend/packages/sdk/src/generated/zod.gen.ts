@@ -718,6 +718,7 @@ export const zToolPermissionProfile = z.object({
 export const zToolCatalogEntry = z.object({
     name: z.string(),
     description: z.string(),
+    automatically_added: z.boolean().optional(),
     default_permission: zToolPermissionSelection,
     permission_modes: z.array(zToolPermissionMode)
 });
@@ -3489,8 +3490,8 @@ export const zDeleteIntegrationInstallResponse = z.void();
 export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
 
 export const zResolveAgentConfigToolsPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId
 });
 
 /**

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func subagentCompileOptions() CompileOptions {
@@ -27,7 +28,7 @@ func (profileNotFoundError) Error() string { return "profile not found" }
 
 var errNotFoundProfile = profileNotFoundError{}
 
-func TestCompileYAMLSubagentsCompilesKeysAndImplicitTools(t *testing.T) {
+func TestCompileYAMLSubagentsCompilesKeysAndExplicitTools(t *testing.T) {
 	source := validAgentSource(`
 tools:
   run_command: {}
@@ -100,6 +101,16 @@ max_subagents: 5
 	if names[toolcatalog.ToolNameStopAgent] {
 		t.Fatalf("stop_agent should stay disabled when configured with enabled: false")
 	}
+	persisted, _, err := parseSource(SourceFormatYAML, []byte(result.Source))
+	require.NoError(t, err)
+	for _, name := range toolcatalog.SubagentToolNames() {
+		require.Contains(t, persisted.Tools, name)
+		require.Contains(t, result.Compiled.Tools, name)
+	}
+	recompiled, err := Compile(SourceFormatYAML, []byte(result.Source), subagentCompileOptions())
+	require.NoError(t, err)
+	require.Equal(t, result.Source, recompiled.Source)
+	require.Equal(t, result.Hash, recompiled.Hash)
 }
 
 func TestCompileYAMLSubagentsRejectsInvalidShapes(t *testing.T) {
@@ -256,6 +267,18 @@ max_subagents: 2
 	if leaf.Subagents != nil || leaf.MaxDepth == nil || *leaf.MaxDepth != 2 {
 		t.Fatalf("children at the depth limit drop subagents but keep max_depth: %+v", leaf)
 	}
+	source, _, err := parseSource(SourceFormatYAML, []byte(result.Source))
+	require.NoError(t, err)
+	leafSource := SubagentSourceFrom(source, base.Subagents["fork"], SubagentDepth{MaxDepth: &maxDepth, Depth: 2})
+	for _, name := range toolcatalog.SubagentToolNames() {
+		if name == toolcatalog.ToolNameSpawnAgent {
+			require.NotContains(t, leaf.Tools, name)
+			require.NotContains(t, leafSource.Tools, name)
+		} else {
+			require.Equal(t, base.Tools[name], leaf.Tools[name])
+			require.Contains(t, leafSource.Tools, name)
+		}
+	}
 }
 
 func TestCompileAllowsSubagentReadToolsWithoutSubagents(t *testing.T) {
@@ -281,6 +304,27 @@ tools:
 	if names[toolcatalog.ToolNameSpawnAgent] || names[toolcatalog.ToolNameSendAgentMessage] {
 		t.Fatalf("contract tools = %v, want no implicit subagent tools without subagents", names)
 	}
+}
+
+func TestSubagentDefaultsRespectModelToolSupport(t *testing.T) {
+	source := validAgentSource("subagents: {worker: {type: self}}\n")
+	opts := subagentCompileOptions()
+	opts.ResolveModelSelection = func(string, string) (ResolvedModelSelection, error) {
+		supportsTools := false
+		return ResolvedModelSelection{SupportsTools: &supportsTools}, nil
+	}
+	_, err := Compile(SourceFormatYAML, []byte(source), opts)
+	require.ErrorContains(t, err, "does not support tools")
+	source += "tools:\n"
+	for _, name := range toolcatalog.SubagentToolNames() {
+		source += "  " + name + ": {enabled: false}\n"
+	}
+	result, err := Compile(SourceFormatYAML, []byte(source), opts)
+	require.NoError(t, err)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	require.NoError(t, err)
+	require.Empty(t, contract.Tools)
+	require.False(t, contract.RequiresModelToolSupport())
 }
 
 func TestCompileMaxDepth(t *testing.T) {

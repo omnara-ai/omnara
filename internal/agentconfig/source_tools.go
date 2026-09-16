@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-func addSourceTools(
-	format SourceFormat, raw []byte, root *yaml.Node, names []string,
+func AddSourceTools(
+	format SourceFormat, raw []byte, names []string,
 ) ([]byte, error) {
-	jsonSource, _, err := sourceJSON(format, raw)
+	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +24,10 @@ func addSourceTools(
 			tools = json.RawMessage(`{}`)
 		}
 		for _, name := range names {
-			tools, err = editJSONObject(tools, name, func(_ json.RawMessage) ([]byte, error) {
+			tools, err = editJSONObject(tools, name, func(existing json.RawMessage) ([]byte, error) {
+				if len(existing) > 0 {
+					return nil, fmt.Errorf("tool %q is already configured", name)
+				}
 				return []byte(`{}`), nil
 			})
 			if err != nil {
@@ -37,42 +41,81 @@ func addSourceTools(
 	}
 	object := root.Content[0]
 	tools, _ := yamlChild(object, "tools")
+	fields := make([]string, 0, len(names))
+	for _, name := range names {
+		fields = append(fields, name+": {}")
+	}
 	if tools == nil {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(expected, &fields); err != nil {
-			return nil, err
-		}
-		var node yaml.Node
-		if err := yaml.Unmarshal(fields["tools"], &node); err != nil {
-			return nil, err
-		}
-		object.Content = append(object.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tools"}, node.Content[0],
-		)
-	} else {
-		tools = resolveYAMLAlias(tools)
-		for _, name := range names {
-			tools.Content = append(tools.Content,
-				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
-				&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle},
-			)
+		tools = object
+		if _, merge := yamlChild(object, "<<"); merge == nil {
+			fields = []string{"tools: {" + strings.Join(fields, ", ") + "}"}
+		} else {
+			var updated map[string]json.RawMessage
+			if err := json.Unmarshal(expected, &updated); err != nil {
+				return nil, err
+			}
+			fields = []string{"tools: " + string(updated["tools"])}
 		}
 	}
-	var output bytes.Buffer
-	encoder := yaml.NewEncoder(&output)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(root); err != nil {
-		return nil, err
-	}
-	candidate, _, err := sourceJSON(SourceFormatYAML, output.Bytes())
+	output := insertYAMLFields(raw, tools, fields)
+	candidate, _, err := sourceJSON(SourceFormatYAML, output)
 	if err == nil && sameSourceJSON(candidate, expected) {
-		return output.Bytes(), nil
+		return output, nil
 	}
 	var fallback bytes.Buffer
 	if err := json.Indent(&fallback, expected, "", "  "); err != nil {
 		return nil, err
 	}
 	return fallback.Bytes(), nil
+}
+
+func insertYAMLFields(raw []byte, node *yaml.Node, fields []string) []byte {
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	position := node
+	flow := node.Style&yaml.FlowStyle != 0
+	if !flow {
+		if len(node.Content) == 0 {
+			return nil
+		}
+		position = node.Content[0]
+	}
+	lines := strings.SplitAfter(string(raw), "\n")
+	if position.Line < 1 || position.Line > len(lines) {
+		return nil
+	}
+	line := lines[position.Line-1]
+	runes := []rune(line)
+	if position.Column < 1 || position.Column > len(runes) {
+		return nil
+	}
+	prefix := string(runes[:position.Column-1])
+	offset := len(strings.Join(lines[:position.Line-1], ""))
+	var insertion string
+	if flow {
+		offset += len(prefix)
+		if raw[offset] != '{' {
+			return nil
+		}
+		offset++
+		insertion = strings.Join(fields, ", ")
+		if len(node.Content) > 0 {
+			insertion += ", "
+		}
+	} else {
+		if strings.TrimSpace(prefix) != "" {
+			return nil
+		}
+		newline := "\n"
+		if strings.HasSuffix(line, "\r\n") {
+			newline = "\r\n"
+		}
+		insertion = prefix + strings.Join(fields, newline+prefix) + newline
+	}
+	output := append([]byte(nil), raw[:offset]...)
+	output = append(output, insertion...)
+	return append(output, raw[offset:]...)
 }
 
 func editJSONObject(raw []byte, key string, edit func(json.RawMessage) ([]byte, error)) ([]byte, error) {

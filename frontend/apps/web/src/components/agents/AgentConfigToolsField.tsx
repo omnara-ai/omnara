@@ -6,7 +6,6 @@ import {
   permissionSelection,
 } from '@/components/agents/agentConfigBasicExtract'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
-import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
 import { ChevronDownIcon, PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -47,14 +46,18 @@ export function AgentConfigToolsField({
   onToolsChange: (tools: BasicTool[]) => void
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
-  const includedTools = tools.filter((tool) => automaticallyAddedToolNames.has(tool.name))
-  const visibleTools = tools.filter(
-    (tool) => !automaticallyAddedToolNames.has(tool.name) && tool.name !== 'set_integration_target',
-  )
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
+  const includedTools = tools.filter((tool) => catalogByName.get(tool.name)?.automatically_added)
+  const visibleTools = catalog
+    ? tools.filter(
+        (tool) =>
+          !catalogByName.get(tool.name)?.automatically_added &&
+          tool.name !== 'set_integration_target',
+      )
+    : []
   const availableTools = catalogTools.filter(
     (entry) =>
-      !automaticallyAddedToolNames.has(entry.name) &&
+      !entry.automatically_added &&
       entry.name !== 'set_integration_target' &&
       tools.every((tool) => tool.name !== entry.name),
   )
@@ -110,12 +113,24 @@ export function AgentConfigToolsField({
                 <PermissionModeSelect
                   toolName={tool.name}
                   entry={entry}
-                  value={tool.permission?.mode ?? entry?.default_permission.mode ?? ''}
+                  allowDisable={tool.enabled === false}
+                  value={
+                    tool.enabled === false
+                      ? 'disabled'
+                      : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
+                  }
                   onChange={(mode) => {
                     onToolsChange(
                       tools.map((currentTool) =>
                         currentTool.name === tool.name
-                          ? { ...currentTool, permission: { mode, parameters: {} } }
+                          ? {
+                              ...currentTool,
+                              enabled: mode === 'disabled' ? false : undefined,
+                              permission:
+                                mode === 'disabled'
+                                  ? currentTool.permission
+                                  : { mode, parameters: {} },
+                            }
                           : currentTool,
                       ),
                     )

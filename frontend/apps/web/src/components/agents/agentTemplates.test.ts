@@ -1,7 +1,6 @@
 import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
 import { machinePool } from '@/test/fixtures'
 
 import { agentTemplateBasicConfig, agentTemplates, defaultAgentTools } from './agentTemplates'
@@ -61,7 +60,7 @@ describe('defaultAgentTools', () => {
 })
 
 it.each(agentTemplates)(
-  '$name leaves machine tools implicit with or without a pool',
+  '$name leaves machine tools to source defaulting with or without a pool',
   (template) => {
     const names = ['ask_question', 'web_search', 'web_fetch']
     const permissions = {
@@ -69,8 +68,8 @@ it.each(agentTemplates)(
       permission_modes: [],
     }
     const catalog: ToolCatalog = {
-      built_in_tools: [...names, ...automaticallyAddedToolNames].map((name) =>
-        catalogEntry(name, 'always_allow'),
+      built_in_tools: [...names, 'run_command', 'create_machine', 'skill', 'spawn_agent'].map(
+        (name) => catalogEntry(name, 'always_allow'),
       ),
       custom_tool_permissions: permissions,
       mcp_tool_permissions: permissions,

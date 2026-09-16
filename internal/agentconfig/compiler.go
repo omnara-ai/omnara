@@ -168,11 +168,11 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 	}
 	additions := missingDefaultToolNames(source)
 	if len(additions) > 0 {
-		raw, err = addSourceTools(format, raw, root, additions)
+		raw, err = AddSourceTools(format, raw, additions)
 		if err != nil {
 			return Result{}, err
 		}
-		source, root, err = parseSource(format, raw)
+		source, _, err = parseSource(format, raw)
 		if err != nil {
 			return Result{}, err
 		}
@@ -313,32 +313,25 @@ func requiresModelToolSupport(compiled Compiled) bool {
 			return true
 		}
 	}
-	return len(compiled.MCP) > 0 || len(compiled.Subagents) > 0
+	return len(compiled.MCP) > 0
 }
 
 func missingDefaultToolNames(source AgentConfigSource) []string {
 	var names []string
 	if len(source.MachineSources) > 0 {
-		names = append(names,
-			toolcatalog.ToolNameRunCommand,
-			toolcatalog.ToolNameWriteProcess,
-			toolcatalog.ToolNameReadProcess,
-			toolcatalog.ToolNameStopProcess,
-			toolcatalog.ToolNameListProcesses,
-			toolcatalog.ToolNameListMachines,
-			toolcatalog.ToolNameInspectMachine,
-			toolcatalog.ToolNameUploadFile,
-			toolcatalog.ToolNameDownloadFile,
-		)
+		names = append(names, toolcatalog.MachineToolNames()...)
 		for _, machine := range source.MachineSources {
 			if machine.MachinePoolName != "" {
-				names = append(names, toolcatalog.ToolNameCreateMachine, toolcatalog.ToolNameDeleteMachine)
+				names = append(names, toolcatalog.MachinePoolToolNames()...)
 				break
 			}
 		}
 	}
 	if len(source.Skills) > 0 {
 		names = append(names, toolcatalog.ToolNameSkill)
+	}
+	if len(source.Subagents) > 0 {
+		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
 	return slices.DeleteFunc(names, func(name string) bool {
 		_, configured := source.Tools[name]

@@ -65,11 +65,12 @@ type Catalog struct {
 }
 
 type Entry struct {
-	Name              string
-	Description       string
-	DefaultPermission toolpermission.Selection
-	PermissionModes   []toolpermission.ModeDescriptor
-	InputSchema       json.RawMessage
+	Name               string
+	Description        string
+	AutomaticallyAdded bool
+	DefaultPermission  toolpermission.Selection
+	PermissionModes    []toolpermission.ModeDescriptor
+	InputSchema        json.RawMessage
 }
 
 var defaultCatalog = sync.OnceValues(buildDefaultCatalog)
@@ -305,11 +306,12 @@ func toolEntry(
 		return Entry{}, fmt.Errorf("marshal %s tool schema: %w", name, err)
 	}
 	return Entry{
-		Name:              name,
-		Description:       description,
-		DefaultPermission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
-		PermissionModes:   toolpermission.CommonModeDescriptors(),
-		InputSchema:       schema,
+		Name:               name,
+		Description:        description,
+		AutomaticallyAdded: automaticallyAdded(name),
+		DefaultPermission:  toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+		PermissionModes:    toolpermission.CommonModeDescriptors(),
+		InputSchema:        schema,
 	}, nil
 }
 

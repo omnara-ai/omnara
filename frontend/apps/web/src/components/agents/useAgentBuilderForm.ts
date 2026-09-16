@@ -195,7 +195,9 @@ export function useAgentBuilderForm(
       patch({ mcpServers })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
-      patch(subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents })
+      changeSources(
+        subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents },
+      )
     },
     setMaxSubagents: (maxSubagents: string) => {
       patch({ maxSubagents })

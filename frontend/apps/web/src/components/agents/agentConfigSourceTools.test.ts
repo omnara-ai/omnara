@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
-
 import { type BasicConfig, createBasicConfigSession } from './useAgentBuilderForm'
 
 const minimalYaml = `instruction: Do the thing.
@@ -50,7 +48,7 @@ machine_sources:
     })
   })
 
-  it('does not write implicit tools when changing sources', () => {
+  it('leaves tool defaulting to the preview endpoint when changing sources', () => {
     const source = `${minimalYaml}machine_sources:
   - machine_name: build-box
 `
@@ -62,34 +60,39 @@ machine_sources:
     expect(parse(applyToSource(source, config))).not.toHaveProperty('tools')
   })
 
-  it.each([...automaticallyAddedToolNames])('round-trips explicitly disabled %s', (name) => {
-    const source = `${minimalYaml}tools:
+  it.each(['run_command', 'skill', 'spawn_agent', 'send_integration_message', 'web_search'])(
+    'round-trips explicitly disabled %s',
+    (name) => {
+      const source = `${minimalYaml}tools:
   ${name}:
     enabled: false
     permission:
       mode: always_ask
 `
-    const config = mustDeserialize(source)
-    expect(config.tools).toEqual([
-      { name, enabled: false, permission: { mode: 'always_ask', parameters: {} } },
-    ])
-    expect(applyToSource(source, config)).toBe(source)
-    config.instruction = 'Changed instruction.'
-    expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name, 'enabled'], false)
-    config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
-    expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name], {
-      type: 'built_in',
-      permission: { mode: 'always_ask' },
-    })
-  })
+      const config = mustDeserialize(source)
+      expect(config.tools).toEqual([
+        { name, enabled: false, permission: { mode: 'always_ask', parameters: {} } },
+      ])
+      expect(applyToSource(source, config)).toBe(source)
+      config.instruction = 'Changed instruction.'
+      expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name, 'enabled'], false)
+      config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
+      expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name], {
+        type: 'built_in',
+        permission: { mode: 'always_ask' },
+      })
+    },
+  )
 
-  it('rejects disabled tools outside the Other tools group', () => {
+  it('round-trips disabled tool names without catalog knowledge', () => {
     const source = `${minimalYaml}tools:
   shell:
     enabled: false
     permission:
       mode: always_ask
 `
-    expect(deserialize(source)).toBeNull()
+    const config = deserialize(source)
+    expect(config).not.toBeNull()
+    if (config) expect(applyToSource(source, config)).toBe(source)
   })
 })

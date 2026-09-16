@@ -946,6 +946,10 @@ export type ToolPermissionProfile = {
 export type ToolCatalogEntry = {
     name: string;
     description: string;
+    /**
+     * Whether this tool is added automatically based on config resources or integration context rather than selected manually.
+     */
+    automatically_added?: boolean;
     default_permission: ToolPermissionSelection;
     permission_modes: Array<ToolPermissionMode>;
 };
@@ -7407,8 +7411,8 @@ export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses
 export type ResolveAgentConfigToolsData = {
     body: ResolveAgentConfigToolsRequest;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/agent-configs/tools';

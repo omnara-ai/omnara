@@ -1525,7 +1525,7 @@ export const deleteIntegrationInstallMutation = (options?: Partial<Options<Delet
 /**
  * Resolve agent config tools
  *
- * Returns configured built-in and custom tools plus missing machine and skill defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual integration tools, discover MCP tools, or change any configuration.
+ * Returns configured built-in and custom tools plus missing machine, skill, and subagent defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual integration tools, discover MCP tools, or change any configuration.
  */
 export const resolveAgentConfigToolsMutation = (options?: Partial<Options<ResolveAgentConfigToolsData>>): UseMutationOptions<ResolveAgentConfigToolsResponse, ResolveAgentConfigToolsError, Options<ResolveAgentConfigToolsData>> => {
     const mutationOptions: UseMutationOptions<ResolveAgentConfigToolsResponse, ResolveAgentConfigToolsError, Options<ResolveAgentConfigToolsData>> = {

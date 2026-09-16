@@ -7,23 +7,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func TestRuntimeDefaultToolCompatibility(t *testing.T) {
+func TestRuntimeDoesNotAddSourceDefaultTools(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		compiled Compiled
 		want     int
 	}{
-		{"legacy skill", Compiled{Skills: []SkillCompiled{{PublicID: "legacy-skill"}}}, 1},
-		{"legacy skill with subagents", Compiled{
-			Skills:    []SkillCompiled{{PublicID: "legacy-skill"}},
+		{"no runtime skill defaults", Compiled{Skills: []SkillCompiled{{PublicID: "test-skill"}}}, 0},
+		{"no runtime subagent defaults", Compiled{
+			Skills:    []SkillCompiled{{PublicID: "test-skill"}},
 			Subagents: map[string]SubagentCompiled{"worker": {Type: SubagentTypeSelf}},
-		}, 1 + len(toolcatalog.SubagentToolNames())},
+		}, 0},
 		{"disabled skill", Compiled{
-			Skills: []SkillCompiled{{PublicID: "legacy-skill"}},
+			Skills: []SkillCompiled{{PublicID: "test-skill"}},
 			Tools: map[string]ToolCompiled{"skill": {
 				Enabled: false,
 				Permission: toolpermission.Selection{
@@ -60,6 +59,7 @@ func TestAddSourceToolsPreservesUnrelatedValues(t *testing.T) {
 		{"yaml merge", SourceFormatYAML, "shared: &shared {tools: {web_search: {}}}\n<<: *shared\n", ""},
 		{"yaml tool merge", SourceFormatYAML, "shared: &shared {web_search: {}}\ntools: {<<: *shared}\n", ""},
 		{"yaml markers", SourceFormatYAML, "---\ntools: {}\n...\n", ""},
+		{"yaml CR line endings", SourceFormatYAML, "instruction: hello\rtools:\r  web_search: {}\r", ""},
 		{
 			"json missing tools", SourceFormatJSON,
 			`{"z":9007199254740993,"a":"a < b & c"}`, `"z":9007199254740993,"a":"a < b & c"`,
@@ -68,11 +68,11 @@ func TestAddSourceToolsPreservesUnrelatedValues(t *testing.T) {
 		{"json duplicate tools", SourceFormatJSON, `{"tools":{"skill":{"enabled":false}},"tools":{}}`, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			original, root, err := sourceJSON(test.format, []byte(test.source))
+			original, _, err := sourceJSON(test.format, []byte(test.source))
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := addSourceTools(test.format, []byte(test.source), root, []string{"skill"})
+			result, err := AddSourceTools(test.format, []byte(test.source), []string{"skill"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,6 +112,61 @@ func TestAddSourceToolsPreservesUnrelatedValues(t *testing.T) {
 			}
 			if !sameSourceJSON(original, restored) {
 				t.Fatalf("changed unrelated values: %s -> %s", original, restored)
+			}
+		})
+	}
+}
+
+func TestAddSourceToolsPreservesYAMLBytes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			"no tools",
+			"# keep\n---\ninstruction: 'hello' # unchanged\n...\n",
+			"# keep\n---\ntools: {skill: {}}\ninstruction: 'hello' # unchanged\n...\n",
+		},
+		{
+			"flow without tools",
+			"{instruction: 'hello'} # keep\n",
+			"{tools: {skill: {}}, instruction: 'hello'} # keep\n",
+		},
+		{
+			"inherited tools",
+			"# keep\n<<: {tools: {web_search: {permission: {mode: always_ask}}}}\ninstruction: help\n",
+			"# keep\ntools: {\"web_search\":{\"permission\":{\"mode\":\"always_ask\"}},\"skill\":{}}\n" +
+				"<<: {tools: {web_search: {permission: {mode: always_ask}}}}\ninstruction: help\n",
+		},
+		{
+			"block with four spaces",
+			"tools:\n    # keep\n    web_search: {}\ninstruction: |+\n  hello\n\n",
+			"tools:\n    # keep\n    skill: {}\n    web_search: {}\ninstruction: |+\n  hello\n\n",
+		},
+		{
+			"flow with unicode prefix",
+			"{instruction: '😃', tools: {web_search: {}}}\n",
+			"{instruction: '😃', tools: {skill: {}, web_search: {}}}\n",
+		},
+		{
+			"empty flow",
+			"tools: {} # keep\n",
+			"tools: {skill: {}} # keep\n",
+		},
+		{
+			"CRLF",
+			"tools:\r\n  web_search: {}\r\n",
+			"tools:\r\n  skill: {}\r\n  web_search: {}\r\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := AddSourceTools(SourceFormatYAML, []byte(test.source), []string{"skill"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != test.want {
+				t.Fatalf("got:\n%s\nwant:\n%s", got, test.want)
 			}
 		})
 	}

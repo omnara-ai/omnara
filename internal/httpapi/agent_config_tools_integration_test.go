@@ -29,8 +29,10 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		)
 	}
 	yaml := "machine_sources: [{machine_pool_name: not-created-yet}]\n" +
+		"subagents: {worker: {type: profile, profile: not-created-yet}}\n" +
 		"tools: {run_command: {enabled: false, permission: {mode: always_ask}}}\n"
 	jsonSource := `{"machine_sources":[{"machine_pool_name":"not-created-yet"}],` +
+		`"subagents":{"worker":{"type":"profile","profile":"not-created-yet"}},` +
 		`"tools":{"run_command":{"enabled":false,"permission":{"mode":"always_ask"}}}}`
 	preview := request(map[string]any{"source": yaml, "source_format": "yaml"}, project.AdminToken, http.StatusOK)
 	jsonPreview := request(
@@ -40,8 +42,8 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		t.Fatal(diff)
 	}
 	tools := testutil.RequireType[[]any](t, preview["tools"])
-	if len(tools) != 11 {
-		t.Fatalf("expected 11 pool tools, got %v", tools)
+	if len(tools) != 16 {
+		t.Fatalf("expected 11 pool tools and 5 subagent tools, got %v", tools)
 	}
 	for _, item := range tools {
 		tool := testutil.RequireType[map[string]any](t, item)

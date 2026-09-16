@@ -3,7 +3,6 @@ import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
-import { automaticallyAddedToolNames } from '@/components/agents/implicitTools'
 import type {
   BasicConfig,
   BasicMachineSource,
@@ -163,13 +162,6 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
   const parsed = basicDocument.safeParse(document.toJS())
   if (!parsed.success) return null
   const doc = parsed.data
-  if (
-    Object.entries(doc.tools ?? {}).some(
-      ([name, entry]) => entry.enabled === false && !automaticallyAddedToolNames.has(name),
-    )
-  )
-    return null
-
   const machineSources: BasicMachineSource[] = []
   for (const entry of doc.machine_sources ?? []) {
     const source = machineSourceDraft(entry)

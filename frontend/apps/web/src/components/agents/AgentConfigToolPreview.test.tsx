@@ -20,6 +20,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import { parse } from 'yaml'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { newSubagent } from '@/components/agents/agentConfigSubagents'
 import {
   createBasicConfigSession,
   newMachineSource,
@@ -75,17 +76,22 @@ const catalog: ToolCatalog = {
 
 const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
 
+const subagentToolNames = ['spawn_agent', 'read_agent', 'list_agents']
+
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'send_integration_message'].map((name) => ({
-    name,
-    description: name,
-    default_permission: alwaysAllowProfile.default_permission,
-    permission_modes:
-      name === 'send_integration_message'
-        ? alwaysAllowProfile.permission_modes.slice(0, 1)
-        : alwaysAllowProfile.permission_modes,
-  })),
+  built_in_tools: ['run_command', 'skill', 'send_integration_message', ...subagentToolNames].map(
+    (name) => ({
+      name,
+      description: name,
+      automatically_added: true,
+      default_permission: alwaysAllowProfile.default_permission,
+      permission_modes:
+        name === 'send_integration_message'
+          ? alwaysAllowProfile.permission_modes.slice(0, 1)
+          : alwaysAllowProfile.permission_modes,
+    }),
+  ),
 }
 
 let container: HTMLDivElement
@@ -230,6 +236,38 @@ function BasicFormHarness({ source = includedSource }: { source?: string }) {
       <button
         type="button"
         onClick={() => {
+          form.setSubagents([{ ...newSubagent(), key: 'worker', type: 'self' }])
+        }}
+      >
+        Select subagent
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          form.setSubagents(form.subagents.map((row) => ({ ...row, key: '' })))
+        }}
+      >
+        Clear subagent key
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          form.setSubagents([newSubagent()])
+        }}
+      >
+        Incomplete subagent
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          form.setSubagents([])
+        }}
+      >
+        Remove subagent
+      </button>
+      <button
+        type="button"
+        onClick={() => {
           form.setMachineSources([{ ...newMachineSource('pool'), name: 'pool' }])
         }}
       >
@@ -291,7 +329,10 @@ it('does not offer the Slack tool when it is absent from the source', async () =
   expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
   expect(requests).toEqual([
-    { source_format: 'json', source: JSON.stringify({ machine_sources: [], skills: [] }) },
+    {
+      source_format: 'json',
+      source: JSON.stringify({ machine_sources: [], skills: [], subagents: {} }),
+    },
   ])
 })
 
@@ -304,6 +345,9 @@ it.each([true, false])(
         source={`${includedSource}  send_integration_message: {enabled: ${enabled}}\n`}
       />,
     )
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    })
     click('[data-slot="collapsible-trigger"]')
     await vi.waitFor(() => {
       expect(
@@ -342,7 +386,11 @@ it('uses backend tool names for source changes while keeping permission edits lo
         return jsonResponse({
           tools:
             request.source ===
-            JSON.stringify({ machine_sources: [{ machine_pool_name: 'pool' }], skills: [] })
+            JSON.stringify({
+              machine_sources: [{ machine_pool_name: 'pool' }],
+              skills: [],
+              subagents: {},
+            })
               ? [
                   {
                     name: 'run_command',
@@ -456,6 +504,8 @@ function sourceToolsRoute(): FakeRoute {
       if (request.source.includes('machine_pool_name') || request.source.includes('machine_name'))
         names.push('run_command')
       if (request.source.includes('skl_')) names.push('skill')
+      if (request.source.includes('"type":"self"') || request.source.includes('"type":"profile"'))
+        names.push(...subagentToolNames)
       return toolResponse(names)
     },
   }
@@ -507,37 +557,121 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   })
 })
 
-it('removes saved tools even when a source is removed before its first lookup completes', async () => {
-  let release: (response: Response) => void = () => undefined
-  const pending = new Promise<Response>((resolve) => {
-    release = resolve
-  })
-  Providers = testProviders([
-    {
-      ...sourceToolsRoute(),
-      respond: ({ body }) =>
-        schemas.zResolveAgentConfigToolsRequest.parse(body).source.includes('machine_pool_name')
-          ? pending.then((response) => response.clone())
-          : toolResponse([]),
-    },
-  ])
+it('adds subagent defaults, preserves edits, and cleans up after incomplete or removed subagents', async () => {
+  Providers = testProviders([sourceToolsRoute()])
   await renderAndFlush(
     <BasicFormHarness
-      source={`${includedSource}  run_command: {enabled: false}
-machine_sources: [{machine_pool_name: pool}]
+      source={`${includedSource}  spawn_agent: {enabled: false}
+  read_agent: {permission: {mode: always_ask}}
+subagents: {worker: {type: self}}
 `}
     />,
   )
-  expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('true')
-  clickLabel('Remove pool')
-  act(() => {
-    release(toolResponse(['run_command']))
+  await vi.waitFor(() => {
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+      'tools.list_agents',
+    )
   })
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+  })
+  click('[data-slot="collapsible-trigger"]')
+  expect(container.querySelector('[aria-label="spawn_agent permission"]')?.textContent).toBe(
+    'Disabled',
+  )
+  expect(container.querySelector('[aria-label="read_agent permission"]')?.textContent).toBe(
+    'Always ask',
+  )
+  await selectIncludedPermission('list_agents', 'Disabled')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.list_agents.enabled',
+    false,
+  )
+  clickLabel('Clear subagent key')
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+    const config: unknown = parse(container.querySelector('output')?.textContent ?? '')
+    expect(config).toHaveProperty('tools.spawn_agent.enabled', false)
+    expect(config).toHaveProperty('tools.read_agent.permission.mode', 'always_ask')
+    expect(config).toHaveProperty('tools.list_agents.enabled', false)
+  })
+  clickLabel('Select subagent')
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+      'tools.list_agents.enabled',
+      false,
+    )
+  })
+  clickLabel('Clear subagent key')
+  clickLabel('Remove subagent')
+  await vi.waitFor(() => {
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
+      web_search: { permission: { mode: 'always_ask' } },
+    })
+    expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
+  })
+  clickLabel('Incomplete subagent')
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
     expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
-    expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
-      'tools.run_command',
-    )
+  })
+  clickLabel('Select subagent')
+  await vi.waitFor(() => {
+    const config: unknown = parse(container.querySelector('output')?.textContent ?? '')
+    for (const name of subagentToolNames) {
+      expect(config).toHaveProperty(['tools', name], { type: 'built_in' })
+    }
   })
 })
+
+it.each([
+  {
+    source: 'machine_sources: [{machine_pool_name: pool}]',
+    tool: 'run_command',
+    marker: 'machine_pool_name',
+    remove: 'Remove pool',
+  },
+  {
+    source: 'subagents: {worker: {type: self}}',
+    tool: 'spawn_agent',
+    marker: 'worker',
+    remove: 'Remove subagent',
+  },
+])(
+  'removes saved $tool even when its source is removed before its first lookup completes',
+  async (test) => {
+    let release: (response: Response) => void = () => undefined
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    Providers = testProviders([
+      {
+        ...sourceToolsRoute(),
+        respond: ({ body }) =>
+          schemas.zResolveAgentConfigToolsRequest.parse(body).source.includes(test.marker)
+            ? pending.then((response) => response.clone())
+            : toolResponse([]),
+      },
+    ])
+    await renderAndFlush(
+      <BasicFormHarness
+        source={`${includedSource}  ${test.tool}: {enabled: false}
+${test.source}
+`}
+      />,
+    )
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('true')
+    clickLabel(test.remove)
+    act(() => {
+      release(toolResponse([test.tool]))
+    })
+    await vi.waitFor(() => {
+      expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+      expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
+      expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
+        `tools.${test.tool}`,
+      )
+    })
+  },
+)
