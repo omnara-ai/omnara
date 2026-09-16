@@ -21,6 +21,7 @@ import (
 
 func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	toolID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	memoryPath := "/memory/team/nested/file.bin"
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("file")))
 	responseDigest := digest
 	want := []byte{0xff, 0x00, 0x80, 0x42}
@@ -36,7 +37,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 			http.Error(w, "conflict", http.StatusConflict)
 			return
 		}
-		result := map[string]string{"digest": digest}
+		result := map[string]string{"path": memoryPath, "digest": digest}
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
@@ -44,7 +45,8 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 			}
 			content = body
 		} else {
-			w.Header().Set("X-Omnara-Memory-Digest", responseDigest)
+			w.Header().Set("ETag", `W/"`+digest+`"`)
+			w.Header().Set("X-Omnara-File-Digest", responseDigest)
 			_, _ = w.Write(content)
 			return
 		}
@@ -95,6 +97,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	}
 	responseDigest = digest
 	transfer.direction = "upload"
+	output.Reset()
 	if err = os.WriteFile(path, want, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +106,13 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	}
 	if !bytes.Equal(content, want) {
 		t.Fatal("binary upload changed content")
+	}
+	var uploaded map[string]string
+	if err := json.Unmarshal(output.Bytes(), &uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if uploaded["path"] != memoryPath || uploaded["digest"] != digest {
+		t.Fatalf("unexpected upload result: %s", output.Bytes())
 	}
 	if err = os.WriteFile(path, make([]byte, daemonprotocol.MaxFileTransferBytes+1), 0600); err != nil {
 		t.Fatal(err)
@@ -125,6 +135,8 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 	toolID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
 	content := []byte{0xff, 0x00, 0x80, 0x42}
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	uploadResult := map[string]string{"path": "/artifacts/" + artifactID, "digest": digest}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/daemon/tool-calls/"+toolID+"/file" || r.Header.Get("Authorization") != "Bearer token-a" {
 			t.Errorf("unexpected request: %s", r.URL.Path)
@@ -134,9 +146,10 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 			if err != nil || !bytes.Equal(body, content) || r.URL.Query().Get("filename") != "file.bin" {
 				t.Errorf("unexpected upload: %q, %v", body, err)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"artifact_id": artifactID})
+			_ = json.NewEncoder(w).Encode(uploadResult)
 			return
 		}
+		w.Header().Set("X-Omnara-File-Digest", digest)
 		_, _ = w.Write(content)
 	}))
 	defer server.Close()
@@ -158,16 +171,31 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%s exited %d: %s", direction, code, stderr.String())
 		}
-		if direction == "upload" && !bytes.Contains(output.Bytes(), []byte(artifactID)) {
-			t.Fatal("artifact ID missing")
+		if direction == "upload" && output.String() != `{"path":"/artifacts/`+artifactID+`","digest":"`+digest+`"}`+"\n" {
+			t.Fatalf("unexpected upload result: %s", output.Bytes())
 		}
-		if direction == "download" && output.Len() != 0 {
+		if direction == "download" && output.String() != `{"digest":"`+digest+`"}`+"\n" {
 			t.Fatalf("unexpected download output: %s", output.String())
 		}
 	}
 	got, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(got, content) {
 		t.Fatalf("download %q: %v", got, err)
+	}
+	for _, invalid := range []map[string]string{
+		{"artifact_id": artifactID},
+		{"path": ""},
+		{"path": "/artifacts/" + artifactID},
+		{"path": "/artifacts/" + artifactID, "digest": "invalid"},
+	} {
+		uploadResult = invalid
+		var output bytes.Buffer
+		err := runFileTransfer(context.Background(), fileTransferRequest{
+			direction: "upload", toolCallID: toolID, encodedPath: encoded, endpointSuffix: "/file",
+		}, &output)
+		if err == nil || output.Len() != 0 {
+			t.Fatalf("invalid upload response accepted: %+v, output=%s, err=%v", invalid, output.Bytes(), err)
+		}
 	}
 }
 
