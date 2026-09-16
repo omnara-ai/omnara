@@ -187,7 +187,16 @@ export function useAgentBuilderForm(
       patch({ mcpServers })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
-      patch(subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents })
+      patch(
+        subagents.length === 0
+          ? {
+              subagents,
+              maxSubagents: '',
+              maxDepth: '',
+              tools: draft.tools.filter((tool) => tool.name !== 'spawn_agent'),
+            }
+          : { subagents },
+      )
     },
     setMaxSubagents: (maxSubagents: string) => {
       patch({ maxSubagents })

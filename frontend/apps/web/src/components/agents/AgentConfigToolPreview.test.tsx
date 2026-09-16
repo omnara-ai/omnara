@@ -699,10 +699,12 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   })
 })
 
-it('displays subagent defaults without saving them and preserves explicit edits', async () => {
+it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (mode) => {
   Providers = testProviders([sourceToolsRoute()])
   await renderAndFlush(
-    <BasicFormHarness source={`${includedSource}subagents: {worker: {type: self}}\n`} />,
+    <BasicFormHarness
+      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {worker: {type: self}}\n`}
+    />,
   )
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
@@ -719,12 +721,18 @@ it('displays subagent defaults without saving them and preserves explicit edits'
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
   )
-  await selectIncludedPermission('read_agent', 'Disabled')
+  await selectIncludedPermission('spawn_agent', mode)
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.spawn_agent',
+  )
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
     'tools.read_agent.enabled',
     false,
   )
   clickLabel('Remove subagent')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
+    'tools.spawn_agent',
+  )
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="spawn_agent permission"]')).toBeNull()
     expect(container.querySelector('[aria-label="list_agents permission"]')).toBeNull()
@@ -759,7 +767,7 @@ it.each([
     remove: 'Remove subagent',
   },
 ])(
-  'preserves explicit $tool when its source is removed before its first lookup completes',
+  'handles explicit $tool when its source is removed before its first lookup completes',
   async (test) => {
     let release: (response: Response) => void = () => undefined
     const pending = new Promise<Response>((resolve) => {
@@ -789,10 +797,12 @@ ${test.source}
     await vi.waitFor(() => {
       expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
       expect(container.querySelector('output')?.getAttribute('data-error')).toBe('false')
-      expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-        `tools.${test.tool}.enabled`,
-        false,
-      )
+      const source: unknown = parse(container.querySelector('output')?.textContent ?? '')
+      if (test.tool === 'spawn_agent') {
+        expect(source).not.toHaveProperty('tools.spawn_agent')
+      } else {
+        expect(source).toHaveProperty(`tools.${test.tool}.enabled`, false)
+      }
     })
   },
 )
