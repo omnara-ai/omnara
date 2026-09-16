@@ -289,6 +289,9 @@ func prepareDaemonMachineCreate(
 	if err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, err
 	}
+	if err := validateMachineCwdLength("cwd", input.Cwd); err != nil {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, storeerr.InvalidRequest(err)
+	}
 	if strings.ContainsRune(input.Cwd, 0) {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
 			"cwd cannot contain NUL",
@@ -388,6 +391,9 @@ func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput)
 	}
 	cwd := locked.Cwd
 	if input.Cwd != nil {
+		if err := validateMachineCwdLength("cwd", *input.Cwd); err != nil {
+			return MachineRecord{}, storeerr.InvalidRequest(err)
+		}
 		cwd = *input.Cwd
 	}
 	if strings.ContainsRune(cwd, 0) {

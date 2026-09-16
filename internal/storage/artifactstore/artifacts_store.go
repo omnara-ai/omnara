@@ -75,7 +75,10 @@ func (s *Store) CreateArtifact(
 		event.Error(cleanupErr)
 		event.Done(ctx)
 	}
-	return record, err
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	return record, nil
 }
 
 func (s *Store) createArtifactRecord(
@@ -98,6 +101,9 @@ func (s *Store) createArtifactRecord(
 		return ArtifactRecord{}, ArtifactTransactionRolledBack, err
 	}
 	if err := tx.Commit(ctx); err != nil {
+		if errors.Is(err, pgx.ErrTxCommitRollback) {
+			return ArtifactRecord{}, ArtifactTransactionRolledBack, fmt.Errorf("commit create artifact: %w", err)
+		}
 		return ArtifactRecord{}, ArtifactTransactionUnknown, fmt.Errorf("commit create artifact: %w", err)
 	}
 	return record, ArtifactTransactionCommitted, nil

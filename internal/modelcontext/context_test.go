@@ -387,7 +387,8 @@ func TestReceiveOnlyChannelExposesDiscoveryAndSelection(t *testing.T) {
 	}
 	want := map[string]bool{toolcatalog.ToolNameListChannels: false,
 		toolcatalog.ToolNameGetChannel:        false,
-		toolcatalog.ToolNameSetCurrentChannel: false}
+		toolcatalog.ToolNameSetCurrentChannel: false,
+		toolcatalog.ToolNameReadFile:          false, toolcatalog.ToolNameSearchFiles: false}
 	if len(contract.Tools) != len(want) {
 		t.Fatalf("receive-only channel tools: got %+v, want discovery and selection", contract.Tools)
 	}
@@ -657,8 +658,8 @@ func TestBuildUsesAgentConfigEnabledToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 1 || bundle.ToolSpecs[0].Name != "run_command" {
-		t.Fatalf("expected only enabled run_command tool from config, got %+v", bundle.ToolSpecs)
+	if len(bundle.ToolSpecs) != 3 || bundle.ToolSpecs[1].Name != "run_command" {
+		t.Fatalf("expected run_command and retrieval tools from config, got %+v", bundle.ToolSpecs)
 	}
 }
 
@@ -809,10 +810,10 @@ func TestBuildIncludesReadyMCPToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 1 {
-		t.Fatalf("expected one mcp tool spec, got %+v", bundle.ToolSpecs)
+	if len(bundle.ToolSpecs) != 3 {
+		t.Fatalf("expected mcp and retrieval tool specs, got %+v", bundle.ToolSpecs)
 	}
-	spec := bundle.ToolSpecs[0]
+	spec := bundle.ToolSpecs[2]
 	if spec.Name != "mcp__docs__greet" ||
 		spec.Type != toolcatalog.ToolTypeMCP ||
 		spec.Permission.Mode != toolpermission.ModeAlwaysAllow ||
@@ -901,10 +902,10 @@ skills:
 	if err != nil {
 		t.Fatalf("build runtime tool specs: %v", err)
 	}
-	if len(specs) != 1 ||
-		specs[0].Name != "skill" ||
-		specs[0].Permission.Mode != toolpermission.ModeAlwaysAsk ||
-		!strings.Contains(specs[0].Description, "available_skills catalog") {
+	if len(specs) != 3 ||
+		specs[2].Name != "skill" ||
+		specs[2].Permission.Mode != toolpermission.ModeAlwaysAsk ||
+		!strings.Contains(specs[2].Description, "available_skills catalog") {
 		t.Fatalf("runtime tool specs = %+v, want one explicit skill tool", specs)
 	}
 }

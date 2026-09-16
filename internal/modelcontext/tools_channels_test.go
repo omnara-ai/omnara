@@ -36,7 +36,8 @@ func TestImplicitChannelToolkitTracksIndependentReadAndSendGrants(t *testing.T) 
 			want := map[string]bool{
 				toolcatalog.ToolNameListChannels: true, toolcatalog.ToolNameGetChannel: true,
 				toolcatalog.ToolNameSetCurrentChannel: true,
-				toolcatalog.ToolNameReadChannel:       tc.read, toolcatalog.ToolNameSendChannelMessage: tc.send,
+				toolcatalog.ToolNameReadFile:          true, toolcatalog.ToolNameSearchFiles: true,
+				toolcatalog.ToolNameReadChannel: tc.read, toolcatalog.ToolNameSendChannelMessage: tc.send,
 			}
 			seen := make(map[string]bool)
 			for _, tool := range contract.Tools {

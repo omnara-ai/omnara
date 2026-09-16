@@ -52,7 +52,8 @@ func TestCompileCustomToolPreservesLocalComposedExecutionSchema(t *testing.T) {
 	require.False(t, strings.Contains(string(stored), "omnara_channel"), "source compilation retains the execution schema")
 	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
 	require.NoError(t, err)
-	require.Len(t, contract.Tools, 1)
+	require.Len(t, contract.Tools, 3)
+	require.Equal(t, "custom", contract.Tools[0].Name)
 	require.Equal(t, stored, contract.Tools[0].InputSchema)
 	for input, valid := range map[string]bool{
 		`{"kind":"a","value":2}`:      true,

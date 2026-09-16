@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -21,6 +22,9 @@ func getToolCallTx(
 	}
 	row, err := dbsqlc.New(tx).
 		GetToolCall(ctx, dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
@@ -38,6 +42,9 @@ func (s *Store) GetToolCall(
 		ctx,
 		dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: id},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return ToolCallRecord{}, err
 	}

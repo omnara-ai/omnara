@@ -248,6 +248,10 @@ tools:
 	machineID := machinePublicIDForTest(t, launch.MachineBindings[0].MachineID)
 
 	listCall := model.ToolCall{ID: "call_observe-byo-list", Name: "list_machines", Input: json.RawMessage(`{}`)}
+	continuationListCall := model.ToolCall{
+		ID: "call_observe-byo-list-next", Name: "list_machines",
+		Input: json.RawMessage(`{"cursor":"` + machineID + `"}`),
+	}
 	inspectCall := model.ToolCall{ID: "call_observe-byo-inspect", Name: "inspect_machine", Input: json.RawMessage(`{}`)}
 	mixedInspectCall := model.ToolCall{
 		ID:    "call_observe-byo-mixed-inspect",
@@ -280,10 +284,11 @@ tools:
 			createPoolCall,
 			alwaysAllowMixedInspectCall,
 			staleInspectCall,
+			continuationListCall,
 		},
 		fixture.Now.Add(7*time.Second),
 	)
-	for _, index := range []int{0, 3, 4, 5} {
+	for _, index := range []int{0, 3, 4, 5, 6} {
 		if _, err := fixture.Store.Execution().MarkToolCallReady(
 			ctx,
 			executionstore.MarkToolCallReadyInput{
@@ -333,6 +338,16 @@ tools:
 		t.Fatalf("list_machines entry = %+v", machines[0])
 	}
 	assertBYOMachineObservationResult(t, listed, machineID, byo.DisplayName)
+
+	continued, err := executor.Dispatch(ctx, turn, continuationListCall)
+	if err != nil {
+		t.Fatalf("dispatch list continuation: %v", err)
+	}
+	continuedBody := toolResultMapFromTestParts(t, continued.ContentParts)
+	remaining, ok := continuedBody["machines"].([]any)
+	if !ok || len(remaining) != 0 || continuedBody["next_cursor"] != nil {
+		t.Fatalf("unexpected final machine page: %+v", continuedBody)
+	}
 
 	interaction, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
 		ctx,

@@ -1496,6 +1496,10 @@ LEFT JOIN LATERAL (
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
       WHEN block.block_kind = 'artifact' THEN
         jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
+        || CASE
+          WHEN block.exclude_from_model_context THEN jsonb_build_object('exclude_from_model_context', true)
+          ELSE '{}'::jsonb
+        END
     END
     ORDER BY block.ordinal, block.id
   ) FILTER (

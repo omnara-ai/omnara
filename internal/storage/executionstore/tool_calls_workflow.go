@@ -165,8 +165,10 @@ func completedToolCallMatchesTx(
 	if err != nil {
 		return false, err
 	}
-	return result.Outcome == string(outcome) &&
-		sameJSON(storedParts, normalizedJSON(contentParts)), nil
+	if result.Outcome != string(outcome) {
+		return false, nil
+	}
+	return toolResultContentMatchesTx(ctx, qtx, projectID, agentID, toolCallID, storedParts, blocks, contentParts)
 }
 
 func processToolResult(process ProcessRecord) (ToolResultOutcome, json.RawMessage, error) {

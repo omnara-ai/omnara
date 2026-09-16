@@ -149,11 +149,12 @@ model:
 	if err != nil {
 		t.Fatalf("reload model context tool runtime: %v", err)
 	}
-	if len(specs) != 5 {
+	if len(specs) != 7 {
 		t.Fatalf("reloaded toolkit: %+v", specs)
 	}
 	for _, spec := range specs {
-		if !toolcatalog.IsBindingManagedTool(spec.Name) || spec.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		if (!toolcatalog.IsBindingManagedTool(spec.Name) && spec.Name != toolcatalog.ToolNameReadFile &&
+			spec.Name != toolcatalog.ToolNameSearchFiles) || spec.Permission.Mode != toolpermission.ModeAlwaysAllow {
 			t.Fatalf("unexpected implicit tool: %+v", spec)
 		}
 	}

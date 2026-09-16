@@ -707,6 +707,24 @@ func completeQuestionToolCallTx(
 	if err != nil {
 		return err
 	}
+	if len(contentParts) > ToolResultInlineBudgetBytes {
+		ok, err := completedToolCallMatchesTx(
+			ctx, qtx, interaction.ProjectID, interaction.AgentID, interaction.ToolCallID, outcome, contentParts,
+		)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		outcome = ToolResultOutcomeFailed
+		contentParts, err = ToolResultContentParts(json.RawMessage(
+			`{"error":"Question response exceeded the size limit. Ask fewer or shorter questions, or request a shorter answer."}`,
+		))
+		if err != nil {
+			return err
+		}
+	}
 	row, err := qtx.CompleteToolCallFromQuestionInteraction(
 		ctx,
 		dbsqlc.CompleteToolCallFromQuestionInteractionParams{

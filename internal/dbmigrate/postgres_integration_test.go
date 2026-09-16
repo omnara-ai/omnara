@@ -1669,9 +1669,11 @@ func TestFileToolCutoverMigration(t *testing.T) {
 				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(source))), sourceHash)
 				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
 				require.NoError(t, err)
-				require.Len(t, contract.Tools, 1)
-				require.Equal(t, "upload_file", contract.Tools[0].Name)
-				require.Equal(t, "always_ask", contract.Tools[0].Permission.Mode)
+				require.Len(t, contract.Tools, 3)
+				require.Equal(t, "read_file", contract.Tools[0].Name)
+				require.Equal(t, "search_files", contract.Tools[1].Name)
+				require.Equal(t, "upload_file", contract.Tools[2].Name)
+				require.Equal(t, "always_ask", contract.Tools[2].Permission.Mode)
 				var references int
 				require.NoError(t, db.QueryRowContext(ctx, `
 					SELECT count(*) FROM config_references r JOIN agent_configs c ON c.id=r.config_id
