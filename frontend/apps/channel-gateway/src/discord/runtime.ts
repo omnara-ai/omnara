@@ -3,7 +3,7 @@ import { schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
 import { raceWithAbort } from '../async'
-import { isCoreNotFoundError } from '../core-http'
+import { isCoreNotFoundError } from '../core/requests'
 import type { ProviderFactoryContext, RuntimeUnitContext } from '../types'
 import { WorkReservationScope } from '../work-budget'
 import { discordAPIURL, fetchDiscordGatewayInfo, inspectDiscordApplication } from './bootstrap'

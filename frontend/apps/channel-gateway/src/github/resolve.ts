@@ -1,7 +1,7 @@
 import type { ChannelRegistrationTarget, ChannelResolveAddressOperation } from '@omnara/sdk'
 
-import type { CoreClient } from '../core-client'
-import { type OperationRetryOptions, retryOperation } from '../operation-retry'
+import type { CoreClient } from '../core/client'
+import { type OperationRetryOptions, retryOperation } from '../operations/retry'
 import { githubDefinition } from './behavior'
 import type { GitHubClient } from './client'
 import { githubInboundThread } from './inbound-thread'

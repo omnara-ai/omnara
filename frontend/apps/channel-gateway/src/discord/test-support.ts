@@ -9,7 +9,7 @@ import type { JsonBody } from '@omnara/sdk'
 import { expect, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { CoreClient } from '../core-client'
+import type { CoreClient } from '../core/client'
 import type { DiscordUpload } from './client'
 
 export const config = {

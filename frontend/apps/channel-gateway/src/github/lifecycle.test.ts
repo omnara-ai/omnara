@@ -4,8 +4,8 @@ import { ApiError, type ChannelConnectorControlReceipt, schemas } from '@omnara/
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { CoreClient } from '../core-client'
-import { ReceiptClientError } from '../receipt-http'
+import { CoreClient } from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
 import { WorkByteBudget } from '../work-budget'
 import { GitHubAppClient } from './app-client'
 import { githubLifecycleEvent, projectGitHubEvent } from './events'

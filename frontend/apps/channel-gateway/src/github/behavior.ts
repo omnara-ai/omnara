@@ -6,10 +6,10 @@ import {
 } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { CoreClient } from '../core-client'
-import { isTransientCoreError } from '../core-http'
-import type { OperationAttemptContext } from '../operation-retry'
-import { ReceiptClientError } from '../receipt-http'
+import type { CoreClient } from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
+import { isTransientCoreError } from '../core/requests'
+import type { OperationAttemptContext } from '../operations/retry'
 import {
   type ProviderWorkReservation,
   type ReceiptBehaviorContext,

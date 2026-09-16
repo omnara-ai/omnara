@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { testRuntimeHandle } from '../gateway-test-fixtures'
-import { RuntimeLoop, type RuntimeLoopOptions } from '../runtime-loop'
+import { RuntimeLoop, type RuntimeLoopOptions } from '../runtime/loop'
 import { createDiscordFactory } from './factory'
 import { discordCapability } from './gateway'
 import { localIdentifyRedis, redisAvailable } from './identify-test-support'

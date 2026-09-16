@@ -1,4 +1,8 @@
-import { OperationRetryError, type OperationRetryOptions, retryOperation } from '../operation-retry'
+import {
+  OperationRetryError,
+  type OperationRetryOptions,
+  retryOperation,
+} from '../operations/retry'
 import { SlackAPIError, type SlackClient, type SlackUpload } from './client'
 import { type SlackRequest, type SlackResponse, slackTimestamp } from './protocol'
 

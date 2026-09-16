@@ -1,4 +1,4 @@
-import type { CoreClient } from './core-client'
+import type { CoreClient } from './core/client'
 import { processDiscordEvent } from './discord/behavior'
 import { createDiscordFactory } from './discord/factory'
 import { createGitHubFactory } from './github/factory'

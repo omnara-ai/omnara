@@ -7,14 +7,14 @@ import {
   schemas,
 } from '@omnara/sdk'
 
-import type { CoreClient, ReceiptInputRequest } from '../core-client'
-import { isTransientCoreError } from '../core-http'
+import type { CoreClient, ReceiptInputRequest } from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
+import { isTransientCoreError } from '../core/requests'
 import {
   type OperationAttemptContext,
   OperationRetryError,
   retryOperation,
-} from '../operation-retry'
-import { ReceiptClientError } from '../receipt-http'
+} from '../operations/retry'
 import {
   type ProviderWorkReservation,
   type ReceiptBehaviorContext,

@@ -1,7 +1,7 @@
 import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
 import { vi } from 'vitest'
 
-import type { RuntimeHandle } from './app-registry'
+import type { RuntimeHandle } from './runtime/registry'
 import type { GatewayAppConfiguration } from './types'
 
 export function unexpectedTestCall(): never {

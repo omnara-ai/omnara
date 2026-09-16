@@ -3,7 +3,7 @@ import { extname } from 'node:path'
 
 import { type InlineMediaContentBlock, schemas } from '@omnara/sdk'
 
-import type { OperationAttemptContext } from '../operation-retry'
+import type { OperationAttemptContext } from '../operations/retry'
 import type { ProviderWorkReservation } from '../types'
 import { SlackAPIError, type SlackClient } from './client'
 import type { SlackEventFile } from './protocol'

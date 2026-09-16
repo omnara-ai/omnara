@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import type { JsonBody } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { parseObjectFields } from '../operations-json'
+import { parseObjectFields } from '../json'
 import { githubCommitID, githubDatabaseID, githubNodeID, githubPRNumber } from './protocol'
 
 export const githubWebhookBytes = 2 * 1024 * 1024

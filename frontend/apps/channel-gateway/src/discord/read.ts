@@ -1,7 +1,7 @@
 import type { ChannelReadOperation, ChannelReadOperationResult } from '@omnara/sdk'
 
-import { type OperationRetryOptions, retryOperation } from '../operation-retry'
-import { parseObjectFields } from '../operations-json'
+import { parseObjectFields } from '../json'
+import { type OperationRetryOptions, retryOperation } from '../operations/retry'
 import { discordDestination, loadDiscordAddress } from './address'
 import type { DiscordClient } from './client'
 import { discordObservation } from './messages'

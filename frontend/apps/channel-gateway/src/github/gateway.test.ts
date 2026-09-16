@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import type { ChannelReadOperation, ChannelSendOperation } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { GatewayOperation } from '../operations'
+import type { GatewayOperation } from '../operations/handler'
 import { createGitHubGateway, githubCapability, type GitHubGatewayOptions } from './gateway'
 import { input, operationFixture, options, requestID } from './operations-test-support'
 import { configuration, finding, json, mutationInputs, noPrevious, thread } from './test-support'

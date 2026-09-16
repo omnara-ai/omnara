@@ -149,7 +149,7 @@ func TestChannelRecipientsRequireLiveAuthorityButHistorySurvives(t *testing.T) {
 				DeploymentKey: "route", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
 			})
 			require.NoError(t, err)
-			input := f.bindingInput("route")
+			input := f.BindingInput("route")
 			input.IntegrationRouteID, input.ReceiveAllowed = route.ID, true
 			binding, err := store.CreateIntegrationTargetBinding(ctx, input)
 			require.NoError(t, err)
@@ -337,7 +337,7 @@ func TestChannelReceiptRoutingTracksOnlyReceiveHistory(t *testing.T) {
 	}
 	assertRouting(false)
 	for _, source := range []string{"send-only", "read-only"} {
-		input := f.bindingInput(source)
+		input := f.BindingInput(source)
 		input.SendAllowed = source == "send-only"
 		input.ReadAllowed = source == "read-only"
 		binding, err := store.CreateIntegrationTargetBinding(ctx, input)
@@ -346,7 +346,7 @@ func TestChannelReceiptRoutingTracksOnlyReceiveHistory(t *testing.T) {
 		require.NoError(t, store.RevokeIntegrationTargetBinding(ctx, testProjectID, binding.ID))
 		assertRouting(false)
 	}
-	input := f.bindingInput("receive-only")
+	input := f.BindingInput("receive-only")
 	input.ReceiveAllowed = true
 	binding, err := store.CreateIntegrationTargetBinding(ctx, input)
 	require.NoError(t, err)

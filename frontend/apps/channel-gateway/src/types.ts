@@ -7,11 +7,15 @@ import type {
   ChannelConnectorRuntimeUnit,
   ChannelInboundEventRequest,
   ChannelInboundEventResponse,
+  CompleteChannelConnectorControlEventRequest,
   ResolveChannelConnectorInteractionRequest,
   ResolveChannelConnectorInteractionResponse,
 } from '@omnara/sdk'
 
-import type { ControlCompletion } from './core-controls'
+export type ControlCompletion = Omit<
+  CompleteChannelConnectorControlEventRequest,
+  'lease_token' | 'lease_generation'
+>
 
 export type GatewayLogFields = Record<string, string | number | boolean | null | undefined>
 

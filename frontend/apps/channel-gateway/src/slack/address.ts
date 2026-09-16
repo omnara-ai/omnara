@@ -4,12 +4,12 @@ import type {
   ChannelResolveAddressOperation,
 } from '@omnara/sdk'
 
-import type { CoreClient } from '../core-client'
+import type { CoreClient } from '../core/client'
 import {
   type OperationAttemptContext,
   type OperationRetryOptions,
   retryOperation,
-} from '../operation-retry'
+} from '../operations/retry'
 import { slackDefinition } from './behavior'
 import { SlackAPIError, type SlackClient } from './client'
 import { slackTimestamp } from './protocol'

@@ -1,6 +1,6 @@
 import type { ChannelOpaqueObject } from '@omnara/sdk'
 
-import type { ReceiptWorkflowRequest } from '../core-client'
+import type { ReceiptWorkflowRequest } from '../core/client'
 import { type GitHubEvent, githubInputKey, githubPRRef } from './events'
 import { GitHubAPIError } from './protocol'
 

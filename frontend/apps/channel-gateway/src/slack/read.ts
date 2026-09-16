@@ -2,7 +2,7 @@ import {
   type OperationAttemptContext,
   type OperationRetryOptions,
   retryOperation,
-} from '../operation-retry'
+} from '../operations/retry'
 import { SlackAPIError, type SlackClient } from './client'
 import type { SlackHistoryMessage } from './messages'
 import { type SlackHistory, slackHistoryCursor, type SlackMessage } from './protocol'

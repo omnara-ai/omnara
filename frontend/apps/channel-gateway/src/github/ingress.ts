@@ -3,8 +3,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { type ChannelConnectorInstallationConfiguration, schemas } from '@omnara/sdk'
 
 import { raceWithAbort } from '../async'
-import { isCoreNotFoundError } from '../core-http'
-import { ReceiptClientError } from '../receipt-http'
+import { ReceiptClientError } from '../core/receipt-http'
+import { isCoreNotFoundError } from '../core/requests'
 import type {
   ProviderFactoryContext,
   ProviderWebhookContext,

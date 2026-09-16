@@ -3,7 +3,7 @@ import type { ServerResponse } from 'node:http'
 import type { ChannelSendOperation } from '@omnara/sdk'
 import { vi } from 'vitest'
 
-import type { CoreClient } from '../core-client'
+import type { CoreClient } from '../core/client'
 import { githubReplyDestination } from './address'
 import {
   type APICall,

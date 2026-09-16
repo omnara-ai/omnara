@@ -5,7 +5,7 @@ import {
   type OperationAttemptContext,
   type OperationRetryOptions,
   retryOperation,
-} from '../operation-retry'
+} from '../operations/retry'
 import { discordRequest } from './client'
 import { discordAppCredentials } from './configuration'
 import { DiscordAPIError, discordID, discordUser, providerValue } from './protocol'

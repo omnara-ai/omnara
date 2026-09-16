@@ -3,7 +3,7 @@ import { verify } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { retryOperation } from '../operation-retry'
+import { retryOperation } from '../operations/retry'
 import { GitHubClient } from './client'
 import { postGitHubTimelineComment } from './messages'
 import {

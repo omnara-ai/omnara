@@ -5,23 +5,23 @@ import {
 } from '@omnara/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { AppRuntimeRegistry } from './app-registry'
 import { loadConfig } from './config'
-import { CoreClient } from './core-client'
+import { CoreClient } from './core/client'
+import { initialReceiptWorkBytes } from './core/receipt-http'
 import * as discordGateway from './discord/gateway'
 import { testRuntimeHandle, unexpectedTestCall } from './gateway-test-fixtures'
 import * as githubGateway from './github/gateway'
+import { GatewayServer } from './http/server'
 import {
   createProviderFactoryRegistry,
   providerFactoryCapabilities,
   runGateway,
   type RunGatewayOptions,
 } from './index'
-import { type OperationsOptions, operationsRoute } from './operations'
-import { initialReceiptWorkBytes } from './receipt-http'
+import { type OperationsOptions, operationsRoute } from './operations/handler'
 import type { RedisStateClient } from './redis-client'
 import type { GatewayRedisClient } from './redis-client'
-import { GatewayServer } from './server'
+import { AppRuntimeRegistry } from './runtime/registry'
 import * as slackGateway from './slack/gateway'
 import {
   type ControlReceiptBehavior,

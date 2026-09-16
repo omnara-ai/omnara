@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream'
 
-import { type OperationAttemptContext, parseRetryAfter } from '../operation-retry'
+import { type OperationAttemptContext, parseRetryAfter } from '../operations/retry'
 import { ProviderDeliveryError } from '../types'
 import { GatewayAtCapacityError } from '../work-budget'
 import {

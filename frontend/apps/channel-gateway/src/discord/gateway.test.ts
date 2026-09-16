@@ -1,7 +1,7 @@
 import type { ChannelSendOperation, JsonBody } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { GatewayOperation } from '../operations-json'
+import type { GatewayOperation } from '../operations/envelope'
 import { createDiscordGateway, discordCapability, type DiscordGatewayOptions } from './gateway'
 import {
   app,

@@ -1,7 +1,7 @@
 import type { JsonBody } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { parseObjectFields } from '../operations-json'
+import { parseObjectFields } from '../json'
 import { ProviderDeliveryError } from '../types'
 
 export class GitHubAPIError extends ProviderDeliveryError {

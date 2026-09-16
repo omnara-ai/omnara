@@ -1,7 +1,7 @@
 import { schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { CoreClient } from '../core-client'
+import type { CoreClient } from '../core/client'
 import type { ProviderFactory, ProviderRuntime, ProviderWorkReservation } from '../types'
 import { type GitHubBehaviorCore, processGitHubEvent } from './behavior'
 import type { GitHubAuthentication } from './client'

@@ -1,7 +1,7 @@
 import { schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { OperationAttemptContext } from '../operation-retry'
+import type { OperationAttemptContext } from '../operations/retry'
 import { SlackAPIError, type SlackClient } from './client'
 import type { SlackInboundEvent, SlackInboundRoute } from './events'
 import { promptText } from './prompts'

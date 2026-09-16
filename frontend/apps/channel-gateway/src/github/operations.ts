@@ -7,10 +7,10 @@ import {
   schemas,
 } from '@omnara/sdk'
 
-import type { CoreClient } from '../core-client'
-import { isTransientCoreError } from '../core-http'
-import { type OperationRetryOptions, retryOperation } from '../operation-retry'
-import type { OperationScope } from '../operations'
+import type { CoreClient } from '../core/client'
+import { isTransientCoreError } from '../core/requests'
+import type { OperationScope } from '../operations/handler'
+import { type OperationRetryOptions, retryOperation } from '../operations/retry'
 import { githubAddress, githubReplyDestination } from './address'
 import { githubDefinition } from './behavior'
 import type { GitHubClient } from './client'

@@ -4,7 +4,7 @@ import type {
   ChannelSendOperation,
 } from '@omnara/sdk'
 
-import { type OperationRetryOptions, retryOperation } from '../operation-retry'
+import { type OperationRetryOptions, retryOperation } from '../operations/retry'
 import { DiscordAddressError, discordDestination, loadDiscordAddress } from './address'
 import type { DiscordClient, DiscordUpload } from './client'
 import {

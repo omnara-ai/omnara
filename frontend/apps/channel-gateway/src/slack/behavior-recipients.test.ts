@@ -4,7 +4,7 @@ import type {
 } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { ReceiptClientError } from '../receipt-http'
+import { ReceiptClientError } from '../core/receipt-http'
 import { processSlackEvent } from './behavior'
 import { filesKey, fixture, id, plainKey, receipt, result } from './behavior-test-support'
 

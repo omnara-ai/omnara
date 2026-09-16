@@ -2,8 +2,8 @@ import { createAppAuth } from '@octokit/auth-app'
 import type { JsonBody } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { OperationAttemptContext } from '../operation-retry'
-import { parseObjectFields } from '../operations-json'
+import { parseObjectFields } from '../json'
+import type { OperationAttemptContext } from '../operations/retry'
 import type { GitHubConfiguration } from './configuration'
 import { type GitHubDocument, githubDocuments } from './documents'
 import {

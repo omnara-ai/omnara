@@ -7,8 +7,8 @@ import { addAbortSignal } from 'node:stream'
 import { schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { CoreClient } from '../core-client'
-import { initialReceiptWorkBytes } from '../receipt-http'
+import { CoreClient } from '../core/client'
+import { initialReceiptWorkBytes } from '../core/receipt-http'
 import { createSlackGateway, slackCapability } from '../slack/gateway'
 import { WorkByteBudget } from '../work-budget'
 

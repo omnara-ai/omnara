@@ -73,22 +73,6 @@ func TestChannelProviderReferenceLookupUsesCallerTransactionAndScope(t *testing.
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "lookup does not register a reference after its creation rolls back")
 }
 
-func externalConnectionInput(userID uuid.UUID) integrationstore.CreateExternalIntegrationInstallInput {
-	return integrationstore.CreateExternalIntegrationInstallInput{
-		OrgID: testOrgID, ProjectID: testProjectID, InstalledBy: identitystore.NewUserPrincipal(userID),
-		DisplayName: "Customer connector", Metadata: json.RawMessage(`{"team":"support"}`),
-	}
-}
-
-func externalDefinitionInput(installID uuid.UUID) integrationstore.PublishChannelDefinitionInput {
-	return integrationstore.PublishChannelDefinitionInput{
-		ProjectID: testProjectID, IntegrationInstallID: installID, ImplementationKey: "conversation",
-		Kind:             integrationstore.ChannelKindExternal,
-		SendParamsSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
-		Capabilities:     integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true, CreatesReplyChannel: true},
-	}
-}
-
 func TestExternalConnectionRegistrationRetainsRealPrincipalWithoutPhysicalIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -184,7 +168,7 @@ func TestExternalChannelsUseLiveGrantsAndActualInputAttribution(t *testing.T) {
 	})
 	require.NoError(t, err)
 	f.InstallID, f.Target = install.ID, target
-	grant := f.bindingInput("customer-setup")
+	grant := f.BindingInput("customer-setup")
 	grant.ReceiveAllowed, grant.ReadAllowed = true, true
 	binding, err := f.Store.Integrations().CreateIntegrationTargetBinding(ctx, grant)
 	require.NoError(t, err)
@@ -203,9 +187,9 @@ func TestExternalChannelsUseLiveGrantsAndActualInputAttribution(t *testing.T) {
 	eligibility, err := f.Store.Integrations().GetAgentChannelToolEligibility(ctx, testProjectID, f.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.AgentChannelToolEligibility{List: true, Read: true}, eligibility)
-	op := f.operationInput()
+	op := f.OperationInput()
 	op.Operation = integrationstore.ChannelBindingOperationRead
-	prepared, err := f.prepareOrRecheck(t, ctx, op, nil)
+	prepared, err := f.PrepareOrRecheck(t, ctx, op, nil)
 	require.NoError(t, err)
 	require.Equal(t, binding.ID, prepared.ID)
 	_, err = executionstore.IntegrationSetAgentIntegrationTarget(ctx, f.Store.q, testProjectID, f.AgentID, target.ID)
@@ -272,7 +256,7 @@ func TestExternalChannelsUseLiveGrantsAndActualInputAttribution(t *testing.T) {
 		ProjectID: testProjectID, ID: install.ID, ExpectedOAuthFlowID: &install.LastOAuthFlowID,
 	})
 	require.NoError(t, err)
-	_, err = f.prepareOrRecheck(t, ctx, op, &prepared)
+	_, err = f.PrepareOrRecheck(t, ctx, op, &prepared)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, err = executionstore.IntegrationSetAgentIntegrationTarget(ctx, f.Store.q, testProjectID, f.AgentID, target.ID)
 	require.Error(t, err)

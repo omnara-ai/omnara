@@ -1,11 +1,11 @@
 import { z } from 'zod'
 
+import { parseObjectFields } from '../json'
 import {
   type OperationAttemptContext,
   type OperationRetryOptions,
   retryOperation,
-} from '../operation-retry'
-import { parseObjectFields } from '../operations-json'
+} from '../operations/retry'
 import type { GitHubClient } from './client'
 import { assertGitHubPRScope, type GitHubMessage, githubMessage } from './messages'
 import {

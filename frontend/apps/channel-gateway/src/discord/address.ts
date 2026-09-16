@@ -6,12 +6,12 @@ import type {
   PublishChannelConnectorDefinitionRequest,
 } from '@omnara/sdk'
 
-import type { CoreClient } from '../core-client'
+import type { CoreClient } from '../core/client'
 import {
   type OperationAttemptContext,
   type OperationRetryOptions,
   retryOperation,
-} from '../operation-retry'
+} from '../operations/retry'
 import type { DiscordClient } from './client'
 import { DiscordAPIError, discordID } from './protocol'
 

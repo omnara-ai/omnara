@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ReceiptClientError } from '../receipt-http'
+import { ReceiptClientError } from '../core/receipt-http'
 import { ReceiptBehaviorError } from '../types'
 import { processDiscordEvent } from './behavior'
 import { delivery, fixture, inputKey, receipt } from './behavior-test-support'

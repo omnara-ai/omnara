@@ -6,10 +6,10 @@ import { addAbortSignal } from 'node:stream'
 import { schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { CoreClient } from '../core-client'
+import { CoreClient } from '../core/client'
+import { initialReceiptWorkBytes } from '../core/receipt-http'
 import { processDiscordEvent } from '../discord/behavior'
 import { createDiscordGateway, discordCapability } from '../discord/gateway'
-import { initialReceiptWorkBytes } from '../receipt-http'
 import { WorkByteBudget } from '../work-budget'
 
 const localURL = z.url().refine((value) => {

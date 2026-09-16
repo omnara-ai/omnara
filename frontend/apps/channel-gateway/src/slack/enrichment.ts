@@ -1,6 +1,6 @@
 import type { ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
 
-import type { OperationAttemptContext } from '../operation-retry'
+import type { OperationAttemptContext } from '../operations/retry'
 import { SlackAPIError, type SlackClient } from './client'
 import {
   referencedChannels,

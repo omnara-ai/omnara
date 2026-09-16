@@ -5,10 +5,11 @@ import {
 } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { CoreClient } from '../core-client'
-import { OperationRetryError } from '../operation-retry'
-import type { OperationsOptions } from '../operations'
-import { maxOperationPayloadBytes, parseObjectFields } from '../operations-json'
+import type { CoreClient } from '../core/client'
+import { parseObjectFields } from '../json'
+import { maxOperationPayloadBytes } from '../operations/envelope'
+import type { OperationsOptions } from '../operations/handler'
+import { OperationRetryError } from '../operations/retry'
 import {
   DiscordAddressError,
   discordDefinition,

@@ -181,11 +181,11 @@ keep the same identity/deadline. Prior uncertainty survives subsequent failures.
 
 The [channel tools](../harness/tools/channel_operations.go) resolve live authority
 and prepare operations through executionstore before dispatch. The gateway's
-[operation handler](../../frontend/apps/channel-gateway/src/operations.ts)
+[operation handler](../../frontend/apps/channel-gateway/src/operations/handler.ts)
 validates the envelope, deadline, credentials, and provider payload. Slack I/O
 uses the shared bounded retry helper with SDK retries disabled.
 
-The [transport interoperability test](../../frontend/apps/channel-gateway/src/operations.test.ts)
+The [transport interoperability test](../../frontend/apps/channel-gateway/src/operations/handler.test.ts)
 drives the real Go client through send, read, interaction, and a streamed 12 MiB
 artifact. The [Slack sender journey](../httpapi/slack_sender_journey_integration_test.go)
 exercises provider execution, transactional completion, child-channel grants,

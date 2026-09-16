@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { retryOperation } from '../operation-retry'
+import { retryOperation } from '../operations/retry'
 import { DiscordClient, discordRequestBytes } from './client'
 import {
   artifact,

@@ -4,9 +4,9 @@ import { Readable } from 'node:stream'
 import type { JsonBody } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { type OperationAttemptContext, parseRetryAfter } from '../operation-retry'
-import type { OperationArtifact } from '../operations-files'
-import { parseObjectFields } from '../operations-json'
+import { parseObjectFields } from '../json'
+import type { OperationArtifact } from '../operations/files'
+import { type OperationAttemptContext, parseRetryAfter } from '../operations/retry'
 import type { DiscordConfiguration } from './configuration'
 import {
   DiscordAPIError,

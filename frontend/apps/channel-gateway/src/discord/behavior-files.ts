@@ -3,7 +3,7 @@ import { isUtf8 } from 'node:buffer'
 import { type CreateAgentInputContentBlock, schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { OperationAttemptContext } from '../operation-retry'
+import type { OperationAttemptContext } from '../operations/retry'
 import type { ProviderWorkReservation } from '../types'
 import { discordAPIURL } from './bootstrap'
 import { discordRequest } from './client'

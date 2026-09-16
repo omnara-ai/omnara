@@ -7,8 +7,8 @@ import {
   schemas,
 } from '@omnara/sdk'
 
-import type { OperationRetryOptions } from '../operation-retry'
-import type { OperationArtifact } from '../operations-files'
+import type { OperationArtifact } from '../operations/files'
+import type { OperationRetryOptions } from '../operations/retry'
 import { SlackAPIError, type SlackClient, type SlackUpload } from './client'
 import type { SlackHistoryMessage } from './messages'
 import type { SlackMessage } from './protocol'

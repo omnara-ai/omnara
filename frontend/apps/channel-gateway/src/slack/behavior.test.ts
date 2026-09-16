@@ -4,8 +4,8 @@ import {
 } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ReceiptWorkflowRequest } from '../core-client'
-import { ReceiptClientError } from '../receipt-http'
+import type { ReceiptWorkflowRequest } from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
 import { processSlackEvent, type SlackBehaviorContext, slackDefinition } from './behavior'
 import {
   filesKey,

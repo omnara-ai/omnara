@@ -1,10 +1,9 @@
 import { type ChannelConnectorControlReceipt, schemas } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { CoreClient } from '../core-client'
-import type { ControlCompletion } from '../core-controls'
-import { ReceiptClientError } from '../receipt-http'
-import type { ControlReceiptBehaviorContext } from '../types'
+import type { CoreClient } from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
+import type { ControlCompletion, ControlReceiptBehaviorContext } from '../types'
 import { GitHubAppClient } from './app-client'
 import { githubLifecycleEvent } from './events'
 import { GitHubAPIError, githubNodeID } from './protocol'

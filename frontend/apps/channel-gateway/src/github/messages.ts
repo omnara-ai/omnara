@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { OperationAttemptContext } from '../operation-retry'
+import type { OperationAttemptContext } from '../operations/retry'
 import type { GitHubClient } from './client'
 import {
   GitHubAPIError,

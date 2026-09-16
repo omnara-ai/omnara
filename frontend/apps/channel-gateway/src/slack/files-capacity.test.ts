@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { loadConfig } from '../config'
-import { operationWorkBytes } from '../operations'
-import { initialReceiptWorkBytes, receiptFetch } from '../receipt-http'
+import { initialReceiptWorkBytes, receiptFetch } from '../core/receipt-http'
+import { operationWorkBytes } from '../operations/handler'
 import { GatewayAtCapacityError, WorkByteBudget } from '../work-budget'
 import { SlackClient } from './client'
 import { prepareSlackFiles } from './files'

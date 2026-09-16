@@ -1,5 +1,25 @@
 # Channel gateway
 
+## Source layout
+
+The gateway is one service and one TypeScript package. Direct imports connect
+these directories; tests live beside the code they exercise:
+
+- `src/core/`: authenticated calls to Omnara's control plane.
+- `src/http/`: the HTTP server, webhook entrypoints, and HTTP lifecycle tests.
+- `src/operations/`: synchronous send/read requests, envelope validation,
+  multipart artifacts, and provider retry budgets.
+- `src/consumers/`: processing of durable message and app-control receipts.
+- `src/runtime/`: provider registration, configuration caching, and runtime leases.
+- `src/slack/`, `src/discord/`, and `src/github/`: provider behavior and transport.
+
+`src/index.ts` composes the service. Shared types and small HTTP, JSON, Redis,
+logging, cancellation, and memory-budget primitives remain at the root. They do
+not depend on the server or provider implementations. `src/testdata/` contains
+the local provider-journey entrypoints.
+
+## Runtime contracts
+
 The first-party Slack path replays core-owned durable receipts. Core verifies the
 public callback before storing and acknowledging it; replay does not re-enter a
 live webhook handler or SDK deduplication. Input admission uses core's existing

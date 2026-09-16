@@ -15,9 +15,9 @@ import type {
   ReceiptInputRequest,
   ReceiptRecipientsRequest,
   ReceiptWorkflowRequest,
-} from '../core-client'
-import type { OperationAttemptContext } from '../operation-retry'
-import { ReceiptClientError } from '../receipt-http'
+} from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
+import type { OperationAttemptContext } from '../operations/retry'
 import type { ProviderWorkReservation, ReceiptBehaviorContext } from '../types'
 import { SlackAPIError, SlackClient } from './client'
 import { slackCredentials } from './configuration'

@@ -202,3 +202,27 @@ func waitForLockCondition(
 		}
 	}
 }
+
+func LockWaiterPID(
+	t testing.TB,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	queryFragment string,
+	blockingPID int32,
+) int32 {
+	t.Helper()
+	var pid int32
+	if err := pool.QueryRow(ctx, `
+SELECT pid
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND wait_event_type = 'Lock'
+  AND query ILIKE '%' || $1 || '%'
+  AND $2::integer = ANY(pg_blocking_pids(pid))
+ORDER BY pid
+LIMIT 1
+`, queryFragment, blockingPID).Scan(&pid); err != nil {
+		t.Fatalf("load lifecycle waiter backend: %v", err)
+	}
+	return pid
+}

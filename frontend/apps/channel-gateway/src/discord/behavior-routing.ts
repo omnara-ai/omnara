@@ -6,8 +6,8 @@ import {
 } from '@omnara/sdk'
 import { z } from 'zod'
 
-import type { OperationAttemptContext } from '../operation-retry'
-import { ReceiptClientError } from '../receipt-http'
+import { ReceiptClientError } from '../core/receipt-http'
+import type { OperationAttemptContext } from '../operations/retry'
 import { loadDiscordAddress } from './address'
 import type { DiscordBehaviorContext } from './behavior'
 import type { DiscordClient } from './client'

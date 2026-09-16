@@ -2,7 +2,7 @@ import type { ChannelResolveAddressOperation } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { CoreClient } from '../core-client'
+import type { CoreClient } from '../core/client'
 import { resolveSlackAddress } from './address'
 import { SlackClient } from './client'
 import { body, credentials, deferred, json, operation, slackServer } from './test-support'

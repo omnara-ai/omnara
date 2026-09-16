@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { CoreClient } from '../core-client'
-import { ReceiptClientError } from '../receipt-http'
+import { CoreClient } from '../core/client'
+import { ReceiptClientError } from '../core/receipt-http'
 import { githubEvent } from './events'
 import { createGitHubFactory } from './factory'
 import {

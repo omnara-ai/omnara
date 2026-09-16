@@ -1,4 +1,4 @@
-import { parseRetryAfter } from '../operation-retry'
+import { parseRetryAfter } from '../operations/retry'
 
 // Inspect only bounded, decoded error fields; never retain native messages in
 // diagnostics. Zero remaining alone may mean a successful final allowance.

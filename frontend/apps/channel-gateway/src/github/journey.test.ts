@@ -4,8 +4,8 @@ import { type ChannelConnectorEventReceipt, schemas } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { CoreClient } from '../core-client'
-import { ReceiptConsumer } from '../receipt-consumer'
+import { ReceiptConsumer } from '../consumers/receipt-consumer'
+import { CoreClient } from '../core/client'
 import { createGitHubFactory } from './factory'
 import {
   app,
