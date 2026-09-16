@@ -259,7 +259,7 @@ func TestProjectDeletionSweepsIntegrationAppCreationThatStartedFirst(t *testing.
 		t,
 		ctx,
 		pool,
-		"-- name: InsertIntegrationApp ",
+		"-- name: LockSecretForReference ",
 		blockerPID,
 	)
 

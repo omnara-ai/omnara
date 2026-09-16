@@ -546,7 +546,7 @@ func TestOrganizationDeletionSweepsSharedAppCreationThatStartedFirst(t *testing.
 		createDone <- createResult{app: app, err: err}
 	}()
 	integrationdb.WaitForLockWaitBlockedBy(
-		t, ctx, pool, "-- name: InsertIntegrationApp ", blockerPID,
+		t, ctx, pool, "-- name: LockSecretForReference ", blockerPID,
 	)
 
 	deleteDone := make(chan error, 1)
