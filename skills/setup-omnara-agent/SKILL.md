@@ -6,7 +6,12 @@ description: Install and set up Omnara. Use when the user asks to install Omnara
 Read https://docs.omnara.com/llms.txt and the Quickstart guide first. Fetch other
 documentation pages as you need them.
 
-Before doing anything, check if the user is logged in with `npx omnara whoami`. If they are not logged in, run `npx omnara login` and direct the user to the login link.
+Before setting up the agent, check authentication with `npx omnara whoami`. If not
+logged in, run `npx omnara login` in an interactive terminal session without piping
+output; add `--no-browser` on headless or remote machines. Whenever login starts,
+immediately share the approval link and code and keep the command running while the
+user approves. Do not continue setup until login completes and `npx omnara whoami`
+succeeds.
 
 Then, ask the user questions on what type of agent they'd like to create:
 
