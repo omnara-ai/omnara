@@ -17,6 +17,7 @@ import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
 import { agentChatHistoryQueryKey, useAgentChatHistory } from './agent-chat-history'
 import {
+  eventsAfterSequence,
   hasToolCalls,
   isControlEvent,
   isTerminalEvent,
@@ -77,6 +78,7 @@ export interface UseAgentChatResult {
   historyStatus: AgentChatHistoryStatus
   historyError: Error | null
   retryHistory: () => void
+  reconnect: () => void
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
@@ -392,6 +394,15 @@ export class AgentChatSession {
     this.runController = null
   }
 
+  reconnect = (): void => {
+    if (this.errorSource === 'stream') {
+      this.error = undefined
+      this.errorSource = undefined
+      this.notify()
+    }
+    this.connect()
+  }
+
   private connect(): void {
     if (this.cursor == null || this.listeners.length === 0 || this.runController != null) return
     this.runController = new AbortController()
@@ -467,11 +478,14 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   const data = useMemo(
     () => ({
       ...sessionData,
-      events: [...(history.data?.events ?? []), ...sessionData.events],
+      events: [
+        ...(history.data?.events ?? []),
+        ...eventsAfterSequence(sessionData.events, newestLoadedSequence),
+      ],
       backlogInputs: authoritativeBacklogInputs,
       hasOlderEvents,
     }),
-    [authoritativeBacklogInputs, history.data, hasOlderEvents, sessionData],
+    [authoritativeBacklogInputs, history.data, hasOlderEvents, newestLoadedSequence, sessionData],
   )
   const projected = useMemo(() => projectAgentChat(data), [data])
   const inputPlacement =
@@ -488,6 +502,7 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     historyStatus: history.status,
     historyError: history.error,
     retryHistory: () => void history.refetch(),
+    reconnect: session.reconnect,
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),

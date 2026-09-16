@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   agentEventsToMessages,
+  eventsAfterSequence,
   type ModelOutputDelta,
   projectAgentChat,
 } from './agent-chat-messages'
@@ -647,5 +648,17 @@ describe('agentEventsToMessages', () => {
         { type: 'text', text: 'Done' },
       ],
     })
+  })
+})
+
+describe('eventsAfterSequence', () => {
+  it('drops streamed events that a refetched history page already covers', () => {
+    const streamed = [
+      userInputEvent({ id: 'covered', sequence: 11 }),
+      event({ id: 'newer', sequence: 12 }),
+    ]
+
+    expect(eventsAfterSequence(streamed, 11).map((e) => e.id)).toEqual(['newer'])
+    expect(eventsAfterSequence(streamed, 0)).toEqual(streamed)
   })
 })

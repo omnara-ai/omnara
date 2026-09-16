@@ -1,5 +1,6 @@
 import type { UseAgentChatResult } from '@omnara/react'
 import type { AgentEvent } from '@omnara/sdk'
+import { Link } from '@tanstack/react-router'
 import { Suspense } from 'react'
 
 import { DataTable, type DataTableColumn } from '@/components/data-table/DataTable'
@@ -8,7 +9,12 @@ import { CodeTabsBlock, CopyButton } from '@/components/overview/CodeBlock'
 import { Highlighted } from '@/components/overview/highlight'
 import { inputCommands } from '@/components/overview/onboardingCli'
 import { Button } from '@/components/ui/button'
-import { useScrollEdges } from '@/hooks/use-scroll-edges'
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerViewport,
+} from '@/components/ui/message-scroller'
 import { docsUrl, guides } from '@/lib/docs'
 import { formatTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -116,15 +122,25 @@ function SendInputGuide({
           { value: 'curl', label: 'cURL', content: commands.curl },
         ]}
       />
-      <a
-        href={docsUrl(guides.agents)}
-        target="_blank"
-        rel="noreferrer"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 self-end text-sm transition-colors"
-      >
-        Documentation
-        <ArrowUpRight className="size-3.5" aria-hidden="true" />
-      </a>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-muted-foreground flex items-center gap-2 text-sm">
+          or send a message via the
+          <Button asChild variant="outline" size="sm">
+            <Link to="/projects/$projectId/agents/$agentId/chat" params={{ projectId, agentId }}>
+              Chat
+            </Link>
+          </Button>
+        </p>
+        <a
+          href={docsUrl(guides.agents)}
+          target="_blank"
+          rel="noreferrer"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors"
+        >
+          Documentation
+          <ArrowUpRight className="size-3.5" aria-hidden="true" />
+        </a>
+      </div>
     </div>
   )
 }
@@ -140,46 +156,61 @@ export function AgentEventLog({
   projectId: string
   agentId: string
 }) {
-  const events = [...chat.events].reverse()
-  const scrollRef = useScrollEdges()
+  const events = chat.events
   const showSendInputGuide =
     chat.historyStatus === 'success' && events.every(isOpeningConfigChange) && events.length <= 1
   return (
-    <div ref={scrollRef} className="message-scroll-fade h-full overflow-y-auto">
-      <div
-        className={cn(
-          'mx-auto w-full max-w-5xl px-4 pb-6 pt-2 sm:px-6',
-          showSendInputGuide && 'flex min-h-full flex-col justify-center',
-        )}
-      >
-        {showSendInputGuide ? (
-          <SendInputGuide orgId={orgId} projectId={projectId} agentId={agentId} />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={events}
-            getRowId={(event) => event.id}
-            rowExpanded={(event) => <EventJson event={event} />}
-            isPending={chat.historyStatus === 'pending'}
-            isError={chat.historyStatus === 'error'}
-            onRetry={chat.retryHistory}
-            emptyMessage="No events yet."
-          />
-        )}
-        {chat.hasOlderMessages && (
-          <div className="flex justify-center pt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={chat.isLoadingOlderMessages}
-              loading={chat.isLoadingOlderMessages}
-              onClick={chat.loadOlderMessages}
+    <MessageScroller>
+      <MessageScrollerViewport>
+        <MessageScrollerContent
+          className={cn(
+            'mx-auto w-full max-w-5xl gap-0 px-4 pb-6 pt-2 sm:px-6',
+            showSendInputGuide && 'justify-center',
+          )}
+        >
+          {chat.error && (
+            <div
+              role="alert"
+              className="bg-destructive/10 text-destructive mb-4 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
             >
-              Load earlier events
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
+              <p className="text-sm">
+                <span className="font-medium">Event stream disconnected.</span> {chat.error.message}
+              </p>
+              <Button size="sm" variant="outline" onClick={chat.reconnect}>
+                Reconnect
+              </Button>
+            </div>
+          )}
+          {chat.hasOlderMessages && (
+            <div className="flex justify-center pb-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={chat.isLoadingOlderMessages}
+                loading={chat.isLoadingOlderMessages}
+                onClick={chat.loadOlderMessages}
+              >
+                Load earlier events
+              </Button>
+            </div>
+          )}
+          {showSendInputGuide ? (
+            <SendInputGuide orgId={orgId} projectId={projectId} agentId={agentId} />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={events}
+              getRowId={(event) => event.id}
+              rowExpanded={(event) => <EventJson event={event} />}
+              isPending={chat.historyStatus === 'pending'}
+              isError={chat.historyStatus === 'error'}
+              onRetry={chat.retryHistory}
+              emptyMessage="No events yet."
+            />
+          )}
+        </MessageScrollerContent>
+      </MessageScrollerViewport>
+      <MessageScrollerButton />
+    </MessageScroller>
   )
 }

@@ -265,7 +265,8 @@ function AgentDock({
           canOperate={canOperate}
         />
       )}
-      {!composer ? undefined : archived ? (
+      {archived ? (
+        composer &&
         !configOpen && (
           <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
             <p className="text-sm font-medium">This agent is archived</p>
@@ -275,22 +276,20 @@ function AgentDock({
           </div>
         )
       ) : (
-        <div className={cn('min-w-0', configOpen && 'hidden')}>
+        <div className={cn('min-w-0', (!composer || configOpen) && 'hidden')}>
           <AgentInputQueue
             backlog={chat.inputBacklog}
             canOperate={canOperate}
             canSendNow={canSendNow}
           />
-          {!configOpen && (
-            <AgentComposer
-              chat={chat}
-              model={model}
-              cancelPending={cancelPending}
-              cancelError={cancelError}
-              onCancel={onCancel}
-              canOperate={canOperate}
-            />
-          )}
+          <AgentComposer
+            chat={chat}
+            model={model}
+            cancelPending={cancelPending}
+            cancelError={cancelError}
+            onCancel={onCancel}
+            canOperate={canOperate}
+          />
         </div>
       )}
     </div>
