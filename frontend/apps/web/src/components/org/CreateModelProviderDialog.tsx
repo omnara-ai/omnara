@@ -31,7 +31,10 @@ import { idle, statusError, submitError } from '@/lib/submit-status'
 
 import { AddDiscoveredModelsStep } from './AddDiscoveredModelsStep'
 import {
+  apiFormatLabel,
+  apiFormatOptions,
   awsRegionPattern,
+  baseUrlPattern,
   bedrockAPIOption,
   bedrockAPIOptions,
   bedrockAuthOption,
@@ -59,6 +62,9 @@ function modelProviderRequest(
   const common = {
     name: values.name,
     credential_secret_id: values.secretId,
+  }
+  if (values.provider === 'custom') {
+    return { ...common, api_format: values.apiFormat, base_url: values.baseUrl.trim() }
   }
   if (values.provider !== 'bedrock') return { ...common, preset: values.provider }
 
@@ -163,6 +169,66 @@ function BedrockProviderFields({
   )
 }
 
+function CustomProviderFields({
+  values,
+  onChange,
+}: {
+  values: CreateModelProviderFormValues
+  onChange: (patch: Partial<CreateModelProviderFormValues>) => void
+}) {
+  const baseUrlValid = baseUrlPattern.test(values.baseUrl.trim())
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field>
+        <FieldLabel htmlFor="mp-api-format">API format</FieldLabel>
+        <Select
+          value={values.apiFormat}
+          onValueChange={(value) => {
+            const option = apiFormatOptions.find((candidate) => candidate.value === value)
+            if (!option) return
+            onChange({ apiFormat: option.value })
+          }}
+        >
+          <SelectTrigger id="mp-api-format" className="w-full">
+            <SelectValue>{apiFormatLabel(values.apiFormat)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {apiFormatOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldDescription>The wire protocol the endpoint speaks.</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="mp-base-url">Base URL</FieldLabel>
+        <Input
+          id="mp-base-url"
+          required
+          type="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          value={values.baseUrl}
+          placeholder="https://api.example.com/v1"
+          aria-invalid={values.baseUrl !== '' && !baseUrlValid}
+          onChange={(event) => {
+            onChange({ baseUrl: event.target.value })
+          }}
+        />
+        <FieldDescription>
+          {baseUrlValid
+            ? 'A public HTTPS endpoint. The request path defaults from the API format.'
+            : 'Enter a URL such as https://api.example.com/v1.'}
+        </FieldDescription>
+      </Field>
+    </div>
+  )
+}
+
 function credentialFieldCopy(
   values: CreateModelProviderFormValues,
   provider: ReturnType<typeof modelProviderOption>,
@@ -257,7 +323,7 @@ export function CreateModelProviderDialog({
             <DialogHeader>
               <DialogTitle>Add model provider</DialogTitle>
               <DialogDescription>
-                Connect OpenAI, OpenRouter, Anthropic, or Amazon Bedrock.
+                Connect OpenAI, OpenRouter, Anthropic, Amazon Bedrock, or a custom endpoint.
               </DialogDescription>
             </DialogHeader>
             <form
@@ -307,6 +373,14 @@ export function CreateModelProviderDialog({
                 </div>
                 {values.provider === 'bedrock' && (
                   <BedrockProviderFields
+                    values={values}
+                    onChange={(patch) => {
+                      setValues((prev) => ({ ...prev, ...patch }))
+                    }}
+                  />
+                )}
+                {values.provider === 'custom' && (
+                  <CustomProviderFields
                     values={values}
                     onChange={(patch) => {
                       setValues((prev) => ({ ...prev, ...patch }))

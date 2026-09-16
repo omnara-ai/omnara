@@ -5,6 +5,7 @@ import {
   useProjectModelGrants,
 } from '@omnara/react'
 import { type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
+import { Link } from '@tanstack/react-router'
 import { type ComponentProps, type ReactNode, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -23,6 +24,8 @@ import { useBatchGrantSubmit } from '@/hooks/use-batch-grant-submit'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 
 const ModelProviderCombobox = createResourceCombobox<ModelProviderConfig>({
   itemKey: (provider) => provider.id,
@@ -92,6 +95,8 @@ export function GrantProjectModelDialog({
   onCloseAutoFocus?: ComponentProps<typeof DialogContent>['onCloseAutoFocus']
 }) {
   const [provider, setProvider] = useState<ModelProviderConfig | null>(null)
+  const { activeOrg } = useActiveOrg()
+  const canAddModels = canManageOrg(activeOrg.role)
   const providerSearch = useTypeaheadSearch()
   const createGrant = useCreateProjectModelGrant(orgId)
   const batch = useBatchGrantSubmit<ConfiguredModel>({
@@ -152,6 +157,13 @@ export function GrantProjectModelDialog({
                 query={providersQuery}
                 disabled={batch.isSubmitting || providersQuery.isError}
               />
+              {provider !== null && canAddModels && (
+                <FieldDescription>
+                  <Link to="/models" search={{ provider: provider.id }} className="underline">
+                    Add more models to {provider.name}
+                  </Link>
+                </FieldDescription>
+              )}
             </Field>
             <Field>
               <FieldLabel htmlFor="grant-project-model">Models</FieldLabel>
