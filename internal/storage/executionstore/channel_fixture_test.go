@@ -114,10 +114,6 @@ func testChannelCapabilities(provider string) []channelconnector.Capability {
 	return storagetest.ChannelCapabilities(provider)
 }
 
-func testChannelCapability(provider string) channelconnector.Capability {
-	return storagetest.ChannelCapability(provider)
-}
-
 type channelAuthorityFixture struct {
 	storagetest.ChannelAuthorityFixture
 	Store *Store

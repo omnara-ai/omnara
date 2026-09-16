@@ -424,7 +424,7 @@ func TestChannelFoundationLifecycleDeletion(t *testing.T) {
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newSecretIntegrationStore(pool)
-		_, app, install := createChannelInstallationFixture(t, ctx, store, "install-delete")
+		_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "install-delete")
 
 		if _, err := pool.Exec(
 			ctx,
@@ -455,7 +455,7 @@ func TestChannelFoundationLifecycleDeletion(t *testing.T) {
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newSecretIntegrationStore(pool)
-		admin, app, install := createChannelInstallationFixture(t, ctx, store, "project-delete")
+		admin, _, app, install := createChannelLifecycleFixture(t, ctx, store, "project-delete")
 		unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 			ctx,
 			integrationstore.UpsertIntegrationRuntimeUnitInput{
@@ -545,7 +545,7 @@ func TestChannelFoundationLifecycleDeletion(t *testing.T) {
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newSecretIntegrationStore(pool)
-		admin, app, install := createChannelInstallationFixture(t, ctx, store, "org-delete")
+		admin, _, app, install := createChannelLifecycleFixture(t, ctx, store, "org-delete")
 		unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 			ctx,
 			integrationstore.UpsertIntegrationRuntimeUnitInput{
@@ -678,7 +678,7 @@ func TestChannelFoundationInstallDeletionFencesConcurrentTargetCreation(t *testi
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "delete-target-race")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "delete-target-race")
 	definitionID := createChannelTestDefinition(t, ctx, store, install)
 
 	creatorTx, err := pool.Begin(ctx)
@@ -741,7 +741,7 @@ func TestChannelFoundationAppCredentialContractIsImmutable(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, app, _ := createChannelInstallationFixture(t, ctx, store, "immutable-app-contract")
+	_, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "immutable-app-contract")
 
 	_, err := pool.Exec(
 		ctx,
@@ -760,7 +760,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "immutable-route")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "immutable-route")
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{

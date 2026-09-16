@@ -123,7 +123,7 @@ func TestChannelParentageIsScopedImmutableAndGrantsNoAccess(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrConflict, "same address cannot be reparented through replay")
 	_, err = pool.Exec(ctx, `UPDATE integration_targets SET parent_channel_id = $1 WHERE id = $2`, root.ID, parent.ID)
 	require.True(t, isPgCode(err, "25006"), "database rejects parent mutation: %v", err)
-	_, _, otherInstall := createChannelInstallationFixture(t, ctx, store, "channel-other-parent")
+	_, _, _, otherInstall := createChannelLifecycleFixture(t, ctx, store, "channel-other-parent")
 	input.ChannelDefinitionID = createChannelTestDefinition(t, ctx, store, otherInstall)
 	input.IntegrationInstallID = otherInstall.ID
 	input.ProviderRef = "cross-connection-child"

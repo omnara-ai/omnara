@@ -32,7 +32,7 @@ func TestOrganizationDeletionRetainsRevokedIntegrationInstaller(t *testing.T) {
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			store := newSecretIntegrationStore(pool)
-			user, app, install := createChannelInstallationFixture(t, ctx, store, "installer-org-delete")
+			user, _, app, install := createChannelLifecycleFixture(t, ctx, store, "installer-org-delete")
 			key, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
 				OrgID: testOrgID, CreatedByUserID: user.ID, Name: "Installer", OrgRole: "member",
 			})
@@ -103,7 +103,7 @@ func TestIntegrationInstallerAPIKeyAuthorityAndAttribution(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	user, app, _ := createChannelInstallationFixture(t, ctx, store, "installer-key")
+	user, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "installer-key")
 	key, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
 		OrgID: testOrgID, CreatedByUserID: user.ID, Name: "Installer key", OrgRole: "member",
 	})
@@ -227,7 +227,7 @@ func TestIntegrationInstallerDatabasePrincipalConstraints(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	user, _, install := createChannelInstallationFixture(t, ctx, store, "installer-constraints")
+	user, _, _, install := createChannelLifecycleFixture(t, ctx, store, "installer-constraints")
 	otherOrg, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID: user.ID, Name: "Other installer org", IdempotencyKey: "other-installer-org",
 	})
@@ -274,7 +274,7 @@ func TestIntegrationInstallerRechecksAPIKeyAfterRevocationWait(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	user, app, _ := createChannelInstallationFixture(t, ctx, store, "installer-revocation")
+	user, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "installer-revocation")
 	key, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
 		OrgID: testOrgID, CreatedByUserID: user.ID, Name: "Revoked installer", OrgRole: "admin",
 	})

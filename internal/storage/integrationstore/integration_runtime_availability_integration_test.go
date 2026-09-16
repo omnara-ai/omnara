@@ -22,7 +22,7 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newSecretIntegrationStore(pool)
-		_, app, install := createChannelInstallationFixture(t, ctx, store, "runtime-install-disable")
+		_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-install-disable")
 		input := integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
@@ -79,7 +79,7 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newSecretIntegrationStore(pool)
-		_, app, install := createChannelInstallationFixture(t, ctx, store, "runtime-app-disable")
+		_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-app-disable")
 		appInput := integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
 			UnitKey: "app-session", RuntimeKind: "provider_gateway",

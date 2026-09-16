@@ -436,7 +436,7 @@ func TestIntegrationInstallDeletionWaitsForTargetCreation(t *testing.T) {
 		"-- name: LockIntegrationTargetCreateAuthority ",
 		blockingPID,
 	)
-	targetPID := integrationLifecycleWaiterPID(
+	targetPID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,

@@ -452,7 +452,7 @@ func TestProjectDeletionSweepsManagedInstallCreationThatStartedFirst(t *testing.
 		"-- name: LockSecretForReference ",
 		blockerPID,
 	)
-	installPID := integrationLifecycleWaiterPID(
+	installPID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,

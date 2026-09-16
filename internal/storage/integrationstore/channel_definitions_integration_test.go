@@ -18,7 +18,7 @@ func TestChannelDefinitionsAreSharedCurrentAndScoped(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "channel-definitions")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "channel-definitions")
 	input := integrationstore.PublishChannelDefinitionInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID,
 		ImplementationKey: "conversation", Kind: integrationstore.ChannelKindDiscordThread,
@@ -60,7 +60,7 @@ func TestChannelDefinitionsAreSharedCurrentAndScoped(t *testing.T) {
 	input.ConnectorCapabilities = testChannelCapabilities("slack")
 	_, err = store.Integrations().PublishConnectorChannelDefinition(ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "another connector capability cannot publish this connection's contract")
-	_, _, otherInstall := createChannelInstallationFixture(t, ctx, store, "other-channel-definitions")
+	_, _, _, otherInstall := createChannelLifecycleFixture(t, ctx, store, "other-channel-definitions")
 	targetInput.IntegrationInstallID, targetInput.ProviderRef = otherInstall.ID, "cross-connection"
 	_, err = store.Integrations().CreateIntegrationTarget(ctx, targetInput)
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "definitions are scoped to their connection")

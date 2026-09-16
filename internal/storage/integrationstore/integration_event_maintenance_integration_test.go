@@ -28,7 +28,7 @@ func newReceiptMaintenanceFixture(t *testing.T) receiptMaintenanceFixture {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, app, install := createChannelInstallationFixture(t, ctx, store, "receipt-maintenance")
+	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "receipt-maintenance")
 	return receiptMaintenanceFixture{store: store, appID: app.ID, installID: install.ID}
 }
 

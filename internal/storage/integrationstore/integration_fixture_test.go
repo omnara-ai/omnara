@@ -70,10 +70,3 @@ func isPgCode(err error, code string) bool {
 }
 
 func sameJSON(a, b json.RawMessage) bool { return jsoncanonical.Equal(a, b) }
-
-func integrationLifecycleWaiterPID(
-	t *testing.T, ctx context.Context, pool *pgxpool.Pool, queryFragment string, blockingPID int32,
-) int32 {
-	t.Helper()
-	return integrationdb.LockWaiterPID(t, ctx, pool, queryFragment, blockingPID)
-}

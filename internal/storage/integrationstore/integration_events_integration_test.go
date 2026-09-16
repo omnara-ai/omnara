@@ -22,7 +22,7 @@ func TestIntegrationEventReceiptClaimLeavesExcessWorkUnclaimed(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "receipt-bounded-claim")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "receipt-bounded-claim")
 	for i := range 4 {
 		_, err := store.Integrations().ReceiveIntegrationEvent(ctx, integrationstore.ReceiveIntegrationEventInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
@@ -53,7 +53,7 @@ func TestIntegrationEventReceiptConcurrentReplay(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "receipt-replay")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "receipt-replay")
 	input := integrationstore.ReceiveIntegrationEventInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID,
 		EventID: "event-1", Payload: json.RawMessage(`{"message":"hello","sequence":9007199254740993}`),
@@ -102,7 +102,7 @@ func TestIntegrationEventReceiptLeaseRecovery(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "receipt-lease")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "receipt-lease")
 	receipt, err := store.Integrations().ReceiveIntegrationEvent(ctx, integrationstore.ReceiveIntegrationEventInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID,
 		EventID: "event", Payload: json.RawMessage(`{"message":"hello"}`),
@@ -194,7 +194,7 @@ func TestIntegrationEventReceiptRetryAfter(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "receipt-delay")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "receipt-delay")
 	receipt, err := store.Integrations().ReceiveIntegrationEvent(ctx, integrationstore.ReceiveIntegrationEventInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID, EventID: "provider-throttled",
 		Payload: json.RawMessage(`{"message":"hello"}`), Capabilities: testChannelCapabilities(testChannelProvider),
@@ -308,7 +308,7 @@ func TestIntegrationEventReceiptAuthority(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, app, install := createChannelInstallationFixture(t, ctx, store, "receipt-scope")
+	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "receipt-scope")
 	input := integrationstore.ReceiveIntegrationEventInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID,
 		EventID: "event", Payload: json.RawMessage(`{"message":"hello"}`),

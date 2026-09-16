@@ -118,13 +118,6 @@ func testChannelCapability(provider string) channelconnector.Capability {
 	return storagetest.ChannelCapability(provider)
 }
 
-func createChannelInstallationFixture(
-	t *testing.T, ctx context.Context, store *Store, suffix string,
-) (identitystore.UserRecord, integrationstore.IntegrationAppRecord, integrationstore.IntegrationInstallRecord) {
-	t.Helper()
-	return storagetest.CreateChannelInstallationFixture(t, ctx, store.Store, store.pool, testOrgID, testProjectID, suffix)
-}
-
 type channelAuthorityFixture struct {
 	storagetest.ChannelAuthorityFixture
 	Store *Store

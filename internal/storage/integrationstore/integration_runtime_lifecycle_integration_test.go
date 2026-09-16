@@ -28,7 +28,7 @@ func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			store := newSecretIntegrationStore(pool)
-			_, app, install := createChannelInstallationFixture(
+			_, _, app, install := createChannelLifecycleFixture(
 				t,
 				ctx,
 				store,
@@ -194,7 +194,7 @@ func TestIntegrationRuntimeMutationLocksInstallBeforeRuntimeUnit(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, app, install := createChannelInstallationFixture(t, ctx, store, "runtime-lock-order")
+	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-lock-order")
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
@@ -294,7 +294,7 @@ func TestIntegrationRuntimeLeaseMovesClaimAvailabilityToExpiry(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, app, install := createChannelInstallationFixture(t, ctx, store, "runtime-claim-availability")
+	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-claim-availability")
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
@@ -403,7 +403,7 @@ func TestExpiredIntegrationRuntimeLeaseCanBeReclaimedWithoutRelease(t *testing.T
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, app, install := createChannelInstallationFixture(t, ctx, store, "runtime-expiry-takeover")
+	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-expiry-takeover")
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{

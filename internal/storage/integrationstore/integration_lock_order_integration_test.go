@@ -27,7 +27,7 @@ func TestProjectDeletionWaitsForInstallBeforeApp(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	admin, app, install := createChannelInstallationFixture(t, ctx, store, "project-lock-order")
+	admin, _, app, install := createChannelLifecycleFixture(t, ctx, store, "project-lock-order")
 	definitionID := createChannelTestDefinition(t, ctx, store, install)
 
 	appHolder, err := pool.Begin(ctx)
@@ -144,7 +144,7 @@ func TestChannelDeletesEnterProjectLifecycleBeforeRowMutation(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, install := createChannelInstallationFixture(t, ctx, store, "channel-delete-lifecycle")
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "channel-delete-lifecycle")
 	route, err := store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{

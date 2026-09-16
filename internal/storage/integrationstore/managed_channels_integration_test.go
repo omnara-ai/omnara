@@ -142,7 +142,7 @@ func TestManagedChannelRegistrationRejectsForeignDefinitionAndParent(t *testing.
 	t.Parallel()
 	ctx := t.Context()
 	f := newChannelAuthorityFixture(t, ctx, "managed-scope")
-	_, _, other := createChannelInstallationFixture(t, ctx, f.Store, "other-registration")
+	_, _, _, other := createChannelLifecycleFixture(t, ctx, f.Store, "other-registration")
 	definitionID := createChannelTestDefinition(t, ctx, f.Store, other)
 	foreignParent, err := f.Store.Integrations().CreateIntegrationTarget(ctx,
 		integrationstore.CreateIntegrationTargetInput{

@@ -72,7 +72,7 @@ VALUES (
 		"-- name: InsertSecret ",
 		holderPID,
 	)
-	createPID := integrationLifecycleWaiterPID(
+	createPID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,
@@ -176,7 +176,7 @@ func TestProjectSecretCreationRejectsProjectDeletedFirst(t *testing.T) {
 		"-- name: DeleteProjectSecret",
 		holderPID,
 	)
-	deletePID := integrationLifecycleWaiterPID(
+	deletePID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,
@@ -291,7 +291,7 @@ VALUES (
 		"-- name: InsertSecret ",
 		holderPID,
 	)
-	createPID := integrationLifecycleWaiterPID(
+	createPID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,
@@ -393,7 +393,7 @@ func TestOrganizationSecretCreationRejectsOrganizationDeletedFirst(t *testing.T)
 		"-- name: DeleteOrganizationSecrets ",
 		holderPID,
 	)
-	deletePID := integrationLifecycleWaiterPID(
+	deletePID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,
@@ -491,7 +491,7 @@ func TestOAuthLeaseAcquisitionFencesOrganizationDeletionBeforeSecretAndLease(t *
 		"-- name: AcquireSecretOAuthRefreshLease ",
 		holderPID,
 	)
-	acquirePID := integrationLifecycleWaiterPID(
+	acquirePID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,
@@ -570,7 +570,7 @@ func TestManualSecretDeletionFencesOrganizationDeletionBeforeSecretAndLease(t *t
 		"-- name: DeleteSecretVersions ",
 		holderPID,
 	)
-	secretDeletePID := integrationLifecycleWaiterPID(
+	secretDeletePID := integrationdb.LockWaiterPID(
 		t,
 		ctx,
 		pool,
@@ -683,11 +683,4 @@ func holdOrganizationOAuthLease(
 		t.Fatalf("lock oauth lease row: %v", err)
 	}
 	return tx, pid
-}
-
-func integrationLifecycleWaiterPID(
-	t *testing.T, ctx context.Context, pool *pgxpool.Pool, queryFragment string, blockingPID int32,
-) int32 {
-	t.Helper()
-	return integrationdb.LockWaiterPID(t, ctx, pool, queryFragment, blockingPID)
 }
