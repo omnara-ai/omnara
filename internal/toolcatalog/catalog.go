@@ -21,7 +21,7 @@ const (
 )
 
 const (
-	ArtifactPageBytes        = 4 * 1024
+	FilePageBytes            = 4 * 1024
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
 	ReadFileDefaultLines     = 100
 	ReadFileMaxLines         = 200
@@ -66,11 +66,10 @@ const (
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
 	readFileToolDescription = "Read a text file stored in Omnara. " +
-		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
 		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text inside files stored in Omnara using a regular expression. " +
-		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +
+		"Currently searches one /artifacts/<artifact_id> path per call. " +
 		"Returns matching lines with line numbers and optional surrounding lines. " +
 		"Use read_file to read more around a match."
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
@@ -592,7 +591,7 @@ func readFileTool() (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact file path: /artifacts/<artifact_id>.",
+				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
 			},
 			"offset_line": map[string]any{
 				"type":    "integer",

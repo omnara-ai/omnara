@@ -182,7 +182,7 @@ Artifact patterns such as `/artifacts/*.pdf` match filenames. Results include th
 
 Results include files and directories, including hidden entries. Memory results reflect the filesystem, including empty directories. Memory files include sizes; obtain their digests with `download_file`. A literal path matches only that entry. If `truncated` is true, narrow the pattern to return fewer results. Listing does not guarantee a snapshot across namespaces.
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
 
 ### `upload_file`
 
@@ -204,17 +204,17 @@ Downloads return their terminal process result when they finish quickly. If a do
 
 ### `read_file`
 
-Reads a UTF-8 text file at `/artifacts/<artifact_id>`. The artifact must contain no NUL bytes and be at most 48 MiB. Readability is determined from the file's bytes, regardless of its declared content type.
+Reads a UTF-8 text file at `/artifacts/<artifact_id>` or `/memory/<store>/<file>`. Files must contain no NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB and require an attached store. Readability is determined from the file's bytes, regardless of its declared content type.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact path |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact or memory file path |
 | `offset_line` | integer | ≥ 1; default 1 |
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
 
-Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, and `has_more`.
+Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 
 When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_char`. A line longer than one page returns its first chunk and a character offset; switch to character mode to continue. Reading past the end returns empty content with `has_more: false`.
 

@@ -31,7 +31,7 @@ func TestReadFilePagingPreservesContent(t *testing.T) {
 				if !ok || !utf8.ValidString(chunk) || (chunk == "" && page["has_more"] == true) {
 					t.Fatal("invalid or stalled page")
 				}
-				if len(chunk) > toolcatalog.ArtifactPageBytes || page["bytes_read"] != len(chunk) {
+				if len(chunk) > toolcatalog.FilePageBytes || page["bytes_read"] != len(chunk) {
 					t.Fatalf("invalid byte count: %v", page)
 				}
 				got += chunk
@@ -100,6 +100,26 @@ func TestReadFileChars(t *testing.T) {
 			}
 			assertRetrievalBudget(t, page)
 		})
+	}
+}
+
+func TestReadFileDefaults(t *testing.T) {
+	for _, input := range []string{
+		`{"path":"/memory/team/notes.md"}`,
+		`{"path":"/memory/team/notes.md","offset_char":0}`,
+		`{"path":"/memory/team/notes.md","limit_chars":512}`,
+	} {
+		request, err := resolveReadFileRequest(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.OffsetChar != nil {
+			if *request.OffsetChar != 0 || *request.LimitChars != 512 {
+				t.Fatalf("incorrect character defaults: %+v", request)
+			}
+		} else if *request.OffsetLine != 1 || *request.LimitLines != 100 {
+			t.Fatalf("incorrect line defaults: %+v", request)
+		}
 	}
 }
 
@@ -233,6 +253,8 @@ func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
 		{"path": path, "offset_line": 1, "offset_char": 0}, {"path": path, "limit_chars": 0},
 		{"path": path, "offset_char": -1}, {"path": path, "limit_chars": 4097},
 		{"path": path, "offset_byte": 0}, {"path": path, "limit_bytes": 4},
+		{"path": "/memory/team"}, {"path": "/memory/team/../other/file"},
+		{"path": "/memory/team/file", "limit_lines": 1, "limit_chars": 4},
 		{"path": path, "limit_lines": 201}, {"path": path, "unexpected": true},
 	} {
 		raw, err := json.Marshal(input)
