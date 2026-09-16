@@ -206,11 +206,22 @@ export const zModelCacheRetention = z.enum([
     'long'
 ]);
 
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export const zDiscoveredModelPricing = z.object({
+    input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    cache_read_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    cache_write_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    output_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
 export const zDiscoveredProviderModel = z.object({
     slug: z.string(),
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
-    max_output_tokens: z.int().gte(1).lte(2147483647).optional()
+    max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    pricing: zDiscoveredModelPricing.optional()
 });
 
 /**
@@ -454,6 +465,7 @@ export const zConfiguredModelSummary = z.object({
     model_provider_config_id: zModelProviderConfigId,
     name: zResourceName,
     provider_config: zResourceName,
+    provider_model_slug: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -2578,6 +2590,49 @@ export const zOrgOverviewResponse = z.object({
     recent_agent_profiles: z.array(zAgentProfile)
 });
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export const zUsageTokenTotals = z.object({
+    input_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    uncached_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_read_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_write_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    output_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    reasoning_output_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageCostTotals = z.object({
+    provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageTotals = z.object({
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageModel = z.object({
+    configured_model_id: zConfiguredModelId,
+    name: zResourceName,
+    provider_model_slug: z.string(),
+    model_provider_config_id: zModelProviderConfigId,
+    model_provider_config_name: zResourceName
+});
+
+export const zModelUsageTotals = z.object({
+    model: zUsageModel,
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageReport = z.object({
+    totals: zUsageTotals,
+    by_model: z.array(zModelUsageTotals)
+});
+
 export const zCurrentUserIdentity = z.object({
     id: zUserId,
     email: z.string(),
@@ -2636,6 +2691,26 @@ export const zProjectMembershipGrant = z.object({
 export const zListProjectMembershipGrantsResponse = z.object({
     data: z.array(zProjectMembershipGrant)
 });
+
+/**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export const zUsageSince = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export const zUsageUntil = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 
 /**
  * Idempotency key for replay-safe mutating requests.
@@ -2849,6 +2924,22 @@ export const zGetOrgOverviewPath = z.object({
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
 
+export const zGetOrgUsagePath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    exclude_project_ids: z.array(zProjectId).min(1).max(100).optional()
+});
+
+/**
+ * Usage totals for the organization.
+ */
+export const zGetOrgUsageResponse = zUsageReport;
+
 export const zListVisibleProjectsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -2887,6 +2978,21 @@ export const zDeleteProjectPath = z.object({
  * Project deleted.
  */
 export const zDeleteProjectResponse = z.void();
+
+export const zGetProjectUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zGetProjectUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
+ * Usage totals for the project.
+ */
+export const zGetProjectUsageResponse = zUsageReport;
 
 export const zListOrgMembersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
@@ -3495,6 +3601,23 @@ export const zRenameAgentProfilePath = z.object({
  */
 export const zRenameAgentProfileResponse = zAgentProfile;
 
+export const zGetAgentProfileUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentProfileID: zAgentProfileId
+});
+
+export const zGetAgentProfileUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent profile.
+ */
+export const zGetAgentProfileUsageResponse = zUsageReport;
+
 export const zUpdateAgentProfileBody = zUpdateAgentProfileRequest;
 
 export const zUpdateAgentProfileHeaders = z.object({
@@ -3655,6 +3778,23 @@ export const zGetAgentPath = z.object({
  * Agent.
  */
 export const zGetAgentResponse2 = zGetAgentResponse;
+
+export const zGetAgentUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentID: zAgentId
+});
+
+export const zGetAgentUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent.
+ */
+export const zGetAgentUsageResponse = zUsageReport;
 
 export const zArchiveAgentPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

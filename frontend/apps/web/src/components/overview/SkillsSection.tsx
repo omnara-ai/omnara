@@ -60,16 +60,13 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
         <SearchHeader
           title="Skills"
           toolbar={
-            showToolbar ? (
-              <ResourceListToolbar
-                search={list.search}
-                onSearchChange={list.setSearch}
-                sort={list.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={list.setSort}
-                placeholder="Search skills by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+              placeholder="Search skills by name…"
+              showSearch={showToolbar}
+            />
           }
         >
           {canManage && (

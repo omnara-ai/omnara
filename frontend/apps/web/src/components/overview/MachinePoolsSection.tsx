@@ -62,16 +62,13 @@ export function MachinePoolsSection() {
         <SearchHeader
           title="Machine pools"
           toolbar={
-            showToolbar ? (
-              <ResourceListToolbar
-                search={list.search}
-                onSearchChange={list.setSearch}
-                sort={list.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={list.setSort}
-                placeholder="Search pools by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+              placeholder="Search pools by name…"
+              showSearch={showToolbar}
+            />
           }
         >
           {newPoolButton()}

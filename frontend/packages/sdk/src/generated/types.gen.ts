@@ -293,6 +293,17 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    pricing?: DiscoveredModelPricing;
+};
+
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export type DiscoveredModelPricing = {
+    input_usd_per_million: string;
+    cache_read_input_usd_per_million?: string;
+    cache_write_input_usd_per_million?: string;
+    output_usd_per_million: string;
 };
 
 export type ModelProviderConfigList = {
@@ -622,6 +633,10 @@ export type ConfiguredModelSummary = {
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
     provider_config: ResourceName;
+    /**
+     * Exact provider model slug sent to the provider endpoint by the current revision.
+     */
+    provider_model_slug: string;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -3112,6 +3127,61 @@ export type OrgOverviewResponse = {
     recent_agent_profiles: Array<AgentProfile>;
 };
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export type UsageTokenTotals = {
+    input_tokens_total: number;
+    uncached_input_tokens: number;
+    cache_read_input_tokens: number;
+    cache_write_input_tokens: number;
+    output_tokens_total: number;
+    reasoning_output_tokens: number;
+};
+
+export type UsageCostTotals = {
+    /**
+     * Exact decimal sum in USD of the costs the provider reported for the tallied model calls. Calls whose provider reported no cost contribute nothing; compare model_calls_with_reported_cost against model_calls to see how complete the figure is.
+     */
+    provider_reported_usd: string;
+    model_calls_with_reported_cost: number;
+};
+
+export type UsageTotals = {
+    /**
+     * Model calls that recorded token usage or a provider-reported cost.
+     */
+    model_calls: number;
+    tokens: UsageTokenTotals;
+    cost: UsageCostTotals;
+};
+
+export type UsageModel = {
+    configured_model_id: ConfiguredModelId;
+    /**
+     * Configured model name, resolved even if the model has since been deleted.
+     */
+    name: ResourceName;
+    provider_model_slug: string;
+    model_provider_config_id: ModelProviderConfigId;
+    model_provider_config_name: ResourceName;
+};
+
+export type ModelUsageTotals = {
+    model: UsageModel;
+    model_calls: number;
+    tokens: UsageTokenTotals;
+    cost: UsageCostTotals;
+};
+
+export type UsageReport = {
+    totals: UsageTotals;
+    /**
+     * Per-model rows ordered by provider config name, configured model name, then provider model slug. Models with distinct provider slugs across revisions appear once per slug.
+     */
+    by_model: Array<ModelUsageTotals>;
+};
+
 export type CurrentUserIdentity = {
     id: UserId;
     /**
@@ -3200,6 +3270,26 @@ export type ProjectMembershipGrant = {
 export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
+
+/**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export type UsageSince = string;
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export type UsageUntil = string;
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export type UsageIncludeProjectIds = Array<ProjectId>;
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export type UsageExcludeProjectIds = Array<ProjectId>;
 
 /**
  * Idempotency key for replay-safe mutating requests.
@@ -4185,6 +4275,82 @@ export type GetOrgOverviewResponses = {
 
 export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
 
+export type GetOrgUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+         */
+        include_project_ids?: Array<ProjectId>;
+        /**
+         * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+         */
+        exclude_project_ids?: Array<ProjectId>;
+    };
+    url: '/orgs/{orgID}/usage';
+};
+
+export type GetOrgUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOrgUsageError = GetOrgUsageErrors[keyof GetOrgUsageErrors];
+
+export type GetOrgUsageResponses = {
+    /**
+     * Usage totals for the organization.
+     */
+    200: UsageReport;
+};
+
+export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponses];
+
 export type ListVisibleProjectsData = {
     body?: never;
     path: {
@@ -4405,6 +4571,75 @@ export type DeleteProjectResponses = {
 };
 
 export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectResponses];
+
+export type GetProjectUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/usage';
+};
+
+export type GetProjectUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectUsageError = GetProjectUsageErrors[keyof GetProjectUsageErrors];
+
+export type GetProjectUsageResponses = {
+    /**
+     * Usage totals for the project.
+     */
+    200: UsageReport;
+};
+
+export type GetProjectUsageResponse = GetProjectUsageResponses[keyof GetProjectUsageResponses];
 
 export type ListOrgMembersData = {
     body?: never;
@@ -7872,6 +8107,80 @@ export type RenameAgentProfileResponses = {
 
 export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof RenameAgentProfileResponses];
 
+export type GetAgentProfileUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentProfileID: AgentProfileId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from subagents spawned, at every depth, by agents launched from this profile. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage';
+};
+
+export type GetAgentProfileUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentProfileUsageError = GetAgentProfileUsageErrors[keyof GetAgentProfileUsageErrors];
+
+export type GetAgentProfileUsageResponses = {
+    /**
+     * Usage totals for the agent profile.
+     */
+    200: UsageReport;
+};
+
+export type GetAgentProfileUsageResponse = GetAgentProfileUsageResponses[keyof GetAgentProfileUsageResponses];
+
 export type UpdateAgentProfileData = {
     body: UpdateAgentProfileRequest;
     headers?: {
@@ -8688,6 +8997,80 @@ export type GetAgentResponses = {
 };
 
 export type GetAgentResponse2 = GetAgentResponses[keyof GetAgentResponses];
+
+export type GetAgentUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from this agent's subagents at every depth. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage';
+};
+
+export type GetAgentUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentUsageError = GetAgentUsageErrors[keyof GetAgentUsageErrors];
+
+export type GetAgentUsageResponses = {
+    /**
+     * Usage totals for the agent.
+     */
+    200: UsageReport;
+};
+
+export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageResponses];
 
 export type ArchiveAgentData = {
     body?: never;

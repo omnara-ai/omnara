@@ -91,16 +91,17 @@ export function ProjectMachineGrantsTables({
         <SearchHeader
           title="Machine pool grants"
           toolbar={
-            poolToolbarVisible ? (
-              <ResourceListToolbar
-                search={poolList.search}
-                onSearchChange={poolList.setSearch}
-                sort={poolList.sort}
-                sortOptions={createdResourceSortOptions}
-                onSortChange={poolList.setSort}
-                placeholder="Search pool grants by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={poolList.search}
+              onSearchChange={poolList.setSearch}
+              sort={{
+                value: poolList.sort,
+                options: createdResourceSortOptions,
+                onChange: poolList.setSort,
+              }}
+              placeholder="Search pool grants by name…"
+              showSearch={poolToolbarVisible}
+            />
           }
         >
           {
@@ -223,16 +224,17 @@ export function ProjectMachineGrantsTables({
         <SearchHeader
           title="Machine grants"
           toolbar={
-            machineToolbarVisible ? (
-              <ResourceListToolbar
-                search={machineList.search}
-                onSearchChange={machineList.setSearch}
-                sort={machineList.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={machineList.setSort}
-                placeholder="Search machine grants by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={machineList.search}
+              onSearchChange={machineList.setSearch}
+              sort={{
+                value: machineList.sort,
+                options: resourceSortOptions,
+                onChange: machineList.setSort,
+              }}
+              placeholder="Search machine grants by name…"
+              showSearch={machineToolbarVisible}
+            />
           }
         >
           <GrantMachineButton />

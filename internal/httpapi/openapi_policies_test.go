@@ -160,3 +160,15 @@ func securityAllowsOnly(requirements openapi3.SecurityRequirements, names ...str
 	}
 	return true
 }
+
+func TestModelPricingLookupsRequireOnlyOrganizationRead(t *testing.T) {
+	for _, operation := range []operationID{operationListModelProviderConfigs, operationGetModelCatalog} {
+		policy := openAPIOperationPolicies[operation]
+		if policy.principal != principalKindAccount {
+			t.Fatalf("%s principal = %v, want account", operation, policy.principal)
+		}
+		if policy.scope.kind != scopeKindOrg || policy.scope.action != identitystore.OrgActionRead {
+			t.Fatalf("%s scope = %+v, want organization read", operation, policy.scope)
+		}
+	}
+}

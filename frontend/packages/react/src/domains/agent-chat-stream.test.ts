@@ -522,8 +522,9 @@ describe('AgentChatSession streaming', () => {
       data: controlEvent({ sequence: 14 }),
     })
     await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(3)
+      expect(invalidate).toHaveBeenCalledTimes(4)
     })
+    expect(invalidate.mock.calls.some(([filters]) => filters?.predicate !== undefined)).toBe(true)
     session.disconnect()
   })
 

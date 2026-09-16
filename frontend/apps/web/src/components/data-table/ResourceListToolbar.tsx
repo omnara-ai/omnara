@@ -1,37 +1,35 @@
+import type { ComponentProps } from 'react'
+
+import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import type { SortOption } from '@/hooks/use-resource-list'
 
-interface ResourceListToolbarProps<TSort extends string> {
-  search: string
-  onSearchChange: (value: string) => void
-  sort: TSort
-  sortOptions: readonly SortOption<TSort>[]
-  onSortChange: (sort: TSort) => void
-  placeholder: string
-}
+type FilterProps<TSort extends string> = Omit<
+  ComponentProps<typeof FiltersMenu<TSort>>,
+  'label' | 'sort'
+>
 
 export function ResourceListToolbar<TSort extends string>({
   search,
   onSearchChange,
-  sort,
-  sortOptions,
-  onSortChange,
   placeholder,
-}: ResourceListToolbarProps<TSort>) {
+  showSearch,
+  sort,
+  filters,
+}: {
+  search: string
+  onSearchChange: (value: string) => void
+  placeholder: string
+  showSearch: boolean
+  sort: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
+  filters?: FilterProps<TSort>
+}) {
+  const hasFilters = filters !== undefined && Object.values(filters).some(Boolean)
+  if (!showSearch && !hasFilters) return null
+  const label = hasFilters ? (showSearch ? 'Filters & sort' : 'Filters') : 'Sort'
   return (
-    <div className="flex w-full min-w-0 flex-1 items-start sm:w-auto">
-      <div
-        role="group"
-        aria-label="Search and sort resources"
-        className="flex w-full min-w-0 max-w-2xl flex-1 flex-col items-stretch gap-2 sm:min-w-[18rem] sm:flex-row sm:gap-0"
-      >
+    <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+      {showSearch && (
         <Input
           type="search"
           value={search}
@@ -40,33 +38,10 @@ export function ResourceListToolbar<TSort extends string>({
           }}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="relative w-full rounded-lg focus-visible:z-10 sm:flex-1 sm:rounded-l-lg sm:rounded-r-none"
+          className="h-9 min-w-0 flex-1 text-sm"
         />
-
-        <Select
-          value={sort}
-          onValueChange={(value) => {
-            const option = sortOptions.find((candidate) => candidate.value === value)
-            if (option) onSortChange(option.value)
-          }}
-        >
-          <SelectTrigger
-            className="relative w-full rounded-lg focus-visible:z-10 sm:w-auto sm:min-w-44 sm:rounded-l-none sm:rounded-r-lg sm:border-l-0"
-            aria-label="Sort results"
-          >
-            <SelectValue placeholder="Sort by">
-              {sortOptions.find((option) => option.value === sort)?.label ?? sort}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {sortOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      )}
+      <FiltersMenu label={label} sort={showSearch ? sort : undefined} {...filters} />
     </div>
   )
 }

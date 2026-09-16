@@ -2,6 +2,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 
 import {
   BrainCircuit,
+  ChartBar,
   CreditCard,
   Fingerprint,
   House,
@@ -24,6 +25,7 @@ const resources = [
   { to: '/members' as const, label: 'Members', icon: Users },
   { to: '/machines' as const, label: 'Machines', icon: Server },
   { to: '/models' as const, label: 'Models', icon: BrainCircuit },
+  { to: '/usage' as const, label: 'Usage', icon: ChartBar },
   { to: '/secrets' as const, label: 'Secrets', icon: KeyRound },
   { to: '/skills' as const, label: 'Skills', icon: Sparkles },
   { to: '/user/api-tokens' as const, label: 'API Tokens', icon: Fingerprint },

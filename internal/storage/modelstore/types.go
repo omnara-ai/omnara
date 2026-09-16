@@ -257,6 +257,7 @@ type ConfiguredModelSummaryRecord struct {
 	ModelProviderConfigID uuid.UUID `json:"model_provider_config_id"`
 	Name                  string    `json:"name"`
 	ProviderConfigName    string    `json:"provider_config"`
+	ProviderModelSlug     string    `json:"provider_model_slug"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
 }
