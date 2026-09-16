@@ -9,7 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func TestImplicitMachineTools(t *testing.T) {
+func TestDefaultMachineTools(t *testing.T) {
 	machineTools := []string{
 		"create_machine", "delete_machine", "download_file", "inspect_machine",
 		"list_machines", "list_processes", "read_process", "run_command",

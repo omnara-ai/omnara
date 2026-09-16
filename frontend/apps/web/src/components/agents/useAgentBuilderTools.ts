@@ -2,11 +2,12 @@ import { useAgentConfigTools } from '@omnara/react'
 import type { ResolvedAgentConfigTool } from '@omnara/sdk'
 import { useState } from 'react'
 
+import { subagentValid, subagentWire } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 
-type ToolSourceContext = Pick<BasicConfig, 'machineSources' | 'skillIds'>
-const emptySources: ToolSourceContext = { machineSources: [], skillIds: [] }
+type ToolSourceContext = Pick<BasicConfig, 'machineSources' | 'skillIds' | 'subagents'>
+const emptySources: ToolSourceContext = { machineSources: [], skillIds: [], subagents: [] }
 
 export function useAgentBuilderTools(
   source: ToolSourceContext,
@@ -23,7 +24,9 @@ export function useAgentBuilderTools(
     pending: current.isPending || (removedSources != null && previous.isPending),
     error: current.isError || (removedSources != null && previous.isError),
     normalize: (tools: BasicTool[]) =>
-      normalizeTools(tools, current.data?.tools, previous.data?.tools ?? []),
+      source.subagents.every(subagentValid)
+        ? normalizeTools(tools, current.data?.tools, previous.data?.tools ?? [])
+        : tools,
     sourcesChanged: () => {
       setRemovedSources((old) => ({
         machineSources: [
@@ -35,6 +38,13 @@ export function useAgentBuilderTools(
           ).values(),
         ],
         skillIds: [...new Set([...(old?.skillIds ?? []), ...source.skillIds])],
+        subagents: [
+          ...new Map(
+            [...(old?.subagents ?? []), ...source.subagents]
+              .filter(subagentValid)
+              .map((row) => [row.key, row]),
+          ).values(),
+        ],
       }))
     },
     reset: () => {
@@ -57,6 +67,9 @@ function defaultsRequest(source: ToolSourceContext) {
           row.kind === 'pool' ? { machine_pool_name: row.name } : { machine_name: row.name },
         ),
       skills: source.skillIds,
+      subagents: Object.fromEntries(
+        source.subagents.filter(subagentValid).map((row) => [row.key, subagentWire(row)]),
+      ),
     }),
   }
 }

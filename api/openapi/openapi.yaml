@@ -2363,20 +2363,18 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
     post:
       operationId: resolveAgentConfigTools
       tags: [Configs and Profiles]
       summary: Resolve agent config tools
       description: >-
-        Returns configured built-in and custom tools plus missing machine and skill
+        Returns configured built-in and custom tools plus missing machine, skill, and subagent
         defaults, including disabled entries. Accepts YAML/JSON source. Source
         previews validate tool-related fields only; they do not validate whether
         the config can be saved or launched. Does not resolve contextual integration
@@ -8598,6 +8596,9 @@ components:
           type: string
         description:
           type: string
+        automatically_added:
+          type: boolean
+          description: Whether this tool is added automatically based on config resources or integration context rather than selected manually.
         default_permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
         permission_modes:

@@ -70,6 +70,7 @@ const includedCatalog: ToolCatalog = {
   built_in_tools: ['run_command', 'skill', 'send_integration_message'].map((name) => ({
     name,
     description: name,
+    automatically_added: true,
     default_permission: alwaysAllowProfile.default_permission,
     permission_modes:
       name === 'send_integration_message'
@@ -187,6 +188,87 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
   expect(container.textContent).toContain('web_search')
 })
 
+it('waits for the catalog before showing default tools and preserves their overrides', async () => {
+  const onToolsChange = vi.fn()
+  const tools = [
+    { name: 'run_command', enabled: false, permission: null },
+    { name: 'skill', permission: { mode: 'always_ask', parameters: {} } },
+  ]
+  await renderAndFlush(<AgentConfigToolsField tools={tools} onToolsChange={onToolsChange} />)
+  expect(container.querySelector('[aria-label^="Remove "]')).toBeNull()
+  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  await renderAndFlush(
+    <AgentConfigToolsField catalog={includedCatalog} tools={tools} onToolsChange={onToolsChange} />,
+  )
+  expect(container.querySelector('[aria-label^="Remove "]')).toBeNull()
+  click('[data-slot="collapsible-trigger"]')
+  expect(container.querySelector('[aria-label="run_command permission"]')?.textContent).toBe(
+    'Disabled',
+  )
+  expect(container.querySelector('[aria-label="skill permission"]')?.textContent).toBe('Always ask')
+  expect(onToolsChange).not.toHaveBeenCalled()
+})
+
+it('uses catalog classification rather than recognizing tool names', async () => {
+  const onToolsChange = vi.fn()
+  const classifiedCatalog: ToolCatalog = {
+    ...catalog,
+    built_in_tools: [
+      {
+        name: 'future_resource_tool',
+        description: 'Future tool.',
+        automatically_added: true,
+        ...alwaysAllowProfile,
+      },
+      {
+        name: 'run_command',
+        description: 'Manual tool.',
+        automatically_added: false,
+        ...alwaysAllowProfile,
+      },
+    ],
+  }
+  await renderAndFlush(
+    <AgentConfigToolsField
+      catalog={classifiedCatalog}
+      tools={classifiedCatalog.built_in_tools.map(({ name }) => ({ name, permission: null }))}
+      onToolsChange={onToolsChange}
+    />,
+  )
+  expect(container.querySelector('[aria-label="Remove run_command"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Remove future_resource_tool"]')).toBeNull()
+  click('[data-slot="collapsible-trigger"]')
+  expect(container.querySelector('[aria-label="future_resource_tool permission"]')).not.toBeNull()
+  await renderAndFlush(
+    <AgentConfigToolsField catalog={classifiedCatalog} tools={[]} onToolsChange={onToolsChange} />,
+  )
+  act(() => {
+    container
+      .querySelector('[aria-label="Add tools"]')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  })
+  const options = [...document.querySelectorAll('[role="menuitem"]')].map(
+    (item) => item.textContent,
+  )
+  expect(options).toContain('run_command')
+  expect(options).not.toContain('future_resource_tool')
+})
+
+it('shows and can re-enable an explicitly disabled normal tool', async () => {
+  const onToolsChange = vi.fn()
+  const tools = [{ name: 'web_search', enabled: false, permission: null }]
+  await renderAndFlush(
+    <AgentConfigToolsField catalog={catalog} tools={tools} onToolsChange={onToolsChange} />,
+  )
+  expect(container.querySelector('[aria-label="web_search permission"]')?.textContent).toBe(
+    'Disabled',
+  )
+  await selectIncludedPermission('web_search', 'Always ask')
+  expect(onToolsChange).toHaveBeenCalledWith([
+    { name: 'web_search', enabled: undefined, permission: { mode: 'always_ask', parameters: {} } },
+  ])
+})
+
 it('keeps included tools out of normal rows and preserves their overrides', async () => {
   const onToolsChange = vi.fn()
   const machineTools = [
@@ -206,7 +288,12 @@ it('keeps included tools out of normal rows and preserves their overrides', asyn
     ...catalog,
     built_in_tools: [
       ...catalog.built_in_tools,
-      ...machineTools.map(({ name }) => ({ name, description: name, ...alwaysAllowProfile })),
+      ...machineTools.map(({ name }) => ({
+        name,
+        description: name,
+        automatically_added: true,
+        ...alwaysAllowProfile,
+      })),
     ],
   }
   await renderAndFlush(
@@ -259,13 +346,8 @@ it.each(['run_command', 'skill', 'send_integration_message'])(
     await renderAndFlush(
       <AgentConfigToolsField tools={[{ name, permission: null }]} onToolsChange={onToolsChange} />,
     )
-    expect(
-      container.querySelector('[data-slot="collapsible-trigger"]')?.getAttribute('aria-expanded'),
-    ).toBe('false')
-    click('[data-slot="collapsible-trigger"]')
-    expect(container.querySelector('[data-slot="select-trigger"]')?.hasAttribute('disabled')).toBe(
-      true,
-    )
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+    expect(container.querySelector('[data-slot="select-trigger"]')).toBeNull()
     await renderAndFlush(
       <AgentConfigToolsField
         catalog={includedCatalog}
@@ -273,6 +355,7 @@ it.each(['run_command', 'skill', 'send_integration_message'])(
         onToolsChange={onToolsChange}
       />,
     )
+    click('[data-slot="collapsible-trigger"]')
     expect(container.textContent).toContain(name)
     expect(container.textContent).toContain('Always allow')
     expect(container.querySelector('[data-slot="select-trigger"]')?.hasAttribute('disabled')).toBe(

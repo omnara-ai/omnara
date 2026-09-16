@@ -28,7 +28,7 @@ max_subagents: 2
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	parsed, err := ParseSource(SourceFormatYAML, []byte(source))
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
 	if err != nil {
 		t.Fatalf("parse source: %v", err)
 	}

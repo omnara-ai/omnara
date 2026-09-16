@@ -36,6 +36,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 		"machine_sources: [{machine_name: build-box}]\n",
 		"machine_sources: [{machine_pool_name: build-pool, max_machines: 0, initial_num_machines: 0}]\n",
 		"skills: [" + skillID + "]\n",
+		"subagents: {worker: {type: self}}\n",
+		"subagents: {worker: {type: self}}\nskills: [" + skillID + "]\ntools:\n  spawn_agent: {enabled: false}\n  read_agent: {permission: {mode: always_ask}}\n",
 		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  send_integration_message: {enabled: false}\n",
 		"tools:\n  send_integration_message: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
 	} {
@@ -121,6 +123,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 		`null`, `[]`, `{`, `{} {}`, `{"tools":null}`, `{"tools":{"run_command":{"enabled":"false"}}}`,
 		`{"tools":{"not_registered":{}}}`, `{"tools":{"run_command":{"permission":{"mode":"bogus"}}}}`,
 		`{"machine_sources":[{}]}`, `{"skills":["invalid"]}`, `{"tools":{"run_command":{"typo":true}}}`,
+		`{"subagents":{"worker":{"type":"profile"}}}`, `{"subagents":{"worker":{"type":"unknown"}}}`,
 	} {
 		if _, err := ToolsFromSource(SourceFormatJSON, []byte(raw)); err == nil {
 			t.Fatalf("accepted invalid tool source: %s", raw)

@@ -167,20 +167,6 @@ func RuntimeContractFromCompiled(
 		MaxDepth:        compiled.MaxDepth,
 		configuredTools: configuredTools,
 	}
-	if len(compiled.Skills) > 0 {
-		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
-		if err != nil {
-			return RuntimeContract{}, err
-		}
-	}
-	if len(compiled.Subagents) > 0 {
-		for _, name := range toolcatalog.SubagentToolNames() {
-			contract, err = contract.WithImplicitBuiltInTool(name)
-			if err != nil {
-				return RuntimeContract{}, err
-			}
-		}
-	}
 	if len(contract.Tools) > 0 || len(contract.MCPServers) > 0 {
 		return contract.withFileRetrievalTools()
 	}
