@@ -89,9 +89,12 @@ const organizationMachinesRoute = createRoute({
   ),
 })
 
+const organizationModelsSearch = z.object({ provider: z.string().optional().catch(undefined) })
+
 const organizationModelsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/models',
+  validateSearch: organizationModelsSearch,
   component: lazyRouteComponent(
     () => import('@/routes/OrganizationModelsPage'),
     'OrganizationModelsPage',
