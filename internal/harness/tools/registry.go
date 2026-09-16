@@ -282,6 +282,12 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameToolSearch,
+			semanticInputValidator: validateToolSearchInput,
+			handler:                toolHandler{Transactional: runToolSearch},
+			permissionModes:        alwaysAllowPermissionModeHandlers(),
+		},
+		{
 			name:                   toolcatalog.ToolNameAskQuestion,
 			semanticInputValidator: validateQuestionInput,
 			handler: toolHandler{

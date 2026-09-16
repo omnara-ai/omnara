@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
@@ -134,6 +135,23 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 			out.Content = append(out.Content, part)
 			item.Name = part.ToolName
 			item.Arguments = model.ToolArgumentString(part.ToolInput)
+			hasToolCall = true
+		case "tool_search_call":
+			if strings.TrimSpace(item.CallID) == "" {
+				if !validProviderOnlyResponseItem(item) {
+					return out, p.invalidResponseError(
+						resp,
+						decoded,
+						errors.New("openai-responses server tool search is missing item id"),
+					)
+				}
+				break
+			}
+			part := model.NewToolCallPart(item.CallID, toolcatalog.ToolNameToolSearch, toolSearchCallArguments(rawItem))
+			if item.Status != "" && item.Status != "completed" {
+				part.ToolCallError = model.IncompleteToolCallError
+			}
+			out.Content = append(out.Content, part)
 			hasToolCall = true
 		default:
 			if !validProviderOnlyResponseItem(item) {

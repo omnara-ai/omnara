@@ -257,20 +257,20 @@ mcp:
 	if server.ServerKey != "docs" || server.URL != "https://example.com/mcp" {
 		t.Fatalf("unexpected mcp server: %+v", server)
 	}
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
-	if permission, ok := server.ResolveTool("anything_else"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAsk {
-		t.Fatalf("default resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("anything_else"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAsk {
+		t.Fatalf("default resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("disabled_tool"); ok {
 		t.Fatalf("disabled_tool should not resolve enabled")
 	}
-	if permission, ok := server.ResolveTool("aws___call_aws"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysDeny {
-		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("aws___call_aws"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysDeny {
+		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", resolution, ok)
 	}
 }
 
@@ -298,9 +298,9 @@ mcp:
 		t.Fatalf("expected one mcp server, got %+v", contract.MCPServers)
 	}
 	server := contract.MCPServers[0]
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("anything_else"); ok {
 		t.Fatal("unlisted tool should be disabled when default_enabled is false")

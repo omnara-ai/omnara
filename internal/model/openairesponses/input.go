@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type responsesRole string
@@ -41,6 +42,7 @@ func buildInput(
 		capacity++
 	}
 	items := make([]any, 0, capacity)
+	clientToolSearch := modelcontext.DeferredToolsEnabled(bundle.ToolSpecs)
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil {
 		items = append(
 			items,
@@ -59,6 +61,7 @@ func buildInput(
 				entry.AssistantContent,
 				replayIdentity,
 				policy,
+				clientToolSearch,
 			)
 			if err != nil {
 				return nil, err
@@ -72,6 +75,15 @@ func buildInput(
 			return nil, fmt.Errorf("unsupported canonical message role %q", entry.Message.Role)
 		}
 		for _, result := range entry.ToolResults {
+			if clientToolSearch {
+				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
+					items = append(items, toolSearchOutputItem(
+						result.ProviderCallID,
+						modelcontext.DiscoveredToolSpecs(bundle.ToolSpecs, search),
+					))
+					continue
+				}
+			}
 			items = append(
 				items,
 				map[string]any{
@@ -103,12 +115,27 @@ func buildInput(
 	return items, nil
 }
 
+func toolSearchOutputItem(callID string, discovered []modelcontext.ToolSpec) map[string]any {
+	tools := make([]responsesTool, 0, len(discovered))
+	for _, spec := range discovered {
+		tools = append(tools, functionToolDefinition(spec))
+	}
+	return map[string]any{
+		"type":      "tool_search_output",
+		"execution": "client",
+		"call_id":   callID,
+		"status":    "completed",
+		"tools":     tools,
+	}
+}
+
 func appendAssistantResponseEntry(
 	items []any,
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
+	clientToolSearch bool,
 ) ([]any, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
 		if replayItems, ok := completeResponseReplay(source, content, replayIdentity); ok {
@@ -118,12 +145,13 @@ func appendAssistantResponseEntry(
 			return items, nil
 		}
 	}
-	return appendCanonicalAssistantResponse(items, content)
+	return appendCanonicalAssistantResponse(items, content, clientToolSearch)
 }
 
 func appendCanonicalAssistantResponse(
 	items []any,
 	content []modelcontext.AssistantContentEntry,
+	clientToolSearch bool,
 ) ([]any, error) {
 	pending := make([]json.RawMessage, 0, len(content))
 	flush := func() error {
@@ -151,6 +179,16 @@ func appendCanonicalAssistantResponse(
 		case modelcontext.AssistantToolCallEntry:
 			if err := flush(); err != nil {
 				return nil, err
+			}
+			if clientToolSearch && entry.ToolCall.Name == toolcatalog.ToolNameToolSearch {
+				items = append(items, map[string]any{
+					"type":      "tool_search_call",
+					"execution": "client",
+					"call_id":   entry.ToolCall.ProviderCallID,
+					"status":    "completed",
+					"arguments": entry.ToolCall.Input,
+				})
+				continue
 			}
 			items = append(items, map[string]any{
 				"type":      "function_call",
@@ -252,6 +290,25 @@ func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic,
 				callID:    item.CallID,
 				name:      item.Name,
 				arguments: json.RawMessage(item.Arguments),
+			})
+		case "tool_search_call":
+			if strings.TrimSpace(item.CallID) == "" {
+				if !validProviderOnlyResponseItem(item) {
+					return nil, false
+				}
+				reasoningNeedsContinuation = false
+				continue
+			}
+			arguments := toolSearchCallArguments(raw)
+			if modelenvelope.ValidateToolInput(arguments) != nil {
+				return nil, false
+			}
+			reasoningNeedsContinuation = false
+			semantics = append(semantics, responseReplaySemantic{
+				kind:      "tool_call",
+				callID:    item.CallID,
+				name:      toolcatalog.ToolNameToolSearch,
+				arguments: arguments,
 			})
 		default:
 			if !validProviderOnlyResponseItem(item) {
@@ -364,4 +421,18 @@ func sameResponseSemantics(left, right []responseReplaySemantic) bool {
 
 func toolArguments(result modelcontext.ToolResultRef) string {
 	return string(result.Input)
+}
+
+func toolSearchCallArguments(raw json.RawMessage) json.RawMessage {
+	var item struct {
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(raw, &item) != nil || len(item.Arguments) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	var encoded string
+	if json.Unmarshal(item.Arguments, &encoded) == nil {
+		return json.RawMessage(encoded)
+	}
+	return item.Arguments
 }

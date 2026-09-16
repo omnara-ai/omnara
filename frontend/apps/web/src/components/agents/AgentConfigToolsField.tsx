@@ -26,9 +26,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 export interface BasicTool {
   name: string
   permission: PermissionSelection | null
+  deferred?: boolean
 }
 
-const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
+const hiddenToolNames = new Set([
+  'skill',
+  'send_integration_message',
+  'set_integration_target',
+  'tool_search',
+])
 const toolDescriptions = new Map([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['write_process', 'Send input to a command that is still running.'],
@@ -165,6 +171,19 @@ export function AgentConfigToolsField({
                     )
                   }}
                 />
+                <ToolLoadingSelect
+                  name={tool.name}
+                  deferred={tool.deferred === true}
+                  onChange={(deferred) => {
+                    onToolsChange(
+                      tools.map((currentTool) =>
+                        currentTool.name === tool.name
+                          ? { ...currentTool, deferred: deferred || undefined }
+                          : currentTool,
+                      ),
+                    )
+                  }}
+                />
                 <Button
                   type="button"
                   size="icon"
@@ -213,6 +232,42 @@ function PermissionModeSelect({
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+export function ToolLoadingSelect({
+  name,
+  deferred,
+  onChange,
+}: {
+  name: string
+  deferred: boolean
+  onChange: (deferred: boolean) => void
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="min-w-0 flex-1 sm:w-28 sm:flex-none">
+          <Select
+            value={deferred ? 'deferred' : 'loaded'}
+            onValueChange={(value) => {
+              onChange(value === 'deferred')
+            }}
+          >
+            <SelectTrigger size="sm" className="w-full" aria-label={`${name} loading`}>
+              <SelectValue>{deferred ? 'Deferred' : 'Loaded'}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="loaded">Loaded</SelectItem>
+              <SelectItem value="deferred">Deferred</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs px-3 py-2 text-sm leading-relaxed">
+        Deferred tools stay out of the model&apos;s context until it finds them with tool_search.
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

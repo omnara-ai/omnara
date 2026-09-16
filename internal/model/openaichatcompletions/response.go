@@ -108,10 +108,22 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				if err := json.Unmarshal(rawToolCall, &toolCall); err != nil {
 					return out, p.invalidResponseError(resp, decoded, err)
 				}
-				part := model.NewToolCallPart(toolCall.ID, toolCall.Function.Name, json.RawMessage(toolCall.Function.Arguments))
+				name, arguments := unwrapDeferredToolCall(
+					toolCall.Function.Name,
+					json.RawMessage(toolCall.Function.Arguments),
+				)
+				part := model.NewToolCallPart(toolCall.ID, name, arguments)
 				out.Content = append(out.Content, part)
-				toolCall.Function.Name = part.ToolName
-				toolCall.Function.Arguments = model.ToolArgumentString(part.ToolInput)
+				if name != toolCall.Function.Name {
+					wrapped, err := wrapDeferredToolCall(part.ToolName, part.ToolInput)
+					if err != nil {
+						return out, p.invalidResponseError(resp, decoded, err)
+					}
+					toolCall.Function.Arguments = model.ToolArgumentString(wrapped)
+				} else {
+					toolCall.Function.Name = part.ToolName
+					toolCall.Function.Arguments = model.ToolArgumentString(part.ToolInput)
+				}
 				normalized, err := json.Marshal(toolCall)
 				if err != nil {
 					return out, p.invalidResponseError(resp, decoded, err)
