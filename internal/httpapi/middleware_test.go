@@ -97,7 +97,7 @@ func TestRequestBodyLimitDaemonArtifactUpload(t *testing.T) {
 		"/api/v1/daemon/tool-calls/tcl_abc/artifact?filename=shot.png",
 		nil,
 	)
-	if got := requestBodyLimit(req); got != daemonprotocol.MaxArtifactUploadBytes {
-		t.Fatalf("artifact upload body limit = %d, want %d", got, daemonprotocol.MaxArtifactUploadBytes)
+	if got := requestBodyLimit(req); got != daemonprotocol.MaxFileTransferBytes {
+		t.Fatalf("artifact upload body limit = %d, want %d", got, daemonprotocol.MaxFileTransferBytes)
 	}
 }

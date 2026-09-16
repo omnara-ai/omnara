@@ -16,12 +16,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func TestRunDownloadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
-	toolCallID := artifactUploadTestPublicID(t, publicid.KindToolCall)
-	artifactID := artifactUploadTestPublicID(t, publicid.KindArtifact)
+func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet ||
-			r.URL.Path != "/api/v1/daemon/tool-calls/"+toolCallID+"/artifacts/"+artifactID+"/content" {
+			r.URL.Path != "/api/v1/daemon/tool-calls/"+toolCallID+"/file" {
 			t.Errorf("unexpected download request: %s %s", r.Method, r.URL.String())
 		}
 		if r.Header.Get("Authorization") != "Bearer token-a" ||
@@ -67,12 +66,12 @@ func TestRunDownloadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testi
 			if err := os.Chmod(test.full, 0o640); err != nil {
 				t.Fatalf("chmod destination: %v", err)
 			}
-			err := runDownloadArtifactCommand(
-				context.Background(),
-				toolCallID,
-				artifactID,
-				base64.RawURLEncoding.EncodeToString([]byte(test.path)),
-			)
+			err := runFileTransfer(context.Background(), fileTransferRequest{
+				direction:      "download",
+				toolCallID:     toolCallID,
+				encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(test.path)),
+				endpointSuffix: "/file",
+			}, io.Discard)
 			if err != nil {
 				t.Fatalf("download artifact: %v", err)
 			}
@@ -94,9 +93,35 @@ func TestRunDownloadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testi
 	}
 }
 
-func TestRunDownloadArtifactCommandPreservesDestinationOnFailures(t *testing.T) {
-	toolCallID := artifactUploadTestPublicID(t, publicid.KindToolCall)
-	artifactID := artifactUploadTestPublicID(t, publicid.KindArtifact)
+func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	content := strings.Repeat("x", daemonprotocol.MaxFileDownloadBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, content)
+	}))
+	defer server.Close()
+	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
+	destination := filepath.Join(t.TempDir(), "large-artifact.txt")
+	err := runFileTransfer(context.Background(), fileTransferRequest{
+		direction:      "download",
+		toolCallID:     toolCallID,
+		encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(destination)),
+		endpointSuffix: "/file",
+	}, io.Discard)
+	if err != nil {
+		t.Fatalf("download at size limit: %v", err)
+	}
+	info, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != int64(len(content)) {
+		t.Fatalf("downloaded size = %d, want %d", info.Size(), len(content))
+	}
+}
+
+func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	destinationDir := t.TempDir()
 	destination := filepath.Join(destinationDir, "artifact.bin")
 	if err := os.WriteFile(destination, []byte("existing bytes"), 0o600); err != nil {
@@ -134,12 +159,12 @@ func TestRunDownloadArtifactCommandPreservesDestinationOnFailures(t *testing.T) 
 				w.Header().Set("Content-Length", "100")
 				_, _ = io.WriteString(w, "short")
 			},
-			want: "write artifact",
+			want: "write file",
 		},
 		{
 			name: "oversized response",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = io.WriteString(w, strings.Repeat("x", daemonprotocol.MaxArtifactUploadBytes+1))
+				_, _ = io.WriteString(w, strings.Repeat("x", daemonprotocol.MaxFileDownloadBytes+1))
 			},
 			want: "exceeds the size limit",
 		},
@@ -149,7 +174,12 @@ func TestRunDownloadArtifactCommandPreservesDestinationOnFailures(t *testing.T) 
 			server := httptest.NewServer(test.handler)
 			defer server.Close()
 			setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
-			err := runDownloadArtifactCommand(context.Background(), toolCallID, artifactID, encodedPath)
+			err := runFileTransfer(context.Background(), fileTransferRequest{
+				direction:      "download",
+				toolCallID:     toolCallID,
+				encodedPath:    encodedPath,
+				endpointSuffix: "/file",
+			}, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -157,7 +187,7 @@ func TestRunDownloadArtifactCommandPreservesDestinationOnFailures(t *testing.T) 
 			if readErr != nil || string(content) != "existing bytes" {
 				t.Fatalf("destination = %q err=%v", content, readErr)
 			}
-			matches, globErr := filepath.Glob(filepath.Join(destinationDir, ".omnara-artifact-*"))
+			matches, globErr := filepath.Glob(filepath.Join(destinationDir, ".omnara-file-*"))
 			if globErr != nil || len(matches) != 0 {
 				t.Fatalf("temporary files = %v err=%v", matches, globErr)
 			}
@@ -168,9 +198,8 @@ func TestRunDownloadArtifactCommandPreservesDestinationOnFailures(t *testing.T) 
 	}
 }
 
-func TestRunDownloadArtifactCommandDoesNotCreateParentDirectory(t *testing.T) {
-	toolCallID := artifactUploadTestPublicID(t, publicid.KindToolCall)
-	artifactID := artifactUploadTestPublicID(t, publicid.KindArtifact)
+func TestFileTransferDownloadDoesNotCreateParentDirectory(t *testing.T) {
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	var requested atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requested.Store(true)
@@ -179,13 +208,13 @@ func TestRunDownloadArtifactCommandDoesNotCreateParentDirectory(t *testing.T) {
 	defer server.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 	destination := filepath.Join(t.TempDir(), "missing", "artifact.bin")
-	err := runDownloadArtifactCommand(
-		context.Background(),
-		toolCallID,
-		artifactID,
-		base64.RawURLEncoding.EncodeToString([]byte(destination)),
-	)
-	if err == nil || !strings.Contains(err.Error(), "create temporary artifact file") {
+	err := runFileTransfer(context.Background(), fileTransferRequest{
+		direction:      "download",
+		toolCallID:     toolCallID,
+		encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(destination)),
+		endpointSuffix: "/file",
+	}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "create temporary file") {
 		t.Fatalf("error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Dir(destination)); !os.IsNotExist(err) {

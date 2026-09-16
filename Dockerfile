@@ -18,7 +18,7 @@ COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/ngi
 FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS go-base
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && mkdir -p /out/memory
 COPY . .
 
 FROM go-base AS api-build
@@ -54,6 +54,7 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a
 WORKDIR /app
 
 FROM runtime AS api
+COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
 ENV OMNARA_WEB_SERVING=disabled
 ENV OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=/app/mcp-registry/mcp-registry.json
 COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
@@ -61,6 +62,7 @@ COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json
 ENTRYPOINT ["/usr/local/bin/omnara-api"]
 
 FROM runtime AS worker
+COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
 COPY --from=worker-build /out/omnara-worker /usr/local/bin/omnara-worker
 ENTRYPOINT ["/usr/local/bin/omnara-worker"]
 

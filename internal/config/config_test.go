@@ -1314,3 +1314,35 @@ func TestValidateWorkerRejectsInvalidEventWebhookPerOrgConcurrency(t *testing.T)
 		})
 	}
 }
+
+func TestMemoryDirectoryConfiguration(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_MEMORY_DIR", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		t.Fatalf("development memory directory is not absolute: %q", cfg.MemoryDir)
+	}
+	for _, dir := range []string{"", "relative/memory"} {
+		cfg.MemoryDir = dir
+		if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("API accepted memory directory %q: %v", dir, err)
+		}
+		if err := cfg.ValidateWorker(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("worker accepted memory directory %q: %v", dir, err)
+		}
+	}
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatal(err)
+	}
+}

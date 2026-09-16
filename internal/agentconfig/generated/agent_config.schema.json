@@ -598,6 +598,31 @@
       },
       "type": "object"
     },
+    "memory_stores": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "access": {
+            "enum": [
+              "read_only",
+              "read_write"
+            ]
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "access"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "model": {
       "$ref": "#/$defs/AgentConfigModelSource"
     },

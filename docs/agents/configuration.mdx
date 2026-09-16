@@ -243,6 +243,22 @@ Subagents start with a clean context: only the `task` passed to `spawn_agent` re
 
 For a complete example you can deploy, with a `self` subagent whose copies each work in their own `git worktree` on the parent's machine, see [Coding agent in Slack](/examples/slack-coding-agent).
 
+## Memory stores
+
+`memory_stores` attaches project-owned stores where agents can keep files between conversations or share them with other agents. Create a store first with `POST /orgs/{orgID}/projects/{projectID}/memory-stores`, passing a body such as `{"name": "engineering"}`, then reference its name in the config:
+
+```yaml
+memory_stores:
+  - name: engineering
+    access: read_write
+```
+
+Store names are unique within a project and use 1–64 lowercase letters, digits, and single hyphens between groups of letters or digits. Config creation resolves the name to the store's ID.
+
+Each attachment requires `access: read_only` or `access: read_write`. Writes require both `read_write` access and a writable store. New stores default to allowing writes.
+
+Enable the [file tools](/tools/built-in#files) under `tools:` to let the agent discover, download, and upload files at `/memory/<store-name>/<file-path>`. File paths can include nested directories. Reading or editing file contents requires an attached machine.
+
 ## Create a config
 
 <Tabs>

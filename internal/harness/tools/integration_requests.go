@@ -8,13 +8,15 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 var integrationTargetRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*-[a-z2-9]{4}$`)
 
 type integrationMessageRequest struct {
-	Text        string   `json:"text"`
-	ArtifactIDs []string `json:"artifact_ids,omitempty"`
+	Text  string   `json:"text"`
+	Paths []string `json:"paths,omitempty"`
 }
 
 type integrationTargetRequest struct {
@@ -29,9 +31,21 @@ func resolveIntegrationMessageRequest(raw json.RawMessage) (integrationMessageRe
 	if strings.TrimSpace(input.Text) == "" {
 		return integrationMessageRequest{}, errors.New("text is required")
 	}
-	for _, artifactID := range input.ArtifactIDs {
+	for _, filePath := range input.Paths {
+		if strings.HasPrefix(filePath, memorystore.Root+"/") {
+			if _, _, err := memorystore.ParsePath(filePath); err != nil {
+				return integrationMessageRequest{}, fmt.Errorf("invalid attachment path: %w", err)
+			}
+			continue
+		}
+		artifactID, ok := strings.CutPrefix(filePath, toolcatalog.ArtifactVFSRoot+"/")
+		if !ok {
+			return integrationMessageRequest{}, errors.New(
+				"attachment path must be /artifacts/<artifact_id> or /memory/<store>/<file>",
+			)
+		}
 		if _, err := publicid.Decode(publicid.KindArtifact, artifactID); err != nil {
-			return integrationMessageRequest{}, fmt.Errorf("artifact_ids contains an invalid artifact ID: %w", err)
+			return integrationMessageRequest{}, fmt.Errorf("invalid artifact attachment path: %w", err)
 		}
 	}
 	return input, nil

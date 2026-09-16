@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -206,6 +207,9 @@ func insertAgentConfigTx(
 	if input.ConfiguredModelID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
 	}
+	if err := validateMemoryStoresTx(ctx, qtx, input.ProjectID, input.CompiledDefinition); err != nil {
+		return AgentConfigRecord{}, err
+	}
 	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
 		return AgentConfigRecord{}, err
 	}
@@ -345,11 +349,14 @@ func loadAgentConfigTx(
 	return agentConfigRecordFromSQLC(row), nil
 }
 
-func lockAgentConfigModelForUseTx(
+func lockAgentConfigForUseTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	config AgentConfigRecord,
 ) error {
+	if err := validateMemoryStoresTx(ctx, qtx, config.ProjectID, config.CompiledDefinition); err != nil {
+		return err
+	}
 	_, err := qtx.LockConfiguredModelForUse(ctx, dbsqlc.LockConfiguredModelForUseParams{
 		OrgID: config.OrgID,
 		ID:    config.ConfiguredModelID,
@@ -639,4 +646,39 @@ func (s *Store) ResolveAgentConfigProfileName(
 		return uuid.Nil, fmt.Errorf("resolve agent profile name: %w", err)
 	}
 	return id, nil
+}
+
+func validateMemoryStoresTx(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID uuid.UUID,
+	raw json.RawMessage,
+) error {
+	var config struct {
+		Stores []agentconfig.MemoryStoreCompiled `json:"memory_stores"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return fmt.Errorf("validate memory stores: %w", err)
+	}
+	sort.Slice(config.Stores, func(i, j int) bool { return config.Stores[i].PublicID < config.Stores[j].PublicID })
+	for _, store := range config.Stores {
+		if store.Access != "read_only" && store.Access != "read_write" {
+			return storeerr.InvalidRequest(errors.New("invalid memory store access"))
+		}
+		id, err := publicid.Decode(publicid.KindMemoryStore, store.PublicID)
+		if err != nil {
+			return storeerr.InvalidRequest(err)
+		}
+		_, err = q.LockMemoryStoreForConfig(ctx, dbsqlc.LockMemoryStoreForConfigParams{
+			ProjectID: projectID,
+			ID:        id,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
+			}
+			return fmt.Errorf("validate memory stores: %w", err)
+		}
+	}
+	return nil
 }

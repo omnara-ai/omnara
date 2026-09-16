@@ -314,6 +314,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"post /daemon/runtimes":                         true,
 		"post /daemon/runtimes/{runtimeID}/end":         true,
 		"post /daemon/runtimes/{runtimeID}/sleep":       true,
+		"post /daemon/tool-calls/{toolCallID}/file":     true,
 		"post /daemon/tool-calls/{toolCallID}/artifact": true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
@@ -376,6 +377,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"Agent.name":                                     "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                    "#/components/schemas/AgentName",
 		"CreateAgentRequest.name":                        "#/components/schemas/AgentName",
+		"MemoryStore.name":                               "#/components/schemas/SkillName",
+		"CreateMemoryStore.name":                         "#/components/schemas/SkillName",
 		"Skill.name":                                     "#/components/schemas/SkillName",
 		"Actor.display_name":                             "",
 		"AgentInteraction.tool_name":                     "",

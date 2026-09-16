@@ -31,6 +31,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
@@ -124,6 +125,13 @@ func main() {
 		}
 		storeOpts = append(storeOpts, storage.WithBlobStore(blobs))
 	}
+	memoryFS, err := memorystore.OpenFilesystem(cfg.MemoryDir)
+	if err != nil {
+		log.Error("configure memory storage", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = memoryFS.Close() }()
+	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
 	store := storage.NewStore(db, storeOpts...)
 	healthErr := metrics.Serve(
 		ctx,

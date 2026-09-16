@@ -15,6 +15,7 @@ const (
 	ToolNameListProcesses          = "list_processes"
 	ToolNameCreateMachine          = "create_machine"
 	ToolNameDeleteMachine          = "delete_machine"
+	ToolNameListFiles              = "list_files"
 	ToolNameListMachines           = "list_machines"
 	ToolNameInspectMachine         = "inspect_machine"
 	ToolNameAskQuestion            = "ask_question"
