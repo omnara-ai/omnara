@@ -539,5 +539,6 @@ function toolWire(tool: BasicTool): ToolEntry {
   const wire: ToolEntry = { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
+  if (tool.deferred) wire.deferred = true
   return wire
 }

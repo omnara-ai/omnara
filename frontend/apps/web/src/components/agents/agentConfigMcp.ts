@@ -11,6 +11,7 @@ export interface BasicMcpTool {
   name: string
   enabled: boolean | null
   permission: PermissionSelection | null
+  deferred?: boolean | null
 }
 
 export interface BasicMcpServer {
@@ -19,6 +20,7 @@ export interface BasicMcpServer {
   url: string
   permission: PermissionSelection | null
   defaultEnabled: boolean
+  deferred?: boolean
   authType: McpAuthType
   secretId: string
   service: string
@@ -30,6 +32,7 @@ export function mcpWire(server: BasicMcpServer): McpEntry {
   const wire: McpEntry = { url: server.url.trim() }
   if (server.permission != null) wire.permission = permissionWire(server.permission)
   wire.default_enabled = server.defaultEnabled
+  if (server.deferred) wire.deferred = true
   if (server.authType !== 'none') {
     const secretId = server.secretId.trim()
     wire.auth =
@@ -42,7 +45,9 @@ export function mcpWire(server: BasicMcpServer): McpEntry {
           }
         : { type: server.authType, secret_id: secretId }
   }
-  const tools = server.tools.filter((tool) => tool.enabled != null || tool.permission != null)
+  const tools = server.tools.filter(
+    (tool) => tool.enabled != null || tool.permission != null || tool.deferred != null,
+  )
   if (tools.length > 0) {
     wire.tools = Object.fromEntries(tools.map((tool) => [tool.name, mcpToolWire(tool)]))
   }
@@ -53,6 +58,7 @@ function mcpToolWire(tool: BasicMcpTool): McpToolEntry {
   const wire: McpToolEntry = {}
   if (tool.enabled != null) wire.enabled = tool.enabled
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
+  if (tool.deferred != null) wire.deferred = tool.deferred
   return wire
 }
 

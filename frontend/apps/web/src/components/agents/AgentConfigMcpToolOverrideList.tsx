@@ -170,6 +170,27 @@ function ToolOverrideRow({
           ))}
         </SelectContent>
       </Select>
+      <Select
+        value={tool.deferred == null ? inheritValue : tool.deferred ? 'deferred' : 'loaded'}
+        onValueChange={(value) => {
+          onChange({ deferred: value === inheritValue ? null : value === 'deferred' })
+        }}
+      >
+        <SelectTrigger
+          size="sm"
+          className="min-w-0 flex-1 sm:w-32 sm:flex-none"
+          aria-label={`${tool.name} loading`}
+        >
+          <SelectValue>
+            {tool.deferred == null ? 'Default' : tool.deferred ? 'Deferred' : 'Loaded'}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={inheritValue}>Default</SelectItem>
+          <SelectItem value="loaded">Loaded</SelectItem>
+          <SelectItem value="deferred">Deferred</SelectItem>
+        </SelectContent>
+      </Select>
       <Button
         type="button"
         size="icon"

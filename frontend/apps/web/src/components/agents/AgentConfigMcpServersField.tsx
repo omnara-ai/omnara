@@ -209,7 +209,7 @@ export function AgentConfigMcpServersField({
                 <div className="pb-2">
                   <OverridesCollapsible title="Tools" keepMounted>
                     <div className="space-y-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-3">
                         <Field>
                           <FieldLabel>Default permission</FieldLabel>
                           <Select
@@ -260,6 +260,29 @@ export function AgentConfigMcpServersField({
                               <SelectItem value="false">Disabled</SelectItem>
                             </SelectContent>
                           </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Default loading</FieldLabel>
+                          <Select
+                            value={server.deferred ? 'deferred' : 'loaded'}
+                            onValueChange={(value) => {
+                              updateServer(server.id, {
+                                deferred: value === 'deferred' || undefined,
+                              })
+                            }}
+                          >
+                            <SelectTrigger className="w-full" aria-label="MCP default loading">
+                              <SelectValue>{server.deferred ? 'Deferred' : 'Loaded'}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="loaded">Loaded</SelectItem>
+                              <SelectItem value="deferred">Deferred</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FieldDescription>
+                            Deferred tools stay out of the model&apos;s context until it finds them
+                            with tool_search.
+                          </FieldDescription>
                         </Field>
                       </div>
                       <AgentConfigMcpServerTools
