@@ -26,7 +26,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		ProjectID:   toolsTestProjectID,
 		AgentID:     fixture.Agent.ID,
 		ContentType: "text/plain",
-		Content:     []byte("first\nTARGET\nlast\n"),
+		Content:     []byte("é😀first\nTARGET\nlast\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +52,17 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		t.Fatalf("read result = %s", content)
 	}
 	call.Call = model.ToolCall{
+		Name:  toolcatalog.ToolNameReadFile,
+		Input: json.RawMessage(`{"path":"` + path + `","offset_char":1,"limit_chars":1}`),
+	}
+	result, err = runReadFileAsync(ctx, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content := asyncCompletionContent(t, result); !strings.Contains(string(content), "😀") {
+		t.Fatalf("character read result = %s", content)
+	}
+	call.Call = model.ToolCall{
 		Name:  toolcatalog.ToolNameSearchFiles,
 		Input: json.RawMessage(`{"path":"` + path + `","pattern":"TARGET"}`),
 	}
@@ -74,7 +85,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s artifact: %v", contentType, err)
 		}
-		if string(content) != "first\nTARGET\nlast\n" {
+		if string(content) != "é😀first\nTARGET\nlast\n" {
 			t.Fatalf("%s artifact content = %q", contentType, content)
 		}
 	}

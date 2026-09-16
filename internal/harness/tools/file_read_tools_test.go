@@ -18,51 +18,88 @@ func TestReadFilePagingPreservesContent(t *testing.T) {
 		content string
 	}{
 		{name: "unicode lines", content: strings.Repeat("é😀\n", 2000)},
-		{name: "giant line", content: "first\n" + strings.Repeat("é", 5000) + "\nlast"},
+		{name: "giant line", content: "é😀first\n" + strings.Repeat("é😀", 5000) + "\nlast"},
 		{name: "escaped text", content: strings.Repeat("\t", 9000)},
+		{name: "empty file"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			content := test.content
-			first := readFileLines([]byte(content), "/artifacts/example", 1, 200)
-			got, ok := first["content"].(string)
-			if !ok {
-				t.Fatal("missing content")
-			}
-			assertRetrievalBudget(t, first)
-			offset := len(got)
-			for offset < len(content) {
-				page, err := readFileBytes([]byte(content), "/artifacts/example", offset, toolcatalog.ArtifactPageBytes)
-				if err != nil {
-					t.Fatal(err)
-				}
+			content := []byte(test.content)
+			page := readFileLines(content, "/artifacts/example", 1, toolcatalog.ReadFileDefaultLines)
+			var got string
+			for {
 				chunk, ok := page["content"].(string)
-				if !ok {
-					t.Fatal("missing content")
-				}
-				if chunk == "" || !utf8.ValidString(chunk) {
+				if !ok || !utf8.ValidString(chunk) || (chunk == "" && page["has_more"] == true) {
 					t.Fatal("invalid or stalled page")
 				}
+				if len(chunk) > toolcatalog.ArtifactPageBytes || page["bytes_read"] != len(chunk) {
+					t.Fatalf("invalid byte count: %v", page)
+				}
 				got += chunk
-				offset += len(chunk)
-				if page["has_more"] == true && page["next_offset_byte"] != offset {
-					t.Fatal("incorrect continuation")
+				if len(got) > len(content) {
+					t.Fatal("paging duplicated content")
 				}
 				assertRetrievalBudget(t, page)
+				if page["has_more"] == false {
+					if page["next_offset_char"] != nil || page["next_offset_line"] != nil {
+						t.Fatal("final page has continuation")
+					}
+					break
+				}
+				if offset, ok := page["next_offset_line"].(int); ok {
+					page = readFileLines(content, "/artifacts/example", offset, toolcatalog.ReadFileDefaultLines)
+				} else if offset, ok := page["next_offset_char"].(int); ok {
+					if offset != utf8.RuneCountInString(got) {
+						t.Fatalf("character continuation = %d, want %d", offset, utf8.RuneCountInString(got))
+					}
+					page = readFileChars(content, "/artifacts/example", offset, toolcatalog.ReadFileDefaultChars)
+				} else {
+					t.Fatal("missing continuation")
+				}
 			}
-			if got != content {
+			if got != test.content {
 				t.Fatal("paging lost content")
 			}
 		})
 	}
-	if _, err := readFileBytes([]byte("é"), "path", 0, 1); err == nil {
-		t.Fatal("tiny read must report insufficient byte budget")
-	}
-	if _, err := readFileBytes([]byte("é"), "path", 1, 4); err == nil {
-		t.Fatal("accepted interior UTF-8 offset")
-	}
 	page := readFileLines([]byte("a\nb\nc"), "path", 2, 1)
 	if page["content"] != "b\n" || page["next_offset_line"] != 3 {
 		t.Fatalf("line page = %v", page)
+	}
+}
+
+func TestReadFileChars(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		content       string
+		offset, limit int
+		want          string
+		wantOffset    int
+		nextOffset    any
+	}{
+		{name: "four-byte character", content: "abc😀z", offset: 3, limit: 1, want: "😀", wantOffset: 3, nextOffset: 4},
+		{name: "after multibyte characters", content: "é😀z", offset: 2, limit: 1, want: "z", wantOffset: 2},
+		{name: "code point", content: "e\u0301x", offset: 1, limit: 1, want: "\u0301", wantOffset: 1, nextOffset: 2},
+		{name: "at EOF", content: "é😀", offset: 2, limit: 1, wantOffset: 2},
+		{name: "past EOF", content: "é😀", offset: 100, limit: 1, wantOffset: 2},
+		{name: "empty file", offset: 100, limit: 1},
+		{
+			name: "byte cap", content: strings.Repeat("a", 4095) + "😀z",
+			limit: toolcatalog.ReadFileMaxChars, want: strings.Repeat("a", 4095), nextOffset: 4095,
+		},
+		{
+			name: "unicode byte cap", content: strings.Repeat("😀", 2000),
+			limit: toolcatalog.ReadFileMaxChars, want: strings.Repeat("😀", 1024), nextOffset: 1024,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page := readFileChars([]byte(test.content), "path", test.offset, test.limit)
+			if page["content"] != test.want || page["offset_char"] != test.wantOffset ||
+				page["bytes_read"] != len(test.want) || page["next_offset_char"] != test.nextOffset ||
+				page["has_more"] != (test.nextOffset != nil) {
+				t.Fatalf("page = %v", page)
+			}
+			assertRetrievalBudget(t, page)
+		})
 	}
 }
 
@@ -193,7 +230,9 @@ func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
 	path := "/artifacts/" + id
 	for _, input := range []map[string]any{
 		{"path": "/artifacts"}, {"path": path + "/"}, {"path": "/skills/test"},
-		{"path": path, "offset_line": 1, "offset_byte": 0}, {"path": path, "limit_bytes": 0},
+		{"path": path, "offset_line": 1, "offset_char": 0}, {"path": path, "limit_chars": 0},
+		{"path": path, "offset_char": -1}, {"path": path, "limit_chars": 4097},
+		{"path": path, "offset_byte": 0}, {"path": path, "limit_bytes": 4},
 		{"path": path, "limit_lines": 201}, {"path": path, "unexpected": true},
 	} {
 		raw, err := json.Marshal(input)

@@ -23,7 +23,10 @@ const (
 const (
 	ArtifactPageBytes        = 4 * 1024
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
+	ReadFileDefaultLines     = 100
 	ReadFileMaxLines         = 200
+	ReadFileDefaultChars     = 512
+	ReadFileMaxChars         = 4096
 	SearchDefaultMatches     = 20
 	SearchMaxMatches         = 100
 	SearchMaxContextLines    = 5
@@ -536,29 +539,29 @@ func readFileTool() (Entry, error) {
 				"default": 1,
 				"description": "Line number to start reading from, starting at 1. " +
 					"To continue, use next_offset_line from the previous result. " +
-					"Cannot be combined with offset_byte or limit_bytes.",
+					"Cannot be combined with offset_char or limit_chars.",
 			},
 			"limit_lines": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
 				"maximum":     ReadFileMaxLines,
-				"default":     ReadFileMaxLines,
-				"description": "Maximum number of lines to return. Defaults to 200; each response contains at most 4 KiB of text.",
+				"default":     ReadFileDefaultLines,
+				"description": "Maximum number of lines to return. Defaults to 100; each response contains at most 4 KiB of text.",
 			},
-			"offset_byte": map[string]any{
+			"offset_char": map[string]any{
 				"type":    "integer",
 				"minimum": 0,
 				"default": 0,
-				"description": "Byte position to start reading from, starting at 0, at a UTF-8 character boundary. " +
-					"To continue, use next_offset_byte from the previous result. " +
+				"description": "Character position to start reading from, starting at 0. Characters are Unicode code points. " +
+					"To continue, use next_offset_char from the previous result. " +
 					"Cannot be combined with offset_line or limit_lines.",
 			},
-			"limit_bytes": map[string]any{
+			"limit_chars": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ArtifactPageBytes,
-				"default":     ArtifactPageBytes,
-				"description": "Maximum UTF-8 bytes to return. Use at least 4 to accommodate any character.",
+				"maximum":     ReadFileMaxChars,
+				"default":     ReadFileDefaultChars,
+				"description": "Maximum Unicode code points to return. Defaults to 512; each response contains at most 4 KiB of text.",
 			},
 		},
 	)

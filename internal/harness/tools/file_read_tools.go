@@ -23,8 +23,8 @@ type readFileRequest struct {
 	Path       string `json:"path"`
 	OffsetLine *int   `json:"offset_line,omitempty"`
 	LimitLines *int   `json:"limit_lines,omitempty"`
-	OffsetByte *int   `json:"offset_byte,omitempty"`
-	LimitBytes *int   `json:"limit_bytes,omitempty"`
+	OffsetChar *int   `json:"offset_char,omitempty"`
+	LimitChars *int   `json:"limit_chars,omitempty"`
 }
 
 type searchFilesRequest struct {
@@ -49,25 +49,25 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, uuid.UUID, er
 	if err != nil {
 		return readFileRequest{}, uuid.Nil, errors.New("path must be /artifacts/<artifact_id>")
 	}
-	byteMode := input.OffsetByte != nil || input.LimitBytes != nil
+	charMode := input.OffsetChar != nil || input.LimitChars != nil
 	lineMode := input.OffsetLine != nil || input.LimitLines != nil
-	if byteMode && lineMode {
+	if charMode && lineMode {
 		return readFileRequest{}, uuid.Nil, errors.New(
-			"byte paging cannot be combined with line paging",
+			"character paging cannot be combined with line paging",
 		)
 	}
-	if byteMode {
-		if input.OffsetByte == nil {
+	if charMode {
+		if input.OffsetChar == nil {
 			value := 0
-			input.OffsetByte = &value
+			input.OffsetChar = &value
 		}
-		if input.LimitBytes == nil {
-			value := toolcatalog.ArtifactPageBytes
-			input.LimitBytes = &value
+		if input.LimitChars == nil {
+			value := toolcatalog.ReadFileDefaultChars
+			input.LimitChars = &value
 		}
-		if *input.OffsetByte < 0 || *input.LimitBytes < 1 ||
-			*input.LimitBytes > toolcatalog.ArtifactPageBytes {
-			return readFileRequest{}, uuid.Nil, errors.New("invalid artifact byte range")
+		if *input.OffsetChar < 0 || *input.LimitChars < 1 ||
+			*input.LimitChars > toolcatalog.ReadFileMaxChars {
+			return readFileRequest{}, uuid.Nil, errors.New("invalid artifact character range")
 		}
 	} else {
 		if input.OffsetLine == nil {
@@ -75,7 +75,7 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, uuid.UUID, er
 			input.OffsetLine = &value
 		}
 		if input.LimitLines == nil {
-			value := toolcatalog.ReadFileMaxLines
+			value := toolcatalog.ReadFileDefaultLines
 			input.LimitLines = &value
 		}
 		if *input.OffsetLine < 1 || *input.LimitLines < 1 ||
@@ -139,13 +139,10 @@ func runReadFileAsync(
 		return nil, err
 	}
 	var result map[string]any
-	if input.OffsetByte != nil {
-		result, err = readFileBytes(content, input.Path, *input.OffsetByte, *input.LimitBytes)
+	if input.OffsetChar != nil {
+		result = readFileChars(content, input.Path, *input.OffsetChar, *input.LimitChars)
 	} else {
 		result = readFileLines(content, input.Path, *input.OffsetLine, *input.LimitLines)
-	}
-	if err != nil {
-		return nil, err
 	}
 	result["content_type"] = record.ContentType
 	result["size_bytes"] = len(content)
@@ -216,35 +213,37 @@ func loadReadableArtifact(
 	return content, record, nil
 }
 
-func readFileBytes(
+func readFileChars(
 	content []byte,
 	path string,
 	offset, limit int,
-) (map[string]any, error) {
-	if offset > len(content) {
-		offset = len(content)
+) map[string]any {
+	start, position := 0, 0
+	for position < offset && start < len(content) {
+		_, size := utf8.DecodeRune(content[start:])
+		start += size
+		position++
 	}
-	if offset < len(content) && !utf8.RuneStart(content[offset]) {
-		return nil, errors.New("offset_byte must point to a UTF-8 character boundary")
-	}
-	end := offset + min(limit, len(content)-offset)
-	for end > offset && end < len(content) && !utf8.RuneStart(content[end]) {
-		end--
-	}
-	if end == offset && offset < len(content) {
-		return nil, errors.New("limit_bytes is too small for the next UTF-8 character; use at least 4")
+	end, count := start, 0
+	for count < limit && end < len(content) {
+		_, size := utf8.DecodeRune(content[end:])
+		if end-start+size > toolcatalog.ArtifactPageBytes {
+			break
+		}
+		end += size
+		count++
 	}
 	result := map[string]any{
 		"path":        path,
-		"content":     string(content[offset:end]),
-		"offset_byte": offset,
-		"bytes_read":  end - offset,
+		"content":     string(content[start:end]),
+		"offset_char": position,
+		"bytes_read":  end - start,
 		"has_more":    end < len(content),
 	}
 	if end < len(content) {
-		result["next_offset_byte"] = end
+		result["next_offset_char"] = position + count
 	}
-	return result, nil
+	return result
 }
 
 func readFileLines(content []byte, path string, offsetLine, limitLines int) map[string]any {
@@ -280,14 +279,14 @@ func readFileLines(content []byte, path string, offsetLine, limitLines int) map[
 	if count == 0 && start < len(content) {
 		chunk := content[start:min(start+toolcatalog.ArtifactPageBytes+utf8.UTFMax, len(content))]
 		end = start + len(textutil.TruncateBytes(string(chunk), toolcatalog.ArtifactPageBytes))
-		result["notice"] = "The requested line exceeds one page; continue in byte mode."
+		result["notice"] = "The requested line exceeds one page; continue in character mode."
 	}
 	result["content"] = string(content[start:end])
 	result["bytes_read"] = end - start
 	result["has_more"] = end < len(content)
 	if end < len(content) {
 		if count == 0 {
-			result["next_offset_byte"] = end
+			result["next_offset_char"] = utf8.RuneCount(content[:end])
 		} else {
 			result["next_offset_line"] = offsetLine + count
 		}
