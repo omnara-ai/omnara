@@ -127,8 +127,10 @@ mcp:
 	executor := AgentExecutor{Store: storage.NewStore(fixture.Pool)}
 	specs, err := executor.modelContextToolRuntime(ctx, input.ProjectID, input.AgentID, claim.Context, fixture.Now)
 	require.NoError(t, err)
-	require.Len(t, specs, 3)
+	require.Len(t, specs, 5)
 	byName := toolSpecSet(specs)
+	require.Contains(t, byName, toolcatalog.ToolNameReadFile)
+	require.Contains(t, byName, toolcatalog.ToolNameSearchFiles)
 	require.Contains(t, byName, toolcatalog.MCPRuntimeToolName("docs", "malformed"))
 	require.Contains(t, byName, toolcatalog.MCPRuntimeToolName("docs", "missing"))
 	require.NoError(t, executor.ExecuteToolWork(ctx, ToolWorkExecution{
