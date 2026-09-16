@@ -78,7 +78,9 @@ func CreateIntegrationTestProfile(
 		ProjectID: projectID, Name: "Integration Test Agent " + key,
 		CurrentConfigID: config.ID, IdempotencyKey: "profile-" + key,
 	})
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("create agent profile %s: %v", key, err)
+	}
 	return profile
 }
 
