@@ -43,6 +43,11 @@ func (s *Store) CreateIntegrationApp(
 	if err != nil {
 		return IntegrationAppRecord{}, err
 	}
+	if err := validateIntegrationAppCredential(
+		ctx, tx, input.OrgID, input.OwnerProjectID, input.CredentialSecretID,
+	); err != nil {
+		return IntegrationAppRecord{}, err
+	}
 	row, err := qtx.InsertIntegrationApp(ctx, dbsqlc.InsertIntegrationAppParams{
 		OrgID:                      input.OrgID,
 		OwnerProjectID:             storeutil.IDFromNil(input.OwnerProjectID),
@@ -822,7 +827,6 @@ func listAgentChannelTargets(
 			ParentChannelID:      storeutil.IDFromPtr(row.ParentChannelID),
 			ID:                   row.ID,
 			IntegrationInstallID: row.IntegrationInstallID,
-			TargetRef:            row.TargetRef,
 			ProviderRef:          row.ProviderRef,
 			ProviderRefKind:      row.ProviderRefKind,
 			DisplayName:          row.DisplayName,

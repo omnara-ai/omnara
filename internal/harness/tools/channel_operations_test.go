@@ -83,18 +83,30 @@ func TestChannelTransportFailuresPreserveUnknownOutcomeAndHideDiagnostics(t *tes
 func TestChannelSendCompletionFailurePreservesActualPublicationLocation(t *testing.T) {
 	t.Parallel()
 	_, _, channel := historyTestScope(t)
-	for _, location := range []channelconnector.MessageLocation{
-		channelconnector.MessageAtDestination, channelconnector.MessageAtReplyChannel,
+	for _, test := range []struct {
+		name        string
+		publication channelconnector.MessagePublication
+		location    channelconnector.MessageLocation
+		reply       *channelconnector.ReplyDestination
+	}{
+		{"published without reply", channelconnector.MessagePublished, channelconnector.MessageAtDestination, nil},
+		{"draft without reply", channelconnector.MessageDraft, channelconnector.MessageAtDestination, nil},
+		{"published with reply", channelconnector.MessagePublished, channelconnector.MessageAtDestination,
+			&channelconnector.ReplyDestination{ProviderRef: "private-child-address"}},
+		{"published in child", channelconnector.MessagePublished, channelconnector.MessageAtReplyChannel,
+			&channelconnector.ReplyDestination{ProviderRef: "private-child-address"}},
+		{"draft in child", channelconnector.MessageDraft, channelconnector.MessageAtReplyChannel,
+			&channelconnector.ReplyDestination{ProviderRef: "private-child-address"}},
 	} {
-		t.Run(string(location), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			prepared := preparedChannelOperation{request: channelconnector.OperationRequest{
 				RequestID: "known-send", Scope: channelconnector.OperationScope{ChannelID: channel},
 			}}
 			phase, err := channelSendCompletionFailure(prepared, channelconnector.Message{Text: "published content"},
 				channelconnector.SendResult{
-					Publication: channelconnector.MessagePublished, MessageChannel: location, MessageID: "provider-message",
-					ReplyChannel: &channelconnector.ReplyDestination{ProviderRef: "private-child-address"},
+					Publication: test.publication, MessageChannel: test.location, MessageID: "provider-message",
+					ReplyChannel: test.reply,
 				})
 			require.NoError(t, err)
 			failed, ok := phase.(failAsync)
@@ -102,18 +114,26 @@ func TestChannelSendCompletionFailurePreservesActualPublicationLocation(t *testi
 			parts, err := failed.content.contentParts()
 			require.NoError(t, err)
 			var content []struct {
-				Value channelconnector.SendMessageResult `json:"value"`
+				Value channelOperationToolResult `json:"value"`
 			}
 			require.NoError(t, json.Unmarshal(parts, &content))
 			require.Len(t, content, 1)
 			result := content[0].Value
-			require.Equal(t, channelconnector.MessagePublished, result.Message.Publication)
+			require.Equal(t, "known-send", result.RequestID)
+			require.Equal(t, channelconnector.OperationFailed, result.Status)
+			require.Equal(t, "channel_operation_completion_failed", result.Code)
+			require.Contains(t, result.Detail, "local completion could not be confirmed")
+			require.Contains(t, result.Detail, "Do not resend")
+			require.NotNil(t, result.Message)
+			require.Equal(t, test.publication, result.Message.Publication)
 			require.Equal(t, "published content", result.Message.Content.Text)
 			require.Equal(t, "provider-message", result.Message.MessageID)
-			require.NotNil(t, result.ContinuationError)
+			if test.reply != nil {
+				require.Contains(t, result.Detail, "Reply channel registration could not be confirmed")
+			}
 			require.Empty(t, result.Message.ReplyChannelID)
 			require.NotContains(t, string(parts), "private-child-address")
-			if location == channelconnector.MessageAtDestination {
+			if test.location == channelconnector.MessageAtDestination {
 				require.Equal(t, channel, result.Message.ChannelID)
 			} else {
 				require.Empty(t, result.Message.ChannelID, "a child publication must never claim its parent contains the message")

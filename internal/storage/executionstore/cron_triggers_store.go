@@ -48,6 +48,7 @@ type CreateCronTriggerInput struct {
 	MessageTemplate string
 	Enabled         bool
 	IdempotencyKey  string
+	ChannelBindings []LaunchChannelBinding
 }
 
 type UpdateCronTriggerInput struct {
@@ -59,6 +60,8 @@ type UpdateCronTriggerInput struct {
 	MessageTemplate *string
 	Target          *CronTriggerTarget
 	Enabled         *bool
+	// Nil preserves the configured grants; an empty replacement clears them.
+	ChannelBindings *[]LaunchChannelBinding
 }
 
 type CronTriggerRecord struct {
@@ -78,6 +81,7 @@ type CronTriggerRecord struct {
 	CreatedAt       time.Time                 `json:"created_at"`
 	UpdatedAt       time.Time                 `json:"updated_at"`
 	Created         bool                      `json:"-"`
+	ChannelBindings []LaunchChannelBinding    `json:"channel_bindings"`
 }
 
 type CronTriggerFailureReport struct {
@@ -126,6 +130,10 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
 	input.IdempotencyKey = cronTriggerCreateIdempotencyKey(input.IdempotencyKey)
+	input.ChannelBindings, err = normalizeCronChannelBindings(input.Target.Kind, input.ChannelBindings)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -140,6 +148,12 @@ func (s *Store) CreateCronTrigger(
 	}
 	input.OrgID = project.OrgID
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return CronTriggerRecord{}, err
+	}
+	preparedBindings, err := s.prepareLaunchChannelBindingsTx(ctx, tx, LaunchAgentInput{
+		ProjectID: input.ProjectID, ChannelBindings: input.ChannelBindings,
+	})
+	if err != nil {
 		return CronTriggerRecord{}, err
 	}
 	switch input.Target.Kind {
@@ -167,6 +181,9 @@ func (s *Store) CreateCronTrigger(
 			)
 		}
 	}
+	if err := lockCronChannelTargetsTx(ctx, qtx, preparedBindings); err != nil {
+		return CronTriggerRecord{}, err
+	}
 	record, inserted, err := insertCronTriggerTx(ctx, qtx, input)
 	if err != nil {
 		return CronTriggerRecord{}, err
@@ -177,6 +194,10 @@ func (s *Store) CreateCronTrigger(
 		}
 		return record, nil
 	}
+	if err := replaceCronChannelBindingsTx(ctx, qtx, input.ProjectID, record.ID, input.ChannelBindings); err != nil {
+		return CronTriggerRecord{}, err
+	}
+	record.ChannelBindings = input.ChannelBindings
 	if err := lockResourceCreation(ctx, qtx, resourceCronTriggers, input.ProjectID.String()); err != nil {
 		return CronTriggerRecord{}, err
 	}
@@ -214,7 +235,16 @@ func (s *Store) GetCronTrigger(ctx context.Context, projectID, id uuid.UUID) (Cr
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("load cron trigger: %w", err)
 	}
-	return cronTriggerRecordFromSQLC(row)
+	record, err := cronTriggerRecordFromSQLC(row)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
+	bindings, err := loadCronChannelBindings(ctx, s.q, []uuid.UUID{id})
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
+	record.ChannelBindings = bindings[id]
+	return record, nil
 }
 
 type ListCronTriggersForProjectInput struct {
@@ -271,11 +301,20 @@ func (s *Store) ListCronTriggersForProject(
 		result.Next = listing.Cursor{Set: true, Key: last.SortKey, ID: last.ID}
 	}
 	result.Triggers = make([]CronTriggerRecord, 0, len(rows))
+	triggerIDs := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		triggerIDs = append(triggerIDs, row.ID)
+	}
+	bindings, err := loadCronChannelBindings(ctx, s.q, triggerIDs)
+	if err != nil {
+		return ListCronTriggersForProjectResult{}, err
+	}
 	for _, row := range rows {
 		record, err := cronTriggerRecordFromListSQLC(row)
 		if err != nil {
 			return ListCronTriggersForProjectResult{}, err
 		}
+		record.ChannelBindings = bindings[row.ID]
 		result.Triggers = append(result.Triggers, record)
 	}
 	return result, nil
@@ -302,9 +341,26 @@ func (s *Store) UpdateCronTrigger(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return CronTriggerRecord{}, err
 	}
+	checkBindings := input.ChannelBindings != nil || (input.Enabled != nil && *input.Enabled)
+	var checkedBindings []LaunchChannelBinding
+	if checkBindings {
+		checkedBindings, err = s.prepareCronChannelUpdateTx(ctx, tx, input)
+		if err != nil {
+			return CronTriggerRecord{}, err
+		}
+	}
 	record, err := lockCronTriggerTx(ctx, qtx, input.ProjectID, input.TriggerID)
 	if err != nil {
 		return CronTriggerRecord{}, err
+	}
+	if checkBindings && input.ChannelBindings == nil {
+		current, err := loadCronChannelBindings(ctx, qtx, []uuid.UUID{input.TriggerID})
+		if err != nil {
+			return CronTriggerRecord{}, err
+		}
+		if !sameCronChannelBindings(checkedBindings, current[input.TriggerID]) {
+			return CronTriggerRecord{}, storeerr.ErrStateTransitionConflict
+		}
 	}
 	previous := record
 	if input.Name != nil {
@@ -399,6 +455,16 @@ func (s *Store) UpdateCronTrigger(
 	if err != nil {
 		return CronTriggerRecord{}, err
 	}
+	if input.ChannelBindings != nil {
+		if err := replaceCronChannelBindingsTx(ctx, qtx, input.ProjectID, input.TriggerID, checkedBindings); err != nil {
+			return CronTriggerRecord{}, err
+		}
+	}
+	bindings, err := loadCronChannelBindings(ctx, qtx, []uuid.UUID{input.TriggerID})
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
+	updated.ChannelBindings = bindings[input.TriggerID]
 	if err := tx.Commit(ctx); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("commit update cron trigger: %w", err)
 	}
@@ -485,6 +551,14 @@ func insertCronTriggerTx(
 		record.Enabled != input.Enabled {
 		return CronTriggerRecord{}, false, storeerr.ErrIdempotencyConflict
 	}
+	bindings, err := loadCronChannelBindings(ctx, qtx, []uuid.UUID{record.ID})
+	if err != nil {
+		return CronTriggerRecord{}, false, err
+	}
+	record.ChannelBindings = bindings[record.ID]
+	if !sameCronChannelBindings(record.ChannelBindings, input.ChannelBindings) {
+		return CronTriggerRecord{}, false, storeerr.ErrIdempotencyConflict
+	}
 	return record, false, nil
 }
 
@@ -539,6 +613,7 @@ type ClaimedCronTrigger struct {
 	DueAt           time.Time
 	FiredAt         time.Time
 	LastFiredAt     *time.Time
+	ChannelBindings []LaunchChannelBinding
 }
 
 type ClaimDueCronTriggersResult struct {
@@ -573,6 +648,14 @@ func (s *Store) ClaimDueCronTriggers(
 		return ClaimDueCronTriggersResult{}, fmt.Errorf("select due cron triggers: %w", err)
 	}
 	result := ClaimDueCronTriggersResult{}
+	triggerIDs := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		triggerIDs = append(triggerIDs, row.ID)
+	}
+	bindings, err := loadCronChannelBindings(ctx, qtx, triggerIDs)
+	if err != nil {
+		return ClaimDueCronTriggersResult{}, err
+	}
 	claimedUntil := now.Add(cronTriggerClaimLease)
 	for _, row := range rows {
 		if _, nextErr := cronschedule.Next(row.CronExpression, row.Timezone, now); nextErr != nil {
@@ -608,6 +691,7 @@ func (s *Store) ClaimDueCronTriggers(
 			DueAt:           storeutil.TimeOrZero(row.NextFireAfter),
 			FiredAt:         now,
 			LastFiredAt:     row.LastFiredAt,
+			ChannelBindings: bindings[row.ID],
 		})
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -2,36 +2,61 @@ import {
   bearerToken,
   type ChannelConnectorAppConfiguration,
   type ChannelConnectorCapability,
+  type ChannelConnectorControlReceipt,
   type ChannelConnectorEventReceipt,
   type ChannelConnectorInstallationConfiguration,
   type ChannelConnectorRuntimeUnit,
   type ChannelDefinition,
+  type ChannelInboundControlEventRequest,
   type ChannelInboundEventRequest,
   type ChannelInboundEventResponse,
-  type CompleteChannelConnectorEventRequest,
   createOmnaraClient,
   type HeartbeatChannelConnectorRuntimeUnitRequest,
-  type ListChannelConnectorRoutesResponse,
+  type LookupChannelConnectorGitHubReviewsRequest,
+  type LookupChannelConnectorGitHubReviewsResponse,
   type LookupChannelConnectorWorkflowRequest,
   type PublishChannelConnectorDefinitionRequest,
+  type RecordChannelConnectorGitHubReviewRequest,
+  type RecordChannelConnectorGitHubReviewResponse,
   type ReleaseChannelConnectorRuntimeUnitRequest,
   type ResolveChannelConnectorInteractionRequest,
   type ResolveChannelConnectorInteractionResponse,
   schemas,
   sdk,
+  type SetChannelConnectorInstallationProviderStateRequest,
 } from '@omnara/sdk'
 
+import {
+  claimNextControlEvent,
+  completeControlEvent,
+  type ControlCompletion,
+  submitControlEvent,
+} from './core-controls'
+import {
+  type GitHubReviewInstallation,
+  lookupGitHubReviews,
+  recordGitHubReview,
+} from './core-github-reviews'
 import { receiptFailure, requireData, retryCoreRequest } from './core-http'
 import {
   deliverBoundInput,
   deliverWorkflowInput,
+  listInputRoutes,
   lookupInputRecipients,
   lookupWorkflowInput,
+  publishInputDefinition,
   type ReceiptInputRequest,
   type ReceiptRecipientsRequest,
   type ReceiptWorkflowRequest,
+  submitInboundEvent,
 } from './core-inputs'
-import { maxReceiptResponseBytes, ReceiptClientError, receiptFetch } from './receipt-http'
+import {
+  type InstallationControlQuery,
+  listInstallationControlScopes,
+  setInstallationProviderState,
+} from './core-provider-state'
+import { claimNextEvent, completeEvent, type ReceiptCompletion } from './core-receipts'
+import { ReceiptClientError, receiptFetch } from './receipt-http'
 import type { ProviderWorkReservation, RuntimeCheckpoint } from './types'
 
 export type {
@@ -39,7 +64,7 @@ export type {
   ReceiptRecipientsRequest,
   ReceiptWorkflowRequest,
 } from './core-inputs'
-export type ReceiptCompletion = Pick<CompleteChannelConnectorEventRequest, 'state' | 'last_error'>
+export type { ReceiptCompletion } from './core-receipts'
 
 export interface CoreClientOptions {
   baseUrl: string
@@ -121,34 +146,49 @@ export class CoreClient {
     })
   }
 
+  listInstallationControlScopes(
+    appId: string,
+    query: InstallationControlQuery,
+    signal: AbortSignal,
+    work?: ProviderWorkReservation,
+  ) {
+    return listInstallationControlScopes(
+      this.client,
+      appId,
+      query,
+      this.requestSignal(signal),
+      work,
+    )
+  }
+
+  setInstallationProviderState(
+    appId: string,
+    installId: string,
+    body: SetChannelConnectorInstallationProviderStateRequest,
+    signal: AbortSignal,
+  ) {
+    return setInstallationProviderState(
+      this.client,
+      appId,
+      installId,
+      body,
+      this.requestSignal(signal),
+    )
+  }
+
   async submitInbound(
     integrationAppId: string,
     event: ChannelInboundEventRequest,
     signal?: AbortSignal,
   ): Promise<ChannelInboundEventResponse> {
-    const requestSignal = this.requestSignal(signal)
-    try {
-      const bodyJSON = JSON.stringify(event)
-      return await this.retryCoreRequest(requestSignal, async () => {
-        const { data, response } = await sdk.acceptChannelConnectorEvent({
-          body: event,
-          bodySerializer: () => bodyJSON,
-          client: this.client,
-          fetch: receiptFetch(this.fetch, 64 * 1024, requestSignal),
-          redirect: 'error',
-          path: { integrationAppID: integrationAppId },
-          signal: requestSignal,
-        })
-        if (
-          response.status !== 202 ||
-          !schemas.zChannelInboundEventResponse.safeParse(data).success
-        )
-          throw new ReceiptClientError('invalid_response')
-        return requireData(data)
-      })
-    } catch (cause) {
-      throw receiptFailure(cause, requestSignal)
-    }
+    return submitInboundEvent(
+      this.client,
+      this.fetch,
+      integrationAppId,
+      event,
+      this.requestSignal(signal),
+      this.random,
+    )
   }
 
   async submitRuntimeInbound(
@@ -193,136 +233,90 @@ export class CoreClient {
     }
   }
 
-  /** Exactly one claim POST; a lost response is not permission to claim again. */
-  async claimNextEvent(
+  claimNextEvent(
     capability: ChannelConnectorCapability,
     leaseMs: number,
-    parentSignal?: AbortSignal,
+    signal?: AbortSignal,
     work?: ProviderWorkReservation,
-  ): Promise<ChannelConnectorEventReceipt | undefined> {
-    const signal = this.requestSignal(parentSignal)
-    try {
-      const { data, response } = await sdk.claimNextChannelConnectorEvent({
-        body: { capability, lease_ms: leaseMs },
-        client: this.client,
-        fetch: receiptFetch(this.fetch, maxReceiptResponseBytes, signal, work),
-        redirect: 'error',
-        signal,
-      })
-      if (response.status === 204) return undefined
-      if (
-        response.status !== 200 ||
-        !data ||
-        !schemas.zChannelConnectorEventReceipt.safeParse(data).success ||
-        data.state !== 'processing' ||
-        !Number.isSafeInteger(data.lease_generation)
-      ) {
-        throw new ReceiptClientError('invalid_response')
-      }
-      return data
-    } catch (cause) {
-      throw receiptFailure(cause, signal)
-    }
+  ) {
+    return claimNextEvent(
+      this.client,
+      this.fetch,
+      capability,
+      leaseMs,
+      this.requestSignal(signal),
+      work,
+    )
   }
 
-  /** Completion carries only the original scoped receipt lease proof. A lost
-   * completion response never causes behavior to run again in this consumer.
-   */
-  async completeEvent(
+  completeEvent(
     receipt: Readonly<ChannelConnectorEventReceipt>,
     completion: ReceiptCompletion,
-    parentSignal?: AbortSignal,
-  ): Promise<void> {
-    const signal = this.requestSignal(parentSignal)
-    try {
-      const { data, response } = await sdk.completeChannelConnectorEvent({
-        body: {
-          state: completion.state,
-          last_error: completion.last_error,
-          lease_token: receipt.lease_token,
-          lease_generation: receipt.lease_generation,
-        },
-        client: this.client,
-        fetch: receiptFetch(this.fetch, 64 * 1024, signal),
-        redirect: 'error',
-        path: {
-          integrationAppID: receipt.integration_app_id,
-          integrationInstallID: receipt.integration_install_id,
-          receiptID: receipt.receipt_id,
-        },
-        signal,
-      })
-      if (
-        response.status !== 200 ||
-        !schemas.zChannelInboundEventResponse.safeParse(data).success ||
-        data.receipt_id !== receipt.receipt_id ||
-        data.state !== completion.state
-      )
-        throw new ReceiptClientError('invalid_response')
-    } catch (cause) {
-      throw receiptFailure(cause, signal)
-    }
+    signal?: AbortSignal,
+  ) {
+    return completeEvent(this.client, this.fetch, receipt, completion, this.requestSignal(signal))
   }
 
   async listRoutes(
     receipt: Readonly<ChannelConnectorEventReceipt>,
     parentSignal: AbortSignal,
     work?: ProviderWorkReservation,
-  ): Promise<ListChannelConnectorRoutesResponse['routes']> {
-    const signal = this.requestSignal(parentSignal)
-    try {
-      const { data, response } = await sdk.listChannelConnectorRoutes({
-        client: this.client,
-        path: {
-          integrationAppID: receipt.integration_app_id,
-          integrationInstallID: receipt.integration_install_id,
-        },
-        signal,
-        redirect: 'error',
-        fetch: receiptFetch(this.fetch, 17 * 1024 * 1024, signal, work),
-      })
-      if (
-        response.status !== 200 ||
-        !schemas.zListChannelConnectorRoutesResponse.safeParse(data).success
-      )
-        throw new ReceiptClientError('invalid_response')
-      return data.routes
-    } catch (cause) {
-      throw receiptFailure(cause, signal)
-    }
+  ) {
+    return listInputRoutes(this.client, this.fetch, receipt, this.requestSignal(parentSignal), work)
+  }
+
+  async submitControlEvent(
+    appId: string,
+    event: ChannelInboundControlEventRequest,
+    signal: AbortSignal,
+  ) {
+    return submitControlEvent(this.client, this.fetch, appId, event, this.requestSignal(signal))
+  }
+
+  async claimNextControlEvent(
+    capability: ChannelConnectorCapability,
+    leaseMs: number,
+    signal: AbortSignal,
+    work?: ProviderWorkReservation,
+  ) {
+    return claimNextControlEvent(
+      this.client,
+      this.fetch,
+      capability,
+      leaseMs,
+      this.requestSignal(signal),
+      work,
+    )
+  }
+
+  async completeControlEvent(
+    receipt: Readonly<ChannelConnectorControlReceipt>,
+    completion: ControlCompletion,
+    signal: AbortSignal,
+  ) {
+    return completeControlEvent(
+      this.client,
+      this.fetch,
+      receipt,
+      completion,
+      this.requestSignal(signal),
+    )
   }
 
   async publishDefinition(
-    receipt: Readonly<ChannelConnectorEventReceipt>,
+    scope: Readonly<
+      Pick<ChannelConnectorEventReceipt, 'integration_app_id' | 'integration_install_id'>
+    >,
     body: PublishChannelConnectorDefinitionRequest,
     parentSignal: AbortSignal,
   ): Promise<ChannelDefinition> {
-    const signal = this.requestSignal(parentSignal)
-    try {
-      if (!schemas.zPublishChannelConnectorDefinitionRequest.safeParse(body).success)
-        throw new ReceiptClientError('invalid_request')
-      const { data, response } = await sdk.publishChannelConnectorDefinition({
-        body,
-        client: this.client,
-        path: {
-          integrationAppID: receipt.integration_app_id,
-          integrationInstallID: receipt.integration_install_id,
-        },
-        signal,
-        redirect: 'error',
-        fetch: receiptFetch(this.fetch, 512 * 1024, signal),
-      })
-      if (
-        response.status !== 200 ||
-        !schemas.zChannelDefinition.safeParse(data).success ||
-        data.implementation_key !== body.implementation_key ||
-        data.kind !== body.kind
-      )
-        throw new ReceiptClientError('invalid_response')
-      return data
-    } catch (cause) {
-      throw receiptFailure(cause, signal)
-    }
+    return publishInputDefinition(
+      this.client,
+      this.fetch,
+      scope,
+      body,
+      this.requestSignal(parentSignal),
+    )
   }
 
   async lookupWorkflow(
@@ -379,6 +373,29 @@ export class CoreClient {
       receipt,
       request,
       this.requestSignal(parentSignal),
+    )
+  }
+
+  async lookupGitHubReviews(
+    installation: GitHubReviewInstallation,
+    request: LookupChannelConnectorGitHubReviewsRequest,
+    signal?: AbortSignal,
+  ): Promise<LookupChannelConnectorGitHubReviewsResponse> {
+    const requestSignal = this.requestSignal(signal)
+    return this.retryCoreRequest(requestSignal, () =>
+      lookupGitHubReviews(this.client, installation, request, requestSignal),
+    )
+  }
+
+  async recordGitHubReview(
+    installation: GitHubReviewInstallation,
+    request: RecordChannelConnectorGitHubReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<RecordChannelConnectorGitHubReviewResponse> {
+    const requestSignal = this.requestSignal(signal)
+    // Identical acknowledgment is idempotent and grants no replacement authority.
+    return this.retryCoreRequest(requestSignal, () =>
+      recordGitHubReview(this.client, installation, request, requestSignal),
     )
   }
 

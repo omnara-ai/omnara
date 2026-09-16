@@ -1,5 +1,6 @@
 import {
   type ProjectModelGrantListSort,
+  useClusterModelPricing,
   useDeleteProjectModelGrant,
   useProjectModelGrants,
 } from '@omnara/react'
@@ -11,6 +12,7 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog'
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
@@ -22,6 +24,7 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
+import { modelPricingDetailItems } from '@/lib/model-pricing'
 
 export function ProjectModelGrantsTable({
   orgId,
@@ -38,6 +41,7 @@ export function ProjectModelGrantsTable({
   const grantsPaged = usePagedQuery(grantsQuery, list.queryKey)
   const showToolbar = useListToolbarVisibility(list, grantsPaged.pagination, grantsQuery.isSuccess)
   const deleteGrant = useDeleteProjectModelGrant(orgId, projectId)
+  const pricing = useClusterModelPricing(orgId)
   const [editing, setEditing] = useState<ProjectModelGrantListItem | null>(null)
 
   return (
@@ -45,16 +49,13 @@ export function ProjectModelGrantsTable({
       <SearchHeader
         title="Model grants"
         toolbar={
-          showToolbar ? (
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={createdResourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search model grants by name…"
-            />
-          ) : undefined
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            sort={{ value: list.sort, options: createdResourceSortOptions, onChange: list.setSort }}
+            placeholder="Search model grants by name…"
+            showSearch={showToolbar}
+          />
         }
       >
         <Button asChild size="sm" variant="ghost">
@@ -74,6 +75,19 @@ export function ProjectModelGrantsTable({
             header: 'Provider',
             cell: (item) => (
               <span className="text-muted-foreground">{item.model.provider_config || '—'}</span>
+            ),
+          },
+          {
+            id: 'pricing',
+            header: 'Price / 1M',
+            cell: (item) => (
+              <ModelPricingSummary
+                className="text-muted-foreground whitespace-nowrap tabular-nums"
+                pricing={pricing.pricingFor(
+                  item.model.model_provider_config_id,
+                  item.model.provider_model_slug,
+                )}
+              />
             ),
           },
           {
@@ -104,6 +118,13 @@ export function ProjectModelGrantsTable({
             items={[
               { label: 'ID', value: item.grant.id, mono: true },
               { label: 'Configured model', value: item.grant.configured_model_id, mono: true },
+              { label: 'Provider model', value: item.model.provider_model_slug, mono: true },
+              ...modelPricingDetailItems(
+                pricing.pricingFor(
+                  item.model.model_provider_config_id,
+                  item.model.provider_model_slug,
+                ),
+              ),
               {
                 label: 'Context window',
                 value: item.grant.context_window_tokens

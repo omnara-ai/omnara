@@ -76,8 +76,7 @@ CREATE INDEX integration_installs_installer_org_api_key_idx
 ALTER TABLE integration_targets
     ADD COLUMN parent_channel_id uuid,
     ADD CONSTRAINT integration_targets_channel_payload_bounds_check CHECK (
-        octet_length(target_ref) <= 2048
-        AND octet_length(provider_ref) <= 2048
+        octet_length(provider_ref) <= 2048
         AND octet_length(provider_ref_kind) <= 128
         AND octet_length(display_name) <= 512
         AND octet_length(provider_metadata::text) <= 262144
@@ -87,6 +86,10 @@ ALTER TABLE integration_targets
         UNIQUE (project_id, integration_install_id, id),
     ADD CONSTRAINT integration_targets_project_id_id_created_at_key
         UNIQUE (project_id, id, created_at);
+
+CREATE INDEX integration_targets_install_created_idx
+    ON integration_targets(project_id, integration_install_id, created_at DESC, id DESC)
+    WHERE deleted_at IS NULL;
 
 -- The current destination is routing state, not ownership or an access grant.
 ALTER TABLE agents
@@ -194,10 +197,14 @@ CREATE INDEX integration_apps_credential_secret_idx
     ON integration_apps(org_id, credential_secret_id)
     WHERE credential_secret_id IS NOT NULL;
 
+CREATE INDEX integration_apps_org_created_idx
+    ON integration_apps(org_id, created_at DESC, id DESC)
+    WHERE deleted_at IS NULL;
+
 -- Secret deletion and credential association use one row-lock protocol. A
 -- writer holds this shared lock while its referencing row becomes visible;
--- deletion locks the same secret before scanning references. These guards also
--- cover writes from an older API process during a rolling deployment.
+-- deletion locks the same secret before scanning references. Non-channel
+-- credential writers use secretops.LockReference in their owning transactions.
 -- +goose StatementBegin
 CREATE FUNCTION lock_live_secret_reference()
 RETURNS trigger
@@ -230,18 +237,6 @@ BEGIN
 END;
 $$;
 -- +goose StatementEnd
-
-CREATE TRIGGER model_provider_configs_credential_live
-    BEFORE INSERT OR UPDATE OF org_id, credential_secret_id
-    ON model_provider_configs
-    FOR EACH ROW
-    EXECUTE FUNCTION lock_live_secret_reference('credential_secret_id');
-
-CREATE TRIGGER machine_pools_credential_live
-    BEFORE INSERT OR UPDATE OF org_id, provider_auth_secret_id
-    ON machine_pools
-    FOR EACH ROW
-    EXECUTE FUNCTION lock_live_secret_reference('provider_auth_secret_id');
 
 CREATE TRIGGER integration_apps_credential_live
     BEFORE INSERT OR UPDATE OF org_id, credential_secret_id
@@ -353,37 +348,6 @@ CREATE TRIGGER agent_interactions_destination_immutable
     WHEN (OLD.integration_target_id IS DISTINCT FROM NEW.integration_target_id)
     EXECUTE FUNCTION reject_immutable_column_update();
 
--- Old binaries already retire installations, but know nothing about app
--- registrations. This trigger fences project-owned compatibility apps when an
--- old binary deletes their project. Current lifecycle code also performs the
--- same update explicitly. Organization deletion reaches these apps by deleting
--- its projects; shared apps only exist on binaries that delete them explicitly.
--- +goose StatementBegin
-CREATE FUNCTION integration_project_retire_apps_on_delete()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
-        UPDATE integration_apps app
-        SET credential_secret_id = NULL,
-            state = 'disabled',
-            deleted_at = NEW.deleted_at,
-            updated_at = statement_timestamp()
-        WHERE app.org_id = NEW.org_id
-          AND app.owner_project_id = NEW.id
-          AND app.deleted_at IS NULL;
-    END IF;
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-
-CREATE TRIGGER projects_retire_integration_apps
-    AFTER UPDATE OF deleted_at ON projects
-    FOR EACH ROW
-    EXECUTE FUNCTION integration_project_retire_apps_on_delete();
-
 -- An organization-shared app may be installed by any project in its
 -- organization; a restricted app may only be installed by its owner project.
 -- +goose StatementBegin
@@ -481,7 +445,7 @@ CREATE INDEX integration_routes_profile_idx
 
 CREATE TRIGGER integration_routes_definition_immutable
     BEFORE UPDATE OF id, project_id, integration_install_id, deployment_key,
-        behavior_key, configuration, agent_profile_id, created_at
+        behavior_key, configuration, created_at
     ON integration_routes
     FOR EACH ROW
     EXECUTE FUNCTION reject_immutable_column_update();
@@ -678,7 +642,8 @@ CREATE TABLE integration_channel_definitions (
     project_id uuid NOT NULL,
     integration_install_id uuid NOT NULL,
     implementation_key text NOT NULL CHECK (implementation_key ~ '^[a-z0-9][a-z0-9_.-]{0,127}$'),
-    kind text NOT NULL CHECK (kind IN ('SLACK_CHANNEL', 'SLACK_THREAD', 'EXTERNAL')),
+    kind text NOT NULL CHECK (kind IN ('SLACK_CHANNEL', 'SLACK_THREAD', 'DISCORD_CHANNEL', 'DISCORD_THREAD',
+        'GITHUB_PR', 'GITHUB_REVIEW_THREAD', 'EXTERNAL')),
     description text NOT NULL CHECK (octet_length(description) <= 16384),
     send_params_schema jsonb NOT NULL CHECK (
         jsonb_typeof(send_params_schema) = 'object'
@@ -921,7 +886,24 @@ $$;
 -- for fixed-agent installs or silently discard an unsupported conversation.
 -- +goose StatementBegin
 DO $$
+DECLARE
+    conflicting_tool record;
 BEGIN
+    -- These names were legal custom tools before channels became binding-managed.
+    -- Historical and disabled declarations also need manual resolution: stored
+    -- runtime reconstruction validates every declaration, not just enabled tools.
+    SELECT config.id AS config_id, tool.key AS tool_name
+    INTO conflicting_tool
+    FROM agent_configs config
+    CROSS JOIN LATERAL jsonb_each(config.compiled_definition -> 'tools') tool
+    WHERE tool.value ->> 'type' = 'custom'
+      AND tool.key IN ('list_channels', 'get_channel', 'set_current_channel', 'read_channel', 'send_channel_message')
+    ORDER BY config.id, tool.key
+    LIMIT 1;
+    IF FOUND THEN
+        RAISE EXCEPTION 'channel cutover requires custom tool resolution: agent_config_id=%, tool_name=%',
+            conflicting_tool.config_id, conflicting_tool.tool_name;
+    END IF;
     IF EXISTS (SELECT 1 FROM integration_installs WHERE provider <> 'slack' OR agent_profile_id IS NULL) THEN
         RAISE EXCEPTION 'channel cutover requires profile-backed Slack installations; inspect unsupported ownership';
     END IF;
@@ -959,7 +941,7 @@ SELECT install.org_id,
        install.provider,
        install.provider_account_ref,
        max(install.display_name),
-       'chat_sdk',
+       'omnara',
        'slack_app_credentials',
        CASE
          WHEN project.deleted_at IS NULL AND organization.deleted_at IS NULL
@@ -1035,11 +1017,11 @@ INSERT INTO integration_channel_definitions (
 SELECT install.project_id, install.id, definition.implementation_key, definition.kind, definition.description,
        '{"type":"object","properties":{},"additionalProperties":false}'::jsonb,
        jsonb_build_object('read', true, 'send', true, 'text', true, 'artifacts', true,
-           'permissions', true, 'questions', true, 'creates_reply_channel', definition.kind = 'SLACK_CHANNEL'),
+           'permissions', true, 'questions', true, 'creates_reply_channel', false),
        install.created_at, install.updated_at
 FROM integration_installs install
 CROSS JOIN (VALUES
-    ('slack_channel', 'SLACK_CHANNEL', 'A Slack conversation.'),
+    ('slack_dm', 'SLACK_CHANNEL', 'A persistent Slack direct message.'),
     ('slack_thread', 'SLACK_THREAD', 'A Slack message thread.')
 ) AS definition(implementation_key, kind, description);
 
@@ -1047,7 +1029,7 @@ UPDATE integration_targets target
 SET channel_definition_id = definition.id
 FROM integration_channel_definitions definition
 WHERE definition.project_id = target.project_id AND definition.integration_install_id = target.integration_install_id
-  AND definition.implementation_key = CASE target.provider_ref_kind WHEN 'dm' THEN 'slack_channel' ELSE 'slack_thread' END;
+  AND definition.implementation_key = CASE target.provider_ref_kind WHEN 'dm' THEN 'slack_dm' ELSE 'slack_thread' END;
 
 -- Preserve every live conversation's exact agent, including archived agents.
 -- Deleted addresses remain historical targets and revoked bindings, not a live
@@ -1067,10 +1049,11 @@ INSERT INTO integration_target_bindings (
 )
 SELECT target.project_id, target.agent_id, target.integration_install_id, target.id,
        target.created_at, route.id, true, false, true, 'channel',
-       coalesce(target.deleted_at, route.deleted_at), target.created_at,
-       greatest(target.updated_at, route.updated_at)
+       coalesce(target.deleted_at, route.deleted_at, agent.archived_at), target.created_at,
+       greatest(target.updated_at, route.updated_at, agent.archived_at)
 FROM integration_targets target
-JOIN integration_routes route ON route.project_id = target.project_id AND route.integration_install_id = target.integration_install_id;
+JOIN integration_routes route ON route.project_id = target.project_id AND route.integration_install_id = target.integration_install_id
+JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id;
 
 -- Historical inputs intentionally retain their original target and NULL binding.
 ALTER TABLE agent_inputs
@@ -1092,9 +1075,11 @@ ALTER TABLE agent_inputs
 -- All writers now use explicit applications, configured routes and bindings.
 -- Ownership survives in routes/workflows; the connection and target have none.
 ALTER TABLE integration_installs DROP COLUMN agent_profile_id, DROP COLUMN agent_id;
-ALTER TABLE integration_targets DROP COLUMN agent_id, ALTER COLUMN channel_definition_id SET NOT NULL;
-CREATE UNIQUE INDEX integration_targets_target_ref_idx
-    ON integration_targets(project_id, integration_install_id, target_ref);
+-- Public channel IDs and scoped provider addresses identify targets. The old
+-- agent-local random target_ref was never an installation-wide identity.
+ALTER TABLE integration_targets
+    DROP COLUMN agent_id, DROP COLUMN target_ref,
+    ALTER COLUMN channel_definition_id SET NOT NULL;
 
 CREATE TRIGGER integration_installs_validate_app_scope
     BEFORE INSERT OR UPDATE OF org_id, project_id, provider, integration_app_id,
@@ -1118,7 +1103,7 @@ CREATE TRIGGER integration_installs_advance_configuration_revision
 
 CREATE TRIGGER integration_targets_identity_immutable
     BEFORE UPDATE OF id, project_id, integration_install_id,
-        target_ref, provider_ref, provider_ref_kind, parent_channel_id, channel_definition_id, created_at
+        provider_ref, provider_ref_kind, parent_channel_id, channel_definition_id, created_at
     ON integration_targets
     FOR EACH ROW
     EXECUTE FUNCTION reject_immutable_column_update();
@@ -1132,6 +1117,36 @@ CREATE TRIGGER secrets_touch_integration_configuration_revisions
     AFTER UPDATE OF current_version_id ON secrets
     FOR EACH ROW
     EXECUTE FUNCTION integration_secret_touch_configuration_revisions();
+
+-- Historical identity of an explicitly created GitHub review. GitHub owns its
+-- current draft/published state; cancellation and disconnect never clean it up.
+CREATE TABLE github_pr_reviews (
+    project_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    creating_tool_call_id uuid NOT NULL,
+    integration_install_id uuid NOT NULL,
+    pr_channel_id uuid NOT NULL,
+    creating_binding_id uuid NOT NULL,
+    commit_id text NOT NULL CHECK (commit_id ~ '^[0-9a-f]{40}$'),
+    provider_review_id text CHECK (provider_review_id <> '' AND octet_length(provider_review_id) <= 512),
+    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    PRIMARY KEY (agent_id, creating_tool_call_id),
+    FOREIGN KEY (agent_id, creating_tool_call_id) REFERENCES tool_calls(agent_id, id),
+    FOREIGN KEY (project_id, integration_install_id, pr_channel_id)
+        REFERENCES integration_targets(project_id, integration_install_id, id),
+    FOREIGN KEY (project_id, agent_id, pr_channel_id, creating_binding_id)
+        REFERENCES integration_target_bindings(project_id, agent_id, integration_target_id, id),
+    UNIQUE (project_id, integration_install_id, provider_review_id)
+);
+
+CREATE INDEX github_pr_reviews_creator_channel_idx
+    ON github_pr_reviews(project_id, agent_id, pr_channel_id);
+
+CREATE TRIGGER github_pr_reviews_creator_immutable
+    BEFORE UPDATE OF project_id, agent_id, creating_tool_call_id,
+        integration_install_id, pr_channel_id, creating_binding_id, commit_id, created_at
+    ON github_pr_reviews
+    FOR EACH ROW EXECUTE FUNCTION reject_immutable_column_update();
 
 -- Accepted execution facts owned by an existing tool, interaction, or turn notice.
 -- Polling only projects pending obligations; this is not an outgoing work queue.
@@ -1238,3 +1253,83 @@ CREATE TABLE integration_event_outcomes (
 CREATE TRIGGER integration_event_outcomes_immutable
     BEFORE UPDATE ON integration_event_outcomes
     FOR EACH ROW EXECUTE FUNCTION reject_immutable_column_update();
+
+-- Explicit per-schedule grants for agents launched from profiles. These are
+-- configuration only; each firing creates ordinary agent/channel bindings.
+ALTER TABLE cron_triggers ADD UNIQUE (project_id, id);
+CREATE TABLE cron_trigger_channel_bindings (
+    project_id uuid NOT NULL,
+    cron_trigger_id uuid NOT NULL,
+    channel_id uuid NOT NULL,
+    receive_allowed boolean NOT NULL,
+    read_allowed boolean NOT NULL,
+    send_allowed boolean NOT NULL,
+    reply_receive_allowed boolean,
+    reply_read_allowed boolean,
+    reply_send_allowed boolean,
+    PRIMARY KEY (project_id, cron_trigger_id, channel_id),
+    CHECK (receive_allowed OR read_allowed OR send_allowed),
+    CHECK (
+        num_nonnulls(reply_receive_allowed, reply_read_allowed, reply_send_allowed) IN (0, 3)
+        AND (reply_receive_allowed IS NULL OR (
+            send_allowed AND (reply_receive_allowed OR reply_read_allowed OR reply_send_allowed)
+        ))
+    ),
+    FOREIGN KEY (project_id, cron_trigger_id) REFERENCES cron_triggers(project_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id, channel_id) REFERENCES integration_targets(project_id, id)
+);
+CREATE INDEX cron_trigger_channel_bindings_trigger_idx
+    ON cron_trigger_channel_bindings (cron_trigger_id, channel_id);
+
+-- Finite app-owned provider control scans are independent of project receipts.
+-- Progress IDs are ordering boundaries, not FKs: retired child rows may vanish.
+CREATE TABLE integration_control_receipts (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    org_id uuid NOT NULL,
+    integration_app_id uuid NOT NULL,
+    connector_key text NOT NULL,
+    provider text NOT NULL,
+    provider_tenant_id text NOT NULL CHECK (provider_tenant_id <> '' AND octet_length(provider_tenant_id) <= 512),
+    event_id text NOT NULL CHECK (event_id <> '' AND octet_length(event_id) <= 512),
+    payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 65536),
+    last_install_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    end_install_id uuid NOT NULL,
+    state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
+    attempts_since_progress integer NOT NULL DEFAULT 0 CHECK (attempts_since_progress BETWEEN 0 AND 30),
+    available_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    lease_token uuid,
+    lease_generation bigint NOT NULL DEFAULT 0 CHECK (lease_generation >= 0),
+    lease_expires_at timestamptz,
+    last_error jsonb NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(last_error) = 'object' AND octet_length(last_error::text) <= 8192),
+    completed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    CHECK (last_install_id <= end_install_id),
+    CHECK (
+        (state = 'processing' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
+        OR (state <> 'processing' AND lease_token IS NULL AND lease_expires_at IS NULL)
+    ),
+    CHECK ((state IN ('completed', 'failed')) = (completed_at IS NOT NULL)),
+    FOREIGN KEY (org_id, integration_app_id) REFERENCES integration_apps(org_id, id),
+    UNIQUE (integration_app_id, event_id)
+);
+CREATE INDEX integration_control_receipts_due_idx
+    ON integration_control_receipts(connector_key, provider, available_at, id)
+    WHERE state IN ('pending', 'processing');
+CREATE INDEX integration_control_receipts_maintenance_idx
+    ON integration_control_receipts(id) WHERE state IN ('pending', 'processing');
+CREATE INDEX integration_control_receipts_oldest_pending_idx
+    ON integration_control_receipts(created_at) WHERE state IN ('pending', 'processing');
+CREATE INDEX integration_control_receipts_retention_idx
+    ON integration_control_receipts(completed_at, id) WHERE state IN ('completed', 'failed');
+CREATE TRIGGER integration_control_receipts_identity_immutable
+    BEFORE UPDATE OF id, org_id, integration_app_id, connector_key, provider,
+        provider_tenant_id, event_id, payload, end_install_id, created_at
+    ON integration_control_receipts FOR EACH ROW EXECUTE FUNCTION reject_immutable_column_update();
+INSERT INTO integration_sweep_cursors (sweep_kind, last_item_id, updated_at)
+VALUES ('control_unprocessable', '00000000-0000-0000-0000-000000000000', statement_timestamp());
+
+CREATE INDEX integration_installs_control_scan_idx
+    ON integration_installs(integration_app_id, provider_tenant_id, id)
+    WHERE integration_kind = 'managed' AND deleted_at IS NULL AND state IN ('active', 'disabled');

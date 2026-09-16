@@ -203,7 +203,7 @@ func createExternalRequestHTTPChannel(
 		externalHTTPDefinitionBody(), "", http.StatusOK, authHeaders(project.AdminToken))
 	registered := requestJSONWithHeaders(t, handler, http.MethodPost, path+"/channels",
 		workflowHTTPJSON(t, map[string]any{
-			"definition_id": definition["id"], "provider_ref": name, "provider_ref_kind": "conversation", "name": name,
+			"source": "external", "definition_id": definition["id"], "provider_ref": name, "provider_ref_kind": "conversation", "name": name,
 		}), "", http.StatusOK, authHeaders(project.AdminToken))
 	target, err := project.Store.Integrations().GetIntegrationTarget(t.Context(), project.ProjectUUID,
 		mustPublicHTTPID(t, publicid.KindIntegrationTarget, channelReceiptString(t, registered, "channel_id")))

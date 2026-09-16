@@ -14,6 +14,8 @@ import { collectGrantFailures } from '@/lib/grant-failures'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { errorMessage } from '@/lib/submit-status'
 
+import { integrationCredentialsMaterial } from './integrationCredentials'
+
 interface SecretSubmissionOperations {
   createSecret: (request: CreateSecretRequest) => Promise<Secret>
   grantSecret: (input: { secretID: string; projectID: string }) => Promise<void>
@@ -71,9 +73,18 @@ export async function submitSecretTransaction({
           ? ({ kind: 'generic', value: state.secret.value } as const)
           : state.secret.kind === 'aws_credentials'
             ? awsCredentialsMaterial(state.secret)
-            : oauthTokenSetMaterial(state.secret.entries)
+            : state.secret.kind === 'integration_credentials'
+              ? integrationCredentialsMaterial(state.secret)
+              : oauthTokenSetMaterial(state.secret.entries)
       if (material === undefined) {
-        return { kind: 'failed', secret: null, message: 'OAuth token material is incomplete' }
+        return {
+          kind: 'failed',
+          secret: null,
+          message:
+            state.secret.kind === 'oauth_token_set'
+              ? 'OAuth token material is incomplete'
+              : 'Credential fields are incomplete',
+        }
       }
       secret = await operations.createSecret({ owner, name: state.name, material })
     }

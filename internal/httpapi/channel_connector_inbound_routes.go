@@ -180,11 +180,20 @@ func (s strictOpenAPIServer) CompleteChannelConnectorEvent(
 	if err != nil {
 		return nil, err
 	}
+	var retryAfter time.Duration
+	if request.Body.RetryAfterMs != nil {
+		if request.Body.State != openapi.ChannelEventOutcomePending ||
+			*request.Body.RetryAfterMs < 0 || *request.Body.RetryAfterMs >
+			integrationstore.MaxIntegrationEventRetryAfter.Milliseconds() {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid retry delay")
+		}
+		retryAfter = time.Duration(*request.Body.RetryAfterMs) * time.Millisecond
+	}
 	receipt, err := s.server.store.Integrations().FinishIntegrationEvent(ctx,
 		integrationstore.FinishIntegrationEventInput{
 			ProjectID: install.ProjectID, IntegrationInstallID: install.ID, ID: receiptID,
 			LeaseToken: request.Body.LeaseToken, LeaseGeneration: request.Body.LeaseGeneration,
-			State:     integrationstore.IntegrationEventState(request.Body.State),
+			State: integrationstore.IntegrationEventState(request.Body.State), RetryAfter: retryAfter,
 			LastError: request.Body.LastError, Capabilities: scope.Capabilities,
 		},
 	)
@@ -322,24 +331,10 @@ func (s strictOpenAPIServer) resolveChannelConnectorInteraction(
 			err.Error(),
 		)
 	}
-	targetID, ok := parseOpenAPIPublicID(
-		publicid.KindIntegrationTarget,
-		body.IntegrationTargetId,
-	)
+	agentID, ok := parseOpenAPIPublicID(publicid.KindAgent, body.AgentId)
 	if !ok {
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
-			openapi.ErrorCodeNotFound,
-			"not found",
-		)
-	}
-	bindingID, ok := parseOpenAPIPublicID(
-		publicid.KindIntegrationBinding,
-		body.IntegrationTargetBindingId,
-	)
-	if !ok {
-		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
-			openapi.ErrorCodeNotFound,
-			"not found",
+			openapi.ErrorCodeNotFound, "not found",
 		)
 	}
 	if _, err := s.server.store.Integrations().GetConnectorIntegrationApp(
@@ -358,54 +353,34 @@ func (s strictOpenAPIServer) resolveChannelConnectorInteraction(
 	if err != nil {
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
 	}
-	binding, err := s.server.store.Integrations().GetIntegrationTargetBinding(
-		ctx,
-		install.ProjectID,
-		bindingID,
-	)
-	if err != nil {
-		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
-	}
-	if binding.IntegrationInstallID != install.ID ||
-		binding.IntegrationTargetID != targetID || !binding.SendAllowed {
-		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
-			openapi.ErrorCodeForbidden,
-			"forbidden",
-		)
-	}
-	target, err := s.server.store.Integrations().GetIntegrationTarget(
-		ctx,
-		install.ProjectID,
-		targetID,
-	)
-	if err != nil {
-		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
-	}
-	if target.IntegrationInstallID != install.ID {
-		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
-			openapi.ErrorCodeForbidden,
-			"forbidden",
-		)
-	}
+	// The provider supplies its verified callback address. The prompt itself
+	// owns the destination; later inputs or model selection cannot move it.
 	existing, found, err := s.server.store.Execution().GetAgentInteraction(
-		ctx,
-		install.ProjectID,
-		binding.AgentID,
-		interactionID,
+		ctx, install.ProjectID, agentID, interactionID,
 	)
 	if err != nil {
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
 	}
-	if !found {
+	if !found || existing.IntegrationTargetID == uuid.Nil {
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
-			openapi.ErrorCodeNotFound,
-			"not found",
+			openapi.ErrorCodeNotFound, "not found",
 		)
 	}
-	if existing.IntegrationTargetID != targetID {
+	targetID := existing.IntegrationTargetID
+	target, err := s.server.store.Integrations().GetIntegrationTarget(ctx, install.ProjectID, targetID)
+	if err != nil {
+		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
+	}
+	if target.IntegrationInstallID != install.ID || target.ProviderRef != body.ProviderRef {
 		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromCode(
 			openapi.ErrorCodeForbidden, "forbidden",
 		)
+	}
+	binding, err := s.server.store.Integrations().GetActiveSendBindingForTarget(
+		ctx, install.ProjectID, agentID, targetID,
+	)
+	if err != nil {
+		return openapi.ResolveChannelConnectorInteractionResponse{}, apierror.FromError(err)
 	}
 	resolution, err := channelInteractionResolution(existing, body.Answers)
 	if err != nil {
@@ -463,11 +438,12 @@ func channelInteractionResponseMetadata(
 func normalizeChannelInteractionRequest(
 	body openapi.ResolveChannelConnectorInteractionRequest,
 ) (openapi.ResolveChannelConnectorInteractionRequest, json.RawMessage, error) {
-	if strings.TrimSpace(body.ExternalAccountRef) == "" || strings.TrimSpace(body.Actor.Ref) == "" {
-		return body, nil, errors.New("external account and actor refs are required")
+	if strings.TrimSpace(body.ExternalAccountRef) == "" || strings.TrimSpace(body.Actor.Ref) == "" ||
+		strings.TrimSpace(body.ProviderRef) == "" {
+		return body, nil, errors.New("external account, provider and actor refs are required")
 	}
 	if len(body.ExternalTenantId) > 512 || len(body.ExternalAccountRef) > 512 ||
-		len(body.Actor.Ref) > 512 {
+		len(body.Actor.Ref) > 512 || len(body.ProviderRef) > 512 {
 		return body, nil, errors.New("channel interaction identifier exceeds its size limit")
 	}
 	for _, field := range []struct {
@@ -476,6 +452,7 @@ func normalizeChannelInteractionRequest(
 	}{
 		{"external tenant ID", body.ExternalTenantId},
 		{"external account ref", body.ExternalAccountRef},
+		{"provider ref", body.ProviderRef},
 		{"actor ref", body.Actor.Ref},
 		{"actor display name", body.Actor.DisplayName},
 	} {

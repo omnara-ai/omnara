@@ -688,7 +688,6 @@ func TestSecretRotationLocksInstallBeforeApp(t *testing.T) {
 			_, err = qtx.InsertIntegrationTarget(
 				context.Background(),
 				dbsqlc.InsertIntegrationTargetParams{
-					TargetRef:   "secret-rotation-lock-order-target",
 					ProviderRef: "secret-rotation-lock-order-thread", ProviderRefKind: "thread",
 					DisplayName: "Secret rotation lock order", ProviderMetadata: json.RawMessage(`{}`),
 					ProjectID: testProjectID, ChannelDefinitionID: definitionID,

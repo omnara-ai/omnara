@@ -479,14 +479,14 @@ WITH candidate_targets AS MATERIALIZED (
   ORDER BY binding.target_created_at DESC, binding.integration_target_id DESC
   LIMIT sqlc.arg(row_limit)
 )
-SELECT target.id, target.integration_install_id, target.target_ref, target.parent_channel_id,
+SELECT target.id, target.integration_install_id, target.parent_channel_id,
   target.provider_ref, target.provider_ref_kind, target.display_name,
   target.created_at,
   install.provider, install.integration_kind, install.state AS install_state,
   app.connector_key, app.state AS app_state,
   bool_or(binding.receive_allowed) AS receive_allowed,
-  bool_or(binding.read_allowed) AS read_allowed,
-  bool_or(binding.send_allowed) AS send_allowed
+  coalesce(bool_or(binding.read_allowed AND definition.capabilities -> 'read' = 'true'::jsonb), false)::boolean AS read_allowed,
+  coalesce(bool_or(binding.send_allowed AND definition.capabilities -> 'send' = 'true'::jsonb), false)::boolean AS send_allowed
 FROM candidate_targets candidate
 JOIN integration_targets target
   ON target.project_id = sqlc.arg(project_id)
@@ -504,6 +504,10 @@ LEFT JOIN integration_apps app
   ON app.org_id = install.org_id
  AND app.id = install.integration_app_id
  AND app.deleted_at IS NULL
+LEFT JOIN integration_channel_definitions definition
+  ON definition.project_id = target.project_id
+ AND definition.integration_install_id = target.integration_install_id
+ AND definition.id = target.channel_definition_id
 WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL)) AND (
     binding.integration_route_id IS NULL
     OR EXISTS (
@@ -515,7 +519,7 @@ WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'man
         AND route.deleted_at IS NULL
     )
   )
-GROUP BY target.id, target.integration_install_id, target.target_ref, target.parent_channel_id,
+GROUP BY target.id, target.integration_install_id, target.parent_channel_id,
   target.provider_ref, target.provider_ref_kind, target.display_name, target.created_at,
   install.provider, install.integration_kind, install.state, app.connector_key, app.state
 ORDER BY target.created_at DESC, target.id DESC;

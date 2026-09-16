@@ -39,7 +39,7 @@ func newChannelWorkflowFixture(t *testing.T, ctx context.Context, name string) c
 	definition, err := store.Integrations().PublishConnectorChannelDefinition(
 		ctx, integrationstore.PublishChannelDefinitionInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "conversation", Kind: integrationstore.ChannelKindDiscordThread,
 			SendParamsSchema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
 			Capabilities:          integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true},
 			ConnectorCapabilities: testChannelCapabilities(testChannelProvider),

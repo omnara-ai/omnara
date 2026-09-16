@@ -40,18 +40,21 @@ const (
 var errIntegrationOAuthStateTooLarge = errors.New("integration oauth state exceeds maximum size")
 
 type integrationOAuthState struct {
-	FlowID            uuid.UUID `json:"flow_id"`
-	OrgID             uuid.UUID `json:"org_id"`
-	ProjectID         uuid.UUID `json:"project_id"`
-	AgentProfileID    uuid.UUID `json:"agent_profile_id"`
-	InstalledByUserID uuid.UUID `json:"installed_by_user_id"`
-	Provider          string    `json:"provider"`
-	ClientID          string    `json:"client_id"`
-	ClientSecret      string    `json:"client_secret"`
-	SigningSecret     string    `json:"signing_secret"`
-	BotDisplayName    string    `json:"bot_display_name,omitempty"`
-	ExpiresAt         time.Time `json:"expires_at"`
-	ReturnTo          string    `json:"return_to,omitempty"`
+	CodeVerifier             string    `json:"code_verifier,omitempty"`
+	IntegrationAppID         uuid.UUID `json:"integration_app_id,omitempty"`
+	AppConfigurationRevision int64     `json:"app_configuration_revision,omitempty"`
+	FlowID                   uuid.UUID `json:"flow_id"`
+	OrgID                    uuid.UUID `json:"org_id"`
+	ProjectID                uuid.UUID `json:"project_id"`
+	AgentProfileID           uuid.UUID `json:"agent_profile_id"`
+	InstalledByUserID        uuid.UUID `json:"installed_by_user_id"`
+	Provider                 string    `json:"provider"`
+	ClientID                 string    `json:"client_id"`
+	ClientSecret             string    `json:"client_secret"`
+	SigningSecret            string    `json:"signing_secret"`
+	BotDisplayName           string    `json:"bot_display_name,omitempty"`
+	ExpiresAt                time.Time `json:"expires_at"`
+	ReturnTo                 string    `json:"return_to,omitempty"`
 }
 
 func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +115,10 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
+	if err := s.requireIntegrationGateway(state.Provider); err != nil {
+		apierror.WriteError(w, err)
+		return
+	}
 	consumed, err := s.store.Integrations().IntegrationOAuthFlowConsumed(r.Context(), state.FlowID)
 	if err != nil {
 		logpkg.Error(r.Context(), fmt.Errorf("check integration oauth flow consumed: %w", err))
@@ -120,6 +127,10 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 	}
 	if consumed {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "integration oauth state already redeemed")
+		return
+	}
+	if state.IntegrationAppID != uuid.Nil {
+		s.completeManagedIntegrationOAuth(w, r, state, code)
 		return
 	}
 	redirectURI := s.absolutePublicURL(integrationOAuthCallbackPath)
@@ -295,15 +306,21 @@ func (s *Server) validateChannelSetupModel(
 }
 
 func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) error {
-	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" || state.ClientSecret == "" ||
-		state.SigningSecret == "" ||
-		state.ExpiresAt.IsZero() ||
-		now.After(state.ExpiresAt) {
+	if state.ExpiresAt.IsZero() || !now.Before(state.ExpiresAt) ||
+		state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
+		state.InstalledByUserID == uuid.Nil {
 		return errors.New("invalid oauth state")
 	}
-	if state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
-		state.AgentProfileID == uuid.Nil ||
-		state.InstalledByUserID == uuid.Nil {
+	if state.IntegrationAppID != uuid.Nil {
+		if state.AppConfigurationRevision < 1 || (state.Provider != integrationstore.IntegrationProviderSlack &&
+			state.Provider != integrationstore.IntegrationProviderGitHub &&
+			state.Provider != integrationstore.IntegrationProviderDiscord) {
+			return errors.New("invalid oauth state")
+		}
+		return nil
+	}
+	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" || state.ClientSecret == "" ||
+		state.SigningSecret == "" || state.AgentProfileID == uuid.Nil {
 		return errors.New("invalid oauth state")
 	}
 	return nil

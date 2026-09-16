@@ -24,11 +24,6 @@ import {
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
 import {
-  legacyBindingManagedToolNames,
-  removeLegacyBindingManagedTools,
-  withoutLegacyBindingManagedTools,
-} from '@/components/agents/channelToolConfig'
-import {
   emptyProviderOptions,
   envOverlayFromRows,
   type EnvOverlayRow,
@@ -118,8 +113,7 @@ export interface BasicConfigSession {
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
   const doc = parseSourceDocument(source)
-  const initialDraft =
-    doc == null ? null : extractBasicConfig(withoutLegacyBindingManagedTools(doc))
+  const initialDraft = doc == null ? null : extractBasicConfig(doc)
   return {
     initialDraft,
     apply(config) {
@@ -362,8 +356,6 @@ function applyToDocument(
     if (deleted) edits.count += 1
   }
 
-  edits.count += removeLegacyBindingManagedTools(doc)
-
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
   const providerConfig = normalizeResourceName(config.providerConfig)
@@ -377,9 +369,7 @@ function applyToDocument(
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
     'tools',
-    config.tools.flatMap((tool) =>
-      legacyBindingManagedToolNames.has(tool.name) ? [] : [[tool.name, toolWire(tool)]],
-    ),
+    config.tools.map((tool) => [tool.name, toolWire(tool)]),
     baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
     set,
     del,

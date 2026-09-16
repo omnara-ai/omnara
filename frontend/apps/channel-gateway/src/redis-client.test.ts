@@ -1,7 +1,7 @@
 import type { RedisClientOptions, RedisClusterOptions } from 'redis'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { RedisStateClient } from './app-state'
+import type { RedisStateClient } from './redis-client'
 import { createGatewayRedisClient } from './redis-client'
 
 const redisMocks = {
@@ -43,7 +43,8 @@ describe('channel gateway Redis client', () => {
     client.onError(onError)
     await client.connect()
     expect(await client.ready()).toBe(true)
-    expect(await client.get('key')).toBe('value')
+    expect(await client.set('key', 'value', { NX: true, PX: 5000 })).toBe('OK')
+    expect(await client.eval('return 1', { keys: ['key'], arguments: [] })).toBe(1)
     raw.isReady = false
     expect(await client.ready()).toBe(false)
     await client.close()
@@ -51,7 +52,8 @@ describe('channel gateway Redis client', () => {
 
     expect(raw.on).toHaveBeenCalledWith('error', onError)
     expect(raw.connect).toHaveBeenCalledOnce()
-    expect(raw.get).toHaveBeenCalledWith('key')
+    expect(raw.set).toHaveBeenCalledWith('key', 'value', { NX: true, PX: 5000 })
+    expect(raw.eval).toHaveBeenCalledWith('return 1', { keys: ['key'], arguments: [] })
     expect(raw.ping).toHaveBeenCalledOnce()
     expect(raw.close).toHaveBeenCalledOnce()
     expect(raw.destroy).toHaveBeenCalledOnce()
@@ -161,24 +163,14 @@ function testRawRedisClient() {
   return {
     close: vi.fn(() => Promise.resolve()),
     connect: vi.fn(() => Promise.resolve()),
-    del: vi.fn(() => Promise.resolve(0)),
     destroy: vi.fn(),
     eval: vi.fn<RedisStateClient['eval']>(() => Promise.resolve(1)),
-    exists: vi.fn(() => Promise.resolve(0)),
-    get: vi.fn(() => Promise.resolve<string | null>('value')),
     isOpen: false,
     isReady: false,
-    lLen: vi.fn(() => Promise.resolve(0)),
-    lPop: vi.fn(() => Promise.resolve<string | null>(null)),
-    lRange: vi.fn(() => Promise.resolve<string[]>([])),
     masters,
     on: vi.fn(() => undefined),
     ping: vi.fn(() => Promise.resolve('PONG')),
-    sAdd: vi.fn(() => Promise.resolve(1)),
-    sIsMember: vi.fn(() => Promise.resolve(0)),
-    sRem: vi.fn(() => Promise.resolve(1)),
     set: vi.fn(() => Promise.resolve<string | null>('OK')),
-    unlink: vi.fn(() => Promise.resolve(0)),
   }
 }
 

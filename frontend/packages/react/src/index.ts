@@ -64,6 +64,22 @@ export {
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
 export {
+  useCreateIntegrationApp,
+  useEligibleIntegrationApps,
+  useIntegrationApp,
+  useIntegrationApps,
+  useUpdateIntegrationApp,
+} from './domains/integration-apps'
+export {
+  useCompleteGitHubConnection,
+  useGitHubSetupInstallations,
+  useGitHubSetupRepositories,
+  useIntegrationLaunchProfile,
+  useRefreshIntegrationConnections,
+  useSetIntegrationLaunchProfile,
+  useStartIntegrationConnection,
+} from './domains/integration-connections'
+export {
   type IntegrationInstallListFilters,
   type IntegrationInstallListOptions,
   type IntegrationInstallListSort,
@@ -122,9 +138,11 @@ export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,
+  type ModelPricingLookup,
   type ModelProviderListFilters,
   type ModelProviderListOptions,
   type ModelProviderListSort,
+  useClusterModelPricing,
   useConfiguredModelOptions,
   useConfiguredModels,
   useCreateConfiguredModel,
@@ -194,6 +212,7 @@ export {
   useUpdateProjectModelGrant,
 } from './domains/project-grants'
 export { useCreateProject, useProjects, useVisibleProjectsList } from './domains/projects'
+export { useRegisterChannel, useRegisteredChannels } from './domains/registered-channels'
 export {
   type ProjectAvailableSecretListFilters,
   type ProjectAvailableSecretListOptions,
@@ -240,4 +259,13 @@ export {
   useUpdateSkill,
 } from './domains/skills'
 export { useToolCatalog } from './domains/tool-catalog'
+export {
+  type AgentProfileUsageFilters,
+  type OrgUsageFilters,
+  type UsageWindow,
+  useAgentProfileUsage,
+  useAgentUsage,
+  useOrgUsage,
+  useProjectUsage,
+} from './domains/usage'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

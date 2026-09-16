@@ -1,6 +1,7 @@
 import type {
   ChannelConnectorAppConfiguration,
   ChannelConnectorCapability,
+  ChannelConnectorControlReceipt,
   ChannelConnectorEventReceipt,
   ChannelConnectorInstallationConfiguration,
   ChannelConnectorRuntimeUnit,
@@ -9,7 +10,8 @@ import type {
   ResolveChannelConnectorInteractionRequest,
   ResolveChannelConnectorInteractionResponse,
 } from '@omnara/sdk'
-import type { StateAdapter } from 'chat'
+
+import type { ControlCompletion } from './core-controls'
 
 export type GatewayLogFields = Record<string, string | number | boolean | null | undefined>
 
@@ -37,7 +39,10 @@ export interface ProviderInboundContext {
     request: ResolveChannelConnectorInteractionRequest,
   ): Promise<ResolveChannelConnectorInteractionResponse>
   /** A durable acceptance acknowledgement, not completed behavior processing. */
-  submitInbound(event: ChannelInboundEventRequest): Promise<ChannelInboundEventResponse>
+  submitInbound(
+    event: ChannelInboundEventRequest,
+    signal?: AbortSignal,
+  ): Promise<ChannelInboundEventResponse>
 }
 
 export interface RuntimeUnitWorkContext {
@@ -51,7 +56,6 @@ export interface RuntimeUnitContext extends RuntimeUnitWorkContext, ProviderInbo
 
 export interface ProviderWebhookWorkContext {
   reserveWorkBytes: (bytes: number) => ProviderWorkReservation
-  waitUntil: (task: Promise<unknown>) => void
 }
 
 export interface ProviderWebhookContext
@@ -67,6 +71,22 @@ export interface ReceiptBehaviorContext {
   deadlineMs: number
 }
 
+export interface ControlReceiptBehaviorContext extends ReceiptBehaviorContext {
+  reserveWorkBytes: (bytes: number) => ProviderWorkReservation
+}
+
+/** Re-observe verified provider state using this app-scoped receipt and its
+ * confirmed progress. Control recovery never performs provider message actions.
+ * After confirmed partial progress, return retry with last_installation_id;
+ * an uncaught throw records no prefix checkpoint. Allocate per-claim work via
+ * context.reserveWorkBytes; factory reservations belong to long-lived global
+ * app/cache work and do not enforce the control worker's child budget.
+ */
+export type ControlReceiptBehavior = (
+  receipt: Readonly<ChannelConnectorControlReceipt>,
+  context: ControlReceiptBehaviorContext,
+) => Promise<ControlCompletion>
+
 /** Process an already-verified queued event using this exact scoped lease.
  * Never re-enter handleWebhook, signature verification, or SDK intake dedupe.
  * Verified inbound work can replay after shutdown, deadline or lease expiry,
@@ -79,12 +99,16 @@ export type ReceiptBehavior = (
   context: ReceiptBehaviorContext,
 ) => Promise<void>
 
-/** Classifies a behavior failure; retryable permits a bounded receipt replay.
- * Consumer interruption is retryable too. Other generic/unclassified exceptions
- * and explicit permanent failures terminalize the receipt.
+/** Explicit permanent failures terminalize incoming work. Message consumers
+ * bound retries and terminalize other unclassified errors; control consumers
+ * retry unknown failures of idempotent state observations. Interruption retries.
  */
 export class ReceiptBehaviorError extends Error {
-  constructor(readonly retryable: boolean) {
+  constructor(
+    readonly retryable: boolean,
+    /** Optional provider minimum; invalid supplied hints fail closed in message consumers. */
+    readonly retryAfterMs?: number,
+  ) {
     super(
       retryable
         ? 'channel receipt behavior can retry safely'
@@ -98,6 +122,7 @@ export interface ProviderRuntime {
   close: () => Promise<void>
   handleWebhook: (request: Request, context: ProviderWebhookContext) => Promise<Response>
   processReceipt?: ReceiptBehavior
+  processControlReceipt?: ControlReceiptBehavior
   runUnit?: (unit: ChannelConnectorRuntimeUnit, context: RuntimeUnitContext) => Promise<void>
 }
 
@@ -114,12 +139,15 @@ export interface ProviderFactoryContext {
     externalAccountRef: string,
   ): Promise<GatewayInstallationConfiguration>
   signal: AbortSignal
-  state: StateAdapter
 }
 
 export interface ProviderFactory {
   readonly connectorKey: string
   readonly provider: string
+  /** Optional response budget from HTTP entry, including app acquisition and body reads. */
+  readonly webhookTimeoutMs?: number
+  /** Optional raw webhook body limit, enforced before buffering or adapter invocation. */
+  readonly webhookBodyLimitBytes?: number
   // Factory implementations must thread lifecycle and per-operation signals
   // into adapter initialization, provider I/O, and media downloads before
   // registering the factory. A timeout that only stops awaiting I/O is not

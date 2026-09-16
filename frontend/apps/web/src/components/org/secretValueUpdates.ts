@@ -4,6 +4,8 @@ import { isOAuthKey, oauthTokenSetMaterialFromValues } from '@/lib/oauthEntries'
 
 export function requiredSecretKeys(kind: Secret['kind']): string[] | undefined {
   switch (kind) {
+    case 'integration_credentials':
+      return []
     case 'generic':
       return ['value']
     case 'aws_credentials':
@@ -53,6 +55,12 @@ export function prepareSecretReplacement(
       error:
         'Refresh credentials require a refresh token, token endpoint, client ID, and resource.',
     }
+  }
+  if (secret.kind === 'integration_credentials') {
+    const values = Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== ''))
+    return Object.values(values).some((value) => value.trim() !== '')
+      ? { material: { kind: 'integration_credentials', values } }
+      : { error: 'Enter at least one credential value.' }
   }
   if (secret.kind === 'generic')
     return { material: { kind: 'generic', value: updates.value ?? '' } }

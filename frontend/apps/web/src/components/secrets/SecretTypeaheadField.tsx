@@ -4,7 +4,7 @@ import {
   useSecret,
   useSecrets,
 } from '@omnara/react'
-import type { Secret, SecretKind } from '@omnara/sdk'
+import type { Secret, SecretKind, SecretOwnerInput } from '@omnara/sdk'
 
 import { PlusIcon } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -66,6 +66,8 @@ export function SecretSelect({
   knownSecret,
   emptyDescription,
   kind = 'generic',
+  owner,
+  requiredPayloadKeys,
 }: {
   orgId: string
   /** When set, offers project-available secrets instead of org-owned ones. */
@@ -78,18 +80,17 @@ export function SecretSelect({
   knownSecret?: Secret
   emptyDescription?: string
   kind?: SecretKind
+  /** Limits choices to this exact owner, excluding grants. */
+  owner?: SecretOwnerInput
+  requiredPayloadKeys?: string[]
 }) {
   const search = useTypeaheadSearch()
-  const orgQuery = useSecrets(
-    orgId,
-    { kind: 'org' },
-    {
-      filters: { ...search.filters, kind },
-      sort: 'name',
-      pageSize: 25,
-      enabled: enabled && projectId === undefined,
-    },
-  )
+  const orgQuery = useSecrets(orgId, owner ?? { kind: 'org' }, {
+    filters: { ...search.filters, kind },
+    sort: 'name',
+    pageSize: 25,
+    enabled: enabled && projectId === undefined,
+  })
   const projectQuery = useProjectAvailableSecrets(orgId, projectId ?? '', {
     filters: { ...search.filters, kind },
     sort: 'name',
@@ -99,11 +100,17 @@ export function SecretSelect({
   const query = projectId === undefined ? orgQuery : projectQuery
   const orgSecrets = useInfiniteQueryItems(orgQuery)
   const projectSecrets = useInfiniteQueryItems(projectQuery).map((access) => access.secret)
+  const eligible = (secret: Secret) =>
+    (!owner ||
+      (secret.owner.kind === owner.kind &&
+        (owner.kind !== 'project' ||
+          (secret.owner.kind === 'project' && secret.owner.project_id === owner.project_id)))) &&
+    (requiredPayloadKeys?.every((key) => secret.payload_keys.includes(key)) ?? true)
   const secrets = includeKnownSecret(
     listedSecrets(orgSecrets, projectSecrets, projectId, kind),
     knownSecret,
     kind,
-  )
+  ).filter(eligible)
   const selectedOrgSecret = useSecret(orgId, value, {
     enabled: enabled && projectId === undefined,
   })
@@ -111,7 +118,12 @@ export function SecretSelect({
     enabled: enabled && projectId !== undefined,
   })
   const resolvedSecret = selectedProjectSecret.data?.secret ?? selectedOrgSecret.data
-  const selected = selectedSecret(secrets, resolvedSecret, value, kind)
+  const selected = selectedSecret(
+    secrets,
+    resolvedSecret && eligible(resolvedSecret) ? resolvedSecret : undefined,
+    value,
+    kind,
+  )
   const empty = !query.isPending && !query.isError && secrets.length === 0
 
   return (
@@ -138,6 +150,17 @@ export function SecretSelect({
           )
         }
       />
+      {requiredPayloadKeys &&
+        value !== '' &&
+        !selected &&
+        !selectedOrgSecret.isFetching &&
+        !selectedProjectSecret.isFetching && (
+          <FieldDescription>
+            The selected credentials are unavailable or missing required fields. Choose a matching
+            secret to replace them. Existing app credentials stay unchanged until you choose a
+            replacement.
+          </FieldDescription>
+        )}
       {empty && emptyDescription && <FieldDescription>{emptyDescription}</FieldDescription>}
     </>
   )
@@ -154,6 +177,8 @@ export function SecretTypeaheadField({
   onCreateSecret,
   knownSecret,
   kind = 'generic',
+  owner,
+  requiredPayloadKeys,
 }: {
   orgId: string
   enabled: boolean
@@ -165,6 +190,9 @@ export function SecretTypeaheadField({
   onCreateSecret?: () => void
   knownSecret?: Secret
   kind?: SecretKind
+  /** Limits choices to this exact owner, excluding grants. */
+  owner?: SecretOwnerInput
+  requiredPayloadKeys?: string[]
 }) {
   return (
     <Field>
@@ -179,6 +207,8 @@ export function SecretTypeaheadField({
         knownSecret={knownSecret}
         emptyDescription={emptyDescription}
         kind={kind}
+        owner={owner}
+        requiredPayloadKeys={requiredPayloadKeys}
       />
     </Field>
   )

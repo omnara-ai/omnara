@@ -418,3 +418,33 @@ it.each(['Backspace', 'Delete'])('leaves untouched credentials unchanged on %s',
   expect(ctx.api.requestsTo('PATCH', ctx.path)).toHaveLength(1)
   expect(ctx.api.requestsTo('POST', ctx.path + '/versions')).toHaveLength(0)
 })
+
+it('replaces integration credentials completely and preserves multiline private keys', async () => {
+  const ctx = await render({
+    kind: 'integration_credentials',
+    payload_keys: ['private_key', 'webhook_secret', 'client_secret'],
+  })
+  expect(field('Private key').value).toBe('')
+  await enter('Private key', '-----BEGIN PRIVATE KEY-----\nnew-key\n-----END PRIVATE KEY-----\n')
+  await submit()
+  expect(ctx.api.requestsTo('POST', ctx.path + '/versions')).toHaveLength(0)
+  await enter('Webhook secret', 'webhook-new')
+  act(() => {
+    button('Clear client secret').click()
+  })
+  await submit()
+  expect(ctx.api.requestsTo('POST', ctx.path + '/versions').map((request) => request.body)).toEqual(
+    [
+      {
+        material: {
+          kind: 'integration_credentials',
+          values: {
+            private_key: '-----BEGIN PRIVATE KEY-----\nnew-key\n-----END PRIVATE KEY-----\n',
+            webhook_secret: 'webhook-new',
+          },
+        },
+      },
+    ],
+  )
+  expect(ctx.api.requests.every((request) => !request.url.href.includes('new-key'))).toBe(true)
+})

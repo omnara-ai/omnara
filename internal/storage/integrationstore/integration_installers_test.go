@@ -46,7 +46,7 @@ func TestNormalizeIntegrationInstaller(t *testing.T) {
 		"user with key credential":        {Type: identitystore.PrincipalTypeUser, ID: subjectID, OrgAPIKeyID: credentialID},
 		"key with user credential":        {Type: identitystore.PrincipalTypeOrgAPIKey, ID: subjectID, BrowserSessionID: credentialID},
 		"machine":                         identitystore.NewMachineDaemonPrincipal(orgID, subjectID, credentialID),
-		"connector":                       identitystore.NewChannelConnectorPrincipal("gateway", []channelconnector.Capability{{ConnectorKey: "chat_sdk", Provider: "slack"}}),
+		"connector":                       identitystore.NewChannelConnectorPrincipal("gateway", []channelconnector.Capability{{ConnectorKey: "omnara", Provider: "slack"}}),
 		"user with connector credentials": {Type: identitystore.PrincipalTypeUser, ID: subjectID, ChannelConnectorID: "gateway"},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -4,6 +4,7 @@ package executionstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -157,4 +158,80 @@ func TestManagedInstallationRejectsAppDisabledAfterRegistration(t *testing.T) {
 	require.NoError(t, store.pool.QueryRow(ctx,
 		`SELECT count(*) FROM integration_installs WHERE integration_app_id=$1`, input.IntegrationAppID).Scan(&connections))
 	require.Zero(t, connections)
+}
+
+func TestManagedInstallationSetupFencesVerifiedAppRevision(t *testing.T) {
+	t.Parallel()
+	for _, change := range []string{"configuration", "credential_rotation"} {
+		t.Run(change, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			store, input, replacement := managedInstallationSetupFixture(t)
+			appCredential, originalVersion, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+				OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID,
+				Name: "app-credential", Actor: input.InstalledBy,
+				Material: secrets.IntegrationCredentialsMaterial{Values: map[string]string{"token": "initial-app-token"}},
+			})
+			require.NoError(t, err)
+			verified, err := store.Integrations().UpdateIntegrationApp(ctx, integrationstore.UpdateIntegrationAppInput{
+				OrgID: testOrgID, ID: input.IntegrationAppID, CredentialSecretID: &appCredential.ID,
+			})
+			require.NoError(t, err)
+			input.ExpectedAppConfigurationRevision = verified.ConfigurationRevision
+			created, err := store.Integrations().UpsertIntegrationInstall(ctx, input)
+			require.NoError(t, err, "a setup verified against the current app revision must succeed")
+			before, err := store.Integrations().GetIntegrationInstall(ctx, testProjectID, created.ID)
+			require.NoError(t, err)
+			routes, err := store.Integrations().ListActiveIntegrationRoutes(ctx, testProjectID, created.ID)
+			require.NoError(t, err)
+			require.Len(t, routes, 1)
+
+			if change == "configuration" {
+				_, err = store.Integrations().UpdateIntegrationApp(ctx, integrationstore.UpdateIntegrationAppInput{
+					OrgID: testOrgID, ID: input.IntegrationAppID,
+					ProviderConfig: json.RawMessage(`{"client_id":"changed-after-verification"}`),
+				})
+				require.NoError(t, err)
+			} else {
+				_, rotated, err := store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
+					OrgID: testOrgID, SecretID: appCredential.ID, Actor: input.InstalledBy,
+					Material: secrets.IntegrationCredentialsMaterial{Values: map[string]string{"token": "rotated-app-token"}},
+				})
+				require.NoError(t, err)
+				require.NotEqual(t, originalVersion.ID, rotated.ID)
+			}
+			current, err := store.Integrations().GetIntegrationApp(ctx, testOrgID, input.IntegrationAppID)
+			require.NoError(t, err)
+			require.Greater(t, current.ConfigurationRevision, verified.ConfigurationRevision)
+			require.Equal(t, verified.CredentialSecretID, current.CredentialSecretID)
+			input.CredentialSecretID = replacement
+			input.OAuthFlowID = uuid.Must(uuid.NewV7())
+			input.InitialRoute = nil // Reconnection preserves the already configured behavior.
+			_, err = store.Integrations().UpsertIntegrationInstall(ctx, input)
+			require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+			unchanged, err := store.Integrations().GetIntegrationInstall(ctx, testProjectID, created.ID)
+			require.NoError(t, err)
+			require.Equal(t, before, unchanged, "stale OAuth verification cannot replace the connection credentials")
+			unchangedRoutes, err := store.Integrations().ListActiveIntegrationRoutes(ctx, testProjectID, created.ID)
+			require.NoError(t, err)
+			require.Equal(t, routes, unchangedRoutes)
+			consumed, err := store.Integrations().IntegrationOAuthFlowConsumed(ctx, input.OAuthFlowID)
+			require.NoError(t, err)
+			require.False(t, consumed, "a stale app revision must not consume the OAuth flow")
+
+			input.ExpectedAppConfigurationRevision = current.ConfigurationRevision
+			reauthorized, err := store.Integrations().UpsertIntegrationInstall(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, created.ID, reauthorized.ID)
+			require.Equal(t, replacement, reauthorized.CredentialSecretID)
+			require.Equal(t, input.OAuthFlowID, reauthorized.LastOAuthFlowID)
+			consumed, err = store.Integrations().IntegrationOAuthFlowConsumed(ctx, input.OAuthFlowID)
+			require.NoError(t, err)
+			require.True(t, consumed)
+			unchangedRoutes, err = store.Integrations().ListActiveIntegrationRoutes(ctx, testProjectID, created.ID)
+			require.NoError(t, err)
+			require.Equal(t, routes, unchangedRoutes,
+				"reconnection without InitialRoute keeps the original profile and behavior")
+		})
+	}
 }

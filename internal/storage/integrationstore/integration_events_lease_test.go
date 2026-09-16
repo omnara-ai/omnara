@@ -19,7 +19,7 @@ func TestClaimNextIntegrationEventRejectsInvalidLeaseBeforeDatabase(t *testing.T
 		t.Run(duration.String(), func(t *testing.T) {
 			t.Parallel()
 			receipt, found, err := store.ClaimNextIntegrationEvent(t.Context(), ClaimNextIntegrationEventInput{
-				Capability:    channelconnector.Capability{ConnectorKey: "chat_sdk_v1", Provider: "discord"},
+				Capability:    channelconnector.Capability{ConnectorKey: "test_connector", Provider: "discord"},
 				LeaseDuration: duration,
 			})
 			require.ErrorIs(t, err, storeerr.ErrInvalidRequest)

@@ -54,6 +54,11 @@ export function ProjectsNav() {
                   label: 'Agents',
                 },
                 {
+                  to: '/projects/$projectId/integrations' as const,
+                  path: `${projectRoot}/integrations`,
+                  label: 'Integrations',
+                },
+                {
                   to: '/projects/$projectId/grants' as const,
                   path: `${projectRoot}/grants`,
                   label: 'Grants',
@@ -67,6 +72,11 @@ export function ProjectsNav() {
                   to: '/projects/$projectId/skills' as const,
                   path: `${projectRoot}/skills`,
                   label: 'Project Skills',
+                },
+                {
+                  to: '/projects/$projectId/usage' as const,
+                  path: `${projectRoot}/usage`,
+                  label: 'Usage',
                 },
               ]
 

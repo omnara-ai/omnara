@@ -3,6 +3,7 @@ import type { ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
 import type { CoreClient } from './core-client'
 import { isCoreNotFoundError } from './core-http'
 import { ProviderDeliveryError } from './types'
+import { GatewayAtCapacityError } from './work-budget'
 
 interface CachedInstallation {
   configuration: ChannelConnectorInstallationConfiguration
@@ -76,7 +77,7 @@ export class InstallationConfigurationCache {
       true,
       (configuration) =>
         configuration.integration_app_id === appId &&
-        configuration.install.provider_tenant_id === externalTenantId &&
+        (configuration.install.provider_tenant_id ?? '') === externalTenantId &&
         configuration.install.provider_account_ref === externalAccountRef,
       () =>
         this.options.client.resolveInstallationConfiguration(
@@ -129,7 +130,7 @@ export class InstallationConfigurationCache {
       )
     }
     if (!current && this.loads.size >= this.options.maxEntries) {
-      throw new Error('channel installation configuration cache is at capacity')
+      throw new GatewayAtCapacityError('channel installation configuration cache is at capacity')
     }
     const loadSequence = ++this.loadSequence
     const load = this.options.limiter

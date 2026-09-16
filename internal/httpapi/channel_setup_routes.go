@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -44,52 +43,6 @@ func (s strictOpenAPIServer) PublishExternalChannelDefinition(
 		Description: definition.Description, SendParamsSchema: definition.SendParamsSchema,
 		Capabilities: publicChannelCapabilities(definition.Capabilities),
 	}, nil
-}
-
-func (s strictOpenAPIServer) RegisterExternalChannel(
-	ctx context.Context,
-	request openapi.RegisterExternalChannelRequestObject,
-) (openapi.RegisterExternalChannelResponseObject, error) {
-	scope, err := projectScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if request.Body == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
-	}
-	installID, installOK := parseOpenAPIPublicID(publicid.KindIntegrationInstall, request.IntegrationInstallID)
-	definitionID, definitionOK := parseOpenAPIPublicID(publicid.KindChannelDefinition, request.Body.DefinitionId)
-	if !installOK || !definitionOK {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	parentID := uuid.Nil
-	if request.Body.ParentChannelId != nil {
-		var ok bool
-		parentID, ok = parseOpenAPIPublicID(publicid.KindIntegrationTarget, *request.Body.ParentChannelId)
-		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-		}
-	}
-	channel, err := s.server.store.Integrations().RegisterExternalChannel(ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID: scope.project.ID, IntegrationInstallID: installID, ChannelDefinitionID: definitionID,
-			ParentChannelID: parentID, ProviderRef: request.Body.ProviderRef, ProviderRefKind: request.Body.ProviderRefKind,
-			DisplayName: request.Body.Name, ProviderMetadata: request.Body.ProviderMetadata,
-		})
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	response := openapi.RegisterExternalChannel200JSONResponse{Name: channel.DisplayName}
-	response.ChannelId, err = publicID(publicid.KindIntegrationTarget, channel.ID)
-	if err != nil {
-		return nil, err
-	}
-	response.DefinitionId, err = publicID(publicid.KindChannelDefinition, channel.ChannelDefinitionID)
-	if err != nil {
-		return nil, err
-	}
-	response.ParentChannelId, err = idOrNil(publicid.KindIntegrationTarget, channel.ParentChannelID)
-	return response, err
 }
 
 func (s strictOpenAPIServer) AttachAgentChannel(

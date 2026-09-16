@@ -286,7 +286,7 @@ func TestManagedChannelSendRejectsForeignArtifactBeforeProviderIO(t *testing.T) 
 	_, err := f.Store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: toolsTestProjectID, IntegrationInstallID: channel.Install.ID,
-			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindDiscordThread,
 			SendParamsSchema: json.RawMessage(`{"type":"object"}`),
 			Capabilities:     integrationstore.ChannelCapabilities{Send: true, Text: true, Artifacts: true},
 			ConnectorCapabilities: []channelconnector.Capability{{
@@ -336,7 +336,7 @@ func TestManagedChannelSendChecksCurrentParamsBeforeProviderIO(t *testing.T) {
 	_, err = f.Store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: toolsTestProjectID, IntegrationInstallID: channel.Install.ID,
-			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindDiscordThread,
 			SendParamsSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
 			Capabilities:     integrationstore.ChannelCapabilities{Send: true, Text: true},
 			ConnectorCapabilities: []channelconnector.Capability{{

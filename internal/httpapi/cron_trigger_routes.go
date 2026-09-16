@@ -47,7 +47,13 @@ func (s strictOpenAPIServer) createCronTrigger(
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
+	principal, _ := principalFromContext(ctx)
+	channelBindings, err := s.authorizeLaunchChannels(ctx, project, principal, request.Body.ChannelBindings)
+	if err != nil {
+		return nil, err
+	}
 	trigger, err := s.server.store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
+		ChannelBindings: channelBindings,
 		ProjectID:       project.ID,
 		Name:            request.Body.Name,
 		Target:          target,
@@ -218,7 +224,17 @@ func (s strictOpenAPIServer) updateCronTrigger(
 		}
 		target = &parsed
 	}
+	var channelBindings *[]executionstore.LaunchChannelBinding
+	if request.Body.ChannelBindings != nil {
+		principal, _ := principalFromContext(ctx)
+		bindings, err := s.authorizeLaunchChannels(ctx, project, principal, *request.Body.ChannelBindings)
+		if err != nil {
+			return nil, err
+		}
+		channelBindings = &bindings
+	}
 	trigger, err := s.server.store.Execution().UpdateCronTrigger(ctx, executionstore.UpdateCronTriggerInput{
+		ChannelBindings: channelBindings,
 		ProjectID:       project.ID,
 		TriggerID:       triggerID,
 		Name:            request.Body.Name,
@@ -379,7 +395,12 @@ func cronTriggerResponseFromRecord(
 	if err != nil {
 		return openapi.CronTrigger{}, err
 	}
+	channelBindings, err := publicLaunchChannelBindings(record.ChannelBindings)
+	if err != nil {
+		return openapi.CronTrigger{}, err
+	}
 	return openapi.CronTrigger{
+		ChannelBindings: channelBindings,
 		Id:              id,
 		OrgId:           orgID,
 		ProjectId:       projectID,

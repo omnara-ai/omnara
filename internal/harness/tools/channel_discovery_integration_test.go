@@ -26,7 +26,7 @@ func TestGetChannelCompletionPreservesSchemaAndOmitsPrivateAddress(t *testing.T)
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: toolsTestProjectID, IntegrationInstallID: connection.Install.ID,
 			ImplementationKey: "discovery",
-			Kind:              integrationstore.ChannelKindExternal,
+			Kind:              integrationstore.ChannelKindDiscordThread,
 			Description:       "Reply in this conversation.",
 			SendParamsSchema:  json.RawMessage(`{"type":"object","properties":{"sequence":{"type":"integer","minimum":9007199254740993}},"additionalProperties":false}`),
 			Capabilities:      integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true},

@@ -25,6 +25,11 @@ For a complete runnable example that ends in a Slack channel — an X (Twitter) 
 
 Agents receive the [channel toolkit](/tools/built-in#integrations) from their active channel bindings: `list_channels`, `get_channel`, `set_current_channel`, and the permitted `read_channel` and `send_channel_message` operations. Toolkit membership follows live channel grants and is not configured in the profile. Sends require a `channel_id` and `message`; the current channel selects where future question and approval prompts are copied.
 
+Conversations migrated from the previous Slack integration keep their existing
+receive and send access. The upgrade does not automatically add history-reading
+access; grant read access explicitly to enable `read_channel` for those agents.
+New conversations created by the built-in Slack behavior start with read access.
+
 <Note>
   **Self-hosting?** Set `OMNARA_PUBLIC_URL` to a public HTTPS origin and
   configure the [channel gateway](/self-hosting/configuration#channel-gateway)
@@ -67,7 +72,10 @@ Each setup creates a new Slack app, so run it only once for each bot you want.
 
 ### Use an existing Slack app
 
-If you already have a Slack app, provide its credentials instead. This path is not available in the dashboard:
+If you already have a Slack app, register it once under the organization's
+**Apps** page with its app ID, OAuth client ID and credential secret. Then connect
+it from the project's **Integrations** page and choose its inbound agent profile.
+The API also supports direct setup with existing app credentials:
 
 <SlackExistingApp />
 

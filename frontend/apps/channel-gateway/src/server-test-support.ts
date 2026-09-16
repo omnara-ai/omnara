@@ -26,11 +26,19 @@ export async function startServer(
     maxBufferedWorkBytes?: number
     maxConcurrentRequests?: number
     provider?: string
+    webhookTimeoutMs?: number
+    webhookBodyLimitBytes?: number
     releaseGate?: Promise<void>
   } = {},
 ) {
   const release = vi.fn(() => overrides.releaseGate ?? Promise.resolve())
   const registry = {
+    webhookBodyLimitBytes: vi.fn<AppRuntimeRegistry['webhookBodyLimitBytes']>(
+      () => overrides.webhookBodyLimitBytes,
+    ),
+    webhookTimeoutMs: vi.fn<AppRuntimeRegistry['webhookTimeoutMs']>(
+      () => overrides.webhookTimeoutMs,
+    ),
     acquire: vi.fn<AppRuntimeRegistry['acquire']>(async () => {
       if (overrides.acquireError) return Promise.reject(overrides.acquireError)
       await overrides.acquireGate
@@ -46,8 +54,9 @@ export async function startServer(
         runtime,
       })
     }),
-  } satisfies Pick<AppRuntimeRegistry, 'acquire'>
+  } satisfies Pick<AppRuntimeRegistry, 'acquire' | 'webhookTimeoutMs' | 'webhookBodyLimitBytes'>
   const logger = testLogger()
+  const workBudget = new WorkByteBudget(overrides.maxBufferedWorkBytes ?? 2048)
   const server = new GatewayServer({
     bodyLimitBytes: overrides.bodyLimitBytes ?? 1024,
     handlerTimeoutMs: overrides.handlerTimeoutMs ?? 1_000,
@@ -58,10 +67,10 @@ export async function startServer(
     port: 0,
     publicUrl: 'https://channels.example.test',
     registry,
-    workBudget: new WorkByteBudget(overrides.maxBufferedWorkBytes ?? 2048),
+    workBudget,
   })
   const port = await server.listen()
-  return { logger, port, registry, release, server }
+  return { logger, port, registry, release, server, workBudget }
 }
 
 export function providerRuntime(
@@ -109,6 +118,7 @@ export async function incompleteRequest(
   port: number,
   path: string,
   headers: Record<string, string>,
+  timeoutMs = 1_000,
 ): Promise<{ connection: string | undefined; status: number }> {
   return new Promise((resolve, reject) => {
     let response: { connection: string | undefined; status: number } | undefined
@@ -125,7 +135,7 @@ export async function incompleteRequest(
     const timeout = setTimeout(() => {
       request.destroy()
       reject(new Error('incomplete request connection was not closed'))
-    }, 1_000)
+    }, timeoutMs)
     request.on('close', () => {
       clearTimeout(timeout)
       if (response) resolve(response)

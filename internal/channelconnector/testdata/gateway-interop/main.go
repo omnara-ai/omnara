@@ -23,10 +23,11 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) != 2 {
+	if len(os.Args) != 2 && (len(os.Args) != 3 || os.Args[2] != "reject-upload") {
 		return errors.New("expected test gateway endpoint")
 	}
-	capability := channelconnector.Capability{ConnectorKey: "chat_sdk_v1", Provider: "slack"}
+	rejectUpload := len(os.Args) == 3
+	capability := channelconnector.Capability{ConnectorKey: "test_connector", Provider: "slack"}
 	client, err := channelconnector.NewOperationsClient([]channelconnector.Config{{
 		ID: "interop-test", OperationsURL: os.Args[1], Capabilities: []channelconnector.Capability{capability},
 		Token: "omnara_connector_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_3Q2mUc",
@@ -59,6 +60,14 @@ func run() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		result, err := client.Execute(ctx, request)
 		cancel()
+		if rejectUpload {
+			var operationError *channelconnector.OperationError
+			if !errors.As(err, &operationError) || result.Outcome != channelconnector.OperationFailed ||
+				operationError.Code != "gateway_failed" || operationError.StatusCode != 503 {
+				return fmt.Errorf("expected definite upload rejection, got %s: %w", result.Outcome, err)
+			}
+			return nil
+		}
 		if err != nil {
 			return err
 		}

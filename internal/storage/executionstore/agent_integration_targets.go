@@ -56,18 +56,6 @@ func (IntegrationInstallAccess) ClearInstallTargetsFromAgents(
 	return nil
 }
 
-func (r *ToolCallReader) ListIntegrationTargets(
-	ctx context.Context,
-) ([]integrationstore.IntegrationTargetSummary, error) {
-	t := r.transaction
-	return t.store.integrations.ListIntegrationTargetsTx(
-		ctx,
-		t.tx,
-		t.input.ProjectID,
-		t.input.AgentID,
-	)
-}
-
 func (r *ToolCallReader) ListAgentChannelTargets(
 	ctx context.Context,
 	input integrationstore.ListAgentChannelTargetsInput,

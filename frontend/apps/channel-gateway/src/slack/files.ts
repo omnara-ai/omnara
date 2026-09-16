@@ -91,8 +91,12 @@ export async function prepareSlackFiles(
       if (!url) throw new SlackAPIError('missing_url')
       // Reserve before allocation: streamed chunks + joined bytes + base64,
       // JSON serialization and canonical SDK validation can coexist temporarily.
-      work.resize((acceptedBytes + limit) * 8 + 1024 * 1024)
-      const downloaded = await client.download(url, limit, context)
+      work.resize(acceptedBytes * 8 + 1024 * 1024)
+      const downloaded = await client.download(url, limit, context, (bytes) => {
+        // The provider's declared size is only a hint. Charge actual streamed
+        // bytes before retaining them, including the later base64/JSON copies.
+        work.resize((acceptedBytes + bytes) * 8 + 1024 * 1024)
+      })
       if (downloaded.bytes.length === 0) throw new SlackAPIError('empty')
       const mediaType = attachmentMediaType(file, downloaded.contentType, downloaded.bytes)
       if (!mediaType) throw new SlackAPIError('unsupported_media_type')

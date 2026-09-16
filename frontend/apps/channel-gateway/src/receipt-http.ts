@@ -5,7 +5,8 @@ import type { ProviderWorkReservation } from './types'
 // Go accepts at most 24 MiB of normalized event JSON. The remainder covers the
 // scoped receipt/lease envelope and bounded last_error metadata.
 export const maxReceiptResponseBytes = 24 * 1024 * 1024 + 64 * 1024
-export const initialReceiptWorkBytes = maxReceiptResponseBytes
+// Small admission allowance; the reservation grows with actual response bytes.
+export const initialReceiptWorkBytes = 64 * 1024
 
 export type ReceiptClientFailureCode =
   | 'aborted'

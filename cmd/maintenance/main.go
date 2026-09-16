@@ -136,6 +136,7 @@ func main() {
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
+	controlRecorder := metrics.NewIntegrationControlRecorder(metricSet)
 
 	machineLoopDone := make(chan struct{})
 	go func() {
@@ -215,6 +216,7 @@ func main() {
 		cancel,
 		logger,
 		store,
+		controlRecorder,
 		cfg.MaintenanceInterval,
 		cfg.IntegrationEventRetention,
 		healthErr,
@@ -336,6 +338,7 @@ func runCoreMaintenanceLoop(
 	cancel context.CancelFunc,
 	log *slog.Logger,
 	store *storage.Store,
+	controlRecorder *metrics.IntegrationControlRecorder,
 	interval time.Duration,
 	integrationEventRetention time.Duration,
 	healthErr <-chan error,
@@ -349,6 +352,7 @@ func runCoreMaintenanceLoop(
 			loopCtx,
 			log,
 			store,
+			controlRecorder,
 			integrationEventRetention,
 		)
 		event.Done(loopCtx)
@@ -372,6 +376,7 @@ func runCoreMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
+	controlRecorder *metrics.IntegrationControlRecorder,
 	integrationEventRetention time.Duration,
 ) {
 	defer func() {
@@ -410,6 +415,9 @@ func runCoreMaintenanceTick(
 		},
 	)
 	deleteEventsOutcome := completedMaintenanceOutcome(ctx, deleteEventsErr)
+	controlsWorked, controlsErr := runIntegrationControlMaintenanceTick(
+		ctx, log, store.Integrations(), controlRecorder, integrationEventRetention,
+	)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
@@ -421,7 +429,7 @@ func runCoreMaintenanceTick(
 		expiredProcessTools > 0 ||
 		expiredChannelRequests > 0 ||
 		authCleanupDeleted ||
-		failedEvents > 0 || deletedEvents > 0
+		failedEvents > 0 || deletedEvents > 0 || controlsWorked
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -435,6 +443,7 @@ func runCoreMaintenanceTick(
 			authCleanupOutcome.err,
 			failEventsOutcome.err,
 			deleteEventsOutcome.err,
+			controlsErr,
 		),
 	)
 	if expireDaemonRuntimesOutcome.err != nil {

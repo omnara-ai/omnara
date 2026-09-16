@@ -22,17 +22,17 @@ const configuration: ChannelConnectorInstallationConfiguration = {
     kind: 'slack_app_credentials',
     payload: {
       access_token: credentials.botToken,
-      signing_secret: credentials.signingSecret,
-      client_id: 'existing-client-id',
-      client_secret: 'existing-client-secret',
     },
   },
 }
 
 describe('slackCredentials', () => {
-  it('uses the existing combined installation secret without app credentials or a fake tenant', () => {
+  it('uses the runtime token projection without app credentials or a fake tenant', () => {
     const before = JSON.stringify(configuration)
-    expect(slackCredentials(configuration)).toEqual(credentials)
+    expect(slackCredentials(configuration)).toEqual({
+      botToken: credentials.botToken,
+      botUserId: credentials.botUserId,
+    })
     expect(JSON.stringify(configuration)).toBe(before)
   })
 
@@ -45,7 +45,7 @@ describe('slackCredentials', () => {
         ...configuration,
         credential: {
           kind: 'slack_app_credentials',
-          payload: { access_token: credentials.botToken },
+          payload: { signing_secret: credentials.signingSecret },
         },
       }),
     ).toThrow('Slack operation failed: invalid_configuration')

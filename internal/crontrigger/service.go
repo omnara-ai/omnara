@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -90,6 +89,8 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 			switch trigger.Target.Kind {
 			case executionstore.CronTriggerTargetAgentProfile:
 				stats.Launched++
+				// Profile launch also completes the firing in its owning transaction.
+				continue
 			case executionstore.CronTriggerTargetAgent:
 				stats.Inputs++
 				// Agent input delivery completes the firing in the same transaction.
@@ -146,16 +147,10 @@ func (s *Service) launchFromProfile(
 	if err != nil {
 		return err
 	}
-	launch, err := s.execution.LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:     trigger.ProjectID,
-		ProfileID:     profile.ID,
-		AgentConfigID: profile.CurrentConfigID,
-		LaunchedBy: identitystore.PrincipalRecord{
-			Type: identitystore.PrincipalTypeSystem,
-			ID:   trigger.TriggerID,
-		},
+	launch, err := s.execution.LaunchCronTriggerAgent(ctx, executionstore.LaunchCronTriggerAgentInput{
+		Trigger: trigger, AgentConfigID: profile.CurrentConfigID,
 		Message:        message,
-		MessageActor:   actor,
+		Actor:          actor,
 		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {

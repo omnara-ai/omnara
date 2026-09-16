@@ -27,6 +27,8 @@ export type IntegrationBindingId = string;
 
 export type IntegrationEventReceiptId = string;
 
+export type IntegrationControlReceiptId = string;
+
 export type IntegrationRuntimeUnitId = string;
 
 export type ChannelOpaqueObject = {
@@ -89,9 +91,9 @@ export type ChannelDefinitionId = string;
 export type IntegrationTargetId = string;
 
 /**
- * Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+ * Built-in Slack, Discord and GitHub connections publish their named channel kinds. Customer-defined channels use EXTERNAL.
  */
-export type ChannelKind = 'SLACK_CHANNEL' | 'SLACK_THREAD' | 'EXTERNAL';
+export type ChannelKind = 'SLACK_CHANNEL' | 'SLACK_THREAD' | 'DISCORD_CHANNEL' | 'DISCORD_THREAD' | 'GITHUB_PR' | 'GITHUB_REVIEW_THREAD' | 'EXTERNAL';
 
 export type ChannelCapabilities = {
     read: boolean;
@@ -117,7 +119,26 @@ export type PublishChannelConnectorDefinitionRequest = {
     capabilities: ChannelCapabilities;
 };
 
+export type RegisterChannelRequest = ({
+    source: 'external';
+} & RegisterExternalChannelRequest) | ({
+    source: 'managed';
+} & RegisterManagedChannelRequest);
+
+export type RegisterManagedChannelRequest = {
+    source: 'managed';
+    /**
+     * Provider locator within this connection, such as a Discord channel ID or GitHub PR number. The connector resolves its canonical address.
+     */
+    provider_ref: string;
+    /**
+     * Optional provider-specific address kind hint.
+     */
+    provider_ref_kind?: string;
+};
+
 export type RegisterExternalChannelRequest = {
+    source: 'external';
     definition_id: ChannelDefinitionId;
     parent_channel_id?: IntegrationTargetId;
     /**
@@ -140,6 +161,19 @@ export type RegisteredChannel = {
     definition_id: ChannelDefinitionId;
     parent_channel_id?: IntegrationTargetId;
     name: string;
+    /**
+     * Provider address within this connection.
+     */
+    provider_ref: string;
+    /**
+     * Provider address kind.
+     */
+    provider_ref_kind: string;
+};
+
+export type ListRegisteredChannelsResponse = {
+    channels: Array<RegisteredChannel>;
+    next_cursor: string | null;
 };
 
 export type AttachAgentChannelRequest = {
@@ -388,6 +422,10 @@ export type ChannelSendOperationResult = {
      * Required when message_channel is reply_channel. Existing-thread replies use destination and need no new child.
      */
     reply_channel?: ChannelReplyDestination;
+    /**
+     * The message is known at destination, but its provider reply channel could not be made available. Requires message_channel=destination and no reply_channel. Core preserves the known publication and reports a failed continuation; do not resend the message.
+     */
+    continuation_error?: ChannelContinuationError;
     created_at?: Timestamp;
     metadata?: ChannelOpaqueObject;
 };
@@ -463,12 +501,117 @@ export type ListChannelConnectorRoutesResponse = {
     routes: Array<ChannelConnectorRoute>;
 };
 
-export type ChannelWorkflowTarget = {
+export type GitHubReviewOperationScope = {
+    request_id: ToolCallId;
+    agent_id: AgentId;
+    channel_id: IntegrationTargetId;
+};
+
+export type GitHubReviewObservation = {
+    review_id: string;
+    /**
+     * Native observed commit when available; nullable provider commits do not prevent identifying the creator. create_response evidence must supply the original requested commit.
+     */
+    commit_id?: string;
+    /**
+     * Supply only when an exact Omnara marker was positively read from this bot-authored review. Author identity or an absent marker is never ownership evidence.
+     */
+    creating_tool_call_id?: ToolCallId;
+};
+
+export type LookupChannelConnectorGitHubReviewsRequest = {
+    scope: GitHubReviewOperationScope;
+    observations: Array<GitHubReviewObservation>;
+};
+
+export type GitHubReviewOwnership = 'owned' | 'other_agent' | 'unknown';
+
+export type GitHubReviewOwnershipObservation = {
+    review_id: string;
+    ownership: GitHubReviewOwnership;
+    /**
+     * Present only for owned observations.
+     */
+    creating_tool_call_id?: ToolCallId;
+    /**
+     * Immutable creator pin, present only for owned observations.
+     */
+    commit_id?: string;
+};
+
+export type LookupChannelConnectorGitHubReviewsResponse = {
+    observations: Array<GitHubReviewOwnershipObservation>;
+};
+
+export type GitHubReviewIdentityEvidence = 'create_response' | 'marker';
+
+export type RecordChannelConnectorGitHubReviewRequest = {
+    scope: GitHubReviewOperationScope;
+    /**
+     * The exact creating call is required for recording. The native review ID is immutable once recorded.
+     */
+    observation: GitHubReviewObservation & {
+        creating_tool_call_id: ToolCallId;
+    };
+    evidence: GitHubReviewIdentityEvidence;
+};
+
+export type RecordChannelConnectorGitHubReviewResponse = {
+    /**
+     * The native identity is durably recorded; identical acknowledgment is idempotent.
+     */
+    recorded: boolean;
+    /**
+     * True only for the original creating call with its live runtime and original send binding. Record identity before adding the first finding; false does not delete the draft or grant replacement authority.
+     */
+    continue: boolean;
+};
+
+/**
+ * Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded. Review references may be supplied only for the issuing agent's own review.
+ */
+export type ChannelOperationFailure = {
+    code: ChannelOperationFailureCode;
+    metadata?: {
+        review_id?: string;
+        commit_id?: string;
+    };
+};
+
+/**
+ * Fixed diagnostic. review_operation_unknown requires an unknown outcome; all other codes require failed.
+ */
+export type ChannelOperationFailureCode = 'invalid_address' | 'address_unavailable' | 'unsupported_address' | 'review_not_owned' | 'review_creation_in_progress' | 'provider_pending_review_conflict' | 'review_state_unavailable' | 'pending_review_exists' | 'review_commit_mismatch' | 'review_creation_already_recorded' | 'review_finding_failed' | 'review_operation_unknown';
+
+/**
+ * Read-only managed setup. Resolve a provider locator without an agent, binding, or tool call; returns a ChannelRegistrationTarget.
+ */
+export type ChannelResolveAddressOperation = {
+    provider_ref: string;
+    provider_ref_kind?: string;
+};
+
+/**
+ * The input destination. Supply either an existing parent_channel_id or an inline parent to register atomically with this destination; parentage grants no agent access.
+ */
+export type ChannelRegistrationTarget = {
     definition_id: ChannelDefinitionId;
     provider_ref: string;
     provider_ref_kind: string;
     display_name?: string;
     parent_channel_id?: IntegrationTargetId;
+    parent?: ChannelRegistrationParent;
+    provider_metadata?: ChannelOpaqueObject;
+};
+
+/**
+ * One parent address in the same project and installation. Further ancestry uses an already registered parent_channel_id on the target instead.
+ */
+export type ChannelRegistrationParent = {
+    definition_id: ChannelDefinitionId;
+    provider_ref: string;
+    provider_ref_kind: string;
+    display_name?: string;
     provider_metadata?: ChannelOpaqueObject;
 };
 
@@ -585,7 +728,7 @@ export type DeliverChannelConnectorWorkflowRequest = {
      */
     only_if_unbound?: boolean;
     input_precondition?: ChannelInputPrecondition;
-    target: ChannelWorkflowTarget;
+    target: ChannelRegistrationTarget;
     grants: ChannelWorkflowGrants;
     author: ChannelWorkflowAuthor;
     /**
@@ -630,6 +773,38 @@ export type ChannelConnectorApp = {
     updated_at: Timestamp;
 };
 
+export type ChannelConnectorInstallationProviderState = 'active' | 'disabled';
+
+export type ChannelConnectorInstallationControlScope = {
+    id: IntegrationInstallId;
+    project_id: ProjectId;
+    provider_tenant_id: string;
+    provider_account_ref: string;
+    provider_identity: ChannelOpaqueObject;
+    state: ChannelConnectorInstallationProviderState;
+    configuration_revision: number;
+};
+
+export type ListChannelConnectorInstallationControlScopesResponse = {
+    app_configuration_revision: number;
+    installations: Array<ChannelConnectorInstallationControlScope>;
+    through_installation_id: string | null;
+    next_after_installation_id: string | null;
+};
+
+export type SetChannelConnectorInstallationProviderStateRequest = {
+    provider_tenant_id: string;
+    provider_account_ref: string;
+    expected_app_configuration_revision: number;
+    expected_configuration_revision: number;
+    state: ChannelConnectorInstallationProviderState;
+};
+
+export type SetChannelConnectorInstallationProviderStateResponse = {
+    state: ChannelConnectorInstallationProviderState;
+    configuration_revision: number;
+};
+
 export type ChannelConnectorInstall = {
     project_id: ProjectId;
     id: string;
@@ -664,6 +839,71 @@ export type ChannelActor = {
     ref: string;
     display_name: string;
     metadata: ChannelOpaqueObject;
+};
+
+export type ChannelInboundControlEventRequest = {
+    event_id: string;
+    provider_tenant_id: string;
+    payload: ChannelControlPayload;
+};
+
+/**
+ * Immutable verified control data; one PostgreSQL-safe JSON object without duplicate keys, at most 64 KiB. Payload fields grant no authority.
+ */
+export type ChannelControlPayload = {
+    [key: string]: unknown;
+};
+
+export type ChannelInboundControlEventResponse = {
+    receipt_id: IntegrationControlReceiptId;
+    state: ChannelEventState;
+    last_installation_id: string | null;
+    end_installation_id: string | null;
+};
+
+export type ClaimNextChannelConnectorControlEventRequest = {
+    capability: ChannelConnectorCapability;
+    lease_ms: number;
+};
+
+export type ChannelConnectorControlReceipt = {
+    receipt_id: IntegrationControlReceiptId;
+    integration_app_id: IntegrationAppId;
+    provider_tenant_id: string;
+    event_id: string;
+    payload: ChannelControlPayload;
+    state: ChannelEventState;
+    last_installation_id: string | null;
+    end_installation_id: string | null;
+    lease_token: string;
+    lease_generation: number;
+    lease_expires_at: Timestamp;
+    /**
+     * Claims since acknowledged forward progress; controls backoff, never claim eligibility.
+     */
+    attempts_since_progress: number;
+    last_error: ChannelOpaqueObject;
+    created_at: Timestamp;
+};
+
+export type ChannelControlOutcome = 'completed' | 'yield' | 'retry' | 'failed';
+
+export type CompleteChannelConnectorControlEventRequest = {
+    lease_token: string;
+    lease_generation: number;
+    outcome: ChannelControlOutcome;
+    /**
+     * Last confirmed application or authoritative disappearance, strictly beyond previous progress and within the fixed end. Required for yield; omission preserves progress.
+     */
+    last_installation_id?: IntegrationInstallId;
+    /**
+     * Optional provider retry delay for retry only. Core applies at least its own backoff.
+     */
+    retry_after_ms?: number;
+    /**
+     * Nonempty for retry or failed; omitted or empty for completed or yield.
+     */
+    last_error?: ChannelOpaqueObject;
 };
 
 export type ChannelInboundEventRequest = {
@@ -724,6 +964,10 @@ export type CompleteChannelConnectorEventRequest = {
     lease_generation: number;
     state: ChannelEventOutcome;
     /**
+     * Optional provider retry delay for pending only. Core applies at least its own backoff.
+     */
+    retry_after_ms?: number;
+    /**
      * A nonempty error object is required for pending or failed. Completed requires an omitted or empty error object.
      */
     last_error?: ChannelOpaqueObject;
@@ -732,8 +976,11 @@ export type CompleteChannelConnectorEventRequest = {
 export type ResolveChannelConnectorInteractionRequest = {
     external_tenant_id: string;
     external_account_ref: string;
-    integration_target_id: string;
-    integration_target_binding_id: IntegrationBindingId;
+    agent_id: AgentId;
+    /**
+     * Canonical native address derived from the verified provider callback. Must match the channel pinned to this interaction. Core resolves the current live send binding; the callback never supplies binding authority.
+     */
+    provider_ref: string;
     actor: ChannelActor;
     answers: Array<InteractionAnswer>;
     metadata: ChannelOpaqueObject;
@@ -1087,6 +1334,17 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    pricing?: DiscoveredModelPricing;
+};
+
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export type DiscoveredModelPricing = {
+    input_usd_per_million: string;
+    cache_read_input_usd_per_million?: string;
+    cache_write_input_usd_per_million?: string;
+    output_usd_per_million: string;
 };
 
 export type ModelProviderConfigList = {
@@ -1416,6 +1674,10 @@ export type ConfiguredModelSummary = {
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
     provider_config: ResourceName;
+    /**
+     * Exact provider model slug sent to the provider endpoint by the current revision.
+     */
+    provider_model_slug: string;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -1614,12 +1876,137 @@ export type McpoAuthStartResponse = {
     expires_at: Timestamp;
 };
 
+export type IntegrationLaunchProfile = {
+    agent_profile_id: string | null;
+};
+
+export type StartIntegrationConnectionRequest = {
+    integration_app_id: IntegrationAppId;
+    agent_profile_id?: AgentProfileId;
+    return_to?: string;
+};
+
+export type IntegrationConnectionSetup = {
+    provider: IntegrationAppProvider;
+    flow_id: IntegrationOAuthFlowId;
+    oauth_url: string;
+    expires_at: Timestamp;
+};
+
+/**
+ * Native GitHub installation or repository ID, represented as a decimal string.
+ */
+export type GitHubSetupProviderId = string;
+
+export type GitHubSetupInstallation = {
+    id: GitHubSetupProviderId;
+    account_login: string;
+    suspended: boolean;
+};
+
+export type GitHubSetupRepository = {
+    id: GitHubSetupProviderId;
+    full_name: string;
+    private: boolean;
+    /**
+     * True when the authorizing GitHub user has repository administrator access.
+     */
+    can_connect: boolean;
+};
+
+export type GitHubSetupInstallations = {
+    data: Array<GitHubSetupInstallation>;
+    /**
+     * Verified app installation page; open to add an installation, then refresh this list.
+     */
+    installation_url: string;
+    next_page?: number;
+};
+
+export type GitHubSetupRepositories = {
+    data: Array<GitHubSetupRepository>;
+    next_page?: number;
+};
+
+export type CompleteGitHubConnectionRequest = {
+    installation_id: GitHubSetupProviderId;
+    repository_id: GitHubSetupProviderId;
+    /**
+     * Native owner/repository name from the picker. Used only as a lookup hint; GitHub must confirm the selected IDs and current user authority.
+     */
+    repository_full_name: string;
+};
+
 export type CreateIntegrationOAuthSetupRequest = {
     provider?: string;
     client_id: string;
     client_secret: string;
     signing_secret: string;
     return_to?: string;
+};
+
+export type IntegrationAppProvider = 'slack' | 'discord' | 'github';
+
+export type IntegrationAppState = 'active' | 'disabled';
+
+/**
+ * Public provider configuration. GitHub and Slack require client_id; Discord uses its application ID and accepts an empty object. Credentials belong in the referenced secret.
+ */
+export type IntegrationAppConfiguration = {
+    client_id?: string;
+};
+
+export type IntegrationAppSummary = {
+    id: IntegrationAppId;
+    org_id: OrganizationId;
+    owner_project_id?: ProjectId;
+    provider: string;
+    provider_app_ref: string;
+    /**
+     * Existing display label, possibly empty; at most 512 UTF-8 bytes.
+     */
+    name: string;
+    state: IntegrationAppState;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+export type IntegrationApp = {
+    id: IntegrationAppId;
+    org_id: OrganizationId;
+    owner_project_id?: ProjectId;
+    provider: string;
+    provider_app_ref: string;
+    /**
+     * Existing display label, possibly empty; at most 512 UTF-8 bytes.
+     */
+    name: string;
+    state: IntegrationAppState;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    credential_secret_id?: SecretId;
+    provider_config: IntegrationAppConfiguration;
+};
+
+export type ListIntegrationAppsResponse = {
+    data: Array<IntegrationAppSummary>;
+    next_cursor: string | null;
+};
+
+export type CreateIntegrationAppRequest = {
+    provider: IntegrationAppProvider;
+    provider_app_ref: string;
+    name: ResourceName;
+    owner_project_id?: ProjectId;
+    credential_secret_id: SecretId;
+    provider_config: IntegrationAppConfiguration;
+};
+
+export type UpdateIntegrationAppRequest = {
+    name?: ResourceName;
+    credential_secret_id?: SecretId;
+    provider_config?: IntegrationAppConfiguration;
+    state?: IntegrationAppState;
 };
 
 /**
@@ -2076,6 +2463,10 @@ export type CreateCronTriggerRequest = {
     timezone?: CronTimezone;
     message_template: CronMessageTemplate;
     enabled?: boolean;
+    /**
+     * Channel grants for each agent launched by a profile schedule. Agent-target schedules use the existing agent's bindings and do not accept this field with entries.
+     */
+    channel_bindings?: Array<AttachAgentChannelRequest>;
 };
 
 export type UpdateCronTriggerRequest = {
@@ -2088,6 +2479,10 @@ export type UpdateCronTriggerRequest = {
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
     enabled?: boolean;
+    /**
+     * Replaces grants for future profile launches; an empty list clears them. Omit to preserve them. Existing agents keep their bindings. A firing already claimed may use its accepted configuration.
+     */
+    channel_bindings?: Array<AttachAgentChannelRequest>;
 };
 
 export type CronTrigger = {
@@ -2100,6 +2495,10 @@ export type CronTrigger = {
     timezone: CronTimezone;
     message_template: CronMessageTemplate;
     enabled: boolean;
+    /**
+     * Grants applied atomically to each new profile agent. Empty for agent-target schedules. These grants do not subscribe the agent; integration behavior determines incoming delivery.
+     */
+    channel_bindings: Array<AttachAgentChannelRequest>;
     /**
      * When the trigger last fired, or null if it has never fired.
      */
@@ -3947,6 +4346,61 @@ export type OrgOverviewResponse = {
     recent_agent_profiles: Array<AgentProfile>;
 };
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export type UsageTokenTotals = {
+    input_tokens_total: number;
+    uncached_input_tokens: number;
+    cache_read_input_tokens: number;
+    cache_write_input_tokens: number;
+    output_tokens_total: number;
+    reasoning_output_tokens: number;
+};
+
+export type UsageCostTotals = {
+    /**
+     * Exact decimal sum in USD of the costs the provider reported for the tallied model calls. Calls whose provider reported no cost contribute nothing; compare model_calls_with_reported_cost against model_calls to see how complete the figure is.
+     */
+    provider_reported_usd: string;
+    model_calls_with_reported_cost: number;
+};
+
+export type UsageTotals = {
+    /**
+     * Model calls that recorded token usage or a provider-reported cost.
+     */
+    model_calls: number;
+    tokens: UsageTokenTotals;
+    cost: UsageCostTotals;
+};
+
+export type UsageModel = {
+    configured_model_id: ConfiguredModelId;
+    /**
+     * Configured model name, resolved even if the model has since been deleted.
+     */
+    name: ResourceName;
+    provider_model_slug: string;
+    model_provider_config_id: ModelProviderConfigId;
+    model_provider_config_name: ResourceName;
+};
+
+export type ModelUsageTotals = {
+    model: UsageModel;
+    model_calls: number;
+    tokens: UsageTokenTotals;
+    cost: UsageCostTotals;
+};
+
+export type UsageReport = {
+    totals: UsageTotals;
+    /**
+     * Per-model rows ordered by provider config name, configured model name, then provider model slug. Models with distinct provider slugs across revisions appear once per slug.
+     */
+    by_model: Array<ModelUsageTotals>;
+};
+
 export type CurrentUserIdentity = {
     id: UserId;
     /**
@@ -4035,6 +4489,26 @@ export type ProjectMembershipGrant = {
 export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
+
+/**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export type UsageSince = string;
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export type UsageUntil = string;
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export type UsageIncludeProjectIds = Array<ProjectId>;
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export type UsageExcludeProjectIds = Array<ProjectId>;
 
 /**
  * Idempotency key for replay-safe mutating requests.
@@ -5020,6 +5494,82 @@ export type GetOrgOverviewResponses = {
 
 export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
 
+export type GetOrgUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+         */
+        include_project_ids?: Array<ProjectId>;
+        /**
+         * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+         */
+        exclude_project_ids?: Array<ProjectId>;
+    };
+    url: '/orgs/{orgID}/usage';
+};
+
+export type GetOrgUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOrgUsageError = GetOrgUsageErrors[keyof GetOrgUsageErrors];
+
+export type GetOrgUsageResponses = {
+    /**
+     * Usage totals for the organization.
+     */
+    200: UsageReport;
+};
+
+export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponses];
+
 export type ListVisibleProjectsData = {
     body?: never;
     path: {
@@ -5240,6 +5790,75 @@ export type DeleteProjectResponses = {
 };
 
 export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectResponses];
+
+export type GetProjectUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/usage';
+};
+
+export type GetProjectUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectUsageError = GetProjectUsageErrors[keyof GetProjectUsageErrors];
+
+export type GetProjectUsageResponses = {
+    /**
+     * Usage totals for the project.
+     */
+    200: UsageReport;
+};
+
+export type GetProjectUsageResponse = GetProjectUsageResponses[keyof GetProjectUsageResponses];
 
 export type ListOrgMembersData = {
     body?: never;
@@ -7853,6 +8472,322 @@ export type DeleteSecretGrantResponses = {
 
 export type DeleteSecretGrantResponse = DeleteSecretGrantResponses[keyof DeleteSecretGrantResponses];
 
+export type ListIntegrationAppsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/integration-apps';
+};
+
+export type ListIntegrationAppsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationAppsError = ListIntegrationAppsErrors[keyof ListIntegrationAppsErrors];
+
+export type ListIntegrationAppsResponses = {
+    /**
+     * List integration apps.
+     */
+    200: ListIntegrationAppsResponse;
+};
+
+export type ListIntegrationAppsResponse2 = ListIntegrationAppsResponses[keyof ListIntegrationAppsResponses];
+
+export type CreateIntegrationAppData = {
+    body: CreateIntegrationAppRequest;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/integration-apps';
+};
+
+export type CreateIntegrationAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateIntegrationAppError = CreateIntegrationAppErrors[keyof CreateIntegrationAppErrors];
+
+export type CreateIntegrationAppResponses = {
+    /**
+     * Register an integration app.
+     */
+    201: IntegrationApp;
+};
+
+export type CreateIntegrationAppResponse = CreateIntegrationAppResponses[keyof CreateIntegrationAppResponses];
+
+export type GetIntegrationAppData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        integrationAppID: IntegrationAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/integration-apps/{integrationAppID}';
+};
+
+export type GetIntegrationAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetIntegrationAppError = GetIntegrationAppErrors[keyof GetIntegrationAppErrors];
+
+export type GetIntegrationAppResponses = {
+    /**
+     * Get integration app configuration.
+     */
+    200: IntegrationApp;
+};
+
+export type GetIntegrationAppResponse = GetIntegrationAppResponses[keyof GetIntegrationAppResponses];
+
+export type UpdateIntegrationAppData = {
+    body: UpdateIntegrationAppRequest;
+    path: {
+        orgID: OrganizationId;
+        integrationAppID: IntegrationAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/integration-apps/{integrationAppID}';
+};
+
+export type UpdateIntegrationAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateIntegrationAppError = UpdateIntegrationAppErrors[keyof UpdateIntegrationAppErrors];
+
+export type UpdateIntegrationAppResponses = {
+    /**
+     * Update integration app configuration.
+     */
+    200: IntegrationApp;
+};
+
+export type UpdateIntegrationAppResponse = UpdateIntegrationAppResponses[keyof UpdateIntegrationAppResponses];
+
+export type ListEligibleIntegrationAppsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integration-apps';
+};
+
+export type ListEligibleIntegrationAppsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListEligibleIntegrationAppsError = ListEligibleIntegrationAppsErrors[keyof ListEligibleIntegrationAppsErrors];
+
+export type ListEligibleIntegrationAppsResponses = {
+    /**
+     * List apps available to a project.
+     */
+    200: ListIntegrationAppsResponse;
+};
+
+export type ListEligibleIntegrationAppsResponse = ListEligibleIntegrationAppsResponses[keyof ListEligibleIntegrationAppsResponses];
+
 export type ListIntegrationInstallsData = {
     body?: never;
     path: {
@@ -8072,8 +9007,82 @@ export type PublishExternalChannelDefinitionResponses = {
 
 export type PublishExternalChannelDefinitionResponse = PublishExternalChannelDefinitionResponses[keyof PublishExternalChannelDefinitionResponses];
 
-export type RegisterExternalChannelData = {
-    body: RegisterExternalChannelRequest;
+export type ListRegisteredChannelsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels';
+};
+
+export type ListRegisteredChannelsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListRegisteredChannelsError = ListRegisteredChannelsErrors[keyof ListRegisteredChannelsErrors];
+
+export type ListRegisteredChannelsResponses = {
+    /**
+     * Registered channels in the connection.
+     */
+    200: ListRegisteredChannelsResponse;
+};
+
+export type ListRegisteredChannelsResponse2 = ListRegisteredChannelsResponses[keyof ListRegisteredChannelsResponses];
+
+export type RegisterChannelData = {
+    body: RegisterChannelRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
@@ -8083,7 +9092,7 @@ export type RegisterExternalChannelData = {
     url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/channels';
 };
 
-export type RegisterExternalChannelErrors = {
+export type RegisterChannelErrors = {
     /**
      * The request was invalid.
      */
@@ -8130,16 +9139,16 @@ export type RegisterExternalChannelErrors = {
     };
 };
 
-export type RegisterExternalChannelError = RegisterExternalChannelErrors[keyof RegisterExternalChannelErrors];
+export type RegisterChannelError = RegisterChannelErrors[keyof RegisterChannelErrors];
 
-export type RegisterExternalChannelResponses = {
+export type RegisterChannelResponses = {
     /**
-     * Register an external channel.
+     * Register a channel.
      */
     200: RegisteredChannel;
 };
 
-export type RegisterExternalChannelResponse = RegisterExternalChannelResponses[keyof RegisterExternalChannelResponses];
+export type RegisterChannelResponse = RegisterChannelResponses[keyof RegisterChannelResponses];
 
 export type AttachAgentChannelData = {
     body: AttachAgentChannelRequest;
@@ -9341,6 +10350,80 @@ export type RenameAgentProfileResponses = {
 
 export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof RenameAgentProfileResponses];
 
+export type GetAgentProfileUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentProfileID: AgentProfileId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from subagents spawned, at every depth, by agents launched from this profile. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage';
+};
+
+export type GetAgentProfileUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentProfileUsageError = GetAgentProfileUsageErrors[keyof GetAgentProfileUsageErrors];
+
+export type GetAgentProfileUsageResponses = {
+    /**
+     * Usage totals for the agent profile.
+     */
+    200: UsageReport;
+};
+
+export type GetAgentProfileUsageResponse = GetAgentProfileUsageResponses[keyof GetAgentProfileUsageResponses];
+
 export type UpdateAgentProfileData = {
     body: UpdateAgentProfileRequest;
     headers?: {
@@ -9415,6 +10498,424 @@ export type UpdateAgentProfileResponses = {
 };
 
 export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof UpdateAgentProfileResponses];
+
+export type GetIntegrationLaunchProfileData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/launch-profile';
+};
+
+export type GetIntegrationLaunchProfileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetIntegrationLaunchProfileError = GetIntegrationLaunchProfileErrors[keyof GetIntegrationLaunchProfileErrors];
+
+export type GetIntegrationLaunchProfileResponses = {
+    /**
+     * Current launch profile.
+     */
+    200: IntegrationLaunchProfile;
+};
+
+export type GetIntegrationLaunchProfileResponse = GetIntegrationLaunchProfileResponses[keyof GetIntegrationLaunchProfileResponses];
+
+export type SetIntegrationLaunchProfileData = {
+    body: IntegrationLaunchProfile;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/launch-profile';
+};
+
+export type SetIntegrationLaunchProfileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type SetIntegrationLaunchProfileError = SetIntegrationLaunchProfileErrors[keyof SetIntegrationLaunchProfileErrors];
+
+export type SetIntegrationLaunchProfileResponses = {
+    /**
+     * Current launch profile.
+     */
+    200: IntegrationLaunchProfile;
+};
+
+export type SetIntegrationLaunchProfileResponse = SetIntegrationLaunchProfileResponses[keyof SetIntegrationLaunchProfileResponses];
+
+export type StartIntegrationConnectionData = {
+    body: StartIntegrationConnectionRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-oauth/setup';
+};
+
+export type StartIntegrationConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type StartIntegrationConnectionError = StartIntegrationConnectionErrors[keyof StartIntegrationConnectionErrors];
+
+export type StartIntegrationConnectionResponses = {
+    /**
+     * Start a managed integration connection.
+     */
+    201: IntegrationConnectionSetup;
+};
+
+export type StartIntegrationConnectionResponse = StartIntegrationConnectionResponses[keyof StartIntegrationConnectionResponses];
+
+export type ListGitHubSetupInstallationsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        flowID: IntegrationOAuthFlowId;
+    };
+    query?: {
+        page?: number;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integration-oauth/{flowID}/github/installations';
+};
+
+export type ListGitHubSetupInstallationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListGitHubSetupInstallationsError = ListGitHubSetupInstallationsErrors[keyof ListGitHubSetupInstallationsErrors];
+
+export type ListGitHubSetupInstallationsResponses = {
+    /**
+     * List accessible GitHub installations.
+     */
+    200: GitHubSetupInstallations;
+};
+
+export type ListGitHubSetupInstallationsResponse = ListGitHubSetupInstallationsResponses[keyof ListGitHubSetupInstallationsResponses];
+
+export type ListGitHubSetupRepositoriesData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        flowID: IntegrationOAuthFlowId;
+        providerInstallationID: GitHubSetupProviderId;
+    };
+    query?: {
+        page?: number;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integration-oauth/{flowID}/github/installations/{providerInstallationID}/repositories';
+};
+
+export type ListGitHubSetupRepositoriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListGitHubSetupRepositoriesError = ListGitHubSetupRepositoriesErrors[keyof ListGitHubSetupRepositoriesErrors];
+
+export type ListGitHubSetupRepositoriesResponses = {
+    /**
+     * List accessible GitHub repositories.
+     */
+    200: GitHubSetupRepositories;
+};
+
+export type ListGitHubSetupRepositoriesResponse = ListGitHubSetupRepositoriesResponses[keyof ListGitHubSetupRepositoriesResponses];
+
+export type CompleteGitHubConnectionData = {
+    body: CompleteGitHubConnectionRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        flowID: IntegrationOAuthFlowId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-oauth/{flowID}/github/complete';
+};
+
+export type CompleteGitHubConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CompleteGitHubConnectionError = CompleteGitHubConnectionErrors[keyof CompleteGitHubConnectionErrors];
+
+export type CompleteGitHubConnectionResponses = {
+    /**
+     * Connect a verified GitHub repository.
+     */
+    200: IntegrationInstall;
+};
+
+export type CompleteGitHubConnectionResponse = CompleteGitHubConnectionResponses[keyof CompleteGitHubConnectionResponses];
 
 export type CreateIntegrationOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
@@ -10157,6 +11658,80 @@ export type GetAgentResponses = {
 };
 
 export type GetAgentResponse2 = GetAgentResponses[keyof GetAgentResponses];
+
+export type GetAgentUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from this agent's subagents at every depth. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage';
+};
+
+export type GetAgentUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentUsageError = GetAgentUsageErrors[keyof GetAgentUsageErrors];
+
+export type GetAgentUsageResponses = {
+    /**
+     * Usage totals for the agent.
+     */
+    200: UsageReport;
+};
+
+export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageResponses];
 
 export type ArchiveAgentData = {
     body?: never;
@@ -15142,6 +16717,143 @@ export type GetChannelConnectorAppConfigurationResponses = {
 
 export type GetChannelConnectorAppConfigurationResponse = GetChannelConnectorAppConfigurationResponses[keyof GetChannelConnectorAppConfigurationResponses];
 
+export type ListChannelConnectorInstallationControlScopesData = {
+    body?: never;
+    path: {
+        integrationAppID: IntegrationAppId;
+    };
+    query: {
+        provider_tenant_id: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Resume strictly after this connection. Omit to start at the beginning.
+         */
+        after_installation_id?: IntegrationInstallId;
+        /**
+         * Fixed inclusive traversal boundary; omission captures the current last connection.
+         */
+        through_installation_id?: IntegrationInstallId;
+    };
+    url: '/channel-connector/apps/{integrationAppID}/installation-control-scopes';
+};
+
+export type ListChannelConnectorInstallationControlScopesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListChannelConnectorInstallationControlScopesError = ListChannelConnectorInstallationControlScopesErrors[keyof ListChannelConnectorInstallationControlScopesErrors];
+
+export type ListChannelConnectorInstallationControlScopesResponses = {
+    /**
+     * Nondeleted installation descriptors without credentials or agent authority.
+     */
+    200: ListChannelConnectorInstallationControlScopesResponse;
+};
+
+export type ListChannelConnectorInstallationControlScopesResponse2 = ListChannelConnectorInstallationControlScopesResponses[keyof ListChannelConnectorInstallationControlScopesResponses];
+
+export type SetChannelConnectorInstallationProviderStateData = {
+    body: SetChannelConnectorInstallationProviderStateRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/provider-state';
+};
+
+export type SetChannelConnectorInstallationProviderStateErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type SetChannelConnectorInstallationProviderStateError = SetChannelConnectorInstallationProviderStateErrors[keyof SetChannelConnectorInstallationProviderStateErrors];
+
+export type SetChannelConnectorInstallationProviderStateResponses = {
+    /**
+     * The committed provider state and advanced installation revision.
+     */
+    200: SetChannelConnectorInstallationProviderStateResponse;
+};
+
+export type SetChannelConnectorInstallationProviderStateResponse2 = SetChannelConnectorInstallationProviderStateResponses[keyof SetChannelConnectorInstallationProviderStateResponses];
+
 export type GetChannelConnectorInstallationConfigurationData = {
     body?: never;
     path: {
@@ -15329,6 +17041,134 @@ export type PublishChannelConnectorDefinitionResponses = {
 };
 
 export type PublishChannelConnectorDefinitionResponse = PublishChannelConnectorDefinitionResponses[keyof PublishChannelConnectorDefinitionResponses];
+
+export type LookupChannelConnectorGitHubReviewsData = {
+    body: LookupChannelConnectorGitHubReviewsRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/lookup';
+};
+
+export type LookupChannelConnectorGitHubReviewsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type LookupChannelConnectorGitHubReviewsError = LookupChannelConnectorGitHubReviewsErrors[keyof LookupChannelConnectorGitHubReviewsErrors];
+
+export type LookupChannelConnectorGitHubReviewsResponses = {
+    /**
+     * Scoped review observations.
+     */
+    200: LookupChannelConnectorGitHubReviewsResponse;
+};
+
+export type LookupChannelConnectorGitHubReviewsResponse2 = LookupChannelConnectorGitHubReviewsResponses[keyof LookupChannelConnectorGitHubReviewsResponses];
+
+export type RecordChannelConnectorGitHubReviewData = {
+    body: RecordChannelConnectorGitHubReviewRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/record';
+};
+
+export type RecordChannelConnectorGitHubReviewErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type RecordChannelConnectorGitHubReviewError = RecordChannelConnectorGitHubReviewErrors[keyof RecordChannelConnectorGitHubReviewErrors];
+
+export type RecordChannelConnectorGitHubReviewResponses = {
+    /**
+     * Scoped review observations.
+     */
+    200: RecordChannelConnectorGitHubReviewResponse;
+};
+
+export type RecordChannelConnectorGitHubReviewResponse2 = RecordChannelConnectorGitHubReviewResponses[keyof RecordChannelConnectorGitHubReviewResponses];
 
 export type LookupChannelConnectorWorkflowData = {
     body: LookupChannelConnectorWorkflowRequest;
@@ -15996,6 +17836,202 @@ export type ClaimNextChannelConnectorEventResponses = {
 };
 
 export type ClaimNextChannelConnectorEventResponse = ClaimNextChannelConnectorEventResponses[keyof ClaimNextChannelConnectorEventResponses];
+
+export type AcceptChannelConnectorControlEventData = {
+    body: ChannelInboundControlEventRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/control-events';
+};
+
+export type AcceptChannelConnectorControlEventErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type AcceptChannelConnectorControlEventError = AcceptChannelConnectorControlEventErrors[keyof AcceptChannelConnectorControlEventErrors];
+
+export type AcceptChannelConnectorControlEventResponses = {
+    /**
+     * The receipt has committed. Identical retries return the same receipt and its current state; a conflicting payload returns 409. Receipt does not imply agent processing.
+     */
+    202: ChannelInboundControlEventResponse;
+};
+
+export type AcceptChannelConnectorControlEventResponse = AcceptChannelConnectorControlEventResponses[keyof AcceptChannelConnectorControlEventResponses];
+
+export type ClaimNextChannelConnectorControlEventData = {
+    body: ClaimNextChannelConnectorControlEventRequest;
+    path?: never;
+    query?: never;
+    url: '/channel-connector/control-events/claim-next';
+};
+
+export type ClaimNextChannelConnectorControlEventErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ClaimNextChannelConnectorControlEventError = ClaimNextChannelConnectorControlEventErrors[keyof ClaimNextChannelConnectorControlEventErrors];
+
+export type ClaimNextChannelConnectorControlEventResponses = {
+    /**
+     * One durably leased receipt, including its payload and current lease proof.
+     */
+    200: ChannelConnectorControlReceipt;
+    /**
+     * No receipt is currently due for this capability.
+     */
+    204: void;
+};
+
+export type ClaimNextChannelConnectorControlEventResponse = ClaimNextChannelConnectorControlEventResponses[keyof ClaimNextChannelConnectorControlEventResponses];
+
+export type CompleteChannelConnectorControlEventData = {
+    body: CompleteChannelConnectorControlEventRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        receiptID: IntegrationControlReceiptId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/control-events/{receiptID}/complete';
+};
+
+export type CompleteChannelConnectorControlEventErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CompleteChannelConnectorControlEventError = CompleteChannelConnectorControlEventErrors[keyof CompleteChannelConnectorControlEventErrors];
+
+export type CompleteChannelConnectorControlEventResponses = {
+    /**
+     * The receipt outcome has committed.
+     */
+    200: ChannelInboundControlEventResponse;
+};
+
+export type CompleteChannelConnectorControlEventResponse = CompleteChannelConnectorControlEventResponses[keyof CompleteChannelConnectorControlEventResponses];
 
 export type CompleteChannelConnectorEventData = {
     body: CompleteChannelConnectorEventRequest;

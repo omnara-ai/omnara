@@ -320,7 +320,15 @@ func ToolResultContentParts(result json.RawMessage) (json.RawMessage, error) {
 	return marshalJSON([]map[string]any{{"type": "structured_data", "value": result}})
 }
 
-func canceledToolResultContentParts() (json.RawMessage, error) {
+func canceledToolResultContentParts(call ToolCallRecord) (json.RawMessage, error) {
+	if call.Type == toolcatalog.ToolTypeBuiltIn && call.Name == toolcatalog.ToolNameSendChannelMessage {
+		// Canceling a local tool cannot undo a provider mutation. This applies to
+		// both managed I/O and a customer's pending external request.
+		return ToolResultContentParts(json.RawMessage(
+			`{"code":"channel_operation_canceled","detail":"The send tool was canceled before local completion. ` +
+				`The provider outcome is unknown; do not assume it is safe to resend."}`,
+		))
+	}
 	return ToolResultContentParts(
 		json.RawMessage(`{"reason":"Agent canceled before this tool call completed."}`),
 	)

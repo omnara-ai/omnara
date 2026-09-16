@@ -373,7 +373,7 @@ func cancelAgentTx(
 	}
 	for _, row := range toolCallRows {
 		resultRecord := toolCallRecordFromCancelSQLC(row)
-		resultRecord.ResultContentParts, err = canceledToolResultContentParts()
+		resultRecord.ResultContentParts, err = canceledToolResultContentParts(resultRecord)
 		if err != nil {
 			return CancelAgentResult{}, fmt.Errorf("marshal canceled tool result content parts: %w", err)
 		}

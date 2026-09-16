@@ -1,0 +1,64 @@
+---
+title: Discord
+description: Start agents from mentions and continue scheduled messages in threads
+icon: "discord"
+---
+
+The Discord integration gives each bot-mentioned conversation its own agent.
+Mention the bot in a server's text channel to start a thread, then reply in that
+thread to continue with the same agent. Other channel messages do not start
+agents.
+
+## Connect a server
+
+Create an application and bot in the Discord Developer Portal. Enable **Requires
+OAuth2 Code Grant** and **Message Content Intent**, and register
+`https://<your-omnara-origin>/api/integrations/oauth/callback` as an OAuth redirect.
+Verified Discord apps also need Discord's approval for the privileged intent.
+
+In Omnara's organization **Apps** page, register the Discord application ID and a
+credential secret containing its bot token and OAuth client secret. An app can
+serve several projects or be restricted to one. In the project's **Integrations**
+page, connect that app, choose an optional agent profile, and authorize the bot
+for the server. Omnara verifies the app identity, required settings and server
+access before saving the connection.
+
+The bot needs access to the text channels and threads it will use. Discord's
+channel permission overrides still apply after installation. A connection and
+its registered channels belong to one Omnara project; the profile supplies the
+configuration for new agents, not ownership of the channels.
+
+<Note>
+  Self-hosted deployments run the [channel gateway](/self-hosting/configuration#channel-gateway)
+  with Redis/Valkey. Discord messages arrive over outbound Gateway sockets, so
+  no public Discord message webhook is needed. OAuth still uses the public API.
+</Note>
+
+## Send a scheduled message
+
+Open the connection's channels and register the destination using its Discord
+channel ID. On an agent profile's schedule, add that channel with read/send
+access and enable reply-thread access. Give the schedule an instruction such as
+“Summarize today's changes and send the summary to this channel.”
+
+Each firing launches an agent with those channel grants. When it sends its
+message with reply-thread access, the integration creates a thread connected to
+that sending agent. Replies continue that agent. An unrelated mention in the
+parent channel starts a separate conversation through the connection's inbound
+profile.
+
+Parent-channel access and reply-thread access are separate. Sending to a channel
+does not subscribe the agent to every message there. Existing agents retain
+their bindings when a schedule's grants or a connection's launch profile change.
+
+## Agent tools
+
+Agents discover their accessible destinations with `list_channels` and inspect
+one with `get_channel`. Depending on their grants, they can use `read_channel`
+and `send_channel_message`. Both incoming messages and send results identify the
+relevant channel, so a reply can use the correct thread.
+
+The built-in integration supports server text channels and their supported
+threads. It does not currently present tool approvals or questions in Discord;
+those remain available in the Omnara dashboard. Archiving an agent or revoking
+its receive access does not silently create a replacement when someone replies.

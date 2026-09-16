@@ -28,10 +28,14 @@ export class WorkReservationScope {
 // WorkByteBudget is a process-local admission boundary for retained webhook
 // bodies, downloaded media, and serialization headroom. Its reserve method is
 // an arrow function so providers can safely pass it across async scopes.
+// A child also charges its parent; its own cap limits one consumer's residency.
 export class WorkByteBudget {
   private used = 0
 
-  constructor(readonly limitBytes: number) {
+  constructor(
+    readonly limitBytes: number,
+    private readonly parent?: WorkByteBudget,
+  ) {
     validateBytes(limitBytes)
     if (limitBytes === 0) throw new Error('work byte budget must be positive')
   }
@@ -51,6 +55,9 @@ export class WorkByteBudget {
     const next = this.used + bytes
     if (next < 0) throw new Error('work byte budget underflow')
     if (bytes > 0 && next > this.limitBytes) return false
+    // All adjustments are synchronous. Check local capacity first, then charge
+    // the parent before committing locally, so failure changes neither budget.
+    if (this.parent && !this.parent.tryAdjust(bytes)) return false
     this.used = next
     return true
   }

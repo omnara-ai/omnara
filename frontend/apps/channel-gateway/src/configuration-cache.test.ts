@@ -1,4 +1,4 @@
-import { ApiError } from '@omnara/sdk'
+import { ApiError, type ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { InstallationConfigurationCache, LoadLimiter } from './configuration-cache'
@@ -81,6 +81,26 @@ describe('channel installation configuration cache identity', () => {
     )
 
     expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
+  })
+
+  it('resolves an omitted tenant only for a tenantless lookup and shares its canonical cache entry', async () => {
+    const configuration: ChannelConnectorInstallationConfiguration = testInstallationConfiguration(
+      'install-1',
+      '',
+      'account-1',
+    )
+    delete configuration.install.provider_tenant_id
+    const resolveInstallationConfiguration = vi.fn(() => Promise.resolve(configuration))
+    const cache = installationCache({ resolveInstallationConfiguration })
+
+    await expect(cache.resolve('app-1', '', 'account-1', 1)).resolves.toBe(configuration)
+    await expect(cache.getByID('app-1', 'install-1', 1, 1)).resolves.toBe(configuration)
+    await expect(cache.resolve('app-1', '', 'account-1', 1)).resolves.toBe(configuration)
+    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
+
+    await expect(cache.resolve('app-1', 'different-tenant', 'account-1', 1)).rejects.toThrow(
+      'mismatched installation configuration',
+    )
   })
 
   it('keeps external aliases coherent after a by-ID refresh', async () => {

@@ -21,10 +21,14 @@ import (
 type ChannelKind string
 
 const (
-	ChannelKindSlackChannel ChannelKind = "SLACK_CHANNEL"
-	ChannelKindSlackThread  ChannelKind = "SLACK_THREAD"
-	ChannelKindExternal     ChannelKind = "EXTERNAL"
-	MaxChannelSchemaBytes               = 256 * 1024
+	ChannelKindSlackChannel       ChannelKind = "SLACK_CHANNEL"
+	ChannelKindSlackThread        ChannelKind = "SLACK_THREAD"
+	ChannelKindDiscordChannel     ChannelKind = "DISCORD_CHANNEL"
+	ChannelKindDiscordThread      ChannelKind = "DISCORD_THREAD"
+	ChannelKindGitHubPR           ChannelKind = "GITHUB_PR"
+	ChannelKindGitHubReviewThread ChannelKind = "GITHUB_REVIEW_THREAD"
+	ChannelKindExternal           ChannelKind = "EXTERNAL"
+	MaxChannelSchemaBytes                     = 256 * 1024
 )
 
 // ChannelCapabilities describe implemented operations, independently of an agent's
@@ -84,7 +88,7 @@ func (s *Store) PublishConnectorChannelDefinition(
 	if err != nil {
 		return ChannelDefinition{}, err
 	}
-	if !channelKindMatchesProvider(input.Kind, authority.Provider) {
+	if !input.Kind.MatchesProvider(authority.Provider) {
 		return ChannelDefinition{}, storeerr.InvalidRequest(errors.New("channel kind does not match connection provider"))
 	}
 	definition, err := upsertChannelDefinition(ctx, s.q.WithTx(tx), input)
@@ -97,11 +101,21 @@ func (s *Store) PublishConnectorChannelDefinition(
 	return definition, nil
 }
 
-func channelKindMatchesProvider(kind ChannelKind, provider string) bool {
-	if provider == IntegrationProviderSlack {
+// MatchesProvider keeps the public definition and storage authorization checks
+// on the same provider domain. Customer-owned definitions use External.
+func (kind ChannelKind) MatchesProvider(provider string) bool {
+	switch provider {
+	case IntegrationProviderSlack:
 		return kind == ChannelKindSlackChannel || kind == ChannelKindSlackThread
+	case IntegrationProviderDiscord:
+		return kind == ChannelKindDiscordChannel || kind == ChannelKindDiscordThread
+	case IntegrationProviderGitHub:
+		return kind == ChannelKindGitHubPR || kind == ChannelKindGitHubReviewThread
+	case "":
+		return kind == ChannelKindExternal
+	default:
+		return false
 	}
-	return kind == ChannelKindExternal
 }
 
 func upsertChannelDefinition(
@@ -151,7 +165,8 @@ func normalizeChannelDefinition(input PublishChannelDefinitionInput) (PublishCha
 		return input, errors.New("invalid implementation key")
 	}
 	switch input.Kind {
-	case ChannelKindSlackChannel, ChannelKindSlackThread, ChannelKindExternal:
+	case ChannelKindSlackChannel, ChannelKindSlackThread, ChannelKindDiscordChannel, ChannelKindDiscordThread,
+		ChannelKindGitHubPR, ChannelKindGitHubReviewThread, ChannelKindExternal:
 	default:
 		return input, errors.New("unsupported channel kind")
 	}

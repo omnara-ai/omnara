@@ -68,12 +68,12 @@ func TestPrincipalConstructors(t *testing.T) {
 			name: "channel connector",
 			got: identitystore.NewChannelConnectorPrincipal(
 				"primary",
-				[]channelconnector.Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}},
+				[]channelconnector.Capability{{ConnectorKey: "test_connector", Provider: "discord"}},
 			),
 			want: identitystore.PrincipalRecord{
 				Type: identitystore.PrincipalTypeChannelConnector, ChannelConnectorID: "primary",
 				ChannelConnectorCapabilities: []channelconnector.Capability{{
-					ConnectorKey: "chat_sdk_v1", Provider: "discord",
+					ConnectorKey: "test_connector", Provider: "discord",
 				}},
 			},
 		},

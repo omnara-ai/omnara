@@ -4,7 +4,7 @@ import { type ChannelSendOperation, schemas } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { SlackClient } from './client'
-import { createSlackMessageParser } from './messages'
+import { parseSlackMessage } from './messages'
 import { readSlackOperation, sendSlackOperation, slackDestination } from './operations'
 import { body, credentials, json, operation, slackServer } from './test-support'
 
@@ -79,6 +79,34 @@ describe('Slack generated operation mapping', () => {
     expect(root.reply_channel).toBeUndefined()
     expect(thread.reply_channel).toBeUndefined()
     expect(thread.message_channel).toBe('destination')
+  })
+
+  it('does not create a reply child for a persistent DM even with supplied grants', async () => {
+    const requests: unknown[] = []
+    const url = await slackServer((request, response) => {
+      void body(request).then((raw) => {
+        requests.push(JSON.parse(raw.toString()))
+        json(response, { ok: true, channel: 'D1', ts: '100.000001' })
+      })
+    })
+    const result = await sendSlackOperation(
+      new SlackClient(credentials.botToken, url),
+      {
+        ...input,
+        destination: {
+          ...input.destination,
+          implementation_key: 'slack_dm',
+          provider_ref: 'D1',
+          provider_ref_kind: 'dm',
+        },
+      },
+      [],
+      'slack_thread',
+      operation(),
+    )
+    expect(result).toMatchObject({ publication: 'published', message_channel: 'destination' })
+    expect(result.reply_channel).toBeUndefined()
+    expect(requests).toEqual([{ channel: 'D1', text: 'hello' }])
   })
 
   it('uses accepted artifact order and never invents a message or continuation ID', async () => {
@@ -169,7 +197,7 @@ describe('Slack generated operation mapping', () => {
     })
     const page = await readSlackOperation(
       new SlackClient(credentials.botToken, url),
-      createSlackMessageParser(credentials),
+      parseSlackMessage,
       { destination: input.destination, limit: 1 },
       operation(),
     )
@@ -177,7 +205,7 @@ describe('Slack generated operation mapping', () => {
     expect(schemas.zChannelReadOperationResult.parse(page)).toMatchObject({
       messages: [
         {
-          content: { text: 'file\n' },
+          content: { text: 'file' },
           publication: 'published',
           message_id: '100.000001',
           metadata: { slack_file_ids: ['F1'] },
@@ -200,7 +228,7 @@ describe('Slack generated operation mapping', () => {
     })
     const page = await readSlackOperation(
       new SlackClient(credentials.botToken, url),
-      createSlackMessageParser(credentials),
+      parseSlackMessage,
       { destination: input.destination, limit: 2 },
       operation(),
     )

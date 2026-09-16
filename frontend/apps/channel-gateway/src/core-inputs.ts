@@ -1,18 +1,24 @@
 import {
   type ChannelConnectorEventReceipt,
   type ChannelConnectorInputResponse,
+  type ChannelDefinition,
+  type ChannelInboundEventRequest,
+  type ChannelInboundEventResponse,
   type createOmnaraClient,
   type DeliverChannelConnectorInputRequest,
   type DeliverChannelConnectorWorkflowRequest,
+  type ListChannelConnectorRoutesResponse,
   type LookupChannelConnectorRecipientsRequest,
   type LookupChannelConnectorWorkflowRequest,
   type LookupChannelConnectorWorkflowResponse,
+  type PublishChannelConnectorDefinitionRequest,
   schemas,
   sdk,
 } from '@omnara/sdk'
 
-import { receiptFailure } from './core-http'
+import { receiptFailure, requireData, retryCoreRequest } from './core-http'
 import { maxReceiptResponseBytes, ReceiptClientError, receiptFetch } from './receipt-http'
+import type { ProviderWorkReservation } from './types'
 
 export type ReceiptInputRequest = Omit<DeliverChannelConnectorInputRequest, 'receipt'>
 export type ReceiptWorkflowRequest = Omit<DeliverChannelConnectorWorkflowRequest, 'receipt'>
@@ -191,3 +197,106 @@ const inputResponseValidator: NonNullable<
   schemas.zChannelConnectorInputResponse.safeParse(data).success
     ? Promise.resolve()
     : Promise.reject(new ReceiptClientError('invalid_response'))
+
+/** Discover the selected installation's inbound behavior before admission. */
+export async function listInputRoutes(
+  client: Client,
+  fetch: typeof globalThis.fetch,
+  receipt: Readonly<ChannelConnectorEventReceipt>,
+  signal: AbortSignal,
+  work?: ProviderWorkReservation,
+): Promise<ListChannelConnectorRoutesResponse['routes']> {
+  try {
+    const { data, response } = await sdk.listChannelConnectorRoutes({
+      client,
+      path: {
+        integrationAppID: receipt.integration_app_id,
+        integrationInstallID: receipt.integration_install_id,
+      },
+      signal,
+      redirect: 'error',
+      fetch: receiptFetch(fetch, 17 * 1024 * 1024, signal, work),
+    })
+    if (
+      response.status !== 200 ||
+      !schemas.zListChannelConnectorRoutesResponse.safeParse(data).success
+    )
+      throw new ReceiptClientError('invalid_response')
+    return data.routes
+  } catch (cause) {
+    throw receiptFailure(cause, signal)
+  }
+}
+
+/** Publish the provider contract needed before admitting a conversation's input. */
+export async function publishInputDefinition(
+  client: Client,
+  fetch: typeof globalThis.fetch,
+  scope: Readonly<
+    Pick<ChannelConnectorEventReceipt, 'integration_app_id' | 'integration_install_id'>
+  >,
+  body: PublishChannelConnectorDefinitionRequest,
+  signal: AbortSignal,
+): Promise<ChannelDefinition> {
+  try {
+    if (!schemas.zPublishChannelConnectorDefinitionRequest.safeParse(body).success)
+      throw new ReceiptClientError('invalid_request')
+    const { data, response } = await sdk.publishChannelConnectorDefinition({
+      body,
+      client: client,
+      path: {
+        integrationAppID: scope.integration_app_id,
+        integrationInstallID: scope.integration_install_id,
+      },
+      signal,
+      redirect: 'error',
+      fetch: receiptFetch(fetch, 512 * 1024, signal),
+    })
+    if (
+      response.status !== 200 ||
+      !schemas.zChannelDefinition.safeParse(data).success ||
+      data.implementation_key !== body.implementation_key ||
+      data.kind !== body.kind
+    )
+      throw new ReceiptClientError('invalid_response')
+    return data
+  } catch (cause) {
+    throw receiptFailure(cause, signal)
+  }
+}
+
+export async function submitInboundEvent(
+  client: Client,
+  fetch: typeof globalThis.fetch,
+  integrationAppId: string,
+  event: ChannelInboundEventRequest,
+  signal: AbortSignal,
+  random: () => number,
+): Promise<ChannelInboundEventResponse> {
+  try {
+    const bodyJSON = JSON.stringify(event)
+    return await retryCoreRequest(
+      signal,
+      async () => {
+        const { data, response } = await sdk.acceptChannelConnectorEvent({
+          body: event,
+          bodySerializer: () => bodyJSON,
+          client,
+          fetch: receiptFetch(fetch, 64 * 1024, signal),
+          redirect: 'error',
+          path: { integrationAppID: integrationAppId },
+          signal,
+        })
+        if (
+          response.status !== 202 ||
+          !schemas.zChannelInboundEventResponse.safeParse(data).success
+        )
+          throw new ReceiptClientError('invalid_response')
+        return requireData(data)
+      },
+      random,
+    )
+  } catch (cause) {
+    throw receiptFailure(cause, signal)
+  }
+}

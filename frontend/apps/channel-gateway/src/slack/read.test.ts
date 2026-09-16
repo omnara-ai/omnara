@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { SlackClient } from './client'
-import { createSlackMessageParser } from './messages'
+import { parseSlackMessage } from './messages'
 import { slackMessage } from './protocol'
 import { readSlackHistory } from './read'
 import { body, credentials, deferred, json, operation, slackServer } from './test-support'
@@ -26,7 +26,7 @@ describe('readSlackHistory', () => {
     })
     const page = await readSlackHistory(
       new SlackClient(credentials.botToken, url),
-      createSlackMessageParser(credentials),
+      parseSlackMessage,
       { channel: 'C1', limit: 1 },
       operation(),
     )
@@ -56,10 +56,10 @@ describe('readSlackHistory', () => {
       })
     })
     const client = new SlackClient(credentials.botToken, url)
-    const parser = createSlackMessageParser(credentials)
+    const parser = parseSlackMessage
     const first = await readSlackHistory(client, parser, { channel: 'C1', limit: 2 }, operation())
     expect(first.messages.map((message) => message.timestamp)).toEqual(['100.000002', '100.000003'])
-    expect(first.messages[1]?.text.trim()).toBe('**newest**')
+    expect(first.messages[1]?.text.trim()).toBe('*newest*')
     expect(first.coverage).toBe('complete')
     const last = await readSlackHistory(
       client,
@@ -106,7 +106,7 @@ describe('readSlackHistory', () => {
       })
     })
     const client = new SlackClient(credentials.botToken, url)
-    const parser = createSlackMessageParser(credentials)
+    const parser = parseSlackMessage
     const first = await readSlackHistory(
       client,
       parser,
@@ -135,7 +135,7 @@ describe('readSlackHistory', () => {
       json(response, { ok: true, has_more: true, messages: [{ ts: '100.000001', text: 'one' }] })
     })
     const client = new SlackClient(credentials.botToken, url)
-    const parser = createSlackMessageParser(credentials)
+    const parser = parseSlackMessage
     const first = await readSlackHistory(client, parser, { channel: 'C1', limit: 1 }, operation())
     await expect(
       readSlackHistory(
@@ -163,7 +163,7 @@ describe('readSlackHistory', () => {
     const controller = new AbortController()
     const pending = readSlackHistory(
       new SlackClient(credentials.botToken, url),
-      createSlackMessageParser(credentials),
+      parseSlackMessage,
       {
         channel: 'C1',
         threadTs: '100.000001',
@@ -190,7 +190,7 @@ describe('readSlackHistory', () => {
     await expect(
       readSlackHistory(
         new SlackClient(credentials.botToken, url),
-        createSlackMessageParser(credentials),
+        parseSlackMessage,
         {
           channel: 'C1',
           threadTs: '100.000001',
@@ -203,7 +203,7 @@ describe('readSlackHistory', () => {
   })
 
   it('reports incomplete file/rich-content representation and never exposes SDK download callbacks', () => {
-    const parse = createSlackMessageParser(credentials)
+    const parse = parseSlackMessage
     const result = parse(
       slackMessage.parse({
         ts: '100.000001',
@@ -215,14 +215,14 @@ describe('readSlackHistory', () => {
     )
     expect(result).toEqual({
       timestamp: '100.000001',
-      text: 'see file\n',
+      text: 'see file',
       authorRef: 'U1',
       files: [{ id: 'F1', name: 'report.pdf' }],
       partial: true,
     })
     expect(JSON.stringify(result)).not.toContain('private.example')
     expect(parse({ ts: '100.000002', text: '<https://example.com|link>' }).text).toContain(
-      '[link](https://example.com)',
+      '<https://example.com|link>',
     )
   })
 })

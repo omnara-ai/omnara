@@ -2,11 +2,9 @@ package integrationstore
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -136,98 +134,73 @@ func (s *Store) createIntegrationTarget(
 			return IntegrationTargetRecord{}, integrationChannelReadError("lock channel parent", err)
 		}
 	}
-	for range 5 {
-		targetRef, refErr := s.targetRefGenerator(install.Provider)
-		if refErr != nil {
-			return IntegrationTargetRecord{}, refErr
-		}
-		row, insertErr := q.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
+	row, insertErr := q.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
+		ProjectID:            input.ProjectID,
+		IntegrationInstallID: input.IntegrationInstallID,
+		ProviderRef:          input.ProviderRef,
+		ProviderRefKind:      input.ProviderRefKind,
+		ParentChannelID:      storeutil.IDFromNil(input.ParentChannelID),
+		ChannelDefinitionID:  input.ChannelDefinitionID,
+		DisplayName:          input.DisplayName,
+		ProviderMetadata:     input.ProviderMetadata,
+	})
+	if insertErr == nil {
+		record := integrationTargetRecordFromInsertSQLC(row, install.OrgID)
+		record.Created = true
+		return record, nil
+	}
+	if !errors.Is(insertErr, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, integrationChannelWriteError("insert integration target", insertErr)
+	}
+	existing, getErr := q.GetIntegrationTargetByProviderRef(
+		ctx,
+		dbsqlc.GetIntegrationTargetByProviderRefParams{
 			ProjectID:            input.ProjectID,
 			IntegrationInstallID: input.IntegrationInstallID,
-			TargetRef:            targetRef,
 			ProviderRef:          input.ProviderRef,
-			ProviderRefKind:      input.ProviderRefKind,
-			ParentChannelID:      storeutil.IDFromNil(input.ParentChannelID),
-			ChannelDefinitionID:  input.ChannelDefinitionID,
-			DisplayName:          input.DisplayName,
-			ProviderMetadata:     input.ProviderMetadata,
-		})
-		if insertErr == nil {
-			record := integrationTargetRecordFromInsertSQLC(row, install.OrgID)
-			record.Created = true
-			return record, nil
-		}
-		if !errors.Is(insertErr, pgx.ErrNoRows) {
-			return IntegrationTargetRecord{}, integrationChannelWriteError("insert integration target", insertErr)
-		}
-		existing, getErr := q.GetIntegrationTargetByProviderRef(
-			ctx,
-			dbsqlc.GetIntegrationTargetByProviderRefParams{
-				ProjectID:            input.ProjectID,
-				IntegrationInstallID: input.IntegrationInstallID,
-				ProviderRef:          input.ProviderRef,
-			},
+		},
+	)
+	if errors.Is(getErr, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, storeerr.ErrConflict
+	}
+	if getErr != nil {
+		return IntegrationTargetRecord{}, fmt.Errorf("load existing integration target: %w", getErr)
+	}
+	record := integrationTargetRecordFromProviderRefSQLC(existing)
+	if record.ProviderRefKind != input.ProviderRefKind || record.ParentChannelID != input.ParentChannelID ||
+		record.ChannelDefinitionID != input.ChannelDefinitionID {
+		return IntegrationTargetRecord{}, storeerr.ErrConflict
+	}
+	displayName := input.DisplayName
+	if displayName == "" {
+		displayName = record.DisplayName
+	}
+	if !providerMetadataProvided {
+		input.ProviderMetadata = record.ProviderMetadata
+	}
+	if displayName == record.DisplayName && jsoncanonical.Equal(record.ProviderMetadata, input.ProviderMetadata) {
+		return record, nil
+	}
+	updated, updateErr := q.UpdateResolvedIntegrationTarget(
+		ctx,
+		dbsqlc.UpdateResolvedIntegrationTargetParams{
+			ProjectID: input.ProjectID, ID: record.ID,
+			ProviderRefKind:  input.ProviderRefKind,
+			DisplayName:      displayName,
+			ProviderMetadata: input.ProviderMetadata,
+		},
+	)
+	if errors.Is(updateErr, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, storeerr.ErrConflict
+	}
+	if updateErr != nil {
+		return IntegrationTargetRecord{}, integrationChannelWriteError(
+			"update resolved integration target",
+			updateErr,
 		)
-		if errors.Is(getErr, pgx.ErrNoRows) {
-			continue
-		}
-		if getErr != nil {
-			return IntegrationTargetRecord{}, fmt.Errorf("load existing integration target: %w", getErr)
-		}
-		record := integrationTargetRecordFromProviderRefSQLC(existing)
-		if record.ProviderRefKind != input.ProviderRefKind || record.ParentChannelID != input.ParentChannelID ||
-			record.ChannelDefinitionID != input.ChannelDefinitionID {
-			return IntegrationTargetRecord{}, storeerr.ErrConflict
-		}
-		displayName := input.DisplayName
-		if displayName == "" {
-			displayName = record.DisplayName
-		}
-		if !providerMetadataProvided {
-			input.ProviderMetadata = record.ProviderMetadata
-		}
-		if displayName == record.DisplayName && jsoncanonical.Equal(record.ProviderMetadata, input.ProviderMetadata) {
-			return record, nil
-		}
-		updated, updateErr := q.UpdateResolvedIntegrationTarget(
-			ctx,
-			dbsqlc.UpdateResolvedIntegrationTargetParams{
-				ProjectID: input.ProjectID, ID: record.ID,
-				ProviderRefKind:  input.ProviderRefKind,
-				DisplayName:      displayName,
-				ProviderMetadata: input.ProviderMetadata,
-			},
-		)
-		if errors.Is(updateErr, pgx.ErrNoRows) {
-			return IntegrationTargetRecord{}, storeerr.ErrConflict
-		}
-		if updateErr != nil {
-			return IntegrationTargetRecord{}, integrationChannelWriteError(
-				"update resolved integration target",
-				updateErr,
-			)
-		}
-		return integrationTargetRecordFromInsertSQLC(updated, install.OrgID), nil
 	}
-	return IntegrationTargetRecord{}, storeerr.ErrConflict
+	return integrationTargetRecordFromInsertSQLC(updated, install.OrgID), nil
 }
-
-func newIntegrationTargetRef(provider string) (string, error) {
-	var randomBytes [12]byte
-	if _, err := io.ReadFull(rand.Reader, randomBytes[:]); err != nil {
-		return "", fmt.Errorf("generate integration target ref: %w", err)
-	}
-	var ref strings.Builder
-	ref.Grow(len(provider) + 1 + len(randomBytes))
-	ref.WriteString(provider)
-	ref.WriteByte('-')
-	for _, value := range randomBytes {
-		ref.WriteByte(integrationTargetRefAlphabet[int(value)%len(integrationTargetRefAlphabet)])
-	}
-	return ref.String(), nil
-}
-
-const integrationTargetRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"
 
 func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 	ctx context.Context,
@@ -333,47 +306,13 @@ func getIntegrationTargetByProviderRef(
 	return integrationTargetRecordFromProviderRefSQLC(row), nil
 }
 
-func (s *Store) ListIntegrationTargets(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-) ([]IntegrationTargetSummary, error) {
-	return listIntegrationTargets(ctx, s.q, projectID, agentID)
-}
-
-func (s *Store) ListIntegrationTargetsTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	projectID, agentID uuid.UUID,
-) ([]IntegrationTargetSummary, error) {
-	return listIntegrationTargets(ctx, dbsqlc.New(tx), projectID, agentID)
-}
-
-func listIntegrationTargets(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
-) ([]IntegrationTargetSummary, error) {
-	rows, err := q.ListIntegrationTargets(
-		ctx,
-		dbsqlc.ListIntegrationTargetsParams{ProjectID: projectID, AgentID: agentID},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list integration targets: %w", err)
-	}
-	out := make([]IntegrationTargetSummary, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, integrationTargetSummaryFromSQLC(row))
-	}
-	return out, nil
-}
-
 func integrationTargetRecordFromInsertSQLC(
 	row dbsqlc.IntegrationTarget,
 	orgID uuid.UUID,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
 		row.ID, orgID, row.ProjectID, row.IntegrationInstallID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
+		row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
@@ -383,7 +322,7 @@ func integrationTargetRecordFromGetSQLC(
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
 		row.ID, row.OrgID, row.ProjectID, row.IntegrationInstallID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
+		row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
@@ -393,7 +332,7 @@ func integrationTargetRecordFromProviderRefSQLC(
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
 		row.ID, row.OrgID, row.ProjectID, row.IntegrationInstallID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
+		row.ProviderRef, row.ProviderRefKind, row.ParentChannelID, row.ChannelDefinitionID, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
@@ -401,7 +340,7 @@ func integrationTargetRecordFromProviderRefSQLC(
 func integrationTargetRecordFromFields(
 	id, orgID, projectID uuid.UUID,
 	integrationInstallID uuid.UUID,
-	targetRef, providerRef, providerRefKind string,
+	providerRef, providerRefKind string,
 	parentChannelID *uuid.UUID,
 	channelDefinitionID uuid.UUID,
 	displayName string,
@@ -413,7 +352,6 @@ func integrationTargetRecordFromFields(
 		OrgID:                orgID,
 		ProjectID:            projectID,
 		IntegrationInstallID: integrationInstallID,
-		TargetRef:            targetRef,
 		ProviderRef:          providerRef,
 		ProviderRefKind:      providerRefKind,
 		ParentChannelID:      storeutil.IDFromPtr(parentChannelID),
@@ -422,19 +360,5 @@ func integrationTargetRecordFromFields(
 		ProviderMetadata:     providerMetadata,
 		CreatedAt:            createdAt,
 		UpdatedAt:            updatedAt,
-	}
-}
-
-func integrationTargetSummaryFromSQLC(row dbsqlc.ListIntegrationTargetsRow) IntegrationTargetSummary {
-	return IntegrationTargetSummary{
-		ID:                   row.ID,
-		IntegrationInstallID: row.IntegrationInstallID,
-		TargetRef:            row.TargetRef,
-		Provider:             stringFromPtr(row.Provider),
-		InstallState:         IntegrationInstallState(row.InstallState),
-		ProviderRef:          row.ProviderRef,
-		ProviderRefKind:      row.ProviderRefKind,
-		DisplayName:          row.DisplayName,
-		IsCurrent:            row.IsCurrent,
 	}
 }

@@ -87,6 +87,20 @@ func (a *Authenticator) Authenticate(token string) (Identity, error) {
 	return identity, nil
 }
 
+// HasCapability reports deployment configuration, not a caller's authorization
+// or the health of a running gateway.
+func (a *Authenticator) HasCapability(capability Capability) bool {
+	if a == nil {
+		return false
+	}
+	for _, credential := range a.credentials {
+		if slices.Contains(credential.identity.Capabilities, capability) {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeConfig(config Config) (Config, error) {
 	config.ID = strings.TrimSpace(config.ID)
 	if !registryname.Valid(config.ID) {

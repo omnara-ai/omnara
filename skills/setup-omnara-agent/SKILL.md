@@ -16,7 +16,7 @@ Then, ask the user questions on what type of agent they'd like to create:
 
 2. Look up the user's org, its default project, and the granted model and
    machine pool via the API. Tailor the instruction to the user's request. Use `npx omnara profiles create` to create a reusable profile of the agent.
-   - Attach every configurable built-in tool except create_machine and delete_machine. List them from GET /tool-catalog and include only entries with configurable: true. Channel tools are supplied by live bindings; do not add them to the config.
+   - Attach every configurable built-in tool except create_machine and delete_machine. Also omit spawn_agent unless the profile deliberately defines at least one entry under subagents; do not invent a subagent definition just to enable the tool. List tools from GET /tool-catalog and include only entries with configurable: true. Channel tools are supplied by live bindings; do not add them to the config.
    - The granted model and machine pool
    - Relevant secrets or startup scripts for the machine pool env override. For example, if the user wants to clone a Github repository, you may setup a script which clones the repo upon starting the machine. If needed, you can pipe a Github PAT via a secret into the env var overlay
 

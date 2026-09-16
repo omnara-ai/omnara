@@ -14,6 +14,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { oauthKeys } from '@/lib/oauthEntries'
 
+import { integrationCredentialFields } from './integrationCredentials'
 import { requiredSecretKeys } from './secretValueUpdates'
 
 const awsFields = [
@@ -24,7 +25,7 @@ const awsFields = [
   { value: 'external_id', label: 'External ID' },
 ]
 
-function StoredValueField({
+export function StoredValueField({
   label,
   stored,
   required,
@@ -143,7 +144,14 @@ export function SecretValueEditor({
       ? [{ value: 'value', label: 'Value' }]
       : secret.kind === 'aws_credentials'
         ? awsFields
-        : oauthKeys.filter((field) => field.value !== 'access_token_expires_in_seconds')
+        : secret.kind === 'integration_credentials'
+          ? [
+              ...integrationCredentialFields,
+              ...secret.payload_keys
+                .filter((key) => !integrationCredentialFields.some((field) => field.value === key))
+                .map((key) => ({ value: key, label: key })),
+            ]
+          : oauthKeys.filter((field) => field.value !== 'access_token_expires_in_seconds')
   const requiredKeys = requiredSecretKeys(secret.kind)
   if (!requiredKeys) return null
   const required = new Set(requiredKeys)
@@ -157,7 +165,7 @@ export function SecretValueEditor({
         <StoredValueField
           key={field.value}
           label={field.label}
-          multiline={secret.kind === 'generic'}
+          multiline={secret.kind === 'generic' || field.value === 'private_key'}
           required={required.has(field.value)}
           stored={stored.has(field.value)}
           value={updates[field.value]}

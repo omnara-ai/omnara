@@ -187,9 +187,11 @@ Downloads return their terminal process result when they finish quickly. If a do
 
 ### `list_channels`
 
-Lists the external channels currently attached to the agent. Omnara exposes this tool automatically whenever the agent has an active channel-mode binding.
+Lists the managed and external channels attached to the agent. Omnara supplies this tool from live channel bindings; it is not a configurable tool declaration.
 
-Each result includes a stable `channel_id`, the provider and address kind, a display name, and whether that channel can currently send or receive messages. Results are newest first. Pass `next_cursor` back as `cursor` to continue a long list; `limit` defaults to 50.
+Each result includes a stable `channel_id`, optional `parent_channel_id`, the provider and address kind, a display name, state, and `can_receive`, `can_read`, and `can_send` flags. Results are newest first. The `limit` defaults to 50 and accepts values from 1 to 100. Pass `next_cursor` back unchanged as `cursor` to continue a long list.
+
+Optionally pass `parent_channel_id` to list only directly bound children of that channel. Omit it to list all bound channels. The filter does not grant access to the parent or to unbound children. Cursors belong to the same agent, project, and parent filter; start a new page sequence when changing the filter.
 
 The response also includes `current_channel_id`, or `null` when no channel is selected. This field is independent of pagination: the selected channel need not appear on the returned page.
 

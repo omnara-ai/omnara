@@ -7,9 +7,8 @@ import {
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest'
 
 import { AppRuntimeRegistry, type AppRuntimeRegistryOptions } from './app-registry'
-import type { AppStateFactory } from './app-state'
-import type { CoreClient } from './core-client'
-import { testStateAdapter, unexpectedTestCall } from './gateway-test-fixtures'
+import { CoreClient } from './core-client'
+import { unexpectedTestCall } from './gateway-test-fixtures'
 import {
   type GatewayAppConfiguration,
   type GatewayLogger,
@@ -18,10 +17,63 @@ import {
   providerFactoryKey,
   type ProviderRuntime,
 } from './types'
+import { GatewayAtCapacityError } from './work-budget'
 
 describe('channel app runtime registry', () => {
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('reports the shortest configured provider webhook budget before loading an app', async () => {
+    const client = testClient(unexpectedTestCall)
+    const create = vi.fn<ProviderFactory['create']>(unexpectedTestCall)
+    const factories: ProviderFactory[] = [
+      {
+        connectorKey: 'first',
+        provider: 'github',
+        create,
+        webhookTimeoutMs: 9_000,
+        webhookBodyLimitBytes: 2 * 1024 * 1024,
+      },
+      {
+        connectorKey: 'second',
+        provider: 'github',
+        create,
+        webhookTimeoutMs: 5_000,
+        webhookBodyLimitBytes: 1024 * 1024,
+      },
+      { connectorKey: 'third', provider: 'github', create },
+      { connectorKey: 'first', provider: 'other', create, webhookTimeoutMs: 100 },
+      { connectorKey: 'first', provider: 'uncapped', create },
+    ]
+    const registry = new AppRuntimeRegistry({
+      client,
+      factories: new Map(factories.map((f) => [providerFactoryKey(f.connectorKey, f.provider), f])),
+      logger: noopLogger,
+      maxApps: 10,
+      maxConcurrentLoads: 2,
+      maxInstallations: 10,
+      notFoundCacheMs: 1_000,
+      providerLifecycleTimeoutMs: 1_000,
+      reserveWorkBytes: noopWorkReservation,
+      refreshAfterMs: 60_000,
+    })
+    try {
+      expect(registry.webhookTimeoutMs('github')).toBe(5_000)
+      expect(registry.webhookTimeoutMs('other')).toBe(100)
+      expect(registry.webhookTimeoutMs('uncapped')).toBeUndefined()
+      expect(registry.webhookTimeoutMs('missing')).toBeUndefined()
+      expect(registry.webhookBodyLimitBytes('first', 'github')).toBe(2 * 1024 * 1024)
+      expect(registry.webhookBodyLimitBytes('second', 'github')).toBe(1024 * 1024)
+      expect(registry.webhookBodyLimitBytes('third', 'github')).toBeUndefined()
+      expect(registry.webhookBodyLimitBytes('first', 'other')).toBeUndefined()
+      expect(registry.webhookBodyLimitBytes('first', 'uncapped')).toBeUndefined()
+      expect(registry.webhookBodyLimitBytes('missing', 'github')).toBeUndefined()
+      expect(client.getAppConfiguration).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      await registry.close()
+    }
   })
 
   it('coalesces concurrent app loads and closes a cached runtime once', async () => {
@@ -129,14 +181,12 @@ describe('channel app runtime registry', () => {
       .fn<() => Promise<GatewayAppConfiguration>>()
       .mockResolvedValueOnce(testConfiguration(1))
       .mockRejectedValueOnce(new ApiError(404, 'not found'))
-    const state = testStateFactory()
     const registry = testRegistry(
       testClient(getConfiguration),
       testFactory(() => Promise.resolve(runtime)),
       10,
       1_000,
       10,
-      state,
     )
 
     const first = await registry.acquire(testConfiguration(1).app.id)
@@ -144,11 +194,10 @@ describe('channel app runtime registry', () => {
     vi.advanceTimersByTime(11)
     await expect(registry.acquire(testConfiguration(1).app.id)).rejects.toThrow('not found')
     expect(runtime.close).toHaveBeenCalledOnce()
-    expect(state.clearSubscriptions).toHaveBeenCalledWith(testConfiguration(1).app.id)
     await registry.close()
   })
 
-  it('clears deleted app subscriptions only after active handles release the runtime', async () => {
+  it('closes a deleted app runtime only after its active handles release', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-30T00:00:00Z'))
     const runtime = testRuntime()
@@ -156,42 +205,21 @@ describe('channel app runtime registry', () => {
       .fn<() => Promise<GatewayAppConfiguration>>()
       .mockResolvedValueOnce(testConfiguration(1))
       .mockRejectedValueOnce(new ApiError(404, 'not found'))
-    const state = testStateFactory()
     const registry = testRegistry(
       testClient(getConfiguration),
       testFactory(() => Promise.resolve(runtime)),
       10,
       1_000,
       10,
-      state,
     )
 
     const active = await registry.acquire(testConfiguration(1).app.id)
     vi.advanceTimersByTime(11)
     await expect(registry.acquire(testConfiguration(1).app.id)).rejects.toThrow('not found')
     expect(runtime.close).not.toHaveBeenCalled()
-    expect(state.clearSubscriptions).not.toHaveBeenCalled()
 
     await active.release()
     expect(runtime.close).toHaveBeenCalledOnce()
-    expect(state.clearSubscriptions).toHaveBeenCalledWith(testConfiguration(1).app.id)
-    await registry.close()
-  })
-
-  it('does not mask a definitive app removal when Redis cleanup fails', async () => {
-    const state = testStateFactory()
-    state.clearSubscriptions.mockRejectedValueOnce(new Error('Redis cleanup unavailable'))
-    const registry = testRegistry(
-      testClient(() => Promise.reject(new ApiError(404, 'not found'))),
-      testFactory(() => Promise.resolve(testRuntime())),
-      60_000,
-      1_000,
-      10,
-      state,
-    )
-
-    await expect(registry.acquire(testConfiguration(1).app.id)).rejects.toThrow('not found')
-    expect(state.clearSubscriptions).toHaveBeenCalledOnce()
     await registry.close()
   })
 
@@ -236,39 +264,11 @@ describe('channel app runtime registry', () => {
     const registry = testRegistry(client, factory)
     const handle = await registry.acquire(testConfiguration(1).app.id)
 
-    await handle.handleWebhook(new Request('https://example.test/webhook'), {
-      reserveWorkBytes: noopWorkReservation,
-      waitUntil: () => undefined,
-    })
-    expect(coreSubmit).toHaveBeenCalledOnce()
-
-    await handle.release()
-    await registry.close()
-  })
-
-  it('keeps explicit inbound callbacks available to tracked webhook work', async () => {
-    const tasks: Promise<unknown>[] = []
-    const coreSubmit = vi.fn(() => Promise.resolve(testInboundAcceptance))
-    const client = {
-      ...testClient(() => Promise.resolve(testConfiguration(1))),
-      submitInbound: coreSubmit,
-    } satisfies AppRuntimeRegistryOptions['client']
-    const runtime = testRuntime()
-    runtime.handleWebhook = (_request, context) => {
-      context.waitUntil(Promise.resolve().then(() => context.submitInbound(testInboundEvent)))
-      return Promise.resolve(new Response('accepted'))
-    }
-    const factory = testFactory(() => Promise.resolve(runtime))
-    const registry = testRegistry(client, factory)
-    const handle = await registry.acquire(testConfiguration(1).app.id)
-
     const request = new Request('https://example.test/webhook')
     await handle.handleWebhook(request, {
       reserveWorkBytes: noopWorkReservation,
-      waitUntil: (task) => tasks.push(task),
     })
-    await Promise.all(tasks)
-    expect(coreSubmit).toHaveBeenCalledWith(
+    expect(coreSubmit).toHaveBeenCalledExactlyOnceWith(
       testConfiguration(1).app.id,
       testInboundEvent,
       request.signal,
@@ -294,7 +294,6 @@ describe('channel app runtime registry', () => {
     const handle = await registry.acquire(testConfiguration(1).app.id)
     const webhook = handle.handleWebhook(new Request('https://example.test/webhook'), {
       reserveWorkBytes: noopWorkReservation,
-      waitUntil: () => undefined,
     })
 
     await webhook
@@ -339,6 +338,57 @@ describe('channel app runtime registry', () => {
     await handle.release()
     await registry.close()
   })
+
+  it.each(['provider', 'lease'] as const)(
+    'cancels the actual receipt request when the %s lifetime ends',
+    async (source) => {
+      const started = deferred<undefined>()
+      const fetchAborted = vi.fn()
+      const native = new CoreClient({
+        baseUrl: 'https://core.example.test',
+        token: 'test-token',
+        fetch: (input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+            if (!signal) throw new Error('receipt HTTP request is missing cancellation')
+            const abort = () => {
+              fetchAborted()
+              reject(signal.reason instanceof Error ? signal.reason : new Error('receipt aborted'))
+            }
+            signal.addEventListener('abort', abort, { once: true })
+            started.resolve(undefined)
+            if (signal.aborted) abort()
+          }),
+      })
+      const client = {
+        ...testClient(() => Promise.resolve(testConfiguration(1))),
+        submitRuntimeInbound: native.submitRuntimeInbound.bind(native),
+      }
+      const provider = new AbortController()
+      const lease = new AbortController()
+      const runtime = testRuntime()
+      runtime.runUnit = async (_unit, context) => {
+        await context.submitInbound(testInboundEvent, provider.signal)
+      }
+      const registry = testRegistry(
+        client,
+        testFactory(() => Promise.resolve(runtime)),
+      )
+      const handle = await registry.acquire(testConfiguration(1).app.id)
+      const running = handle.runUnit(testRuntimeUnit(), {
+        reserveWorkBytes: noopWorkReservation,
+        signal: lease.signal,
+        updateCheckpoint: () => undefined,
+      })
+      const rejected = expect(running).rejects.toThrow()
+      await started.promise
+      ;(source === 'provider' ? provider : lease).abort(new Error('runtime stopped'))
+      await rejected
+      expect(fetchAborted).toHaveBeenCalledOnce()
+      await handle.release()
+      await registry.close()
+    },
+  )
 
   it('aborts provider creation at its lifecycle deadline and closes a late runtime', async () => {
     vi.useFakeTimers()
@@ -461,6 +511,62 @@ describe('channel app runtime registry', () => {
     await registry.close()
   })
 
+  it('defers a new app while every slot is active and admits it after release', async () => {
+    const firstAppId = 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const secondAppId = 'iapp_bbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const client = testClient((appId) => Promise.resolve(testConfiguration(1, appId)))
+    const registry = testRegistry(
+      client,
+      testFactory(() => Promise.resolve(testRuntime())),
+      60_000,
+      1_000,
+      1,
+    )
+    const first = await registry.acquire(firstAppId)
+
+    await expect(registry.acquire(secondAppId)).rejects.toBeInstanceOf(GatewayAtCapacityError)
+    expect(client.getAppConfiguration).toHaveBeenCalledOnce()
+    await first.release()
+    const second = await registry.acquire(secondAppId)
+    expect(second.configuration.app.id).toBe(secondAppId)
+    await second.release()
+    await registry.close()
+  })
+
+  it('defers a replacement when its reserved eviction candidate becomes active', async () => {
+    const firstAppId = 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const secondAppId = 'iapp_bbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const candidate = deferred<GatewayAppConfiguration>()
+    const candidateRuntime = testRuntime()
+    const client = testClient((appId) =>
+      appId === firstAppId ? Promise.resolve(testConfiguration(1, appId)) : candidate.promise,
+    )
+    const registry = testRegistry(
+      client,
+      testFactory((context) =>
+        Promise.resolve(
+          context.configuration.app.id === secondAppId ? candidateRuntime : testRuntime(),
+        ),
+      ),
+      60_000,
+      1_000,
+      1,
+    )
+    const initial = await registry.acquire(firstAppId)
+    await initial.release()
+    const replacement = registry.acquire(secondAppId)
+    const rejected = expect(replacement).rejects.toBeInstanceOf(GatewayAtCapacityError)
+    const first = await registry.acquire(firstAppId)
+    candidate.resolve(testConfiguration(1, secondAppId))
+
+    await rejected
+    expect(candidateRuntime.close).toHaveBeenCalledOnce()
+    await first.release()
+    const second = await registry.acquire(secondAppId)
+    await second.release()
+    await registry.close()
+  })
+
   it('keeps a healthy cached runtime when a replacement candidate fails', async () => {
     const healthyAppId = 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa'
     const invalidAppId = 'iapp_bbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -502,7 +608,6 @@ function testRegistry(
   refreshAfterMs = 60_000,
   providerLifecycleTimeoutMs = 1_000,
   maxApps = 10,
-  state = testStateFactory(),
 ): AppRuntimeRegistry {
   return new AppRuntimeRegistry({
     client,
@@ -515,16 +620,7 @@ function testRegistry(
     providerLifecycleTimeoutMs,
     reserveWorkBytes: noopWorkReservation,
     refreshAfterMs,
-    state,
   })
-}
-
-function testStateFactory() {
-  return {
-    clearSubscriptions: vi.fn(() => Promise.resolve()),
-    forApp: () => testStateAdapter(),
-    markKnownApp: vi.fn(() => Promise.resolve()),
-  } satisfies AppStateFactory
 }
 
 function testClient(getConfiguration: CoreClient['getAppConfiguration']) {
@@ -542,7 +638,7 @@ function testClient(getConfiguration: CoreClient['getAppConfiguration']) {
 }
 
 function testFactory(create: ProviderFactory['create']): ProviderFactory {
-  return { connectorKey: 'chat_sdk_v1', create, provider: 'discord' }
+  return { connectorKey: 'test_connector', create, provider: 'discord' }
 }
 
 function testRuntime(): ProviderRuntime & { close: Mock<() => Promise<void>> } {
@@ -559,7 +655,7 @@ function testConfiguration(
   return {
     app: {
       configuration_revision: revision,
-      connector_key: 'chat_sdk_v1',
+      connector_key: 'test_connector',
       display_name: 'Discord test app',
       id: appId,
       provider: 'discord',

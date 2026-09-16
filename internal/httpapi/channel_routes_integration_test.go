@@ -35,7 +35,7 @@ func TestPublicAgentChannelSetupAndDiscovery(t *testing.T) {
 		return requestJSONWithHeaders(t, handler, http.MethodPost, path, body, "", status, authHeaders(project.AdminToken))
 	}
 	childBody := workflowHTTPJSON(t, map[string]any{
-		"definition_id": definitionID, "parent_channel_id": parentID,
+		"source": "external", "definition_id": definitionID, "parent_channel_id": parentID,
 		"provider_ref": "child", "provider_ref_kind": "thread", "name": "Child",
 		"provider_metadata": map[string]any{"provider_only": "private"},
 	})
@@ -211,6 +211,7 @@ func TestPublicExternalChannelRegistrationRejectsInvalidText(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			body := map[string]any{
+				"source":        "external",
 				"definition_id": testPublicID(t, publicid.KindChannelDefinition, channel.ChannelDefinitionID),
 				"provider_ref":  "new-address", "provider_ref_kind": "thread", "name": "New channel",
 			}
@@ -229,7 +230,7 @@ func TestPublicChannelSetupKeepsManagedProviderAuthority(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "managed-channel-public")
 	app, err := project.Store.Integrations().CreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
 		OrgID: project.OrgUUID, Provider: "slack", ProviderAppRef: "public-binding-test", DisplayName: "Slack",
-		ConnectorKey: "chat_sdk_v1", State: integrationstore.IntegrationAppStateActive,
+		ConnectorKey: "test_connector", State: integrationstore.IntegrationAppStateActive,
 	})
 	require.NoError(t, err)
 	install, err := project.Store.Integrations().UpsertIntegrationInstall(ctx,
@@ -247,7 +248,7 @@ func TestPublicChannelSetupKeepsManagedProviderAuthority(t *testing.T) {
 			ImplementationKey: "conversation", Kind: integrationstore.ChannelKindSlackChannel,
 			SendParamsSchema:      json.RawMessage(`{"type":"object"}`),
 			Capabilities:          integrationstore.ChannelCapabilities{Send: true, Text: true},
-			ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: "chat_sdk_v1", Provider: "slack"}},
+			ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: "test_connector", Provider: "slack"}},
 		})
 	require.NoError(t, err)
 	target, err := project.Store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
@@ -260,8 +261,8 @@ func TestPublicChannelSetupKeepsManagedProviderAuthority(t *testing.T) {
 	requestJSONWithHeaders(t, handler, http.MethodPost, installPath+"/channel-definitions",
 		externalHTTPDefinitionBody(), "", http.StatusNotFound, authHeaders(project.AdminToken))
 	requestJSONWithHeaders(t, handler, http.MethodPost, installPath+"/channels", workflowHTTPJSON(t, map[string]any{
-		"definition_id": testPublicID(t, publicid.KindChannelDefinition, definition.ID),
-		"provider_ref":  "CNEW", "provider_ref_kind": "channel", "name": "Unauthorized registration",
+		"source": "external", "definition_id": testPublicID(t, publicid.KindChannelDefinition, definition.ID),
+		"provider_ref": "CNEW", "provider_ref_kind": "channel", "name": "Unauthorized registration",
 	}), "", http.StatusNotFound, authHeaders(project.AdminToken))
 	launch := createHTTPRuntimeAgent(t, ctx, project.Store, project.OrgUUID, project.ProjectUUID,
 		project.AdminUserUUID, "managed-binding-owner")

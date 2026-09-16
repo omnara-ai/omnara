@@ -102,6 +102,10 @@ func (s *Store) applyChannelSendResultTx(
 		MessageID: observed.MessageID, CreatedAt: observed.CreatedAt, Metadata: observed.Metadata,
 	}
 	message := &result.Message
+	if observed.ContinuationError != nil {
+		result.ContinuationError = observed.ContinuationError
+		return result, ToolResultOutcomeFailed, nil
+	}
 	if observed.ReplyChannel == nil {
 		return result, ToolResultOutcomeSucceeded, nil
 	}

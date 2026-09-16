@@ -1,5 +1,7 @@
 import { useCreateCronTrigger, useUpdateCronTrigger } from '@omnara/react'
 import {
+  type AttachAgentChannelRequest,
+  type CreateCronTriggerRequest,
   type CronTrigger,
   type CronTriggerDeliveryMode,
   type CronTriggerTarget,
@@ -10,10 +12,15 @@ import cronstrue from 'cronstrue'
 import { useState } from 'react'
 
 import {
+  cronChannelBindingsValid,
+  sameCronChannelBindings,
+} from '@/components/agents/cron-channel-bindings'
+import {
   cronTriggerDeliveryModeHint,
   cronTriggerDeliveryModeLabel,
   cronTriggerDeliveryModeOptions,
 } from '@/components/agents/cron-trigger-delivery-mode'
+import { CronChannelBindingsField } from '@/components/agents/CronChannelBindingsField'
 import { Button } from '@/components/ui/button'
 import {
   Combobox,
@@ -88,12 +95,14 @@ function cronTriggerFormValid(value: {
   cron: string
   timezone: string
   messageTemplate: string
+  channelBindings: AttachAgentChannelRequest[]
 }) {
   return (
     resourceNameValid(value.name) &&
     value.cron.trim() !== '' &&
     value.timezone.trim() !== '' &&
-    value.messageTemplate.trim() !== ''
+    value.messageTemplate.trim() !== '' &&
+    cronChannelBindingsValid(value.channelBindings)
   )
 }
 
@@ -103,6 +112,7 @@ interface CronTriggerFormValues {
   timezone: string
   messageTemplate: string
   deliveryMode: CronTriggerDeliveryMode
+  channelBindings: AttachAgentChannelRequest[]
 }
 
 function CronTriggerFormDialog({
@@ -113,6 +123,8 @@ function CronTriggerFormDialog({
   submitLabel,
   errorFallback,
   target,
+  orgId,
+  projectId,
   defaultValues,
   isPending,
   onSubmit,
@@ -124,6 +136,8 @@ function CronTriggerFormDialog({
   submitLabel: string
   errorFallback: string
   target: CronTriggerTarget
+  orgId: string
+  projectId: string
   defaultValues: CronTriggerFormValues
   isPending: boolean
   onSubmit: (value: CronTriggerFormValues) => Promise<void>
@@ -132,7 +146,7 @@ function CronTriggerFormDialog({
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      if (!cronTriggerFormValid(value)) return
+      if (isPending || !cronTriggerFormValid(value)) return
       setError('')
       try {
         await onSubmit(value)
@@ -151,7 +165,7 @@ function CronTriggerFormDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent>
+      <DialogContent showCloseButton={!isPending}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -162,140 +176,165 @@ function CronTriggerFormDialog({
             void form.handleSubmit()
           }}
         >
-          <FieldGroup>
-            <form.Field name="name">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cron-trigger-name">Name</FieldLabel>
-                  <Input
-                    id="cron-trigger-name"
-                    required
-                    value={field.state.value}
-                    onChange={(event) => {
-                      field.handleChange(event.target.value)
-                    }}
-                  />
-                  <ResourceNameFieldError value={field.state.value} />
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="cron">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cron-trigger-cron">Cron expression</FieldLabel>
-                  <Input
-                    id="cron-trigger-cron"
-                    required
-                    placeholder="0 9 * * 1-5"
-                    className="font-mono"
-                    value={field.state.value}
-                    onChange={(event) => {
-                      field.handleChange(event.target.value)
-                    }}
-                  />
-                  <FieldDescription>
-                    {cronDescription(field.state.value) ??
-                      'Five fields: minute, hour, day of month, month, day of week.'}
-                  </FieldDescription>
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="timezone">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cron-trigger-timezone">Timezone</FieldLabel>
-                  <Combobox
-                    items={timezoneItems()}
-                    value={timezoneItems().find((item) => item.zone === field.state.value) ?? null}
-                    onValueChange={(item: TimezoneItem | null) => {
-                      field.handleChange(item?.zone ?? '')
-                    }}
-                    itemToStringLabel={(item: TimezoneItem) => item.label}
-                    itemToStringValue={(item: TimezoneItem) => item.zone}
-                    isItemEqualToValue={(item: TimezoneItem, other: TimezoneItem) =>
-                      item.zone === other.zone
-                    }
-                  >
-                    <ComboboxInput id="cron-trigger-timezone" required />
-                    <ComboboxContent>
-                      <ComboboxEmpty>No timezones match.</ComboboxEmpty>
-                      <ComboboxList>
-                        {(item: TimezoneItem) => (
-                          <ComboboxItem key={item.zone} value={item}>
-                            {item.label}
-                          </ComboboxItem>
-                        )}
-                      </ComboboxList>
-                    </ComboboxContent>
-                  </Combobox>
-                  <FieldDescription>The schedule is evaluated in this timezone.</FieldDescription>
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="messageTemplate">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cron-trigger-message">Message</FieldLabel>
-                  <Textarea
-                    id="cron-trigger-message"
-                    required
-                    rows={4}
-                    value={field.state.value}
-                    onChange={(event) => {
-                      field.handleChange(event.target.value)
-                    }}
-                  />
-                  <FieldDescription>
-                    Sent on each firing. Go template syntax with {'{{.trigger.name}}'},{' '}
-                    {'{{.trigger.fired_at}}'}, and {'{{.trigger.last_fired_at}}'} available.
-                  </FieldDescription>
-                </Field>
-              )}
-            </form.Field>
-            {target.type === 'agent' && (
-              <form.Field name="deliveryMode">
+          <fieldset disabled={isPending}>
+            <FieldGroup>
+              <form.Field name="name">
                 {(field) => (
                   <Field>
-                    <FieldLabel htmlFor="cron-trigger-delivery-mode">Delivery</FieldLabel>
-                    <Select
+                    <FieldLabel htmlFor="cron-trigger-name">Name</FieldLabel>
+                    <Input
+                      id="cron-trigger-name"
+                      required
                       value={field.state.value}
-                      onValueChange={(value: CronTriggerDeliveryMode) => {
-                        field.handleChange(value)
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
                       }}
-                    >
-                      <SelectTrigger id="cron-trigger-delivery-mode" className="w-full">
-                        <SelectValue>{cronTriggerDeliveryModeLabel(field.state.value)}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cronTriggerDeliveryModeOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    />
+                    <ResourceNameFieldError value={field.state.value} />
+                  </Field>
+                )}
+              </form.Field>
+              <form.Field name="cron">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor="cron-trigger-cron">Cron expression</FieldLabel>
+                    <Input
+                      id="cron-trigger-cron"
+                      required
+                      placeholder="0 9 * * 1-5"
+                      className="font-mono"
+                      value={field.state.value}
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
+                      }}
+                    />
                     <FieldDescription>
-                      {cronTriggerDeliveryModeHint(field.state.value)}
+                      {cronDescription(field.state.value) ??
+                        'Five fields: minute, hour, day of month, month, day of week.'}
                     </FieldDescription>
                   </Field>
                 )}
               </form.Field>
-            )}
-            {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
-            <DialogFooter>
-              <form.Subscribe
-                selector={(state) =>
-                  [cronTriggerFormValid(state.values), state.isSubmitting] as const
-                }
-              >
-                {([valid, isSubmitting]) => (
-                  <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
-                    {submitLabel}
-                  </Button>
+              <form.Field name="timezone">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor="cron-trigger-timezone">Timezone</FieldLabel>
+                    <Combobox
+                      disabled={isPending}
+                      items={timezoneItems()}
+                      value={
+                        timezoneItems().find((item) => item.zone === field.state.value) ?? null
+                      }
+                      onValueChange={(item: TimezoneItem | null) => {
+                        field.handleChange(item?.zone ?? '')
+                      }}
+                      itemToStringLabel={(item: TimezoneItem) => item.label}
+                      itemToStringValue={(item: TimezoneItem) => item.zone}
+                      isItemEqualToValue={(item: TimezoneItem, other: TimezoneItem) =>
+                        item.zone === other.zone
+                      }
+                    >
+                      <ComboboxInput id="cron-trigger-timezone" required />
+                      <ComboboxContent>
+                        <ComboboxEmpty>No timezones match.</ComboboxEmpty>
+                        <ComboboxList>
+                          {(item: TimezoneItem) => (
+                            <ComboboxItem key={item.zone} value={item}>
+                              {item.label}
+                            </ComboboxItem>
+                          )}
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
+                    <FieldDescription>The schedule is evaluated in this timezone.</FieldDescription>
+                  </Field>
                 )}
-              </form.Subscribe>
-            </DialogFooter>
-          </FieldGroup>
+              </form.Field>
+              <form.Field name="messageTemplate">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor="cron-trigger-message">Message</FieldLabel>
+                    <Textarea
+                      id="cron-trigger-message"
+                      required
+                      rows={4}
+                      value={field.state.value}
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
+                      }}
+                    />
+                    <FieldDescription>
+                      Sent on each firing. Go template syntax with {'{{.trigger.name}}'},{' '}
+                      {'{{.trigger.fired_at}}'}, and {'{{.trigger.last_fired_at}}'} available.
+                    </FieldDescription>
+                  </Field>
+                )}
+              </form.Field>
+              {target.type === 'agent' && (
+                <form.Field name="deliveryMode">
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor="cron-trigger-delivery-mode">Delivery</FieldLabel>
+                      <Select
+                        disabled={isPending}
+                        value={field.state.value}
+                        onValueChange={(value: CronTriggerDeliveryMode) => {
+                          field.handleChange(value)
+                        }}
+                      >
+                        <SelectTrigger id="cron-trigger-delivery-mode" className="w-full">
+                          <SelectValue>
+                            {cronTriggerDeliveryModeLabel(field.state.value)}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {cronTriggerDeliveryModeOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>
+                        {cronTriggerDeliveryModeHint(field.state.value)}
+                      </FieldDescription>
+                    </Field>
+                  )}
+                </form.Field>
+              )}
+              {target.type === 'profile' && (
+                <form.Field name="channelBindings">
+                  {(field) => (
+                    <CronChannelBindingsField
+                      orgId={orgId}
+                      projectId={projectId}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                      disabled={isPending}
+                    />
+                  )}
+                </form.Field>
+              )}
+              {error && (
+                <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+                  {error}
+                </p>
+              )}
+              <DialogFooter>
+                <form.Subscribe
+                  selector={(state) =>
+                    [cronTriggerFormValid(state.values), state.isSubmitting] as const
+                  }
+                >
+                  {([valid, isSubmitting]) => (
+                    <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
+                      {submitLabel}
+                    </Button>
+                  )}
+                </form.Subscribe>
+              </DialogFooter>
+            </FieldGroup>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -327,8 +366,11 @@ export function CreateCronTriggerDialog({
   onCreated?: (trigger: CronTrigger) => void
 }) {
   const createTrigger = useCreateCronTrigger(orgId, projectId)
+  if (!open) return null
   return (
     <CronTriggerFormDialog
+      orgId={orgId}
+      projectId={projectId}
       open={open}
       onOpenChange={onOpenChange}
       title="Add cron schedule"
@@ -342,17 +384,21 @@ export function CreateCronTriggerDialog({
         timezone: browserTimezone,
         messageTemplate: '',
         deliveryMode: 'queued',
+        channelBindings: [],
       }}
       isPending={createTrigger.isPending}
       onSubmit={async (value) => {
-        const trigger = await createTrigger.mutateAsync({
+        const body: CreateCronTriggerRequest = {
           name: value.name,
           target:
             target.type === 'agent' ? { ...target, delivery_mode: value.deliveryMode } : target,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,
-        })
+        }
+        if (target.type === 'profile' && value.channelBindings.length > 0)
+          body.channel_bindings = value.channelBindings
+        const trigger = await createTrigger.mutateAsync(body)
         onCreated?.(trigger)
       }}
     />
@@ -373,8 +419,12 @@ export function EditCronTriggerDialog({
   trigger: CronTrigger
 }) {
   const updateTrigger = useUpdateCronTrigger(orgId, projectId)
+  if (!open) return null
   return (
     <CronTriggerFormDialog
+      key={trigger.id}
+      orgId={orgId}
+      projectId={projectId}
       open={open}
       onOpenChange={onOpenChange}
       title="Edit cron schedule"
@@ -389,6 +439,7 @@ export function EditCronTriggerDialog({
         messageTemplate: trigger.message_template,
         deliveryMode:
           trigger.target.type === 'agent' ? (trigger.target.delivery_mode ?? 'queued') : 'queued',
+        channelBindings: trigger.channel_bindings,
       }}
       isPending={updateTrigger.isPending}
       onSubmit={async (value) => {
@@ -401,6 +452,12 @@ export function EditCronTriggerDialog({
         }
         if (trigger.target.type === 'agent') {
           update.target = { ...trigger.target, delivery_mode: value.deliveryMode }
+        }
+        if (
+          trigger.target.type === 'profile' &&
+          !sameCronChannelBindings(value.channelBindings, trigger.channel_bindings)
+        ) {
+          update.channel_bindings = value.channelBindings
         }
         await updateTrigger.mutateAsync(update)
       }}

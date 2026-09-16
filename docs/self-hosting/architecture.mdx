@@ -8,7 +8,8 @@ icon: "sitemap"
 flowchart LR
   clients["Browsers & API clients"] -- "HTTPS + SSE" --> ingress["Public origin / ingress"]
   daemon["daemon<br/>(on your machines)"] -- "HTTPS + WebSocket<br/>(dials out)" --> ingress
-  channels["Slack"] -- "webhooks" --> ingress
+  channels["Slack / GitHub"] -- "webhooks" --> ingress
+  discord["Discord"]
 
   subgraph cp["Control plane"]
     web["web"]
@@ -21,10 +22,12 @@ flowchart LR
 
   ingress -- "default routes" --> web
   ingress -- "/api/*, /install/*,<br/>/.well-known/*" --> api
+  ingress -- "/hooks/*" --> channelGateway
+  channelGateway <-- "outbound Gateway socket" --> discord
   channelGateway -- "private connector API<br/>+ scoped bearer token" --> api
   worker -- "private /internal/operations" --> channelGateway
   channelGateway -- "bounded provider requests" --> channels
-  channelGateway -.->|Provider factories only| redis
+  channelGateway -->|Provider coordination| redis
   migrate --> pg[("Postgres")]
   api --> pg
   api --> redis[("Redis")]
@@ -48,7 +51,7 @@ flowchart LR
 
 **maintenance** (`cmd/maintenance`) reaps expired locks and runtimes, times out stuck work, and reconciles machine pools toward their targets
 
-**channel-gateway** (`frontend/apps/channel-gateway`) processes durable Slack event receipts and executes bounded send, read, and interaction operations. Go retains Slack OAuth, verified intake before acknowledgment, and signed actions. The gateway uses Hono with the Node adapter and calls the private API with a scoped connector token. Workers call its private `/internal/operations` endpoint. The gateway uses Redis for Chat SDK state only when provider factories are registered, and ephemeral files for bounded artifact transfer; it does not connect to Postgres. Generic webhook, polling, and socket factory extension points remain available, but no additional provider factories are enabled.
+**channel-gateway** (`frontend/apps/channel-gateway`) handles Slack, Discord, and GitHub communication. It receives GitHub webhooks, runs app-scoped Discord Gateway shards, and processes the durable incoming receipts for all three. Go retains Slack's public OAuth, signature verification and interactive callbacks. Workers call the gateway's private `/internal/operations` endpoint for bounded sends and reads. The gateway uses Redis for transient provider coordination and temporary files for streamed artifacts; it never connects directly to Postgres. Provider SDKs handle native API details, while the shared connector API enforces channel and agent authority.
 
 **migrate** (`cmd/migrate`) applies the release's schema migrations and exits. Run it successfully before starting or updating the long-running services.
 
@@ -58,9 +61,9 @@ flowchart LR
 
 **Postgres** stores all persistent data for the service, like organizations, projects, agents, events, machines, secrets.
 
-Channel customer data follows the project tenancy boundary. Connections, routes, channels, agent bindings, inbound receipts, external requests, and project-scoped runtime units all carry `project_id`, so they can move with that project's agents to the same database shard. Provider-app registrations and genuinely app-scoped runtime units are control-plane records because one company-owned app can serve several projects. The private connector API hides that placement from the gateway; the gateway never chooses a database or connects to one directly.
+Channel customer data follows the project tenancy boundary. Connections, routes, channels, agent bindings, message receipts, external requests, and project-scoped runtime units all carry `project_id`, so they can move with that project's agents to the same database shard. Provider-app registrations, app-scoped runtime units, and provider-control receipts are control-plane records because one company-owned app can serve several projects. Control receipts track resumable connection updates; each affected project's state still changes through its scoped API operation. The private connector API hides database placement from the gateway; the gateway never chooses a database or connects to one directly.
 
-**Redis** carries notifications and rate limits. The optional channel gateway uses namespaced Redis state when Chat SDK runtime factories are registered. Its built-in Slack receipt and operation callbacks do not require Redis. Redis is coordination and transient state; durable channel authority, inbound receipts, and external request lifecycles remain in Postgres through the API. Managed outgoing operations have no durable delivery queue.
+**Redis** carries notifications and rate limits. The channel gateway also uses it for transient provider coordination. Durable channel authority, incoming receipts and external request lifecycles remain in Postgres through the API. Managed outgoing operations have no durable delivery queue.
 
 **Blob storage** holds artifact content, like file attachments and tool outputs.
 

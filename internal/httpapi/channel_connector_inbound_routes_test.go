@@ -13,6 +13,7 @@ func TestNormalizeChannelInteractionRequest(t *testing.T) {
 
 		ExternalTenantId:   "tenant-1",
 		ExternalAccountRef: "account-1",
+		ProviderRef:        "thread-1",
 		Actor: openapi.ChannelActor{
 			Ref: "actor-1", DisplayName: "Actor",
 			Metadata: json.RawMessage(`{"z":1,"a":"ok"}`),
@@ -33,6 +34,15 @@ func TestNormalizeChannelInteractionRequest(t *testing.T) {
 		name   string
 		mutate func(*openapi.ResolveChannelConnectorInteractionRequest)
 	}{
+		{name: "provider ref empty", mutate: func(body *openapi.ResolveChannelConnectorInteractionRequest) {
+			body.ProviderRef = " "
+		}},
+		{name: "provider ref too large", mutate: func(body *openapi.ResolveChannelConnectorInteractionRequest) {
+			body.ProviderRef = strings.Repeat("a", 513)
+		}},
+		{name: "provider ref NUL", mutate: func(body *openapi.ResolveChannelConnectorInteractionRequest) {
+			body.ProviderRef = "thread\x00ref"
+		}},
 		{name: "actor ref NUL", mutate: func(body *openapi.ResolveChannelConnectorInteractionRequest) {
 			body.Actor.Ref = "actor\x00ref"
 		}},

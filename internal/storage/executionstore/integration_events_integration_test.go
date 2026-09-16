@@ -189,6 +189,119 @@ WHERE id = $1`, first.ID)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict, "terminal receipt cannot be reopened")
 }
 
+func TestIntegrationEventReceiptRetryAfter(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "receipt-delay")
+	receipt, err := store.Integrations().ReceiveIntegrationEvent(ctx, integrationstore.ReceiveIntegrationEventInput{
+		ProjectID: testProjectID, IntegrationInstallID: install.ID, EventID: "provider-throttled",
+		Payload: json.RawMessage(`{"message":"hello"}`), Capabilities: testChannelCapabilities(testChannelProvider),
+	})
+	require.NoError(t, err)
+	claimInput := integrationstore.ClaimNextIntegrationEventInput{
+		Capability: testChannelCapability(testChannelProvider), LeaseDuration: time.Minute,
+	}
+	claim, found, err := store.Integrations().ClaimNextIntegrationEvent(ctx, claimInput)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, receipt.ID, claim.ID)
+	finish := integrationstore.FinishIntegrationEventInput{
+		ProjectID: testProjectID, IntegrationInstallID: install.ID, ID: claim.ID,
+		LeaseToken: claim.LeaseToken, LeaseGeneration: claim.LeaseGeneration,
+		State: integrationstore.IntegrationEventPending, RetryAfter: time.Hour,
+		LastError: json.RawMessage(`{"code":"rate_limited"}`), Capabilities: testChannelCapabilities(testChannelProvider),
+	}
+	readState := func(t *testing.T) string {
+		t.Helper()
+		var state string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_array(
+state, attempt_count, available_at, lease_token, lease_generation, lease_expires_at,
+last_error, completed_at, updated_at)::text FROM integration_event_receipts WHERE id = $1`, receipt.ID).Scan(&state))
+		return state
+	}
+	before := readState(t)
+	for _, test := range []struct {
+		name       string
+		state      integrationstore.IntegrationEventState
+		retryAfter time.Duration
+	}{
+		{"negative", integrationstore.IntegrationEventPending, -time.Nanosecond},
+		{"over one day", integrationstore.IntegrationEventPending, 24*time.Hour + time.Nanosecond},
+		{"completed with delay", integrationstore.IntegrationEventCompleted, time.Hour},
+		{"failed with delay", integrationstore.IntegrationEventFailed, time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := finish
+			invalid.State, invalid.RetryAfter = test.state, test.retryAfter
+			if invalid.State == integrationstore.IntegrationEventCompleted {
+				invalid.LastError = nil
+			}
+			_, err := store.Integrations().FinishIntegrationEvent(ctx, invalid)
+			require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+			require.Equal(t, before, readState(t), "invalid delay must not consume the lease or change retry state")
+		})
+	}
+	retried, err := store.Integrations().FinishIntegrationEvent(ctx, finish)
+	require.NoError(t, err, "the same lease remains usable after invalid requests")
+	require.Equal(t, integrationstore.IntegrationEventPending, retried.State)
+	require.Equal(t, 1, retried.AttemptCount)
+	require.Nil(t, retried.LeaseExpiresAt)
+	require.Nil(t, retried.CompletedAt)
+	var delayed bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT available_at = updated_at + interval '1 hour'
+FROM integration_event_receipts WHERE id = $1`, receipt.ID).Scan(&delayed))
+	require.True(t, delayed, "provider delay is measured from the DB completion timestamp")
+	_, found, err = store.Integrations().ClaimNextIntegrationEvent(ctx, claimInput)
+	require.NoError(t, err)
+	require.False(t, found, "an acknowledged one-hour retry is not immediately reclaimable")
+	makeReady := func() {
+		t.Helper()
+		_, err := pool.Exec(ctx, `UPDATE integration_event_receipts
+SET available_at = statement_timestamp() - interval '1 second' WHERE id = $1`, receipt.ID)
+		require.NoError(t, err)
+	}
+	makeReady()
+	next, found, err := store.Integrations().ClaimNextIntegrationEvent(ctx, claimInput)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, receipt.ID, next.ID)
+	require.Equal(t, claim.LeaseGeneration+1, next.LeaseGeneration)
+	require.NotEqual(t, claim.LeaseToken, next.LeaseToken)
+	require.Equal(t, receipt.Payload, next.Payload)
+	before = readState(t)
+	_, err = store.Integrations().FinishIntegrationEvent(ctx, finish)
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.Equal(t, before, readState(t), "stale proof cannot postpone the replacement consumer's work")
+
+	finish.LeaseToken, finish.LeaseGeneration = next.LeaseToken, next.LeaseGeneration
+	finish.RetryAfter = 0
+	_, err = store.Integrations().FinishIntegrationEvent(ctx, finish)
+	require.NoError(t, err)
+	var coreBackoff bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT available_at - updated_at BETWEEN interval '3.2 seconds'
+AND interval '4.8 seconds' FROM integration_event_receipts WHERE id = $1`, receipt.ID).Scan(&coreBackoff))
+	require.True(t, coreBackoff, "a zero hint preserves the second attempt's existing jittered backoff")
+	_, found, err = store.Integrations().ClaimNextIntegrationEvent(ctx, claimInput)
+	require.NoError(t, err)
+	require.False(t, found)
+	makeReady()
+	final, found, err := store.Integrations().ClaimNextIntegrationEvent(ctx, claimInput)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 3, final.AttemptCount)
+	finish.LeaseToken, finish.LeaseGeneration = final.LeaseToken, final.LeaseGeneration
+	finish.State, finish.LastError = integrationstore.IntegrationEventCompleted, nil
+	completed, err := store.Integrations().FinishIntegrationEvent(ctx, finish)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.IntegrationEventCompleted, completed.State)
+	require.NotNil(t, completed.CompletedAt)
+	_, found, err = store.Integrations().ClaimNextIntegrationEvent(ctx, claimInput)
+	require.NoError(t, err)
+	require.False(t, found)
+}
+
 func TestIntegrationEventReceiptAuthority(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

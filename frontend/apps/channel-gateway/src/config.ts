@@ -149,7 +149,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     webhookHandlerTimeoutMs,
     webhookMaxBufferedBytes: integer(
       env.OMNARA_CHANNEL_WEBHOOK_MAX_BUFFERED_BYTES,
-      128 * 1024 * 1024,
+      // One full 24 MiB media input needs 193 MiB including serialization
+      // headroom, plus its receipt and concurrent small operations.
+      256 * 1024 * 1024,
       1,
       1024 * 1024 * 1024,
     ),

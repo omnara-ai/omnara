@@ -63,7 +63,8 @@ type operationID string
 
 const (
 	operationPublishExternalChannelDefinition             operationID = "PublishExternalChannelDefinition"
-	operationRegisterExternalChannel                      operationID = "RegisterExternalChannel"
+	operationRegisterChannel                              operationID = "RegisterChannel"
+	operationListRegisteredChannels                       operationID = "ListRegisteredChannels"
 	operationAttachAgentChannel                           operationID = "AttachAgentChannel"
 	operationRevokeAgentChannelBinding                    operationID = "RevokeAgentChannelBinding"
 	operationListAgentChannels                            operationID = "ListAgentChannels"
@@ -81,6 +82,12 @@ const (
 	operationCreateConfiguredModel                        operationID = "CreateConfiguredModel"
 	operationListToolCalls                                operationID = "ListToolCalls"
 	operationSubmitToolCallResult                         operationID = "SubmitToolCallResult"
+	operationStartIntegrationConnection                   operationID = "StartIntegrationConnection"
+	operationListGitHubSetupInstallations                 operationID = "ListGitHubSetupInstallations"
+	operationListGitHubSetupRepositories                  operationID = "ListGitHubSetupRepositories"
+	operationCompleteGitHubConnection                     operationID = "CompleteGitHubConnection"
+	operationGetIntegrationLaunchProfile                  operationID = "GetIntegrationLaunchProfile"
+	operationSetIntegrationLaunchProfile                  operationID = "SetIntegrationLaunchProfile"
 	operationCreateIntegrationOAuthSetup                  operationID = "CreateIntegrationOAuthSetup"
 	operationCreateMachine                                operationID = "CreateMachine"
 	operationCreateMachinePool                            operationID = "CreateMachinePool"
@@ -109,6 +116,11 @@ const (
 	operationCreateProjectModelGrant                      operationID = "CreateProjectModelGrant"
 	operationCreateSlackSetup                             operationID = "CreateSlackSetup"
 	operationCreateExternalIntegrationInstall             operationID = "CreateExternalIntegrationInstall"
+	operationCreateIntegrationApp                         operationID = "CreateIntegrationApp"
+	operationGetIntegrationApp                            operationID = "GetIntegrationApp"
+	operationUpdateIntegrationApp                         operationID = "UpdateIntegrationApp"
+	operationListIntegrationApps                          operationID = "ListIntegrationApps"
+	operationListEligibleIntegrationApps                  operationID = "ListEligibleIntegrationApps"
 	operationListExternalChannelRequests                  operationID = "ListExternalChannelRequests"
 	operationCompleteExternalChannelRequest               operationID = "CompleteExternalChannelRequest"
 	operationCreateCronTrigger                            operationID = "CreateCronTrigger"
@@ -215,10 +227,17 @@ const (
 	operationDownloadDaemonArtifact                       operationID = "DownloadDaemonArtifact"
 	operationUploadDaemonArtifact                         operationID = "UploadDaemonArtifact"
 	operationGetChannelConnectorAppConfiguration          operationID = "GetChannelConnectorAppConfiguration"
+	operationListConnectorInstallationControlScopes       operationID = "ListChannelConnectorInstallationControlScopes"
+	operationSetConnectorInstallationProviderState        operationID = "SetChannelConnectorInstallationProviderState"
 	operationGetChannelConnectorInstallationConfiguration operationID = "GetChannelConnectorInstallationConfiguration"
 	operationResolveChannelInstallConfiguration           operationID = "ResolveChannelConnectorInstallationConfiguration"
+	operationAcceptChannelConnectorControlEvent           operationID = "AcceptChannelConnectorControlEvent"
+	operationClaimNextChannelConnectorControlEvent        operationID = "ClaimNextChannelConnectorControlEvent"
+	operationCompleteChannelConnectorControlEvent         operationID = "CompleteChannelConnectorControlEvent"
 	operationAcceptChannelConnectorEvent                  operationID = "AcceptChannelConnectorEvent"
 	operationAcceptChannelConnectorRuntimeEvent           operationID = "AcceptChannelConnectorRuntimeEvent"
+	operationLookupChannelConnectorGitHubReviews          operationID = "LookupChannelConnectorGitHubReviews"
+	operationRecordChannelConnectorGitHubReview           operationID = "RecordChannelConnectorGitHubReview"
 	operationResolveChannelConnectorInteraction           operationID = "ResolveChannelConnectorInteraction"
 	operationResolveChannelConnectorRuntimeInteraction    operationID = "ResolveChannelConnectorRuntimeInteraction"
 	operationClaimNextChannelConnectorEvent               operationID = "ClaimNextChannelConnectorEvent"
@@ -233,6 +252,10 @@ const (
 	operationHeartbeatChannelConnectorRuntimeUnit         operationID = "HeartbeatChannelConnectorRuntimeUnit"
 	operationReleaseChannelConnectorRuntimeUnit           operationID = "ReleaseChannelConnectorRuntimeUnit"
 	operationListOrganizations                            operationID = "ListOrganizations"
+	operationGetOrgUsage                                  operationID = "GetOrgUsage"
+	operationGetProjectUsage                              operationID = "GetProjectUsage"
+	operationGetAgentProfileUsage                         operationID = "GetAgentProfileUsage"
+	operationGetAgentUsage                                operationID = "GetAgentUsage"
 )
 
 type operationPolicy struct {
@@ -310,9 +333,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationUpdateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListModelProviderConfigs:   accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListModelProviderConfigs:   accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetModelProviderConfig:     accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationGetModelCatalog:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetModelCatalog:            accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationUpdateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
@@ -321,6 +344,10 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentProfileUsage:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentUsage:              accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListVisibleProjects:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleMachines:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateSecret:               accountPolicy(orgScope(identitystore.OrgActionRead)),
@@ -345,8 +372,14 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 
 	operationCreateAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateExternalIntegrationInstall: accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationApp:             accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetIntegrationApp:                accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationUpdateIntegrationApp:             accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListIntegrationApps:              accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListEligibleIntegrationApps:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationPublishExternalChannelDefinition: accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationRegisterExternalChannel:          accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationRegisterChannel:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListRegisteredChannels:           accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListExternalChannelRequests:      accountPolicy(projectScope(identitystore.AgentActionRead)),
 	operationCompleteExternalChannelRequest:   accountPolicy(projectScope(identitystore.AgentActionOperate)),
 	operationDeleteIntegrationInstall:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
@@ -354,6 +387,12 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationUpdateAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationRenameAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationStartIntegrationConnection:       userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListGitHubSetupInstallations:     userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListGitHubSetupRepositories:      userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCompleteGitHubConnection:         userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetIntegrationLaunchProfile:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationSetIntegrationLaunchProfile:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateIntegrationOAuthSetup:      userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateSlackSetup:                 userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionManage)),
@@ -448,11 +487,26 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetChannelConnectorAppConfiguration: channelConnectorPolicy(
 		customScope("connector provider/app scope + exact secret association"),
 	),
+	operationListConnectorInstallationControlScopes: channelConnectorPolicy(
+		customScope("exact connector/app/tenant scope; nondeleted active or provider-disabled installations"),
+	),
+	operationSetConnectorInstallationProviderState: channelConnectorPolicy(
+		customScope("exact connector/app/install identity + live parent scope + app and installation revision fences"),
+	),
 	operationGetChannelConnectorInstallationConfiguration: channelConnectorPolicy(
 		customScope("connector provider/app scope + exact installation secret association"),
 	),
 	operationResolveChannelInstallConfiguration: channelConnectorPolicy(
 		customScope("connector provider/app scope + exact provider installation identity"),
+	),
+	operationAcceptChannelConnectorControlEvent: channelConnectorPolicy(
+		customScope("exact connector/app authority; immutable installation control receipt"),
+	),
+	operationClaimNextChannelConnectorControlEvent: channelConnectorPolicy(
+		customScope("exact connector capability + active app/org scope"),
+	),
+	operationCompleteChannelConnectorControlEvent: channelConnectorPolicy(
+		customScope("exact connector/app + unexpired control lease + monotonic bounded progress"),
 	),
 	operationAcceptChannelConnectorEvent: channelConnectorPolicy(
 		customScope("connector provider/app scope; project derived from installation"),
@@ -460,8 +514,14 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationAcceptChannelConnectorRuntimeEvent: channelConnectorPolicy(
 		customScope("connector provider/app scope + fenced runtime lease"),
 	),
+	operationLookupChannelConnectorGitHubReviews: channelConnectorPolicy(
+		customScope("exact connector capability + admitted tool/agent/channel scope + own review observations"),
+	),
+	operationRecordChannelConnectorGitHubReview: channelConnectorPolicy(
+		customScope("exact connector capability + immutable creating tool scope; live original binding for continuation"),
+	),
 	operationResolveChannelConnectorInteraction: channelConnectorPolicy(
-		customScope("connector provider/app scope; project and agent derived from installation binding"),
+		customScope("connector app/install + pinned prompt destination + live send binding"),
 	),
 	operationResolveChannelConnectorRuntimeInteraction: channelConnectorPolicy(
 		customScope("connector provider/app scope + installation binding + fenced runtime lease"),

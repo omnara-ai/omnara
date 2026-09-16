@@ -21,7 +21,7 @@ func TestChannelDefinitionsAreSharedCurrentAndScoped(t *testing.T) {
 	_, _, _, install := createChannelLifecycleFixture(t, ctx, store, "channel-definitions")
 	input := integrationstore.PublishChannelDefinitionInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID,
-		ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+		ImplementationKey: "conversation", Kind: integrationstore.ChannelKindDiscordThread,
 		SendParamsSchema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		Capabilities:          integrationstore.ChannelCapabilities{Send: true, Text: true},
 		ConnectorCapabilities: testChannelCapabilities(testChannelProvider),

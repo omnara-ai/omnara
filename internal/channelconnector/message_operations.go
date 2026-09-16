@@ -55,12 +55,13 @@ type ReplyDestination struct {
 }
 
 type SendResult struct {
-	Publication    MessagePublication `json:"publication"`
-	MessageChannel MessageLocation    `json:"message_channel"`
-	MessageID      string             `json:"message_id,omitempty"`
-	ReplyChannel   *ReplyDestination  `json:"reply_channel,omitempty"`
-	CreatedAt      *time.Time         `json:"created_at,omitempty"`
-	Metadata       json.RawMessage    `json:"metadata,omitempty"`
+	Publication       MessagePublication `json:"publication"`
+	MessageChannel    MessageLocation    `json:"message_channel"`
+	MessageID         string             `json:"message_id,omitempty"`
+	ReplyChannel      *ReplyDestination  `json:"reply_channel,omitempty"`
+	CreatedAt         *time.Time         `json:"created_at,omitempty"`
+	Metadata          json.RawMessage    `json:"metadata,omitempty"`
+	ContinuationError *ContinuationError `json:"continuation_error,omitempty"`
 }
 
 type ReadPayload struct {

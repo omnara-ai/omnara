@@ -131,7 +131,6 @@ type AgentChannelTarget struct {
 	ParentChannelID      uuid.UUID               `json:"parent_channel_id,omitempty"`
 	ID                   uuid.UUID               `json:"id"`
 	IntegrationInstallID uuid.UUID               `json:"integration_install_id"`
-	TargetRef            string                  `json:"target_ref"`
 	ProviderRef          string                  `json:"provider_ref"`
 	ProviderRefKind      string                  `json:"provider_ref_kind"`
 	DisplayName          string                  `json:"display_name"`

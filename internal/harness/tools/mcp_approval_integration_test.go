@@ -5,6 +5,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -24,9 +25,14 @@ func TestApprovedMCPDispatchClassifiesReconstructedToolAvailability(t *testing.T
 		present   bool
 		errorCode string
 		errorText string
+		schema    json.RawMessage
 	}{
-		{"vanished", false, "unsupported", "is not enabled for this agent config"},
-		{"missing_schema", true, "malformed", "has no runtime input schema"},
+		{"vanished", false, "unsupported", "is not enabled for this agent config", nil},
+		{"missing_schema", true, "malformed", "has no runtime input schema", nil},
+		{"unsupported_dialect", true, "malformed", "input: compile JSON schema",
+			json.RawMessage(`{"$schema":"https://schema.example.invalid/unsupported-dialect","type":"object"}`)},
+		{"remote_reference", true, "malformed", "input: compile JSON schema",
+			json.RawMessage(`{"type":"object","$ref":"https://schema.example.invalid/tool-input"}`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -64,11 +70,12 @@ func TestApprovedMCPDispatchClassifiesReconstructedToolAvailability(t *testing.T
 			require.Equal(t, executionstore.ToolCallStateReady, approved.State)
 
 			// Model-context reconstruction may lose a discovered tool after approval.
-			// A retained tool with a missing schema is a distinct malformed contract.
+			// A retained tool with a missing or uncompilable schema is malformed,
+			// even when its arguments were previously approved under a valid schema.
 			reconstructed := turn
 			reconstructed.Tools = map[string]ToolSpec{}
 			if test.present {
-				spec.InputSchema = nil
+				spec.InputSchema = test.schema
 				reconstructed.Tools[name] = spec
 			}
 			result, err := executor.Dispatch(ctx, reconstructed, call)
@@ -76,7 +83,11 @@ func TestApprovedMCPDispatchClassifiesReconstructedToolAvailability(t *testing.T
 			require.Equal(t, DispatchCompleted, result.Disposition)
 			body := toolResultMapFromTestParts(t, result.ContentParts)
 			require.Equal(t, test.errorCode, body["error_code"])
-			require.Equal(t, fmt.Sprintf("tool %q %s", name, test.errorText), body["error"])
+			if test.schema == nil {
+				require.Equal(t, fmt.Sprintf("tool %q %s", name, test.errorText), body["error"])
+			} else {
+				require.Contains(t, body["error"], fmt.Sprintf("tool %q %s", name, test.errorText))
+			}
 			require.Zero(t, client.callToolCount.Load())
 			require.Zero(t, client.initializeCount.Load())
 			require.Equal(t, originalInput, []byte(call.Input), "dispatch must not rewrite approved arguments")

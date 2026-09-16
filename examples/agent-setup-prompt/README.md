@@ -34,7 +34,7 @@ and retry — don't skip ahead.
    named for my choice ("Coding Agent" / "Research Assistant"):
    - instruction, per my choice:
      a. "You are a coding agent with your own machine. Start with
-        {repo}: keep a clone of it, answer questions and work with 
+        {repo}: keep a clone of it, answer questions and work with
         other repos when asked." If a PAT was collected, add that
         it has authenticated GitHub access via the GITHUB_TOKEN and
         GH_TOKEN environment variables on its machine.
@@ -43,7 +43,9 @@ and retry — don't skip ahead.
         sources."
    - every configurable built-in tool except create_machine and delete_machine —
      list them from GET /tool-catalog and include only entries with configurable:
-     true. Channel tools are supplied by live bindings; do not add them to config
+     true. Channel tools are supplied by live bindings; do not add them to config.
+     Omit spawn_agent unless the profile deliberately defines at least one entry
+     under subagents; do not invent a subagent definition just to enable the tool.
    - the granted model and pool
    - if a PAT was collected: create a project-owned secret from the
      temp file without reading or printing its value, delete the

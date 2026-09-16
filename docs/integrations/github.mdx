@@ -1,0 +1,86 @@
+---
+title: GitHub
+description: Keep one agent conversation for a pull request and its review threads
+icon: "github"
+---
+
+The GitHub integration keeps one agent per pull request. Opening a PR, including
+a draft, starts an agent from the connection's profile. Later commits, comments
+and review activity become inputs to the same agent. If the connection first
+sees an existing PR through a later supported event, it can start that
+conversation then. Replayed events do not create duplicate agents or inputs.
+
+The integration handles PR communication. Repository checkout, private source
+access and execution tools are configured separately through the agent's machine
+and profile.
+
+## Connect a repository
+
+Register a GitHub App with **Pull requests: read and write**, **Issues: read**, and
+**Metadata: read**. Configure the events, OAuth callback and webhook URL described
+under [provider app setup](/self-hosting/configuration#apps-and-project-connections).
+Enable expiring user tokens and leave **Request user authorization (OAuth) during
+installation** disabled for this setup flow.
+
+In Omnara's organization **Apps** page, register the GitHub App ID, OAuth client ID
+and a credential secret containing the private key, webhook secret and OAuth
+client secret. Then connect it from the project's **Integrations** page. Authorize
+your GitHub account and choose an installation and repository you administer. If
+the app needs installing, open its installation link in another tab and refresh
+the picker afterward. Setup expires after ten minutes; start again if needed.
+
+Choose an optional agent profile to enable automatic PR agents. Updating that
+profile changes future launches; existing PR conversations keep their agents.
+The repository connection and channels belong to the project. You can also
+register a PR by number and grant an existing or scheduled agent access without
+enabling automatic launches.
+
+Validate a new connection with a test PR: a human comment should reach the agent,
+the bot's own reply should not become another agent input, and replies to inline
+discussions should stay in their intended review threads.
+
+## Comments and review threads
+
+A PR is one channel. Its inline review conversations are child channels. Parentage
+provides context; it does not by itself grant an agent access to every child.
+The built-in behavior connects the PR's agent to the relevant published review
+threads as events arrive. Messages identify their originating channel, and
+`get_channel` describes that destination's supported parameters.
+
+For a normal PR timeline comment, call `send_channel_message` with the PR channel
+ID and message text. For a reply to an inline discussion, use that review thread's
+channel ID. `read_channel` paginates history and reports incomplete or unavailable
+provider content explicitly.
+
+To collect findings before publishing a review, send each finding separately to
+the PR channel with `review_comment: true`, the exact `commit_id`, and its file
+location (`path`, `line`, `side`; optional range fields). File-level findings use
+`subject_type: "file"` without line coordinates. The first successful call returns
+a review ID; pass that `review_id` on subsequent findings. Finally send a summary
+with `publish_review: true` and that same ID. Publication submits a comment review,
+not an approval or request for changes. The current channel's parameter schema is
+the source of truth for valid combinations.
+
+Pending reviews belong to the agent that created them. Another agent cannot
+adopt a pending review simply because it can send to the PR. Ordinary timeline
+comments remain independent of pending reviews. Native GitHub restrictions can
+still reject a requested operation; the tool reports the result rather than
+publishing or deleting something to work around it.
+
+## Lifecycle and recovery
+
+Closing a PR is input for the agent; it does not authorize cleanup. Disconnecting
+the integration, archiving an agent or canceling work does not delete comments,
+discard drafts or publish reviews on GitHub. Those changes require explicit
+agent actions. Questions and tool approvals remain in the Omnara dashboard.
+
+Incoming communication is saved before acknowledgment and retried from Omnara's
+inbox. GitHub does not automatically redeliver webhooks that fail before they are
+saved. After an intake outage, the app owner can use GitHub's recent-delivery
+redelivery controls. See [GitHub's recovery instructions](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks).
+
+Installation and repository-access updates are saved too. Omnara checks current
+GitHub access and updates the affected project connections in resumable batches,
+including restoring previously unavailable connections. A temporary GitHub API
+failure leaves their state unchanged and schedules another attempt. Disconnecting
+in Omnara remains separate from these provider availability updates.

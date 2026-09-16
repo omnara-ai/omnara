@@ -15,6 +15,7 @@ import (
 	openapigen "github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -384,6 +385,7 @@ func (s strictOpenAPIServer) providerModelCatalog(
 		}
 		entry.ContextWindowTokens = model.ContextWindowTokens
 		entry.MaxOutputTokens = model.MaxOutputTokens
+		entry.Pricing = discoveredModelPricingResponse(model.Pricing)
 		discovered = append(discovered, entry)
 	}
 	return openapigen.ModelCatalog{
@@ -915,9 +917,29 @@ func configuredModelSummaryResponse(
 		ModelProviderConfigId: providerConfigID,
 		Name:                  record.Name,
 		ProviderConfig:        record.ProviderConfigName,
+		ProviderModelSlug:     record.ProviderModelSlug,
 		CreatedAt:             record.CreatedAt,
 		UpdatedAt:             record.UpdatedAt,
 	}, nil
+}
+
+func discoveredModelPricingResponse(
+	pricing *modelprovider.DiscoveredModelPricing,
+) *openapigen.DiscoveredModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	response := &openapigen.DiscoveredModelPricing{
+		InputUsdPerMillion:  pricing.InputUSDPerMillion,
+		OutputUsdPerMillion: pricing.OutputUSDPerMillion,
+	}
+	if pricing.CacheReadInputUSDPerMillion != "" {
+		response.CacheReadInputUsdPerMillion = &pricing.CacheReadInputUSDPerMillion
+	}
+	if pricing.CacheWriteInputUSDPerMillion != "" {
+		response.CacheWriteInputUsdPerMillion = &pricing.CacheWriteInputUSDPerMillion
+	}
+	return response
 }
 
 func (s strictOpenAPIServer) UpdateProjectModelGrant(

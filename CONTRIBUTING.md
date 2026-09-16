@@ -17,11 +17,12 @@ vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 - Run the relevant checks described in the README's
   [Development section](README.md#development).
 
-The HTTP integration suite also builds and runs the TypeScript Slack gateway against
-local PostgreSQL and a fake Slack API, using Node from `.node-version`. Run that
-journey alone with `make test-channel-journey` after `make db-up`. It needs no Slack
-credentials and exercises durable receipt, agent creation, duplicate callbacks,
-and continuation in the same thread.
+The HTTP integration suite also runs the TypeScript provider code against local
+PostgreSQL, the Go API, and fake Slack, Discord and GitHub APIs, using Node from
+`.node-version`. Run these journeys with `make test-channel-journey` after
+`make db-up`. They need no provider credentials and exercise durable receipt,
+agent creation, duplicate callbacks, thread continuation and PR conversations,
+including sending through a migrated Slack DM.
 
 ## Generated files
 

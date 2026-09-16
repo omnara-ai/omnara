@@ -33,6 +33,13 @@ func DecodeSendResult(raw json.RawMessage) (SendResult, error) {
 	if err := validateReplyDestination(result.ReplyChannel); err != nil {
 		return SendResult{}, err
 	}
+	if failure := result.ContinuationError; failure != nil {
+		if result.ReplyChannel != nil || result.MessageChannel != MessageAtDestination ||
+			!registryname.Valid(failure.Code) || strings.TrimSpace(failure.Message) == "" ||
+			boundedResultText(failure.Message, 1024) != nil {
+			return SendResult{}, errors.New("continuation failure requires a known message without an available reply channel")
+		}
+	}
 	return result, nil
 }
 

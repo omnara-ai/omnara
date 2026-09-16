@@ -129,6 +129,30 @@ test('returns to a protected deep link after login', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
+test('opens org Apps administration and cancels a new app', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
+
+  const appsResponse = page.waitForResponse((response) => {
+    return (
+      response.request().method() === 'GET' &&
+      /\/orgs\/org_[a-z2-7]+\/integration-apps$/.test(new URL(response.url()).pathname)
+    )
+  })
+  await page.getByRole('link', { name: 'Apps', exact: true }).click()
+  await expect(page).toHaveURL('/apps')
+  expect((await appsResponse).ok()).toBe(true)
+  await expect(page.getByRole('heading', { name: 'Apps', exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'New app', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New app', exact: true })
+  await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL('/apps')
+  expect(failures).toEqual([])
+})
+
 test('switches organizations from a project page', async ({ page }) => {
   const failures = installFailureTracking(page)
   await signIn(page, adminEmail, `/projects/${projectID}/agents`)

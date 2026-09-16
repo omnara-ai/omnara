@@ -50,6 +50,7 @@ type DeliverChannelWorkflowInput struct {
 	InputPrecondition      *ChannelInputPrecondition
 	OnlyIfUnbound          bool
 	Target                 integrationstore.CreateIntegrationTargetInput
+	ParentTarget           *integrationstore.CreateIntegrationTargetInput
 	ReadAllowed            bool
 	SendAllowed            bool
 	ProviderUserID         string
@@ -266,6 +267,16 @@ func (s *Store) DeliverChannelWorkflow(
 		return ChannelInputResult{}, storeerr.InvalidRequest(
 			errors.New("message author is required for a new input"))
 	}
+	if input.ParentTarget != nil {
+		if input.Target.ParentChannelID != uuid.Nil || input.ParentTarget.ParentChannelID != uuid.Nil {
+			return ChannelInputResult{}, storeerr.InvalidRequest(
+				errors.New("inline parent requires no existing child parent ID or nested parent ID"))
+		}
+		if strings.TrimSpace(input.ParentTarget.ProviderRef) == strings.TrimSpace(input.Target.ProviderRef) {
+			return ChannelInputResult{}, storeerr.InvalidRequest(
+				errors.New("parent and child channel addresses must differ"))
+		}
+	}
 	notifications := s.newTxNotifications()
 	result := ChannelInputResult{}
 	var agent AgentRecord
@@ -296,6 +307,15 @@ func (s *Store) DeliverChannelWorkflow(
 	}
 	if err != nil {
 		return ChannelInputResult{}, err
+	}
+	if input.ParentTarget != nil {
+		parentInput := *input.ParentTarget
+		parentInput.ProjectID, parentInput.IntegrationInstallID = identity.ProjectID, identity.IntegrationInstallID
+		parent, err := s.integrations.CreateIntegrationTargetTx(ctx, tx, parentInput)
+		if err != nil {
+			return ChannelInputResult{}, err
+		}
+		input.Target.ParentChannelID = parent.ID
 	}
 	input.Target.ProjectID, input.Target.IntegrationInstallID =
 		identity.ProjectID, identity.IntegrationInstallID

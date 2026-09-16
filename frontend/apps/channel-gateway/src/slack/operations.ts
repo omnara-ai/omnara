@@ -41,7 +41,8 @@ export async function sendSlackOperation(
     if (!file) throw new SlackAPIError('artifact_mismatch')
     return file
   })
-  const mayOpenThread = target.threadTs === undefined && input.reply_channel_grants !== undefined
+  const mayOpenThread =
+    input.destination.provider_ref_kind === 'channel' && input.reply_channel_grants !== undefined
   if (
     mayOpenThread &&
     !schemas.zChannelReplyDestination.shape.implementation_key.safeParse(threadImplementationKey)

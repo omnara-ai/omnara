@@ -17,6 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -39,6 +41,7 @@ type Server struct {
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
 	authOAuthStates                     httpauth.OAuthStateStore
+	integrationSetupRedis               *redistore.Client
 	trustedProxyNets                    []*net.IPNet
 	email                               httpauth.EmailSender
 	authSignupEnabled                   bool
@@ -71,12 +74,15 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
+	discordSetup                        discord.SetupConfig
+	githubSetup                         github.Config
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
 	oauthClientMetadataHTTPClient       *http.Client
 	mcpRegistry                         *mcpregistry.Registry
 	channelConnectorAuth                *channelconnector.Authenticator
+	channelOperations                   *channelconnector.OperationsClient
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	apiMCP                              *mcpsdk.Server
@@ -146,6 +152,7 @@ func WithRedisBackedAuth(client *redistore.Client) Option {
 		}
 		WithAuthRateLimiter(httpauth.NewRedisRateLimiter(client))(s)
 		WithOAuthStateStore(httpauth.NewRedisOAuthStateStore(client))(s)
+		s.integrationSetupRedis = client
 	}
 }
 
@@ -254,6 +261,12 @@ func WithMCPRegistry(registry *mcpregistry.Registry) Option {
 func WithChannelConnectorAuthenticator(authenticator *channelconnector.Authenticator) Option {
 	return func(s *Server) {
 		s.channelConnectorAuth = authenticator
+	}
+}
+
+func WithChannelOperations(client *channelconnector.OperationsClient) Option {
+	return func(s *Server) {
+		s.channelOperations = client
 	}
 }
 

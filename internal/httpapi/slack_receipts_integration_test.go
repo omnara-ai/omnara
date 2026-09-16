@@ -7,9 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/google/uuid"
+	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,6 +22,64 @@ func slackReceiptBody(app, workspace, bot, eventID string) string {
 "authorizations":[{"team_id":%q,"user_id":%q,"is_bot":true}],
 "event":{"type":"app_mention","user":"U123","text":"hello","channel":"C123","ts":"111.222","team":%q}}`,
 		workspace, app, eventID, workspace, bot, workspace)
+}
+
+func TestSlackRequiresConfiguredGatewayBeforeSetupOrReceipt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	slackServer := newSlackEventsTestServer(t)
+	defer slackServer.Close()
+	f := newSlackEventsIntegrationFixture(t, ctx, pool, slackServer, "slack-no-gateway")
+	unconfigured := newIntegrationServer(pool, WithPublicURL("https://omnara.test"), WithSlackOAuth(SlackOAuthConfig{
+		APIURL: slackServer.URL, AccessURL: slackServer.URL + "/oauth.v2.access", HTTPClient: slackServer.Client(),
+	}))
+	body := slackReceiptBody("A123", "T123", "U_BOT", "unconfigured-event")
+	requestJSONWithHeaders(t, unconfigured, http.MethodPost, integrationEventsPath, body, "",
+		http.StatusServiceUnavailable, unitSlackSignedHeaders(body, "signing-secret"))
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_event_receipts WHERE event_id='unconfigured-event'`).Scan(&count))
+	require.Zero(t, count)
+
+	routes, err := f.Project.Store.Integrations().ListActiveIntegrationRoutes(ctx, f.Project.ProjectUUID, f.Install.ID)
+	require.NoError(t, err)
+	require.Len(t, routes, 1)
+	profileID, err := publicID(publicid.KindAgentProfile, routes[0].AgentProfileID)
+	require.NoError(t, err)
+	path := f.Project.ProjectPath + "/agent-profiles/" + profileID
+	requestJSONWithHeaders(t, unconfigured, http.MethodPost, path+"/integration-oauth/setup",
+		`{"client_id":"client-123","client_secret":"client-secret","signing_secret":"signing-secret"}`, "",
+		http.StatusServiceUnavailable, authHeaders(f.Project.AdminToken))
+	requestJSONWithHeaders(t, unconfigured, http.MethodPost, path+"/slack-setup",
+		`{"app_name":"Test","app_configuration_token":"configuration-token"}`, "",
+		http.StatusServiceUnavailable, authHeaders(f.Project.AdminToken))
+	// A gateway removed between starting OAuth and its callback cannot create
+	// an installation that the deployment has no configured worker to service.
+	setup := requestJSONWithHeaders(t, f.Handler, http.MethodPost, path+"/integration-oauth/setup",
+		`{"client_id":"client-123","client_secret":"client-secret","signing_secret":"signing-secret"}`, "",
+		http.StatusCreated, authHeaders(f.Project.AdminToken))
+	oauthURL, err := url.Parse(testutil.RequireType[string](t, setup["oauth_url"]))
+	require.NoError(t, err)
+	requestJSONWithHeaders(t, unconfigured, http.MethodGet,
+		integrationOAuthCallbackPath+"?code=new-code&state="+url.QueryEscape(oauthURL.Query().Get("state")), "", "",
+		http.StatusServiceUnavailable,
+		map[string]string{"Cookie": httpauth.BrowserSessionHostCookieName + "=slack-no-gateway-browser"})
+	flowID, ok := parseOpenAPIPublicID(
+		publicid.KindIntegrationOAuthFlow, testutil.RequireType[string](t, setup["flow_id"]),
+	)
+	require.True(t, ok)
+	consumed, err := f.Project.Store.Integrations().IntegrationOAuthFlowConsumed(ctx, flowID)
+	require.NoError(t, err)
+	require.False(t, consumed)
+
+	// Once configured, the provider's retry is accepted normally; there is no
+	// hidden stale backlog from the earlier unconfigured request.
+	requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "",
+		http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_event_receipts WHERE event_id='unconfigured-event'`).Scan(&count))
+	require.Equal(t, 1, count)
 }
 
 func TestSlackReceiptAcknowledgesOnlyDurableVerifiedInput(t *testing.T) {
@@ -56,7 +118,7 @@ WHERE integration_install_id=$1 AND event_id='durable-event'`,
 		f.Install.ID).Scan(&payload, &state, &connector, &provider))
 	require.JSONEq(t, body, string(payload))
 	require.Equal(t, "pending", state)
-	require.Equal(t, "chat_sdk", connector)
+	require.Equal(t, "omnara", connector)
 	require.Equal(t, "slack", provider)
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT count(*) FROM integration_event_receipts WHERE event_id='durable-event'`).Scan(&count))

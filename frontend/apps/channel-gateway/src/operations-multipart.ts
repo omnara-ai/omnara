@@ -223,6 +223,10 @@ export async function readOperationMultipart(
       throw new InvalidOperationError()
     }
     return { operation, artifacts }
+  } catch (cause) {
+    // Internal cancellation wakes pending parser/drain waits. Preserve the
+    // original intake failure, including temporary capacity, over that wakeup.
+    throw failed ?? cause
   } finally {
     stop(new InvalidOperationError())
     signal.removeEventListener('abort', onAbort)

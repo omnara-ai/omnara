@@ -55,16 +55,13 @@ export function MachinesSection() {
         <SearchHeader
           title="Machines"
           toolbar={
-            showToolbar ? (
-              <ResourceListToolbar
-                search={list.search}
-                onSearchChange={list.setSearch}
-                sort={list.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={list.setSort}
-                placeholder="Search machines by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+              placeholder="Search machines by name…"
+              showSearch={showToolbar}
+            />
           }
         >
           {connectButton()}

@@ -23,6 +23,9 @@ import (
 // the provider acknowledgement window.
 const MaxIntegrationEventPayloadBytes = 24 * 1024 * 1024
 
+// MaxIntegrationEventRetryAfter bounds a connector's optional scheduling hint.
+const MaxIntegrationEventRetryAfter = 24 * time.Hour
+
 type IntegrationEventState string
 
 const (
@@ -73,6 +76,7 @@ type FinishIntegrationEventInput struct {
 	LeaseToken           uuid.UUID
 	LeaseGeneration      int64
 	State                IntegrationEventState
+	RetryAfter           time.Duration
 	LastError            json.RawMessage
 	Capabilities         []channelconnector.Capability
 }
@@ -163,7 +167,7 @@ func (s *Store) ClaimNextIntegrationEvent(
 }
 
 // FinishIntegrationEvent settles a claim. Pending means a transient failure and
-// schedules a capped, jittered retry.
+// schedules a capped, jittered retry, respecting the provider's minimum delay.
 // Failed is an explicit permanent processing rejection. An expired lease can
 // never complete work belonging to a replacement consumer.
 func (s *Store) FinishIntegrationEvent(
@@ -179,6 +183,11 @@ func (s *Store) FinishIntegrationEvent(
 	default:
 		return IntegrationEventReceipt{}, storeerr.InvalidRequest(
 			errors.New("event outcome must be pending, completed, or failed"))
+	}
+	if input.RetryAfter < 0 || input.RetryAfter > MaxIntegrationEventRetryAfter ||
+		(input.RetryAfter != 0 && input.State != IntegrationEventPending) {
+		return IntegrationEventReceipt{}, storeerr.InvalidRequest(
+			errors.New("retry delay must be between zero and one day and is only valid for pending events"))
 	}
 	lastError, err := normalizedJSONObject(input.LastError, "event error")
 	if err != nil {
@@ -200,7 +209,7 @@ func (s *Store) FinishIntegrationEvent(
 	row, err := s.q.WithTx(tx).FinishIntegrationEventReceipt(ctx, dbsqlc.FinishIntegrationEventReceiptParams{
 		ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID, ID: input.ID,
 		LeaseToken: input.LeaseToken, LeaseGeneration: input.LeaseGeneration,
-		NextState: string(input.State), LastError: lastError,
+		NextState: string(input.State), LastError: lastError, RetryAfterMicroseconds: input.RetryAfter.Microseconds(),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationEventReceipt{}, storeerr.ErrStateTransitionConflict

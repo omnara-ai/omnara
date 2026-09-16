@@ -14,8 +14,8 @@ func TestAuthenticatorScopesIdentity(t *testing.T) {
 	authenticator, err := NewAuthenticator([]Config{{
 		ID: "gateway-a", Token: token,
 		Capabilities: []Capability{
-			{ConnectorKey: "chat_sdk_v1", Provider: "discord"},
-			{ConnectorKey: "chat_sdk_v1", Provider: "discord"},
+			{ConnectorKey: "test_connector", Provider: "discord"},
+			{ConnectorKey: "test_connector", Provider: "discord"},
 		},
 	}})
 	if err != nil {
@@ -27,14 +27,30 @@ func TestAuthenticatorScopesIdentity(t *testing.T) {
 	}
 	if identity.ID != "gateway-a" || len(identity.Capabilities) != 1 ||
 		identity.Capabilities[0] != (Capability{
-			ConnectorKey: "chat_sdk_v1", Provider: "discord",
+			ConnectorKey: "test_connector", Provider: "discord",
 		}) {
 		t.Fatalf("identity = %+v", identity)
 	}
 	identity.Capabilities[0].ConnectorKey = "mutated"
 	again, err := authenticator.Authenticate(token)
-	if err != nil || again.Capabilities[0].ConnectorKey != "chat_sdk_v1" {
+	if err != nil || again.Capabilities[0].ConnectorKey != "test_connector" {
 		t.Fatalf("authenticator leaked mutable scopes: %+v, %v", again, err)
+	}
+	for _, test := range []struct {
+		capability Capability
+		configured bool
+	}{
+		{Capability{ConnectorKey: "test_connector", Provider: "discord"}, true},
+		{Capability{ConnectorKey: "test_connector", Provider: "slack"}, false},
+		{Capability{ConnectorKey: "other", Provider: "discord"}, false},
+	} {
+		if got := authenticator.HasCapability(test.capability); got != test.configured {
+			t.Errorf("HasCapability(%+v) = %t, want %t", test.capability, got, test.configured)
+		}
+	}
+	var unconfigured *Authenticator
+	if unconfigured.HasCapability(Capability{ConnectorKey: "test_connector", Provider: "discord"}) {
+		t.Fatal("nil authenticator advertises a configured gateway")
 	}
 }
 
@@ -53,7 +69,7 @@ func TestAuthenticatorRejectsWrongOrUnknownTokens(t *testing.T) {
 	}
 	authenticator, err := NewAuthenticator([]Config{{
 		ID: "gateway-a", Token: token,
-		Capabilities: []Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}},
+		Capabilities: []Capability{{ConnectorKey: "test_connector", Provider: "discord"}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -71,9 +87,9 @@ func TestAuthenticatorRejectsUnsafeConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := []Config{
-		{ID: "", Token: token, Capabilities: []Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}}},
+		{ID: "", Token: token, Capabilities: []Capability{{ConnectorKey: "test_connector", Provider: "discord"}}},
 		{ID: "gateway-a", Token: token},
-		{ID: "gateway-a", Token: token, Capabilities: []Capability{{ConnectorKey: "chat_sdk_v1"}}},
+		{ID: "gateway-a", Token: token, Capabilities: []Capability{{ConnectorKey: "test_connector"}}},
 	}
 	for _, config := range tests {
 		if _, err := NewAuthenticator([]Config{config}); err == nil {

@@ -50,6 +50,7 @@ import {
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { openAgentInteractionsQueryKey } from './agent-interactions'
+import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
 export type {
@@ -335,6 +336,9 @@ export class AgentChatSession {
     }
     if (isTerminalEvent(event)) {
       this.deltas = this.deltas.filter((delta) => delta.turn_id !== event.turn_id)
+      void this.queryClient.invalidateQueries({
+        predicate: agentUsageQueryPredicate(this.scope.orgID, this.scope.projectID),
+      })
     }
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       this.invalidateInteractions()

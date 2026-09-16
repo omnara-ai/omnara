@@ -67,6 +67,7 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://app.omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -329,6 +330,7 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://app.omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -497,6 +499,7 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://app.omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -690,6 +693,7 @@ func TestSlackSetupUploadsCustomAppIcon(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://app.omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -807,6 +811,7 @@ func TestSlackSetupRejectsNonPublicPublicURL(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("http://localhost:5173"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -910,6 +915,7 @@ func TestSlackSetupRejectsProfileWhoseEffectiveModelDoesNotSupportTools(t *testi
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -993,6 +999,7 @@ func TestSlackSetupRejectsAppNameOverSlackLimit(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",
@@ -1053,6 +1060,7 @@ func TestSlackSetupRejectsReservedAppName(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("https://omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AuthorizeURL: "http://slack.test/oauth/v2/authorize",

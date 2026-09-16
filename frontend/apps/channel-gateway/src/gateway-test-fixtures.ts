@@ -1,5 +1,4 @@
 import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
-import { Message, type MessageData, type StateAdapter } from 'chat'
 import { vi } from 'vitest'
 
 import type { RuntimeHandle } from './app-registry'
@@ -15,7 +14,7 @@ export function testAppConfiguration(
   return {
     app: {
       configuration_revision: 1,
-      connector_key: 'chat_sdk_v1',
+      connector_key: 'test_connector',
       display_name: 'Test',
       id: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
       provider: 'discord',
@@ -66,44 +65,6 @@ export function testRuntimeUnit(
     status: 'running',
     unit_key: 'shard-0',
     updated_at: '2026-08-30T00:00:00Z',
-    ...overrides,
-  }
-}
-
-export function testMessage(overrides: Partial<MessageData> = {}): Message {
-  return new Message({
-    attachments: [],
-    author: { fullName: 'Ada', isBot: false, isMe: false, userId: 'user-1', userName: 'Ada' },
-    formatted: { children: [], type: 'root' },
-    id: 'message-1',
-    metadata: { dateSent: new Date('2026-08-30T00:00:00Z'), edited: false },
-    raw: {},
-    text: '',
-    threadId: 'test:thread-1',
-    ...overrides,
-  })
-}
-
-export function testStateAdapter(overrides: Partial<StateAdapter> = {}): StateAdapter {
-  return {
-    acquireLock: unexpectedTestCall,
-    appendToList: unexpectedTestCall,
-    connect: () => Promise.resolve(),
-    delete: unexpectedTestCall,
-    dequeue: unexpectedTestCall,
-    disconnect: () => Promise.resolve(),
-    enqueue: unexpectedTestCall,
-    extendLock: unexpectedTestCall,
-    forceReleaseLock: unexpectedTestCall,
-    get: unexpectedTestCall,
-    getList: unexpectedTestCall,
-    isSubscribed: unexpectedTestCall,
-    queueDepth: unexpectedTestCall,
-    releaseLock: unexpectedTestCall,
-    set: unexpectedTestCall,
-    setIfNotExists: unexpectedTestCall,
-    subscribe: unexpectedTestCall,
-    unsubscribe: unexpectedTestCall,
     ...overrides,
   }
 }

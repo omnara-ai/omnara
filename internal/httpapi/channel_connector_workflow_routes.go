@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -96,17 +95,19 @@ func channelWorkflowDeliveryInput(
 		}
 	}
 	routeID, routeOK := parseOpenAPIPublicID(publicid.KindIntegrationRoute, body.RouteId)
-	definitionID, definitionOK := parseOpenAPIPublicID(publicid.KindChannelDefinition, body.Target.DefinitionId)
-	if !routeOK || !definitionOK {
+	if !routeOK {
 		return input, uuid.Nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	input.Target.ChannelDefinitionID = definitionID
-	if body.Target.ParentChannelId != nil {
-		id, ok := parseOpenAPIPublicID(publicid.KindIntegrationTarget, *body.Target.ParentChannelId)
-		if !ok {
-			return input, routeID, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-		}
-		input.Target.ParentChannelID = id
+	var err error
+	input.Target, input.ParentTarget, err = channelRegistrationInput(body.Target)
+	if err != nil {
+		return input, routeID, err
+	}
+	if strings.TrimSpace(body.InstanceKey) == "" || len(body.InstanceKey) > 512 {
+		return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "instance key is empty or too large")
+	}
+	if err := dbsafe.Text(body.InstanceKey); err != nil {
+		return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "instance key: "+err.Error())
 	}
 	fields, err := channelDeliveryFields(body.Receipt, body.Author, body.Metadata,
 		body.DeliveryMode, body.CancelOpenInteractions)
@@ -117,37 +118,6 @@ func channelWorkflowDeliveryInput(
 	input.ProviderUserID, input.ActorDisplayName = fields.ProviderUserID, fields.ActorDisplayName
 	input.Metadata, input.DeliveryMode = fields.Metadata, fields.DeliveryMode
 	input.CancelOpenInteractions = fields.CancelOpenInteractions
-	for _, field := range []struct {
-		name, value string
-		maxBytes    int
-	}{
-		{"instance key", body.InstanceKey, 512},
-		{"provider ref", body.Target.ProviderRef, 512},
-		{"provider ref kind", body.Target.ProviderRefKind, 128},
-	} {
-		if strings.TrimSpace(field.value) == "" || len(field.value) > field.maxBytes {
-			return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, field.name+" is empty or too large")
-		}
-		if err := dbsafe.Text(field.value); err != nil {
-			return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, field.name+": "+err.Error())
-		}
-	}
-	input.Target.ProviderRef, input.Target.ProviderRefKind = body.Target.ProviderRef, body.Target.ProviderRefKind
-	if body.Target.DisplayName != nil {
-		input.Target.DisplayName = *body.Target.DisplayName
-	}
-	if len(input.Target.DisplayName) > 512 {
-		return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "target display name exceeds 512 bytes")
-	}
-	if err := dbsafe.Text(input.Target.DisplayName); err != nil {
-		return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	}
-	if body.Target.ProviderMetadata != nil {
-		input.Target.ProviderMetadata, err = channelconnector.NormalizeOpaqueObject(body.Target.ProviderMetadata)
-		if err != nil {
-			return input, routeID, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "target metadata: "+err.Error())
-		}
-	}
 	input.ReadAllowed, input.SendAllowed = body.Grants.Read, body.Grants.Send
 	return input, routeID, nil
 }

@@ -193,7 +193,8 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
-		"configured_models,daemon_runtimes,integration_apps,integration_installs,integration_runtime_units," +
+		"configured_models,daemon_runtimes,integration_apps,integration_control_receipts," +
+		"integration_installs,integration_runtime_units," +
 		"machine_daemon_tokens," +
 		"machine_online_intervals,machine_pools,machines,mcp_server_catalogs,model_call_contexts," +
 		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
@@ -224,7 +225,8 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
-		"agent_profiles,agents,cron_triggers,external_channel_requests,integration_channel_definitions," +
+		"agent_profiles,agents,cron_trigger_channel_bindings,cron_triggers,external_channel_requests," +
+		"github_pr_reviews,integration_channel_definitions," +
 		"integration_event_outcomes,integration_event_receipts,integration_installs,integration_routes," +
 		"integration_runtime_units,integration_target_bindings,integration_targets,integration_workflows," +
 		"model_call_contexts,process_actions,processes,project_machine_grants," +

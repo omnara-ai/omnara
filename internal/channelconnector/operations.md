@@ -1,7 +1,7 @@
 # Bounded outgoing transport
 
 This package provides the managed connector transport and typed send/read/interaction
-contracts. Harness tools prepare scoped operations through executionstore, stream
+contracts, plus read-only address resolution for project setup. Harness tools prepare scoped operations through executionstore, stream
 authorized artifacts, and use the shared transactional completion mapper. The
 gateway executes Slack operations. This client does not schedule or redispatch
 operations; external customer tool waits have their own finite lifecycle.
@@ -13,6 +13,16 @@ trailing slash. Validation permits absolute HTTP/HTTPS URLs (including private
 HTTP services) and rejects userinfo, queries, fragments, encoded paths,
 dot segments, doubled path separators, and invalid ports. Empty means inbound
 authentication only. `Identity` never contains this endpoint or its token.
+
+Project managers register managed channels through `registerChannel` with
+`source: managed` and a native provider address. Core sends `resolve_address`
+with project/app/install scope only; it forbids agent/channel IDs and artifacts
+for this operation. The gateway verifies the address using provider reads and
+may publish its channel definition back to core. Core holds no transaction open
+across that RPC, then registers the resolved address and optional parent together
+under live installation/application checks. Registration creates no agents or
+bindings. All send/read/interaction operations still require agent/channel scope.
+Address-resolution transport failures are definite failures, never uncertain sends.
 
 The public Go entry points are:
 
@@ -61,20 +71,24 @@ type OperationError struct {
 }
 ```
 
-`OperationKind` is `send`, `read`, or `interaction`, with exported constants
-`OperationSend`, `OperationRead`, and `OperationInteraction`. `OperationOutcome`
+`OperationKind` is `send`, `read`, `interaction`, or `resolve_address`, with exported constants
+`OperationSend`, `OperationRead`, `OperationInteraction`, and `OperationResolveAddress`. `OperationOutcome`
 is `completed`, `failed`, or `unknown`, with constants `OperationCompleted`,
 `OperationFailed`, and `OperationUnknown`. Draft/publication and partial history
 semantics belong in the completed operation's typed payload.
 
-One POST carries `Authorization: Bearer <deployment connector token>`. The URL
-comes exclusively from the selected route, never from request data. The caller
+One POST carries `Authorization: Bearer <deployment connector token>` and
+`X-Omnara-Channel-Request-ID`, the unpadded base64url encoding of the UTF-8
+request ID. The correlation header allows an authenticated gateway to identify
+an early rejection before reading the body; it is not an idempotency key. A
+received header must match the body request ID before dispatch. The URL comes
+exclusively from the selected route, never from request data. The caller
 must supply a context deadline. The private JSON envelope contains:
 
 ```json
 {
   "request_id": "stable-operation-id",
-  "capability": {"connector_key": "chat_sdk", "provider": "slack"},
+  "capability": { "connector_key": "omnara", "provider": "slack" },
   "kind": "send",
   "scope": {
     "project_id": "resolved-project",
@@ -85,7 +99,13 @@ must supply a context deadline. The private JSON envelope contains:
   },
   "deadline": "2026-09-14T12:00:00Z",
   "payload": {},
-  "artifacts": [{"id": "authorized-artifact", "filename": "a.txt", "content_type": "text/plain"}]
+  "artifacts": [
+    {
+      "id": "authorized-artifact",
+      "filename": "a.txt",
+      "content_type": "text/plain"
+    }
+  ]
 }
 ```
 
@@ -118,12 +138,19 @@ provider mutation. An incomplete upload cannot be accepted merely because its
 metadata arrived. Do not buffer all files in RAM.
 
 HTTP 200 with `application/json` must contain a correlated terminal
-`OperationResult`. Missing/malformed/oversized replies, HTTP errors (including
-429/5xx), redirects, and disconnects after dispatch produce a non-nil
-`OperationError`: unknown for mutations, failed for reads. Only the correlated
-gateway envelope can establish a known mutation failure. Failed/unknown gateway
-payloads are discarded; error codes are local fixed diagnostics, without raw
-HTTP/source errors, response bodies, or token-bearing causes. No HTTP mutation
+`OperationResult`. A 4xx/5xx response can establish a known pre-dispatch failure
+only with an exact correlated JSON `{request_id,outcome:"failed"}` envelope and
+no payload. That rejection cancels any unfinished upload instead of waiting for
+it to complete. Missing/malformed/oversized replies, uncorrelated HTTP errors,
+redirects, and disconnects after dispatch produce a non-nil `OperationError`:
+unknown for mutations, failed for reads. Only the correlated gateway envelope
+can establish a known mutation failure. Failed/unknown gateway payloads may contain
+only the fixed codes and bounded recovery facts accepted by
+[DecodeOperationFailure](operation_failures.go). For example, an uncertain finding
+can retain its already-recorded review ID without claiming the finding was unsent.
+Core supplies fixed explanatory text; raw provider diagnostics and unexpected
+fields are discarded. Foreign-review conflicts cannot disclose creator references.
+No HTTP mutation
 is retried by this client. No receipt, 202, or pending result is completion.
 
 The new gateway helper exposes:
@@ -165,3 +192,27 @@ drives the real Go client through send, read, interaction, and a streamed 12 MiB
 artifact. The [Slack sender journey](../httpapi/slack_sender_journey_integration_test.go)
 exercises provider execution, transactional completion, child-channel grants,
 and subsequent inbound replies against Go HTTP and PostgreSQL.
+
+## GitHub review identity callbacks
+
+A first review finding records its creator, PR, original send binding and commit
+in the same core transaction that validates the actual tool call. These are
+historical facts, not a local copy of GitHub's pending-review state. The gateway
+creates the native review, records its returned ID through the connector API,
+and adds the first finding only when that acknowledgment permits continuation.
+
+The installation-scoped `github-reviews/lookup` and `github-reviews/record`
+callbacks derive scope from the durable send tool call and the connector's exact
+capability. Lookup classifies bounded native observations as owned, other-agent,
+or unknown. A draft reply requires an owned result for that exact native review;
+an ordinary published-thread reply does not transfer draft ownership. An omitted
+native commit does not erase ownership: the result retains the creator's original
+commit pin. The `create_response` recording requires that original commit and
+issuing call; recovery by an exact native marker can omit the observed commit.
+
+Recording the same native ID is idempotent; replacing it conflicts. Recording
+commits before checking continuation so a late response after Stop or disconnect
+can retain the ID while returning `continue: false`. Neither callback grants new
+send authority. Stop, archive, disconnect, revocation, new commits and PR closure
+never delete or publish GitHub content. Only explicit agent actions change it;
+an already-dispatched action may still finish after cancellation.

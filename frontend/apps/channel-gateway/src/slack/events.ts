@@ -129,6 +129,22 @@ export function displayMetadata(text: string, display: string) {
     : { omnara_display_text: display }
 }
 
+export function slackChannelDisplayName(
+  event: SlackInboundEvent,
+  route: SlackInboundRoute,
+  labels: SlackLabels,
+): string | undefined {
+  const user = labels.users.get(event.user)?.trim() ?? ''
+  const channel = labels.channels.get(event.channel)?.trim() ?? ''
+  const name = route.kind === 'dm' ? (user ? `Slack DM with ${user}` : '') : channel
+  // An omitted name preserves prior enrichment on replay or lookup failure.
+  // Channel names also match the core's handling of Slack rename events.
+  if (!name) return undefined
+  // Provider labels are optional enrichment, never permission to exceed the
+  // canonical display-name bound (512 UTF-8 bytes).
+  return Array.from(name).slice(0, 128).join('')
+}
+
 function inputContext(
   event: SlackInboundEvent,
   route: SlackInboundRoute,

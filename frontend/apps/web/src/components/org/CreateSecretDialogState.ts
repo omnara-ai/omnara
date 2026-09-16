@@ -2,9 +2,20 @@ import type { AwsCredentialsSecretMaterial, Secret } from '@omnara/sdk'
 
 import { newOAuthTokenSetEntries, type OAuthEntry } from '@/lib/oauthEntries'
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'mcp_oauth' | 'aws_credentials'
+import {
+  type IntegrationCredentialsDraft,
+  newIntegrationCredentials,
+} from './integrationCredentials'
+
+export type SecretKind =
+  | 'generic'
+  | 'oauth_token_set'
+  | 'mcp_oauth'
+  | 'aws_credentials'
+  | 'integration_credentials'
 
 export const secretKinds = [
+  { value: 'integration_credentials', label: 'App credentials' },
   { value: 'generic', label: 'Generic' },
   { value: 'oauth_token_set', label: 'OAuth token set' },
   { value: 'mcp_oauth', label: 'MCP OAuth secret' },
@@ -16,6 +27,7 @@ export function isSecretKind(value: string): value is SecretKind {
 }
 
 export type SecretFormSecret =
+  | IntegrationCredentialsDraft
   | GenericSecretFormSecret
   | OAuthTokenSetSecretFormSecret
   | McpOAuthSecretFormSecret
@@ -95,6 +107,7 @@ export interface SecretDialogState {
 }
 
 export type SecretDialogAction =
+  | { type: 'set-integration-credentials'; secret: IntegrationCredentialsDraft }
   | { type: 'set-name'; name: string }
   | { type: 'set-kind'; kind: SecretKind }
   | { type: 'set-generic-value'; value: string }
@@ -122,6 +135,7 @@ export function newSecretDialogState(): SecretDialogState {
 }
 
 export function newSecretFormSecret(kind: SecretKind): SecretFormSecret {
+  if (kind === 'integration_credentials') return newIntegrationCredentials()
   if (kind === 'oauth_token_set') {
     return {
       kind,
@@ -149,6 +163,8 @@ export function secretDialogReducer(
   action: SecretDialogAction,
 ): SecretDialogState {
   switch (action.type) {
+    case 'set-integration-credentials':
+      return { ...state, secret: action.secret }
     case 'set-name':
       return { ...state, name: action.name }
     case 'set-kind':
@@ -188,6 +204,8 @@ export function secretDialogReducer(
     case 'reset':
       return newSecretDialogState()
     case 'closed':
-      return { ...state, createdSecret: null, error: '' }
+      return state.secret.kind === 'integration_credentials'
+        ? newSecretDialogState()
+        : { ...state, createdSecret: null, error: '' }
   }
 }

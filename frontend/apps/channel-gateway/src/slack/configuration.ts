@@ -2,14 +2,18 @@ import type { ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
 import { z } from 'zod'
 
 import { SlackAPIError } from './client'
-import type { SlackCredentials } from './messages'
+
+export interface SlackCredentials {
+  botToken: string
+  botUserId: string
+}
 
 const nonempty = z.string().refine((value) => value.trim().length > 0)
-const credential = z.object({ access_token: nonempty, signing_secret: nonempty })
+const credential = z.object({ access_token: nonempty })
 const identity = z.object({ bot_user_id: nonempty })
 
-/** Reuse the existing combined installation credential. OAuth client fields stay
- * in that credential; send/read do not need an app-level secret or tenant value.
+/** Core projects only the installed bot token from the stored combined secret.
+ * OAuth client fields and webhook verification secrets never enter this runtime.
  */
 export function slackCredentials(
   configuration: ChannelConnectorInstallationConfiguration,
@@ -25,7 +29,6 @@ export function slackCredentials(
   }
   return {
     botToken: parsedCredential.data.access_token,
-    signingSecret: parsedCredential.data.signing_secret,
     botUserId: parsedIdentity.data.bot_user_id,
   }
 }

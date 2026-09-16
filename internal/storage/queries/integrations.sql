@@ -295,17 +295,17 @@ WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'man
 
 -- name: InsertIntegrationTarget :one
 INSERT INTO integration_targets(
-  project_id, integration_install_id, target_ref, provider_ref,
+  project_id, integration_install_id, provider_ref,
   provider_ref_kind, parent_channel_id, channel_definition_id, display_name, provider_metadata, created_at, updated_at
 )
 VALUES (
   sqlc.arg(project_id), sqlc.arg(integration_install_id),
-  sqlc.arg(target_ref), sqlc.arg(provider_ref), sqlc.arg(provider_ref_kind), sqlc.narg(parent_channel_id), sqlc.arg(channel_definition_id),
+  sqlc.arg(provider_ref), sqlc.arg(provider_ref_kind), sqlc.narg(parent_channel_id), sqlc.arg(channel_definition_id),
   sqlc.arg(display_name), sqlc.arg(provider_metadata),
   transaction_timestamp(), transaction_timestamp()
 )
-ON CONFLICT DO NOTHING
-RETURNING id, project_id, integration_install_id, target_ref, provider_ref,
+ON CONFLICT (project_id, integration_install_id, provider_ref) WHERE deleted_at IS NULL DO NOTHING
+RETURNING id, project_id, integration_install_id, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at, parent_channel_id, channel_definition_id;
 
 -- name: UpdateResolvedIntegrationTarget :one
@@ -327,11 +327,11 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND provider_ref_kind = sqlc.arg(provider_ref_kind)
   AND deleted_at IS NULL
-RETURNING id, project_id, integration_install_id, target_ref, provider_ref,
+RETURNING id, project_id, integration_install_id, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at, parent_channel_id, channel_definition_id;
 
 -- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.target_ref, target.provider_ref,
+SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.provider_ref,
   target.provider_ref_kind, target.parent_channel_id, target.channel_definition_id, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
@@ -340,7 +340,7 @@ WHERE target.project_id = sqlc.arg(project_id)
   AND target.deleted_at IS NULL;
 
 -- name: GetIntegrationTargetByProviderRef :one
-SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.target_ref, target.provider_ref,
+SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.provider_ref,
   target.provider_ref_kind, target.parent_channel_id, target.channel_definition_id, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
@@ -358,37 +358,6 @@ WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
   AND split_part(provider_ref, ':', 1) = sqlc.arg(provider_ref_prefix)
   AND display_name IS DISTINCT FROM sqlc.arg(display_name);
-
--- name: ListIntegrationTargets :many
-SELECT target.id,
-  target.integration_install_id,
-  target.target_ref,
-  target.provider_ref,
-  target.provider_ref_kind,
-  target.display_name,
-  install.provider, install.state AS install_state,
-  CASE WHEN agent.integration_target_id = target.id THEN true ELSE false END AS is_current
-FROM integration_targets target
-JOIN agents agent
-  ON agent.project_id = target.project_id
- AND agent.id = sqlc.arg(agent_id)::uuid
-JOIN integration_installs install
-  ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
- AND install.deleted_at IS NULL
-WHERE target.project_id = sqlc.arg(project_id)
-  AND EXISTS (
-    SELECT 1 FROM integration_target_bindings binding
-    WHERE binding.project_id = target.project_id AND binding.integration_target_id = target.id
-      AND binding.agent_id = agent.id AND binding.revoked_at IS NULL
-      AND (binding.integration_route_id IS NULL OR EXISTS (
-        SELECT 1 FROM integration_routes route
-        WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-          AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
-      ))
-  )
-  AND target.deleted_at IS NULL
-ORDER BY is_current DESC, target.created_at ASC, target.id ASC;
 
 -- name: SetAgentIntegrationTarget :one
 UPDATE agents

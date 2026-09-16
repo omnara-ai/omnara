@@ -2,6 +2,7 @@ import {
   type ConfiguredModel,
   type CreateConfiguredModelRequest,
   type CreateModelProviderConfigRequest,
+  type DiscoveredModelPricing,
   type ListModelProviderConfigsData,
   type ModelProviderConfig,
   type OmnaraClient,
@@ -20,9 +21,11 @@ import {
   type QueryClient,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import {
@@ -68,6 +71,52 @@ export function useModelCatalog(
     ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID }, client }),
     enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
   })
+}
+
+const modelCatalogPricingStaleTime = 5 * 60 * 1000
+
+export interface ModelPricingLookup {
+  pricingFor: (
+    modelProviderConfigID: string,
+    providerModelSlug: string,
+  ) => DiscoveredModelPricing | undefined
+  isPending: boolean
+}
+
+export function useClusterModelPricing(orgID: string): ModelPricingLookup {
+  const client = useOmnaraClient()
+  const providersQuery = useModelProviders(orgID, { pageSize: 100 })
+  const { fetchNextPage, hasNextPage, isError, isFetching } = providersQuery
+  useEffect(() => {
+    if (!hasNextPage || isFetching || isError) return
+    void fetchNextPage()
+  }, [fetchNextPage, hasNextPage, isError, isFetching])
+  const clusterProviders = (providersQuery.data?.pages ?? [])
+    .flatMap((page) => page.data)
+    .filter((provider) => provider.management_kind === 'cluster')
+  const catalogs = useQueries({
+    queries: clusterProviders.map((provider) => ({
+      ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID: provider.id }, client }),
+      staleTime: modelCatalogPricingStaleTime,
+    })),
+  })
+  const pricingByProvider = new Map<string, Map<string, DiscoveredModelPricing>>()
+  clusterProviders.forEach((provider, index) => {
+    const models = catalogs[index]?.data?.models ?? []
+    const bySlug = new Map<string, DiscoveredModelPricing>()
+    for (const model of models) {
+      if (model.pricing) bySlug.set(model.slug, model.pricing)
+    }
+    pricingByProvider.set(provider.id, bySlug)
+  })
+  return {
+    pricingFor: (modelProviderConfigID, providerModelSlug) =>
+      pricingByProvider.get(modelProviderConfigID)?.get(providerModelSlug),
+    isPending:
+      providersQuery.isPending ||
+      (hasNextPage && !isError) ||
+      catalogs.some((catalog) => catalog.isPending),
+  }
 }
 
 export function useConfiguredModels(

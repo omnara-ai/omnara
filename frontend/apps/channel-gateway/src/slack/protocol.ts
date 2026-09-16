@@ -1,4 +1,4 @@
-import type { SlackAdapter } from '@chat-adapter/slack'
+import type { WebClient } from '@slack/web-api'
 import { z } from 'zod'
 
 export const slackTimestamp = z.string().regex(/^\d{1,20}\.\d{1,6}$/)
@@ -79,11 +79,20 @@ export const slackResponses = {
         .nullish(),
     }),
   }),
-  'conversations.info': z.object({ channel: z.object({ name: z.string().optional() }) }),
+  'conversations.info': z.object({
+    channel: z.object({
+      id: z.string().optional(),
+      name: z.string().optional(),
+      is_channel: z.boolean().optional(),
+      is_group: z.boolean().optional(),
+      is_im: z.boolean().optional(),
+      is_mpim: z.boolean().optional(),
+      context_team_id: z.string().optional(),
+    }),
+  }),
 }
 export type SlackMethod = keyof typeof slackResponses
 export type SlackResponse<M extends SlackMethod> = z.infer<(typeof slackResponses)[M]>
-type WebClient = SlackAdapter['webClient']
 export interface SlackRequest {
   'reactions.add': Parameters<WebClient['reactions']['add']>[0]
   'chat.update': Parameters<WebClient['chat']['update']>[0]

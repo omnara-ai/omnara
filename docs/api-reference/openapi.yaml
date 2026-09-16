@@ -592,6 +592,45 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgUsage
+      tags: [Organizations and Projects]
+      summary: Get org usage
+      description: >-
+        Tallies model token usage and provider-reported cost across every
+        agent in the organization, broken down by configured model. Optionally
+        limits the tally to a time window or to a subset of projects.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - $ref: '#/components/parameters/UsageIncludeProjectIDs'
+        - $ref: '#/components/parameters/UsageExcludeProjectIDs'
+      responses:
+        '200':
+          description: Usage totals for the organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects:
     parameters:
       - name: orgID
@@ -718,6 +757,48 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    get:
+      operationId: getProjectUsage
+      tags: [Organizations and Projects]
+      summary: Get project usage
+      description: >-
+        Tallies model token usage and provider-reported cost across every
+        agent in the project, including subagents, broken down by configured model.
+        Optionally limits the tally to a time window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+      responses:
+        '200':
+          description: Usage totals for the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -2178,6 +2259,178 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/integration-apps:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listIntegrationApps
+      tags: [Configs and Profiles]
+      summary: List integration apps
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: List integration apps.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListIntegrationAppsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createIntegrationApp
+      tags: [Configs and Profiles]
+      summary: Register an integration app
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationAppRequest'
+      responses:
+        '201':
+          description: Register an integration app.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationApp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/integration-apps/{integrationAppID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+    get:
+      operationId: getIntegrationApp
+      tags: [Configs and Profiles]
+      summary: Get integration app configuration
+      responses:
+        '200':
+          description: Get integration app configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationApp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateIntegrationApp
+      tags: [Configs and Profiles]
+      summary: Update integration app configuration
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIntegrationAppRequest'
+      responses:
+        '200':
+          description: Update integration app configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationApp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-apps:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    get:
+      operationId: listEligibleIntegrationApps
+      tags: [Configs and Profiles]
+      summary: List apps available to a project
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: List apps available to a project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListIntegrationAppsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/integration-installs:
     parameters:
       - name: orgID
@@ -2340,11 +2593,11 @@ paths:
         schema:
           $ref: '#/components/schemas/IntegrationInstallID'
     post:
-      operationId: registerExternalChannel
+      operationId: registerChannel
       tags: [Channels]
-      summary: Register an external channel
+      summary: Register a channel
       description: >-
-        Requires project management and an external connection. Registers an address without creating or granting access to an agent. Repeating an address preserves its ID; changing its definition or parent conflicts.
+        Requires project management. External connections accept a customer-defined address; managed connections resolve a provider address through the gateway. Registers an address without creating or granting access to an agent. Repeating an address preserves its ID. Definition and parent identity remain immutable; managed resolution preserves an existing address with no recorded parent.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2354,10 +2607,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterExternalChannelRequest'
+              $ref: '#/components/schemas/RegisterChannelRequest'
       responses:
         '200':
-          description: Register an external channel.
+          description: Register a channel.
           content:
             application/json:
               schema:
@@ -2378,6 +2631,31 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+    get:
+      operationId: listRegisteredChannels
+      tags: [Channels]
+      summary: List registered channels
+      description: >-
+        Lists project-owned addresses in this connection, including channels with no agent bindings.
+        Requires project read access. Does not read provider messages or grant access to an agent.
+        Ordered by created_at descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Registered channels in the connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListRegisteredChannelsResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '4XX': { $ref: '#/components/responses/ClientError' }
+        '5XX': { $ref: '#/components/responses/ServerError' }
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/channel-bindings:
     parameters:
       - name: orgID
@@ -3190,6 +3468,62 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentProfileID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentProfileID'
+    get:
+      operationId: getAgentProfileUsage
+      tags: [Configs and Profiles]
+      summary: Get agent profile usage
+      description: >-
+        Tallies model token usage and provider-reported cost across the
+        top-level agents launched from this profile, broken down by configured
+        model. Usage from subagents those agents spawned is included only when
+        `include_subagents` is true. Optionally limits the tally to a time window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also include usage from subagents spawned, at every depth, by
+            agents launched from this profile. Defaults to false.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Usage totals for the agent profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
     parameters:
       - name: orgID
@@ -3233,6 +3567,300 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}/launch-profile:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    get:
+      operationId: getIntegrationLaunchProfile
+      tags: [Integrations]
+      summary: Get the profile for future integration launches
+      responses:
+        '200':
+          description: Current launch profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationLaunchProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: setIntegrationLaunchProfile
+      tags: [Integrations]
+      summary: Set the profile for future integration launches
+      description: Changes future agents created by the built-in integration behavior. Existing conversation agents and channel bindings are preserved. Null disables new launches while keeping existing replies working.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntegrationLaunchProfile'
+      responses:
+        '200':
+          description: Current launch profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationLaunchProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-oauth/setup:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    post:
+      operationId: startIntegrationConnection
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      tags: [Integrations]
+      summary: Start a managed integration connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartIntegrationConnectionRequest'
+      responses:
+        '201':
+          description: Start a managed integration connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationConnectionSetup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-oauth/{flowID}/github/installations:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: flowID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
+    get:
+      operationId: listGitHubSetupInstallations
+      tags: [Integrations]
+      summary: List accessible GitHub installations
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+      responses:
+        '200':
+          description: List accessible GitHub installations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSetupInstallations'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-oauth/{flowID}/github/installations/{providerInstallationID}/repositories:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: flowID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
+      - name: providerInstallationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/GitHubSetupProviderID'
+    get:
+      operationId: listGitHubSetupRepositories
+      tags: [Integrations]
+      summary: List accessible GitHub repositories
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+      responses:
+        '200':
+          description: List accessible GitHub repositories.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSetupRepositories'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-oauth/{flowID}/github/complete:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: flowID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
+    post:
+      operationId: completeGitHubConnection
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      tags: [Integrations]
+      summary: Connect a verified GitHub repository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteGitHubConnectionRequest'
+      responses:
+        '200':
+          description: Connect a verified GitHub repository.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationInstall'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3743,6 +4371,61 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentID'
+    get:
+      operationId: getAgentUsage
+      tags: [Agents]
+      summary: Get agent usage
+      description: >-
+        Tallies this agent's model token usage and provider-reported cost,
+        broken down by configured model. Optionally limits the tally to a time
+        window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also include usage from this agent's subagents at every depth.
+            Defaults to false.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Usage totals for the agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -7085,6 +7768,109 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installation-control-scopes:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+    get:
+      operationId: listChannelConnectorInstallationControlScopes
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Discover live and provider-disabled connections for one app and tenant
+      security:
+        - channelConnectorAuth: []
+      parameters:
+        - name: provider_tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - $ref: '#/components/parameters/PageLimit'
+        - name: after_installation_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/IntegrationInstallID'
+          description: Resume strictly after this connection. Omit to start at the beginning.
+        - name: through_installation_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/IntegrationInstallID'
+          description: Fixed inclusive traversal boundary; omission captures the current last connection.
+      responses:
+        '200':
+          description: Nondeleted installation descriptors without credentials or agent authority.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChannelConnectorInstallationControlScopesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/provider-state:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: setChannelConnectorInstallationProviderState
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Apply a revision-fenced provider availability observation
+      description: >-
+        Applies only to an existing nondeleted managed installation under a live app and project.
+        Does not restore deleted resources, revoked grants or terminal work. Read provider state after
+        reading the expected revisions. On conflict, reread both core and provider state.
+        Every accepted observation advances the installation revision, including unchanged state.
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetChannelConnectorInstallationProviderStateRequest'
+      responses:
+        '200':
+          description: The committed provider state and advanced installation revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetChannelConnectorInstallationProviderStateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/configuration:
     parameters:
       - name: integrationAppID
@@ -7205,6 +7991,100 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/lookup:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: lookupChannelConnectorGitHubReviews
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Classify native review observations for one admitted send
+      description: Exact connector capability and immutable admitted tool scope are required. Historical observations may be recorded after cancellation or disconnect, but confer no new send authority. No native GitHub mutation is performed by this endpoint.
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupChannelConnectorGitHubReviewsRequest'
+      responses:
+        '200':
+          description: Scoped review observations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LookupChannelConnectorGitHubReviewsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/github-reviews/record:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    post:
+      operationId: recordChannelConnectorGitHubReview
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Record a native review identity and check creation continuation
+      description: Exact connector capability and immutable admitted tool scope are required. Historical observations may be recorded after cancellation or disconnect, but confer no new send authority. No native GitHub mutation is performed by this endpoint.
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordChannelConnectorGitHubReviewRequest'
+      responses:
+        '200':
+          description: Scoped review observations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordChannelConnectorGitHubReviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '4XX':
           $ref: '#/components/responses/ClientError'
         '5XX':
@@ -7682,6 +8562,142 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/control-events:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+    post:
+      operationId: acceptChannelConnectorControlEvent
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Durably receive one provider event
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelInboundControlEventRequest'
+      responses:
+        '202':
+          description: >-
+            The receipt has committed. Identical retries return the same receipt and its current
+            state; a conflicting payload returns 409. Receipt does not imply agent processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelInboundControlEventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/control-events/claim-next:
+    post:
+      operationId: claimNextChannelConnectorControlEvent
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Claim one due app control receipt for an exact connector capability
+      description: >-
+        Claims at most one receipt, keeping each response to one bounded event payload.
+        The requested connector_key/provider pair must belong to the authenticated credential.
+        Expired leases can be reclaimed with a new token and generation.
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimNextChannelConnectorControlEventRequest'
+      responses:
+        '200':
+          description: One durably leased receipt, including its payload and current lease proof.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorControlReceipt'
+        '204':
+          description: No receipt is currently due for this capability.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/control-events/{receiptID}/complete:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: receiptID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationControlReceiptID'
+    post:
+      operationId: completeChannelConnectorControlEvent
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Finish processing an incoming receipt with its current lease
+      description: >-
+        App scope and an exact unexpired lease fence every completion. Yield records strictly
+        forward progress without spending the failure budget. Retry preserves confirmed progress
+        and schedules backoff; transient control work has no total claim ceiling.
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteChannelConnectorControlEventRequest'
+      responses:
+        '200':
+          description: The receipt outcome has committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelInboundControlEventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/events/{receiptID}/complete:
     parameters:
       - name: integrationAppID
@@ -7884,6 +8900,52 @@ components:
       bearerFormat: Omnara channel connector token
       description: An opaque token scoped to configured provider and connector implementation names.
   parameters:
+    UsageSince:
+      name: since
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Only tally model calls started at or after this instant. Omit to start
+        from the earliest recorded call.
+    UsageUntil:
+      name: until
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Only tally model calls started before this instant. Must be later than
+        `since` when both are given. Omit to include calls up to now.
+    UsageIncludeProjectIDs:
+      name: include_project_ids
+      in: query
+      required: false
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/ProjectID'
+      description: >-
+        Only tally model calls from these projects. Cannot be combined with
+        `exclude_project_ids`.
+    UsageExcludeProjectIDs:
+      name: exclude_project_ids
+      in: query
+      required: false
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/ProjectID'
+      description: >-
+        Tally model calls from every project except these. Cannot be combined
+        with `include_project_ids`.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -8132,6 +9194,9 @@ components:
     IntegrationEventReceiptID:
       type: string
       pattern: '^irec_[a-z2-7]{26}$'
+    IntegrationControlReceiptID:
+      type: string
+      pattern: '^icrc_[a-z2-7]{26}$'
     IntegrationRuntimeUnitID:
       type: string
       pattern: '^irun_[a-z2-7]{26}$'
@@ -8232,9 +9297,9 @@ components:
       pattern: '^itgt_[a-z2-7]{26}$'
     ChannelKind:
       type: string
-      enum: [SLACK_CHANNEL, SLACK_THREAD, EXTERNAL]
-      x-enum-varnames: [ChannelKindSlackChannel, ChannelKindSlackThread, ChannelKindExternal]
-      description: Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+      enum: [SLACK_CHANNEL, SLACK_THREAD, DISCORD_CHANNEL, DISCORD_THREAD, GITHUB_PR, GITHUB_REVIEW_THREAD, EXTERNAL]
+      x-enum-varnames: [ChannelKindSlackChannel, ChannelKindSlackThread, ChannelKindDiscordChannel, ChannelKindDiscordThread, ChannelKindGitHubPR, ChannelKindGitHubReviewThread, ChannelKindExternal]
+      description: Built-in Slack, Discord and GitHub connections publish their named channel kinds. Customer-defined channels use EXTERNAL.
     ChannelCapabilities:
       type: object
       additionalProperties: false
@@ -8273,11 +9338,43 @@ components:
           description: Valid send-parameter JSON Schema object, at most 256 KiB, without duplicate keys.
         capabilities:
           $ref: '#/components/schemas/ChannelCapabilities'
+    RegisterChannelRequest:
+      oneOf:
+        - $ref: '#/components/schemas/RegisterExternalChannelRequest'
+        - $ref: '#/components/schemas/RegisterManagedChannelRequest'
+      discriminator:
+        propertyName: source
+        mapping:
+          external: '#/components/schemas/RegisterExternalChannelRequest'
+          managed: '#/components/schemas/RegisterManagedChannelRequest'
+    RegisterManagedChannelRequest:
+      type: object
+      additionalProperties: false
+      required: [source, provider_ref]
+      properties:
+        source:
+          type: string
+          enum: [managed]
+          x-enum-varnames: [RegisterManagedChannelSource]
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Provider locator within this connection, such as a Discord channel ID or GitHub PR number. The connector resolves its canonical address.
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Optional provider-specific address kind hint.
     RegisterExternalChannelRequest:
       type: object
       additionalProperties: false
-      required: [definition_id, provider_ref, provider_ref_kind, name]
+      required: [source, definition_id, provider_ref, provider_ref_kind, name]
       properties:
+        source:
+          type: string
+          enum: [external]
+          x-enum-varnames: [RegisterExternalChannelSource]
         definition_id:
           $ref: '#/components/schemas/ChannelDefinitionID'
         parent_channel_id:
@@ -8301,7 +9398,7 @@ components:
     RegisteredChannel:
       type: object
       additionalProperties: false
-      required: [channel_id, definition_id, name]
+      required: [channel_id, definition_id, name, provider_ref, provider_ref_kind]
       properties:
         channel_id:
           $ref: '#/components/schemas/IntegrationTargetID'
@@ -8311,6 +9408,24 @@ components:
           $ref: '#/components/schemas/IntegrationTargetID'
         name:
           type: string
+        provider_ref:
+          type: string
+          description: Provider address within this connection.
+        provider_ref_kind:
+          type: string
+          description: Provider address kind.
+    ListRegisteredChannelsResponse:
+      type: object
+      additionalProperties: false
+      required: [channels, next_cursor]
+      properties:
+        channels:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RegisteredChannel'
+        next_cursor:
+          type: [string, "null"]
     AttachAgentChannelRequest:
       type: object
       additionalProperties: false
@@ -8690,6 +9805,9 @@ components:
         reply_channel:
           $ref: '#/components/schemas/ChannelReplyDestination'
           description: Required when message_channel is reply_channel. Existing-thread replies use destination and need no new child.
+        continuation_error:
+          $ref: '#/components/schemas/ChannelContinuationError'
+          description: The message is known at destination, but its provider reply channel could not be made available. Requires message_channel=destination and no reply_channel. Core preserves the known publication and reports a failed continuation; do not resend the message.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         metadata:
@@ -8819,10 +9937,153 @@ components:
           maxItems: 64
           items:
             $ref: '#/components/schemas/ChannelConnectorRoute'
-    ChannelWorkflowTarget:
+    GitHubReviewOperationScope:
+      type: object
+      additionalProperties: false
+      required: [request_id, agent_id, channel_id]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        channel_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+    GitHubReviewObservation:
+      type: object
+      additionalProperties: false
+      required: [review_id]
+      properties:
+        review_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        commit_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{40}$'
+          description: Native observed commit when available; nullable provider commits do not prevent identifying the creator. create_response evidence must supply the original requested commit.
+        creating_tool_call_id:
+          allOf:
+            - $ref: '#/components/schemas/ToolCallID'
+          description: Supply only when an exact Omnara marker was positively read from this bot-authored review. Author identity or an absent marker is never ownership evidence.
+    LookupChannelConnectorGitHubReviewsRequest:
+      type: object
+      additionalProperties: false
+      required: [scope, observations]
+      properties:
+        scope:
+          $ref: '#/components/schemas/GitHubReviewOperationScope'
+        observations:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/GitHubReviewObservation'
+    GitHubReviewOwnership:
+      type: string
+      enum: [owned, other_agent, unknown]
+      x-enum-varnames: [GitHubReviewOwned, GitHubReviewOtherAgent, GitHubReviewUnknown]
+    GitHubReviewOwnershipObservation:
+      type: object
+      additionalProperties: false
+      required: [review_id, ownership]
+      properties:
+        review_id:
+          type: string
+        ownership:
+          $ref: '#/components/schemas/GitHubReviewOwnership'
+        creating_tool_call_id:
+          allOf:
+            - $ref: '#/components/schemas/ToolCallID'
+          description: Present only for owned observations.
+        commit_id:
+          type: string
+          pattern: '^[0-9a-f]{40}$'
+          description: Immutable creator pin, present only for owned observations.
+    LookupChannelConnectorGitHubReviewsResponse:
+      type: object
+      additionalProperties: false
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/GitHubReviewOwnershipObservation'
+    GitHubReviewIdentityEvidence:
+      type: string
+      enum: [create_response, marker]
+      x-enum-varnames: [GitHubReviewCreateResponse, GitHubReviewMarker]
+    RecordChannelConnectorGitHubReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [scope, observation, evidence]
+      properties:
+        scope:
+          $ref: '#/components/schemas/GitHubReviewOperationScope'
+        observation:
+          allOf:
+            - $ref: '#/components/schemas/GitHubReviewObservation'
+            - type: object
+              required: [creating_tool_call_id]
+              properties:
+                creating_tool_call_id:
+                  $ref: '#/components/schemas/ToolCallID'
+          description: The exact creating call is required for recording. The native review ID is immutable once recorded.
+        evidence:
+          $ref: '#/components/schemas/GitHubReviewIdentityEvidence'
+    RecordChannelConnectorGitHubReviewResponse:
+      type: object
+      additionalProperties: false
+      required: [recorded, continue]
+      properties:
+        recorded:
+          type: boolean
+          description: The native identity is durably recorded; identical acknowledgment is idempotent.
+        continue:
+          type: boolean
+          description: True only for the original creating call with its live runtime and original send binding. Record identity before adding the first finding; false does not delete the draft or grant replacement authority.
+    ChannelOperationFailure:
+      type: object
+      additionalProperties: false
+      required: [code]
+      description: Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded. Review references may be supplied only for the issuing agent's own review.
+      properties:
+        code:
+          $ref: '#/components/schemas/ChannelOperationFailureCode'
+        metadata:
+          type: object
+          additionalProperties: false
+          properties:
+            review_id:
+              type: string
+              minLength: 1
+              maxLength: 512
+            commit_id:
+              type: string
+              pattern: '^[0-9a-fA-F]{40}$'
+    ChannelOperationFailureCode:
+      type: string
+      description: Fixed diagnostic. review_operation_unknown requires an unknown outcome; all other codes require failed.
+      enum: [invalid_address, address_unavailable, unsupported_address, review_not_owned, review_creation_in_progress, provider_pending_review_conflict, review_state_unavailable, pending_review_exists, review_commit_mismatch, review_creation_already_recorded, review_finding_failed, review_operation_unknown]
+      x-enum-varnames: [ChannelOperationFailureInvalidAddress, ChannelOperationFailureAddressUnavailable, ChannelOperationFailureUnsupportedAddress, ChannelOperationFailureReviewNotOwned, ChannelOperationFailureReviewCreationInProgress, ChannelOperationFailureProviderPendingReviewConflict, ChannelOperationFailureReviewStateUnavailable, ChannelOperationFailurePendingReviewExists, ChannelOperationFailureReviewCommitMismatch, ChannelOperationFailureReviewCreationAlreadyRecorded, ChannelOperationFailureReviewFindingFailed, ChannelOperationFailureReviewOperationUnknown]
+    ChannelResolveAddressOperation:
+      type: object
+      additionalProperties: false
+      required: [provider_ref]
+      description: Read-only managed setup. Resolve a provider locator without an agent, binding, or tool call; returns a ChannelRegistrationTarget.
+      properties:
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ChannelRegistrationTarget:
       type: object
       additionalProperties: false
       required: [definition_id, provider_ref, provider_ref_kind]
+      description: The input destination. Supply either an existing parent_channel_id or an inline parent to register atomically with this destination; parentage grants no agent access.
       properties:
         definition_id:
           $ref: '#/components/schemas/ChannelDefinitionID'
@@ -8839,6 +10100,29 @@ components:
           maxLength: 512
         parent_channel_id:
           $ref: '#/components/schemas/IntegrationTargetID'
+        parent:
+          $ref: '#/components/schemas/ChannelRegistrationParent'
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelRegistrationParent:
+      type: object
+      additionalProperties: false
+      required: [definition_id, provider_ref, provider_ref_kind]
+      description: One parent address in the same project and installation. Further ancestry uses an already registered parent_channel_id on the target instead.
+      properties:
+        definition_id:
+          $ref: '#/components/schemas/ChannelDefinitionID'
+        provider_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_ref_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        display_name:
+          type: string
+          maxLength: 512
         provider_metadata:
           $ref: '#/components/schemas/ChannelOpaqueObject'
     ChannelWorkflowGrants:
@@ -9031,7 +10315,7 @@ components:
         input_precondition:
           $ref: '#/components/schemas/ChannelInputPrecondition'
         target:
-          $ref: '#/components/schemas/ChannelWorkflowTarget'
+          $ref: '#/components/schemas/ChannelRegistrationTarget'
         grants:
           $ref: '#/components/schemas/ChannelWorkflowGrants'
         author:
@@ -9109,6 +10393,89 @@ components:
           minimum: 1
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    ChannelConnectorInstallationProviderState:
+      type: string
+      enum: [active, disabled]
+      x-enum-varnames: [ChannelConnectorInstallationProviderStateActive, ChannelConnectorInstallationProviderStateDisabled]
+    ChannelConnectorInstallationControlScope:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, provider_tenant_id, provider_account_ref, state, configuration_revision, provider_identity]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationInstallID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        provider_tenant_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_account_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_identity:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        state:
+          $ref: '#/components/schemas/ChannelConnectorInstallationProviderState'
+        configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+    ListChannelConnectorInstallationControlScopesResponse:
+      type: object
+      additionalProperties: false
+      required: [app_configuration_revision, installations, through_installation_id, next_after_installation_id]
+      properties:
+        app_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        installations:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ChannelConnectorInstallationControlScope'
+        through_installation_id:
+          type: [string, 'null']
+          pattern: '^iin_[a-z2-7]{26}$'
+        next_after_installation_id:
+          type: [string, 'null']
+          pattern: '^iin_[a-z2-7]{26}$'
+    SetChannelConnectorInstallationProviderStateRequest:
+      type: object
+      additionalProperties: false
+      required: [provider_tenant_id, provider_account_ref, expected_app_configuration_revision, expected_configuration_revision, state]
+      properties:
+        provider_tenant_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_account_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        expected_app_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        expected_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        state:
+          $ref: '#/components/schemas/ChannelConnectorInstallationProviderState'
+    SetChannelConnectorInstallationProviderStateResponse:
+      type: object
+      additionalProperties: false
+      required: [state, configuration_revision]
+      properties:
+        state:
+          $ref: '#/components/schemas/ChannelConnectorInstallationProviderState'
+        configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
     ChannelConnectorInstall:
       type: object
       additionalProperties: false
@@ -9184,6 +10551,129 @@ components:
           maxLength: 256
         metadata:
           $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelInboundControlEventRequest:
+      type: object
+      additionalProperties: false
+      required: [event_id, provider_tenant_id, payload]
+      properties:
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_tenant_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        payload:
+          $ref: '#/components/schemas/ChannelControlPayload'
+    ChannelControlPayload:
+      type: object
+      additionalProperties: true
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+      description: Immutable verified control data; one PostgreSQL-safe JSON object without duplicate keys, at most 64 KiB. Payload fields grant no authority.
+    ChannelInboundControlEventResponse:
+      type: object
+      additionalProperties: false
+      required: [receipt_id, state, last_installation_id, end_installation_id]
+      properties:
+        receipt_id:
+          $ref: '#/components/schemas/IntegrationControlReceiptID'
+        state:
+          $ref: '#/components/schemas/ChannelEventState'
+        last_installation_id:
+          type: [string, 'null']
+          pattern: '^iin_[a-z2-7]{26}$'
+        end_installation_id:
+          type: [string, 'null']
+          pattern: '^iin_[a-z2-7]{26}$'
+    ClaimNextChannelConnectorControlEventRequest:
+      type: object
+      additionalProperties: false
+      required: [capability, lease_ms]
+      properties:
+        capability:
+          $ref: '#/components/schemas/ChannelConnectorCapability'
+        lease_ms:
+          type: integer
+          format: int32
+          minimum: 1000
+          maximum: 300000
+    ChannelConnectorControlReceipt:
+      type: object
+      additionalProperties: false
+      required: [receipt_id, integration_app_id, provider_tenant_id, event_id, payload, state, last_installation_id, end_installation_id, lease_token, lease_generation, lease_expires_at, attempts_since_progress, last_error, created_at]
+      properties:
+        receipt_id:
+          $ref: '#/components/schemas/IntegrationControlReceiptID'
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        provider_tenant_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        event_id:
+          type: string
+        payload:
+          $ref: '#/components/schemas/ChannelControlPayload'
+        state:
+          $ref: '#/components/schemas/ChannelEventState'
+        last_installation_id:
+          type: [string, 'null']
+          pattern: '^iin_[a-z2-7]{26}$'
+        end_installation_id:
+          type: [string, 'null']
+          pattern: '^iin_[a-z2-7]{26}$'
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        lease_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        attempts_since_progress:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Claims since acknowledged forward progress; controls backoff, never claim eligibility.
+        last_error:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    ChannelControlOutcome:
+      type: string
+      enum: [completed, yield, retry, failed]
+      x-enum-varnames: [ChannelControlOutcomeCompleted, ChannelControlOutcomeYield, ChannelControlOutcomeRetry, ChannelControlOutcomeFailed]
+    CompleteChannelConnectorControlEventRequest:
+      type: object
+      additionalProperties: false
+      required: [lease_token, lease_generation, outcome]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        outcome:
+          $ref: '#/components/schemas/ChannelControlOutcome'
+        last_installation_id:
+          allOf:
+            - $ref: '#/components/schemas/IntegrationInstallID'
+          description: Last confirmed application or authoritative disappearance, strictly beyond previous progress and within the fixed end. Required for yield; omission preserves progress.
+        retry_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 86400000
+          description: Optional provider retry delay for retry only. Core applies at least its own backoff.
+        last_error:
+          allOf:
+            - $ref: '#/components/schemas/ChannelOpaqueObject'
+          description: Nonempty for retry or failed; omitted or empty for completed or yield.
     ChannelInboundEventRequest:
       type: object
       additionalProperties: false
@@ -9297,6 +10787,12 @@ components:
           minimum: 1
         state:
           $ref: '#/components/schemas/ChannelEventOutcome'
+        retry_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 86400000
+          description: Optional provider retry delay for pending only. Core applies at least its own backoff.
         last_error:
           allOf:
             - $ref: '#/components/schemas/ChannelOpaqueObject'
@@ -9304,7 +10800,7 @@ components:
     ResolveChannelConnectorInteractionRequest:
       type: object
       additionalProperties: false
-      required: [external_tenant_id, external_account_ref, integration_target_id, integration_target_binding_id, actor, answers, metadata]
+      required: [external_tenant_id, external_account_ref, agent_id, provider_ref, actor, answers, metadata]
       properties:
         external_tenant_id:
           type: string
@@ -9313,11 +10809,13 @@ components:
           type: string
           minLength: 1
           maxLength: 512
-        integration_target_id:
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        provider_ref:
           type: string
-          pattern: '^itgt_[a-z2-7]{26}$'
-        integration_target_binding_id:
-          $ref: '#/components/schemas/IntegrationBindingID'
+          minLength: 1
+          maxLength: 512
+          description: Canonical native address derived from the verified provider callback. Must match the channel pinned to this interaction. Core resolves the current live send binding; the callback never supplies binding authority.
         actor:
           $ref: '#/components/schemas/ChannelActor'
         answers:
@@ -9965,6 +11463,30 @@ components:
           minimum: 1
           maximum: 2147483647
           description: Provider-advertised maximum output limit in tokens, when available.
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+    DiscoveredModelPricing:
+      type: object
+      additionalProperties: false
+      description: >-
+        Provider-advertised list prices in USD per million tokens, as exact decimal
+        strings. Present only when the provider publishes pricing in its model
+        catalog (OpenRouter). Cache prices are omitted when the provider does not
+        publish them.
+      required: [input_usd_per_million, output_usd_per_million]
+      properties:
+        input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_read_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_write_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        output_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
     ModelProviderConfigList:
       type: object
       additionalProperties: false
@@ -10349,7 +11871,7 @@ components:
     ConfiguredModelSummary:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, name, provider_config, created_at, updated_at]
+      required: [id, org_id, model_provider_config_id, name, provider_config, provider_model_slug, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'
@@ -10363,6 +11885,9 @@ components:
         provider_config:
           $ref: '#/components/schemas/ResourceName'
           description: Name of the provider config that owns this model, used by agent YAML as model.provider_config.
+        provider_model_slug:
+          type: string
+          description: Exact provider model slug sent to the provider endpoint by the current revision.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -10727,6 +12252,111 @@ components:
           format: uri
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    IntegrationLaunchProfile:
+      type: object
+      additionalProperties: false
+      required: [agent_profile_id]
+      properties:
+        agent_profile_id:
+          type: [string, 'null']
+          pattern: '^aprf_[a-z2-7]{26}$'
+    StartIntegrationConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [integration_app_id]
+      properties:
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+        return_to:
+          type: string
+          maxLength: 2048
+    IntegrationConnectionSetup:
+      type: object
+      additionalProperties: false
+      required: [provider, flow_id, oauth_url, expires_at]
+      properties:
+        provider:
+          $ref: '#/components/schemas/IntegrationAppProvider'
+        flow_id:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
+        oauth_url:
+          type: string
+          format: uri
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    GitHubSetupProviderID:
+      type: string
+      pattern: '^[1-9][0-9]{0,15}$'
+      description: Native GitHub installation or repository ID, represented as a decimal string.
+    GitHubSetupInstallation:
+      type: object
+      additionalProperties: false
+      required: [id, account_login, suspended]
+      properties:
+        id:
+          $ref: '#/components/schemas/GitHubSetupProviderID'
+        account_login:
+          type: string
+        suspended:
+          type: boolean
+    GitHubSetupRepository:
+      type: object
+      additionalProperties: false
+      required: [id, full_name, private, can_connect]
+      properties:
+        id:
+          $ref: '#/components/schemas/GitHubSetupProviderID'
+        full_name:
+          type: string
+        private:
+          type: boolean
+        can_connect:
+          type: boolean
+          description: True when the authorizing GitHub user has repository administrator access.
+    GitHubSetupInstallations:
+      type: object
+      additionalProperties: false
+      required: [data, installation_url]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitHubSetupInstallation'
+        installation_url:
+          type: string
+          format: uri
+          description: Verified app installation page; open to add an installation, then refresh this list.
+        next_page:
+          type: integer
+          minimum: 1
+    GitHubSetupRepositories:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitHubSetupRepository'
+        next_page:
+          type: integer
+          minimum: 1
+    CompleteGitHubConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [installation_id, repository_id, repository_full_name]
+      properties:
+        installation_id:
+          $ref: '#/components/schemas/GitHubSetupProviderID'
+        repository_id:
+          $ref: '#/components/schemas/GitHubSetupProviderID'
+        repository_full_name:
+          type: string
+          maxLength: 201
+          pattern: '^[A-Za-z0-9][A-Za-z0-9-]{0,99}/[A-Za-z0-9_.-]{1,100}$'
+          description: Native owner/repository name from the picker. Used only as a lookup hint; GitHub must confirm the selected IDs and current user authority.
     CreateIntegrationOAuthSetupRequest:
       type: object
       additionalProperties: false
@@ -10746,6 +12376,119 @@ components:
           minLength: 1
         return_to:
           type: string
+    IntegrationAppProvider:
+      type: string
+      enum: [slack, discord, github]
+      x-enum-varnames: [IntegrationAppProviderSlack, IntegrationAppProviderDiscord, IntegrationAppProviderGitHub]
+    IntegrationAppState:
+      type: string
+      enum: [active, disabled]
+      x-enum-varnames: [IntegrationAppStateActive, IntegrationAppStateDisabled]
+    IntegrationAppConfiguration:
+      type: object
+      additionalProperties: false
+      description: Public provider configuration. GitHub and Slack require client_id; Discord uses its application ID and accepts an empty object. Credentials belong in the referenced secret.
+      properties:
+        client_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+    IntegrationAppSummary:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, provider, provider_app_ref, name, state, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        owner_project_id:
+          $ref: '#/components/schemas/ProjectID'
+        provider:
+          type: string
+        provider_app_ref:
+          type: string
+        name:
+          type: string
+          maxLength: 512
+          description: Existing display label, possibly empty; at most 512 UTF-8 bytes.
+        state:
+          $ref: '#/components/schemas/IntegrationAppState'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    IntegrationApp:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, provider, provider_app_ref, name, state, created_at, updated_at, provider_config]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        owner_project_id:
+          $ref: '#/components/schemas/ProjectID'
+        provider:
+          type: string
+        provider_app_ref:
+          type: string
+        name:
+          type: string
+          maxLength: 512
+          description: Existing display label, possibly empty; at most 512 UTF-8 bytes.
+        state:
+          $ref: '#/components/schemas/IntegrationAppState'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationAppConfiguration'
+    ListIntegrationAppsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationAppSummary'
+        next_cursor:
+          type: [string, 'null']
+    CreateIntegrationAppRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, provider_app_ref, name, credential_secret_id, provider_config]
+      properties:
+        provider:
+          $ref: '#/components/schemas/IntegrationAppProvider'
+        provider_app_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        owner_project_id:
+          $ref: '#/components/schemas/ProjectID'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationAppConfiguration'
+    UpdateIntegrationAppRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationAppConfiguration'
+        state:
+          $ref: '#/components/schemas/IntegrationAppState'
     IntegrationKind:
       type: string
       enum: [managed, external]
@@ -11474,6 +13217,13 @@ components:
         enabled:
           type: boolean
           default: true
+        channel_bindings:
+          type: array
+          maxItems: 64
+          x-go-type-skip-optional-pointer: true
+          description: Channel grants for each agent launched by a profile schedule. Agent-target schedules use the existing agent's bindings and do not accept this field with entries.
+          items:
+            $ref: '#/components/schemas/AttachAgentChannelRequest'
     UpdateCronTriggerRequest:
       type: object
       additionalProperties: false
@@ -11491,10 +13241,16 @@ components:
           $ref: '#/components/schemas/CronMessageTemplate'
         enabled:
           type: boolean
+        channel_bindings:
+          type: array
+          maxItems: 64
+          description: Replaces grants for future profile launches; an empty list clears them. Omit to preserve them. Existing agents keep their bindings. A firing already claimed may use its accepted configuration.
+          items:
+            $ref: '#/components/schemas/AttachAgentChannelRequest'
     CronTrigger:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, created_at, updated_at]
+      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, channel_bindings, last_fired_at, next_fire_at, failure_report, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/CronTriggerID'
@@ -11514,6 +13270,12 @@ components:
           $ref: '#/components/schemas/CronMessageTemplate'
         enabled:
           type: boolean
+        channel_bindings:
+          type: array
+          maxItems: 64
+          description: Grants applied atomically to each new profile agent. Empty for agent-target schedules. These grants do not subscribe the agent; integration behavior determines incoming delivery.
+          items:
+            $ref: '#/components/schemas/AttachAgentChannelRequest'
         last_fired_at:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -14969,6 +16731,116 @@ components:
             projects, ordered by updated_at descending.
           items:
             $ref: '#/components/schemas/AgentProfile'
+    UsageTokenTotals:
+      type: object
+      additionalProperties: false
+      description: >-
+        Summed token counts across the tallied model calls. Input totals are the
+        sum of uncached, cache-read, and cache-write tokens; output totals
+        include reasoning tokens.
+      required: [input_tokens_total, uncached_input_tokens, cache_read_input_tokens, cache_write_input_tokens, output_tokens_total, reasoning_output_tokens]
+      properties:
+        input_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        uncached_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_read_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_write_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoning_output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+    UsageCostTotals:
+      type: object
+      additionalProperties: false
+      required: [provider_reported_usd, model_calls_with_reported_cost]
+      properties:
+        provider_reported_usd:
+          type: string
+          description: >-
+            Exact decimal sum in USD of the costs the provider reported for the
+            tallied model calls. Calls whose provider reported no cost contribute
+            nothing; compare model_calls_with_reported_cost against model_calls
+            to see how complete the figure is.
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        model_calls_with_reported_cost:
+          type: integer
+          format: int64
+          minimum: 0
+    UsageTotals:
+      type: object
+      additionalProperties: false
+      required: [model_calls, tokens, cost]
+      properties:
+        model_calls:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Model calls that recorded token usage or a provider-reported cost.
+        tokens:
+          $ref: '#/components/schemas/UsageTokenTotals'
+        cost:
+          $ref: '#/components/schemas/UsageCostTotals'
+    UsageModel:
+      type: object
+      additionalProperties: false
+      required: [configured_model_id, name, provider_model_slug, model_provider_config_id, model_provider_config_name]
+      properties:
+        configured_model_id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Configured model name, resolved even if the model has since been deleted.
+        provider_model_slug:
+          type: string
+        model_provider_config_id:
+          $ref: '#/components/schemas/ModelProviderConfigID'
+        model_provider_config_name:
+          $ref: '#/components/schemas/ResourceName'
+    ModelUsageTotals:
+      type: object
+      additionalProperties: false
+      required: [model, model_calls, tokens, cost]
+      properties:
+        model:
+          $ref: '#/components/schemas/UsageModel'
+        model_calls:
+          type: integer
+          format: int64
+          minimum: 0
+        tokens:
+          $ref: '#/components/schemas/UsageTokenTotals'
+        cost:
+          $ref: '#/components/schemas/UsageCostTotals'
+    UsageReport:
+      type: object
+      additionalProperties: false
+      required: [totals, by_model]
+      properties:
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+        by_model:
+          type: array
+          description: >-
+            Per-model rows ordered by provider config name, configured model name,
+            then provider model slug. Models with distinct provider slugs across
+            revisions appear once per slug.
+          items:
+            $ref: '#/components/schemas/ModelUsageTotals'
     CurrentUserIdentity:
       type: object
       additionalProperties: false

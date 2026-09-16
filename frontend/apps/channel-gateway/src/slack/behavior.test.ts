@@ -55,6 +55,7 @@ describe('verified Slack receipt behavior', () => {
         definition_id: `cdef_${id}`,
         provider_ref: 'C1:100.000002',
         provider_ref_kind: 'thread',
+        display_name: 'general',
       },
       grants: { read: false, send: true },
       author: { ref: 'U1', display_name: 'Alice' },
@@ -107,6 +108,38 @@ describe('verified Slack receipt behavior', () => {
       'text',
       expect.stringContaining('whether to call `send_channel_message` at all'),
     )
+  })
+
+  it('keeps threaded IM input on the persistent DM and publishes no continuation capability', async () => {
+    const { context } = await fixture()
+    context.lookupWorkflow.mockResolvedValue(active())
+    await processSlackEvent(
+      receipt({ type: 'message', channel: 'D1', channel_type: 'im', thread_ts: '90.000001' }),
+      context,
+    )
+    expect(delivered(context)).toMatchObject({
+      instance_key: 'D1',
+      target: {
+        provider_ref: 'D1',
+        provider_ref_kind: 'dm',
+        display_name: 'Slack DM with Alice',
+      },
+    })
+    expect(context.publishDefinition.mock.calls[0]?.[1]).toMatchObject({
+      implementation_key: 'slack_dm',
+      kind: 'SLACK_CHANNEL',
+      capabilities: { creates_reply_channel: false, read: true, send: true },
+    })
+  })
+
+  it('preserves the stored channel name when optional label lookup fails', async () => {
+    const { context } = await fixture((request, response) => {
+      if (request.url !== '/conversations.info') return false
+      json(response, { ok: false, error: 'channel_not_found' })
+      return true
+    })
+    await processSlackEvent(receipt(), context)
+    expect(delivered(context).target.display_name).toBeUndefined()
   })
 
   it.each([
@@ -163,6 +196,7 @@ describe('verified Slack receipt behavior', () => {
       await processSlackEvent(receipt(extra), context)
       expect(delivered(context).input_key).toBe(key)
       expect(delivered(context).input_precondition).toBeUndefined()
+      expect(delivered(context).target.display_name).toBeUndefined()
       expect(calls).toEqual([])
     },
   )

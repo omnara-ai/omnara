@@ -44,7 +44,7 @@ func newChannelReceiptHTTPFixture(t *testing.T) channelReceiptHTTPFixture {
 	auth, err := channelconnector.NewAuthenticator([]channelconnector.Config{
 		{ID: "receipt-gateway", Token: f.token, Capabilities: connectorTestCapabilities("discord")},
 		{ID: "other-gateway", Token: f.otherToken, Capabilities: []channelconnector.Capability{
-			{ConnectorKey: "chat_sdk_v1", Provider: "telegram"},
+			{ConnectorKey: "test_connector", Provider: "telegram"},
 			{ConnectorKey: "custom_v1", Provider: "discord"},
 		}},
 	})
@@ -55,7 +55,7 @@ func newChannelReceiptHTTPFixture(t *testing.T) channelReceiptHTTPFixture {
 	createApp := func(ref string) integrationstore.IntegrationAppRecord {
 		app, err := f.project.Store.Integrations().CreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
 			OrgID: f.project.OrgUUID, Provider: "discord", ProviderAppRef: ref,
-			DisplayName: ref, ConnectorKey: "chat_sdk_v1", State: integrationstore.IntegrationAppStateActive,
+			DisplayName: ref, ConnectorKey: "test_connector", State: integrationstore.IntegrationAppStateActive,
 		})
 		require.NoError(t, err)
 		return app
@@ -132,7 +132,7 @@ func (f channelReceiptHTTPFixture) post(t *testing.T, path, body, token string, 
 }
 
 const channelReceiptClaimPath = "/api/v1/channel-connector/events/claim-next"
-const channelReceiptClaimBody = `{"lease_ms":60000,"capability":{"connector_key":"chat_sdk_v1","provider":"discord"}}`
+const channelReceiptClaimBody = `{"lease_ms":60000,"capability":{"connector_key":"test_connector","provider":"discord"}}`
 
 func TestChannelConnectorReceiptCommitAndReplay(t *testing.T) {
 	t.Parallel()
@@ -373,6 +373,99 @@ func TestChannelConnectorReceiptClaimAndComplete(t *testing.T) {
 	}
 	failed := f.post(t, secondPath, mustMarshalChannelRequest(t, failedBody), f.token, http.StatusOK)
 	require.Equal(t, "failed", failed["state"])
+	require.Empty(t, requestRawWithHeaders(t, f.handler, http.MethodPost,
+		channelReceiptClaimPath, channelReceiptClaimBody, http.StatusNoContent, authHeaders(f.token)))
+}
+
+func TestChannelConnectorReceiptRetryAfter(t *testing.T) {
+	f := newChannelReceiptHTTPFixture(t)
+	ctx := t.Context()
+	accepted := f.post(t, f.eventPath(t, f.app),
+		f.event(t, f.install, "provider-throttled", `{"message":"hello"}`), f.token, http.StatusAccepted)
+	receiptPublicID := channelReceiptString(t, accepted, "receipt_id")
+	receiptID := mustPublicHTTPID(t, publicid.KindIntegrationEventReceipt, receiptPublicID)
+	path := f.completePath(t, f.app, f.install, receiptPublicID)
+	claim := f.post(t, channelReceiptClaimPath, channelReceiptClaimBody, f.token, http.StatusOK)
+	require.Equal(t, receiptPublicID, claim["receipt_id"])
+	finish := map[string]any{
+		"lease_token": claim["lease_token"], "lease_generation": claim["lease_generation"],
+		"state": "pending", "retry_after_ms": time.Hour.Milliseconds(),
+		"last_error": map[string]any{"code": "rate_limited"},
+	}
+	readState := func(t *testing.T) string {
+		t.Helper()
+		var state string
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT jsonb_build_array(
+state, attempt_count, available_at, lease_token, lease_generation, lease_expires_at,
+last_error, completed_at, updated_at)::text FROM integration_event_receipts WHERE id = $1`, receiptID).Scan(&state))
+		return state
+	}
+	before := readState(t)
+	for _, test := range []struct {
+		name, state  string
+		retryAfterMs int64
+	}{
+		{"negative", "pending", -1},
+		{"over one day", "pending", (24 * time.Hour).Milliseconds() + 1},
+		{"completed with delay", "completed", time.Hour.Milliseconds()},
+		{"failed with delay", "failed", time.Hour.Milliseconds()},
+		{"completed with explicit zero", "completed", 0},
+		{"failed with explicit zero", "failed", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := mapsClone(finish)
+			invalid["state"], invalid["retry_after_ms"] = test.state, test.retryAfterMs
+			if test.state == "completed" {
+				delete(invalid, "last_error")
+			}
+			f.post(t, path, mustMarshalChannelRequest(t, invalid), f.token, http.StatusBadRequest)
+			require.Equal(t, before, readState(t), "HTTP rejection must preserve the current lease and retry state")
+		})
+	}
+	retried := f.post(t, path, mustMarshalChannelRequest(t, finish), f.token, http.StatusOK)
+	require.Equal(t, map[string]any{"receipt_id": receiptPublicID, "state": "pending"}, retried)
+	var delayed bool
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT available_at = updated_at + interval '1 hour'
+AND lease_token IS NULL AND lease_expires_at IS NULL AND completed_at IS NULL AND attempt_count = 1
+FROM integration_event_receipts WHERE id = $1`, receiptID).Scan(&delayed))
+	require.True(t, delayed, "HTTP milliseconds must persist a one-hour delay from the DB timestamp")
+	require.Empty(t, requestRawWithHeaders(t, f.handler, http.MethodPost,
+		channelReceiptClaimPath, channelReceiptClaimBody, http.StatusNoContent, authHeaders(f.token)))
+	makeReady := func() {
+		t.Helper()
+		_, err := f.pool.Exec(ctx, `UPDATE integration_event_receipts
+SET available_at = statement_timestamp() - interval '1 second' WHERE id = $1`, receiptID)
+		require.NoError(t, err)
+	}
+	makeReady()
+	reclaimed := f.post(t, channelReceiptClaimPath, channelReceiptClaimBody, f.token, http.StatusOK)
+	require.Equal(t, receiptPublicID, reclaimed["receipt_id"])
+	require.Equal(t, float64(2), reclaimed["attempt_count"])
+	require.Equal(t, float64(2), reclaimed["lease_generation"])
+	require.NotEqual(t, claim["lease_token"], reclaimed["lease_token"])
+	require.Equal(t, claim["payload"], reclaimed["payload"])
+	before = readState(t)
+	f.post(t, path, mustMarshalChannelRequest(t, finish), f.token, http.StatusConflict)
+	require.Equal(t, before, readState(t), "stale proof must not reschedule the replacement consumer's receipt")
+
+	finish["lease_token"], finish["lease_generation"] = reclaimed["lease_token"], reclaimed["lease_generation"]
+	finish["retry_after_ms"] = int64(0)
+	f.post(t, path, mustMarshalChannelRequest(t, finish), f.token, http.StatusOK)
+	var coreBackoff bool
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT available_at - updated_at BETWEEN interval '3.2 seconds'
+AND interval '4.8 seconds' FROM integration_event_receipts WHERE id = $1`, receiptID).Scan(&coreBackoff))
+	require.True(t, coreBackoff, "explicit zero must preserve the second attempt's existing jittered backoff")
+	require.Empty(t, requestRawWithHeaders(t, f.handler, http.MethodPost,
+		channelReceiptClaimPath, channelReceiptClaimBody, http.StatusNoContent, authHeaders(f.token)))
+	makeReady()
+	final := f.post(t, channelReceiptClaimPath, channelReceiptClaimBody, f.token, http.StatusOK)
+	require.Equal(t, receiptPublicID, final["receipt_id"])
+	require.Equal(t, float64(3), final["attempt_count"])
+	completedBody := map[string]any{
+		"lease_token": final["lease_token"], "lease_generation": final["lease_generation"], "state": "completed",
+	}
+	completed := f.post(t, path, mustMarshalChannelRequest(t, completedBody), f.token, http.StatusOK)
+	require.Equal(t, map[string]any{"receipt_id": receiptPublicID, "state": "completed"}, completed)
 	require.Empty(t, requestRawWithHeaders(t, f.handler, http.MethodPost,
 		channelReceiptClaimPath, channelReceiptClaimBody, http.StatusNoContent, authHeaders(f.token)))
 }

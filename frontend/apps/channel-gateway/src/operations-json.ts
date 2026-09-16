@@ -7,14 +7,17 @@ export const maxOperationPayloadBytes = 256 * 1024
 export const maxOperationArtifacts = 20
 export const maxOperationResponseBytes = 1024 * 1024
 
-export type OperationKind = 'send' | 'read' | 'interaction'
+export type OperationKind = 'send' | 'read' | 'interaction' | 'resolve_address'
 
 // Wire names mirror internal/channelconnector/operations.go's transport envelope.
 // Use generated operation types here once the shared schema owner publishes them.
-export interface OperationScope {
+export interface InstallationOperationScope {
   project_id: string
   integration_app_id: string
   integration_install_id: string
+}
+
+export interface OperationScope extends InstallationOperationScope {
   agent_id: string
   channel_id: string
 }
@@ -26,15 +29,26 @@ export interface OperationArtifactMetadata {
 }
 
 /** Transport validation only; the executor owns the operation-specific schema. */
-export interface GatewayOperation {
+interface GatewayOperationBase {
   requestId: string
   capability: ChannelConnectorCapability
-  kind: OperationKind
-  scope: OperationScope
   deadlineMs: number
   /** Original object JSON, preserving integers that cannot fit a JS number. */
   payloadJSON: string
   artifacts: readonly OperationArtifactMetadata[]
+}
+
+export type GatewayOperation = GatewayOperationBase &
+  (
+    | { kind: 'send' | 'read' | 'interaction'; scope: OperationScope }
+    | {
+        kind: 'resolve_address'
+        scope: InstallationOperationScope & { agent_id?: never; channel_id?: never }
+      }
+  )
+
+export function isReadOnlyOperation(kind: OperationKind): boolean {
+  return kind === 'read' || kind === 'resolve_address'
 }
 
 export class InvalidOperationError extends Error {
@@ -74,18 +88,15 @@ export function parseOperation(
     provider: textField(capabilityFields, 'provider', 128),
   }
   if (!allowedCapabilities.has(capabilityKey(capability))) throw new InvalidOperationError()
-  const scopeFields = parseObjectFields(required(fields, 'scope'), 8192)
-  const scopeNames = [
-    'project_id',
-    'integration_app_id',
-    'integration_install_id',
-    'agent_id',
-    'channel_id',
-  ]
-  exactFields(scopeFields, scopeNames)
   const kind = textField(fields, 'kind', 32)
-  if (kind !== 'send' && kind !== 'read' && kind !== 'interaction')
+  if (kind !== 'send' && kind !== 'read' && kind !== 'interaction' && kind !== 'resolve_address')
     throw new InvalidOperationError()
+  const scopeFields = parseObjectFields(required(fields, 'scope'), 8192)
+  const scopeNames = ['project_id', 'integration_app_id', 'integration_install_id']
+  exactFields(
+    scopeFields,
+    kind === 'resolve_address' ? scopeNames : [...scopeNames, 'agent_id', 'channel_id'],
+  )
   const deadline = textField(fields, 'deadline', 64)
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/.test(deadline)) {
     throw new InvalidOperationError()
@@ -129,18 +140,25 @@ export function parseOperation(
     ids.add(id)
     artifacts.push({ id, filename, content_type: contentType.toLowerCase() })
   }
-  if (kind === 'read' && artifacts.length !== 0) throw new InvalidOperationError()
-  return {
+  if (isReadOnlyOperation(kind) && artifacts.length !== 0) throw new InvalidOperationError()
+  const common = {
     requestId: textField(fields, 'request_id', 256),
     capability,
-    kind,
     deadlineMs,
     payloadJSON,
     artifacts,
+  }
+  const scope = {
+    project_id: textField(scopeFields, 'project_id', 256),
+    integration_app_id: textField(scopeFields, 'integration_app_id', 256),
+    integration_install_id: textField(scopeFields, 'integration_install_id', 256),
+  }
+  if (kind === 'resolve_address') return { ...common, kind, scope }
+  return {
+    ...common,
+    kind,
     scope: {
-      project_id: textField(scopeFields, 'project_id', 256),
-      integration_app_id: textField(scopeFields, 'integration_app_id', 256),
-      integration_install_id: textField(scopeFields, 'integration_install_id', 256),
+      ...scope,
       agent_id: textField(scopeFields, 'agent_id', 256),
       channel_id: textField(scopeFields, 'channel_id', 256),
     },

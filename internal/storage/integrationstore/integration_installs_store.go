@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/registryname"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -40,6 +41,13 @@ func (s *Store) UpsertIntegrationInstall(
 	if err := validateIntegrationInstaller(ctx, qtx, input.OrgID, input.ProjectID, input.InstalledBy); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
+	if input.DiscordRuntimeShardCount != 0 {
+		if err := qtx.LockIntegrationRuntimeConfiguration(ctx, dbsqlc.LockIntegrationRuntimeConfigurationParams{
+			IntegrationAppID: input.IntegrationAppID,
+		}); err != nil {
+			return IntegrationInstallRecord{}, fmt.Errorf("lock Discord runtime setup: %w", err)
+		}
+	}
 	existing, found, err := lockIntegrationInstallIdentityTx(ctx, tx, input)
 	if err != nil {
 		return IntegrationInstallRecord{}, err
@@ -59,6 +67,12 @@ func (s *Store) UpsertIntegrationInstall(
 	}
 	if err != nil {
 		return IntegrationInstallRecord{}, err
+	}
+	if input.DiscordRuntimeShardCount != 0 {
+		record.DiscordRuntimeShardCount, err = initializeDiscordRuntimeTx(ctx, qtx, input)
+		if err != nil {
+			return IntegrationInstallRecord{}, err
+		}
 	}
 	if input.InitialRoute != nil {
 		route := *input.InitialRoute
@@ -483,6 +497,12 @@ func normalizeUpsertIntegrationInstallInput(
 		return UpsertIntegrationInstallInput{}, err
 	}
 	input.InstalledBy = installer
+	if input.DiscordRuntimeShardCount < 0 || (input.DiscordRuntimeShardCount != 0 &&
+		(input.Provider != IntegrationProviderDiscord || input.ExpectedAppConfigurationRevision <= 0 ||
+			input.State != IntegrationInstallStateActive)) {
+		return UpsertIntegrationInstallInput{}, storeerr.InvalidRequest(errors.New(
+			"discord runtime setup requires an active installation, pinned app revision and positive shard count"))
+	}
 	if input.IntegrationAppID == uuid.Nil {
 		return UpsertIntegrationInstallInput{}, storeerr.InvalidRequest(
 			errors.New("managed installation requires a real app"))
@@ -555,6 +575,13 @@ func validateIntegrationInstallApp(
 	if app.Provider != input.Provider ||
 		(app.OwnerProjectID != nil && *app.OwnerProjectID != input.ProjectID) {
 		return "", storeerr.ErrUnauthorized
+	}
+	if input.DiscordRuntimeShardCount != 0 && app.ConnectorKey != channelconnector.BuiltInConnectorKey {
+		return "", storeerr.ErrUnauthorized
+	}
+	if input.ExpectedAppConfigurationRevision != 0 &&
+		input.ExpectedAppConfigurationRevision != app.ConfigurationRevision {
+		return "", storeerr.ErrStateTransitionConflict
 	}
 	if input.State == IntegrationInstallStateActive &&
 		(app.State != string(IntegrationAppStateActive) || app.DeletedAt != nil) {

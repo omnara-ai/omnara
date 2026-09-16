@@ -2,13 +2,17 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { AppRuntimeRegistry } from './app-registry'
-import { RedisAppStateFactory } from './app-state'
 import { asError } from './async'
 import { type GatewayConfig, loadConfig } from './config'
+import { ControlReceiptConsumer } from './control-consumer'
 import { CoreClient } from './core-client'
 import { errorMessage } from './diagnostics'
+import { createDiscordGateway, discordCapability } from './discord/gateway'
 import { builtInProviderFactories } from './factories'
+import { terminateGatewayRuntime } from './fatal-runtime'
+import { createGitHubGateway, githubCapability } from './github/gateway'
 import { JsonLogger } from './logger'
+import { OperationRetryError } from './operation-retry'
 import { ReceiptConsumer, type ReceiptConsumerOptions } from './receipt-consumer'
 import { createGatewayRedisClient, type GatewayRedisClient } from './redis-client'
 import { RuntimeLoop } from './runtime-loop'
@@ -20,6 +24,7 @@ import {
   type ProviderFactory,
   providerFactoryKey,
   type ProviderFactoryRegistry,
+  ReceiptBehaviorError,
 } from './types'
 import { WorkByteBudget } from './work-budget'
 
@@ -28,6 +33,10 @@ export interface RunGatewayOptions {
   createRedisClient?: typeof createGatewayRedisClient
   factories?: ProviderFactory[]
   logger?: GatewayLogger
+  /** Must terminate the hosting gateway execution when an SDK worker cannot stop.
+   * Logging, returning, or throwing into a runtime catch path is insufficient.
+   */
+  onFatalRuntimeFailure?: (error: Error) => never
   operations?: GatewayServerOptions['operations']
   /** Explicit behavior and exact capabilities; independent of webhook factories. */
   receipts?: Omit<ReceiptConsumerOptions, 'client' | 'workBudget' | 'logger'>
@@ -37,8 +46,6 @@ export interface RunGatewayOptions {
 export async function runGateway(options: RunGatewayOptions = {}): Promise<void> {
   const config = options.config ?? loadConfig()
   const logger = options.logger ?? new JsonLogger()
-  const factories = createProviderFactoryRegistry(options.factories ?? builtInProviderFactories())
-  const capabilities = providerFactoryCapabilities(factories)
   const controller = new AbortController()
   const forwardAbort = () => {
     controller.abort(options.signal?.reason)
@@ -56,7 +63,7 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
   let loops: Promise<void> | undefined
   let redisConnected = false
   try {
-    if (factories.size > 0) {
+    if (options.factories === undefined || options.factories.length > 0) {
       if (!config.redisUrl || !config.redisTopology) {
         throw new Error(
           'OMNARA_CHANNEL_REDIS_URL and OMNARA_CHANNEL_REDIS_TOPOLOGY are required when provider factories are enabled',
@@ -88,9 +95,42 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
     })
     const workBudget = new WorkByteBudget(config.webhookMaxBufferedBytes)
     const slack = createSlackGateway({ core: client, workBudget })
+    const discord = createDiscordGateway({ core: client })
+    const github = createGitHubGateway({ core: client })
+    let providers = options.factories
+    if (providers === undefined) {
+      if (!redis) throw new Error('built-in channel providers require Redis')
+      providers = builtInProviderFactories({
+        core: client,
+        redis,
+        reserveWorkBytes: workBudget.reserve,
+        slackReceipt: slack.processReceipt,
+        stopTimeoutMs: config.runtimeStopTimeoutMs,
+        onFatalRuntimeFailure: options.onFatalRuntimeFailure ?? terminateGatewayRuntime,
+      })
+    }
+    const factories = createProviderFactoryRegistry(providers)
+    const capabilities = providerFactoryCapabilities(factories)
     const receipts = new ReceiptConsumer({
-      capabilities: [slackCapability],
-      behavior: slack.processReceipt,
+      capabilities: capabilities.length ? capabilities : [slackCapability],
+      behavior: async (receipt, context) => {
+        if (!registry) return slack.processReceipt(receipt, context)
+        let handle
+        try {
+          handle = await registry.acquire(receipt.integration_app_id)
+          context.signal.throwIfAborted()
+          if (!handle.runtime.processReceipt) throw new ReceiptBehaviorError(false)
+          await handle.runtime.processReceipt(receipt, context)
+        } catch (error) {
+          if (error instanceof ReceiptBehaviorError) throw error
+          // Registry eviction/creation races are not immutable receipt errors.
+          // Retry under the normal bounded inbox policy; only an explicit
+          // behavior classification may terminalize work before that cap.
+          throw new ReceiptBehaviorError(true)
+        } finally {
+          await handle?.release()
+        }
+      },
       maxConcurrentEvents: 4,
       maxAttempts: 8,
       leaseMs: 60_000,
@@ -115,11 +155,36 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
         providerLifecycleTimeoutMs: config.providerLifecycleTimeoutMs,
         reserveWorkBytes: workBudget.reserve,
         refreshAfterMs: config.refreshAfterMs,
-        state: new RedisAppStateFactory({
-          client: redis,
-          keyPrefix: 'omnara:chat-sdk',
-        }),
       })
+    // Finite provider-state reconciliation has its own single worker and may
+    // use at most half the shared memory. A large installation cannot occupy
+    // every message worker or consume all ingress headroom.
+    const controlRegistry = registry
+    const controls =
+      controlRegistry && capabilities.length
+        ? new ControlReceiptConsumer({
+            capabilities,
+            client,
+            workBudget: new WorkByteBudget(Math.floor(workBudget.limitBytes / 2), workBudget),
+            behavior: async (receipt, context) => {
+              let handle
+              try {
+                handle = await controlRegistry.acquire(receipt.integration_app_id)
+                context.signal.throwIfAborted()
+                if (!handle.runtime.processControlReceipt) throw new ReceiptBehaviorError(false)
+                return await handle.runtime.processControlReceipt(receipt, context)
+              } finally {
+                await handle?.release()
+              }
+            },
+            leaseMs: 60_000,
+            claimTimeoutMs: Math.min(config.coreRequestTimeoutMs, 10_000),
+            behaviorTimeoutMs: 40_000,
+            completionTimeoutMs: 5_000,
+            idlePollMs: config.idlePollMs,
+            logger,
+          })
+        : undefined
     server = new GatewayServer({
       bodyLimitBytes: config.webhookBodyLimitBytes,
       handlerTimeoutMs: config.webhookHandlerTimeoutMs,
@@ -129,13 +194,26 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
       maxConcurrentRequests: config.webhookMaxConcurrentRequests,
       operations: options.operations ?? {
         credential: config.connectorToken,
-        allowedCapabilities: [slackCapability],
+        allowedCapabilities: [slackCapability, discordCapability, githubCapability],
         maxConcurrentRequests: config.operationMaxConcurrentRequests,
         maxTemporaryBytes: config.operationMaxTemporaryBytes,
         maxRequestBytes: config.operationMaxRequestBytes,
         maxDurationMs: config.operationMaxDurationMs,
         temporaryDirectory: config.operationTemporaryDirectory,
-        execute: slack.executeOperation,
+        execute: (operation, artifacts, signal) => {
+          if (operation.capability.connector_key !== 'omnara')
+            throw new OperationRetryError('invalid_request', false, 0)
+          switch (operation.capability.provider) {
+            case 'slack':
+              return slack.executeOperation(operation, artifacts, signal)
+            case 'discord':
+              return discord.executeOperation(operation, artifacts, signal)
+            case 'github':
+              return github.executeOperation(operation, artifacts, signal)
+            default:
+              throw new OperationRetryError('invalid_request', false, 0)
+          }
+        },
       },
       port: config.port,
       publicUrl: config.publicUrl,
@@ -163,6 +241,7 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
     })
     const running = runtimeLoop ? [runtimeLoop.run(controller.signal)] : []
     running.push(receipts.run(controller.signal))
+    if (controls) running.push(controls.run(controller.signal))
     loops = Promise.all(running).then(() => undefined)
     await Promise.race([abortPromise(controller.signal), loops])
     controller.abort(new Error('channel gateway stopping'))
@@ -312,21 +391,3 @@ if (entrypoint && realpathSync(entrypoint) === realpathSync(fileURLToPath(import
     process.exitCode = 1
   })
 }
-
-export { normalizeProviderDeliveryError } from './chat-sdk-errors'
-export type { ChatSdkAttachmentDataLoader, ChatSdkAttachmentLoadContext } from './chat-sdk-media'
-export { fetchBoundedMedia, messageContentBlocks } from './chat-sdk-media'
-export type { ReceiptConsumerOptions } from './receipt-consumer'
-export { ReceiptConsumer } from './receipt-consumer'
-export type {
-  GatewayAppConfiguration,
-  ProviderFactory,
-  ProviderFactoryContext,
-  ProviderRuntime,
-  ProviderWebhookContext,
-  ProviderWorkReservation,
-  ReceiptBehavior,
-  ReceiptBehaviorContext,
-  RuntimeUnitContext,
-} from './types'
-export { ReceiptBehaviorError } from './types'

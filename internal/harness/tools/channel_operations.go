@@ -33,6 +33,7 @@ type channelOperationToolResult struct {
 	Message   *channelconnector.MessageObservation `json:"message,omitempty"`
 	Code      string                               `json:"code,omitempty"`
 	Detail    string                               `json:"detail,omitempty"`
+	Metadata  map[string]string                    `json:"metadata,omitempty"`
 }
 
 func (e Executor) prepareChannelOperation(
@@ -91,14 +92,6 @@ func newChannelOperationRequest(
 		*field.out = value
 	}
 	return request, nil
-}
-
-// recheckChannelOperation uses the owning store's exact tool/runtime and binding pin.
-func (e Executor) recheckChannelOperation(
-	ctx context.Context,
-	prepared preparedChannelOperation,
-) (integrationstore.ChannelAccess, error) {
-	return e.Store.Execution().RecheckChannelOperation(ctx, prepared.owner)
 }
 
 func channelOperationDestination(access integrationstore.ChannelAccess) channelconnector.OperationDestination {
@@ -161,6 +154,19 @@ func channelTransportFailure(
 		outcome = operationError.Outcome
 	} else if err == nil && result.RequestID == requestID {
 		outcome = result.Outcome
+	}
+	if result.RequestID == requestID && result.Outcome == outcome {
+		if failure, decodeErr := channelconnector.DecodeOperationFailure(result.Payload); decodeErr == nil &&
+			failure.MatchesOutcome(outcome) {
+			content, encodeErr := structuredToolResultContent(channelOperationToolResult{
+				RequestID: requestID, Status: outcome, Code: string(failure.Code),
+				Metadata: failure.Metadata, Detail: failure.Detail(),
+			})
+			if encodeErr != nil {
+				return nil, encodeErr
+			}
+			return failAsynchronously(content, errors.New(string(failure.Code))), nil
+		}
 	}
 	if outcome == channelconnector.OperationFailed {
 		return channelOperationFailure(requestID, "channel_operation_failed",

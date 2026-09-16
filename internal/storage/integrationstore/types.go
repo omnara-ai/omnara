@@ -8,7 +8,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
-const IntegrationProviderSlack = "slack"
+const (
+	IntegrationProviderSlack   = "slack"
+	IntegrationProviderDiscord = "discord"
+	IntegrationProviderGitHub  = "github"
+)
 
 // IntegrationKind identifies the immutable authority owner, independently of transport.
 type IntegrationKind string
@@ -34,25 +38,31 @@ const (
 )
 
 type UpsertIntegrationInstallInput struct {
-	OrgID              uuid.UUID
-	ProjectID          uuid.UUID
-	IntegrationAppID   uuid.UUID
-	InstalledBy        identitystore.PrincipalRecord
-	Provider           string
-	IntegrationKind    IntegrationKind
-	ConnectionMode     string
-	State              IntegrationInstallState
-	ProviderTenantID   string
-	ProviderAccountRef string
-	DisplayName        string
-	CredentialSecretID uuid.UUID
-	ProviderConfig     json.RawMessage
-	ProviderIdentity   json.RawMessage
-	Metadata           json.RawMessage
-	OAuthFlowID        uuid.UUID
+	OrgID            uuid.UUID
+	ProjectID        uuid.UUID
+	IntegrationAppID uuid.UUID
+	// Setup pins the app used for provider verification. Zero preserves callers
+	// that do not perform an external verification step.
+	ExpectedAppConfigurationRevision int64
+	InstalledBy                      identitystore.PrincipalRecord
+	Provider                         string
+	IntegrationKind                  IntegrationKind
+	ConnectionMode                   string
+	State                            IntegrationInstallState
+	ProviderTenantID                 string
+	ProviderAccountRef               string
+	DisplayName                      string
+	CredentialSecretID               uuid.UUID
+	ProviderConfig                   json.RawMessage
+	ProviderIdentity                 json.RawMessage
+	Metadata                         json.RawMessage
+	OAuthFlowID                      uuid.UUID
 	// InitialRoute, when present, commits with installation credentials and
 	// OAuth redemption. Its project and installation are derived internally.
 	InitialRoute *CreateIntegrationRouteInput
+	// DiscordRuntimeShardCount is the verified setup recommendation. Zero omits
+	// runtime setup; reconnects reuse the existing app shard set instead of resharding.
+	DiscordRuntimeShardCount int
 }
 
 type IntegrationInstallRecord struct {
@@ -77,6 +87,10 @@ type IntegrationInstallRecord struct {
 	CreatedAt             time.Time                     `json:"created_at"`
 	UpdatedAt             time.Time                     `json:"updated_at"`
 	Created               bool                          `json:"-"`
+	// DiscordRuntimeShardCount is returned only by successful runtime setup,
+	// including reconnect. It is the retained configuration, not a persisted
+	// installation field or necessarily the current provider recommendation.
+	DiscordRuntimeShardCount int `json:"-"`
 }
 
 type CreateIntegrationTargetInput struct {
@@ -95,7 +109,6 @@ type IntegrationTargetRecord struct {
 	OrgID                uuid.UUID       `json:"org_id"`
 	ProjectID            uuid.UUID       `json:"project_id"`
 	IntegrationInstallID uuid.UUID       `json:"integration_install_id"`
-	TargetRef            string          `json:"target_ref"`
 	ProviderRef          string          `json:"provider_ref"`
 	ChannelDefinitionID  uuid.UUID       `json:"channel_definition_id"`
 	ParentChannelID      uuid.UUID       `json:"parent_channel_id,omitempty"`
@@ -105,16 +118,4 @@ type IntegrationTargetRecord struct {
 	CreatedAt            time.Time       `json:"created_at"`
 	UpdatedAt            time.Time       `json:"updated_at"`
 	Created              bool            `json:"-"`
-}
-
-type IntegrationTargetSummary struct {
-	ID                   uuid.UUID               `json:"id"`
-	IntegrationInstallID uuid.UUID               `json:"integration_install_id"`
-	TargetRef            string                  `json:"target_ref"`
-	Provider             string                  `json:"provider"`
-	InstallState         IntegrationInstallState `json:"install_state"`
-	ProviderRef          string                  `json:"provider_ref"`
-	ProviderRefKind      string                  `json:"provider_ref_kind"`
-	DisplayName          string                  `json:"display_name"`
-	IsCurrent            bool                    `json:"is_current"`
 }

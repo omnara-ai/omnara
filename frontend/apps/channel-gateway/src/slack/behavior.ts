@@ -25,6 +25,7 @@ import { enrichSlackInput, type SlackEnrichment } from './enrichment'
 import {
   displayMetadata,
   parseSlackReceipt,
+  slackChannelDisplayName,
   slackInboundRoute,
   slackInputKeys,
   slackInputText,
@@ -77,11 +78,18 @@ export interface SlackBehaviorContext extends ReceiptBehaviorContext {
 }
 
 /** These describe provider support only. Setup supplies grants independently. */
-export function slackDefinition(kind: 'dm' | 'thread'): PublishChannelConnectorDefinitionRequest {
+export function slackDefinition(
+  kind: 'channel' | 'dm' | 'thread',
+): PublishChannelConnectorDefinitionRequest {
   return {
-    implementation_key: kind === 'thread' ? 'slack_thread' : 'slack_channel',
+    implementation_key: `slack_${kind}`,
     kind: kind === 'thread' ? 'SLACK_THREAD' : 'SLACK_CHANNEL',
-    description: kind === 'thread' ? 'A Slack message thread.' : 'A Slack conversation.',
+    description:
+      kind === 'thread'
+        ? 'A Slack message thread.'
+        : kind === 'dm'
+          ? 'A persistent Slack direct message.'
+          : 'A Slack channel.',
     send_params_schema: { type: 'object', properties: {}, additionalProperties: false },
     capabilities: {
       read: true,
@@ -90,7 +98,7 @@ export function slackDefinition(kind: 'dm' | 'thread'): PublishChannelConnectorD
       artifacts: true,
       permissions: true,
       questions: true,
-      creates_reply_channel: kind !== 'thread',
+      creates_reply_channel: kind === 'channel',
     },
   }
 }
@@ -275,6 +283,7 @@ export async function processSlackEvent(
                   definition_id: definition.id,
                   provider_ref: route.providerRef,
                   provider_ref_kind: route.kind,
+                  display_name: replay ? undefined : slackChannelDisplayName(event, route, labels),
                   parent_channel_id: target.parentChannelID,
                 },
                 grants: target.configured.grants,

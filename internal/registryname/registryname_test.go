@@ -13,7 +13,7 @@ func TestValid(t *testing.T) {
 		want  bool
 	}{
 		{name: "simple", value: "discord", want: true},
-		{name: "namespaced", value: "chat_sdk-v1.provider", want: true},
+		{name: "namespaced", value: "omnara-v1.provider", want: true},
 		{name: "empty", value: "", want: false},
 		{name: "uppercase", value: "Discord", want: false},
 		{name: "leading punctuation", value: "_discord", want: false},

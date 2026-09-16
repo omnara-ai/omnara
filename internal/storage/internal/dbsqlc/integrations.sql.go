@@ -280,7 +280,7 @@ func (q *Queries) GetIntegrationInstallByID(ctx context.Context, arg GetIntegrat
 }
 
 const getIntegrationTarget = `-- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.target_ref, target.provider_ref,
+SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.provider_ref,
   target.provider_ref_kind, target.parent_channel_id, target.channel_definition_id, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
@@ -299,7 +299,6 @@ type GetIntegrationTargetRow struct {
 	OrgID                uuid.UUID
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
-	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
 	ParentChannelID      *uuid.UUID
@@ -319,7 +318,6 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 		&i.OrgID,
 		&i.ProjectID,
 		&i.IntegrationInstallID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.ParentChannelID,
@@ -334,7 +332,7 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 }
 
 const getIntegrationTargetByProviderRef = `-- name: GetIntegrationTargetByProviderRef :one
-SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.target_ref, target.provider_ref,
+SELECT target.id, project.org_id, target.project_id, target.integration_install_id, target.provider_ref,
   target.provider_ref_kind, target.parent_channel_id, target.channel_definition_id, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
@@ -355,7 +353,6 @@ type GetIntegrationTargetByProviderRefRow struct {
 	OrgID                uuid.UUID
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
-	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
 	ParentChannelID      *uuid.UUID
@@ -375,7 +372,6 @@ func (q *Queries) GetIntegrationTargetByProviderRef(ctx context.Context, arg Get
 		&i.OrgID,
 		&i.ProjectID,
 		&i.IntegrationInstallID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.ParentChannelID,
@@ -597,24 +593,23 @@ func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegr
 
 const insertIntegrationTarget = `-- name: InsertIntegrationTarget :one
 INSERT INTO integration_targets(
-  project_id, integration_install_id, target_ref, provider_ref,
+  project_id, integration_install_id, provider_ref,
   provider_ref_kind, parent_channel_id, channel_definition_id, display_name, provider_metadata, created_at, updated_at
 )
 VALUES (
   $1, $2,
-  $3, $4, $5, $6, $7,
-  $8, $9,
+  $3, $4, $5, $6,
+  $7, $8,
   transaction_timestamp(), transaction_timestamp()
 )
-ON CONFLICT DO NOTHING
-RETURNING id, project_id, integration_install_id, target_ref, provider_ref,
+ON CONFLICT (project_id, integration_install_id, provider_ref) WHERE deleted_at IS NULL DO NOTHING
+RETURNING id, project_id, integration_install_id, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at, parent_channel_id, channel_definition_id
 `
 
 type InsertIntegrationTargetParams struct {
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
-	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
 	ParentChannelID      *uuid.UUID
@@ -627,7 +622,6 @@ func (q *Queries) InsertIntegrationTarget(ctx context.Context, arg InsertIntegra
 	row := q.db.QueryRow(ctx, insertIntegrationTarget,
 		arg.ProjectID,
 		arg.IntegrationInstallID,
-		arg.TargetRef,
 		arg.ProviderRef,
 		arg.ProviderRefKind,
 		arg.ParentChannelID,
@@ -640,7 +634,6 @@ func (q *Queries) InsertIntegrationTarget(ctx context.Context, arg InsertIntegra
 		&i.ID,
 		&i.ProjectID,
 		&i.IntegrationInstallID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.DisplayName,
@@ -846,85 +839,6 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 			&i.ConfigurationRevision,
 			&i.InstalledByOrgApiKeyID,
 			&i.SortKey,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listIntegrationTargets = `-- name: ListIntegrationTargets :many
-SELECT target.id,
-  target.integration_install_id,
-  target.target_ref,
-  target.provider_ref,
-  target.provider_ref_kind,
-  target.display_name,
-  install.provider, install.state AS install_state,
-  CASE WHEN agent.integration_target_id = target.id THEN true ELSE false END AS is_current
-FROM integration_targets target
-JOIN agents agent
-  ON agent.project_id = target.project_id
- AND agent.id = $1::uuid
-JOIN integration_installs install
-  ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
- AND install.deleted_at IS NULL
-WHERE target.project_id = $2
-  AND EXISTS (
-    SELECT 1 FROM integration_target_bindings binding
-    WHERE binding.project_id = target.project_id AND binding.integration_target_id = target.id
-      AND binding.agent_id = agent.id AND binding.revoked_at IS NULL
-      AND (binding.integration_route_id IS NULL OR EXISTS (
-        SELECT 1 FROM integration_routes route
-        WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-          AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
-      ))
-  )
-  AND target.deleted_at IS NULL
-ORDER BY is_current DESC, target.created_at ASC, target.id ASC
-`
-
-type ListIntegrationTargetsParams struct {
-	AgentID   uuid.UUID
-	ProjectID uuid.UUID
-}
-
-type ListIntegrationTargetsRow struct {
-	ID                   uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	Provider             *string
-	InstallState         string
-	IsCurrent            bool
-}
-
-func (q *Queries) ListIntegrationTargets(ctx context.Context, arg ListIntegrationTargetsParams) ([]ListIntegrationTargetsRow, error) {
-	rows, err := q.db.Query(ctx, listIntegrationTargets, arg.AgentID, arg.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListIntegrationTargetsRow{}
-	for rows.Next() {
-		var i ListIntegrationTargetsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.IntegrationInstallID,
-			&i.TargetRef,
-			&i.ProviderRef,
-			&i.ProviderRefKind,
-			&i.DisplayName,
-			&i.Provider,
-			&i.InstallState,
-			&i.IsCurrent,
 		); err != nil {
 			return nil, err
 		}
@@ -1405,7 +1319,7 @@ WHERE project_id = $3
   AND id = $4
   AND provider_ref_kind = $5
   AND deleted_at IS NULL
-RETURNING id, project_id, integration_install_id, target_ref, provider_ref,
+RETURNING id, project_id, integration_install_id, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at, parent_channel_id, channel_definition_id
 `
 
@@ -1430,7 +1344,6 @@ func (q *Queries) UpdateResolvedIntegrationTarget(ctx context.Context, arg Updat
 		&i.ID,
 		&i.ProjectID,
 		&i.IntegrationInstallID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.DisplayName,

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func TestPostgresIntegrationChannelsMigrationPreservesSlackConversations(t *test
 
 	var mapped bool
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT
-  app.connector_key = 'chat_sdk' AND app.provider_app_ref = install.provider_account_ref
+  app.connector_key = 'omnara' AND app.provider_app_ref = install.provider_account_ref
   AND app.owner_project_id = install.project_id AND app.credential_secret_id IS NULL
   AND app.installation_credential_kind = 'slack_app_credentials'
   AND install.integration_kind = 'managed' AND install.installed_by_user_id = $2
@@ -70,25 +71,44 @@ JOIN integration_routes route ON route.integration_install_id = install.id
 WHERE install.id = $1`,
 		fixture.installID, fixture.userID, fixture.secretID, fixture.flowID, fixture.profileID).Scan(&mapped))
 	require.True(t, mapped, "OAuth identity, attribution, credentials and selected profile must survive")
-	for _, targetID := range []string{fixture.targetID, fixture.dmTargetID} {
+	// Freeze the exact definitions published by slackDefinition in the gateway.
+	// Matching only SLACK_CHANNEL misses the distinct slack_dm implementation key.
+	for _, expected := range []struct{ targetID, key, kind, description string }{
+		{fixture.targetID, "slack_thread", "SLACK_THREAD", "A Slack message thread."},
+		{fixture.dmTargetID, "slack_dm", "SLACK_CHANNEL", "A persistent Slack direct message."},
+	} {
 		var preserved bool
+		var key, kind, description, schema, capabilities string
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT
   workflow.agent_id = agent.id AND workflow.instance_key = target.provider_ref
   AND binding.agent_id = agent.id AND binding.integration_route_id = workflow.integration_route_id
   AND binding.source = 'channel' AND binding.receive_allowed AND binding.send_allowed
   AND NOT binding.read_allowed AND binding.reply_receive_allowed IS NULL
   AND binding.reply_read_allowed IS NULL AND binding.reply_send_allowed IS NULL
-  AND binding.revoked_at IS NULL AND definition.capabilities -> 'send' = 'true'::jsonb
-  AND definition.kind = CASE target.provider_ref_kind WHEN 'dm' THEN 'SLACK_CHANNEL' ELSE 'SLACK_THREAD' END
+  AND binding.revoked_at IS NOT DISTINCT FROM agent.archived_at,
+  definition.implementation_key, definition.kind, definition.description,
+  definition.send_params_schema::text, definition.capabilities::text
 FROM integration_targets target
 JOIN agents agent ON agent.integration_target_id = target.id
 JOIN integration_workflows workflow ON workflow.integration_install_id = target.integration_install_id
   AND workflow.instance_key = target.provider_ref
 JOIN integration_target_bindings binding ON binding.integration_target_id = target.id
 JOIN integration_channel_definitions definition ON definition.id = target.channel_definition_id
-WHERE target.id = $1`, targetID).Scan(&preserved))
-		require.True(t, preserved, "preserve both active thread and archived DM without widening grants")
+WHERE target.id = $1`, expected.targetID).Scan(&preserved, &key, &kind, &description, &schema, &capabilities))
+		require.True(t, preserved, "preserve identity and grants while revoking the archived DM's binding")
+		require.Equal(t, expected.key, key)
+		require.Equal(t, expected.kind, kind)
+		require.Equal(t, expected.description, description)
+		require.JSONEq(t, `{"type":"object","properties":{},"additionalProperties":false}`, schema)
+		require.JSONEq(t, `{"read":true,"send":true,"text":true,"artifacts":true,
+  "permissions":true,"questions":true,"creates_reply_channel":false}`, capabilities)
 	}
+	var definitionKeys string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT
+  jsonb_agg(DISTINCT implementation_key ORDER BY implementation_key)::text
+FROM integration_channel_definitions WHERE project_id = $1`, fixture.projectID).Scan(&definitionKeys))
+	require.JSONEq(t, `["slack_dm","slack_thread"]`, definitionKeys,
+		"only definitions for the supported legacy dm/thread addresses are migrated")
 	var historicalBinding sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT integration_target_binding_id::text FROM agent_inputs WHERE id = $1`,
@@ -112,12 +132,16 @@ FROM integration_target_bindings WHERE integration_target_id = $1`, fixture.dele
   to_regclass('public.integration_deliveries') IS NULL AND to_regclass('public.model_call_tool_contracts') IS NULL
   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND (
     (table_name = 'integration_installs' AND column_name IN ('agent_id', 'agent_profile_id'))
-    OR (table_name = 'integration_targets' AND column_name = 'agent_id')
+    OR (table_name = 'integration_targets' AND column_name IN ('agent_id', 'target_ref'))
     OR (table_name = 'integration_routes' AND column_name IN ('handler_key', 'handler_version'))))
   AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN (
     'integration_installs_00_fill_compatibility_app', 'integration_targets_create_legacy_binding',
-    'integration_target_bindings_validate_legacy_shape', 'agent_inputs_fill_integration_binding'))
-  AND (SELECT array_agg(sweep_kind) = ARRAY['event_unprocessable'] FROM integration_sweep_cursors)`).Scan(&removed))
+    'integration_target_bindings_validate_legacy_shape', 'agent_inputs_fill_integration_binding',
+    'projects_retire_integration_apps', 'model_provider_configs_credential_live', 'machine_pools_credential_live'))
+  AND (SELECT count(*) = 2 FROM pg_trigger WHERE tgname IN (
+    'integration_apps_credential_live', 'integration_installs_credential_live'))
+  AND (SELECT array_agg(sweep_kind ORDER BY sweep_kind) =
+    ARRAY['control_unprocessable', 'event_unprocessable'] FROM integration_sweep_cursors)`).Scan(&removed))
 	require.True(t, removed, "final migration cannot leave native shims, snapshots or an outgoing outbox")
 
 	_, err = db.ExecContext(ctx, `INSERT INTO agent_inputs(
@@ -127,15 +151,84 @@ FROM integration_target_bindings WHERE integration_target_id = $1`, fixture.dele
 		fixture.projectID, fixture.agentID, fixture.targetID)
 	require.ErrorContains(t, err, "requires an explicit binding", "new input must not inherit guessed authority")
 	_, err = db.ExecContext(ctx, `INSERT INTO integration_targets(
-  project_id, integration_install_id, target_ref, provider_ref, provider_ref_kind,
+  project_id, integration_install_id, provider_ref, provider_ref_kind,
   channel_definition_id, created_at, updated_at
-) SELECT project_id, integration_install_id, 'standalone', 'D_STANDALONE', 'dm', channel_definition_id,
+) SELECT project_id, integration_install_id, 'D_STANDALONE', 'dm', channel_definition_id,
   statement_timestamp(), statement_timestamp() FROM integration_targets WHERE id = $1`, fixture.dmTargetID)
 	require.NoError(t, err, "registration no longer requires an agent")
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_target_bindings WHERE project_id = $1`,
 		fixture.projectID).Scan(&bindings))
 	require.Equal(t, 3, bindings, "standalone target creation never grants authority")
 	assertMigratedSlackWorkflow(t, ctx, pool, fixture)
+}
+
+func TestPostgresIntegrationChannelsMigrationAcceptsAgentLocalReferenceCollision(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
+	fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
+	// Released references were unique per agent, not per installation. Two
+	// distinct conversations belonging to different agents may legally collide.
+	_, err := db.ExecContext(ctx, `UPDATE integration_targets SET target_ref = 'slack-abcd'
+WHERE id IN ($1, $2)`, fixture.targetID, fixture.dmTargetID)
+	require.NoError(t, err)
+	var collisions int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_targets
+WHERE integration_install_id = $1 AND target_ref = 'slack-abcd'`, fixture.installID).Scan(&collisions))
+	require.Equal(t, 2, collisions)
+	before := channelMigrationHistory(t, ctx, db)
+	require.NoError(t, applyProductionPostgresMigrations(ctx, db))
+	require.JSONEq(t, before, channelMigrationHistory(t, ctx, db), "preserve actual IDs, addresses and input history")
+	_, err = db.ExecContext(ctx, `INSERT INTO integration_targets (
+  project_id, integration_install_id, provider_ref, provider_ref_kind,
+  channel_definition_id, created_at, updated_at
+) SELECT project_id, integration_install_id, provider_ref, provider_ref_kind,
+  channel_definition_id, statement_timestamp(), statement_timestamp()
+FROM integration_targets WHERE id = $1`, fixture.targetID)
+	require.ErrorContains(t, err, "integration_targets_active_provider_ref_idx",
+		"a live provider address must remain unique within its project and installation")
+}
+
+func TestPostgresIntegrationChannelsMigrationRejectsCustomChannelToolNames(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"list_channels", "get_channel", "set_current_channel", "read_channel", "send_channel_message",
+	} {
+		for _, enabled := range []bool{true, false} {
+			suffix := "/disabled"
+			if enabled {
+				suffix = "/enabled"
+			}
+			t.Run(name+suffix, func(t *testing.T) {
+				t.Parallel()
+				ctx := t.Context()
+				pool := integrationdb.OpenUnmigratedPool(t, ctx)
+				db := stdlib.OpenDBFromPool(pool)
+				defer func() { _ = db.Close() }()
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
+				fixture := seedLegacyChannelMigrationFixtureWithCustomTool(t, ctx, db, name, enabled)
+				var before string
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT to_jsonb(config)::text
+FROM agent_configs config WHERE id = $1`, fixture.configID).Scan(&before))
+				err := applyProductionPostgresMigrations(ctx, db)
+				require.ErrorContains(t, err, "requires custom tool resolution")
+				require.ErrorContains(t, err, "agent_config_id="+fixture.configID)
+				require.ErrorContains(t, err, "tool_name="+name)
+				require.NotContains(t, err.Error(), "Preserve this custom schema", "diagnostics must not expose tool bodies")
+				var after string
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT to_jsonb(config)::text
+FROM agent_configs config WHERE id = $1`, fixture.configID).Scan(&after))
+				require.JSONEq(t, before, after, "no automatic renaming, rewriting or hash repair")
+				var rolledBack bool
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.integration_apps') IS NULL`).
+					Scan(&rolledBack))
+				require.True(t, rolledBack, "failed preflight rolls back migration38")
+			})
+		}
+	}
 }
 
 // Exercise production workflow admission on the converted conversation itself.
@@ -264,7 +357,7 @@ func channelMigrationHistory(t *testing.T, ctx context.Context, db *sql.DB) stri
   'inputs', (SELECT jsonb_agg(to_jsonb(input) - 'integration_target_binding_id' ORDER BY id) FROM agent_inputs input),
   'content', (SELECT jsonb_agg(to_jsonb(block) ORDER BY id) FROM content_blocks block),
   'targets', (SELECT jsonb_agg(
-    to_jsonb(target) - ARRAY['agent_id', 'channel_definition_id', 'parent_channel_id'] ORDER BY id)
+    to_jsonb(target) - ARRAY['agent_id', 'target_ref', 'channel_definition_id', 'parent_channel_id'] ORDER BY id)
     FROM integration_targets target),
   'secrets', (SELECT jsonb_agg(to_jsonb(secret) ORDER BY id) FROM secrets secret),
   'versions', (SELECT jsonb_agg(to_jsonb(version) ORDER BY id) FROM secret_versions version)
@@ -277,6 +370,7 @@ type legacyChannelMigrationFixture struct {
 	installID, targetID, inputID                 string
 	deletedTargetID, dmTargetID, dmAgentID       string
 	profileID, secretID, secretVersionID, flowID string
+	configID                                     string
 }
 
 func seedLegacyChannelMigrationFixture(
@@ -285,17 +379,25 @@ func seedLegacyChannelMigrationFixture(
 	db *sql.DB,
 ) legacyChannelMigrationFixture {
 	t.Helper()
+	return seedLegacyChannelMigrationFixtureWithCustomTool(t, ctx, db, "custom_task", true)
+}
+
+func seedLegacyChannelMigrationFixtureWithCustomTool(
+	t *testing.T, ctx context.Context, db *sql.DB, customName string, customEnabled bool,
+) legacyChannelMigrationFixture {
+	t.Helper()
 	fixture := legacyChannelMigrationFixture{
 		userID: uuid.NewString(), orgID: uuid.NewString(), projectID: uuid.NewString(),
 		agentID: uuid.NewString(), installID: uuid.NewString(), targetID: uuid.NewString(),
 		inputID: uuid.NewString(), deletedTargetID: uuid.NewString(),
 		dmTargetID: uuid.NewString(), dmAgentID: uuid.NewString(), profileID: uuid.NewString(),
 		secretID: uuid.NewString(), secretVersionID: uuid.NewString(), flowID: uuid.Must(uuid.NewV7()).String(),
+		configID: uuid.NewString(),
 	}
 	providerConfigID := uuid.NewString()
 	configuredModelID := uuid.NewString()
 	configuredModelRevisionID := uuid.NewString()
-	agentConfigID := uuid.NewString()
+	agentConfigID := fixture.configID
 	profileVersionID := uuid.NewString()
 	deletedInstallID := uuid.NewString()
 	source := `instruction: Preserve the integration migration fixture.
@@ -331,6 +433,16 @@ model:
     "description":"Preserve this custom schema.",
     "input_schema":{"type":"object","properties":{"count":{"type":"number","maximum":1e30}}}}
 }`)
+	// Frozen pre-cutover custom declarations use the same valid shape for every
+	// formerly legal name; the current compiler intentionally rejects collisions.
+	source = strings.ReplaceAll(source, "custom_task", customName)
+	compiledObject["tools"] = json.RawMessage(
+		strings.ReplaceAll(string(compiledObject["tools"]), "custom_task", customName))
+	if !customEnabled {
+		source = strings.Replace(source, "    type: custom\n", "    type: custom\n    enabled: false\n", 1)
+		compiledObject["tools"] = json.RawMessage(strings.Replace(string(compiledObject["tools"]),
+			`"type":"custom","enabled":true`, `"type":"custom","enabled":false`, 1))
+	}
 	compiled.CanonicalJSON, err = json.Marshal(compiledObject)
 	require.NoError(t, err)
 	var canonicalValue any

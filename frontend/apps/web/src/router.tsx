@@ -12,6 +12,7 @@ import {
 import { Suspense } from 'react'
 import { z } from 'zod'
 
+import { integrationSetupSearch } from '@/components/integrations/integrationOAuth'
 import { FullPageSpinner } from '@/components/ui/spinner'
 import { safeReturnTo } from '@/lib/auth-return-to'
 import { queryClient } from '@/lib/query'
@@ -98,6 +99,24 @@ const organizationModelsRoute = createRoute({
   ),
 })
 
+const organizationUsageRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/usage',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrganizationUsagePage'),
+    'OrganizationUsagePage',
+  ),
+})
+
+const organizationAppsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/apps',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrganizationAppsPage'),
+    'OrganizationAppsPage',
+  ),
+})
+
 const secretsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/secrets',
@@ -138,6 +157,16 @@ const projectGrantsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectGrantsPage'), 'ProjectGrantsPage'),
 })
 
+const projectIntegrationsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations',
+  validateSearch: integrationSetupSearch,
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectIntegrationsPage'),
+    'ProjectIntegrationsPage',
+  ),
+})
+
 const projectSecretsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/secrets',
@@ -148,6 +177,12 @@ const projectSkillsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/skills',
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
+})
+
+const projectUsageRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/usage',
+  component: lazyRouteComponent(() => import('@/routes/ProjectUsagePage'), 'ProjectUsagePage'),
 })
 
 const agentProfileRoute = createRoute({
@@ -254,14 +289,18 @@ const routeTree = rootRoute.addChildren([
       membersRoute,
       organizationMachinesRoute,
       organizationModelsRoute,
+      organizationUsageRoute,
+      organizationAppsRoute,
       secretsRoute,
       skillsRoute,
       apiTokensRoute,
       projectRoute,
       projectAgentsRoute,
       projectGrantsRoute,
+      projectIntegrationsRoute,
       projectSecretsRoute,
       projectSkillsRoute,
+      projectUsageRoute,
       agentProfileRoute,
       createAgentRoute,
       agentRoute,

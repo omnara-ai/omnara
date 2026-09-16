@@ -49,3 +49,28 @@ func launchChannelGrants(grants openapi.ChannelGrants) integrationstore.ChannelG
 		ReceiveAllowed: grants.Receive, ReadAllowed: grants.Read, SendAllowed: grants.Send,
 	}
 }
+
+func publicLaunchChannelBindings(
+	bindings []executionstore.LaunchChannelBinding,
+) ([]openapi.AttachAgentChannelRequest, error) {
+	result := make([]openapi.AttachAgentChannelRequest, 0, len(bindings))
+	for _, binding := range bindings {
+		id, err := publicID(publicid.KindIntegrationTarget, binding.ChannelID)
+		if err != nil {
+			return nil, err
+		}
+		item := openapi.AttachAgentChannelRequest{
+			ChannelId: id,
+			Grants: openapi.ChannelGrants{
+				Receive: binding.Grants.ReceiveAllowed, Read: binding.Grants.ReadAllowed, Send: binding.Grants.SendAllowed,
+			},
+		}
+		if reply := binding.ReplyChannelGrants; reply != nil {
+			item.ReplyChannelGrants = &openapi.ChannelGrants{
+				Receive: reply.ReceiveAllowed, Read: reply.ReadAllowed, Send: reply.SendAllowed,
+			}
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}

@@ -123,7 +123,9 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/slack"
+              "integrations/slack",
+              "integrations/discord",
+              "integrations/github"
             ]
           },
           {

@@ -26,7 +26,7 @@ func (s strictOpenAPIServer) PublishChannelConnectorDefinition(
 	if err != nil {
 		return nil, err
 	}
-	if !channelDefinitionKindMatchesProvider(request.Body.Kind, install.Provider) {
+	if !integrationstore.ChannelKind(request.Body.Kind).MatchesProvider(install.Provider) {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "channel kind does not match the connection provider")
 	}
 	definition, err := s.server.store.Integrations().PublishConnectorChannelDefinition(
@@ -62,13 +62,6 @@ func (s strictOpenAPIServer) channelConnectorInstallationByPublicID(
 		return integrationstore.IntegrationInstallRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	return s.channelConnectorEventInstallation(ctx, scope, appID, installID)
-}
-
-func channelDefinitionKindMatchesProvider(kind openapi.ChannelKind, provider string) bool {
-	if provider == "slack" {
-		return kind == openapi.ChannelKindSlackChannel || kind == openapi.ChannelKindSlackThread
-	}
-	return kind == openapi.ChannelKindExternal
 }
 
 func storageChannelCapabilities(value openapi.ChannelCapabilities) integrationstore.ChannelCapabilities {

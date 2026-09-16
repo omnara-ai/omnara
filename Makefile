@@ -51,6 +51,10 @@ TEST_REDIS_URL ?= redis://127.0.0.1:$(REDIS_HOST_PORT)/0
 TEST_DB_ENV = OMNARA_TEST_DATABASE_URL=$${OMNARA_TEST_DATABASE_URL:-$(TEST_DATABASE_URL)}
 TEST_REDIS_ENV = OMNARA_TEST_REDIS_URL=$${OMNARA_TEST_REDIS_URL:-$(TEST_REDIS_URL)}
 TEST_INFRA_ENV = $(TEST_DB_ENV) $(TEST_REDIS_ENV)
+CHANNEL_JOURNEY_ENV = \
+	OMNARA_TEST_SLACK_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/slack-journey.cjs" \
+	OMNARA_TEST_DISCORD_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/discord-journey.cjs" \
+	OMNARA_TEST_GITHUB_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/github-journey.cjs"
 SERVICE_E2E_ENV = OMNARA_REQUIRE_SERVICE_E2E=1 $(TEST_INFRA_ENV)
 SERVICE_E2E_SHARD_INDEX ?= 0
 SERVICE_E2E_SHARD_TOTAL ?= 1
@@ -288,13 +292,14 @@ test-integration-storage:
 	$(MAKE) test-integration INTEGRATION_TEST_PARALLEL=8 INTEGRATION_PACKAGES="$(INTEGRATION_STORAGE_PACKAGES)"
 
 test-integration-httpapi: channel-gateway-test-bundle
-	OMNARA_TEST_SLACK_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/slack-journey.cjs" $(MAKE) test-integration INTEGRATION_PACKAGES="$(INTEGRATION_HTTPAPI_PACKAGES)"
+	$(CHANNEL_JOURNEY_ENV) $(MAKE) test-integration INTEGRATION_PACKAGES="$(INTEGRATION_HTTPAPI_PACKAGES)"
+	$(TEST_INFRA_ENV) $(CHANNEL_JOURNEY_ENV) $(GO) test -count=1 -tags=integration -run '^TestPostgresMigratedSlackDMSendsThroughGateway$$' ./internal/dbmigrate
 
 channel-gateway-test-bundle: web-install
 	cd frontend && pnpm --filter @omnara/channel-gateway build:journey
 
-test-channel-journey: channel-gateway-test-bundle ## Run the Go API, Postgres, and Slack gateway journey against a local fake Slack API
-	$(TEST_INFRA_ENV) OMNARA_TEST_SLACK_GATEWAY_RUNNER="$(CURDIR)/.local/channel-gateway/slack-journey.cjs" $(GO) test -count=1 -tags=integration -run '^TestSlackGateway(SavedReceiptToAgent|AgentStartedThread)Journey$$' ./internal/httpapi
+test-channel-journey: channel-gateway-test-bundle ## Run Go/Postgres/TypeScript channel journeys against local fake providers
+	$(TEST_INFRA_ENV) $(CHANNEL_JOURNEY_ENV) $(GO) test -count=1 -tags=integration -run '^(Test(Slack|Discord)Gateway(SavedReceiptToAgent|AgentStartedThread)Journey|TestGitHubGatewayPRCommunicationJourney|TestPostgresMigratedSlackDMSendsThroughGateway)$$' ./internal/httpapi ./internal/dbmigrate
 
 test-integration-runtime:
 	$(MAKE) test-integration INTEGRATION_PACKAGES="$(INTEGRATION_RUNTIME_PACKAGES)"

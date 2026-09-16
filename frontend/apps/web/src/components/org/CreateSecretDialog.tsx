@@ -38,6 +38,8 @@ import {
   secretKinds,
 } from './CreateSecretDialogState'
 import { submitSecretTransaction } from './createSecretSubmission'
+import { integrationCredentialsMaterial } from './integrationCredentials'
+import { IntegrationCredentialsFields } from './IntegrationCredentialsFields'
 import { McpOAuthSecretFields } from './McpOAuthSecretFields'
 import { OAuthTokenFields } from './OAuthTokenFields'
 
@@ -45,6 +47,8 @@ type SecretDraft = SecretDialogState['secret']
 
 function secretDraftValid(secret: SecretDraft): boolean {
   switch (secret.kind) {
+    case 'integration_credentials':
+      return integrationCredentialsMaterial(secret) !== undefined
     case 'generic':
       return secret.value !== ''
     case 'aws_credentials':
@@ -71,6 +75,15 @@ function SecretKindFields({
   dispatch: Dispatch<SecretDialogAction>
 }) {
   switch (secret.kind) {
+    case 'integration_credentials':
+      return (
+        <IntegrationCredentialsFields
+          value={secret}
+          onChange={(next) => {
+            dispatch({ type: 'set-integration-credentials', secret: next })
+          }}
+        />
+      )
     case 'generic':
       return (
         <Field>

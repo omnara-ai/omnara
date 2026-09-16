@@ -395,14 +395,26 @@ mcp:
     expect(deserialize(empty)).toBeNull()
   })
 
-  it('rejects non-built-in tools', () => {
+  it.each([
+    'shell',
+    'list_channels',
+    'get_channel',
+    'set_current_channel',
+    'send_channel_message',
+    'read_channel',
+  ])('keeps custom tool %s in YAML mode instead of stripping it for Basic mode', (name) => {
     const source = `${minimalYaml}tools:
-  shell:
+  ${name}:
     type: custom
+    description: Customer operation.
+    input_schema:
+      type: object
+      properties:
+        omnara_channel: {type: string}
     permission:
       mode: always_ask
 `
-    expect(deserialize(source)).toBeNull()
+    expect(createBasicConfigSession(source).initialDraft).toBeNull()
   })
 
   it('rejects invalid and empty YAML', () => {
@@ -434,40 +446,25 @@ describe('createBasicConfigSession apply', () => {
     expect(applyToSource(commentedYaml, config)).toBe(commentedYaml)
   })
 
-  it('removes legacy binding-managed tools from an otherwise unrelated edit', () => {
-    const source = `${minimalYaml}tools:
-  ask_question: {}
-  list_channels: {}
-  get_channel: {}
-  set_current_channel:
-    permission:
-      mode: always_ask
-  read_channel: {}
-  send_channel_message:
-    enabled: false
-`
-    const session = createBasicConfigSession(source)
-    const config = session.initialDraft
-    if (config == null) throw new Error('expected the legacy config to deserialize')
-    expect(config.tools.map((tool) => tool.name)).toEqual(['ask_question'])
-
-    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
-    expect(parse(updated)).toMatchObject({
-      instruction: 'Updated instruction.',
-      tools: { ask_question: {} },
-    })
-    expect(parse(updated)).toHaveProperty('tools', { ask_question: {} })
-  })
-
   it.each([
     'list_channels',
     'get_channel',
     'set_current_channel',
     'send_channel_message',
     'read_channel',
-  ])('omits binding-managed tool %s supplied in a builder draft', (name) => {
-    const draft = { ...mustDeserialize(minimalYaml), tools: [{ name, permission: null }] }
-    expect(parse(applyToSource(minimalYaml, draft))).not.toHaveProperty('tools')
+  ])('preserves configured %s for server validation instead of deleting it', (name) => {
+    const source = `${minimalYaml}tools:
+  ${name}: {}
+`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected a structurally valid built-in tool draft')
+    expect(config.tools).toEqual([{ name, permission: null }])
+    expect(session.apply(config)).toBe(source)
+    expect(parse(session.apply({ ...config, instruction: 'Updated instruction.' }))).toEqual({
+      ...parse(source),
+      instruction: 'Updated instruction.',
+    })
   })
 
   it('preserves a user-authored empty tools map on an unrelated edit', () => {
@@ -481,68 +478,6 @@ tools: {}
     const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
     expect(updated).toContain('# Keep this explicit empty map.')
     expect(parse(updated)).toMatchObject({ tools: {} })
-  })
-
-  it.each([
-    `  list_channels: &shared {}
-  ask_question: *shared # Keep this tool.
-  run_command: *shared
-`,
-    `  list_channels:
-    permission: &approval
-      mode: always_ask
-  ask_question:
-    permission: *approval
-  run_command:
-    permission: *approval
-`,
-  ])('preserves aliases when removing legacy channel tools: %s', (tools) => {
-    const source = `${minimalYaml}tools:\n${tools}`
-    const session = createBasicConfigSession(source)
-    const config = session.initialDraft
-    if (config == null) throw new Error('expected the aliased config to deserialize')
-    expect(config.tools.map((tool) => tool.name)).toEqual(['ask_question', 'run_command'])
-
-    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
-    expect(updated).not.toContain('list_channels')
-    expect(mustDeserialize(updated)).toEqual({ ...config, instruction: 'Updated instruction.' })
-    if (source.includes('# Keep this tool.')) expect(updated).toContain('# Keep this tool.')
-  })
-
-  it('preserves references to an entire removed tools map', () => {
-    const source = `${minimalYaml}tools: &shared {list_channels: {}}
-mcp:
-  remote:
-    url: https://example.test/mcp
-    tools: *shared
-`
-    const config = mustDeserialize(source)
-    expect(config.tools).toEqual([])
-    const updated = applyToSource(source, { ...config, instruction: 'Updated instruction.' })
-    expect(parse(updated)).toMatchObject({ mcp: { remote: { tools: { list_channels: {} } } } })
-    expect(mustDeserialize(updated)).toMatchObject({
-      ...config,
-      instruction: 'Updated instruction.',
-      // Builder field IDs are regenerated on every parse.
-      mcpServers: config.mcpServers.map(({ name, url, tools }) => ({ name, url, tools })),
-    })
-  })
-
-  it('preserves alias targets when a removed entry has a shadowed nested anchor', () => {
-    const source = `${minimalYaml}tools:
-  list_channels: &entry {permission: &p {mode: always_allow}}
-  ask_question: {permission: &p {mode: always_ask}}
-  run_command: *entry
-  shell: {permission: *p}
-`
-    const config = mustDeserialize(source)
-    expect(config.tools.map((tool) => tool.permission?.mode)).toEqual([
-      'always_ask',
-      'always_allow',
-      'always_ask',
-    ])
-    const updated = applyToSource(source, { ...config, instruction: 'Updated instruction.' })
-    expect(mustDeserialize(updated)).toEqual({ ...config, instruction: 'Updated instruction.' })
   })
 
   it('rewrites only the entries that changed, preserving everything else', () => {

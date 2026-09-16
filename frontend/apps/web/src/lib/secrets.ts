@@ -11,6 +11,7 @@ export function secretSubtitle(secret: SecretSubtitleInput) {
     }
     return 'OAuth Token Pair'
   }
+  if (secret.kind === 'integration_credentials') return 'App credentials'
   if (secret.kind === 'generic') {
     return 'Generic'
   }

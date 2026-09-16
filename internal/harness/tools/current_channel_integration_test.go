@@ -29,7 +29,7 @@ func TestCurrentChannelToolJourneyPinsPromptsAndReplaysSelection(t *testing.T) {
 	definition, err := fixture.Store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: toolsTestProjectID, IntegrationInstallID: connection.Install.ID,
-			ImplementationKey: "current-channel", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "current-channel", Kind: integrationstore.ChannelKindDiscordThread,
 			Description: "Example channel", SendParamsSchema: json.RawMessage(`{"type":"object"}`),
 			Capabilities: integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true},
 			ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: connection.App.ConnectorKey,

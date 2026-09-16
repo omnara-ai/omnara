@@ -2,15 +2,9 @@ import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AppRuntimeRegistry, RuntimeHandle } from './app-registry'
-import { messageContentBlocks } from './chat-sdk-media'
 import type { CoreClient } from './core-client'
 import { maxDiagnosticMessageBytes } from './diagnostics'
-import {
-  testMessage,
-  testRuntimeHandle,
-  testRuntimeUnit,
-  unexpectedTestCall,
-} from './gateway-test-fixtures'
+import { testRuntimeHandle, testRuntimeUnit, unexpectedTestCall } from './gateway-test-fixtures'
 import { RuntimeLoop, type RuntimeLoopOptions } from './runtime-loop'
 import type { GatewayLogger, ProviderRuntime, RuntimeCheckpoint } from './types'
 import { WorkByteBudget } from './work-budget'
@@ -19,7 +13,7 @@ describe('persistent channel runtime supervision', () => {
   it('fills runtime capacity one exact capability at a time', async () => {
     const controller = new AbortController()
     const capabilities = [
-      { connector_key: 'chat_sdk_v1', provider: 'discord' },
+      { connector_key: 'test_connector', provider: 'discord' },
       { connector_key: 'custom_v1', provider: 'github' },
     ]
     const first = testRuntimeUnit()
@@ -158,7 +152,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -208,7 +202,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -261,7 +255,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -320,7 +314,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -388,7 +382,7 @@ describe('persistent channel runtime supervision', () => {
     const now = vi.spyOn(Date, 'now').mockImplementation(() => leaseTimeMs)
     try {
       await new RuntimeLoop({
-        capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+        capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
         claimLimit: 1,
         client,
         idlePollMs: 1,
@@ -479,7 +473,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -569,7 +563,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -585,7 +579,7 @@ describe('persistent channel runtime supervision', () => {
     expect(abortedBeforeRecovery).toBe(false)
   })
 
-  it('shares one media-work budget across concurrent persistent runtime units', async () => {
+  it('shares retained-work capacity across concurrent persistent runtime units', async () => {
     const controller = new AbortController()
     const gate = deferred<undefined>()
     const budget = new WorkByteBudget(10)
@@ -613,37 +607,15 @@ describe('persistent channel runtime supervision', () => {
         },
       ),
     } satisfies RuntimeLoopOptions['client']
-    const message = testMessage({
-      attachments: [
-        {
-          fetchData: () => Promise.resolve(Buffer.from([1, 2])),
-          type: 'image',
-          mimeType: 'image/png',
-          name: 'tiny.png',
-          size: 2,
-        },
-      ],
-      text: '',
-    })
     let admitted = 0
     const runUnit: RuntimeHandle['runUnit'] = async (_unit, context) => {
-      const reservations: ReturnType<typeof context.reserveWorkBytes>[] = []
+      const retained = context.reserveWorkBytes(0)
       try {
-        await messageContentBlocks(message, 4, 4, {
-          fetchAttachmentData: (attachment) => {
-            if (!attachment.fetchData) throw new Error('missing test attachment loader')
-            return attachment.fetchData()
-          },
-          reserveWorkBytes: (bytes) => {
-            const reservation = context.reserveWorkBytes(bytes)
-            reservations.push(reservation)
-            return reservation
-          },
-        })
+        retained.resize(8)
         admitted++
         await gate.promise
       } finally {
-        for (const reservation of reservations) reservation.release()
+        retained.release()
       }
     }
     const runtime: ProviderRuntime = {
@@ -665,7 +637,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 2,
       client,
       idlePollMs: 1,
@@ -733,7 +705,7 @@ describe('persistent channel runtime supervision', () => {
     } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+      capabilities: [{ connector_key: 'test_connector', provider: 'discord' }],
       claimLimit: 1,
       client,
       idlePollMs: 1,
@@ -761,7 +733,7 @@ function testClient() {
 const testConfiguration = {
   app: {
     configuration_revision: 1,
-    connector_key: 'chat_sdk_v1',
+    connector_key: 'test_connector',
     display_name: 'Test',
     id: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
     provider: 'discord',

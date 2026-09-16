@@ -200,6 +200,18 @@ type ConfiguredModelRevision struct {
 	CreatedAt                 time.Time
 }
 
+type CronTriggerChannelBinding struct {
+	ProjectID           uuid.UUID
+	CronTriggerID       uuid.UUID
+	ChannelID           uuid.UUID
+	ReceiveAllowed      bool
+	ReadAllowed         bool
+	SendAllowed         bool
+	ReplyReceiveAllowed *bool
+	ReplyReadAllowed    *bool
+	ReplySendAllowed    *bool
+}
+
 type EffectiveResourceLimit struct {
 	OrgID                                     uuid.UUID
 	MaxActiveProjectsPerOrg                   int64
@@ -245,6 +257,18 @@ type ExternalChannelRequest struct {
 	TerminalAt                 *time.Time
 }
 
+type GithubPrReview struct {
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	CreatingToolCallID   uuid.UUID
+	IntegrationInstallID uuid.UUID
+	PrChannelID          uuid.UUID
+	CreatingBindingID    uuid.UUID
+	CommitID             string
+	ProviderReviewID     *string
+	CreatedAt            time.Time
+}
+
 type IntegrationApp struct {
 	ID                         uuid.UUID
 	OrgID                      uuid.UUID
@@ -275,6 +299,29 @@ type IntegrationChannelDefinition struct {
 	Capabilities         json.RawMessage
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+}
+
+type IntegrationControlReceipt struct {
+	ID                    uuid.UUID
+	OrgID                 uuid.UUID
+	IntegrationAppID      uuid.UUID
+	ConnectorKey          string
+	Provider              string
+	ProviderTenantID      string
+	EventID               string
+	Payload               json.RawMessage
+	LastInstallID         uuid.UUID
+	EndInstallID          uuid.UUID
+	State                 string
+	AttemptsSinceProgress int32
+	AvailableAt           time.Time
+	LeaseToken            *uuid.UUID
+	LeaseGeneration       int64
+	LeaseExpiresAt        *time.Time
+	LastError             json.RawMessage
+	CompletedAt           *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type IntegrationEventReceipt struct {
@@ -375,7 +422,6 @@ type IntegrationTarget struct {
 	ID                   uuid.UUID
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
-	TargetRef            string
 	ProviderRef          string
 	ProviderRefKind      string
 	DisplayName          string

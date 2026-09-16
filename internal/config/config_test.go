@@ -151,7 +151,7 @@ func TestLoadChannelConnectorConfiguration(t *testing.T) {
 	raw, err := json.Marshal([]channelconnector.Config{{
 		ID: "gateway-west", Token: token,
 		Capabilities: []channelconnector.Capability{{
-			ConnectorKey: "chat_sdk_v1", Provider: "discord",
+			ConnectorKey: "test_connector", Provider: "discord",
 		}},
 	}})
 	if err != nil {
@@ -174,7 +174,7 @@ func TestLoadChannelConnectorConfiguration(t *testing.T) {
 		cfg.ChannelConnectors[0].Token != token ||
 		len(cfg.ChannelConnectors[0].Capabilities) != 1 ||
 		cfg.ChannelConnectors[0].Capabilities[0] != (channelconnector.Capability{
-			ConnectorKey: "chat_sdk_v1", Provider: "discord",
+			ConnectorKey: "test_connector", Provider: "discord",
 		}) {
 		t.Fatalf("channel connector configuration = %+v", cfg.ChannelConnectors)
 	}
@@ -188,7 +188,7 @@ func TestValidateAPIRejectsInvalidChannelConnectorConfiguration(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv(
 		"OMNARA_CHANNEL_CONNECTORS_JSON",
-		`[{"id":"gateway-west","token":"not-a-connector-token","capabilities":[{"connector_key":"chat_sdk_v1","provider":"discord"}]}]`,
+		`[{"id":"gateway-west","token":"not-a-connector-token","capabilities":[{"connector_key":"test_connector","provider":"discord"}]}]`,
 	)
 
 	cfg, err := Load()

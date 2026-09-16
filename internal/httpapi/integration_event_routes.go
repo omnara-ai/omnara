@@ -108,6 +108,10 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 	}
 	// The provider receives success only after the verified payload is saved.
 	// Gateway behavior owns enrichment, workflow selection and agent input.
+	if err := s.requireIntegrationGateway(integrationstore.IntegrationProviderSlack); err != nil {
+		apierror.WriteError(w, err)
+		return
+	}
 	_, err = s.store.Integrations().ReceiveIntegrationEvent(r.Context(), integrationstore.ReceiveIntegrationEventInput{
 		ProjectID: install.ProjectID, IntegrationInstallID: install.ID,
 		EventID: envelope.EventID, Payload: raw,
@@ -119,6 +123,15 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 	}
 	logent.IntegrationEvent(r.Context(), install, "received", envelope.Event.Type)
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "accepted"})
+}
+
+func (s *Server) requireIntegrationGateway(provider string) error {
+	if !s.channelConnectorAuth.HasCapability(channelconnector.Capability{
+		ConnectorKey: channelconnector.BuiltInConnectorKey, Provider: provider,
+	}) {
+		return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "integration channel gateway is not configured")
+	}
+	return nil
 }
 
 func (s *Server) applyIntegrationNameUpdate(

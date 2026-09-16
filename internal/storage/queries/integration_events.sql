@@ -178,9 +178,10 @@ WHERE receipt.id = expired.id;
 UPDATE integration_event_receipts receipt
 SET state = sqlc.arg(next_state)::text,
     available_at = CASE WHEN sqlc.arg(next_state)::text = 'pending'
-      THEN statement_timestamp() + make_interval(secs =>
+      THEN statement_timestamp() + greatest(make_interval(secs =>
         least(300.0, power(2.0, least(receipt.attempt_count, 9))) *
-        (0.8 + 0.4 * ((hashtextextended(receipt.id::text, receipt.attempt_count) & 2147483647)::double precision / 2147483647.0)))
+        (0.8 + 0.4 * ((hashtextextended(receipt.id::text, receipt.attempt_count) & 2147483647)::double precision / 2147483647.0))),
+        sqlc.arg(retry_after_microseconds)::bigint * interval '1 microsecond')
       ELSE receipt.available_at END,
     lease_token = NULL, lease_expires_at = NULL,
     last_error = sqlc.arg(last_error),

@@ -86,13 +86,13 @@ describe('Slack input file preparation', () => {
     expect(prepared.summary).toBe('Slack files not included:\n- huge.txt skipped: file too large')
   })
 
-  it('enforces the combined 24 MiB limit and reserves memory before download', async () => {
+  it('enforces the combined 24 MiB limit and grows reservations with actual downloads', async () => {
     const reservation = work()
     let downloads = 0
     const apiUrl = await slackServer((_request, response) => {
       downloads += 1
       expect(reservation.resize.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(
-        downloads * 8 * 1024 * 1024 * 8,
+        (downloads - 1) * 8 * 1024 * 1024 * 8,
       )
       response.end(Buffer.alloc(8 * 1024 * 1024, 'a'))
     })

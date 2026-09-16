@@ -305,6 +305,7 @@ func TestSlackEventsStableCallbackUsesInstallSigningSecret(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("http://omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				APIURL:     slackServer.URL,
@@ -942,6 +943,7 @@ func newSlackEventsFixtureWithOptions(
 	t.Helper()
 	options := []Option{
 		WithPublicURL("https://omnara.test"),
+		testSlackChannelGateway(t),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AccessURL:  slackServer.URL + "/oauth.v2.access",

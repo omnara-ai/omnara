@@ -87,7 +87,7 @@ func (s *Store) PrepareChannelOperation(
 	if err != nil {
 		return PreparedChannelOperation{}, err
 	}
-	prepared.access, err = s.checkChannelOperationOwnerTx(ctx, tx, prepared)
+	prepared.access, _, err = s.checkChannelOperationOwnerTx(ctx, tx, prepared)
 	if err != nil {
 		return PreparedChannelOperation{}, err
 	}
@@ -108,7 +108,7 @@ func (s *Store) RecheckChannelOperation(
 		return integrationstore.ChannelAccess{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	access, err := s.recheckChannelOperationTx(ctx, tx, prepared)
+	access, _, err := s.recheckChannelOperationTx(ctx, tx, prepared)
 	if err != nil {
 		return integrationstore.ChannelAccess{}, err
 	}
@@ -147,7 +147,7 @@ func (s *Store) CompleteChannelOperation(
 		return ToolCallRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	access, err := s.recheckChannelOperationTx(ctx, tx, prepared)
+	access, _, err := s.recheckChannelOperationTx(ctx, tx, prepared)
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
@@ -178,12 +178,12 @@ func (s *Store) recheckChannelOperationTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	prepared PreparedChannelOperation,
-) (integrationstore.ChannelAccess, error) {
+) (integrationstore.ChannelAccess, ToolCallRecord, error) {
 	if prepared.store != s || prepared.binding.ID == uuid.Nil {
-		return integrationstore.ChannelAccess{}, storeerr.ErrUnauthorized
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, storeerr.ErrUnauthorized
 	}
 	if _, err := s.integrations.RecheckChannelBindingTx(ctx, tx, prepared.input, prepared.binding); err != nil {
-		return integrationstore.ChannelAccess{}, err
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, err
 	}
 	return s.checkChannelOperationOwnerTx(ctx, tx, prepared)
 }
@@ -192,26 +192,26 @@ func (s *Store) checkChannelOperationOwnerTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	prepared PreparedChannelOperation,
-) (integrationstore.ChannelAccess, error) {
+) (integrationstore.ChannelAccess, ToolCallRecord, error) {
 	owner := prepared.owner
 	if err := ensureRuntimeLockActiveTx(ctx, tx, owner.ProjectID, owner.AgentID, owner.RuntimeLockID); err != nil {
-		return integrationstore.ChannelAccess{}, err
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, err
 	}
 	call, err := getToolCallTx(ctx, tx, owner.ProjectID, owner.AgentID, owner.ToolCallID)
 	if err != nil {
-		return integrationstore.ChannelAccess{}, err
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, err
 	}
 	if call.State != ToolCallStateRunning || call.RuntimeLockID != owner.RuntimeLockID ||
 		call.TurnID != owner.TurnID || call.Type != toolcatalog.ToolTypeBuiltIn ||
 		call.Name != channelOperationToolName(owner.Operation) {
-		return integrationstore.ChannelAccess{}, storeerr.ErrStateTransitionConflict
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	access, err := s.integrations.GetAgentChannelAccessTx(ctx, tx, owner.ProjectID, owner.AgentID, owner.ChannelID)
 	if err != nil {
-		return integrationstore.ChannelAccess{}, err
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, err
 	}
 	if err := validateManagedChannelAccess(access, owner.Operation); err != nil {
-		return integrationstore.ChannelAccess{}, err
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, err
 	}
 	old := prepared.access
 	if access.IntegrationInstallID != old.IntegrationInstallID || access.IntegrationAppID != old.IntegrationAppID ||
@@ -219,11 +219,11 @@ func (s *Store) checkChannelOperationOwnerTx(
 		access.ConnectorKey != old.ConnectorKey || access.Provider != old.Provider ||
 		access.ProviderRef != old.ProviderRef || access.ProviderRefKind != old.ProviderRefKind ||
 		(prepared.input.CreatesReplyChannel && !access.Capabilities.CreatesReplyChannel) {
-		return integrationstore.ChannelAccess{}, storeerr.ErrUnauthorized
+		return integrationstore.ChannelAccess{}, ToolCallRecord{}, storeerr.ErrUnauthorized
 	}
 	// Newly granted delegation cannot widen an operation already prepared without it.
 	access.Capabilities.CreatesReplyChannel = prepared.input.CreatesReplyChannel
-	return access, nil
+	return access, call, nil
 }
 
 func validateManagedChannelAccess(

@@ -25,12 +25,12 @@ func operationConfig(t *testing.T, endpoint string) Config {
 		t.Fatal(err)
 	}
 	return Config{ID: "gateway-a", Token: token, OperationsURL: endpoint,
-		Capabilities: []Capability{{ConnectorKey: "chat_sdk_v1", Provider: "slack"}}}
+		Capabilities: []Capability{{ConnectorKey: "test_connector", Provider: "slack"}}}
 }
 
 func operationRequest() OperationRequest {
 	return OperationRequest{RequestID: "request-1", Kind: OperationSend,
-		Capability: Capability{ConnectorKey: "chat_sdk_v1", Provider: "slack"},
+		Capability: Capability{ConnectorKey: "test_connector", Provider: "slack"},
 		Scope: OperationScope{ProjectID: "project", IntegrationAppID: "app", IntegrationInstallID: "install",
 			AgentID: "agent", ChannelID: "channel"},
 		Payload: json.RawMessage(`{"message":{"text":"hello"},"params":{}}`)}
@@ -101,7 +101,7 @@ func TestOperationsClientRejectsAmbiguousRoutes(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			other := operationConfig(t, "http://gateway-b/ops")
 			other.ID = "gateway-b"
-			other.Capabilities = []Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}}
+			other.Capabilities = []Capability{{ConnectorKey: "test_connector", Provider: "discord"}}
 			configs := []Config{base, other}
 			switch kind {
 			case "id":
@@ -165,9 +165,9 @@ func TestOperationsClientAuthenticatesAndUsesExactConfiguredEndpoint(t *testing.
 		}
 	}
 	for _, capability := range []Capability{
-		{ConnectorKey: "chat_sdk_v1", Provider: "discord"},
+		{ConnectorKey: "test_connector", Provider: "discord"},
 		{ConnectorKey: "another", Provider: "slack"},
-		{ConnectorKey: "chat_sdk_v1", Provider: " slack "},
+		{ConnectorKey: "test_connector", Provider: " slack "},
 	} {
 		request := operationRequest()
 		request.Capability = capability

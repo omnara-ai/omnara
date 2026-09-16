@@ -238,20 +238,21 @@ const finishIntegrationEventReceipt = `-- name: FinishIntegrationEventReceipt :o
 UPDATE integration_event_receipts receipt
 SET state = $1::text,
     available_at = CASE WHEN $1::text = 'pending'
-      THEN statement_timestamp() + make_interval(secs =>
+      THEN statement_timestamp() + greatest(make_interval(secs =>
         least(300.0, power(2.0, least(receipt.attempt_count, 9))) *
-        (0.8 + 0.4 * ((hashtextextended(receipt.id::text, receipt.attempt_count) & 2147483647)::double precision / 2147483647.0)))
+        (0.8 + 0.4 * ((hashtextextended(receipt.id::text, receipt.attempt_count) & 2147483647)::double precision / 2147483647.0))),
+        $2::bigint * interval '1 microsecond')
       ELSE receipt.available_at END,
     lease_token = NULL, lease_expires_at = NULL,
-    last_error = $2,
+    last_error = $3,
     completed_at = CASE WHEN $1::text IN ('completed', 'failed') THEN statement_timestamp() ELSE NULL END,
     updated_at = statement_timestamp()
-WHERE receipt.project_id = $3
-  AND receipt.integration_install_id = $4
-  AND receipt.id = $5
+WHERE receipt.project_id = $4
+  AND receipt.integration_install_id = $5
+  AND receipt.id = $6
   AND receipt.state = 'processing'
-  AND receipt.lease_token = $6::uuid
-  AND receipt.lease_generation = $7
+  AND receipt.lease_token = $7::uuid
+  AND receipt.lease_generation = $8
   AND receipt.lease_expires_at > statement_timestamp()
 RETURNING receipt.id, receipt.project_id, receipt.integration_install_id,
   receipt.integration_app_id, receipt.connector_key, receipt.provider, receipt.event_id,
@@ -261,18 +262,20 @@ RETURNING receipt.id, receipt.project_id, receipt.integration_install_id,
 `
 
 type FinishIntegrationEventReceiptParams struct {
-	NextState            string
-	LastError            json.RawMessage
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
-	ID                   uuid.UUID
-	LeaseToken           uuid.UUID
-	LeaseGeneration      int64
+	NextState              string
+	RetryAfterMicroseconds int64
+	LastError              json.RawMessage
+	ProjectID              uuid.UUID
+	IntegrationInstallID   uuid.UUID
+	ID                     uuid.UUID
+	LeaseToken             uuid.UUID
+	LeaseGeneration        int64
 }
 
 func (q *Queries) FinishIntegrationEventReceipt(ctx context.Context, arg FinishIntegrationEventReceiptParams) (IntegrationEventReceipt, error) {
 	row := q.db.QueryRow(ctx, finishIntegrationEventReceipt,
 		arg.NextState,
+		arg.RetryAfterMicroseconds,
 		arg.LastError,
 		arg.ProjectID,
 		arg.IntegrationInstallID,

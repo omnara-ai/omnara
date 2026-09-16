@@ -1,10 +1,16 @@
-import { describe, expect, it, vi } from 'vitest'
+import {
+  ApiError,
+  type ChannelConnectorControlReceipt,
+  type ChannelConnectorEventReceipt,
+} from '@omnara/sdk'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppRuntimeRegistry } from './app-registry'
-import type { RedisStateClient } from './app-state'
 import { loadConfig } from './config'
 import { CoreClient } from './core-client'
-import { unexpectedTestCall } from './gateway-test-fixtures'
+import * as discordGateway from './discord/gateway'
+import { testRuntimeHandle, unexpectedTestCall } from './gateway-test-fixtures'
+import * as githubGateway from './github/gateway'
 import {
   createProviderFactoryRegistry,
   providerFactoryCapabilities,
@@ -12,11 +18,296 @@ import {
   type RunGatewayOptions,
 } from './index'
 import { type OperationsOptions, operationsRoute } from './operations'
+import { initialReceiptWorkBytes } from './receipt-http'
+import type { RedisStateClient } from './redis-client'
 import type { GatewayRedisClient } from './redis-client'
 import { GatewayServer } from './server'
-import type { GatewayLogger, ProviderFactory, ProviderFactoryRegistry } from './types'
+import * as slackGateway from './slack/gateway'
+import {
+  type ControlReceiptBehavior,
+  type GatewayLogger,
+  type ProviderFactory,
+  type ProviderFactoryRegistry,
+  type ReceiptBehavior,
+  ReceiptBehaviorError,
+} from './types'
+import { GatewayAtCapacityError } from './work-budget'
 
 describe('channel gateway provider capabilities', () => {
+  beforeEach(() => {
+    vi.spyOn(CoreClient.prototype, 'claimNextControlEvent').mockResolvedValue(undefined)
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+  it('boots all built-in providers and dispatches their operations through the authenticated HTTP boundary', async () => {
+    const controller = new AbortController()
+    const redis = {
+      ...testRedisClient(),
+      connect: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      ready: vi.fn().mockResolvedValue(true),
+    }
+    const execute = () =>
+      vi.fn<OperationsOptions['execute']>().mockResolvedValue({
+        outcome: 'completed',
+        payload: { publication: 'published' },
+      })
+    const executions = { slack: execute(), discord: execute(), github: execute() }
+    const spies = [
+      vi.spyOn(slackGateway, 'createSlackGateway').mockReturnValue({
+        executeOperation: executions.slack,
+        processReceipt: vi.fn().mockResolvedValue(undefined),
+      }),
+      vi.spyOn(discordGateway, 'createDiscordGateway').mockReturnValue({
+        executeOperation: executions.discord,
+      }),
+      vi.spyOn(githubGateway, 'createGitHubGateway').mockReturnValue({
+        executeOperation: executions.github,
+      }),
+    ]
+    const claims = vi.spyOn(CoreClient.prototype, 'claimNextEvent').mockResolvedValue(undefined)
+    const runtimes = vi.spyOn(CoreClient.prototype, 'claimRuntimeUnits').mockResolvedValue([])
+    const listen = vi.spyOn(GatewayServer.prototype, 'listen')
+    const config = { ...testConfig(), port: 0, idlePollMs: 10 }
+    const running = runGateway({
+      config,
+      createRedisClient: () => redis,
+      logger: noopLogger,
+      signal: controller.signal,
+    })
+    try {
+      await vi.waitFor(() => {
+        expect(listen).toHaveBeenCalledOnce()
+        expect(new Set(claims.mock.calls.map(([capability]) => capability.provider))).toEqual(
+          new Set(['slack', 'discord', 'github']),
+        )
+        expect(new Set(runtimes.mock.calls.map(([capability]) => capability.provider))).toEqual(
+          new Set(['slack', 'discord', 'github']),
+        )
+      })
+      const listening = listen.mock.results[0]
+      if (listening?.type !== 'return') throw new Error('gateway did not listen')
+      const port = await listening.value
+      for (const [provider, execution] of Object.entries(executions)) {
+        const body = JSON.stringify({
+          request_id: `default-${provider}`,
+          capability: { connector_key: 'omnara', provider },
+          kind: 'send',
+          scope: {
+            project_id: 'project',
+            integration_app_id: 'app',
+            integration_install_id: 'install',
+            agent_id: 'agent',
+            channel_id: 'channel',
+          },
+          deadline: new Date(Date.now() + 5000).toISOString(),
+          payload: { message: { text: 'hello' } },
+        })
+        const url = `http://127.0.0.1:${port}${operationsRoute}`
+        const denied = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+        })
+        expect(denied.status).toBe(401)
+        await denied.text()
+        expect(execution).not.toHaveBeenCalled()
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${config.connectorToken}`,
+            'content-type': 'application/json',
+          },
+          body,
+        })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({
+          request_id: `default-${provider}`,
+          outcome: 'completed',
+        })
+        expect(execution).toHaveBeenCalledOnce()
+        expect(execution.mock.calls[0]?.[0].capability).toEqual({
+          connector_key: 'omnara',
+          provider,
+        })
+      }
+    } finally {
+      controller.abort()
+      await running
+      for (const spy of [...spies, claims, runtimes, listen]) spy.mockRestore()
+    }
+    expect(redis.close).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { cause: undefined, state: 'completed' },
+    { cause: new ApiError(503, 'temporarily unavailable'), state: 'pending' },
+    { cause: new GatewayAtCapacityError('channel app registry is at capacity'), state: 'pending' },
+    { cause: new ApiError(404, 'cached missing app'), state: 'pending' },
+    { cause: new Error('channel app registry is closed'), state: 'pending' },
+    { cause: new Error('factory initialization failed'), state: 'pending' },
+    { cause: new Error('factory initialization failed'), state: 'failed', attemptCount: 8 },
+    { cause: new ReceiptBehaviorError(false), state: 'failed' },
+  ])(
+    'dispatches receipts through their app and records $state after registry resolution',
+    async ({ cause, state, attemptCount = 1 }) => {
+      const controller = new AbortController()
+      const redis = {
+        ...testRedisClient(),
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }
+      const receipt: ChannelConnectorEventReceipt = {
+        receipt_id: `irec_${'a'.repeat(26)}`,
+        integration_app_id: `iapp_${'a'.repeat(26)}`,
+        integration_install_id: `iin_${'a'.repeat(26)}`,
+        event_id: 'verified-provider-event',
+        state: 'processing',
+        attempt_count: attemptCount,
+        lease_token: '01994550-1234-7123-8123-123456789abc',
+        lease_generation: 1,
+        lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+        last_error: {},
+        payload: {},
+      }
+      const behavior = vi.fn<ReceiptBehavior>().mockResolvedValue(undefined)
+      const handle = testRuntimeHandle({
+        runtime: {
+          close: () => Promise.resolve(),
+          handleWebhook: unexpectedTestCall,
+          processReceipt: behavior,
+        },
+      })
+      const acquire = vi.spyOn(AppRuntimeRegistry.prototype, 'acquire')
+      if (cause) acquire.mockRejectedValue(cause)
+      else acquire.mockResolvedValue(handle)
+      const claims = vi
+        .spyOn(CoreClient.prototype, 'claimNextEvent')
+        .mockResolvedValue(undefined)
+        .mockResolvedValueOnce(receipt)
+      const runtimes = vi.spyOn(CoreClient.prototype, 'claimRuntimeUnits').mockResolvedValue([])
+      const complete = vi.spyOn(CoreClient.prototype, 'completeEvent').mockResolvedValue(undefined)
+      const running = runGateway({
+        config: { ...testConfig(), port: 0 },
+        createRedisClient: () => redis,
+        logger: noopLogger,
+        signal: controller.signal,
+      })
+      try {
+        await vi.waitFor(() => {
+          expect(complete).toHaveBeenCalledOnce()
+        })
+        expect(acquire).toHaveBeenCalledWith(receipt.integration_app_id)
+        expect(complete.mock.calls[0]?.[1]).toMatchObject({ state })
+        if (cause) expect(behavior).not.toHaveBeenCalled()
+        else {
+          expect(behavior).toHaveBeenCalledOnce()
+          expect(behavior.mock.calls[0]?.[0]).toEqual(receipt)
+          expect(behavior.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal)
+          expect(handle.release).toHaveBeenCalledOnce()
+        }
+      } finally {
+        controller.abort()
+        await running
+        for (const spy of [acquire, claims, runtimes, complete]) spy.mockRestore()
+      }
+    },
+  )
+
+  it.each([
+    { cause: undefined, outcome: 'yield', phase: 'acquire' },
+    { cause: new ApiError(503, 'temporarily unavailable'), outcome: 'retry', phase: 'acquire' },
+    { cause: new GatewayAtCapacityError(), outcome: 'retry', phase: 'acquire' },
+    { cause: new ApiError(404, 'cached missing app'), outcome: 'retry', phase: 'acquire' },
+    { cause: new ApiError(404, 'removed child'), outcome: 'retry', phase: 'behavior' },
+  ])(
+    'runs provider control work independently and reports $outcome after $phase',
+    async ({ cause, outcome, phase }) => {
+      const controller = new AbortController()
+      const redis = {
+        ...testRedisClient(),
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }
+      const receipt: ChannelConnectorControlReceipt = {
+        receipt_id: `icrc_${'a'.repeat(26)}`,
+        integration_app_id: `iapp_${'a'.repeat(26)}`,
+        provider_tenant_id: '42',
+        event_id: 'verified-installation-restored',
+        payload: {},
+        state: 'processing',
+        last_installation_id: null,
+        end_installation_id: `iin_${'b'.repeat(26)}`,
+        lease_token: '01994550-1234-7123-8123-123456789abc',
+        lease_generation: 90,
+        lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+        attempts_since_progress: 30,
+        last_error: {},
+        created_at: new Date().toISOString(),
+      }
+      const progress = { outcome: 'yield', last_installation_id: `iin_${'a'.repeat(26)}` } as const
+      const config = { ...testConfig(), port: 0, idlePollMs: 10 }
+      const behavior = vi.fn<ControlReceiptBehavior>().mockImplementation((_receipt, context) => {
+        // The real composition must cap controls even while the parent budget
+        // has ample capacity. Claims already reserve their small envelope.
+        const remaining = Math.floor(config.webhookMaxBufferedBytes / 2) - initialReceiptWorkBytes
+        const work = context.reserveWorkBytes(remaining)
+        try {
+          expect(() => context.reserveWorkBytes(1)).toThrow(GatewayAtCapacityError)
+        } finally {
+          work.release()
+        }
+        return Promise.resolve(progress)
+      })
+      if (cause && phase === 'behavior') behavior.mockRejectedValue(cause)
+      const handle = testRuntimeHandle({
+        runtime: {
+          close: () => Promise.resolve(),
+          handleWebhook: unexpectedTestCall,
+          processControlReceipt: behavior,
+        },
+      })
+      const acquire = vi.spyOn(AppRuntimeRegistry.prototype, 'acquire')
+      if (cause && phase === 'acquire') acquire.mockRejectedValue(cause)
+      else acquire.mockResolvedValue(handle)
+      vi.spyOn(CoreClient.prototype, 'claimNextEvent').mockResolvedValue(undefined)
+      vi.spyOn(CoreClient.prototype, 'claimRuntimeUnits').mockResolvedValue([])
+      let claimed = false
+      vi.spyOn(CoreClient.prototype, 'claimNextControlEvent').mockImplementation((capability) => {
+        if (capability.provider !== 'github' || claimed) return Promise.resolve(undefined)
+        claimed = true
+        return Promise.resolve(receipt)
+      })
+      const complete = vi
+        .spyOn(CoreClient.prototype, 'completeControlEvent')
+        .mockResolvedValue(undefined)
+      const running = runGateway({
+        config,
+        createRedisClient: () => redis,
+        logger: noopLogger,
+        signal: controller.signal,
+      })
+      try {
+        await vi.waitFor(() => {
+          expect(complete).toHaveBeenCalledOnce()
+        })
+        expect(complete.mock.calls[0]?.[0]).toEqual(receipt)
+        expect(complete.mock.calls[0]?.[1]).toMatchObject({ outcome })
+        if (cause && phase === 'acquire') expect(behavior).not.toHaveBeenCalled()
+        else {
+          if (!cause) expect(complete.mock.calls[0]?.[1]).toEqual(progress)
+          expect(behavior).toHaveBeenCalledOnce()
+          expect(behavior.mock.calls[0]?.[1].reserveWorkBytes).toBeTypeOf('function')
+          expect(handle.release).toHaveBeenCalledOnce()
+        }
+      } finally {
+        controller.abort()
+        await running
+      }
+    },
+  )
+
   it.each(['redisUrl', 'redisTopology'] as const)(
     'requires %s when a provider factory is enabled',
     async (field) => {
@@ -39,9 +330,9 @@ describe('channel gateway provider capabilities', () => {
   it('derives exact claim capabilities from the adapters in this binary', () => {
     const factories = new Map<string, ProviderFactory>([
       [
-        'chat_sdk_v1/discord',
+        'test_connector/discord',
         {
-          connectorKey: 'chat_sdk_v1',
+          connectorKey: 'test_connector',
           provider: 'discord',
           create: vi.fn(),
         },
@@ -57,7 +348,7 @@ describe('channel gateway provider capabilities', () => {
     ]) satisfies ProviderFactoryRegistry
 
     expect(providerFactoryCapabilities(factories)).toEqual([
-      { connector_key: 'chat_sdk_v1', provider: 'discord' },
+      { connector_key: 'test_connector', provider: 'discord' },
       { connector_key: 'custom', provider: 'github' },
     ])
   })
@@ -69,13 +360,13 @@ describe('channel gateway provider capabilities', () => {
       provider,
     })
 
-    expect(() => createProviderFactoryRegistry([factory('Chat SDK', 'discord')])).toThrow(
+    expect(() => createProviderFactoryRegistry([factory('Omnara', 'discord')])).toThrow(
       'lowercase registry names',
     )
     expect(() =>
       createProviderFactoryRegistry([
-        factory('chat_sdk_v1', 'discord'),
-        factory('chat_sdk_v1', 'discord'),
+        factory('test_connector', 'discord'),
+        factory('test_connector', 'discord'),
       ]),
     ).toThrow('duplicate channel provider factory')
   })
@@ -296,7 +587,7 @@ describe('channel gateway provider capabilities', () => {
 })
 
 function testFactory(): ProviderFactory {
-  return { connectorKey: 'chat_sdk_v1', provider: 'fixture', create: vi.fn() }
+  return { connectorKey: 'test_connector', provider: 'fixture', create: vi.fn() }
 }
 
 function testConfig(redisConfigured = true) {
@@ -339,17 +630,7 @@ function testRedisClient() {
     destroy: vi.fn<GatewayRedisClient['destroy']>(unexpectedTestCall),
     onError: vi.fn<GatewayRedisClient['onError']>(),
     ready: vi.fn<GatewayRedisClient['ready']>(unexpectedTestCall),
-    del: vi.fn<RedisStateClient['del']>(unexpectedTestCall),
     eval: vi.fn<RedisStateClient['eval']>(unexpectedTestCall),
-    exists: vi.fn<RedisStateClient['exists']>(unexpectedTestCall),
-    get: vi.fn<RedisStateClient['get']>(unexpectedTestCall),
-    lLen: vi.fn<RedisStateClient['lLen']>(unexpectedTestCall),
-    lPop: vi.fn<RedisStateClient['lPop']>(unexpectedTestCall),
-    lRange: vi.fn<RedisStateClient['lRange']>(unexpectedTestCall),
-    sAdd: vi.fn<RedisStateClient['sAdd']>(unexpectedTestCall),
-    sIsMember: vi.fn<RedisStateClient['sIsMember']>(unexpectedTestCall),
-    sRem: vi.fn<RedisStateClient['sRem']>(unexpectedTestCall),
     set: vi.fn<RedisStateClient['set']>(unexpectedTestCall),
-    unlink: vi.fn<RedisStateClient['unlink']>(unexpectedTestCall),
   } satisfies GatewayRedisClient
 }

@@ -3,7 +3,6 @@ import type {
   ChannelConnectorRuntimeUnit,
 } from '@omnara/sdk'
 
-import type { AppStateFactory } from './app-state'
 import {
   InstallationConfigurationCache,
   LoadLimiter,
@@ -27,9 +26,9 @@ import {
   type ProviderWebhookWorkContext,
   type RuntimeUnitWorkContext,
 } from './types'
+import { GatewayAtCapacityError } from './work-budget'
 
 interface RuntimeEntry {
-  clearSubscriptionsOnClose?: string
   closing?: Promise<void>
   configuration: GatewayAppConfiguration
   fetchedAt: number
@@ -79,7 +78,6 @@ export interface AppRuntimeRegistryOptions {
   providerLifecycleTimeoutMs: number
   reserveWorkBytes: ProviderFactoryContext['reserveWorkBytes']
   refreshAfterMs: number
-  state: AppStateFactory
 }
 
 export class AppRuntimeRegistry {
@@ -101,6 +99,24 @@ export class AppRuntimeRegistry {
       notFoundCacheMs: options.notFoundCacheMs,
       refreshAfterMs: options.refreshAfterMs,
     })
+  }
+
+  webhookTimeoutMs(provider: string): number | undefined {
+    // The app/connector is not loaded yet. Honor the shortest configured
+    // factory budget for this provider without waiting for configuration I/O.
+    let timeout: number | undefined
+    for (const factory of this.options.factories.values()) {
+      if (factory.provider !== provider || factory.webhookTimeoutMs === undefined) continue
+      timeout = Math.min(timeout ?? Infinity, factory.webhookTimeoutMs)
+    }
+    return timeout
+  }
+
+  webhookBodyLimitBytes(connectorKey: string, provider: string): number | undefined {
+    // Different connectors may accept different payloads for the same provider.
+    // The app's exact factory is known after acquisition, before body buffering.
+    return this.options.factories.get(providerFactoryKey(connectorKey, provider))
+      ?.webhookBodyLimitBytes
   }
 
   async acquire(integrationAppId: string, expectedRevision?: number): Promise<RuntimeHandle> {
@@ -145,7 +161,12 @@ export class AppRuntimeRegistry {
               interaction,
               request.signal,
             ),
-          submitInbound: (event) => this.options.client.submitInbound(appId, event, request.signal),
+          submitInbound: (event, signal) =>
+            this.options.client.submitInbound(
+              appId,
+              event,
+              signal ? AbortSignal.any([request.signal, signal]) : request.signal,
+            ),
         }),
       release: async () => {
         if (released) return
@@ -170,8 +191,13 @@ export class AppRuntimeRegistry {
               interaction,
               context.signal,
             ),
-          submitInbound: (event) =>
-            this.options.client.submitRuntimeInbound(appId, unit, event, context.signal),
+          submitInbound: (event, signal) =>
+            this.options.client.submitRuntimeInbound(
+              appId,
+              unit,
+              event,
+              signal ? AbortSignal.any([context.signal, signal]) : context.signal,
+            ),
         })
       },
       runtime: entry.runtime,
@@ -212,10 +238,7 @@ export class AppRuntimeRegistry {
       .catch(async (cause: unknown) => {
         if (isCoreNotFoundError(cause)) {
           if (current) {
-            current.clearSubscriptionsOnClose = integrationAppId
             await this.retireEntry(integrationAppId, current)
-          } else {
-            await this.clearDeletedAppState(integrationAppId)
           }
           writeNegativeCache(
             this.notFound,
@@ -247,7 +270,6 @@ export class AppRuntimeRegistry {
     if (configuration.app.id !== integrationAppId) {
       throw new Error('core API returned a mismatched integration app configuration')
     }
-    await this.options.state.markKnownApp(integrationAppId)
     if (
       current &&
       !current.retired &&
@@ -268,7 +290,6 @@ export class AppRuntimeRegistry {
         `no provider factory is registered for connector ${configuration.app.connector_key} and provider ${configuration.app.provider}`,
       )
     }
-    const state = this.options.state.forApp(configuration.app.id)
     const appRevision = configuration.app.configuration_revision
     const created = await this.createRuntime(factory, {
       configuration,
@@ -288,7 +309,6 @@ export class AppRuntimeRegistry {
           externalAccountRef,
           appRevision,
         ),
-      state,
     })
     const entry: RuntimeEntry = {
       configuration,
@@ -326,21 +346,6 @@ export class AppRuntimeRegistry {
     entry.lifecycle.abort(new Error('provider runtime retired'))
     entry.closing ??= this.closeRuntime(entry.runtime)
     await entry.closing
-    if (entry.clearSubscriptionsOnClose) {
-      await this.clearDeletedAppState(entry.clearSubscriptionsOnClose)
-      entry.clearSubscriptionsOnClose = undefined
-    }
-  }
-
-  private async clearDeletedAppState(integrationAppId: string): Promise<void> {
-    try {
-      await this.options.state.clearSubscriptions(integrationAppId)
-    } catch (error) {
-      this.options.logger.warn('clear deleted provider app subscriptions', {
-        error: errorMessage(error),
-        integration_app_id: integrationAppId,
-      })
-    }
   }
 
   private async retireEntry(id: string, entry: RuntimeEntry): Promise<void> {
@@ -405,7 +410,7 @@ export class AppRuntimeRegistry {
       this.pendingNewLoads += 1
       return { victim: { entry, id } }
     }
-    throw new Error('channel app registry is at capacity')
+    throw new GatewayAtCapacityError('channel app registry is at capacity')
   }
 
   private commitAppSlot(reservation: AppSlotReservation | undefined): RuntimeEntry | undefined {
@@ -421,7 +426,7 @@ export class AppRuntimeRegistry {
         break
       }
     }
-    if (!victim) throw new Error('channel app registry is at capacity')
+    if (!victim) throw new GatewayAtCapacityError('channel app registry is at capacity')
     this.entries.delete(victim.id)
     victim.entry.retired = true
     return victim.entry

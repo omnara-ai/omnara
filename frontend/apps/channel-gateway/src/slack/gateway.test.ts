@@ -17,59 +17,10 @@ import { OperationFiles } from '../operations-files'
 import { ReceiptClientError } from '../receipt-http'
 import { ReceiptBehaviorError } from '../types'
 import { WorkByteBudget } from '../work-budget'
-import { createSlackGateway, type SlackGatewayOptions } from './gateway'
+import { createSlackGateway } from './gateway'
+import { app, delivered, installation, scope, setup, suffix } from './gateway-test-support'
 import { body, credentials, deferred, json, slackServer } from './test-support'
 
-const suffix = 'aaaaaaaaaaaaaaaaaaaaaaaaae'
-const scope = {
-  project_id: `proj_${suffix}`,
-  integration_app_id: `iapp_${suffix}`,
-  integration_install_id: `iin_${suffix}`,
-  agent_id: `agt_${suffix}`,
-  channel_id: `itgt_${suffix}`,
-}
-const app = {
-  app: {
-    id: scope.integration_app_id,
-    provider: 'slack',
-    connector_key: 'chat_sdk',
-    provider_app_ref: 'A1',
-    display_name: 'Omnara',
-    provider_config: {},
-    provider_metadata: {},
-    configuration_revision: 4,
-    updated_at: '2026-09-14T00:00:00Z',
-  },
-}
-const installation = {
-  integration_app_id: scope.integration_app_id,
-  app_configuration_revision: 4,
-  install: {
-    id: scope.integration_install_id,
-    project_id: scope.project_id,
-    provider_account_ref: 'A1',
-    provider_tenant_id: 'T1',
-    display_name: 'Omnara',
-    provider_config: {},
-    provider_identity: { bot_user_id: credentials.botUserId },
-    metadata: {},
-    configuration_revision: 8,
-    updated_at: '2026-09-14T00:00:00Z',
-  },
-  credential: {
-    kind: 'slack_app_credentials',
-    payload: { access_token: credentials.botToken, signing_secret: credentials.signingSecret },
-  },
-}
-const delivered = {
-  agent_id: scope.agent_id,
-  channel_id: scope.channel_id,
-  agent_input_id: `ain_${suffix}`,
-  created_agent: true,
-  created_input: true,
-  content_blocks: [],
-  canceled_interaction_ids: [],
-}
 const destination = {
   implementation_key: 'slack_channel',
   provider_ref: 'C1',
@@ -98,15 +49,24 @@ function operation(
   kind: GatewayOperation['kind'] = 'send',
   payload: ChannelOpaqueObject = send,
 ): GatewayOperation {
-  return {
-    kind,
-    scope,
-    capability: { connector_key: 'chat_sdk', provider: 'slack' },
+  const common = {
+    capability: { connector_key: 'omnara', provider: 'slack' },
     requestId: 'request-1',
     deadlineMs: Date.now() + 10_000,
     artifacts: [],
     payloadJSON: JSON.stringify(payload),
   }
+  if (kind === 'resolve_address')
+    return {
+      ...common,
+      kind,
+      scope: {
+        project_id: scope.project_id,
+        integration_app_id: scope.integration_app_id,
+        integration_install_id: scope.integration_install_id,
+      },
+    }
+  return { ...common, kind, scope }
 }
 function receipt(): ChannelConnectorEventReceipt {
   return {
@@ -136,42 +96,6 @@ function receipt(): ChannelConnectorEventReceipt {
       },
     },
   }
-}
-function setup(apiUrl?: string) {
-  const core = {
-    getAppConfiguration: vi
-      .fn<SlackGatewayOptions['core']['getAppConfiguration']>()
-      .mockResolvedValue(app),
-    getInstallationConfiguration: vi
-      .fn<SlackGatewayOptions['core']['getInstallationConfiguration']>()
-      .mockResolvedValue(installation),
-    listRoutes: vi
-      .fn<SlackGatewayOptions['core']['listRoutes']>()
-      .mockResolvedValue([
-        { id: `iroute_${suffix}`, behavior_key: 'slack_conversation', configuration: {} },
-      ]),
-    publishDefinition: vi
-      .fn<SlackGatewayOptions['core']['publishDefinition']>()
-      .mockImplementation((_receipt, body) => Promise.resolve({ ...body, id: `cdef_${suffix}` })),
-    lookupRecipients: vi.fn<SlackGatewayOptions['core']['lookupRecipients']>().mockResolvedValue({
-      has_receive_binding_history: false,
-      workflow_started: false,
-      recipients: [],
-      next_cursor: null,
-    }),
-    deliverInput: vi
-      .fn<SlackGatewayOptions['core']['deliverInput']>()
-      .mockResolvedValue({ ...delivered, created_agent: false }),
-    lookupWorkflow: vi
-      .fn<SlackGatewayOptions['core']['lookupWorkflow']>()
-      .mockResolvedValue({ exists: false, input_keys: [] }),
-    deliverWorkflow: vi
-      .fn<SlackGatewayOptions['core']['deliverWorkflow']>()
-      .mockResolvedValue(delivered),
-  }
-  const workBudget = new WorkByteBudget(256 * 1024 * 1024)
-  const handlers = createSlackGateway({ core, workBudget, apiUrl })
-  return { ...handlers, core, workBudget }
 }
 const context = () => ({ deadlineMs: Date.now() + 10_000, signal: new AbortController().signal })
 
@@ -205,7 +129,7 @@ describe('Slack gateway receipt composition', () => {
       },
       expect.any(AbortSignal),
     )
-    expect(core.publishDefinition.mock.calls[0]?.[1].implementation_key).toBe('slack_channel')
+    expect(core.publishDefinition.mock.calls[0]?.[1].implementation_key).toBe('slack_dm')
     expect(core.deliverWorkflow.mock.calls[0]?.[0]).toBe(queued)
     expect(core.deliverWorkflow.mock.calls[0]?.[1].grants).toEqual({ read: true, send: true })
     expect(requests).toContain('/reactions.add')
@@ -559,7 +483,7 @@ describe('Slack gateway operation composition', () => {
     const { executeOperation, core } = setup()
     for (const capability of [
       { connector_key: 'other', provider: 'slack' },
-      { connector_key: 'chat_sdk', provider: 'other' },
+      { connector_key: 'omnara', provider: 'other' },
     ])
       expect(await executeOperation({ ...operation(), capability }, [], context().signal)).toEqual({
         outcome: 'failed',
@@ -610,9 +534,9 @@ describe('Slack gateway operation composition', () => {
         )
         core.getInstallationConfiguration.mockResolvedValue(value)
       }
-      expect(await executeOperation(operation(), [], context().signal)).toEqual({
-        outcome: 'failed',
-      })
+      for (const input of [operation(), operation('resolve_address', { provider_ref: 'C1' })]) {
+        expect(await executeOperation(input, [], context().signal)).toEqual({ outcome: 'failed' })
+      }
       expect(fetch).not.toHaveBeenCalled()
     } finally {
       fetch.mockRestore()
@@ -625,7 +549,7 @@ describe('Slack gateway operation composition', () => {
     expect(await executeOperation(operation(), [], context().signal)).toEqual({ outcome: 'failed' })
   })
 
-  it('dispatches native history with the public SDK parser and preserves partial file coverage', async () => {
+  it('dispatches native history preserving Slack text and partial file coverage', async () => {
     const url = await slackServer((request, response) => {
       expect(request.url).toBe('/conversations.history')
       json(response, {

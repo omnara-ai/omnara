@@ -50,6 +50,12 @@ func (s *Store) prepareLaunchChannelBindingsTx(
 			SendAllowed: binding.Grants.SendAllowed, ReplyChannelGrants: binding.ReplyChannelGrants,
 		})
 	}
+	// Binding creation locks targets in this order after any profile/agent lock.
+	// Ordinary launches and cron configuration must agree even when callers
+	// submit opposite orders and there is no shared profile to serialize them.
+	slices.SortFunc(bindings, func(a, b integrationstore.CreateIntegrationTargetBindingInput) int {
+		return slices.Compare(a.IntegrationTargetID[:], b.IntegrationTargetID[:])
+	})
 	// Enter every installation's deletion gate before profile and agent locks.
 	// The same ordering is used regardless of the request's channel order.
 	slices.SortFunc(installs, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })

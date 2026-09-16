@@ -57,7 +57,7 @@ INSERT INTO integration_apps(
   provider_metadata, configuration_revision, state, created_at, updated_at
 ) VALUES (
   $1, $2, 'discord', 'credential-race-app', 'Credential race app',
-  'chat_sdk_v1', $3, '{}'::jsonb, '{}'::jsonb, 1, 'active',
+  'test_connector', $3, '{}'::jsonb, '{}'::jsonb, 1, 'active',
   statement_timestamp(), statement_timestamp()
 )`, testOrgID, testProjectID, secret.ID); err != nil {
 		t.Fatalf("associate app credential: %v", err)
@@ -123,7 +123,7 @@ func TestDeleteSecretSerializesWithIntegrationInstallAssociation(t *testing.T) {
 		integrationstore.CreateIntegrationAppInput{
 			OrgID: testOrgID, OwnerProjectID: testProjectID,
 			Provider: "discord", ProviderAppRef: "install-race-app",
-			DisplayName: "Install race app", ConnectorKey: "chat_sdk_v1",
+			DisplayName: "Install race app", ConnectorKey: "test_connector",
 			InstallationCredentialKind: "generic",
 			State:                      integrationstore.IntegrationAppStateActive,
 		},
@@ -234,7 +234,7 @@ INSERT INTO integration_apps(
   provider_metadata, configuration_revision, state, created_at, updated_at
 ) VALUES (
   $1, $2, 'discord', 'deleted-first-app', 'Deleted first app',
-  'chat_sdk_v1', $3, '{}'::jsonb, '{}'::jsonb, 1, 'active',
+  'test_connector', $3, '{}'::jsonb, '{}'::jsonb, 1, 'active',
   statement_timestamp(), statement_timestamp()
 )`
 				associationArgs = []any{testOrgID, testProjectID, secret.ID}
@@ -246,7 +246,7 @@ INSERT INTO integration_apps(
 					integrationstore.CreateIntegrationAppInput{
 						OrgID: testOrgID, OwnerProjectID: testProjectID,
 						Provider: "discord", ProviderAppRef: "deleted-first-install-app",
-						DisplayName: "Deleted first install app", ConnectorKey: "chat_sdk_v1",
+						DisplayName: "Deleted first install app", ConnectorKey: "test_connector",
 						InstallationCredentialKind: "generic",
 						State:                      integrationstore.IntegrationAppStateActive,
 					},

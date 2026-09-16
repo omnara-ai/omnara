@@ -3,6 +3,7 @@ package channelconnector
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,6 +22,7 @@ import (
 )
 
 const (
+	OperationRequestIDHeader        = "X-Omnara-Channel-Request-Id"
 	MaxOperationArtifacts           = 20
 	MaxOperationEnvelopeBytes       = 512 * 1024
 	MaxOperationResponseBytes int64 = 1024 * 1024
@@ -29,9 +31,10 @@ const (
 type OperationKind string
 
 const (
-	OperationSend        OperationKind = "send"
-	OperationRead        OperationKind = "read"
-	OperationInteraction OperationKind = "interaction"
+	OperationSend           OperationKind = "send"
+	OperationRead           OperationKind = "read"
+	OperationInteraction    OperationKind = "interaction"
+	OperationResolveAddress OperationKind = "resolve_address"
 )
 
 type OperationOutcome string
@@ -48,8 +51,8 @@ type OperationScope struct {
 	ProjectID            string `json:"project_id"`
 	IntegrationAppID     string `json:"integration_app_id"`
 	IntegrationInstallID string `json:"integration_install_id"`
-	AgentID              string `json:"agent_id"`
-	ChannelID            string `json:"channel_id"`
+	AgentID              string `json:"agent_id,omitempty"`
+	ChannelID            string `json:"channel_id,omitempty"`
 }
 
 // OperationRequest is a transport envelope, not a model tool declaration.
@@ -246,8 +249,11 @@ func (c *OperationsClient) Execute(ctx context.Context, request OperationRequest
 	httpRequest.Header.Set("Authorization", "Bearer "+route.token)
 	httpRequest.Header.Set("Content-Type", contentType)
 	httpRequest.Header.Set("Accept", "application/json")
+	// The gateway can reject an upload before reading its envelope. This header
+	// lets that rejection identify the request; it is not an idempotency key.
+	httpRequest.Header.Set(OperationRequestIDHeader, base64.RawURLEncoding.EncodeToString([]byte(request.RequestID)))
 	uncertain := OperationUnknown
-	if request.Kind == OperationRead {
+	if request.Kind == OperationRead || request.Kind == OperationResolveAddress {
 		uncertain = OperationFailed
 	}
 	response, err := c.http.Do(httpRequest)
@@ -255,39 +261,27 @@ func (c *OperationsClient) Execute(ctx context.Context, request OperationRequest
 		return fail(uncertain, "transport_failed", 0)
 	}
 	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusOK && (response.StatusCode < 400 || response.StatusCode >= 600) {
 		return fail(uncertain, "http_rejected", response.StatusCode)
 	}
-	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		return fail(uncertain, "invalid_response", response.StatusCode)
+	result, valid := readOperationResult(response, request.RequestID)
+	if response.StatusCode != http.StatusOK {
+		// Only the gateway's exact pre-dispatch rejection can establish that a
+		// mutation did not start. Proxy errors and malformed bodies stay unknown.
+		// Do not wait for an upload that the gateway intentionally did not read;
+		// deferred cancellation closes its source before returning.
+		if valid && result.Outcome == OperationFailed && len(result.Payload) == 0 {
+			return fail(OperationFailed, "gateway_failed", response.StatusCode)
+		}
+		return fail(uncertain, "http_rejected", response.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, MaxOperationResponseBytes+1))
-	if err != nil || int64(len(raw)) > MaxOperationResponseBytes {
+	if !valid {
 		return fail(uncertain, "invalid_response", response.StatusCode)
 	}
 	// Reject a gateway claiming success without consuming the full artifact body.
 	// Cancellation also closes any active source reader before returning.
 	if err := finish(); err != nil {
 		return fail(uncertain, "upload_failed", response.StatusCode)
-	}
-	if operationCtx.Err() != nil {
-		return fail(uncertain, "transport_failed", response.StatusCode)
-	}
-	var result OperationResult
-	object, err := jsoncanonical.ParseObject(raw, int(MaxOperationResponseBytes))
-	if err != nil {
-		return fail(uncertain, "invalid_response", response.StatusCode)
-	}
-	for key := range object {
-		// encoding/json accepts case-insensitive struct keys; the wire contract
-		// does not. Reject aliases before they can overwrite an outcome.
-		if key != "request_id" && key != "outcome" && key != "payload" {
-			return fail(uncertain, "invalid_response", response.StatusCode)
-		}
-	}
-	if json.Unmarshal(raw, &result) != nil || result.RequestID != request.RequestID {
-		return fail(uncertain, "invalid_response", response.StatusCode)
 	}
 	if operationCtx.Err() != nil || !deadline.After(time.Now()) {
 		return fail(uncertain, "transport_failed", response.StatusCode)
@@ -299,20 +293,63 @@ func (c *OperationsClient) Execute(ctx context.Context, request OperationRequest
 		}
 		return result, nil
 	case OperationFailed, OperationUnknown:
-		// Do not surface provider-controlled error text or payload as diagnostics.
-		return fail(result.Outcome, "gateway_"+string(result.Outcome), response.StatusCode)
+		terminal, failureErr := fail(result.Outcome, "gateway_"+string(result.Outcome), response.StatusCode)
+		// Preserve only the fixed recovery contract. Never forward raw provider
+		// errors, even when the outer outcome is correctly correlated.
+		if failure, err := DecodeOperationFailure(result.Payload); err == nil && failure.MatchesOutcome(result.Outcome) {
+			if payload, err := json.Marshal(failure); err == nil {
+				terminal.Payload = payload
+			}
+		}
+		return terminal, failureErr
 	default:
 		return fail(uncertain, "invalid_response", response.StatusCode)
 	}
 }
 
+// readOperationResult accepts only a bounded, exact wire envelope. In particular,
+// case aliases and duplicate JSON keys cannot overwrite a failure classification.
+func readOperationResult(response *http.Response, requestID string) (OperationResult, bool) {
+	var result OperationResult
+	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return result, false
+	}
+	raw, err := io.ReadAll(io.LimitReader(response.Body, MaxOperationResponseBytes+1))
+	if err != nil || int64(len(raw)) > MaxOperationResponseBytes {
+		return result, false
+	}
+	object, err := jsoncanonical.ParseObject(raw, int(MaxOperationResponseBytes))
+	if err != nil {
+		return result, false
+	}
+	for key := range object {
+		if key != "request_id" && key != "outcome" && key != "payload" {
+			return result, false
+		}
+	}
+	if json.Unmarshal(raw, &result) != nil || result.RequestID != requestID {
+		return result, false
+	}
+	return result, true
+}
+
 func prepareOperation(request OperationRequest, deadline time.Time) ([]byte, error) {
 	invalid := errors.New("invalid operation")
-	if request.Kind != OperationSend && request.Kind != OperationRead && request.Kind != OperationInteraction {
+	if request.Kind != OperationSend && request.Kind != OperationRead && request.Kind != OperationInteraction &&
+		request.Kind != OperationResolveAddress {
 		return nil, invalid
 	}
-	for _, id := range []string{request.RequestID, request.Scope.ProjectID, request.Scope.IntegrationAppID,
-		request.Scope.IntegrationInstallID, request.Scope.AgentID, request.Scope.ChannelID} {
+	identities := []string{request.RequestID, request.Scope.ProjectID, request.Scope.IntegrationAppID,
+		request.Scope.IntegrationInstallID}
+	if request.Kind == OperationResolveAddress {
+		if request.Scope.AgentID != "" || request.Scope.ChannelID != "" || len(request.Artifacts) != 0 {
+			return nil, invalid
+		}
+	} else {
+		identities = append(identities, request.Scope.AgentID, request.Scope.ChannelID)
+	}
+	for _, id := range identities {
 		if !validOperationText(id, 256) {
 			return nil, invalid
 		}

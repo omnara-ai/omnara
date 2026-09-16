@@ -384,6 +384,11 @@ func apiOptions(
 		return nil, fmt.Errorf("configure channel connector authentication: %w", err)
 	}
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
+	channelOperations, err := channelconnector.NewOperationsClient(cfg.ChannelConnectors,
+		metrics.NewObservedHTTPClient(nil, httpRecorder, metrics.WithHTTPClientPathLabel("/internal/operations")))
+	if err != nil {
+		return nil, fmt.Errorf("configure channel operations: %w", err)
+	}
 	operatorHTTPClient := metrics.NewObservedHTTPClient(
 		&http.Client{Timeout: outboundHTTPClientTimeout},
 		httpRecorder,
@@ -408,6 +413,7 @@ func apiOptions(
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
 		httpapi.WithChannelConnectorAuthenticator(channelConnectorAuth),
+		httpapi.WithChannelOperations(channelOperations),
 		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
 		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
 			BaseURL:    cfg.HostedAPIURL,

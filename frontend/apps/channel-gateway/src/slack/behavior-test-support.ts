@@ -48,7 +48,6 @@ export const installation: ChannelConnectorInstallationConfiguration = {
     kind: 'slack_app_credentials',
     payload: {
       access_token: credentials.botToken,
-      signing_secret: credentials.signingSecret,
     },
   },
 }

@@ -14,15 +14,16 @@ import { maxOperationPayloadBytes, parseObjectFields } from '../operations-json'
 import { ReceiptClientError } from '../receipt-http'
 import { type ReceiptBehavior, ReceiptBehaviorError } from '../types'
 import { GatewayAtCapacityError, type WorkByteBudget } from '../work-budget'
+import { resolveSlackAddress, SlackAddressError } from './address'
 import { processSlackEvent } from './behavior'
 import { SlackAPIError, SlackClient } from './client'
 import { slackCredentials } from './configuration'
-import { createSlackMessageParser } from './messages'
+import { parseSlackMessage } from './messages'
 import { readSlackOperation, sendSlackOperation, slackDestination } from './operations'
 import { sendSlackInteraction } from './prompts'
 
 export const slackCapability: Readonly<ChannelConnectorCapability> = {
-  connector_key: 'chat_sdk',
+  connector_key: 'omnara',
   provider: 'slack',
 }
 
@@ -63,6 +64,7 @@ const readSchema = schemas.zChannelReadOperation.extend({ destination: destinati
 const interactionSchema = schemas.zChannelInteractionOperation
   .extend({ destination: destinationSchema })
   .strict()
+const resolveSchema = schemas.zChannelResolveAddressOperation.strict()
 
 /** Concrete composition callbacks only. Core retains Slack's verified public
  * intake; no duplicate webhook, SDK dedupe, runtime send shim, or outgoing queue.
@@ -158,13 +160,18 @@ export function createSlackGateway(options: SlackGatewayOptions) {
       parseObjectFields(operation.payloadJSON, maxOperationPayloadBytes)
       const raw: unknown = JSON.parse(operation.payloadJSON)
       const parsed =
-        operation.kind === 'send'
-          ? sendSchema.safeParse(raw)
-          : operation.kind === 'read'
-            ? readSchema.safeParse(raw)
-            : interactionSchema.safeParse(raw)
-      if (!parsed.success) throw new SlackAPIError('invalid_operation_payload')
-      validateImplementation(parsed.data.destination)
+        operation.kind === 'resolve_address'
+          ? resolveSchema.safeParse(raw)
+          : operation.kind === 'send'
+            ? sendSchema.safeParse(raw)
+            : operation.kind === 'read'
+              ? readSchema.safeParse(raw)
+              : interactionSchema.safeParse(raw)
+      if (!parsed.success) {
+        if (operation.kind === 'resolve_address') throw new SlackAddressError('invalid_address')
+        throw new SlackAPIError('invalid_operation_payload')
+      }
+      if ('destination' in parsed.data) validateImplementation(parsed.data.destination)
       if (operation.kind !== 'send' && (artifacts.length || operation.artifacts.length))
         throw new SlackAPIError('unexpected_artifacts')
       const app = await core.getAppConfiguration(operation.scope.integration_app_id, signal)
@@ -194,6 +201,25 @@ export function createSlackGateway(options: SlackGatewayOptions) {
       const retry = { requestId: operation.requestId, deadlineMs: operation.deadlineMs, signal }
       signal.throwIfAborted()
       switch (operation.kind) {
+        case 'resolve_address': {
+          const input = resolveSchema.parse(raw)
+          dispatchStarted = true
+          const payload = await resolveSlackAddress(
+            client,
+            input,
+            {
+              installation: operation.scope,
+              teamId: install.install.provider_tenant_id ?? '',
+              publishDefinition: (scope, body, signal) =>
+                core.publishDefinition(scope, body, signal),
+            },
+            retry,
+          )
+          return {
+            outcome: 'completed',
+            payload: z.json().parse(JSON.parse(JSON.stringify(payload))),
+          }
+        }
         case 'send': {
           const input = sendSchema.parse(raw)
           dispatchStarted = true
@@ -206,12 +232,7 @@ export function createSlackGateway(options: SlackGatewayOptions) {
         case 'read': {
           const input = readSchema.parse(raw)
           dispatchStarted = true
-          const payload = await readSlackOperation(
-            client,
-            createSlackMessageParser(credentials),
-            input,
-            retry,
-          )
+          const payload = await readSlackOperation(client, parseSlackMessage, input, retry)
           return {
             outcome: 'completed',
             payload: z.json().parse(JSON.parse(JSON.stringify(payload))),
@@ -235,6 +256,11 @@ export function createSlackGateway(options: SlackGatewayOptions) {
     } catch (cause) {
       // Provider helpers own one bounded retry loop and classify publication.
       // OperationsHandler maps those errors to failed/unknown without resending.
+      if (operation.kind === 'resolve_address') {
+        return cause instanceof SlackAddressError
+          ? { outcome: 'failed', payload: { code: cause.code } }
+          : { outcome: 'failed' }
+      }
       if (cause instanceof OperationRetryError) throw cause
       if (!dispatchStarted || (cause instanceof SlackAPIError && !cause.outcomeUnknown))
         return { outcome: 'failed' }
@@ -252,8 +278,9 @@ function validateImplementation(destination: ChannelOperationDestination): void 
     destination.implementation_key === 'slack_thread' && destination.provider_ref_kind === 'thread'
   const channel =
     destination.implementation_key === 'slack_channel' &&
-    ['channel', 'dm'].includes(destination.provider_ref_kind)
-  if (!thread && !channel) throw new SlackAPIError('unsupported_implementation')
+    destination.provider_ref_kind === 'channel'
+  const dm = destination.implementation_key === 'slack_dm' && destination.provider_ref_kind === 'dm'
+  if (!thread && !channel && !dm) throw new SlackAPIError('unsupported_implementation')
   slackDestination(destination)
 }
 

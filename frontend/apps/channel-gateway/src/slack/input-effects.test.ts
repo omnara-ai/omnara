@@ -171,23 +171,27 @@ describe('Slack post-admission UI effects', () => {
     },
   )
 
-  it('skips history without canceled IDs and aborts a slow cosmetic request', async () => {
+  it('skips history without canceled IDs and cancels an in-flight cosmetic request', async () => {
+    const started = deferred()
     const closed = deferred()
+    const controller = new AbortController()
     const paths: string[] = []
     const url = await slackServer((request, response) => {
       paths.push(request.url ?? '')
       response.writeHead(200, { 'content-type': 'application/json' })
       response.write('{')
       response.on('close', closed.resolve)
+      started.resolve()
     })
-    await expect(
-      applySlackInputEffects(
-        new SlackClient(credentials.botToken, url),
-        event,
-        [],
-        attempt(undefined, 50),
-      ),
-    ).resolves.toBeUndefined()
+    const effects = applySlackInputEffects(
+      new SlackClient(credentials.botToken, url),
+      event,
+      [],
+      attempt(controller.signal),
+    )
+    await started.promise
+    controller.abort()
+    await expect(effects).resolves.toBeUndefined()
     await closed.promise
     expect(paths).toEqual(['/reactions.add'])
   })

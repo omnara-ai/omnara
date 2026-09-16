@@ -30,7 +30,7 @@ func newManagedOperationFixture(t *testing.T, ctx context.Context, name string) 
 	definition, err := f.Store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "conversation", Kind: integrationstore.ChannelKindDiscordThread,
 			SendParamsSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
 			Capabilities: integrationstore.ChannelCapabilities{
 				Read: true, Send: true, Text: true, CreatesReplyChannel: true,
@@ -293,7 +293,7 @@ func TestManagedChannelOperationLaterCapabilityCannotEnableUnacceptedDelegation(
 	f := newManagedOperationFixture(t, ctx, "managed-no-later-delegation")
 	definition := integrationstore.PublishChannelDefinitionInput{
 		ProjectID: testProjectID, IntegrationInstallID: f.binding.IntegrationInstallID,
-		ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+		ImplementationKey: "conversation", Kind: integrationstore.ChannelKindDiscordThread,
 		SendParamsSchema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		Capabilities:          integrationstore.ChannelCapabilities{Read: true, Send: true, Text: true},
 		ConnectorCapabilities: testChannelCapabilities(testChannelProvider),

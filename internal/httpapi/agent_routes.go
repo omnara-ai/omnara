@@ -370,6 +370,9 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 			return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
 		}
 	}
+	if err := s.server.requireIntegrationGateway(provider); err != nil {
+		return nil, err
+	}
 	if clientID == "" || clientSecret == "" || signingSecret == "" {
 		return nil, apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
@@ -469,6 +472,9 @@ func (s strictOpenAPIServer) createSlackSetup(
 	}
 	if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
+	}
+	if err := s.server.requireIntegrationGateway(integrationstore.IntegrationProviderSlack); err != nil {
+		return nil, err
 	}
 	agentProfileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, request.AgentProfileID)
 	if !ok {

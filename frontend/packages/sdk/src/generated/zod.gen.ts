@@ -25,6 +25,8 @@ export const zIntegrationBindingId = z.string().regex(/^ibnd_[a-z2-7]{26}$/);
 
 export const zIntegrationEventReceiptId = z.string().regex(/^irec_[a-z2-7]{26}$/);
 
+export const zIntegrationControlReceiptId = z.string().regex(/^icrc_[a-z2-7]{26}$/);
+
 export const zIntegrationRuntimeUnitId = z.string().regex(/^irun_[a-z2-7]{26}$/);
 
 export const zChannelOpaqueObject = z.record(z.string(), z.unknown());
@@ -63,11 +65,15 @@ export const zChannelDefinitionId = z.string().regex(/^cdef_[a-z2-7]{26}$/);
 export const zIntegrationTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
 
 /**
- * Slack connections publish SLACK_CHANNEL or SLACK_THREAD; other providers publish EXTERNAL.
+ * Built-in Slack, Discord and GitHub connections publish their named channel kinds. Customer-defined channels use EXTERNAL.
  */
 export const zChannelKind = z.enum([
     'SLACK_CHANNEL',
     'SLACK_THREAD',
+    'DISCORD_CHANNEL',
+    'DISCORD_THREAD',
+    'GITHUB_PR',
+    'GITHUB_REVIEW_THREAD',
     'EXTERNAL'
 ]);
 
@@ -89,7 +95,14 @@ export const zPublishChannelConnectorDefinitionRequest = z.object({
     capabilities: zChannelCapabilities
 });
 
+export const zRegisterManagedChannelRequest = z.object({
+    source: z.enum(['managed']),
+    provider_ref: z.string().min(1).max(512),
+    provider_ref_kind: z.string().min(1).max(128).optional()
+});
+
 export const zRegisterExternalChannelRequest = z.object({
+    source: z.enum(['external']),
     definition_id: zChannelDefinitionId,
     parent_channel_id: zIntegrationTargetId.optional(),
     provider_ref: z.string().min(1).max(2048),
@@ -98,11 +111,23 @@ export const zRegisterExternalChannelRequest = z.object({
     provider_metadata: zChannelOpaqueObject.optional()
 });
 
+export const zRegisterChannelRequest = z.discriminatedUnion('source', [
+    zRegisterExternalChannelRequest.extend({ source: z.literal('external') }),
+    zRegisterManagedChannelRequest.extend({ source: z.literal('managed') })
+]);
+
 export const zRegisteredChannel = z.object({
     channel_id: zIntegrationTargetId,
     definition_id: zChannelDefinitionId,
     parent_channel_id: zIntegrationTargetId.optional(),
-    name: z.string()
+    name: z.string(),
+    provider_ref: z.string(),
+    provider_ref_kind: z.string()
+});
+
+export const zListRegisteredChannelsResponse = z.object({
+    channels: z.array(zRegisteredChannel).max(100),
+    next_cursor: z.string().nullable()
 });
 
 export const zAgentChannel = z.object({
@@ -262,12 +287,77 @@ export const zListChannelConnectorRoutesResponse = z.object({
     routes: z.array(zChannelConnectorRoute).max(64)
 });
 
-export const zChannelWorkflowTarget = z.object({
+export const zGitHubReviewOwnership = z.enum([
+    'owned',
+    'other_agent',
+    'unknown'
+]);
+
+export const zGitHubReviewIdentityEvidence = z.enum(['create_response', 'marker']);
+
+export const zRecordChannelConnectorGitHubReviewResponse = z.object({
+    recorded: z.boolean(),
+    continue: z.boolean()
+});
+
+/**
+ * Fixed diagnostic. review_operation_unknown requires an unknown outcome; all other codes require failed.
+ */
+export const zChannelOperationFailureCode = z.enum([
+    'invalid_address',
+    'address_unavailable',
+    'unsupported_address',
+    'review_not_owned',
+    'review_creation_in_progress',
+    'provider_pending_review_conflict',
+    'review_state_unavailable',
+    'pending_review_exists',
+    'review_commit_mismatch',
+    'review_creation_already_recorded',
+    'review_finding_failed',
+    'review_operation_unknown'
+]);
+
+/**
+ * Fixed connector diagnostics only. Provider error text, bodies and credentials must never be forwarded. Review references may be supplied only for the issuing agent's own review.
+ */
+export const zChannelOperationFailure = z.object({
+    code: zChannelOperationFailureCode,
+    metadata: z.object({
+        review_id: z.string().min(1).max(512).optional(),
+        commit_id: z.string().regex(/^[0-9a-fA-F]{40}$/).optional()
+    }).optional()
+});
+
+/**
+ * Read-only managed setup. Resolve a provider locator without an agent, binding, or tool call; returns a ChannelRegistrationTarget.
+ */
+export const zChannelResolveAddressOperation = z.object({
+    provider_ref: z.string().min(1).max(512),
+    provider_ref_kind: z.string().min(1).max(128).optional()
+});
+
+/**
+ * One parent address in the same project and installation. Further ancestry uses an already registered parent_channel_id on the target instead.
+ */
+export const zChannelRegistrationParent = z.object({
+    definition_id: zChannelDefinitionId,
+    provider_ref: z.string().min(1).max(512),
+    provider_ref_kind: z.string().min(1).max(128),
+    display_name: z.string().max(512).optional(),
+    provider_metadata: zChannelOpaqueObject.optional()
+});
+
+/**
+ * The input destination. Supply either an existing parent_channel_id or an inline parent to register atomically with this destination; parentage grants no agent access.
+ */
+export const zChannelRegistrationTarget = z.object({
     definition_id: zChannelDefinitionId,
     provider_ref: z.string().min(1).max(512),
     provider_ref_kind: z.string().min(1).max(128),
     display_name: z.string().max(512).optional(),
     parent_channel_id: zIntegrationTargetId.optional(),
+    parent: zChannelRegistrationParent.optional(),
     provider_metadata: zChannelOpaqueObject.optional()
 });
 
@@ -308,11 +398,44 @@ export const zLookupChannelConnectorRecipientsRequest = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50)
 });
 
+export const zChannelConnectorInstallationProviderState = z.enum(['active', 'disabled']);
+
+export const zSetChannelConnectorInstallationProviderStateRequest = z.object({
+    provider_tenant_id: z.string().min(1).max(512),
+    provider_account_ref: z.string().min(1).max(512),
+    expected_app_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    expected_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    state: zChannelConnectorInstallationProviderState
+});
+
+export const zSetChannelConnectorInstallationProviderStateResponse = z.object({
+    state: zChannelConnectorInstallationProviderState,
+    configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zChannelActor = z.object({
     ref: z.string().min(1).max(512),
     display_name: z.string().max(256),
     metadata: zChannelOpaqueObject
 });
+
+/**
+ * Immutable verified control data; one PostgreSQL-safe JSON object without duplicate keys, at most 64 KiB. Payload fields grant no authority.
+ */
+export const zChannelControlPayload = z.record(z.string(), z.unknown());
+
+export const zChannelInboundControlEventRequest = z.object({
+    event_id: z.string().min(1).max(512),
+    provider_tenant_id: z.string().min(1).max(512),
+    payload: zChannelControlPayload
+});
+
+export const zChannelControlOutcome = z.enum([
+    'completed',
+    'yield',
+    'retry',
+    'failed'
+]);
 
 /**
  * Provider event data for asynchronous processing. Must be one PostgreSQL-safe JSON object without duplicate keys, at most 24 MiB. IDs or runtime proof within this opaque payload do not confer authority.
@@ -325,6 +448,13 @@ export const zChannelEventState = z.enum([
     'completed',
     'failed'
 ]);
+
+export const zChannelInboundControlEventResponse = z.object({
+    receipt_id: zIntegrationControlReceiptId,
+    state: zChannelEventState,
+    last_installation_id: z.string().regex(/^iin_[a-z2-7]{26}$/).nullable(),
+    end_installation_id: z.string().regex(/^iin_[a-z2-7]{26}$/).nullable()
+});
 
 export const zChannelInboundEventResponse = z.object({
     receipt_id: zIntegrationEventReceiptId,
@@ -344,6 +474,7 @@ export const zCompleteChannelConnectorEventRequest = z.object({
     lease_token: z.uuid(),
     lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     state: zChannelEventOutcome,
+    retry_after_ms: z.coerce.bigint().gte(BigInt(0)).lte(BigInt(86400000)).optional(),
     last_error: zChannelOpaqueObject.optional()
 });
 
@@ -355,6 +486,11 @@ export const zResolveChannelConnectorInteractionResponse = z.object({
 export const zChannelConnectorCapability = z.object({
     connector_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
     provider: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/)
+});
+
+export const zClaimNextChannelConnectorControlEventRequest = z.object({
+    capability: zChannelConnectorCapability,
+    lease_ms: z.int().gte(1000).lte(300000)
 });
 
 export const zClaimNextChannelConnectorEventRequest = z.object({
@@ -536,6 +672,32 @@ export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
 export const zIntegrationInstallId = z.string().regex(/^iin_[a-z2-7]{26}$/);
 
+export const zChannelConnectorInstallationControlScope = z.object({
+    id: zIntegrationInstallId,
+    project_id: zProjectId,
+    provider_tenant_id: z.string().min(1).max(512),
+    provider_account_ref: z.string().min(1).max(512),
+    provider_identity: zChannelOpaqueObject,
+    state: zChannelConnectorInstallationProviderState,
+    configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zListChannelConnectorInstallationControlScopesResponse = z.object({
+    app_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    installations: z.array(zChannelConnectorInstallationControlScope).max(100),
+    through_installation_id: z.string().regex(/^iin_[a-z2-7]{26}$/).nullable(),
+    next_after_installation_id: z.string().regex(/^iin_[a-z2-7]{26}$/).nullable()
+});
+
+export const zCompleteChannelConnectorControlEventRequest = z.object({
+    lease_token: z.uuid(),
+    lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    outcome: zChannelControlOutcome,
+    last_installation_id: zIntegrationInstallId.optional(),
+    retry_after_ms: z.coerce.bigint().gte(BigInt(0)).lte(BigInt(86400000)).optional(),
+    last_error: zChannelOpaqueObject.optional()
+});
+
 export const zChannelInboundEventRequest = z.object({
     event_id: z.string().min(1).max(512),
     integration_install_id: zIntegrationInstallId,
@@ -561,6 +723,42 @@ export const zAgentTurnId = z.string().regex(/^trn_[a-z2-7]{26}$/);
 export const zAgentInteractionId = z.string().regex(/^int_[a-z2-7]{26}$/);
 
 export const zToolCallId = z.string().regex(/^tcl_[a-z2-7]{26}$/);
+
+export const zGitHubReviewOperationScope = z.object({
+    request_id: zToolCallId,
+    agent_id: zAgentId,
+    channel_id: zIntegrationTargetId
+});
+
+export const zGitHubReviewObservation = z.object({
+    review_id: z.string().min(1).max(512),
+    commit_id: z.string().regex(/^[0-9a-fA-F]{40}$/).optional(),
+    creating_tool_call_id: zToolCallId.optional()
+});
+
+export const zLookupChannelConnectorGitHubReviewsRequest = z.object({
+    scope: zGitHubReviewOperationScope,
+    observations: z.array(zGitHubReviewObservation).max(100)
+});
+
+export const zGitHubReviewOwnershipObservation = z.object({
+    review_id: z.string(),
+    ownership: zGitHubReviewOwnership,
+    creating_tool_call_id: zToolCallId.optional(),
+    commit_id: z.string().regex(/^[0-9a-f]{40}$/).optional()
+});
+
+export const zLookupChannelConnectorGitHubReviewsResponse = z.object({
+    observations: z.array(zGitHubReviewOwnershipObservation).max(100)
+});
+
+export const zRecordChannelConnectorGitHubReviewRequest = z.object({
+    scope: zGitHubReviewOperationScope,
+    observation: zGitHubReviewObservation.and(z.object({
+        creating_tool_call_id: zToolCallId
+    })),
+    evidence: zGitHubReviewIdentityEvidence
+});
 
 export const zContextCheckpointId = z.string().regex(/^ccp_[a-z2-7]{26}$/);
 
@@ -636,11 +834,22 @@ export const zModelCacheRetention = z.enum([
     'long'
 ]);
 
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export const zDiscoveredModelPricing = z.object({
+    input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    cache_read_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    cache_write_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    output_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
 export const zDiscoveredProviderModel = z.object({
     slug: z.string(),
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
-    max_output_tokens: z.int().gte(1).lte(2147483647).optional()
+    max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    pricing: zDiscoveredModelPricing.optional()
 });
 
 /**
@@ -827,6 +1036,7 @@ export const zChannelSendOperationResult = z.object({
     message_channel: zChannelMessageLocation,
     message_id: z.string().min(1).max(2048).optional(),
     reply_channel: zChannelReplyDestination.optional(),
+    continuation_error: zChannelContinuationError.optional(),
     created_at: zTimestamp.optional(),
     metadata: zChannelOpaqueObject.optional()
 });
@@ -863,6 +1073,23 @@ export const zChannelConnectorInstall = z.object({
     metadata: zChannelOpaqueObject,
     configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     updated_at: zTimestamp
+});
+
+export const zChannelConnectorControlReceipt = z.object({
+    receipt_id: zIntegrationControlReceiptId,
+    integration_app_id: zIntegrationAppId,
+    provider_tenant_id: z.string().min(1).max(512),
+    event_id: z.string(),
+    payload: zChannelControlPayload,
+    state: zChannelEventState,
+    last_installation_id: z.string().regex(/^iin_[a-z2-7]{26}$/).nullable(),
+    end_installation_id: z.string().regex(/^iin_[a-z2-7]{26}$/).nullable(),
+    lease_token: z.uuid(),
+    lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    lease_expires_at: zTimestamp,
+    attempts_since_progress: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    last_error: zChannelOpaqueObject,
+    created_at: zTimestamp
 });
 
 export const zChannelConnectorEventReceipt = z.object({
@@ -1000,6 +1227,7 @@ export const zConfiguredModelSummary = z.object({
     model_provider_config_id: zModelProviderConfigId,
     name: zResourceName,
     provider_config: zResourceName,
+    provider_model_slug: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1142,12 +1370,126 @@ export const zMcpoAuthStartResponse = z.object({
     expires_at: zTimestamp
 });
 
+export const zIntegrationLaunchProfile = z.object({
+    agent_profile_id: z.string().regex(/^aprf_[a-z2-7]{26}$/).nullable()
+});
+
+export const zStartIntegrationConnectionRequest = z.object({
+    integration_app_id: zIntegrationAppId,
+    agent_profile_id: zAgentProfileId.optional(),
+    return_to: z.string().max(2048).optional()
+});
+
+/**
+ * Native GitHub installation or repository ID, represented as a decimal string.
+ */
+export const zGitHubSetupProviderId = z.string().regex(/^[1-9][0-9]{0,15}$/);
+
+export const zGitHubSetupInstallation = z.object({
+    id: zGitHubSetupProviderId,
+    account_login: z.string(),
+    suspended: z.boolean()
+});
+
+export const zGitHubSetupRepository = z.object({
+    id: zGitHubSetupProviderId,
+    full_name: z.string(),
+    private: z.boolean(),
+    can_connect: z.boolean()
+});
+
+export const zGitHubSetupInstallations = z.object({
+    data: z.array(zGitHubSetupInstallation),
+    installation_url: z.url(),
+    next_page: z.int().gte(1).optional()
+});
+
+export const zGitHubSetupRepositories = z.object({
+    data: z.array(zGitHubSetupRepository),
+    next_page: z.int().gte(1).optional()
+});
+
+export const zCompleteGitHubConnectionRequest = z.object({
+    installation_id: zGitHubSetupProviderId,
+    repository_id: zGitHubSetupProviderId,
+    repository_full_name: z.string().max(201).regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,99}\/[A-Za-z0-9_.-]{1,100}$/)
+});
+
 export const zCreateIntegrationOAuthSetupRequest = z.object({
     provider: z.string().optional().default('slack'),
     client_id: z.string().min(1),
     client_secret: z.string().min(1),
     signing_secret: z.string().min(1),
     return_to: z.string().optional()
+});
+
+export const zIntegrationAppProvider = z.enum([
+    'slack',
+    'discord',
+    'github'
+]);
+
+export const zIntegrationConnectionSetup = z.object({
+    provider: zIntegrationAppProvider,
+    flow_id: zIntegrationOAuthFlowId,
+    oauth_url: z.url(),
+    expires_at: zTimestamp
+});
+
+export const zIntegrationAppState = z.enum(['active', 'disabled']);
+
+/**
+ * Public provider configuration. GitHub and Slack require client_id; Discord uses its application ID and accepts an empty object. Credentials belong in the referenced secret.
+ */
+export const zIntegrationAppConfiguration = z.object({
+    client_id: z.string().min(1).max(512).optional()
+});
+
+export const zIntegrationAppSummary = z.object({
+    id: zIntegrationAppId,
+    org_id: zOrganizationId,
+    owner_project_id: zProjectId.optional(),
+    provider: z.string(),
+    provider_app_ref: z.string(),
+    name: z.string().max(512),
+    state: zIntegrationAppState,
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zIntegrationApp = z.object({
+    id: zIntegrationAppId,
+    org_id: zOrganizationId,
+    owner_project_id: zProjectId.optional(),
+    provider: z.string(),
+    provider_app_ref: z.string(),
+    name: z.string().max(512),
+    state: zIntegrationAppState,
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    credential_secret_id: zSecretId.optional(),
+    provider_config: zIntegrationAppConfiguration
+});
+
+export const zListIntegrationAppsResponse = z.object({
+    data: z.array(zIntegrationAppSummary),
+    next_cursor: z.string().nullable()
+});
+
+export const zCreateIntegrationAppRequest = z.object({
+    provider: zIntegrationAppProvider,
+    provider_app_ref: z.string().min(1).max(512),
+    name: zResourceName,
+    owner_project_id: zProjectId.optional(),
+    credential_secret_id: zSecretId,
+    provider_config: zIntegrationAppConfiguration
+});
+
+export const zUpdateIntegrationAppRequest = z.object({
+    name: zResourceName.optional(),
+    credential_secret_id: zSecretId.optional(),
+    provider_config: zIntegrationAppConfiguration.optional(),
+    state: zIntegrationAppState.optional()
 });
 
 /**
@@ -1495,7 +1837,8 @@ export const zCreateCronTriggerRequest = z.object({
     cron: zCronExpression,
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate,
-    enabled: z.boolean().optional().default(true)
+    enabled: z.boolean().optional().default(true),
+    channel_bindings: z.array(zAttachAgentChannelRequest).max(64).optional()
 });
 
 export const zUpdateCronTriggerRequest = z.object({
@@ -1504,7 +1847,8 @@ export const zUpdateCronTriggerRequest = z.object({
     cron: zCronExpression.optional(),
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate.optional(),
-    enabled: z.boolean().optional()
+    enabled: z.boolean().optional(),
+    channel_bindings: z.array(zAttachAgentChannelRequest).max(64).optional()
 });
 
 export const zCronTrigger = z.object({
@@ -1517,6 +1861,7 @@ export const zCronTrigger = z.object({
     timezone: zCronTimezone,
     message_template: zCronMessageTemplate,
     enabled: z.boolean(),
+    channel_bindings: z.array(zAttachAgentChannelRequest).max(64),
     last_fired_at: zTimestamp.nullable(),
     next_fire_at: zTimestamp.nullable(),
     failure_report: zCronTriggerFailureReport.nullable(),
@@ -1823,7 +2168,7 @@ export const zDeliverChannelConnectorWorkflowRequest = z.object({
     input_key: zChannelInputKey,
     only_if_unbound: z.boolean().optional(),
     input_precondition: zChannelInputPrecondition.optional(),
-    target: zChannelWorkflowTarget,
+    target: zChannelRegistrationTarget,
     grants: zChannelWorkflowGrants,
     author: zChannelWorkflowAuthor,
     content_blocks: z.array(zCreateAgentInputContentBlock).min(1).max(100),
@@ -2268,8 +2613,8 @@ export const zInteractionAnswer = z.object({
 export const zResolveChannelConnectorInteractionRequest = z.object({
     external_tenant_id: z.string().max(512),
     external_account_ref: z.string().min(1).max(512),
-    integration_target_id: z.string().regex(/^itgt_[a-z2-7]{26}$/),
-    integration_target_binding_id: zIntegrationBindingId,
+    agent_id: zAgentId,
+    provider_ref: z.string().min(1).max(512),
     actor: zChannelActor,
     answers: z.array(zInteractionAnswer).min(1),
     metadata: zChannelOpaqueObject
@@ -3282,6 +3627,49 @@ export const zOrgOverviewResponse = z.object({
     recent_agent_profiles: z.array(zAgentProfile)
 });
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export const zUsageTokenTotals = z.object({
+    input_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    uncached_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_read_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_write_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    output_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    reasoning_output_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageCostTotals = z.object({
+    provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageTotals = z.object({
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageModel = z.object({
+    configured_model_id: zConfiguredModelId,
+    name: zResourceName,
+    provider_model_slug: z.string(),
+    model_provider_config_id: zModelProviderConfigId,
+    model_provider_config_name: zResourceName
+});
+
+export const zModelUsageTotals = z.object({
+    model: zUsageModel,
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageReport = z.object({
+    totals: zUsageTotals,
+    by_model: z.array(zModelUsageTotals)
+});
+
 export const zCurrentUserIdentity = z.object({
     id: zUserId,
     email: z.string(),
@@ -3340,6 +3728,26 @@ export const zProjectMembershipGrant = z.object({
 export const zListProjectMembershipGrantsResponse = z.object({
     data: z.array(zProjectMembershipGrant)
 });
+
+/**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export const zUsageSince = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export const zUsageUntil = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 
 /**
  * Idempotency key for replay-safe mutating requests.
@@ -3553,6 +3961,22 @@ export const zGetOrgOverviewPath = z.object({
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
 
+export const zGetOrgUsagePath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    exclude_project_ids: z.array(zProjectId).min(1).max(100).optional()
+});
+
+/**
+ * Usage totals for the organization.
+ */
+export const zGetOrgUsageResponse = zUsageReport;
+
 export const zListVisibleProjectsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -3591,6 +4015,21 @@ export const zDeleteProjectPath = z.object({
  * Project deleted.
  */
 export const zDeleteProjectResponse = z.void();
+
+export const zGetProjectUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zGetProjectUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
+ * Usage totals for the project.
+ */
+export const zGetProjectUsageResponse = zUsageReport;
 
 export const zListOrgMembersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
@@ -4049,6 +4488,68 @@ export const zDeleteSecretGrantPath = z.object({
  */
 export const zDeleteSecretGrantResponse = z.void();
 
+export const zListIntegrationAppsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListIntegrationAppsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * List integration apps.
+ */
+export const zListIntegrationAppsResponse2 = zListIntegrationAppsResponse;
+
+export const zCreateIntegrationAppBody = zCreateIntegrationAppRequest;
+
+export const zCreateIntegrationAppPath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Register an integration app.
+ */
+export const zCreateIntegrationAppResponse = zIntegrationApp;
+
+export const zGetIntegrationAppPath = z.object({
+    orgID: zOrganizationId,
+    integrationAppID: zIntegrationAppId
+});
+
+/**
+ * Get integration app configuration.
+ */
+export const zGetIntegrationAppResponse = zIntegrationApp;
+
+export const zUpdateIntegrationAppBody = zUpdateIntegrationAppRequest;
+
+export const zUpdateIntegrationAppPath = z.object({
+    orgID: zOrganizationId,
+    integrationAppID: zIntegrationAppId
+});
+
+/**
+ * Update integration app configuration.
+ */
+export const zUpdateIntegrationAppResponse = zIntegrationApp;
+
+export const zListEligibleIntegrationAppsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListEligibleIntegrationAppsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * List apps available to a project.
+ */
+export const zListEligibleIntegrationAppsResponse = zListIntegrationAppsResponse;
+
 export const zListIntegrationInstallsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
@@ -4093,18 +4594,34 @@ export const zPublishExternalChannelDefinitionPath = z.object({
  */
 export const zPublishExternalChannelDefinitionResponse = zChannelDefinition;
 
-export const zRegisterExternalChannelBody = zRegisterExternalChannelRequest;
+export const zListRegisteredChannelsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationInstallID: zIntegrationInstallId
+});
 
-export const zRegisterExternalChannelPath = z.object({
+export const zListRegisteredChannelsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Registered channels in the connection.
+ */
+export const zListRegisteredChannelsResponse2 = zListRegisteredChannelsResponse;
+
+export const zRegisterChannelBody = zRegisterChannelRequest;
+
+export const zRegisterChannelPath = z.object({
     orgID: zOrganizationId,
     projectID: zProjectId,
     integrationInstallID: zIntegrationInstallId
 });
 
 /**
- * Register an external channel.
+ * Register a channel.
  */
-export const zRegisterExternalChannelResponse = zRegisteredChannel;
+export const zRegisterChannelResponse = zRegisteredChannel;
 
 export const zAttachAgentChannelBody = zAttachAgentChannelRequest;
 
@@ -4321,6 +4838,23 @@ export const zRenameAgentProfilePath = z.object({
  */
 export const zRenameAgentProfileResponse = zAgentProfile;
 
+export const zGetAgentProfileUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentProfileID: zAgentProfileId
+});
+
+export const zGetAgentProfileUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent profile.
+ */
+export const zGetAgentProfileUsageResponse = zUsageReport;
+
 export const zUpdateAgentProfileBody = zUpdateAgentProfileRequest;
 
 export const zUpdateAgentProfileHeaders = z.object({
@@ -4337,6 +4871,86 @@ export const zUpdateAgentProfilePath = z.object({
  * Agent profile updated.
  */
 export const zUpdateAgentProfileResponse = zAgentProfile;
+
+export const zGetIntegrationLaunchProfilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationInstallID: zIntegrationInstallId
+});
+
+/**
+ * Current launch profile.
+ */
+export const zGetIntegrationLaunchProfileResponse = zIntegrationLaunchProfile;
+
+export const zSetIntegrationLaunchProfileBody = zIntegrationLaunchProfile;
+
+export const zSetIntegrationLaunchProfilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationInstallID: zIntegrationInstallId
+});
+
+/**
+ * Current launch profile.
+ */
+export const zSetIntegrationLaunchProfileResponse = zIntegrationLaunchProfile;
+
+export const zStartIntegrationConnectionBody = zStartIntegrationConnectionRequest;
+
+export const zStartIntegrationConnectionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Start a managed integration connection.
+ */
+export const zStartIntegrationConnectionResponse = zIntegrationConnectionSetup;
+
+export const zListGitHubSetupInstallationsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    flowID: zIntegrationOAuthFlowId
+});
+
+export const zListGitHubSetupInstallationsQuery = z.object({
+    page: z.int().gte(1).lte(10000).optional().default(1)
+});
+
+/**
+ * List accessible GitHub installations.
+ */
+export const zListGitHubSetupInstallationsResponse = zGitHubSetupInstallations;
+
+export const zListGitHubSetupRepositoriesPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    flowID: zIntegrationOAuthFlowId,
+    providerInstallationID: zGitHubSetupProviderId
+});
+
+export const zListGitHubSetupRepositoriesQuery = z.object({
+    page: z.int().gte(1).lte(10000).optional().default(1)
+});
+
+/**
+ * List accessible GitHub repositories.
+ */
+export const zListGitHubSetupRepositoriesResponse = zGitHubSetupRepositories;
+
+export const zCompleteGitHubConnectionBody = zCompleteGitHubConnectionRequest;
+
+export const zCompleteGitHubConnectionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    flowID: zIntegrationOAuthFlowId
+});
+
+/**
+ * Connect a verified GitHub repository.
+ */
+export const zCompleteGitHubConnectionResponse = zIntegrationInstall;
 
 export const zCreateIntegrationOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
 
@@ -4481,6 +5095,23 @@ export const zGetAgentPath = z.object({
  * Agent.
  */
 export const zGetAgentResponse2 = zGetAgentResponse;
+
+export const zGetAgentUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentID: zAgentId
+});
+
+export const zGetAgentUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent.
+ */
+export const zGetAgentUsageResponse = zUsageReport;
 
 export const zArchiveAgentPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -5397,6 +6028,34 @@ export const zGetChannelConnectorAppConfigurationPath = z.object({
  */
 export const zGetChannelConnectorAppConfigurationResponse = zChannelConnectorAppConfiguration;
 
+export const zListChannelConnectorInstallationControlScopesPath = z.object({
+    integrationAppID: zIntegrationAppId
+});
+
+export const zListChannelConnectorInstallationControlScopesQuery = z.object({
+    provider_tenant_id: z.string().min(1).max(512),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    after_installation_id: zIntegrationInstallId.optional(),
+    through_installation_id: zIntegrationInstallId.optional()
+});
+
+/**
+ * Nondeleted installation descriptors without credentials or agent authority.
+ */
+export const zListChannelConnectorInstallationControlScopesResponse2 = zListChannelConnectorInstallationControlScopesResponse;
+
+export const zSetChannelConnectorInstallationProviderStateBody = zSetChannelConnectorInstallationProviderStateRequest;
+
+export const zSetChannelConnectorInstallationProviderStatePath = z.object({
+    integrationAppID: zIntegrationAppId,
+    integrationInstallID: zIntegrationInstallId
+});
+
+/**
+ * The committed provider state and advanced installation revision.
+ */
+export const zSetChannelConnectorInstallationProviderStateResponse2 = zSetChannelConnectorInstallationProviderStateResponse;
+
 export const zGetChannelConnectorInstallationConfigurationPath = z.object({
     integrationAppID: zIntegrationAppId,
     integrationInstallID: zIntegrationInstallId
@@ -5428,6 +6087,30 @@ export const zPublishChannelConnectorDefinitionPath = z.object({
  * Current committed definition for this connection and implementation key.
  */
 export const zPublishChannelConnectorDefinitionResponse = zChannelDefinition;
+
+export const zLookupChannelConnectorGitHubReviewsBody = zLookupChannelConnectorGitHubReviewsRequest;
+
+export const zLookupChannelConnectorGitHubReviewsPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    integrationInstallID: zIntegrationInstallId
+});
+
+/**
+ * Scoped review observations.
+ */
+export const zLookupChannelConnectorGitHubReviewsResponse2 = zLookupChannelConnectorGitHubReviewsResponse;
+
+export const zRecordChannelConnectorGitHubReviewBody = zRecordChannelConnectorGitHubReviewRequest;
+
+export const zRecordChannelConnectorGitHubReviewPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    integrationInstallID: zIntegrationInstallId
+});
+
+/**
+ * Scoped review observations.
+ */
+export const zRecordChannelConnectorGitHubReviewResponse2 = zRecordChannelConnectorGitHubReviewResponse;
 
 export const zLookupChannelConnectorWorkflowBody = zLookupChannelConnectorWorkflowRequest;
 
@@ -5545,6 +6228,36 @@ export const zClaimNextChannelConnectorEventResponse = z.union([
     zChannelConnectorEventReceipt,
     z.void()
 ]);
+
+export const zAcceptChannelConnectorControlEventBody = zChannelInboundControlEventRequest;
+
+export const zAcceptChannelConnectorControlEventPath = z.object({
+    integrationAppID: zIntegrationAppId
+});
+
+/**
+ * The receipt has committed. Identical retries return the same receipt and its current state; a conflicting payload returns 409. Receipt does not imply agent processing.
+ */
+export const zAcceptChannelConnectorControlEventResponse = zChannelInboundControlEventResponse;
+
+export const zClaimNextChannelConnectorControlEventBody = zClaimNextChannelConnectorControlEventRequest;
+
+export const zClaimNextChannelConnectorControlEventResponse = z.union([
+    zChannelConnectorControlReceipt,
+    z.void()
+]);
+
+export const zCompleteChannelConnectorControlEventBody = zCompleteChannelConnectorControlEventRequest;
+
+export const zCompleteChannelConnectorControlEventPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    receiptID: zIntegrationControlReceiptId
+});
+
+/**
+ * The receipt outcome has committed.
+ */
+export const zCompleteChannelConnectorControlEventResponse = zChannelInboundControlEventResponse;
 
 export const zCompleteChannelConnectorEventBody = zCompleteChannelConnectorEventRequest;
 

@@ -2,6 +2,7 @@ import { Readable } from 'node:stream'
 
 import { type OperationAttemptContext, parseRetryAfter } from '../operation-retry'
 import { ProviderDeliveryError } from '../types'
+import { GatewayAtCapacityError } from '../work-budget'
 import {
   slackEnvelope,
   type SlackMethod,
@@ -194,7 +195,12 @@ export class SlackClient {
   /** Authenticated private-file download. The limit covers streamed bytes even
    * when Slack omits or understates Content-Length; redirects never receive auth.
    */
-  download(url: string, maxBytes: number, context: OperationAttemptContext) {
+  download(
+    url: string,
+    maxBytes: number,
+    context: OperationAttemptContext,
+    reserveBytes?: (bytes: number) => void,
+  ) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new SlackAPIError('file_too_large')
     return this.request(
       this.fileURL(url, 'invalid_file_url'),
@@ -203,6 +209,7 @@ export class SlackClient {
       false,
       maxBytes,
       'file_too_large',
+      reserveBytes,
     )
   }
 
@@ -235,6 +242,7 @@ export class SlackClient {
     publication: boolean,
     maxBytes = responseBytes,
     oversizedCode = 'response_too_large',
+    reserveBytes?: (bytes: number) => void,
   ): Promise<{ bytes: Buffer; contentType: string }> {
     const remaining = context.deadlineMs - Date.now()
     if (!Number.isSafeInteger(remaining) || remaining <= 0 || remaining > 2_147_483_647) {
@@ -279,6 +287,7 @@ export class SlackClient {
           size += value.byteLength
           if (size > maxBytes)
             throw new SlackAPIError(oversizedCode, { outcomeUnknown: publication })
+          reserveBytes?.(size)
           chunks.push(value)
         }
       } finally {
@@ -290,7 +299,7 @@ export class SlackClient {
         contentType: response.headers.get('content-type') ?? '',
       }
     } catch (error) {
-      if (error instanceof SlackAPIError) throw error
+      if (error instanceof SlackAPIError || error instanceof GatewayAtCapacityError) throw error
       throw new SlackAPIError('transport_failed', {
         outcomeUnknown: publication,
         retryable: !publication,

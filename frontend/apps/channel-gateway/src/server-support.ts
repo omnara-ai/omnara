@@ -1,61 +1,7 @@
 import { type IncomingMessage, validateHeaderValue } from 'node:http'
 
 import { abortError, raceWithAbort } from './async'
-import type { ProviderWebhookWorkContext, ProviderWorkReservation } from './types'
-import { GatewayAtCapacityError, WorkReservationScope } from './work-budget'
-
-export class BackgroundTaskTracker implements ProviderWebhookWorkContext {
-  private closed = false
-  private readonly tasks: Promise<{ error?: unknown }>[] = []
-  private readonly workReservations: WorkReservationScope
-
-  constructor(reserve: (bytes: number) => ProviderWorkReservation) {
-    this.workReservations = new WorkReservationScope(reserve)
-  }
-
-  reserveWorkBytes = (bytes: number): ProviderWorkReservation => {
-    if (this.closed) throw new Error('provider webhook context is closed')
-    return this.workReservations.reserve(bytes)
-  }
-
-  waitUntil = (task: Promise<unknown>): void => {
-    if (this.closed) {
-      void task.catch(() => undefined)
-      return
-    }
-    this.tasks.push(
-      task.then(
-        () => ({}),
-        (cause: unknown) => ({ error: cause }),
-      ),
-    )
-  }
-
-  async drain(signal: AbortSignal): Promise<unknown[]> {
-    const failures: unknown[] = []
-    let cursor = 0
-    try {
-      while (cursor < this.tasks.length) {
-        const batch = this.tasks.slice(cursor)
-        cursor = this.tasks.length
-        const results = await raceWithAbort(Promise.all(batch), signal)
-        for (const result of results) {
-          if ('error' in result) failures.push(result.error)
-        }
-        await Promise.resolve()
-      }
-      return failures
-    } finally {
-      this.close()
-    }
-  }
-
-  close(): void {
-    if (this.closed) return
-    this.closed = true
-    this.workReservations.close()
-  }
-}
+import { GatewayAtCapacityError } from './work-budget'
 
 export class BodyTooLargeError extends Error {}
 

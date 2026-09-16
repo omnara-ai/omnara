@@ -1,163 +1,32 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
-import { IncomingMessage, request as httpRequest, ServerResponse } from 'node:http'
-import { Socket } from 'node:net'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { readdir } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { OperationRetryError } from './operation-retry'
 import {
   type OperationArtifact,
-  type OperationExecutionResult,
   OperationsHandler,
   type OperationsOptions,
   operationsRoute,
   operationWorkBytes,
 } from './operations'
-import { GatewayServer } from './server'
+import {
+  auth,
+  capability,
+  completed,
+  credential,
+  envelope,
+  multipart,
+  part,
+  receiveMultipart,
+  start,
+} from './operations-test-support'
 import { deferred, incompleteRequest, streamedRequest } from './server-test-support'
-import type { GatewayLogger } from './types'
 import { WorkByteBudget } from './work-budget'
-
-const credential = 'omnara_connector_v1_private-test-credential'
-const capability = { connector_key: 'chat_sdk_v1', provider: 'slack' }
-const auth = { authorization: `Bearer ${credential}` }
-const cleanup: (() => Promise<void>)[] = []
-afterEach(async () => {
-  for (const close of cleanup.splice(0).reverse()) await close()
-})
-
-function envelope() {
-  return {
-    request_id: 'request-1',
-    capability,
-    kind: 'send',
-    scope: {
-      project_id: 'project',
-      integration_app_id: 'app',
-      integration_install_id: 'install',
-      agent_id: 'agent',
-      channel_id: 'channel',
-    },
-    deadline: new Date(Date.now() + 5_000).toISOString(),
-    payload: { message: { text: 'hello' } },
-  }
-}
-
-function part(
-  name: string,
-  body: string | Buffer,
-  filename?: string,
-  contentType = 'application/json',
-): Buffer<ArrayBuffer> {
-  return Buffer.concat([
-    Buffer.from(
-      `--boundary\r\nContent-Disposition: form-data; name="${name}"${filename === undefined ? '' : `; filename="${filename}"`}\r\nContent-Type: ${contentType}\r\n\r\n`,
-    ),
-    Buffer.isBuffer(body) ? body : Buffer.from(body),
-    Buffer.from('\r\n'),
-  ])
-}
-
-function multipart(body: string | Buffer = 'abc', filename = 'a.txt'): Buffer<ArrayBuffer> {
-  const metadata = {
-    ...envelope(),
-    artifacts: [{ id: 'artifact-1', filename, content_type: 'text/plain' }],
-  }
-  return Buffer.concat([
-    part('operation', JSON.stringify(metadata)),
-    part('artifact', body, filename, 'text/plain'),
-    Buffer.from('--boundary--\r\n'),
-  ])
-}
-
-async function start(
-  execute: OperationsOptions['execute'],
-  overrides: Partial<OperationsOptions> = {},
-) {
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'omnara-operations-test-'))
-  const workBudget = new WorkByteBudget(2 * operationWorkBytes)
-  const logger = {
-    debug: vi.fn<GatewayLogger['debug']>(),
-    info: vi.fn<GatewayLogger['info']>(),
-    warn: vi.fn<GatewayLogger['warn']>(),
-    error: vi.fn<GatewayLogger['error']>(),
-  }
-  const operations: Omit<OperationsOptions, 'workBudget'> = {
-    allowedCapabilities: [capability],
-    credential,
-    execute,
-    temporaryDirectory,
-    maxConcurrentRequests: 2,
-    maxTemporaryBytes: 200 * 1024 * 1024,
-    maxRequestBytes: 256 * 1024 * 1024,
-    maxDurationMs: 5_000,
-    ...overrides,
-  }
-  const server = new GatewayServer({
-    bodyLimitBytes: 1024,
-    handlerTimeoutMs: 1_000,
-    httpShutdownTimeoutMs: 100,
-    logger,
-    maxConcurrentRequests: 8,
-    port: 0,
-    publicUrl: 'http://gateway.invalid',
-    registry: { acquire: () => Promise.reject(new Error('unexpected runtime acquisition')) },
-    operations,
-    workBudget,
-  })
-  cleanup.push(async () => {
-    await server.close()
-    await rm(temporaryDirectory, { recursive: true, force: true })
-  })
-  const port = await server.listen()
-  return {
-    port,
-    server,
-    logger,
-    temporaryDirectory,
-    workBudget,
-    url: `http://127.0.0.1:${port}${operationsRoute}`,
-  }
-}
-
-const completed = (): Promise<OperationExecutionResult> =>
-  Promise.resolve({ outcome: 'completed', payload: { publication: 'draft' } })
-
-// Exercise the same Node request/parser path without consuming a TCP port.
-async function receiveMultipart(execute: OperationsOptions['execute'], body: Buffer) {
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'omnara-operations-parser-test-'))
-  const handler = new OperationsHandler({
-    credential,
-    allowedCapabilities: [capability],
-    execute,
-    temporaryDirectory,
-    maxConcurrentRequests: 1,
-    maxTemporaryBytes: 1024 * 1024,
-    maxRequestBytes: 1024 * 1024,
-    maxDurationMs: 1000,
-    workBudget: new WorkByteBudget(operationWorkBytes),
-  })
-  const incoming = new IncomingMessage(new Socket())
-  incoming.headers = { ...auth, 'content-type': 'multipart/form-data; boundary=boundary' }
-  incoming.rawHeaders = ['Authorization', `Bearer ${credential}`]
-  incoming.complete = true
-  incoming.push(body)
-  incoming.push(null)
-  const outgoing = new ServerResponse(incoming)
-  try {
-    return await handler.handle(incoming, outgoing)
-  } finally {
-    await handler.close()
-    incoming.destroy()
-    outgoing.destroy()
-    expect(await readdir(temporaryDirectory)).toEqual([])
-    await rm(temporaryDirectory, { recursive: true, force: true })
-  }
-}
 
 describe('private channel operations HTTP receiver', () => {
   it('interoperates with the real Go client for all kinds and a streamed Unicode-named artifact', async () => {
@@ -202,6 +71,26 @@ describe('private channel operations HTTP receiver', () => {
       'read',
       'interaction',
     ])
+  }, 30_000)
+
+  it('reports rejected artifact intake as definitely unsent through the real Go client', async () => {
+    const execute = vi.fn<OperationsOptions['execute']>(completed)
+    const { url, temporaryDirectory } = await start(execute, {
+      credential: 'omnara_connector_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_3Q2mUc',
+      maxTemporaryBytes: 1,
+    })
+    const result = await promisify(execFile)(
+      'go',
+      ['run', './internal/channelconnector/testdata/gateway-interop', url, 'reject-upload'],
+      {
+        cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
+        timeout: 25_000,
+        maxBuffer: 64 * 1024,
+      },
+    )
+    expect(result.stdout).toBe('interop completed\n')
+    expect(execute).not.toHaveBeenCalled()
+    expect(await readdir(temporaryDirectory)).toEqual([])
   }, 30_000)
 
   it('accepts authenticated send/read/interaction envelopes and keeps payload integers exact', async () => {
@@ -295,10 +184,6 @@ describe('private channel operations HTTP receiver', () => {
       JSON.stringify({ ...envelope(), capability: { ...capability, connector_key: 'other' } }),
       JSON.stringify({ ...envelope(), kind: 'delete' }),
       JSON.stringify({ ...envelope(), version: 'compatibility' }),
-      JSON.stringify({
-        ...envelope(),
-        artifacts: [{ id: 'a', filename: 'x', content_type: 'text/plain' }],
-      }),
       JSON.stringify(envelope()).replace('"hello"', '{"x":1,"\\u0078":2}'),
       `${JSON.stringify(envelope())} {}`,
       JSON.stringify({ ...envelope(), deadline: '2026-02-30T00:00:00Z' }),
@@ -311,6 +196,22 @@ describe('private channel operations HTTP receiver', () => {
       })
       expect(response.status, body).toBe(400)
     }
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('returns a correlated rejection for a valid JSON envelope missing declared artifacts', async () => {
+    const execute = vi.fn<OperationsOptions['execute']>(completed)
+    const { url } = await start(execute)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...envelope(),
+        artifacts: [{ id: 'a', filename: 'x', content_type: 'text/plain' }],
+      }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -356,11 +257,6 @@ describe('private channel operations HTTP receiver', () => {
         ),
         Buffer.from('--boundary--\r\n'),
       ]),
-      Buffer.concat([
-        part('artifact', 'abc', 'a.txt', 'text/plain'),
-        part('operation', JSON.stringify(envelope())),
-        Buffer.from('--boundary--\r\n'),
-      ]),
       multipart().toString().replace('name="artifact"', 'name="unexpected"'),
       multipart().toString().replace('filename="a.txt"', 'filename="../a.txt"'),
       multipart().toString().replace('name="artifact"', 'name="artifact"; name="another"'),
@@ -377,8 +273,24 @@ describe('private channel operations HTTP receiver', () => {
         body,
       })
       expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
       expect(await readdir(temporaryDirectory)).toEqual([])
     }
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('rejects an artifact preceding the operation without inventing correlation', async () => {
+    const execute = vi.fn<OperationsOptions['execute']>(completed)
+    const response = await receiveMultipart(
+      execute,
+      Buffer.concat([
+        part('artifact', 'abc', 'a.txt', 'text/plain'),
+        part('operation', JSON.stringify(envelope())),
+        Buffer.from('--boundary--\r\n'),
+      ]),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).not.toHaveProperty('request_id')
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -465,6 +377,7 @@ describe('private channel operations HTTP receiver', () => {
       body: multipart(),
     })
     expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
     expect(execute).not.toHaveBeenCalled()
     expect(await readdir(temporaryDirectory)).toEqual([])
   })
@@ -539,6 +452,83 @@ describe('private channel operations HTTP receiver', () => {
     expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'unknown' })
     expect(ioSignal?.aborted).toBe(true)
     expect(execute).toHaveBeenCalledOnce()
+  })
+
+  it('drains an in-flight publication during shutdown without aborting it', async () => {
+    const started = deferred()
+    const release = deferred()
+    let ioSignal: AbortSignal | undefined
+    const execute = vi.fn<OperationsOptions['execute']>(async (_operation, _artifacts, signal) => {
+      ioSignal = signal
+      started.resolve()
+      await release.promise
+      signal.throwIfAborted()
+      return { outcome: 'completed', payload: { publication: 'published', message_id: 'M1' } }
+    })
+    const { url, server, workBudget } = await start(execute)
+    const response = fetch(url, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify(envelope()),
+    })
+    await started.promise
+    const closing = server.close()
+    expect(ioSignal?.aborted).toBe(false)
+    release.resolve()
+    expect(await (await response).json()).toEqual({
+      request_id: 'request-1',
+      outcome: 'completed',
+      payload: { publication: 'published', message_id: 'M1' },
+    })
+    await closing
+    expect(execute).toHaveBeenCalledOnce()
+    expect(workBudget.usedBytes).toBe(0)
+  })
+
+  it('returns a correlated failure when artifact intake fails after a valid envelope', async () => {
+    const execute = vi.fn<OperationsOptions['execute']>(completed)
+    const response = await receiveMultipart(
+      execute,
+      Buffer.concat([
+        part('operation', JSON.stringify({ ...envelope(), artifacts: [] })),
+        part('unexpected', 'bad'),
+        Buffer.from('--boundary--\r\n'),
+      ]),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('bounds shutdown while retaining work for provider code ignoring cancellation', async () => {
+    const started = deferred()
+    const release = deferred()
+    let ioSignal: AbortSignal | undefined
+    const execute = vi.fn<OperationsOptions['execute']>(async (_operation, _artifacts, signal) => {
+      ioSignal = signal
+      started.resolve()
+      await release.promise
+      return { outcome: 'completed', payload: {} }
+    })
+    const { url, server, workBudget } = await start(execute)
+    const response = fetch(url, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify(envelope()),
+    }).catch(() => undefined)
+    await started.promise
+    try {
+      await server.close()
+      expect(ioSignal?.aborted).toBe(true)
+      expect(workBudget.usedBytes).toBe(operationWorkBytes)
+      expect(execute).toHaveBeenCalledOnce()
+    } finally {
+      release.resolve()
+    }
+    await response
+    await vi.waitFor(() => {
+      expect(workBudget.usedBytes).toBe(0)
+    })
   })
 
   it.each(['disconnect', 'shutdown'])(
@@ -649,7 +639,10 @@ describe('private channel operations HTTP receiver', () => {
     const first = send()
     await started.promise
     try {
-      expect((await send()).status).toBe(503)
+      const rejected = await send()
+      expect(rejected.status).toBe(503)
+      expect(await rejected.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
+      expect(execute).toHaveBeenCalledOnce()
     } finally {
       release.resolve()
     }
@@ -801,7 +794,9 @@ describe('private channel operations HTTP receiver', () => {
         'Content-Type: application/json\r\n',
         'Content-Type: application/json\r\nBroken header\r\n',
       )
-      expect((await receiveMultipart(execute, Buffer.from(suffixed))).status).toBe(400)
+      const response = await receiveMultipart(execute, Buffer.from(suffixed))
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ request_id: 'request-1', outcome: 'failed' })
     }
     expect(execute).not.toHaveBeenCalled()
   })
@@ -834,4 +829,3 @@ describe('private channel operations HTTP receiver', () => {
     }
   })
 })
-import { execFile } from 'node:child_process'

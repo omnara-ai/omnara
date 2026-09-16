@@ -2,7 +2,6 @@ package channelconnector
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/dbsafe"
@@ -17,21 +16,12 @@ func NormalizeOpaqueObject(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return json.RawMessage(`{}`), nil
 	}
-	if len(raw) > MaxMetadataBytes {
-		return nil, fmt.Errorf("JSON object exceeds the %d-byte limit", MaxMetadataBytes)
-	}
-	normalized, err := jsoncanonical.Normalize(raw)
+	object, err := jsoncanonical.ParseObject(raw, MaxMetadataBytes)
 	if err != nil {
 		return nil, err
 	}
-	if len(normalized) > MaxMetadataBytes {
-		return nil, fmt.Errorf("JSON object exceeds the %d-byte limit", MaxMetadataBytes)
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(normalized, &object); err != nil || object == nil {
-		if err == nil {
-			err = errors.New("must be a JSON object")
-		}
+	normalized, err := json.Marshal(object)
+	if err != nil {
 		return nil, err
 	}
 	if err := dbsafe.JSONB(normalized, MaxMetadataBytes); err != nil {

@@ -1,6 +1,7 @@
 import type { ChannelConnectorEventReceipt } from '@omnara/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { CoreClient } from './core-client'
 import { ReceiptConsumer, type ReceiptConsumerOptions } from './receipt-consumer'
 import { initialReceiptWorkBytes } from './receipt-http'
 import { type ReceiptBehaviorContext, ReceiptBehaviorError } from './types'
@@ -141,6 +142,99 @@ describe('receipt consumer', () => {
       expect(logger.error).not.toHaveBeenCalled()
     },
   )
+
+  it.each([0, 60_000, 86_400_000])(
+    'forwards a valid %sms provider hint only on pending completion',
+    async (retryAfterMs) => {
+      const f = fixture()
+      f.client.claimNextEvent.mockResolvedValueOnce(receipt())
+      f.behavior.mockRejectedValue(new ReceiptBehaviorError(true, retryAfterMs))
+      f.client.completeEvent.mockImplementation(() => {
+        f.controller.abort()
+        return Promise.resolve()
+      })
+      await new ReceiptConsumer(f.options).run(f.controller.signal)
+      expect(f.client.completeEvent).toHaveBeenCalledOnce()
+      expect(f.client.completeEvent.mock.calls[0]?.[1]).toEqual({
+        state: 'pending',
+        retry_after_ms: retryAfterMs,
+        last_error: { code: 'retryable_failure' },
+      })
+    },
+  )
+
+  it.each([null, -1, 0.5, NaN, Infinity, 86_400_001, '60000'])(
+    'fails closed for invalid provider hint %s instead of scheduling an early retry',
+    async (retryAfterMs) => {
+      const f = fixture()
+      f.client.claimNextEvent.mockResolvedValueOnce(receipt())
+      f.behavior.mockRejectedValue(Object.assign(new ReceiptBehaviorError(true), { retryAfterMs }))
+      f.client.completeEvent.mockImplementation(() => {
+        f.controller.abort()
+        return Promise.resolve()
+      })
+      await new ReceiptConsumer(f.options).run(f.controller.signal)
+      expect(f.client.completeEvent.mock.calls[0]?.[1]).toEqual({
+        state: 'failed',
+        last_error: { code: 'invalid_retry_hint' },
+      })
+      expect(f.client.completeEvent).toHaveBeenCalledOnce()
+      expect(f.behavior).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each([
+    { retryable: false, attempt: 1, code: 'permanent_failure' },
+    { retryable: true, attempt: 3, code: 'retry_budget_exhausted' },
+  ])('does not attach a scheduling hint to $code', async ({ retryable, attempt, code }) => {
+    const f = fixture()
+    f.client.claimNextEvent.mockResolvedValueOnce({ ...receipt(), attempt_count: attempt })
+    f.behavior.mockRejectedValue(new ReceiptBehaviorError(retryable, 60_000))
+    f.client.completeEvent.mockImplementation(() => {
+      f.controller.abort()
+      return Promise.resolve()
+    })
+    await new ReceiptConsumer(f.options).run(f.controller.signal)
+    expect(f.client.completeEvent.mock.calls[0]?.[1]).toEqual({
+      state: 'failed',
+      last_error: { code },
+    })
+  })
+
+  it('reports a minute-long retry hint through one completion POST within the existing lease budget', async () => {
+    const f = fixture()
+    const claimed = { ...receipt(), receipt_id: 'irec_aaaaaaaaaaaaaaaaaaaaaaaaaa' }
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json(claimed))
+      .mockImplementationOnce(() => {
+        f.controller.abort()
+        return Promise.resolve(Response.json({ receipt_id: claimed.receipt_id, state: 'pending' }))
+      })
+    f.options.client = new CoreClient({
+      baseUrl: 'https://core.example.test/api/v1',
+      token: 'fixture',
+      fetch,
+    })
+    f.behavior.mockRejectedValue(new ReceiptBehaviorError(true, 60_000))
+    const started = Date.now()
+    await new ReceiptConsumer(f.options).run(f.controller.signal)
+    expect(Date.now() - started).toBeLessThan(f.options.completionTimeoutMs)
+    expect(f.behavior).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledTimes(2) // One claim, one completion; no local sleep/retry.
+    const request = fetch.mock.calls[1]?.[0]
+    if (!(request instanceof Request)) throw new Error('missing completion request')
+    expect(request.method).toBe('POST')
+    expect(request.url).toContain(`/events/${claimed.receipt_id}/complete`)
+    expect(await request.json()).toEqual({
+      state: 'pending',
+      retry_after_ms: 60_000,
+      last_error: { code: 'retryable_failure' },
+      lease_token: claimed.lease_token,
+      lease_generation: claimed.lease_generation,
+    })
+    expect(f.workBudget.usedBytes).toBe(0)
+  })
 
   it('terminalizes a receipt already over the deployment attempt budget without behavior', async () => {
     const { options, controller, client, behavior } = fixture()

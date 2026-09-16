@@ -1,8 +1,14 @@
+import { isUtf8 } from 'node:buffer'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PassThrough } from 'node:stream'
 
-import type { ChannelConnectorCapability, JsonBody } from '@omnara/sdk'
+import {
+  type ChannelConnectorCapability,
+  type ChannelOperationFailure,
+  type JsonBody,
+  schemas,
+} from '@omnara/sdk'
 
 import { raceWithAbort } from './async'
 import { OperationRetryError } from './operation-retry'
@@ -15,6 +21,7 @@ import {
   capabilityKey,
   type GatewayOperation,
   InvalidOperationError,
+  isReadOnlyOperation,
   maxOperationEnvelopeBytes,
   maxOperationResponseBytes,
   parseObjectFields,
@@ -29,6 +36,7 @@ import { GatewayAtCapacityError, WorkByteBudget } from './work-budget'
 export type { OperationArtifact } from './operations-files'
 export type {
   GatewayOperation,
+  InstallationOperationScope,
   OperationArtifactMetadata,
   OperationKind,
   OperationScope,
@@ -41,13 +49,43 @@ export {
 } from './operations-json'
 
 export const operationsRoute = '/internal/operations'
+// Unpadded base64url of the existing UTF-8 request ID (at most 256 bytes).
+export const operationRequestIdHeader = 'X-Omnara-Channel-Request-ID'
 // Includes bounded JSON text/tree/serialization headroom and parser/file stream
 // buffers. JSON container count/depth are bounded independently by the decoder.
 export const operationWorkBytes = 16 * 1024 * 1024
 
 export type OperationExecutionResult =
   | { outcome: 'completed'; payload: JsonBody }
-  | { outcome: 'failed' | 'unknown' }
+  | { outcome: 'failed' | 'unknown'; payload?: ChannelOperationFailure }
+
+const failureSchema = schemas.zChannelOperationFailure
+  .extend({
+    metadata: schemas.zChannelOperationFailure.shape.metadata.unwrap().strict().optional(),
+  })
+  .strict()
+  .refine(
+    (failure) =>
+      failure.metadata === undefined ||
+      Object.keys(failure.metadata).length === 0 ||
+      [
+        'pending_review_exists',
+        'review_commit_mismatch',
+        'review_creation_already_recorded',
+        'review_finding_failed',
+        'review_operation_unknown',
+      ].includes(failure.code),
+  )
+const resolveFailureSchema = schemas.zChannelOperationFailure
+  .pick({ code: true })
+  .extend({
+    code: schemas.zChannelOperationFailureCode.extract([
+      'invalid_address',
+      'address_unavailable',
+      'unsupported_address',
+    ]),
+  })
+  .strict()
 
 export interface OperationsOptions {
   credential: string
@@ -112,25 +150,45 @@ export class OperationsHandler {
     }
   }
 
-  /** Abort immediately on shutdown, then await request/file cleanup only.
+  /** Stop admission and allow active requests to finish within the grace period.
    * A callback ignoring cancellation keeps its admission reservation until it
    * settles; shutdown never waits indefinitely for uncooperative provider code.
    */
-  async close(): Promise<void> {
+  async close(graceMs = 0): Promise<void> {
     this.closed = true
-    for (const controller of this.requests.keys()) controller.abort()
-    await Promise.allSettled(this.requests.values())
+    const finished = Promise.allSettled(this.requests.values())
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      if (graceMs > 0) {
+        await Promise.race([
+          finished,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, graceMs)
+          }),
+        ])
+      }
+      for (const controller of this.requests.keys()) controller.abort()
+      await finished
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   async handle(incoming: IncomingMessage, outgoing: ServerResponse): Promise<Response> {
     if (!this.authenticated(incoming)) return rejection(401, 'unauthorized')
+    let headerRequestId: string | undefined
+    try {
+      headerRequestId = requestIdFromHeader(incoming)
+    } catch {
+      return rejection(400, 'invalid_operation')
+    }
     if (this.closed || this.slots >= this.options.maxConcurrentRequests)
-      return rejection(503, 'at_capacity')
+      return rejection(503, 'at_capacity', headerRequestId)
     let work
     try {
       work = this.options.workBudget.reserve(operationWorkBytes)
     } catch {
-      return rejection(503, 'at_capacity')
+      return rejection(503, 'at_capacity', headerRequestId)
     }
     this.slots += 1
     const controller = new AbortController()
@@ -151,7 +209,7 @@ export class OperationsHandler {
     incoming.once('aborted', disconnect)
     const files = new OperationFiles(this.options.temporaryDirectory, this.temporaryBudget, signal)
     let operation: GatewayOperation | undefined
-    let executionStarted = false
+    const executionState = { started: false }
     let executionSettled = true
     let requestFinished = false
     const release = (): void => {
@@ -159,7 +217,10 @@ export class OperationsHandler {
       this.slots -= 1
     }
     const acceptEnvelope = (raw: string): GatewayOperation => {
-      operation = parseOperation(raw, this.capabilities, ceilingMs)
+      const parsed = parseOperation(raw, this.capabilities, ceilingMs)
+      if (headerRequestId !== undefined && parsed.requestId !== headerRequestId)
+        throw new InvalidOperationError()
+      operation = parsed
       clearTimeout(timer)
       const remaining = operation.deadlineMs - Date.now()
       if (remaining <= 0) {
@@ -173,7 +234,7 @@ export class OperationsHandler {
     }
     try {
       if (declaredBodyExceedsLimit(incoming, this.options.maxRequestBytes)) {
-        return rejection(413, 'request_too_large')
+        return rejection(413, 'request_too_large', headerRequestId)
       }
       const boundary = multipartBoundary(incoming.headers['content-type'] ?? '')
       let artifacts: OperationArtifact[] = []
@@ -215,13 +276,13 @@ export class OperationsHandler {
       }
       signal.throwIfAborted()
       if (Date.now() >= operation.deadlineMs) throw new InvalidOperationError()
-      executionStarted = true
       executionSettled = false
       const accepted = operation
       // Install observation before invoking the callback (including sync throws).
       const execution = Promise.resolve()
         .then(() => {
           signal.throwIfAborted()
+          executionState.started = true
           return this.options.execute(accepted, artifacts, signal)
         })
         .finally(() => {
@@ -233,19 +294,22 @@ export class OperationsHandler {
       if (Date.now() >= operation.deadlineMs) throw new InvalidOperationError()
       return completion(operation, result)
     } catch (cause) {
-      if (operation && (executionStarted || signal.aborted)) {
+      if (operation && executionState.started) {
         const unknown =
-          executionStarted &&
-          operation.kind !== 'read' &&
+          !isReadOnlyOperation(operation.kind) &&
           (!(cause instanceof OperationRetryError) || cause.outcomeUnknown)
         return completion(operation, { outcome: unknown ? 'unknown' : 'failed' })
       }
+      // Parsing the envelope does not mean the upload finished. Reject intake
+      // failures before dispatch so core need not wait for an unread body.
+      const requestId = operation?.requestId ?? headerRequestId
       if (cause instanceof GatewayAtCapacityError || cause instanceof TemporaryStorageFullError) {
-        return rejection(503, 'at_capacity')
+        return rejection(503, 'at_capacity', requestId)
       }
       return rejection(
         signal.aborted ? 408 : 400,
         signal.aborted ? 'deadline_exceeded' : 'invalid_operation',
+        requestId,
       )
     } finally {
       clearTimeout(timer)
@@ -282,14 +346,25 @@ function completion(operation: GatewayOperation, result: OperationExecutionResul
   if (!['completed', 'failed', 'unknown'].includes(result.outcome)) {
     throw new InvalidOperationError()
   }
-  const raw =
+  const outcome =
+    result.outcome === 'unknown' && isReadOnlyOperation(operation.kind) ? 'failed' : result.outcome
+  const failure =
+    result.outcome === 'failed' ||
+    (result.outcome === 'unknown' && !isReadOnlyOperation(operation.kind))
+      ? operation.kind === 'resolve_address'
+        ? resolveFailureSchema.safeParse(result.payload)
+        : failureSchema.safeParse(result.payload)
+      : undefined
+  const body = { request_id: operation.requestId, outcome }
+  const diagnostic = failure?.data
+  const expectedOutcome = diagnostic?.code === 'review_operation_unknown' ? 'unknown' : 'failed'
+  const payload =
     result.outcome === 'completed'
-      ? serializeOperationResult({
-          request_id: operation.requestId,
-          outcome: result.outcome,
-          payload: result.payload,
-        })
-      : serializeOperationResult({ request_id: operation.requestId, outcome: result.outcome })
+      ? result.payload
+      : outcome === expectedOutcome
+        ? diagnostic
+        : undefined
+  const raw = serializeOperationResult(payload === undefined ? body : { ...body, payload })
   const fields = parseObjectFields(raw, maxOperationResponseBytes)
   if (result.outcome === 'completed')
     parseObjectFields(fields.get('payload') ?? '', maxOperationResponseBytes)
@@ -303,13 +378,46 @@ function completion(operation: GatewayOperation, result: OperationExecutionResul
   })
 }
 
-function rejection(status: number, code: string): Response {
-  return new Response(JSON.stringify({ error: code }), {
-    status,
-    headers: {
-      'content-type': 'application/json',
-      'cache-control': 'no-store',
-      connection: 'close',
+function rejection(status: number, code: string, requestId?: string): Response {
+  return new Response(
+    JSON.stringify(
+      requestId === undefined ? { error: code } : { request_id: requestId, outcome: 'failed' },
+    ),
+    {
+      status,
+      headers: {
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+        connection: 'close',
+      },
     },
-  })
+  )
+}
+
+function requestIdFromHeader(incoming: IncomingMessage): string | undefined {
+  let encoded: string | undefined
+  let count = 0
+  for (let index = 0; index < incoming.rawHeaders.length; index += 2) {
+    if (incoming.rawHeaders[index]?.toLowerCase() !== operationRequestIdHeader.toLowerCase())
+      continue
+    count += 1
+    encoded = incoming.rawHeaders[index + 1]
+  }
+  // Headerless test/private callers can still use the body, but supply no proof
+  // of correlation for an early rejection. Never reinterpret an invalid header.
+  if (count === 0) return undefined
+  if (count !== 1 || !encoded || encoded.length > 342 || !/^[A-Za-z0-9_-]+$/.test(encoded))
+    throw new InvalidOperationError()
+  const bytes = Buffer.from(encoded, 'base64url')
+  if (bytes.length > 256 || !isUtf8(bytes) || bytes.toString('base64url') !== encoded)
+    throw new InvalidOperationError()
+  const requestId = bytes.toString('utf8')
+  // Same text domain as Go validOperationText and the operation JSON parser.
+  if (
+    !requestId ||
+    requestId.trim() !== requestId ||
+    ['\u0000', '\r', '\n'].some((character) => requestId.includes(character))
+  )
+    throw new InvalidOperationError()
+  return requestId
 }

@@ -1047,7 +1047,7 @@ func createConnectorToolChannel(
 	definition, err := fixture.Store.Integrations().PublishConnectorChannelDefinition(ctx,
 		integrationstore.PublishChannelDefinitionInput{
 			ProjectID: toolsTestProjectID, IntegrationInstallID: install.ID,
-			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindExternal,
+			ImplementationKey: "test-channel", Kind: integrationstore.ChannelKindDiscordThread,
 			SendParamsSchema: json.RawMessage(`{"type":"object"}`),
 			Capabilities: integrationstore.ChannelCapabilities{Read: true,
 				Send:        true,

@@ -7,10 +7,18 @@ import {
   type RedisClusterType,
 } from 'redis'
 
-import type { RedisStateClient } from './app-state'
 import type { RedisTopology } from './config'
 
 const commandQueueMaxLength = 4_096
+
+/** Redis commands used by provider coordination. Lifecycle remains gateway-owned. */
+export interface RedisStateClient {
+  eval(
+    script: string,
+    options: { arguments: string[]; keys: string[] },
+  ): ReturnType<RedisClientType['eval']>
+  set(key: string, value: string, options?: { NX?: boolean; PX?: number }): Promise<string | null>
+}
 
 export interface GatewayRedisClient extends RedisStateClient {
   close(): Promise<void>
@@ -136,10 +144,6 @@ class ManagedRedisClient implements GatewayRedisClient {
     }
   }
 
-  del(key: string): Promise<number> {
-    return this.state.del(key)
-  }
-
   eval(
     script: string,
     options: { arguments: string[]; keys: string[] },
@@ -147,44 +151,8 @@ class ManagedRedisClient implements GatewayRedisClient {
     return this.state.eval(script, options)
   }
 
-  exists(key: string): Promise<number> {
-    return this.state.exists(key)
-  }
-
-  get(key: string): Promise<string | null> {
-    return this.state.get(key)
-  }
-
-  lLen(key: string): Promise<number> {
-    return this.state.lLen(key)
-  }
-
-  lPop(key: string): Promise<string | null> {
-    return this.state.lPop(key)
-  }
-
-  lRange(key: string, start: number, stop: number): Promise<string[]> {
-    return this.state.lRange(key, start, stop)
-  }
-
-  sAdd(key: string, member: string): Promise<number> {
-    return this.state.sAdd(key, member)
-  }
-
-  sIsMember(key: string, member: string): Promise<number> {
-    return this.state.sIsMember(key, member)
-  }
-
-  sRem(key: string, member: string): Promise<number> {
-    return this.state.sRem(key, member)
-  }
-
   set(key: string, value: string, options?: { NX?: boolean; PX?: number }): Promise<string | null> {
     return this.state.set(key, value, options)
-  }
-
-  unlink(key: string): Promise<number> {
-    return this.state.unlink(key)
   }
 }
 

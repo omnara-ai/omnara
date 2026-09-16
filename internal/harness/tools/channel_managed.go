@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func runManagedChannelSendAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
@@ -35,18 +36,12 @@ func runManagedChannelSendAsync(ctx context.Context, call asyncToolContext) (asy
 		return channelOperationFailure(prepared.request.RequestID, "artifact_unavailable",
 			"A requested artifact is not available to this agent.", channelconnector.OperationFailed)
 	}
-	access, err := e.recheckChannelOperation(ctx, prepared)
+	access, params, err := e.Store.Execution().PrepareChannelSend(ctx, prepared.owner)
 	if err != nil {
-		return channelOperationFailure(prepared.request.RequestID, "channel_authority_changed",
-			"Channel access or operation ownership is no longer valid.", channelconnector.OperationFailed)
+		return channelSendPreparationFailure(prepared.request.RequestID, err)
 	}
 	if err := channelMessageCapabilities(input.Message, access); err != nil {
 		return channelOperationFailure(prepared.request.RequestID, "unsupported_channel_message",
-			err.Error(), channelconnector.OperationFailed)
-	}
-	params, err := channelconnector.ValidateSendParams(access.SendParamsSchema, input.Params)
-	if err != nil {
-		return channelOperationFailure(prepared.request.RequestID, "invalid_send_params",
 			err.Error(), channelconnector.OperationFailed)
 	}
 	payload := channelconnector.SendPayload{
@@ -85,6 +80,33 @@ func runManagedChannelSendAsync(ctx context.Context, call asyncToolContext) (asy
 	return channelSendCompletionFailure(prepared, input.Message, sent)
 }
 
+func channelSendPreparationFailure(requestID string, err error) (asyncPhaseResult, error) {
+	var reviewError *executionstore.GitHubReviewError
+	if errors.As(err, &reviewError) {
+		metadata := map[string]string{}
+		if reviewError.ReviewID != "" {
+			metadata["review_id"] = reviewError.ReviewID
+		}
+		if reviewError.CommitID != "" {
+			metadata["commit_id"] = reviewError.CommitID
+		}
+		content, encodeErr := structuredToolResultContent(channelOperationToolResult{
+			RequestID: requestID, Status: channelconnector.OperationFailed,
+			Code: string(reviewError.Code), Metadata: metadata,
+			Detail: (channelconnector.OperationFailure{Code: reviewError.Code}).Detail(),
+		})
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		return failAsynchronously(content, reviewError), nil
+	}
+	if errors.Is(err, storeerr.ErrInvalidRequest) {
+		return channelOperationFailure(requestID, "invalid_send_params", err.Error(), channelconnector.OperationFailed)
+	}
+	return channelOperationFailure(requestID, "channel_authority_changed",
+		"Channel access or operation ownership is no longer valid.", channelconnector.OperationFailed)
+}
+
 func channelMessageCapabilities(message channelconnector.Message, access integrationstore.ChannelAccess) error {
 	if message.Text != "" && !access.Capabilities.Text {
 		return errors.New("this channel does not support message text")
@@ -107,18 +129,17 @@ func channelSendCompletionFailure(
 	if sent.MessageChannel == channelconnector.MessageAtDestination {
 		observation.ChannelID = prepared.request.Scope.ChannelID
 	}
-	result := channelconnector.SendMessageResult{
-		RequestID: prepared.request.RequestID, Message: observation,
+	result := channelOperationToolResult{
+		RequestID: prepared.request.RequestID, Message: &observation,
+		Status: channelconnector.OperationFailed, Code: "channel_operation_completion_failed",
+		Detail: "The provider reported publication or staging, but local completion could not be confirmed. " +
+			"Do not resend the message.",
 	}
 	// A failed/ambiguous local commit cannot establish a registered child. Retain
 	// known publication, including its actual containing location when known;
 	// the ordinary tool owner will reject overwriting an already committed result.
 	if sent.ReplyChannel != nil {
-		result.ContinuationError = &channelconnector.ContinuationError{
-			Code: "reply_channel_registration_unavailable",
-			Message: "The message was published or staged, but its reply channel could not be registered. " +
-				"Do not resend it blindly.",
-		}
+		result.Detail += " Reply channel registration could not be confirmed."
 	}
 	content, err := structuredToolResultContent(result)
 	if err != nil {
@@ -138,7 +159,8 @@ func runManagedChannelReadAsync(ctx context.Context, call asyncToolContext) (asy
 		return channelOperationFailure("", "channel_unavailable",
 			"The channel is unavailable or does not permit history reads.", channelconnector.OperationFailed)
 	}
-	access, err := e.recheckChannelOperation(ctx, prepared)
+	// Recheck the owning store's exact tool/runtime and binding pin before dispatch.
+	access, err := e.Store.Execution().RecheckChannelOperation(ctx, prepared.owner)
 	if err != nil {
 		return channelOperationFailure(prepared.request.RequestID, "channel_authority_changed",
 			"Channel read access or operation ownership is no longer valid.", channelconnector.OperationFailed)

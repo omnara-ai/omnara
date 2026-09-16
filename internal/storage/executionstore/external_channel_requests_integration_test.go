@@ -267,7 +267,16 @@ func TestExternalChannelRequestCancelAndDeadlineAreTerminal(t *testing.T) {
 			}
 			request := f.start(t, ctx, lifetime)
 			if cancel {
-				_, err := f.Store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
+				// A customer may already have published after retrieving this request.
+				// Canceling the local turn cannot establish that nothing was sent.
+				page, err := f.Store.Execution().ListPendingExternalChannelRequests(ctx,
+					executionstore.ListExternalChannelRequestsInput{
+						ProjectID: testProjectID, IntegrationInstallID: request.IntegrationInstallID, Limit: 10,
+					})
+				require.NoError(t, err)
+				require.Len(t, page.Requests, 1)
+				require.Equal(t, request.ID, page.Requests[0].ID)
+				_, err = f.Store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
 					ProjectID: testProjectID, AgentID: f.AgentID, Actor: mustOmnaraActorParams(t, f.UserID),
 				})
 				require.NoError(t, err)
@@ -286,6 +295,22 @@ func TestExternalChannelRequestCancelAndDeadlineAreTerminal(t *testing.T) {
 			count, err := f.Store.Execution().ExpireExternalChannelRequests(ctx, 10)
 			require.NoError(t, err)
 			require.Zero(t, count)
+			call, err := f.Store.Execution().GetToolCall(ctx, testProjectID, f.AgentID, f.call.ID)
+			require.NoError(t, err)
+			var parts []struct {
+				Value struct{ Code, Detail string } `json:"value"`
+			}
+			require.NoError(t, json.Unmarshal(call.ResultContentParts, &parts))
+			require.Len(t, parts, 1)
+			require.Contains(t, parts[0].Value.Detail, "provider outcome is unknown")
+			require.Contains(t, parts[0].Value.Detail, "do not assume it is safe to resend")
+			if cancel {
+				require.Equal(t, executionstore.ToolResultOutcomeCanceled, call.Outcome)
+				require.Equal(t, "channel_operation_canceled", parts[0].Value.Code)
+			} else {
+				require.Equal(t, executionstore.ToolResultOutcomeFailed, call.Outcome)
+				require.Equal(t, "deadline_exceeded", parts[0].Value.Code)
+			}
 			f.requireOneResult(t, ctx)
 		})
 	}
@@ -453,6 +478,15 @@ func TestExternalChannelRequestCompletionRacesCancellationWithoutSecondResult(t 
 	require.NoError(t, cancellationErr)
 	if completionErr != nil {
 		require.ErrorIs(t, completionErr, storeerr.ErrStateTransitionConflict)
+	}
+	call, err := f.Store.Execution().GetToolCall(ctx, testProjectID, f.AgentID, f.call.ID)
+	require.NoError(t, err)
+	if completionErr == nil {
+		require.Equal(t, executionstore.ToolResultOutcomeSucceeded, call.Outcome)
+		require.Contains(t, string(call.ResultContentParts), `"publication":"published"`)
+	} else {
+		require.Equal(t, executionstore.ToolResultOutcomeCanceled, call.Outcome)
+		require.Contains(t, string(call.ResultContentParts), "provider outcome is unknown")
 	}
 	f.requireOneResult(t, ctx)
 }

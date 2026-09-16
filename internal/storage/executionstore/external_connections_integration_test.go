@@ -280,6 +280,117 @@ func TestExternalChannelsUseLiveGrantsAndActualInputAttribution(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 }
 
+func TestAgentChannelListingTracksCurrentDefinitionCapabilities(t *testing.T) {
+	ctx := t.Context()
+	f := newChannelAuthorityFixture(t, ctx, "listing-capabilities")
+	user := createIntegrationProjectAdmin(t, ctx, f.Store, "listing-capabilities-owner@example.com")
+	install, err := f.Store.Integrations().CreateExternalIntegrationInstall(ctx, externalConnectionInput(user.ID))
+	require.NoError(t, err)
+	input := externalDefinitionInput(install.ID)
+	definition, err := f.Store.Integrations().PublishExternalChannelDefinition(ctx, input)
+	require.NoError(t, err)
+	var targetIDs, bindingIDs []uuid.UUID
+	for _, ref := range []string{"first-ticket", "second-ticket"} {
+		target, err := f.Store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
+			ProjectID: testProjectID, IntegrationInstallID: install.ID, ChannelDefinitionID: definition.ID,
+			ProviderRef: ref, ProviderRefKind: "ticket",
+		})
+		require.NoError(t, err)
+		binding, err := f.Store.Integrations().CreateIntegrationTargetBinding(ctx,
+			integrationstore.CreateIntegrationTargetBindingInput{
+				ProjectID: testProjectID, AgentID: f.AgentID, IntegrationInstallID: install.ID,
+				IntegrationTargetID: target.ID, ReceiveAllowed: true, ReadAllowed: true, SendAllowed: true, Source: "api",
+			})
+		require.NoError(t, err)
+		targetIDs, bindingIDs = append(targetIDs, target.ID), append(bindingIDs, binding.ID)
+	}
+	var firstCursor *integrationstore.AgentChannelTargetCursor
+	assertDiscovery := func(t *testing.T, read, send bool) {
+		t.Helper()
+		var after *integrationstore.AgentChannelTargetCursor
+		for i := len(targetIDs) - 1; i >= 0; i-- {
+			page, err := f.Store.Integrations().ListAgentChannelTargets(ctx, testProjectID, f.AgentID,
+				integrationstore.ListAgentChannelTargetsInput{Limit: 1, After: after})
+			require.NoError(t, err)
+			require.Len(t, page.Targets, 1, "channels remain discoverable even without current read/send support")
+			listed := page.Targets[0]
+			require.Equal(t, targetIDs[i], listed.ID)
+			require.True(t, listed.ReceiveAllowed, "incoming permission is independent of read/send implementation")
+			require.Equal(t, read, listed.ReadAllowed)
+			require.Equal(t, send, listed.SendAllowed)
+			access, err := f.Store.Integrations().GetAgentChannelAccess(ctx, testProjectID, f.AgentID, listed.ID)
+			require.NoError(t, err)
+			require.True(t, access.Active)
+			require.Equal(t, listed.ReadAllowed, access.Capabilities.Read)
+			require.Equal(t, listed.SendAllowed, access.Capabilities.Send)
+			binding, err := f.Store.Integrations().GetIntegrationTargetBinding(ctx, testProjectID, bindingIDs[i])
+			require.NoError(t, err)
+			require.Equal(t, bindingIDs[i], binding.ID)
+			require.True(t, binding.ReadAllowed)
+			require.True(t, binding.SendAllowed, "publishing capabilities must not rewrite or replace live grants")
+			after = page.Next
+			if i > 0 {
+				require.NotNil(t, after)
+				if firstCursor == nil {
+					firstCursor = after
+				}
+				require.Equal(t, firstCursor, after, "definition changes must not move pagination boundaries")
+			} else {
+				require.Nil(t, after)
+			}
+		}
+		eligibility, err := f.Store.Integrations().GetAgentChannelToolEligibility(ctx, testProjectID, f.AgentID)
+		require.NoError(t, err)
+		require.Equal(t, integrationstore.AgentChannelToolEligibility{List: true, Read: read, Send: send}, eligibility)
+	}
+	for _, test := range []struct {
+		name       string
+		read, send bool
+	}{
+		{"both supported", true, true},
+		{"read only", true, false},
+		{"send only", false, true},
+		{"neither supported", false, false},
+		{"restored", true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input.Capabilities = integrationstore.ChannelCapabilities{Read: test.read, Send: test.send, Text: test.send}
+			updated, err := f.Store.Integrations().PublishExternalChannelDefinition(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, definition.ID, updated.ID)
+			assertDiscovery(t, test.read, test.send)
+		})
+	}
+	t.Run("absent capability keys", func(t *testing.T) {
+		_, err := f.Store.pool.Exec(ctx,
+			`UPDATE integration_channel_definitions SET capabilities = '{}'::jsonb WHERE id = $1`, definition.ID)
+		require.NoError(t, err)
+		assertDiscovery(t, false, false)
+	})
+	input.Capabilities = integrationstore.ChannelCapabilities{Send: true, Text: true}
+	_, err = f.Store.Integrations().PublishExternalChannelDefinition(ctx, input)
+	require.NoError(t, err)
+	_, err = f.Store.Integrations().DisableIntegrationInstall(ctx, integrationstore.DisableIntegrationInstallInput{
+		ProjectID: testProjectID, ID: install.ID, ExpectedOAuthFlowID: &install.LastOAuthFlowID,
+	})
+	require.NoError(t, err)
+	page, err := f.Store.Integrations().ListAgentChannelTargets(ctx, testProjectID, f.AgentID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Targets, 1, "disabled connections remain visible with explicit inactive state")
+	require.Equal(t, firstCursor, page.Next)
+	require.Equal(t, integrationstore.IntegrationInstallStateDisabled, page.Targets[0].InstallState)
+	require.False(t, page.Targets[0].ReadAllowed)
+	require.True(t, page.Targets[0].SendAllowed)
+	access, err := f.Store.Integrations().GetAgentChannelAccess(ctx, testProjectID, f.AgentID, page.Targets[0].ID)
+	require.NoError(t, err)
+	require.False(t, access.Active)
+	require.False(t, access.Capabilities.Send, "displaying the inactive grant does not authorize an operation")
+	eligibility, err := f.Store.Integrations().GetAgentChannelToolEligibility(ctx, testProjectID, f.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.AgentChannelToolEligibility{}, eligibility)
+}
+
 func TestManagedConnectionNullTenantIdentityAndDefinitionScope(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

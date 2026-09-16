@@ -62,26 +62,58 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 
 ## Channel gateway
 
-The `channel-gateway` runs Slack receipt processing and bounded send, read, and interaction operations. Go verifies Slack's existing event callbacks and saves the event before acknowledging it; the gateway claims those durable receipts through the private API. Slack OAuth and signed actions also remain on the Go API. The gateway uses Hono, calls the API with a scoped connector token, and never connects to Postgres.
+The `channel-gateway` runs the built-in Slack, Discord, and GitHub transports and conversation behavior. It calls Omnara's private API with a scoped connector token; it never connects to Postgres. Core owns project authorization, encrypted credentials, durable incoming events, and atomic agent admission. The gateway owns provider requests, webhook handling, and Discord Gateway connections.
 
 Generate a connector token with `make channel-connector-token`. Store it in your normal secret manager. API and worker need the same connector list; the gateway needs the matching token:
 
 ```sh
-OMNARA_CHANNEL_CONNECTORS_JSON='[{"id":"primary","token":"<generated token>","operations_url":"http://channel-gateway:8080/internal/operations","capabilities":[{"connector_key":"chat_sdk","provider":"slack"}]}]'
+OMNARA_CHANNEL_CONNECTORS_JSON='[{"id":"primary","token":"<generated token>","operations_url":"http://channel-gateway:8080/internal/operations","capabilities":[{"connector_key":"omnara","provider":"slack"},{"connector_key":"omnara","provider":"discord"},{"connector_key":"omnara","provider":"github"}]}]'
 OMNARA_CHANNEL_CONNECTOR_TOKEN='<generated token>'
 ```
 
 Each capability is one exact connector-and-provider pair. The worker selects `operations_url` only from this deployment configuration; it must include the complete private `/internal/operations` path. Duplicate or ambiguous outbound routes are rejected. Omitting the URL allows inbound authentication but supplies no outgoing route. For processes running outside Compose, use service addresses they can reach.
 
-Keep `/api/v1/channel-connector/*` and `/internal/operations` on the private service network. The bundled nginx gateway blocks both at the public edge; bearer authentication is still required. `OMNARA_INTERNAL_API_ORIGINS` belongs on the API and allows the exact private origin used by the gateway. Slack continues to use the event/action URLs returned by setup under `/api/integrations/slack/*`. The generic `/hooks/*` and polling/socket factory extension points do not enable additional providers: the built-in factory registry is empty, while Slack receipt and operation callbacks are wired separately.
+Keep `/api/v1/channel-connector/*` and `/internal/operations` on the private service network. The bundled nginx gateway blocks both at the public edge; bearer authentication is still required. `OMNARA_INTERNAL_API_ORIGINS` belongs on the API and allows the exact private origin used by the gateway. Slack continues to use the event/action URLs returned by setup under `/api/integrations/slack/*`, routed to the API. GitHub's public webhook URL is `/hooks/<integration-app-id>/github/events`, routed to the gateway. Discord uses outbound Gateway sockets and needs no public message webhook. OAuth callbacks for all three use `/api/integrations/oauth/callback` on the API.
+
+GitHub does not automatically retry failed webhook deliveries. If intake is
+unavailable before an event is saved, recover through the app's recent-delivery
+redelivery controls. Once saved, Omnara retries processing from its inbox.
+See [GitHub redelivery](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks).
 
 Receipt consumers claim only available processing slots and bound each event's retries. Replaying a saved, verified receipt does not repeat live SDK signature verification or deduplication. Core atomically admits workflow launch, input, binding, and wakeup; a failed launch transaction leaves no partially admitted input. Terminal receipts remain available for the configured retention period. Receipt completion and retry authority stay in core.
+
+Provider retry delays postpone the next receipt claim without holding a gateway
+worker. Core uses the longer of its own backoff and the connector's supplied delay
+(up to one day); the existing message attempt budget still applies.
+
+GitHub installation and repository-access updates use a separate app-owned
+inbox because one provider installation can affect connections in several
+projects. These updates are also saved before acknowledgment. Processing records
+the last updated connection and resumes after a restart, using a fixed scan
+boundary so new connections cannot extend that delivery indefinitely. Transient
+failures retry with bounded backoff and provider rate-limit delays; successful
+progress does not consume a total retry allowance. Invalid saved work and retired
+owners stop processing. Each connection update still checks its project authority.
+One control worker per gateway shares the global memory budget and may reserve
+at most half of it, leaving capacity for incoming messages.
+Maintenance exposes `omnara_integration_control_oldest_unapplied_timestamp_seconds`
+and `omnara_integration_control_last_observation_timestamp_seconds` on its metrics
+endpoint. A growing age for a nonzero oldest timestamp identifies a backlog of
+connection updates; the observation timestamp shows whether that measurement is
+still being refreshed. An observed empty inbox has an oldest timestamp of zero.
+GitHub access updates recheck the installation's connected repositories, so large
+installations or bursts of updates can encounter provider rate limits and take
+longer to finish. Account for those delays when choosing backlog alert thresholds.
 
 Managed operations have one request deadline covering artifact transfer and provider attempts. The gateway may make an initial attempt plus up to three safe retries within it, respecting `Retry-After`. Permanent failures stop. An unknown non-idempotent outcome is terminal and must not be blindly retried. Core sends the HTTP mutation once and receives a completed, failed, or unknown result. There is no outgoing outbox or delivery polling loop. Customer-owned external connections use their separate finite request/completion lifecycle.
 
 Outgoing artifacts stream into ephemeral files. The gateway validates the whole bounded multipart request before provider mutation and cleans up files on completion, cancellation, or connection loss. Configure enough local temporary storage for the per-process total-byte budget and size the per-request budget for your stored artifacts. These deployment budgets include actual bytes; they do not impose a new 10 MiB per-file product limit. The outgoing artifact count remains 20. Container termination can discard this temporary work; it is not a durable staging queue.
 
-Provider credentials remain encrypted in Omnara's secret store. The gateway fetches authorized app and installation configuration from core; credentials are not stored in Redis. The built-in Slack receipt and operation callbacks run without a gateway Redis connection. Redis/Valkey is required only when provider factories are registered, for namespaced Chat SDK coordination and transient state. Those deployments must set `OMNARA_CHANNEL_REDIS_URL` and `OMNARA_CHANNEL_REDIS_TOPOLOGY` explicitly: `standalone` for one endpoint or `cluster` for Redis Cluster. Supplied Redis configuration is validated even when no factories are registered. Configuration generations and runtime leases fence stale work; they are independent of the unversioned `chat_sdk` capability key.
+Slack setup, OAuth, and event intake that requires gateway processing return HTTP 503 when the API has no configured exact `omnara`/`slack` capability. This checks deployment configuration, not gateway health. With that capability configured, core still durably accepts verified events during a temporary gateway outage; processing resumes from the inbox when the gateway recovers.
+
+Provider credentials remain encrypted in Omnara's secret store. The gateway fetches authorized configuration from core: Slack's installation bot token, Discord's app bot token, or GitHub's app private key and webhook secret. OAuth client secrets stay in core. Gateway Redis does not contain these runtime credentials. During GitHub setup only, core keeps the user's authorization token in an encrypted, single-use Redis session for at most ten minutes; it is never a runtime bot credential.
+
+The built-in gateway requires Redis/Valkey for provider coordination and transient state. Set `OMNARA_CHANNEL_REDIS_URL` and `OMNARA_CHANNEL_REDIS_TOPOLOGY` explicitly: `standalone` for one endpoint or `cluster` for Redis Cluster. Compose supplies the local Redis defaults. Configuration generations and runtime leases fence stale work; they are independent of the unversioned `omnara` capability key. Incoming communication is saved in core's Postgres inbox before webhook acknowledgment or advancing Discord's recoverable sequence.
 
 | Variable                                           | Purpose                                                                                                      | Default                    | Required                                                                    |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------- |
@@ -90,8 +122,8 @@ Provider credentials remain encrypted in Omnara's secret store. The gateway fetc
 | `OMNARA_CHANNEL_CONNECTOR_TOKEN`                   | Gateway bearer token matching the API/worker connector list                                                  | —                          | With a channel gateway                                                      |
 | `OMNARA_CHANNEL_CORE_API_URL`                      | Internal versioned API base URL used by the gateway, including the `/api/v1` mount                           | —                          | With a channel gateway                                                      |
 | `OMNARA_CHANNEL_GATEWAY_PUBLIC_URL`                | Exact public origin used to reconstruct provider webhook URLs                                                | —                          | With a channel gateway                                                      |
-| `OMNARA_CHANNEL_REDIS_URL`                         | Redis or Valkey URL used for Chat SDK state                                                                  | —                          | With provider factories                                                      |
-| `OMNARA_CHANNEL_REDIS_TOPOLOGY`                    | `standalone` for one endpoint; `cluster` for Redis Cluster or a cluster-compatible managed service           | —                          | With provider factories                                                      |
+| `OMNARA_CHANNEL_REDIS_URL`                         | Redis or Valkey URL used for provider coordination                                                           | —                          | With the built-in gateway                                                   |
+| `OMNARA_CHANNEL_REDIS_TOPOLOGY`                    | `standalone` for one endpoint; `cluster` for Redis Cluster or a cluster-compatible managed service           | —                          | With the built-in gateway                                                   |
 | `OMNARA_CHANNEL_REDIS_CLUSTER_URLS`                | Optional comma-separated cluster seed URLs; all must use database 0 and identical protocol and credentials   | `OMNARA_CHANNEL_REDIS_URL` | No                                                                          |
 | `OMNARA_CHANNEL_REDIS_SOCKET_TIMEOUT_MS`           | Redis connect/idle-socket bound; the client pings within this window and rejects commands while disconnected | `5000`                     | No                                                                          |
 | `PORT`                                             | Gateway HTTP listener port                                                                                   | `8080`                     | No                                                                          |
@@ -104,7 +136,7 @@ Provider credentials remain encrypted in Omnara's secret store. The gateway fetc
 | `OMNARA_CHANNEL_CORE_REQUEST_TIMEOUT_MS`           | Timeout for each gateway-to-API request                                                                      | `10000`                    | No                                                                          |
 | `OMNARA_CHANNEL_WEBHOOK_BODY_LIMIT_BYTES`          | Maximum provider webhook body                                                                                | `25165824`                 | No                                                                          |
 | `OMNARA_CHANNEL_WEBHOOK_HANDLER_TIMEOUT_MS`        | Provider adapter webhook deadline                                                                            | `30000`                    | No                                                                          |
-| `OMNARA_CHANNEL_WEBHOOK_MAX_BUFFERED_BYTES`        | Aggregate webhook body and media-work bytes retained by one gateway process                                  | `134217728`                | No                                                                          |
+| `OMNARA_CHANNEL_WEBHOOK_MAX_BUFFERED_BYTES`        | Aggregate webhook body and media-work bytes retained by one gateway process                                  | `268435456`                | No                                                                          |
 | `OMNARA_CHANNEL_WEBHOOK_MAX_CONCURRENT_REQUESTS`   | Maximum webhook lifecycles active in one gateway process                                                     | `128`                      | No                                                                          |
 | `OMNARA_CHANNEL_HTTP_SHUTDOWN_TIMEOUT_MS`          | Grace period before open webhook connections are forced closed                                               | `10000`                    | No                                                                          |
 | `OMNARA_CHANNEL_PROVIDER_LIFECYCLE_TIMEOUT_MS`     | Deadline for provider runtime creation and shutdown                                                          | `10000`                    | No                                                                          |
@@ -118,7 +150,55 @@ Provider credentials remain encrypted in Omnara's secret store. The gateway fetc
 | `OMNARA_CHANNEL_RUNTIME_CLAIM_LIMIT`               | Maximum persistent provider runtime units supervised concurrently                                            | `32`                       | No                                                                          |
 | `OMNARA_CHANNEL_RUNTIME_LEASE_MS`                  | Fenced persistent-runtime lease                                                                              | `30000`                    | No                                                                          |
 | `OMNARA_CHANNEL_RUNTIME_STOP_TIMEOUT_MS`           | Grace period for a provider runtime to honor cancellation                                                    | `10000`                    | No                                                                          |
-| `OMNARA_INTEGRATION_EVENT_RETENTION`               | Go-duration retention for terminal inbound receipts before bounded maintenance deletion                      | `168h`                     | No                                                                          |
+| `OMNARA_INTEGRATION_EVENT_RETENTION`               | Go-duration retention for terminal message and provider-control receipts before bounded maintenance deletion | `168h`                     | No                                                                          |
+
+Discord gateway shards belong to the app and are shared by its guild connections.
+The first verified setup initializes the shard set; reconnect preserves its count
+and checkpoints even if Discord now recommends more shards. That recommendation
+does not automatically reshard the app or reject reconnection. Changing the count
+requires deliberate maintenance through the existing runtime-unit storage
+operations: keep the complete set's shard counts and specification revisions
+consistent and stop obsolete units. Gateway claim capacity controls placement,
+not the configured shard count.
+
+### Apps and project connections
+
+Organization managers register a provider app under **Apps** and select its
+credential secret. An app can serve the organization or be restricted to one
+project. Project managers then connect a Slack workspace, Discord server, or
+GitHub repository under **Integrations**. The installation, registered channels,
+and agent bindings belong to that project. One physical app's external account
+cannot be connected to multiple projects at once.
+
+For Discord, enable the app's **Requires OAuth2 Code Grant** setting and
+**Message Content Intent** before connecting. Setup verifies the bot/app identity
+and server access before creating the connection. For GitHub, register the OAuth
+callback above, enable expiring user authorization tokens, and disable
+**Request user authorization (OAuth) during installation**. Grant **Pull requests:
+read and write**, **Issues: read**, and **Metadata: read**. Subscribe to pull request,
+issue comment, pull request review, and pull request review comment events;
+installation and repository-access events keep Omnara's local availability state
+current. Set the app's webhook secret and gateway URL. Omnara does not request
+Contents access or provide a machine checkout through this connection.
+
+GitHub setup authorizes the user before showing their installation/repository
+picker. If needed, install the verified app in another tab and refresh the picker.
+The final selection requires fresh repository-administrator access. A temporary
+organization installation-approval delay does not grant access prematurely.
+
+Choose an optional inbound agent profile for a connection. Changing or clearing
+it affects future launches; existing conversations keep their agents and grants.
+Without a launch profile, registered channels can still be used for explicit
+agent bindings and scheduled messages. A profile schedule's `channel_bindings`
+grants access to every agent it launches. Reply-channel grants can allow that
+agent to continue in a thread created by its message, without receiving every
+message in the parent channel. Grants authorize access; integration behavior
+independently decides when to deliver incoming events.
+
+Disabling or removing an Omnara connection stops its local work and access. It
+does not delete GitHub comments, dismiss or publish reviews, or otherwise mutate
+GitHub's state. Permission and question prompts always remain available in the
+Omnara dashboard; Discord and GitHub currently advertise no interactive prompts.
 
 ## Email
 

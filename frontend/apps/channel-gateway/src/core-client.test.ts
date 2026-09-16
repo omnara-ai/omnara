@@ -187,7 +187,7 @@ describe('CoreClient', () => {
       .mockResolvedValueOnce(Response.json(receipt()))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     const client = receiptClient(fetch)
-    const capability = { connector_key: 'chat_sdk_v1', provider: 'slack' }
+    const capability = { connector_key: 'test_connector', provider: 'slack' }
     expect(await client.claimNextEvent(capability, 30_000)).toEqual(receipt())
     expect(await client.claimNextEvent(capability, 30_000)).toBeUndefined()
     const [input, init] = fetch.mock.calls[0] ?? []
@@ -211,7 +211,7 @@ describe('CoreClient', () => {
       failure instanceof Error ? Promise.reject(failure) : Promise.resolve(failure),
     )
     const result = await receiptClient(fetch)
-      .claimNextEvent({ connector_key: 'chat_sdk_v1', provider: 'slack' }, 30_000)
+      .claimNextEvent({ connector_key: 'test_connector', provider: 'slack' }, 30_000)
       .catch((cause: unknown) => cause)
     expect(result).toBeInstanceOf(ReceiptClientError)
     expect(String(result)).not.toContain('private-receipt-token')
@@ -227,7 +227,7 @@ describe('CoreClient', () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(invalid))
     await expect(
       receiptClient(fetch).claimNextEvent(
-        { connector_key: 'chat_sdk_v1', provider: 'slack' },
+        { connector_key: 'test_connector', provider: 'slack' },
         30_000,
       ),
     ).rejects.toBeInstanceOf(ReceiptClientError)
@@ -254,6 +254,47 @@ describe('CoreClient', () => {
       lease_token: claimed.lease_token,
       lease_generation: claimed.lease_generation,
     })
+  })
+
+  it.each([0, 60_000, 86_400_000])(
+    'forwards pending retry hint %sms in one bounded completion request',
+    async (retryAfterMs) => {
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(accepted()))
+      const claimed = receipt()
+      await receiptClient(fetch).completeEvent(claimed, {
+        state: 'pending',
+        last_error: { code: 'rate_limited' },
+        retry_after_ms: retryAfterMs,
+      })
+      const [input, init] = fetch.mock.calls[0] ?? []
+      if (!input) throw new Error('missing request')
+      expect(JSON.parse(await requestBody(input, init))).toEqual({
+        state: 'pending',
+        last_error: { code: 'rate_limited' },
+        retry_after_ms: retryAfterMs,
+        lease_token: claimed.lease_token,
+        lease_generation: claimed.lease_generation,
+      })
+      expect(fetch).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each([
+    { state: 'completed' as const, retry_after_ms: 60_000 },
+    { state: 'failed' as const, retry_after_ms: 60_000 },
+    ...[-1, 0.5, NaN, Infinity, 86_400_001].map((retry_after_ms) => ({
+      state: 'pending' as const,
+      retry_after_ms,
+    })),
+  ])('rejects an invalid completion retry hint before I/O: %j', async (completion) => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    await expect(
+      receiptClient(fetch).completeEvent(receipt(), {
+        ...completion,
+        last_error: { code: 'fixture' },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' })
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -318,7 +359,7 @@ describe('CoreClient', () => {
       try {
         await expect(
           receiptClient(fetch).claimNextEvent(
-            { connector_key: 'chat_sdk_v1', provider: 'slack' },
+            { connector_key: 'test_connector', provider: 'slack' },
             30_000,
             undefined,
             kind === 'work capacity' ? work : undefined,
@@ -339,7 +380,7 @@ describe('CoreClient', () => {
       .mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ cancel: canceled })))
     const controller = new AbortController()
     const result = receiptClient(fetch).claimNextEvent(
-      { connector_key: 'chat_sdk_v1', provider: 'slack' },
+      { connector_key: 'test_connector', provider: 'slack' },
       30_000,
       controller.signal,
     )

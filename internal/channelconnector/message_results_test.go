@@ -27,6 +27,33 @@ func TestSendResultSeparatesMessageLocationFromReplyDestination(t *testing.T) {
 	require.NoError(t, err, "an existing conversation needs no new reply destination")
 }
 
+func TestSendResultPreservesKnownPublicationWithUnavailableContinuation(t *testing.T) {
+	for _, publication := range []string{"published", "draft"} {
+		raw := json.RawMessage(`{"publication":"` + publication + `","message_channel":"destination",` +
+			`"message_id":"known-message","continuation_error":{"code":"reply_channel_unavailable",` +
+			`"message":"Message exists, but its reply channel is unavailable. Do not resend."}}`)
+		result, err := DecodeSendResult(raw)
+		require.NoError(t, err)
+		require.Equal(t, MessagePublication(publication), result.Publication)
+		require.Equal(t, "known-message", result.MessageID)
+		require.Nil(t, result.ReplyChannel)
+		require.Equal(t, "reply_channel_unavailable", result.ContinuationError.Code)
+	}
+	for _, suffix := range []string{
+		`"continuation_error":null`,
+		`"continuation_error":{"code":"reply_channel_unavailable"}`,
+		`"continuation_error":{"code":"","message":"Not available"}`,
+		`"continuation_error":{"code":"reply_channel_unavailable","message":" "}`,
+		`"continuation_error":{"code":"reply_channel_unavailable","message":"bad\u0000text"}`,
+		`"continuation_error":{"code":"reply_channel_unavailable","message":"Not available","extra":true}`,
+		`"reply_channel":{"implementation_key":"thread","provider_ref":"thread","provider_ref_kind":"thread"},` +
+			`"continuation_error":{"code":"reply_channel_unavailable","message":"Not available"}`,
+	} {
+		_, err := DecodeSendResult(json.RawMessage(`{"publication":"published","message_channel":"destination",` + suffix + `}`))
+		require.Error(t, err, suffix)
+	}
+}
+
 func TestSendResultRejectsUntrustworthyReferences(t *testing.T) {
 	t.Parallel()
 	for name, raw := range map[string]string{

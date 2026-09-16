@@ -25,9 +25,31 @@ func (s *Store) UpsertIntegrationRuntimeUnit(
 	if err != nil {
 		return IntegrationRuntimeUnitRecord{}, err
 	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return IntegrationRuntimeUnitRecord{}, fmt.Errorf("begin runtime configuration: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.lockRuntimeConfigurationTx(ctx, tx, input); err != nil {
+		return IntegrationRuntimeUnitRecord{}, err
+	}
+	unit, err := upsertIntegrationRuntimeUnitTx(ctx, s.q.WithTx(tx), input)
+	if err != nil {
+		return IntegrationRuntimeUnitRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return IntegrationRuntimeUnitRecord{}, fmt.Errorf("commit runtime configuration: %w", err)
+	}
+	return unit, nil
+}
+
+func upsertIntegrationRuntimeUnitTx(
+	ctx context.Context, q *dbsqlc.Queries, input UpsertIntegrationRuntimeUnitInput,
+) (IntegrationRuntimeUnitRecord, error) {
 	var row dbsqlc.IntegrationRuntimeUnit
+	var err error
 	if input.IntegrationInstallID == uuid.Nil {
-		row, err = s.q.UpsertIntegrationAppRuntimeUnit(
+		row, err = q.UpsertIntegrationAppRuntimeUnit(
 			ctx,
 			dbsqlc.UpsertIntegrationAppRuntimeUnitParams{
 				OrgID: input.OrgID, IntegrationAppID: input.IntegrationAppID,
@@ -37,7 +59,7 @@ func (s *Store) UpsertIntegrationRuntimeUnit(
 			},
 		)
 	} else {
-		row, err = s.q.UpsertIntegrationInstallRuntimeUnit(
+		row, err = q.UpsertIntegrationInstallRuntimeUnit(
 			ctx,
 			dbsqlc.UpsertIntegrationInstallRuntimeUnitParams{
 				OrgID: input.OrgID, IntegrationAppID: storeutil.IDFromNil(input.IntegrationAppID),

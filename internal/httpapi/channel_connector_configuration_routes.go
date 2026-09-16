@@ -224,7 +224,9 @@ func (s strictOpenAPIServer) channelConnectorAppCredential(
 	ctx context.Context,
 	app integrationstore.IntegrationAppRecord,
 ) (*openapi.ChannelCredentialPayload, error) {
-	if app.CredentialSecretID == uuid.Nil {
+	if app.CredentialSecretID == uuid.Nil ||
+		(app.ConnectorKey == channelconnector.BuiltInConnectorKey &&
+			app.Provider == integrationstore.IntegrationProviderSlack) {
 		return nil, nil //nolint:nilnil // No app credential is a valid optional configuration.
 	}
 	credential, err := s.server.store.Secrets().GetIntegrationAssociatedSecretPayload(
@@ -233,13 +235,27 @@ func (s strictOpenAPIServer) channelConnectorAppCredential(
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := channelCredentialPayloadJSON(credential.Payload)
+	encoded, err := channelAppCredentialPayloadJSON(app, credential.Payload)
 	if err != nil {
 		return nil, err
 	}
 	return &openapi.ChannelCredentialPayload{
 		Kind: openapi.SecretKindResponse(credential.Kind), Payload: encoded,
 	}, nil
+}
+
+func channelAppCredentialPayloadJSON(
+	app integrationstore.IntegrationAppRecord, payload secrets.Payload,
+) (json.RawMessage, error) {
+	if app.ConnectorKey == channelconnector.BuiltInConnectorKey {
+		switch app.Provider {
+		case integrationstore.IntegrationProviderGitHub:
+			payload = secrets.Payload{"private_key": payload["private_key"], "webhook_secret": payload["webhook_secret"]}
+		case integrationstore.IntegrationProviderDiscord:
+			payload = secrets.Payload{"bot_token": payload["bot_token"]}
+		}
+	}
+	return channelCredentialPayloadJSON(payload)
 }
 
 func (s strictOpenAPIServer) channelConnectorInstallationCredential(
@@ -256,13 +272,26 @@ func (s strictOpenAPIServer) channelConnectorInstallationCredential(
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := channelCredentialPayloadJSON(payload)
+	encoded, err := channelInstallationCredentialPayloadJSON(app, payload)
 	if err != nil {
 		return nil, err
 	}
 	return &openapi.ChannelCredentialPayload{
 		Kind: app.InstallationCredentialKind, Payload: encoded,
 	}, nil
+}
+
+func channelInstallationCredentialPayloadJSON(
+	app integrationstore.IntegrationAppRecord,
+	payload secrets.Payload,
+) (json.RawMessage, error) {
+	if app.ConnectorKey == channelconnector.BuiltInConnectorKey &&
+		app.Provider == integrationstore.IntegrationProviderSlack {
+		// Slack verification and OAuth stay in core. The gateway needs only the
+		// bot token, not signing or OAuth client credentials from the same secret.
+		payload = secrets.Payload{secrets.KeyAccessToken: payload[secrets.KeyAccessToken]}
+	}
+	return channelCredentialPayloadJSON(payload)
 }
 
 func channelConnectorAppConfigurationResponse(

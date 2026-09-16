@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,14 +69,19 @@ func TestChannelConnectorDefinitionKindMatchesRealProvider(t *testing.T) {
 		{"slack", openapi.ChannelKindSlackChannel, true},
 		{"slack", openapi.ChannelKindSlackThread, true},
 		{"slack", openapi.ChannelKindExternal, false},
-		{"discord", openapi.ChannelKindExternal, true},
+		{"discord", openapi.ChannelKindExternal, false},
+		{"discord", openapi.ChannelKindDiscordChannel, true},
+		{"discord", openapi.ChannelKindDiscordThread, true},
+		{"github", openapi.ChannelKindGitHubPR, true},
+		{"github", openapi.ChannelKindGitHubReviewThread, true},
+		{"github", openapi.ChannelKindDiscordThread, false},
 		{"discord", openapi.ChannelKindSlackThread, false},
 		{"telegram", openapi.ChannelKindSlackChannel, false},
 		{"discord", "NEW_CUSTOM_KIND", false},
 	} {
 		t.Run(tc.provider+"/"+string(tc.kind), func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, channelDefinitionKindMatchesProvider(tc.kind, tc.provider))
+			require.Equal(t, tc.want, integrationstore.ChannelKind(tc.kind).MatchesProvider(tc.provider))
 		})
 	}
 }

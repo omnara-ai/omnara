@@ -63,7 +63,7 @@ func newChannelWorkflowHTTPFixture(t *testing.T) channelWorkflowHTTPFixture {
 
 func workflowDefinitionRequest() openapi.PublishChannelConnectorDefinitionRequest {
 	return openapi.PublishChannelConnectorDefinitionRequest{
-		ImplementationKey: "conversation", Kind: openapi.ChannelKindExternal, Description: "Current conversation",
+		ImplementationKey: "conversation", Kind: openapi.ChannelKindDiscordThread, Description: "Current conversation",
 		SendParamsSchema: json.RawMessage(`{"type":"object","properties":{"sequence":{"minimum":9007199254740993}}}`),
 		Capabilities:     openapi.ChannelCapabilities{Read: true, Send: true, Text: true, Artifacts: true},
 	}
@@ -100,7 +100,7 @@ func (f channelWorkflowHTTPFixture) delivery(
 			LeaseToken:      uuid.MustParse(channelReceiptString(t, claim, "lease_token")),
 			LeaseGeneration: int64(testutil.RequireType[float64](t, claim["lease_generation"])),
 		},
-		Target: openapi.ChannelWorkflowTarget{
+		Target: openapi.ChannelRegistrationTarget{
 			DefinitionId: f.definitionID, ProviderRef: "thread-one", ProviderRefKind: "thread",
 			ProviderMetadata: json.RawMessage(`{"private_address":"connector only"}`),
 		},
@@ -166,7 +166,7 @@ func TestChannelConnectorDefinitionPublishCurrentContractAndScope(t *testing.T) 
 	f.post(t, wrongApp, workflowHTTPJSON(t, body), f.token, http.StatusNotFound)
 	body.Kind = openapi.ChannelKindSlackThread
 	f.post(t, path, workflowHTTPJSON(t, body), f.token, http.StatusBadRequest)
-	body.Kind = openapi.ChannelKindExternal
+	body.Kind = openapi.ChannelKindDiscordThread
 	body.SendParamsSchema = json.RawMessage(`{"type":"object","type":"string"}`)
 	f.post(t, path, workflowHTTPJSON(t, body), f.token, http.StatusBadRequest)
 	body.SendParamsSchema = json.RawMessage(`{"type":"unsupported_schema_type"}`)
@@ -363,7 +363,7 @@ func TestChannelConnectorWorkflowRejectsCrossInstallationResources(t *testing.T)
 	body := f.delivery(t, "own-event")
 	definitionInput := integrationstore.PublishChannelDefinitionInput{
 		ProjectID: f.otherInstall.ProjectID, IntegrationInstallID: f.otherInstall.ID,
-		ImplementationKey: "other", Kind: integrationstore.ChannelKindExternal,
+		ImplementationKey: "other", Kind: integrationstore.ChannelKindDiscordThread,
 		SendParamsSchema:      json.RawMessage(`{"type":"object"}`),
 		ConnectorCapabilities: connectorTestCapabilities("discord"),
 	}

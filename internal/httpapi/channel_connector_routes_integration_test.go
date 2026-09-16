@@ -32,7 +32,7 @@ func connectorTestCapabilities(provider string) []channelconnector.Capability {
 }
 
 func connectorTestCapability(provider string) channelconnector.Capability {
-	return channelconnector.Capability{ConnectorKey: "chat_sdk_v1", Provider: provider}
+	return channelconnector.Capability{ConnectorKey: "test_connector", Provider: provider}
 }
 
 func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
@@ -54,7 +54,7 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		{
 			ID: "other-gateway", Token: wrongScopeToken,
 			Capabilities: []channelconnector.Capability{
-				{ConnectorKey: "chat_sdk_v1", Provider: "telegram"},
+				{ConnectorKey: "test_connector", Provider: "telegram"},
 				{ConnectorKey: "custom_v1", Provider: "discord"},
 			},
 		},
@@ -104,7 +104,7 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		integrationstore.CreateIntegrationAppInput{
 			OrgID: project.OrgUUID, Provider: "discord",
 			ProviderAppRef: "connector-configuration-app", DisplayName: "Configuration app",
-			ConnectorKey: "chat_sdk_v1", CredentialSecretID: appSecret.ID,
+			ConnectorKey: "test_connector", CredentialSecretID: appSecret.ID,
 			InstallationCredentialKind: string(secrets.KindIntegrationCredentials),
 			ProviderConfig:             json.RawMessage(`{"gateway_intents":["messages"]}`),
 			ProviderMetadata:           json.RawMessage(`{"environment":"test"}`),
@@ -236,7 +236,7 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 	}
 	appBody := requiredChannelObject(t, appConfiguration, "app")
 	if appBody["id"] != appID || appBody["provider"] != "discord" ||
-		appBody["connector_key"] != "chat_sdk_v1" || appBody["configuration_revision"] != float64(1) {
+		appBody["connector_key"] != "test_connector" || appBody["configuration_revision"] != float64(1) {
 		t.Fatalf("connector app configuration = %+v", appBody)
 	}
 	assertChannelConfigurationHasNoTenantAuthority(t, appBody)
@@ -306,7 +306,7 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		integrationstore.CreateIntegrationAppInput{
 			OrgID: project.OrgUUID, OwnerProjectID: secondProject.ID,
 			Provider: "discord", ProviderAppRef: "connector-configuration-other-app",
-			DisplayName: "Other configuration app", ConnectorKey: "chat_sdk_v1",
+			DisplayName: "Other configuration app", ConnectorKey: "test_connector",
 			State: integrationstore.IntegrationAppStateActive,
 		},
 	)
@@ -354,7 +354,7 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/channel-connector/events/claim-next",
-		`{"lease_ms":30000,"capability":{"connector_key":"chat_sdk_v1","provider":"discord"}}`,
+		`{"lease_ms":30000,"capability":{"connector_key":"test_connector","provider":"discord"}}`,
 		"",
 		http.StatusForbidden,
 		authHeaders(wrongScopeToken),
@@ -582,7 +582,7 @@ func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 		integrationstore.CreateIntegrationAppInput{
 			OrgID: project.OrgUUID, OwnerProjectID: project.ProjectUUID,
 			Provider: "discord", ProviderAppRef: "runtime-ingress-app",
-			DisplayName: "Runtime ingress app", ConnectorKey: "chat_sdk_v1",
+			DisplayName: "Runtime ingress app", ConnectorKey: "test_connector",
 			State: integrationstore.IntegrationAppStateActive,
 		},
 	)
@@ -622,7 +622,7 @@ func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/channel-connector/runtime-units/claim",
-		`{"owner":"runtime-worker","lease_ms":60000,"limit":1,"capability":{"connector_key":"chat_sdk_v1","provider":"discord"}}`,
+		`{"owner":"runtime-worker","lease_ms":60000,"limit":1,"capability":{"connector_key":"test_connector","provider":"discord"}}`,
 		"",
 		http.StatusOK,
 		authHeaders(token),
@@ -783,7 +783,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 				integrationstore.CreateIntegrationAppInput{
 					OrgID: project.OrgUUID, OwnerProjectID: project.ProjectUUID,
 					Provider: "discord", ProviderAppRef: "connector-interaction-app",
-					DisplayName: "Connector interaction app", ConnectorKey: "chat_sdk_v1",
+					DisplayName: "Connector interaction app", ConnectorKey: "test_connector",
 					State: integrationstore.IntegrationAppStateActive,
 				},
 			)
@@ -818,12 +818,12 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 			definition, err := store.Integrations().PublishConnectorChannelDefinition(ctx,
 				integrationstore.PublishChannelDefinitionInput{
 					ProjectID: project.ProjectUUID, IntegrationInstallID: install.ID,
-					ImplementationKey: "conversation", Kind: integrationstore.ChannelKindExternal,
+					ImplementationKey: "conversation", Kind: integrationstore.ChannelKindDiscordThread,
 					SendParamsSchema: json.RawMessage(`{"type":"object"}`),
 					Capabilities: integrationstore.ChannelCapabilities{
 						Send: true, Text: true, Questions: true, Permissions: true,
 					},
-					ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: "chat_sdk_v1", Provider: "discord"}},
+					ConnectorCapabilities: []channelconnector.Capability{{ConnectorKey: "test_connector", Provider: "discord"}},
 				})
 			if err != nil {
 				t.Fatalf("publish interaction channel definition: %v", err)
@@ -883,7 +883,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 				},
 			)
 			if err != nil {
-				t.Fatalf("create send-only connector binding: %v", err)
+				t.Fatalf("create receive-only connector binding: %v", err)
 			}
 			otherTarget, err = store.Integrations().CreateIntegrationTarget(
 				ctx,
@@ -923,12 +923,11 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 
 	appID := testPublicID(t, publicid.KindIntegrationApp, app.ID)
 	interactionPublicID := testPublicID(t, publicid.KindAgentInteraction, interactionID)
-	targetID := testPublicID(t, publicid.KindIntegrationTarget, target.ID)
-	bindingID := testPublicID(t, publicid.KindIntegrationBinding, binding.ID)
 	body := map[string]any{
 		"external_tenant_id":   "",
-		"external_account_ref": "bot-actions", "integration_target_id": targetID,
-		"integration_target_binding_id": bindingID,
+		"external_account_ref": "bot-actions",
+		"agent_id":             testPublicID(t, publicid.KindAgent, agentID),
+		"provider_ref":         target.ProviderRef,
 		"actor": map[string]any{
 			"ref": "discord-user-1", "display_name": "Discord User",
 			"metadata": map[string]any{"role": "member"},
@@ -942,6 +941,8 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	}
 	path := "/api/v1/channel-connector/apps/" + appID + "/interactions/" +
 		interactionPublicID + "/resolve"
+	wrongAgent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID,
+		project.AdminUserUUID, "wrong-callback-agent")
 	var actorsBeforeInvalid int
 	if err := pool.QueryRow(
 		ctx,
@@ -972,27 +973,16 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	}
 	wrongInstallBody := cloneChannelInteractionRequestBody(body)
 	wrongInstallBody["external_account_ref"] = otherInstall.ProviderAccountRef
-	receiveOnlyBody := cloneChannelInteractionRequestBody(body)
-	receiveOnlyBody["integration_target_binding_id"] = testPublicID(
-		t,
-		publicid.KindIntegrationBinding,
-		receiveOnlyBinding.ID,
-	)
 	wrongTargetBody := cloneChannelInteractionRequestBody(body)
-	wrongTargetBody["integration_target_id"] = testPublicID(
-		t,
-		publicid.KindIntegrationTarget,
-		otherTarget.ID,
-	)
-	otherBinding, err := store.Integrations().CreateIntegrationTargetBinding(ctx,
+	wrongTargetBody["provider_ref"] = otherTarget.ProviderRef
+	_, err = store.Integrations().CreateIntegrationTargetBinding(ctx,
 		integrationstore.CreateIntegrationTargetBindingInput{
 			ProjectID: project.ProjectUUID, AgentID: agentID, IntegrationInstallID: install.ID,
 			IntegrationTargetID: otherTarget.ID, SendAllowed: true, Source: "other-channel",
 		})
 	require.NoError(t, err)
-	wrongPinBody := cloneChannelInteractionRequestBody(wrongTargetBody)
-	wrongPinBody["integration_target_binding_id"] = testPublicID(t, publicid.KindIntegrationBinding, otherBinding.ID)
-	// The current destination can change without moving the outstanding question.
+	// Even a live send grant and current selection for another native channel
+	// cannot move the outstanding question away from its immutable destination.
 	_, err = pool.Exec(ctx,
 		`UPDATE agents SET integration_target_id = $1 WHERE project_id = $2 AND id = $3`,
 		otherTarget.ID,
@@ -1001,9 +991,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	require.NoError(t, err)
 	for _, forbiddenBody := range []map[string]any{
 		wrongInstallBody,
-		receiveOnlyBody,
 		wrongTargetBody,
-		wrongPinBody,
 	} {
 		requestJSONWithHeaders(
 			t,
@@ -1016,6 +1004,19 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 			authHeaders(token),
 		)
 	}
+	wrongAgentBody := cloneChannelInteractionRequestBody(body)
+	wrongAgentBody["agent_id"] = testPublicID(t, publicid.KindAgent, wrongAgent.Agent.ID)
+	requestJSONWithHeaders(t, handler, http.MethodPost, path,
+		mustMarshalChannelRequest(t, wrongAgentBody), "", http.StatusNotFound, authHeaders(token))
+	// A receive grant cannot authorize answering a prompt. Revoke all send
+	// grants instead of asking the server to use a caller-selected binding.
+	for _, existing := range []integrationstore.IntegrationTargetBindingRecord{binding, alternateBinding} {
+		require.NoError(t, store.Integrations().RevokeIntegrationTargetBinding(ctx, project.ProjectUUID, existing.ID))
+	}
+	require.True(t, receiveOnlyBinding.ReceiveAllowed)
+	require.False(t, receiveOnlyBinding.SendAllowed)
+	requestJSONWithHeaders(t, handler, http.MethodPost, path,
+		string(rawBody), "", http.StatusNotFound, authHeaders(token))
 	assertChannelInteractionUnchanged(
 		t,
 		ctx,
@@ -1025,6 +1026,24 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		interactionID,
 		actorsBeforeInvalid,
 	)
+	// The prompt pins a channel, not the grant that existed at creation. A
+	// replacement grant to that same channel is valid before first resolution.
+	for _, replacement := range []struct {
+		routeID uuid.UUID
+		binding *integrationstore.IntegrationTargetBindingRecord
+	}{
+		{route.ID, &binding}, {alternateRoute.ID, &alternateBinding},
+	} {
+		created, err := store.Integrations().CreateIntegrationTargetBinding(ctx,
+			integrationstore.CreateIntegrationTargetBindingInput{
+				ProjectID: project.ProjectUUID, AgentID: agentID,
+				IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+				IntegrationRouteID: replacement.routeID, SendAllowed: true, Source: "test",
+			})
+		require.NoError(t, err)
+		require.NotEqual(t, replacement.binding.ID, created.ID, "regrant creates a new identity without reviving history")
+		*replacement.binding = created
+	}
 	resolved := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1169,11 +1188,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		t.Fatalf("create concurrent connector binding: %v", err)
 	}
 	concurrentBody := cloneChannelInteractionRequestBody(body)
-	concurrentBody["integration_target_binding_id"] = testPublicID(
-		t,
-		publicid.KindIntegrationBinding,
-		concurrentBinding.ID,
-	)
+	concurrentBody["agent_id"] = testPublicID(t, publicid.KindAgent, concurrentAgentID)
 	concurrentPath := "/api/v1/channel-connector/apps/" + appID + "/interactions/" +
 		testPublicID(t, publicid.KindAgentInteraction, concurrentInteractionID) + "/resolve"
 	concurrentResults := resolveChannelInteractionConcurrently(
@@ -1193,27 +1208,14 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	if statusCounts["resolved"] != 1 || statusCounts["already_resolved"] != 1 {
 		t.Fatalf("concurrent connector resolution statuses = %+v", statusCounts)
 	}
-
-	forged := mapsClone(body)
-	forged["integration_target_binding_id"] = testPublicID(
-		t,
-		publicid.KindIntegrationBinding,
-		project.ProjectUUID,
-	)
-	forgedRaw, err := json.Marshal(forged)
-	if err != nil {
-		t.Fatalf("encode forged connector resolution: %v", err)
-	}
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPost,
-		path,
-		string(forgedRaw),
-		"",
-		http.StatusNotFound,
-		authHeaders(token),
-	)
+	var concurrentResponses int
+	var concurrentBindingID string
+	require.NoError(t, pool.QueryRow(ctx, `
+SELECT count(*), min(integration_target_binding_id::text) FROM agent_inputs
+WHERE project_id=$1 AND agent_id=$2 AND input_kind='interaction_response' AND target_interaction_id=$3`,
+		project.ProjectUUID, concurrentAgentID, concurrentInteractionID).Scan(&concurrentResponses, &concurrentBindingID))
+	require.Equal(t, 1, concurrentResponses)
+	require.Equal(t, concurrentBinding.ID.String(), concurrentBindingID)
 
 	runtimeInteractionID := copyHTTPInteractionForTest(
 		t,
@@ -1256,11 +1258,6 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		testPublicID(t, publicid.KindIntegrationRuntimeUnit, unit.ID) + "/interactions/" +
 		testPublicID(t, publicid.KindAgentInteraction, runtimeInteractionID) + "/resolve"
 	runtimeInteraction := mapsClone(body)
-	runtimeInteraction["integration_target_binding_id"] = testPublicID(
-		t,
-		publicid.KindIntegrationBinding,
-		alternateBinding.ID,
-	)
 	runtimeBody := map[string]any{
 		"lease_token": lease.LeaseToken.String(), "lease_generation": lease.LeaseGeneration,
 		"interaction": runtimeInteraction,
@@ -1320,6 +1317,9 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	)
 	staleRuntimeBody := mapsClone(runtimeBody)
 	staleRuntimeBody["lease_generation"] = lease.LeaseGeneration + 1
+	staleRuntimeInteraction := cloneChannelInteractionRequestBody(runtimeInteraction)
+	requiredChannelObject(t, staleRuntimeInteraction, "actor")["ref"] = "stale-runtime-actor"
+	staleRuntimeBody["interaction"] = staleRuntimeInteraction
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -1345,16 +1345,13 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	if runtimeResponses != 0 {
 		t.Fatalf("stale runtime created %d interaction responses", runtimeResponses)
 	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE integration_target_bindings
-		 SET revoked_at = statement_timestamp(), updated_at = statement_timestamp()
-		 WHERE project_id = $1 AND id = $2`,
-		project.ProjectUUID,
-		binding.ID,
-	); err != nil {
-		t.Fatalf("revoke connector binding: %v", err)
-	}
+	assertChannelInteractionUnchanged(t, ctx, pool, project.ProjectUUID, agentID,
+		runtimeInteractionID, actorsBeforeInvalidRuntime)
+	require.NoError(t, store.Integrations().RevokeIntegrationTargetBinding(ctx, project.ProjectUUID, binding.ID))
+	// The resolver now selects the alternate live send grant. That can resolve
+	// an open prompt, but cannot rewrite the binding on an accepted response.
+	requestJSONWithHeaders(t, handler, http.MethodPost, path,
+		string(rawBody), "", http.StatusConflict, authHeaders(token))
 	displayName := "Discord User"
 	_, err = store.Execution().ResolveAgentInteraction(
 		ctx,
@@ -1399,6 +1396,8 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	if runtimeResponses != 0 {
 		t.Fatalf("revoked binding created %d interaction responses", runtimeResponses)
 	}
+	assertChannelInteractionUnchanged(t, ctx, pool, project.ProjectUUID, agentID,
+		runtimeInteractionID, actorsBeforeInvalidRuntime)
 	runtimeResolved := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1412,6 +1411,17 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	if runtimeResolved["status"] != "resolved" {
 		t.Fatalf("runtime interaction response = %+v", runtimeResolved)
 	}
+	var runtimeTargetID, runtimeBindingID string
+	require.NoError(t, pool.QueryRow(ctx, `
+SELECT integration_target_id::text, integration_target_binding_id::text FROM agent_inputs
+WHERE project_id=$1 AND agent_id=$2 AND input_kind='interaction_response' AND target_interaction_id=$3`,
+		project.ProjectUUID, agentID, runtimeInteractionID).Scan(&runtimeTargetID, &runtimeBindingID))
+	require.Equal(t, target.ID.String(), runtimeTargetID)
+	require.Equal(t, alternateBinding.ID.String(), runtimeBindingID,
+		"the server derives current send authority for the immutable prompt destination")
+	runtimeReplay := requestJSONWithHeaders(t, handler, http.MethodPost, runtimePath,
+		mustMarshalChannelRequest(t, runtimeBody), "", http.StatusOK, authHeaders(token))
+	require.Equal(t, "already_resolved", runtimeReplay["status"])
 }
 
 func mapsClone(input map[string]any) map[string]any {

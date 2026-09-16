@@ -1,4 +1,8 @@
-import type { ChannelConnectorEventReceipt, ChannelConnectorInputResponse } from '@omnara/sdk'
+import type {
+  ChannelConnectorEventReceipt,
+  ChannelConnectorInputResponse,
+  PublishChannelConnectorDefinitionRequest,
+} from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { CoreClient, type ReceiptWorkflowRequest } from './core-client'
@@ -7,6 +11,40 @@ import { initialReceiptWorkBytes, ReceiptClientError } from './receipt-http'
 import { WorkByteBudget } from './work-budget'
 
 describe('generated receipt workflow client', () => {
+  it('publishes setup definitions with app/install IDs and no fabricated event receipt', async () => {
+    const scope = {
+      integration_app_id: receipt().integration_app_id,
+      integration_install_id: receipt().integration_install_id,
+    }
+    const body: PublishChannelConnectorDefinitionRequest = {
+      implementation_key: 'slack_channel',
+      kind: 'SLACK_CHANNEL',
+      description: 'A Slack channel.',
+      send_params_schema: { type: 'object', additionalProperties: false },
+      capabilities: {
+        read: true,
+        send: true,
+        text: true,
+        artifacts: true,
+        permissions: true,
+        questions: true,
+        creates_reply_channel: true,
+      },
+    }
+    const expected = { ...body, id: 'cdef_aaaaaaaaaaaaaaaaaaaaaaaaae' }
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(expected))
+    expect(
+      await workflowClient(fetch).publishDefinition(scope, body, new AbortController().signal),
+    ).toEqual(expected)
+    const sent = requireRequest(fetch.mock.calls[0]?.[0])
+    expect(sent.url).toContain(
+      `/apps/${scope.integration_app_id}/installations/${scope.integration_install_id}/channel-definitions/publish`,
+    )
+    expect(await sent.json()).toEqual(body)
+    expect(sent.headers.get('authorization')).toBe('Bearer private-workflow-token')
+    expect(sent.redirect).toBe('error')
+  })
+
   it('preserves only definite admission denial without retaining provider diagnostics', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       Response.json(

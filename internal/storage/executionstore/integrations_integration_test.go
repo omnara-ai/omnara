@@ -567,67 +567,6 @@ func TestIntegrationInstallDeletionFreezesTargetAgents(t *testing.T) {
 	}
 }
 
-func TestIntegrationTargetRetriesGeneratedReferenceCollisionInTransaction(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin, _, credentialID := createIntegrationAgentFixture(
-		t,
-		ctx,
-		store,
-		"target-ref-collision",
-	)
-	installInput := slackIntegrationInstallInput(
-		createSlackIntegrationApp(t, ctx, store, testProjectID, "A_TARGET_REF_COLLISION"),
-		uuid.Nil, admin.ID, credentialID, "A_TARGET_REF_COLLISION", "T_TARGET_REF_COLLISION",
-	)
-	installInput.IntegrationKind = integrationstore.IntegrationKindManaged
-	install := mustCreateIntegrationInstall(t, ctx, store, installInput)
-	definitionID := createSlackIntegrationDefinition(t, ctx, store, install)
-	integrationStore := store.Integrations()
-	integrationStore.IntegrationSetTargetRefGenerator(func(string) (string, error) {
-		return "slack-fixed", nil
-	})
-	if _, err := integrationStore.CreateIntegrationTarget(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID:            testProjectID,
-			ChannelDefinitionID:  definitionID,
-			IntegrationInstallID: install.ID,
-			ProviderRef:          "C_COLLISION:first",
-			ProviderRefKind:      "thread",
-		},
-	); err != nil {
-		t.Fatalf("create collision fixture target: %v", err)
-	}
-
-	references := []string{"slack-fixed", "slack-free"}
-	generated := 0
-	integrationStore.IntegrationSetTargetRefGenerator(func(string) (string, error) {
-		ref := references[generated]
-		generated++
-		return ref, nil
-	})
-	created, err := integrationStore.CreateIntegrationTarget(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID:            testProjectID,
-			ChannelDefinitionID:  definitionID,
-			IntegrationInstallID: install.ID,
-			ProviderRef:          "C_COLLISION:second",
-			ProviderRefKind:      "thread",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create target after generated reference collision: %v", err)
-	}
-	if !created.Created || created.TargetRef != "slack-free" || generated != 2 {
-		t.Fatalf("target after reference collision = %+v, generated=%d", created, generated)
-	}
-}
-
 func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 	t.Parallel()
 	for _, scope := range []string{"project", "organization"} {
@@ -1027,16 +966,30 @@ func TestIntegrationTargetSelectionValidation(t *testing.T) {
 	); err != nil {
 		t.Fatalf("set first selection target: %v", err)
 	}
-	targets, err := store.Integrations().ListIntegrationTargets(ctx, testProjectID, firstAgent.ID)
-	if err != nil {
-		t.Fatalf("list selection targets: %v", err)
-	}
-	if len(targets) != 2 || targets[0].ID != first.ID || !targets[0].IsCurrent ||
-		targets[0].Provider != integrationstore.IntegrationProviderSlack ||
-		targets[0].InstallState != integrationstore.IntegrationInstallStateActive ||
-		targets[0].DisplayName != "general" || targets[1].ID != second.ID || targets[1].IsCurrent {
-		t.Fatalf("unexpected selection targets: %+v", targets)
-	}
+	page, err := store.Integrations().ListAgentChannelTargets(ctx, testProjectID, firstAgent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Targets, 1)
+	require.Equal(t, second.ID, page.Targets[0].ID, "listing orders by creation, independently of current selection")
+	require.NotNil(t, page.Next)
+	older, err := store.Integrations().ListAgentChannelTargets(ctx, testProjectID, firstAgent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 1, After: page.Next})
+	require.NoError(t, err)
+	require.Len(t, older.Targets, 1)
+	require.Nil(t, older.Next)
+	listed := older.Targets[0]
+	require.Equal(t, first.ID, listed.ID)
+	require.Equal(t, install.ID, listed.IntegrationInstallID)
+	require.Equal(t, integrationstore.IntegrationProviderSlack, listed.Provider)
+	require.Equal(t, integrationstore.IntegrationInstallStateActive, listed.InstallState)
+	require.Equal(t, "general", listed.DisplayName)
+	require.Equal(t, first.ProviderRef, listed.ProviderRef)
+	require.Equal(t, first.ProviderRefKind, listed.ProviderRefKind)
+	require.True(t, listed.ReceiveAllowed)
+	require.True(t, listed.SendAllowed)
+	current, err := store.Execution().GetAgentCurrentChannelID(ctx, testProjectID, firstAgent.ID)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, current)
 	if _, err := executionstore.IntegrationSetAgentIntegrationTarget(
 		ctx,
 		store.q,
@@ -1046,13 +999,15 @@ func TestIntegrationTargetSelectionValidation(t *testing.T) {
 	); err != nil {
 		t.Fatalf("clear selection target: %v", err)
 	}
-	targets, err = store.Integrations().ListIntegrationTargets(ctx, testProjectID, firstAgent.ID)
-	if err != nil {
-		t.Fatalf("list cleared selection targets: %v", err)
-	}
-	if len(targets) != 2 || targets[0].IsCurrent || targets[1].IsCurrent {
-		t.Fatalf("cleared selection targets still current: %+v", targets)
-	}
+	cleared, err := store.Integrations().ListAgentChannelTargets(ctx, testProjectID, firstAgent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, []integrationstore.AgentChannelTarget{page.Targets[0], listed}, cleared.Targets,
+		"clearing the current channel does not change either direct grant or pagination order")
+	require.Nil(t, cleared.Next)
+	current, err = store.Execution().GetAgentCurrentChannelID(ctx, testProjectID, firstAgent.ID)
+	require.NoError(t, err)
+	require.Equal(t, uuid.Nil, current)
 	if _, err := executionstore.IntegrationSetAgentIntegrationTarget(
 		ctx,
 		store.q,
@@ -1078,10 +1033,12 @@ func TestIntegrationTargetSelectionValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replayed.ID, "registration preserves the canonical project-owned channel")
 	bindIntegrationTestTarget(t, ctx, store, secondAgent.ID, replayed)
-	shared, err := store.Integrations().ListIntegrationTargets(ctx, testProjectID, secondAgent.ID)
+	shared, err := store.Integrations().ListAgentChannelTargets(ctx, testProjectID, secondAgent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 1})
 	require.NoError(t, err)
-	require.Len(t, shared, 1, "an explicit second binding grants only that destination")
-	require.Equal(t, first.ID, shared[0].ID)
+	require.Len(t, shared.Targets, 1, "an explicit second binding grants only that destination")
+	require.Equal(t, first.ID, shared.Targets[0].ID)
+	require.Nil(t, shared.Next)
 	if _, err := executionstore.IntegrationSetAgentIntegrationTarget(
 		ctx,
 		store.q,

@@ -10,7 +10,6 @@ import { isCoreNotFoundError } from './core-http'
 import { errorMessage, isString } from './diagnostics'
 import { OperationsHandler, type OperationsOptions, operationsRoute } from './operations'
 import {
-  BackgroundTaskTracker,
   BodyTooLargeError,
   declaredBodyExceedsLimit,
   providerResponseHeaders,
@@ -18,7 +17,7 @@ import {
   readProviderResponseBody,
 } from './server-support'
 import type { GatewayLogger } from './types'
-import { GatewayAtCapacityError, type WorkByteBudget } from './work-budget'
+import { GatewayAtCapacityError, type WorkByteBudget, WorkReservationScope } from './work-budget'
 
 interface GatewayEnv {
   Bindings: HttpBindings
@@ -38,13 +37,12 @@ export interface GatewayServerOptions {
   operations?: Omit<OperationsOptions, 'workBudget' | 'logger'>
   port: number
   publicUrl: string
-  registry?: Pick<AppRuntimeRegistry, 'acquire'>
+  registry?: Pick<AppRuntimeRegistry, 'acquire' | 'webhookTimeoutMs' | 'webhookBodyLimitBytes'>
   workBudget: WorkByteBudget
 }
 
 export class GatewayServer {
   private readonly activeRequests = new Map<AbortController, Promise<void>>()
-  private backgroundFailures = 0
   private rejectedRequests = 0
   private requestCount = 0
   private server?: Server
@@ -111,7 +109,7 @@ export class GatewayServer {
   }
 
   async close(): Promise<void> {
-    const operationsClosed = this.operations?.close()
+    const operationsClosed = this.operations?.close(this.options.httpShutdownTimeoutMs)
     const server = this.server
     this.server = undefined
     if (!server) {
@@ -144,7 +142,9 @@ export class GatewayServer {
       }
       server.closeAllConnections()
       this.options.logger.warn('channel gateway HTTP shutdown reached its deadline')
-      await completed
+      // Actual handlers retain their admission/memory until settlement, but an
+      // uncooperative provider must not keep process shutdown waiting forever.
+      await closed
     }
   }
 
@@ -217,33 +217,35 @@ export class GatewayServer {
 
     const controller = new AbortController()
     const { signal } = controller
-    // Register the whole lifetime before any await: shutdown must include
-    // background work even when it starts after shutdown has begun.
+    // Register before any await; the lifetime includes actual handler settlement
+    // and runtime release, even if the HTTP response has already timed out.
     let finish!: () => void
     const finished = new Promise<void>((resolve) => {
       finish = resolve
     })
     this.activeRequests.set(controller, finished)
-    const deadline = setTimeout(() => {
-      controller.abort(new Error('channel webhook handler reached its deadline'))
-    }, this.options.handlerTimeoutMs)
-    const background = new BackgroundTaskTracker(this.options.workBudget.reserve)
+    const deadline = setTimeout(
+      () => {
+        controller.abort(new Error('channel webhook handler reached its deadline'))
+      },
+      Math.min(this.options.handlerTimeoutMs, registry.webhookTimeoutMs(provider) ?? Infinity),
+    )
+    const work = new WorkReservationScope(this.options.workBudget.reserve)
     let handle: RuntimeHandle | undefined
     let releaseBody = (): void => undefined
-    let drain: Promise<unknown[]> = Promise.resolve([])
+    let handler: Promise<Response> | undefined
+    let providerResponse: Response | undefined
     // Settle the request lifetime even if a cleanup step fails.
     const cleanup = (): Promise<void> =>
       Promise.resolve()
         .then(() => {
-          background.close()
+          work.close()
         })
         // Promise.finally awaits cleanup promises; the lib type is () => void.
         // oxlint-disable-next-line typescript/no-misused-promises
         .finally(() => handle?.release())
         .finally(releaseBody)
         .finally(() => {
-          clearTimeout(deadline)
-          controller.abort(new Error('channel webhook request completed'))
           this.activeRequests.delete(controller)
           finish()
         })
@@ -281,9 +283,15 @@ export class GatewayServer {
       if (handle.configuration.app.provider !== provider) {
         return context.text('not found', 404)
       }
+      const bodyLimitBytes = Math.min(
+        this.options.bodyLimitBytes,
+        registry.webhookBodyLimitBytes(handle.configuration.app.connector_key, provider) ??
+          Infinity,
+      )
+      if (declaredBodyExceedsLimit(incoming, bodyLimitBytes)) throw new BodyTooLargeError()
       // Keep a single raw-body consumer. A generic body parser cannot account
       // for shared memory limits and the transient copies made below.
-      const buffered = await readBody(incoming, this.options.bodyLimitBytes, signal, (bytes) =>
+      const buffered = await readBody(incoming, bodyLimitBytes, signal, (bytes) =>
         this.options.workBudget.tryAdjust(bytes),
       )
       releaseBody = buffered.release
@@ -314,10 +322,8 @@ export class GatewayServer {
         method: context.req.method,
         signal,
       })
-      const providerResponse = await raceWithAbort(
-        handle.handleWebhook(providerRequest, background),
-        signal,
-      )
+      handler = handle.handleWebhook(providerRequest, { reserveWorkBytes: work.reserve })
+      providerResponse = await raceWithAbort(handler, signal)
       const responseBody = await readProviderResponseBody(
         providerResponse,
         providerResponseBodyLimitBytes,
@@ -327,7 +333,6 @@ export class GatewayServer {
         headers: providerResponseHeaders(providerResponse.headers),
         status: providerResponse.status,
       })
-      drain = background.drain(signal)
       return response
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
@@ -342,18 +347,18 @@ export class GatewayServer {
       }
       throw error
     } finally {
-      // Send responses promptly, including rejections, while retaining the
-      // runtime and reservations through background work and runtime release.
-      void drain
-        .then((failures) => {
-          this.backgroundFailures += failures.length
-          for (const error of failures) {
-            this.options.logger.error('channel webhook background task failed', {
-              error: errorMessage(error),
-              integration_app_id: integrationAppId,
-            })
-          }
-        })
+      clearTimeout(deadline)
+      controller.abort(new Error('channel webhook request completed'))
+      // Promptly finish HTTP while retaining actual work. A response arriving
+      // after cancellation has no consumer; discard it without reading its body.
+      const settled =
+        handler?.then(
+          (response) => {
+            if (response !== providerResponse) void response.body?.cancel().catch(() => undefined)
+          },
+          () => undefined, // Observe late rejection; the HTTP failure is already reported.
+        ) ?? Promise.resolve()
+      void settled
         // Retain the request lifetime until asynchronous cleanup has finished.
         // oxlint-disable-next-line typescript/no-misused-promises
         .finally(cleanup)
@@ -373,8 +378,6 @@ export class GatewayServer {
       `omnara_channel_gateway_webhook_requests_total ${this.requestCount}`,
       '# TYPE omnara_channel_gateway_rejected_requests_total counter',
       `omnara_channel_gateway_rejected_requests_total ${this.rejectedRequests}`,
-      '# TYPE omnara_channel_gateway_background_failures_total counter',
-      `omnara_channel_gateway_background_failures_total ${this.backgroundFailures}`,
       '# TYPE omnara_channel_gateway_active_webhook_requests gauge',
       `omnara_channel_gateway_active_webhook_requests ${this.activeRequests.size}`,
       '# TYPE omnara_channel_gateway_buffered_work_bytes gauge',
