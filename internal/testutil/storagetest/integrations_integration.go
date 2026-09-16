@@ -184,49 +184,6 @@ func ExternalDefinitionInput(projectID, installID uuid.UUID) integrationstore.Pu
 	}
 }
 
-func CreateChannelInstallationFixture(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	pool *pgxpool.Pool,
-	orgID, projectID uuid.UUID,
-	suffix string,
-) (
-	identitystore.UserRecord,
-	integrationstore.IntegrationAppRecord,
-	integrationstore.IntegrationInstallRecord,
-) {
-	t.Helper()
-	admin := CreateIntegrationProjectAdmin(t, ctx, store, pool, orgID, projectID, suffix+"@example.com")
-	app, err := store.Integrations().CreateIntegrationApp(
-		ctx,
-		integrationstore.CreateIntegrationAppInput{
-			OrgID: orgID, OwnerProjectID: projectID,
-			Provider: ChannelProvider, ProviderAppRef: suffix + "-app",
-			DisplayName: suffix, ConnectorKey: ChannelConnector,
-			State: integrationstore.IntegrationAppStateActive,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create lifecycle integration app: %v", err)
-	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID: orgID, ProjectID: projectID, IntegrationAppID: app.ID,
-			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
-			Provider:    ChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
-			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID: suffix + "-tenant", ProviderAccountRef: suffix + "-account",
-			DisplayName: suffix,
-		},
-	)
-	if err != nil {
-		t.Fatalf("create lifecycle integration install: %v", err)
-	}
-	return admin, app, install
-}
-
 func CreateChannelTestDefinition(
 	t *testing.T, ctx context.Context, store *storage.Store, install integrationstore.IntegrationInstallRecord,
 ) uuid.UUID {
@@ -270,8 +227,34 @@ func CreateChannelLifecycleFixture(
 	integrationstore.IntegrationAppRecord, integrationstore.IntegrationInstallRecord,
 ) {
 	t.Helper()
-	admin, app, install := CreateChannelInstallationFixture(t, ctx, store, pool, orgID, projectID, suffix)
+	admin := CreateIntegrationProjectAdmin(t, ctx, store, pool, orgID, projectID, suffix+"@example.com")
 	profile := CreateIntegrationTestProfile(t, ctx, store, orgID, projectID, suffix+"-profile")
 	agent := CreateIntegrationBoundAgent(t, ctx, store, projectID, profile, admin.ID, suffix+"-agent")
+	app, err := store.Integrations().CreateIntegrationApp(
+		ctx,
+		integrationstore.CreateIntegrationAppInput{
+			OrgID: orgID, OwnerProjectID: projectID,
+			Provider: ChannelProvider, ProviderAppRef: suffix + "-app",
+			DisplayName: suffix, ConnectorKey: ChannelConnector,
+			State: integrationstore.IntegrationAppStateActive,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create lifecycle integration app: %v", err)
+	}
+	install, err := store.Integrations().UpsertIntegrationInstall(
+		ctx,
+		integrationstore.UpsertIntegrationInstallInput{
+			OrgID: orgID, ProjectID: projectID, IntegrationAppID: app.ID,
+			InstalledBy: identitystore.NewUserPrincipal(admin.ID),
+			Provider:    ChannelProvider, IntegrationKind: integrationstore.IntegrationKindManaged,
+			ConnectionMode: "gateway", State: integrationstore.IntegrationInstallStateActive,
+			ProviderTenantID: suffix + "-tenant", ProviderAccountRef: suffix + "-account",
+			DisplayName: suffix,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create lifecycle integration install: %v", err)
+	}
 	return admin, agent, app, install
 }
