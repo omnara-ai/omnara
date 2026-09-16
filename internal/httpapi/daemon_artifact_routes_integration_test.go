@@ -67,7 +67,8 @@ func TestLegacyDaemonArtifactEndpoints(t *testing.T) {
 					t.Fatal(err)
 				}
 				current := requestDaemonFileArtifactUpload(t, handler, fixture, "report.txt", []byte("content"), http.StatusCreated)
-				if len(response) != 1 || response["artifact_id"] != current["artifact_id"] {
+				legacyArtifactID, ok := response["artifact_id"].(string)
+				if len(response) != 1 || !ok || current["path"] != "/artifacts/"+legacyArtifactID {
 					t.Fatalf("legacy upload differs: %v, current %v", response, current)
 				}
 				return
@@ -79,7 +80,9 @@ func TestLegacyDaemonArtifactEndpoints(t *testing.T) {
 			if !bytes.Equal(legacy.Body.Bytes(), current.Body.Bytes()) {
 				t.Fatal("legacy download body differs")
 			}
-			for _, header := range []string{"Content-Type", "Content-Disposition", "ETag", "Cache-Control", "Content-Length"} {
+			for _, header := range []string{
+				"Content-Type", "Content-Disposition", "ETag", "Cache-Control", "Content-Length", "X-Omnara-File-Digest",
+			} {
 				if legacy.Header().Get(header) != current.Header().Get(header) {
 					t.Fatalf("legacy download %s differs", header)
 				}

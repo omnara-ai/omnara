@@ -3,8 +3,10 @@ package omnarad
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +22,7 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 	toolID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
 	content := []byte("artifact bytes")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer token-a" {
 			t.Error("missing machine token")
@@ -38,6 +41,8 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 			if r.URL.Path != "/api/v1/daemon/tool-calls/"+toolID+"/artifacts/"+artifactID+"/content" {
 				t.Errorf("unexpected legacy download URL: %s", r.URL)
 			}
+			w.Header().Set("ETag", `W/"`+digest+`"`)
+			w.Header().Set("X-Omnara-File-Digest", digest)
 			_, _ = w.Write(content)
 		default:
 			t.Errorf("unexpected method %s", r.Method)
@@ -71,10 +76,10 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 		t.Fatalf("legacy download exited %d: %s", code, &stderr)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(got, content) || stdout.Len() != 0 {
+	if err != nil || !bytes.Equal(got, content) || stdout.String() != `{"digest":"`+digest+`"}`+"\n" {
 		t.Fatalf("legacy download content=%q output=%q: %v", got, &stdout, err)
 	}
-	if err := runDownloadArtifactCommand(context.Background(), toolID, "invalid", encoded); err == nil {
+	if err := runDownloadArtifactCommand(context.Background(), toolID, "invalid", encoded, &stdout); err == nil {
 		t.Fatal("legacy download accepted invalid artifact ID")
 	}
 }

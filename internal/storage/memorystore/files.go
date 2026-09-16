@@ -85,7 +85,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (string, error) {
 		return "", storeerr.InvalidRequest(errors.New("memory content must be at most 10 MiB"))
 	}
 	if input.ExpectedDigest != nil {
-		if err := daemonprotocol.ValidateMemoryDigest(*input.ExpectedDigest); err != nil {
+		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
 			return "", storeerr.InvalidRequest(err)
 		}
 	}

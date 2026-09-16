@@ -22,7 +22,11 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 	if uploadScope.Path != toolcatalog.ArtifactVFSRoot {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	artifactID, err := s.uploadDaemonArtifact(ctx, request.ToolCallID, request.Params.Filename, request.Body, uploadScope)
+	artifact, err := s.uploadDaemonArtifact(ctx, request.ToolCallID, request.Params.Filename, request.Body, uploadScope)
+	if err != nil {
+		return nil, err
+	}
+	artifactID, err := publicID(publicid.KindArtifact, artifact.ID)
 	if err != nil {
 		return nil, err
 	}

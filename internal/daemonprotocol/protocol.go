@@ -527,7 +527,7 @@ const (
 	ActionDispositionRelease ActionDisposition = "release"
 )
 
-func ValidateMemoryDigest(digest string) error {
+func ValidateFileDigest(digest string) error {
 	if len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
 		return errors.New("expected sha256 digest with 64 lowercase hexadecimal characters")
 	}

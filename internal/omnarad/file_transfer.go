@@ -28,8 +28,8 @@ type fileTransferRequest struct {
 }
 
 type fileTransferResult struct {
-	ArtifactID string `json:"artifact_id,omitempty"`
-	Digest     string `json:"digest,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Digest string `json:"digest,omitempty"`
 }
 
 func runFileTransfer(ctx context.Context, transfer fileTransferRequest, stdout io.Writer) error {
@@ -133,6 +133,9 @@ func runFileTransfer(ctx context.Context, transfer fileTransferRequest, stdout i
 		if err != nil {
 			return err
 		}
+		if transfer.endpointSuffix == "/artifact" {
+			return writeArtifactUploadResult(raw, stdout)
+		}
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&result); err != nil {
@@ -141,23 +144,15 @@ func runFileTransfer(ctx context.Context, transfer fileTransferRequest, stdout i
 		if err := requireJSONEOF(decoder); err != nil {
 			return fmt.Errorf("decode file upload response: %w", err)
 		}
-		if (result.ArtifactID == "") == (result.Digest == "") {
-			return errors.New("file upload response must contain one artifact_id or digest")
-		}
-		if transfer.endpointSuffix == "/artifact" && result.ArtifactID == "" {
-			return errors.New("artifact upload response is missing artifact_id")
-		}
-		if result.ArtifactID != "" {
-			if _, err := publicid.Decode(publicid.KindArtifact, result.ArtifactID); err != nil {
-				return errors.New("file upload response contains an invalid artifact id")
-			}
+		if result.Path == "" {
+			return errors.New("file upload response is missing path")
 		}
 	} else {
-		result.Digest = response.Header.Get("X-Omnara-Memory-Digest")
+		result.Digest = response.Header.Get("X-Omnara-File-Digest")
 	}
-	if transfer.requireDigest || result.Digest != "" {
-		if err := daemonprotocol.ValidateMemoryDigest(result.Digest); err != nil {
-			return errors.New("file transfer response contains an invalid memory digest")
+	if method == http.MethodPost || transfer.requireDigest || result.Digest != "" {
+		if err := daemonprotocol.ValidateFileDigest(result.Digest); err != nil {
+			return errors.New("file transfer response contains an invalid digest")
 		}
 	}
 	if method == http.MethodGet {

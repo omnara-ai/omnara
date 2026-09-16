@@ -102,6 +102,7 @@ func (response artifactContentResponse) write(w http.ResponseWriter) error {
 	w.Header().Set("Content-Disposition", contentDisposition(response.artifact.Filename))
 	if response.artifact.Digest != "" {
 		w.Header().Set("ETag", `"`+response.artifact.Digest+`"`)
+		w.Header().Set("X-Omnara-File-Digest", response.artifact.Digest)
 	}
 	// Artifact content is immutable: the digest never changes for an id.
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")

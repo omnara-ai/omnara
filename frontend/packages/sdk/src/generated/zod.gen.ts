@@ -621,11 +621,11 @@ export const zMemoryStoreList = z.object({
 });
 
 /**
- * Returns artifact_id for artifact uploads or digest for memory uploads.
+ * Returns the uploaded file's path and digest.
  */
 export const zUploadFileResponse = z.object({
-    artifact_id: zArtifactId.optional(),
-    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional()
+    path: z.string(),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
 });
 
 /**

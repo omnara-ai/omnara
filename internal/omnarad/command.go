@@ -265,6 +265,7 @@ func Run(
 			command.DownloadArtifact.ToolCallID,
 			command.DownloadArtifact.ArtifactID,
 			command.DownloadArtifact.EncodedPath,
+			stdout,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

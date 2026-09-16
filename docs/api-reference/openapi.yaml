@@ -7097,8 +7097,13 @@ paths:
         "200":
           description: Success.
           headers:
-            X-Omnara-Memory-Digest:
-              description: SHA-256 digest of the downloaded memory bytes; absent for artifacts.
+            ETag:
+              description: Quoted SHA-256 digest of the downloaded file.
+              schema:
+                type: string
+                pattern: '^"sha256:[0-9a-f]{64}"$'
+            X-Omnara-File-Digest:
+              description: SHA-256 digest of the downloaded file.
               schema:
                 type: string
                 pattern: '^sha256:[0-9a-f]{64}$'
@@ -8674,10 +8679,11 @@ components:
     UploadFileResponse:
       type: object
       additionalProperties: false
-      description: Returns artifact_id for artifact uploads or digest for memory uploads.
+      description: Returns the uploaded file's path and digest.
+      required: [path, digest]
       properties:
-        artifact_id:
-          $ref: '#/components/schemas/ArtifactID'
+        path:
+          type: string
         digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'

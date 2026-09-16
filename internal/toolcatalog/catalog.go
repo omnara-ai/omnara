@@ -76,8 +76,8 @@ const (
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents; narrow the pattern when truncated."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"Returns path for artifacts or digest for memory."
-	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns digest for memory. " +
+		"Returns path and digest."
+	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest. " +
 		"Use process_id with the process tools if the transfer is still running."
 	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +

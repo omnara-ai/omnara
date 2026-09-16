@@ -69,7 +69,7 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 			if err := json.Unmarshal(input.ExpectedDigest, &digest); err != nil {
 				return resolvedUploadFileRequest{}, err
 			}
-			if err := daemonprotocol.ValidateMemoryDigest(digest); err != nil {
+			if err := daemonprotocol.ValidateFileDigest(digest); err != nil {
 				return resolvedUploadFileRequest{}, err
 			}
 		}

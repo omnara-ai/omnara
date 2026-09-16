@@ -829,11 +829,11 @@ export type MemoryStoreList = {
 };
 
 /**
- * Returns artifact_id for artifact uploads or digest for memory uploads.
+ * Returns the uploaded file's path and digest.
  */
 export type UploadFileResponse = {
-    artifact_id?: ArtifactId;
-    digest?: string;
+    path: string;
+    digest: string;
 };
 
 export type McpoAuthStartRequest = {
