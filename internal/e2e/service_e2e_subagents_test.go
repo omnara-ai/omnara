@@ -177,9 +177,15 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 					fail(w, http.StatusBadRequest, "child request lacks its task or appended instruction: %s", requestText)
 					return
 				}
-				if requestContainsTool(body, "read_agent") {
-					fail(w, http.StatusBadRequest, "self subagent must not expose subagent tools: %s", requestText)
+				if requestContainsTool(body, "spawn_agent") {
+					fail(w, http.StatusBadRequest, "leaf subagent must not expose spawn_agent: %s", requestText)
 					return
+				}
+				for _, name := range []string{"read_agent", "send_agent_message", "stop_agent", "list_agents"} {
+					if !requestContainsTool(body, name) {
+						fail(w, http.StatusBadRequest, "leaf subagent lost inherited tool %s: %s", name, requestText)
+						return
+					}
 				}
 				writeOpenAITruncatedMessage(w, fail, "resp_child_partial", childPartialText)
 			case 2:
