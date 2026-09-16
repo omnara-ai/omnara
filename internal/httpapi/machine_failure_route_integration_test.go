@@ -328,6 +328,7 @@ func TestMachineFailureRoute(t *testing.T) {
 	}
 	requestRawFailure("stage=daemon_uninstalled", "", byoToken, http.StatusForbidden)
 	requestRawFailure("stage=daemon_uninstalled", "detail", byoToken, http.StatusBadRequest)
+	requestRawFailure("stage=daemon_uninstalled&capture_status=1", "", byoToken, http.StatusBadRequest)
 	readFailure := func() []byte {
 		t.Helper()
 		var report []byte
@@ -339,6 +340,37 @@ func TestMachineFailureRoute(t *testing.T) {
 		).Scan(&report))
 		return report
 	}
+	requestRawFailure(
+		"stage=daemon_runtime&capture_status=1", "fatal daemon output\nsignal: killed", byoToken, http.StatusNoContent,
+	)
+	runtimeFailure := readFailure()
+	var storedRuntimeFailure struct {
+		Stage         string    `json:"stage"`
+		OutputTail    string    `json:"output_tail"`
+		Truncated     bool      `json:"output_truncated"`
+		ReportedAt    time.Time `json:"reported_at"`
+		DaemonVersion *string   `json:"daemon_version"`
+	}
+	require.NoError(t, json.Unmarshal(runtimeFailure, &storedRuntimeFailure))
+	require.Equal(t, "daemon_runtime", storedRuntimeFailure.Stage)
+	require.Equal(t, "fatal daemon output\nsignal: killed", storedRuntimeFailure.OutputTail)
+	require.True(t, storedRuntimeFailure.Truncated)
+	require.False(t, storedRuntimeFailure.ReportedAt.IsZero())
+	require.Nil(t, storedRuntimeFailure.DaemonVersion)
+	for _, invalidQuery := range []string{"exit_status=7", "daemon_version=1.3.0", "target_version=1.4.0"} {
+		requestRawFailure("stage=daemon_runtime&"+invalidQuery, "invalid", byoToken, http.StatusBadRequest)
+		require.JSONEq(t, string(runtimeFailure), string(readFailure()))
+	}
+	_, err = store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
+		OrgID:            project.OrgUUID,
+		MachineID:        byoMachine.ID,
+		DaemonTokenID:    byoTokenRecord.Record.ID,
+		DaemonInstanceID: httpTestID("machine-runtime-failure-restarted"),
+		DaemonVersion:    "1.4.0",
+		LeaseTimeout:     time.Hour,
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, string(runtimeFailure), string(readFailure()))
 	for _, report := range []struct {
 		stage  string
 		detail string

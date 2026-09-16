@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const maxFailureDetailBytes = 4 * 1024
+const MaxFailureDetailBytes = 4 * 1024
 
 type UpdateFailureReport struct {
 	DaemonVersion string
@@ -39,9 +39,17 @@ func (c *Client) ReportUninstall(ctx context.Context, failureDetail string) erro
 	return c.postFailureReport(ctx, query, failureDetail)
 }
 
+func (c *Client) ReportRuntimeFailure(ctx context.Context, detail string, truncated bool) error {
+	query := url.Values{"stage": {"daemon_runtime"}}
+	if truncated {
+		query.Set("capture_status", "1")
+	}
+	return c.postFailureReport(ctx, query, detail)
+}
+
 func (c *Client) postFailureReport(ctx context.Context, query url.Values, detail string) error {
-	if len(detail) > maxFailureDetailBytes {
-		detail = detail[len(detail)-maxFailureDetailBytes:]
+	if len(detail) > MaxFailureDetailBytes {
+		detail = detail[len(detail)-MaxFailureDetailBytes:]
 		query.Set("capture_status", "1")
 	}
 	req, err := http.NewRequestWithContext(
