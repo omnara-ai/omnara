@@ -1,0 +1,26 @@
+{
+  "name": "github-review-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secrets": "wrangler secret bulk .env",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@octokit/auth-app": "^8.3.1",
+    "@octokit/core": "^7.0.8",
+    "@octokit/webhooks": "^14.2.0",
+    "@omnara/sdk": "^0.1.8",
+    "hono": "^4.13.5",
+    "jose": "^6.2.11",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.129.0"
+  }
+}
