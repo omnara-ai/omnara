@@ -304,6 +304,22 @@ func lockAndValidateAgentConfigModelContractTx(
 	if err != nil {
 		return fmt.Errorf("validate agent config runtime contract: %w", err)
 	}
+	return validateAgentConfigModelForUseTx(
+		ctx,
+		qtx,
+		input.OrgID,
+		input.ProjectID,
+		input.ConfiguredModelID,
+		contract,
+	)
+}
+
+func validateAgentConfigModelForUseTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID, projectID, configuredModelID ID,
+	contract agentconfig.RuntimeContract,
+) error {
 	if contract.Model.ConfiguredModelID == "" {
 		return errors.New("agent config compiled model must include configured_model_id")
 	}
@@ -311,25 +327,25 @@ func lockAndValidateAgentConfigModelContractTx(
 	if err != nil {
 		return fmt.Errorf("parse compiled configured model id: %w", err)
 	}
-	if compiledModelID != input.ConfiguredModelID {
+	if compiledModelID != configuredModelID {
 		return fmt.Errorf("compiled configured model does not match agent config row: %w", storeerr.ErrIdempotencyConflict)
 	}
 	effectiveModel, err := modelstore.ResolveForAgentTx(
 		ctx,
 		qtx,
-		input.OrgID,
-		input.ProjectID,
-		input.ConfiguredModelID,
+		orgID,
+		projectID,
+		configuredModelID,
 		contract.Model.Overrides(),
 	)
 	if err != nil {
 		return fmt.Errorf("resolve configured model for agent config: %w", err)
 	}
 	if contract.RequiresModelToolSupport() && !effectiveModel.SupportsTools {
-		return fmt.Errorf(
+		return storeerr.InvalidRequest(fmt.Errorf(
 			"agent config requires tools but configured model project grant does not support tools: %w",
 			storeerr.ErrInvalidModelProviderConfig,
-		)
+		))
 	}
 	return nil
 }
