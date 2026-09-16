@@ -34,24 +34,22 @@ type supervisorRestartPolicy struct {
 }
 
 func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
-	store, err := localstore.New(home)
-	if err != nil {
-		return err
-	}
-	installLock, acquired, err := tryAcquireInstallLock(home)
-	if err != nil {
-		return err
-	}
-	if !acquired {
-		return errors.New("daemon installation is being modified")
+	_, resuming := os.LookupEnv(inheritedDaemonLockFDEnv)
+	var installLock *localstore.Lock
+	if !resuming {
+		lock, acquired, err := tryAcquireInstallLock(home)
+		if err != nil {
+			return err
+		}
+		if !acquired {
+			return errors.New("daemon installation is being modified")
+		}
+		installLock = lock
 	}
 	defer func() {
 		resultErr = errors.Join(resultErr, installLock.Release())
 	}()
-	lock, err := localstore.TryAcquireLock(store.DaemonLockPath())
-	if errors.Is(err, localstore.ErrLockHeld) {
-		return errors.New("another daemon is already running in OMNARA_HOME")
-	}
+	lock, err := acquireDaemonRuntimeLock(home)
 	if err != nil {
 		return err
 	}
@@ -63,8 +61,10 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 	restart := make(chan os.Signal, 1)
 	signal.Notify(restart, daemonRestartSignal)
 	defer signal.Stop(restart)
-	if err := lock.WritePID(os.Getpid()); err != nil {
-		return err
+	if !resuming {
+		if err := lock.WritePID(os.Getpid()); err != nil {
+			return err
+		}
 	}
 	if err := installLock.Release(); err != nil {
 		return err
@@ -88,7 +88,7 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 		initialDelay: daemonRestartDelay,
 		maxDelay:     daemonRestartMaxDelay,
 		resetAfter:   daemonRestartResetAfter,
-	}, restart, childStdout, childStderr, log)
+	}, restart, childStdout, childStderr, log, lock)
 }
 
 func supervisorChildWriters(stdout, stderr, logFile io.Writer) (io.Writer, io.Writer) {
@@ -114,11 +114,23 @@ func runSupervisorLoop(
 	childStdout io.Writer,
 	childStderr io.Writer,
 	log *slog.Logger,
+	lock *localstore.Lock,
 ) error {
 	binary := canonicalDaemonPath(home)
 	restartDelay := policy.initialDelay
 	var reports sync.WaitGroup
 	defer reports.Wait()
+	running, _ := os.Stat(binary)
+	refreshSupervisor := func() bool {
+		if lock == nil || !supervisorBinaryReplaced(binary, running) {
+			return false
+		}
+		reports.Wait()
+		if err := reexecUpdatedDaemon(ctx, binary, lock, false, superviseSubcommand); err != nil {
+			log.Warn("refresh supervisor from updated daemon binary failed", "error", err)
+		}
+		return true
+	}
 	for ctx.Err() == nil {
 		config, configErr := loadDaemonConfig(home)
 		if configErr == nil {
@@ -126,6 +138,7 @@ func runSupervisorLoop(
 		}
 		output := &supervisorOutputTail{}
 		cmd := exec.CommandContext(context.WithoutCancel(ctx), binary, runServiceSubcommand, supervisedServiceFlag)
+		cmd.Env = append(os.Environ(), supervisorHandoffEnv+"=1")
 		cmd.Stdout = io.MultiWriter(supervisorOutputWriter{tail: output}, childStdout)
 		cmd.Stderr = io.MultiWriter(supervisorOutputWriter{tail: output, stderr: true}, childStderr)
 		if err := cmd.Start(); err != nil {
@@ -133,6 +146,7 @@ func runSupervisorLoop(
 		}
 		startedAt := time.Now()
 		var err error
+		manualRestart := false
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
 		select {
@@ -151,10 +165,18 @@ func runSupervisorLoop(
 			); err != nil {
 				return err
 			}
-			restartDelay = policy.initialDelay
-			continue
+			manualRestart = true
 		}
-		if err == nil || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if manualRestart || cmd.ProcessState.ExitCode() == daemonUpdateHandoffExitCode {
+			if refreshSupervisor() || manualRestart {
+				restartDelay = policy.initialDelay
+				continue
+			}
+		}
+		if err == nil {
 			return nil
 		}
 		elapsed := time.Since(startedAt)
@@ -191,14 +213,22 @@ func runSupervisorLoop(
 				}
 			})
 		}
-		manualRestart := waitForDaemonRestart(ctx, restartDelay, restart)
-		if manualRestart {
+		if waitForDaemonRestart(ctx, restartDelay, restart) {
+			refreshSupervisor()
 			restartDelay = policy.initialDelay
 		} else {
 			restartDelay = min(restartDelay*2, policy.maxDelay)
 		}
 	}
 	return nil
+}
+
+func supervisorBinaryReplaced(binary string, running os.FileInfo) bool {
+	if running == nil {
+		return false
+	}
+	current, err := os.Stat(binary)
+	return err == nil && !os.SameFile(running, current)
 }
 
 func waitForDaemonRestart(ctx context.Context, delay time.Duration, restart <-chan os.Signal) bool {
@@ -264,6 +294,10 @@ func runSupervisorChild(ctx context.Context, log *slog.Logger) error {
 	if !held || pid != os.Getppid() {
 		return errors.New("supervised daemon parent does not own daemon.lock")
 	}
+	handoff := os.Getenv(supervisorHandoffEnv) == "1"
+	if err := os.Unsetenv(supervisorHandoffEnv); err != nil {
+		return fmt.Errorf("clear supervisor handoff flag: %w", err)
+	}
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	restart := make(chan os.Signal, 1)
@@ -276,5 +310,5 @@ func runSupervisorChild(ctx context.Context, log *slog.Logger) error {
 			cancel(machinedaemon.ErrDaemonUpdate)
 		}
 	}()
-	return runService(runCtx, log, true)
+	return runService(runCtx, log, true, handoff)
 }

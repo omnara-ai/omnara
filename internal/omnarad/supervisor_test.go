@@ -40,7 +40,7 @@ func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 			initialDelay: time.Millisecond,
 			maxDelay:     time.Second,
 			resetAfter:   time.Minute,
-		}, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
+		}, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -66,7 +66,7 @@ exit 7
 			initialDelay: 10 * time.Millisecond,
 			maxDelay:     time.Second,
 			resetAfter:   time.Minute,
-		}, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
+		}, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -90,7 +90,7 @@ func TestSupervisorRestartBackoff(t *testing.T) {
 			initialDelay: 3 * time.Millisecond,
 			maxDelay:     180 * time.Millisecond,
 			resetAfter:   time.Hour,
-		}, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs))
+		}, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil)
 	}()
 	var previous supervisorRestartLog
 	for _, delay := range []int{3, 6, 12, 24, 48, 96, 180, 180} {
@@ -130,7 +130,7 @@ exit 7
 		initialDelay: 5 * time.Millisecond,
 		maxDelay:     time.Second,
 		resetAfter:   500 * time.Millisecond,
-	}, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs)))
+	}, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil))
 	require.NoError(t, ctx.Err())
 	for _, delay := range []int{5, 10, 5, 10} {
 		require.Equal(t, time.Duration(delay)*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
@@ -148,7 +148,7 @@ func TestSupervisorStopsDuringBackoff(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- runSupervisorLoop(
-			ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs),
+			ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil,
 		)
 	}()
 	require.Equal(t, time.Hour, readSupervisorRestartLog(t, logs.lines).RestartAfter)
@@ -193,7 +193,7 @@ exit 7
 					initialDelay: 100 * time.Millisecond,
 					maxDelay:     time.Hour,
 					resetAfter:   time.Hour,
-				}, restart, output, io.Discard, errorLogger(logs))
+				}, restart, output, io.Discard, errorLogger(logs), nil)
 			}()
 			require.Equal(t, 100*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
 			require.Equal(t, 200*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
@@ -257,7 +257,7 @@ while :; do sleep 1; done
 			initialDelay: time.Hour,
 			maxDelay:     time.Hour,
 			resetAfter:   time.Minute,
-		}, restart, childOutput, io.Discard, discardLogger())
+		}, restart, childOutput, io.Discard, discardLogger(), nil)
 	}()
 	waitForMarkerLine(t, childOutput.lines, "started")
 	restart <- daemonRestartSignal
@@ -734,7 +734,7 @@ exit 0
 					maxDelay:     time.Second,
 					resetAfter:   time.Minute,
 				}, make(chan os.Signal),
-				childStdout, childStderr, discardLogger(),
+				childStdout, childStderr, discardLogger(), nil,
 			)
 			require.NoError(t, err)
 			require.NoError(t, ctx.Err())

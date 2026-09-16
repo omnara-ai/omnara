@@ -86,7 +86,7 @@ func TestSupervisorReportsUnexpectedFailure(t *testing.T) {
 			setConfiguredDaemonEnvironment(t, home, server.URL, "")
 			stdout, stderr := supervisorChildWriters(enospcWriter{}, enospcWriter{}, enospcWriter{})
 			require.NoError(t, runSupervisorLoop(
-				ctx, home, longBackoffPolicy, make(chan os.Signal), stdout, stderr, discardLogger(),
+				ctx, home, longBackoffPolicy, make(chan os.Signal), stdout, stderr, discardLogger(), nil,
 			))
 			require.EqualValues(t, 1, calls.Load())
 		})
@@ -112,7 +112,9 @@ func TestSupervisorReturnsStartFailure(t *testing.T) {
 			setConfiguredDaemonEnvironment(t, home, server.URL, "")
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			err := runSupervisorLoop(ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger())
+			err := runSupervisorLoop(
+				ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
+			)
 			require.ErrorIs(t, err, want)
 			require.ErrorContains(t, err, "start supervised daemon")
 			require.NoError(t, ctx.Err())
@@ -175,7 +177,7 @@ exit 7
 			logs := newLineChannelWriter()
 			go func() {
 				done <- runSupervisorLoop(
-					ctx, home, longBackoffPolicy, restart, io.Discard, io.Discard, slog.New(slog.NewJSONHandler(logs, nil)),
+					ctx, home, longBackoffPolicy, restart, io.Discard, io.Discard, slog.New(slog.NewJSONHandler(logs, nil)), nil,
 				)
 			}()
 			readSupervisorRestartLog(t, logs.lines)
@@ -249,7 +251,7 @@ while :; do sleep 0.1; done
 			go func() {
 				done <- runSupervisorLoop(ctx, home, supervisorRestartPolicy{
 					initialDelay: delay, maxDelay: delay, resetAfter: time.Hour,
-				}, restart, output, io.Discard, discardLogger())
+				}, restart, output, io.Discard, discardLogger(), nil)
 			}()
 			waitForReportStart(t, ctx, started)
 			if reason == "manual" {
@@ -294,7 +296,7 @@ exit 0
 			output := newLineChannelWriter()
 			done := make(chan error, 1)
 			go func() {
-				done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, output, io.Discard, discardLogger())
+				done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, output, io.Discard, discardLogger(), nil)
 			}()
 			waitForReportStart(t, ctx, started)
 			restart <- daemonRestartSignal
@@ -347,7 +349,7 @@ func TestSupervisorStartFailureWaitsForReport(t *testing.T) {
 	restart := make(chan os.Signal, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, io.Discard, io.Discard, discardLogger())
+		done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, io.Discard, io.Discard, discardLogger(), nil)
 	}()
 	waitForReportStart(t, ctx, started)
 	require.NoError(t, os.Remove(canonicalDaemonPath(home)))
@@ -402,7 +404,7 @@ exit 7
 	restart := make(chan os.Signal, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, io.Discard, io.Discard, discardLogger())
+		done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, io.Discard, io.Discard, discardLogger(), nil)
 	}()
 	for _, child := range []string{"first", "second"} {
 		select {
@@ -478,7 +480,7 @@ func TestSupervisorReportingConfigSource(t *testing.T) {
 				t.Setenv("OMNARA_MACHINE_TOKEN", "override-token")
 			}
 			require.NoError(t, runSupervisorLoop(
-				ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
+				ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 			))
 			require.EqualValues(t, 1, calls.Load())
 			if mode == "config_disappears" {
@@ -497,7 +499,7 @@ func TestSupervisorReportingConfigFailureDoesNotPreventLaunch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, runSupervisorLoop(
-		ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
+		ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	))
 	require.NoError(t, ctx.Err())
 }
@@ -525,7 +527,7 @@ func TestSupervisorDoesNotReportIntentionalExit(t *testing.T) {
 			output := newLineChannelWriter()
 			done := make(chan error, 1)
 			go func() {
-				done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, output, io.Discard, discardLogger())
+				done <- runSupervisorLoop(ctx, home, longBackoffPolicy, restart, output, io.Discard, discardLogger(), nil)
 			}()
 			if action != "clean" {
 				waitForMarkerLine(t, output.lines, "ready")
