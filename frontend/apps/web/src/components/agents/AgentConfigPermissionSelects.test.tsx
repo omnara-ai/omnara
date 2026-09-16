@@ -375,11 +375,9 @@ tools:
       mode: always_ask
 `
 
-function IncludedToolsHarness({
-  source = `${includedSource}  run_command: {}\n`,
-}: {
-  source?: string
-}) {
+const defaultIncludedSource = `${includedSource}  run_command: {}\n`
+
+function IncludedToolsHarness({ source = defaultIncludedSource }: { source?: string }) {
   const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
     orgId: 'org-test',
     projectId: 'project-test',
