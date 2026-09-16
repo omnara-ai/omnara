@@ -67,6 +67,7 @@ const (
 		"(e.g. curl) on the machine where the service runs instead."
 	readFileToolDescription = "Read a text file in Omnara's virtual filesystem. " +
 		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
+		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +
 		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +
@@ -536,8 +537,7 @@ func readFileTool() (Entry, error) {
 			"offset_line": map[string]any{
 				"type":    "integer",
 				"minimum": 1,
-				"default": 1,
-				"description": "Line number to start reading from, starting at 1. " +
+				"description": "Starting line number; defaults to 1 in line mode. " +
 					"To continue, use next_offset_line from the previous result. " +
 					"Cannot be combined with offset_char or limit_chars.",
 			},
@@ -545,14 +545,12 @@ func readFileTool() (Entry, error) {
 				"type":        "integer",
 				"minimum":     1,
 				"maximum":     ReadFileMaxLines,
-				"default":     ReadFileDefaultLines,
-				"description": "Maximum number of lines to return. Defaults to 100; each response contains at most 4 KiB of text.",
+				"description": "Maximum number of lines to return. Defaults to 100 in line mode; each response contains at most 4 KiB of text.",
 			},
 			"offset_char": map[string]any{
 				"type":    "integer",
 				"minimum": 0,
-				"default": 0,
-				"description": "Character position to start reading from, starting at 0. Characters are Unicode code points. " +
+				"description": "Starting character position, counting Unicode code points from 0; defaults to 0 in character mode. " +
 					"To continue, use next_offset_char from the previous result. " +
 					"Cannot be combined with offset_line or limit_lines.",
 			},
@@ -560,8 +558,7 @@ func readFileTool() (Entry, error) {
 				"type":        "integer",
 				"minimum":     1,
 				"maximum":     ReadFileMaxChars,
-				"default":     ReadFileDefaultChars,
-				"description": "Maximum Unicode code points to return. Defaults to 512; each response contains at most 4 KiB of text.",
+				"description": "Maximum Unicode code points to return. Defaults to 512 in character mode; each response contains at most 4 KiB of text.",
 			},
 		},
 	)
