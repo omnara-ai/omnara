@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -21,9 +22,11 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonArtifactProcessScope struct {
+	OrgID     uuid.UUID
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
 	Path      string
+	ToolInput json.RawMessage
 }
 
 func (s *Store) GetDaemonArtifactProcessScope(
@@ -52,9 +55,11 @@ func (s *Store) GetDaemonArtifactProcessScope(
 		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
 	}
 	return DaemonArtifactProcessScope{
+		OrgID:     orgID,
 		ProjectID: record.ProjectID,
 		AgentID:   record.AgentID,
 		Path:      record.Path,
+		ToolInput: record.ToolInput,
 	}, true, nil
 }
 

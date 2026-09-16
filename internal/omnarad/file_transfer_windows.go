@@ -4,6 +4,6 @@ package omnarad
 
 import "os"
 
-func openArtifactFile(path string) (*os.File, error) {
+func openTransferFile(path string) (*os.File, error) {
 	return os.Open(path)
 }

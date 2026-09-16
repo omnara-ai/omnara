@@ -87,7 +87,7 @@ func (response artifactContentResponse) VisitGetArtifactContentResponse(w http.R
 	return response.write(w)
 }
 
-func (response artifactContentResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
+func (response artifactContentResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
 	return response.write(w)
 }
 

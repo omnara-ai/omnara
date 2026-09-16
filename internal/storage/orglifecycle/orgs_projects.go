@@ -464,6 +464,9 @@ func (s *Service) deleteProjectOnce(
 	if err := deleteProjectRelationshipsTx(ctx, q, orgID, projectID); err != nil {
 		return nil, err
 	}
+	if err := q.DeleteProjectMemoryStores(ctx, dbsqlc.DeleteProjectMemoryStoresParams{ProjectID: projectID}); err != nil {
+		return nil, fmt.Errorf("delete project memory stores: %w", err)
+	}
 	skillArchives, err := deleteProjectOwnedContentTx(ctx, q, orgID, projectID)
 	if err != nil {
 		return nil, err
@@ -485,6 +488,7 @@ func (s *Service) deleteProjectOnce(
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
+	_ = s.memoryFS.RemoveScope(orgID, &projectID)
 	return machines, nil
 }
 
@@ -599,6 +603,11 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationModelProviderConfigs(ctx, dbsqlc.DeleteOrganizationModelProviderConfigsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization model provider configs: %w", err)
 	}
+	for _, projectID := range orgProjectIDs {
+		if err := q.DeleteProjectMemoryStores(ctx, dbsqlc.DeleteProjectMemoryStoresParams{ProjectID: projectID}); err != nil {
+			return nil, fmt.Errorf("delete organization memory stores: %w", err)
+		}
+	}
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, nil)
 	if err != nil {
 		return nil, err
@@ -651,5 +660,6 @@ func (s *Service) deleteOrganizationOnce(
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
+	_ = s.memoryFS.RemoveScope(orgID, nil)
 	return machines, nil
 }

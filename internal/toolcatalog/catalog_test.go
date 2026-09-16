@@ -28,6 +28,7 @@ func TestFileToolPathSchemas(t *testing.T) {
 				"/artifacts", artifactPath, "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW",
 				"", "/artifacts/", "/skills/example", artifactPath + "/", artifactPath + "/nested",
 				"/artifacts/art_short", "prefix" + artifactPath,
+				"/memory/team/nested/note.md", "/memory/team", "/memory/team/",
 			} {
 				input := map[string]string{"path": path}
 				wantValid := path == ArtifactVFSRoot
@@ -37,6 +38,7 @@ func TestFileToolPathSchemas(t *testing.T) {
 					input["destination"] = "file.txt"
 					wantValid = path == artifactPath
 				}
+				wantValid = wantValid || path == "/memory/team/nested/note.md"
 				raw, err := json.Marshal(input)
 				if err != nil {
 					t.Fatal(err)
