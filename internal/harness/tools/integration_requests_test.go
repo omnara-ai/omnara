@@ -16,18 +16,28 @@ func TestResolveIntegrationMessageRequest(t *testing.T) {
 		integrationToolTestID("integration-message-artifact"),
 	)
 	require.NoError(t, err)
+	artifactPath := "/artifacts/" + artifactID
 	request, err := resolveIntegrationMessageRequest(
-		json.RawMessage(`{"text":" hello ","artifact_ids":["` + artifactID + `"]}`),
+		json.RawMessage(`{"text":" hello ","paths":["` + artifactPath + `","/memory/engineering/reports/a.pdf"]}`),
 	)
 	require.NoError(t, err)
-	if request.Text != " hello " || len(request.ArtifactIDs) != 1 || request.ArtifactIDs[0] != artifactID {
+	if request.Text != " hello " || len(request.Paths) != 2 || request.Paths[0] != artifactPath {
 		t.Fatalf("request = %+v", request)
 	}
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`{"text":" "}`),
 		json.RawMessage(`{"text":null}`),
-		json.RawMessage(`{"text":"hello","artifact_ids":["agt_invalid"]}`),
-		json.RawMessage(`{"text":"hello","artifact_id":"` + artifactID + `"}`),
+		json.RawMessage(`{"text":"hello","paths":["agt_invalid"]}`),
+		json.RawMessage(`{"text":"hello","artifact_id":"` + artifactPath + `"}`),
+		json.RawMessage(`{"text":"hello","artifact_ids":["` + artifactID + `"]}`),
+		json.RawMessage(`{"text":"hello","paths":["` + artifactID + `"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/artifacts"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/artifacts/` + artifactID + `/extra"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/memory/engineering"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/memory/engineering/../secret"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/memory/engineering/a/../../secret"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/memory/engineering/a/"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/skills/example/SKILL.md"]}`),
 		json.RawMessage(`{"text":"hello","channel":"C123"}`),
 		json.RawMessage(`{"text":"hello"} {}`),
 	} {

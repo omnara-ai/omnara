@@ -246,6 +246,12 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameListFiles,
+			semanticInputValidator: validateListFiles,
+			handler:                toolHandler{Async: runListFiles},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameListMachines,
 			semanticInputValidator: validateListMachinesInput,
 			handler:                toolHandler{Transactional: listMachines},

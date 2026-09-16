@@ -108,7 +108,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if err != nil {
 		return AgentRecord{}, err
 	}
-	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 		return AgentRecord{}, err
 	}
 	record, _, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{

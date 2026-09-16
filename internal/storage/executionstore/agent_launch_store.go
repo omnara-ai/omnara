@@ -161,7 +161,7 @@ func (s *Store) launchAgentTx(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	machineSources, err := decodeLaunchMachineSources(contract)

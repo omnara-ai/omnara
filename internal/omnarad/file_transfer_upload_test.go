@@ -14,14 +14,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func TestRunUploadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
-	toolCallID := artifactUploadTestPublicID(t, publicid.KindToolCall)
-	artifactID := artifactUploadTestPublicID(t, publicid.KindArtifact)
+func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
 	var wantName atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expectedFilename, ok := wantName.Load().(string)
@@ -29,7 +28,7 @@ func TestRunUploadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testing
 			t.Error("expected filename is not configured")
 		}
 		if r.Method != http.MethodPost ||
-			r.URL.Path != "/api/v1/daemon/tool-calls/"+toolCallID+"/artifact" ||
+			r.URL.Path != "/api/v1/daemon/tool-calls/"+toolCallID+"/file" ||
 			r.URL.Query().Get("filename") != expectedFilename {
 			t.Errorf("unexpected upload request: %s %s", r.Method, r.URL.String())
 		}
@@ -84,12 +83,12 @@ func TestRunUploadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			wantName.Store(filepath.Base(test.path))
 			var stdout bytes.Buffer
-			err := runUploadArtifactCommand(
-				context.Background(),
-				toolCallID,
-				base64.RawURLEncoding.EncodeToString([]byte(test.path)),
-				&stdout,
-			)
+			err := runFileTransfer(context.Background(), fileTransferRequest{
+				direction:      "upload",
+				toolCallID:     toolCallID,
+				encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(test.path)),
+				endpointSuffix: "/file",
+			}, &stdout)
 			if err != nil {
 				t.Fatalf("upload artifact: %v", err)
 			}
@@ -101,8 +100,14 @@ func TestRunUploadArtifactCommandSupportsAbsoluteRelativeAndHomePaths(t *testing
 	}
 }
 
-func TestRunUploadArtifactCommandRejectsInvalidFiles(t *testing.T) {
-	toolCallID := artifactUploadTestPublicID(t, publicid.KindToolCall)
+func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("invalid upload reached the server")
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+	setConfiguredDaemonEnvironment(t, t.TempDir(), server.URL, "")
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	tests := []struct {
 		name string
 		path func(*testing.T) string
@@ -112,12 +117,12 @@ func TestRunUploadArtifactCommandRejectsInvalidFiles(t *testing.T) {
 			name: "empty",
 			path: func(t *testing.T) string {
 				path := filepath.Join(t.TempDir(), "empty")
-				if err := os.WriteFile(path, nil, 0o600); err != nil {
-					t.Fatalf("write empty file: %v", err)
+				if err := os.WriteFile(path, nil, 0600); err != nil {
+					t.Fatal(err)
 				}
 				return path
 			},
-			want: "cannot be empty",
+			want: "artifact file cannot be empty",
 		},
 		{
 			name: "oversized",
@@ -127,7 +132,7 @@ func TestRunUploadArtifactCommandRejectsInvalidFiles(t *testing.T) {
 				if err != nil {
 					t.Fatalf("create large file: %v", err)
 				}
-				if err := file.Truncate(daemonprotocol.MaxArtifactUploadBytes + 1); err != nil {
+				if err := file.Truncate(daemonprotocol.MaxFileTransferBytes + 1); err != nil {
 					t.Fatalf("truncate large file: %v", err)
 				}
 				if err := file.Close(); err != nil {
@@ -148,12 +153,12 @@ func TestRunUploadArtifactCommandRejectsInvalidFiles(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := test.path(t)
-			err := runUploadArtifactCommand(
-				context.Background(),
-				toolCallID,
-				base64.RawURLEncoding.EncodeToString([]byte(path)),
-				io.Discard,
-			)
+			err := runFileTransfer(context.Background(), fileTransferRequest{
+				direction:      "upload",
+				toolCallID:     toolCallID,
+				encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(path)),
+				endpointSuffix: "/file",
+			}, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -161,8 +166,8 @@ func TestRunUploadArtifactCommandRejectsInvalidFiles(t *testing.T) {
 	}
 }
 
-func TestRunUploadArtifactCommandRejectsRedirectAndOversizedResponse(t *testing.T) {
-	toolCallID := artifactUploadTestPublicID(t, publicid.KindToolCall)
+func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
+	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	path := filepath.Join(t.TempDir(), "shot.png")
 	if err := os.WriteFile(path, []byte("artifact bytes"), 0o600); err != nil {
 		t.Fatalf("write artifact: %v", err)
@@ -179,7 +184,11 @@ func TestRunUploadArtifactCommandRejectsRedirectAndOversizedResponse(t *testing.
 	}))
 	defer redirect.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "redirect-home"), redirect.URL, "")
-	if err := runUploadArtifactCommand(context.Background(), toolCallID, encodedPath, io.Discard); err == nil {
+	transfer := fileTransferRequest{
+		direction: "upload", toolCallID: toolCallID, encodedPath: encodedPath, endpointSuffix: "/file",
+	}
+	err := runFileTransfer(context.Background(), transfer, io.Discard)
+	if err == nil {
 		t.Fatal("redirected upload succeeded")
 	}
 	if followed.Load() {
@@ -191,17 +200,8 @@ func TestRunUploadArtifactCommandRejectsRedirectAndOversizedResponse(t *testing.
 	}))
 	defer largeResponse.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "large-response-home"), largeResponse.URL, "")
-	err := runUploadArtifactCommand(context.Background(), toolCallID, encodedPath, io.Discard)
+	err = runFileTransfer(context.Background(), transfer, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "response is too large") {
 		t.Fatalf("oversized response error = %v", err)
 	}
-}
-
-func artifactUploadTestPublicID(t *testing.T, kind publicid.Kind) string {
-	t.Helper()
-	id, err := publicid.Encode(kind, uuid.New())
-	if err != nil {
-		t.Fatalf("encode %s id: %v", kind, err)
-	}
-	return id
 }

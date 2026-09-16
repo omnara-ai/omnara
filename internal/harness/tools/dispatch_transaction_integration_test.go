@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1298,8 +1299,21 @@ func assertDispatchTestResultCount(
 }
 
 func TestFileToolsApprovalDispatch(t *testing.T) {
-	for _, name := range []string{"upload_file", "download_file"} {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		memory bool
+	}{
+		{name: "upload_file"},
+		{name: "download_file"},
+		{name: "upload_file", memory: true},
+		{name: "download_file", memory: true},
+	} {
+		namespace := "/artifacts"
+		if tc.memory {
+			namespace = "/memory"
+		}
+		t.Run(tc.name+namespace, func(t *testing.T) {
+			name := tc.name
 			ctx := context.Background()
 			fixture := newIntegrationToolFixture(t, ctx, "file-approval-"+name)
 			machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, name, fixture.Now.Add(time.Second))
@@ -1322,11 +1336,32 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input := `{"path":"/artifacts","source":"report.pdf","machine_id":"` + machineID + `"}`
+			serverPath := "/artifacts"
 			if name == "download_file" {
-				input = `{"path":"/artifacts/` + artifactID + `","destination":"report.pdf","machine_id":"` + machineID + `"}`
+				serverPath += "/" + artifactID
 			}
-			call := fixture.recordPendingToolCall(t, ctx, "call_file", name, input, fixture.Now.Add(20*time.Second))
+			if tc.memory {
+				serverPath = "/memory/notes/report.pdf"
+			}
+			inputFields := map[string]string{"path": serverPath, "machine_id": machineID}
+			source, destination := "report.pdf", serverPath
+			if name == "upload_file" {
+				inputFields["source"] = "report.pdf"
+			} else {
+				inputFields["destination"] = "report.pdf"
+				source, destination = serverPath, "report.pdf"
+			}
+			if tc.memory {
+				delete(inputFields, "machine_id")
+				if name == "upload_file" {
+					inputFields["expected_digest"] = "sha256:" + strings.Repeat("a", 64)
+				}
+			}
+			input, err := json.Marshal(inputFields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := fixture.recordPendingToolCall(t, ctx, "call_file", name, string(input), fixture.Now.Add(20*time.Second))
 			turn := fixture.turn()
 			turn.Tools = map[string]ToolSpec{name: {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}}
 			wakes := 0
@@ -1349,15 +1384,20 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantAuth, err := uploadArtifactAuthorizationInput(bindingID, "report.pdf")
-			if name == "download_file" {
-				wantAuth, err = downloadArtifactAuthorizationInput(bindingID, artifactID, "report.pdf")
-			}
+			wantAuth, err := fileTransferAuthorizationInput(bindingID, input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if string(request.Authorization.Input) != string(wantAuth) {
 				t.Fatalf("authorization = %s, want %s", request.Authorization.Input, wantAuth)
+			}
+			wantContext := []interactionform.ContextItem{
+				{Label: "Source", Value: source},
+				{Label: "Destination", Value: destination},
+				{Label: "Machine", Value: machineID},
+			}
+			if !slices.Equal(request.Form.Context, wantContext) {
+				t.Fatalf("approval context = %+v, want %+v", request.Form.Context, wantContext)
 			}
 			actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(fixture.User.ID))
 			if err != nil {
@@ -1390,9 +1430,13 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := uploadArtifactProcessInput(publicCallID, "report.pdf")
+			want := fileTransferProcessInput("upload", publicCallID, "report.pdf", serverPath, fileTransferProcessTimeoutSeconds)
 			if name == "download_file" {
-				want = downloadArtifactProcessInput(publicCallID, artifactID, "report.pdf")
+				timeout := 0
+				if tc.memory {
+					timeout = fileTransferProcessTimeoutSeconds
+				}
+				want = fileTransferProcessInput("download", publicCallID, "report.pdf", serverPath, timeout)
 			}
 			if process.AgentMachineBindingID != bindingID || process.Command != want.Command ||
 				process.TimeoutSeconds != want.TimeoutSeconds {
@@ -1402,7 +1446,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if string(record.Input) == "" || !strings.Contains(string(record.Input), "/artifacts") {
+			if string(record.Input) == "" || !strings.Contains(string(record.Input), serverPath) {
 				t.Fatalf("lost VFS input: %s", record.Input)
 			}
 		})

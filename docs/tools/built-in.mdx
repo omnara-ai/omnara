@@ -17,7 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
-| Files | `upload_file`, `download_file`, `read_file`, `search_files` |
+| Files | `list_files`, `upload_file`, `download_file`, `read_file`, `search_files` |
 | Integrations | `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
 | Tool loading | `tool_search` |
@@ -165,23 +165,40 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 ## Files
 
-`path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
+`path` addresses files stored in Omnara, not files on an attached machine. `/artifacts` is the destination for creating an artifact, `/artifacts/<artifact_id>` identifies an existing artifact, and `/memory/<store-name>/<file-path>` identifies a file in an [attached memory store](/agents/configuration#memory-stores).
+
+### `list_files`
+
+Lists matching files and directories without reading their contents. Does not require an attached machine.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Absolute path pattern; see examples below |
+| `limit` | integer | 1–100; default 50 |
+
+Use `/*` to list `/artifacts` and `/memory`, `/artifacts/*` for the agent's artifacts, or `/memory/*` for attached stores and their descriptions. For example, `/memory/engineering/**/*.md` finds Markdown files across directories. `*` matches within a path segment, `**` spans directory levels, and `?` matches one character.
+
+Artifact patterns such as `/artifacts/*.pdf` match filenames. Results include the original filename and a `/artifacts/<artifact_id>` path for downloading; duplicate filenames remain separate results. Names containing path separators match by their last component, and `/artifacts/*` also includes unnamed artifacts. An exact `/artifacts/<artifact_id>` pattern looks up that artifact.
+
+Results include files and directories, including hidden entries. Memory results reflect the filesystem, including empty directories. Memory files include sizes; obtain their digests with `download_file`. A literal path matches only that entry. If `truncated` is true, narrow the pattern to return fewer results. Listing does not guarantee a snapshot across namespaces.
 
 When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
 
 ### `upload_file`
 
-Use `upload_file` to copy a file from an attached machine into Omnara's virtual filesystem. Currently, uploads support only creating artifacts at `/artifacts`, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
+Use `upload_file` to copy a file from an attached machine into Omnara's virtual filesystem. Uploads to `/artifacts` create artifacts, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` or `/memory/<store-name>/<file-path>` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
 
-Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
+Files may be up to 10 MiB. Artifacts must be non-empty; memory files may be empty. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, take the artifact ID from the final component of each `/artifacts/<artifact_id>` path and pass those IDs in `artifact_ids` to `send_integration_message`.
+On success, an artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their paths in `paths` to `send_integration_message`.
+
+A memory upload requires write access and returns its `digest` in the process output. To replace changed memory content, pass the digest from a download as `expected_digest`; omit it to create a new file. This parameter is not supported for artifacts. If another writer has changed the contents, the upload fails with a conflict. Download the file, reapply the changes, and retry. Uploading identical current contents succeeds without changing the file, even with a stale digest. Files keep only their current contents; there is no edit history.
 
 ### `download_file`
 
-Use `download_file` to copy a file from Omnara's virtual filesystem to an attached machine. Currently, downloads support only `/artifacts/<artifact_id>`; provide `machine_id` when the agent has more than one machine.
+Use `download_file` to copy a file from Omnara's virtual filesystem to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
 
-Set `path` to `/artifacts/<artifact_id>` and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically.
+Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Memory downloads include the file's `digest` in the process output; use it when uploading an edited copy.
 
 Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 
@@ -231,7 +248,7 @@ Existing media references remain inline so their attachments remain available to
 
 ### `send_integration_message`
 
-Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`; pass `artifact_ids` to attach artifacts owned by the agent. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
+Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`; pass `paths` to attach files from `/artifacts/<artifact_id>` or `/memory/<store>/<file>`. Artifacts must belong to the agent, and memory stores must be attached to its config. Paths identify individual files; glob expansion is not supported. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
 
 ### `set_integration_target`
 

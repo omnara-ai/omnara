@@ -312,6 +312,8 @@ export const zSkillRevisionId = z.string().regex(/^skr_[a-z2-7]{26}$/);
 
 export const zSkillGrantId = z.string().regex(/^skg_[a-z2-7]{26}$/);
 
+export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
+
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 /**
@@ -590,6 +592,40 @@ export const zSkillGrant = z.object({
     skill_id: zSkillId,
     target_project_id: zProjectId,
     created_at: zTimestamp
+});
+
+export const zMemoryStore = z.object({
+    id: zMemoryStoreId,
+    name: zSkillName,
+    description: z.string(),
+    read_only: z.boolean(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zCreateMemoryStore = z.object({
+    name: zSkillName,
+    description: z.string().optional(),
+    read_only: z.boolean().optional()
+});
+
+export const zUpdateMemoryStore = z.object({
+    description: z.string().optional(),
+    read_only: z.boolean().optional()
+});
+
+export const zMemoryStoreList = z.object({
+    data: z.array(zMemoryStore),
+    has_more: z.boolean(),
+    next_cursor: z.string().optional()
+});
+
+/**
+ * Returns artifact_id for artifact uploads or digest for memory uploads.
+ */
+export const zUploadFileResponse = z.object({
+    artifact_id: zArtifactId.optional(),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional()
 });
 
 /**
@@ -3527,6 +3563,68 @@ export const zListProjectAvailableSkillsQuery = z.object({
  */
 export const zListProjectAvailableSkillsResponse = zListProjectSkillAccessesResponse;
 
+export const zListMemoryStoresPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListMemoryStoresQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().optional()
+});
+
+/**
+ * Success.
+ */
+export const zListMemoryStoresResponse = zMemoryStoreList;
+
+export const zCreateMemoryStoreBody = zCreateMemoryStore;
+
+export const zCreateMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Success.
+ */
+export const zCreateMemoryStoreResponse = zMemoryStore;
+
+export const zDeleteMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zDeleteMemoryStoreResponse = z.void();
+
+export const zGetMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zGetMemoryStoreResponse = zMemoryStore;
+
+export const zUpdateMemoryStoreBody = zUpdateMemoryStore;
+
+export const zUpdateMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zUpdateMemoryStoreResponse = zMemoryStore;
+
 export const zListSecretsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -4920,3 +5018,27 @@ export const zDownloadDaemonArtifactPath = z.object({
  * Artifact bytes, served with the artifact's stored content type.
  */
 export const zDownloadDaemonArtifactResponse = z.string();
+
+export const zDownloadDaemonFilePath = z.object({
+    toolCallID: zToolCallId
+});
+
+/**
+ * Success.
+ */
+export const zDownloadDaemonFileResponse = z.string();
+
+export const zUploadDaemonFileBody = z.string();
+
+export const zUploadDaemonFilePath = z.object({
+    toolCallID: zToolCallId
+});
+
+export const zUploadDaemonFileQuery = z.object({
+    filename: z.string().optional()
+});
+
+/**
+ * Success.
+ */
+export const zUploadDaemonFileResponse = zUploadFileResponse;

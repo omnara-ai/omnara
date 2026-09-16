@@ -30,6 +30,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
@@ -164,10 +165,86 @@ func TestIntegrationSendToolDispatchDeliversDistinctCalls(t *testing.T) {
 	}
 }
 
-func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
+func TestIntegrationSendToolRejectsInvalidFiles(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "send-unauthorized-files",
+		toolFixtureOptions{withMemory: true}, storage.WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	scope := memorystore.Scope{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(fixture.User.ID),
+	}
+	unattached, err := fixture.Store.Memories().Create(ctx, scope, "unattached", "", false)
+	require.NoError(t, err)
+	_, err = fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: scope, StoreID: unattached.ID, Path: "secret.txt", Content: []byte("private"),
+	})
+	require.NoError(t, err)
+	otherProjectID := integrationToolTestID("send-files-other-project")
+	_, err = fixture.Pool.Exec(ctx,
+		`INSERT INTO projects(id, org_id, name, idempotency_key, created_at, updated_at)
+VALUES ($1, $2, 'Other Project', 'send-files-other-project', statement_timestamp(), statement_timestamp())`,
+		otherProjectID, toolsTestOrgID)
+	require.NoError(t, err)
+	otherScope := scope
+	otherScope.ProjectID = otherProjectID
+	foreign, err := fixture.Store.Memories().Create(ctx, otherScope, "foreign", "", false)
+	require.NoError(t, err)
+	_, err = fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: otherScope, StoreID: foreign.ID, Path: "secret.txt", Content: []byte("private"),
+	})
+	require.NoError(t, err)
+	otherAgent, err := fixture.Store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID: toolsTestProjectID, CurrentConfigID: fixture.AgentConfig.ID,
+	})
+	require.NoError(t, err)
+	artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID: toolsTestProjectID, AgentID: otherAgent.ID, Filename: "secret.txt",
+		ContentType: "text/plain", Content: []byte("private"), IdempotencyKey: "other-agent-file",
+	})
+	require.NoError(t, err)
+	artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
+	require.NoError(t, err)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		t.Errorf("invalid file triggered provider request: %s", r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	executor := Executor{Store: fixture.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	target, err := executor.currentIntegrationToolTarget(ctx, fixture.turn())
+	require.NoError(t, err)
+	slackTarget, err := slackMessageTarget(target)
+	require.NoError(t, err)
+	for _, filePath := range []string{
+		"/memory/unattached/secret.txt", "/memory/foreign/secret.txt",
+		"/memory/engineering/missing.txt", "/artifacts/" + artifactID,
+	} {
+		t.Run(filePath, func(t *testing.T) {
+			_, err := executor.dispatchIntegrationFileSend(ctx, fixture.turn(), slackTarget,
+				integrationMessageRequest{Text: "files", Paths: []string{filePath}})
+			require.ErrorIs(t, err, storeerr.ErrNotFound)
+		})
+	}
+	t.Run("empty memory file", func(t *testing.T) {
+		store, err := fixture.Store.Memories().Resolve(ctx, toolsTestProjectID, "engineering")
+		require.NoError(t, err)
+		_, err = fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: store.ID, Path: "empty.txt", Content: nil,
+		})
+		require.NoError(t, err)
+		_, err = executor.dispatchIntegrationFileSend(ctx, fixture.turn(), slackTarget,
+			integrationMessageRequest{Text: "files", Paths: []string{"/memory/engineering/empty.txt"}})
+		require.EqualError(t, err, "attachment /memory/engineering/empty.txt is empty")
+	})
+	require.Zero(t, requests)
+}
+
+func TestIntegrationSendToolUploadsFilesWithSafeRetries(t *testing.T) {
 	tests := []struct {
 		name                   string
-		artifactCount          int
+		memory                 bool
+		readOnly               bool
+		fileCount              int
 		uploadURLFailures      int
 		completionRateLimits   int
 		completionStatus       int
@@ -176,7 +253,15 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 		wantUploadRequests     int
 		wantCompletionRequests int
 	}{
-		{name: "success", artifactCount: 2, wantCode: "delivered", wantUploadRequests: 2, wantCompletionRequests: 1},
+		{
+			name: "mixed attachments from read-only store", memory: true, readOnly: true, fileCount: 2,
+			wantCode: "delivered", wantUploadRequests: 2, wantCompletionRequests: 1,
+		},
+		{
+			name: "memory changes during retry", memory: true, uploadURLFailures: 1,
+			wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1,
+		},
+		{name: "success", fileCount: 2, wantCode: "delivered", wantUploadRequests: 2, wantCompletionRequests: 1},
 		{
 			name:                   "upload URL transient failure",
 			uploadURLFailures:      1,
@@ -213,29 +298,52 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			seed := "send-artifact-" + strconv.Itoa(index)
-			fixture := newIntegrationToolFixtureWithMCP(
+			fixture := newIntegrationToolFixtureWithOptions(
 				t,
 				ctx,
 				seed,
-				false,
+				toolFixtureOptions{withMemory: tt.memory},
 				storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
 			)
-			artifactCount := tt.artifactCount
-			if artifactCount == 0 {
-				artifactCount = 1
+			fileCount := tt.fileCount
+			if fileCount == 0 {
+				fileCount = 1
 			}
-			artifactFiles := []struct {
+			files := []struct {
 				filename   string
 				content    []byte
 				fileID     string
 				uploadPath string
 			}{
 				{filename: "report.txt", content: []byte("artifact contents"), fileID: "F123", uploadPath: "/upload/v1/artifact"},
-				{filename: "chart.txt", content: []byte("chart contents"), fileID: "F456", uploadPath: "/upload/v1/chart"},
+				{filename: "chart.txt", content: []byte{0, 255, 1, 2}, fileID: "F456", uploadPath: "/upload/v1/chart"},
 			}
-			artifactFiles = artifactFiles[:artifactCount]
-			artifactIDs := make([]string, 0, artifactCount)
-			for artifactIndex, file := range artifactFiles {
+			files = files[:fileCount]
+			paths := make([]string, 0, fileCount)
+			var memoryInput memorystore.WriteInput
+			var memoryDigest string
+			for fileIndex, file := range files {
+				if tt.memory && fileIndex == len(files)-1 {
+					resource, err := fixture.Store.Memories().Resolve(ctx, toolsTestProjectID, "engineering")
+					require.NoError(t, err)
+					memoryInput = memorystore.WriteInput{
+						Scope: memorystore.Scope{
+							OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID,
+							Principal: toolsTestUserPrincipal(fixture.User.ID),
+						},
+						StoreID: resource.ID, Path: "reports/" + file.filename, Content: file.content,
+					}
+					digest, err := fixture.Store.Memories().Write(ctx, memoryInput)
+					require.NoError(t, err)
+					memoryDigest = digest
+					if tt.readOnly {
+						_, err = fixture.Store.Memories().Update(ctx, memoryInput.Scope, resource.ID, nil, &tt.readOnly)
+						require.NoError(t, err)
+					}
+					paths = append(paths, "/memory/engineering/"+memoryInput.Path)
+					continue
+				}
+
 				artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 					ProjectID:      toolsTestProjectID,
 					AgentID:        fixture.Agent.ID,
@@ -243,7 +351,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					Filename:       file.filename,
 					Content:        file.content,
 					MaxBytes:       1024,
-					IdempotencyKey: seed + "-" + strconv.Itoa(artifactIndex),
+					IdempotencyKey: seed + "-" + strconv.Itoa(fileIndex),
 				})
 				if err != nil {
 					t.Fatalf("create artifact: %v", err)
@@ -252,7 +360,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				if err != nil {
 					t.Fatalf("encode artifact id: %v", err)
 				}
-				artifactIDs = append(artifactIDs, artifactID)
+				paths = append(paths, "/artifacts/"+artifactID)
 			}
 			requests := make(map[string]int)
 			loseOwnership := func() error {
@@ -268,6 +376,14 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				switch r.URL.Path {
 				case "/files.getUploadURLExternal":
 					if requests[r.URL.Path] <= tt.uploadURLFailures {
+						if tt.memory {
+							update := memoryInput
+							update.ExpectedDigest = &memoryDigest
+							update.Content = []byte("changed after read")
+							if _, err := fixture.Store.Memories().Write(ctx, update); err != nil {
+								t.Errorf("update memory during retry: %v", err)
+							}
+						}
 						w.WriteHeader(http.StatusInternalServerError)
 						return
 					}
@@ -276,13 +392,13 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
-					artifactIndex := requests[r.URL.Path] - tt.uploadURLFailures - 1
-					if artifactIndex >= len(artifactFiles) {
+					fileIndex := requests[r.URL.Path] - tt.uploadURLFailures - 1
+					if fileIndex >= len(files) {
 						t.Errorf("unexpected upload URL request %d", requests[r.URL.Path])
 						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
-					file := artifactFiles[artifactIndex]
+					file := files[fileIndex]
 					if r.Form.Get("filename") != file.filename || r.Form.Get("length") != strconv.Itoa(len(file.content)) {
 						t.Errorf("upload URL form = %v", r.Form)
 						http.Error(w, "test handler failed", http.StatusBadRequest)
@@ -306,16 +422,16 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
-					artifactIndex := 0
+					fileIndex := 0
 					if r.URL.Path == "/upload/v1/chart" {
-						artifactIndex = 1
+						fileIndex = 1
 					}
-					if artifactIndex >= len(artifactFiles) {
+					if fileIndex >= len(files) {
 						t.Errorf("unexpected artifact upload path %s", r.URL.Path)
 						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
-					file := artifactFiles[artifactIndex]
+					file := files[fileIndex]
 					body, err := io.ReadAll(r.Body)
 					if err != nil {
 						t.Errorf("read uploaded artifact: %v", err)
@@ -350,14 +466,14 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
-					if len(payload.Files) != len(artifactFiles) || payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
+					if len(payload.Files) != len(files) || payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
 						payload.InitialComment != "here is the report" {
 						t.Errorf("completion payload = %+v", payload)
 						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
-					for artifactIndex, file := range artifactFiles {
-						if payload.Files[artifactIndex].ID != file.fileID || payload.Files[artifactIndex].Title != file.filename {
+					for fileIndex, file := range files {
+						if payload.Files[fileIndex].ID != file.fileID || payload.Files[fileIndex].Title != file.filename {
 							t.Errorf("completion payload = %+v", payload)
 							http.Error(w, "test handler failed", http.StatusBadRequest)
 							return
@@ -395,19 +511,19 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				if err != nil {
 					t.Fatalf("resolve Slack target: %v", err)
 				}
-				_, err = executor.dispatchIntegrationArtifactSend(
+				_, err = executor.dispatchIntegrationFileSend(
 					ctx,
 					fixture.turn(),
 					slackTarget,
-					integrationMessageRequest{Text: "here is the report", ArtifactIDs: artifactIDs},
+					integrationMessageRequest{Text: "here is the report", Paths: paths},
 				)
 				if !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 					t.Fatalf("artifact send error = %v, want ErrRuntimeLockInactive", err)
 				}
 			} else {
 				input, err := json.Marshal(map[string]any{
-					"text":         "here is the report",
-					"artifact_ids": artifactIDs,
+					"text":  "here is the report",
+					"paths": paths,
 				})
 				require.NoError(t, err)
 				call := fixture.recordToolCall(
@@ -427,10 +543,10 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					t.Fatalf("artifact send result = %+v", body)
 				}
 			}
-			if requests["/files.getUploadURLExternal"] != artifactCount+tt.uploadURLFailures {
+			if requests["/files.getUploadURLExternal"] != fileCount+tt.uploadURLFailures {
 				t.Fatalf(
 					"upload URL requests = %d, want %d", requests["/files.getUploadURLExternal"],
-					artifactCount+tt.uploadURLFailures,
+					fileCount+tt.uploadURLFailures,
 				)
 			}
 			uploadRequests := requests["/upload/v1/artifact"] + requests["/upload/v1/chart"]
@@ -1764,6 +1880,7 @@ func newIntegrationToolFixtureWithMCP(
 type toolFixtureOptions struct {
 	withMCP       bool
 	withSubagents bool
+	withMemory    bool
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -1781,6 +1898,12 @@ func newIntegrationToolFixtureWithOptions(
 		storage.WithMachinePoolProviders(toolsTestMachinePoolProviders{}),
 	}
 	options = append(options, storeOptions...)
+	if fixtureOptions.withMemory {
+		files, err := memorystore.OpenFilesystem(t.TempDir())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = files.Close() })
+		options = append(options, storage.WithMemoryFilesystem(files))
+	}
 	store := storage.NewStore(pool, options...)
 	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
 	user, err := storagetest.CreateVerifiedUser(
@@ -1922,6 +2045,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 
 func (f *integrationToolFixture) turn() Turn {
 	turn := Turn{
+		OrgID:              toolsTestOrgID,
 		ProjectID:          toolsTestProjectID,
 		AgentID:            f.Agent.ID,
 		SourceEventID:      f.ModelOutputEventID,
@@ -2109,6 +2233,13 @@ tools:
       append: You are a fork.
 `
 	}
+	if fixtureOptions.withMemory {
+		_, err := store.Memories().Create(ctx, memorystore.Scope{
+			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(userID),
+		}, "engineering", "", false)
+		require.NoError(t, err)
+		sourceYAML += "memory_stores:\n  - name: engineering\n    access: read_only\n"
+	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
@@ -2155,6 +2286,13 @@ func compileToolsAgentYAMLResolved(
 			configuredModelName string,
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedToolsAgentConfigModel(configuredModel), nil
+		},
+		ResolveMemoryStoreName: func(name string) (string, error) {
+			resource, err := store.Memories().Resolve(ctx, toolsTestProjectID, name)
+			if err != nil {
+				return "", err
+			}
+			return publicid.Encode(publicid.KindMemoryStore, resource.ID)
 		},
 		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
 			machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, toolsTestProjectID, machineName)

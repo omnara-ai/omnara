@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,7 +16,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 var (
@@ -179,8 +183,8 @@ func (e Executor) dispatchIntegrationMessageSend(
 	if err != nil {
 		return toolResultContent{}, err
 	}
-	if len(input.ArtifactIDs) != 0 {
-		return e.dispatchIntegrationArtifactSend(ctx, turn, slackTarget, input)
+	if len(input.Paths) != 0 {
+		return e.dispatchIntegrationFileSend(ctx, turn, slackTarget, input)
 	}
 
 	agentPublicID, err := publicid.Encode(publicid.KindAgent, turn.AgentID)
@@ -237,29 +241,49 @@ func (e Executor) dispatchIntegrationMessageSend(
 	)
 }
 
-func (e Executor) dispatchIntegrationArtifactSend(
+func (e Executor) loadIntegrationFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
+	if strings.HasPrefix(filePath, memorystore.Root+"/") {
+		name, relativePath, err := memorystore.ParsePath(filePath)
+		if err != nil {
+			return "", nil, err
+		}
+		store, err := e.Store.Memories().Resolve(ctx, turn.ProjectID, name)
+		if err != nil {
+			return "", nil, err
+		}
+		_, content, err := e.Store.Memories().Read(ctx, memorystore.Scope{
+			OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
+		}, store.ID, relativePath)
+		return path.Base(relativePath), content, err
+	}
+	artifactPublicID, ok := strings.CutPrefix(filePath, toolcatalog.ArtifactVFSRoot+"/")
+	if !ok {
+		return "", nil, errors.New("attachment path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
+	}
+	artifactID, err := publicid.Decode(publicid.KindArtifact, artifactPublicID)
+	if err != nil {
+		return "", nil, err
+	}
+	content, artifact, err := e.Store.Artifacts().GetArtifactBlob(ctx, turn.ProjectID, turn.AgentID, artifactID)
+	return modelcontext.MediaFilename(artifact.Filename, artifact.ContentType), content, err
+}
+
+func (e Executor) dispatchIntegrationFileSend(
 	ctx context.Context,
 	turn Turn,
 	slackTarget slack.MessageTarget,
 	input integrationMessageRequest,
 ) (toolResultContent, error) {
 	var rateLimitSlept time.Duration
-	uploadedFiles := make([]slack.UploadedFile, 0, len(input.ArtifactIDs))
-	for _, artifactPublicID := range input.ArtifactIDs {
-		artifactID, err := publicid.Decode(publicid.KindArtifact, artifactPublicID)
+	uploadedFiles := make([]slack.UploadedFile, 0, len(input.Paths))
+	for _, filePath := range input.Paths {
+		filename, content, err := e.loadIntegrationFile(ctx, turn, filePath)
 		if err != nil {
-			return toolResultContent{}, err
+			return toolResultContent{}, fmt.Errorf("load attachment %s: %w", filePath, err)
 		}
-		content, artifact, err := e.Store.Artifacts().GetArtifactBlob(
-			ctx,
-			turn.ProjectID,
-			turn.AgentID,
-			artifactID,
-		)
-		if err != nil {
-			return toolResultContent{}, fmt.Errorf("load artifact %s: %w", artifactPublicID, err)
+		if len(content) == 0 {
+			return toolResultContent{}, fmt.Errorf("attachment %s is empty", filePath)
 		}
-		filename := modelcontext.MediaFilename(artifact.Filename, artifact.ContentType)
 		var fileID string
 		for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
 			var result slack.APIResult

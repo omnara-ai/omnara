@@ -4,7 +4,7 @@ description: Steps to run Omnara on your own infrastructure
 icon: "cloud-arrow-up"
 ---
 
-Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
+Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, S3-compatible bucket, and persistent memory filesystem ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
 
 ## Quick start (local)
 
@@ -30,6 +30,16 @@ maintenance services. Connect the migrator directly to the PostgreSQL writer;
 do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
 may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
 for connection-pool defaults.
+
+## Memory storage
+
+Compose shares the persistent `memory-data` volume between API and worker at `/var/lib/omnara/memory`. The images prepare this directory for their non-root service user. On a single host, this is an ordinary local filesystem.
+
+Across hosts, mount the same shared filesystem into API and every worker and set `OMNARA_MEMORY_DIR` to its absolute mount path. Keep shared locking enabled and verify locking and file visibility from separate clients before rollout. Maintenance, migration jobs, and agent machines do not need this mount.
+
+Memory files live at `<org-id>/<project-id>/<store-name>/<file-path>` beneath the configured directory, using public organization and project IDs. Upload staging and stable lock files live outside those store trees. Only trusted backend services should write to the mount; manual writes bypass access checks, quotas, and conditional updates.
+
+Startup checks that the directory is writable, but cannot prove that the intended network mount is present. Configure the deployment to require the mount. Back up the entire memory directory, together with PostgreSQL. Files do not retain per-edit history.
 
 ## Exposing the deployment publicly
 

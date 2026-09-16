@@ -646,6 +646,8 @@ export type SkillRevisionId = string;
 
 export type SkillGrantId = string;
 
+export type MemoryStoreId = string;
+
 export type SecretId = string;
 
 export type SecretGrantId = string;
@@ -798,6 +800,40 @@ export type SkillGrantListItem = {
 export type ListSkillGrantsResponse = {
     data: Array<SkillGrantListItem>;
     next_cursor: string | null;
+};
+
+export type MemoryStore = {
+    id: MemoryStoreId;
+    name: SkillName;
+    description: string;
+    read_only: boolean;
+    created_at: string;
+    updated_at: string;
+};
+
+export type CreateMemoryStore = {
+    name: SkillName;
+    description?: string;
+    read_only?: boolean;
+};
+
+export type UpdateMemoryStore = {
+    description?: string;
+    read_only?: boolean;
+};
+
+export type MemoryStoreList = {
+    data: Array<MemoryStore>;
+    has_more: boolean;
+    next_cursor?: string;
+};
+
+/**
+ * Returns artifact_id for artifact uploads or digest for memory uploads.
+ */
+export type UploadFileResponse = {
+    artifact_id?: ArtifactId;
+    digest?: string;
 };
 
 export type McpoAuthStartRequest = {
@@ -6712,6 +6748,375 @@ export type ListProjectAvailableSkillsResponses = {
 };
 
 export type ListProjectAvailableSkillsResponse = ListProjectAvailableSkillsResponses[keyof ListProjectAvailableSkillsResponses];
+
+export type ListMemoryStoresData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores';
+};
+
+export type ListMemoryStoresErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMemoryStoresError = ListMemoryStoresErrors[keyof ListMemoryStoresErrors];
+
+export type ListMemoryStoresResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryStoreList;
+};
+
+export type ListMemoryStoresResponse = ListMemoryStoresResponses[keyof ListMemoryStoresResponses];
+
+export type CreateMemoryStoreData = {
+    body: CreateMemoryStore;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores';
+};
+
+export type CreateMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateMemoryStoreError = CreateMemoryStoreErrors[keyof CreateMemoryStoreErrors];
+
+export type CreateMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    201: MemoryStore;
+};
+
+export type CreateMemoryStoreResponse = CreateMemoryStoreResponses[keyof CreateMemoryStoreResponses];
+
+export type DeleteMemoryStoreData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}';
+};
+
+export type DeleteMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteMemoryStoreError = DeleteMemoryStoreErrors[keyof DeleteMemoryStoreErrors];
+
+export type DeleteMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    204: void;
+};
+
+export type DeleteMemoryStoreResponse = DeleteMemoryStoreResponses[keyof DeleteMemoryStoreResponses];
+
+export type GetMemoryStoreData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}';
+};
+
+export type GetMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetMemoryStoreError = GetMemoryStoreErrors[keyof GetMemoryStoreErrors];
+
+export type GetMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryStore;
+};
+
+export type GetMemoryStoreResponse = GetMemoryStoreResponses[keyof GetMemoryStoreResponses];
+
+export type UpdateMemoryStoreData = {
+    body: UpdateMemoryStore;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}';
+};
+
+export type UpdateMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateMemoryStoreError = UpdateMemoryStoreErrors[keyof UpdateMemoryStoreErrors];
+
+export type UpdateMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryStore;
+};
+
+export type UpdateMemoryStoreResponse = UpdateMemoryStoreResponses[keyof UpdateMemoryStoreResponses];
 
 export type ListSecretsData = {
     body?: never;
@@ -14266,3 +14671,154 @@ export type DownloadDaemonArtifactResponses = {
 };
 
 export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
+
+export type DownloadDaemonFileData = {
+    body?: never;
+    path: {
+        toolCallID: ToolCallId;
+    };
+    query?: never;
+    url: '/daemon/tool-calls/{toolCallID}/file';
+};
+
+export type DownloadDaemonFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadDaemonFileError = DownloadDaemonFileErrors[keyof DownloadDaemonFileErrors];
+
+export type DownloadDaemonFileResponses = {
+    /**
+     * Success.
+     */
+    200: Blob | File;
+};
+
+export type DownloadDaemonFileResponse = DownloadDaemonFileResponses[keyof DownloadDaemonFileResponses];
+
+export type UploadDaemonFileData = {
+    body?: Blob | File;
+    path: {
+        toolCallID: ToolCallId;
+    };
+    query?: {
+        /**
+         * Required for artifact uploads; ignored for memory uploads.
+         */
+        filename?: string;
+    };
+    url: '/daemon/tool-calls/{toolCallID}/file';
+};
+
+export type UploadDaemonFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The uploaded file is too large.
+     */
+    413: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UploadDaemonFileError = UploadDaemonFileErrors[keyof UploadDaemonFileErrors];
+
+export type UploadDaemonFileResponses = {
+    /**
+     * Success.
+     */
+    201: UploadFileResponse;
+};
+
+export type UploadDaemonFileResponse = UploadDaemonFileResponses[keyof UploadDaemonFileResponses];

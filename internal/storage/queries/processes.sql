@@ -396,6 +396,7 @@ WHERE process.org_id = sqlc.arg(org_id)
 -- name: GetDaemonArtifactProcessScope :one
 SELECT process.project_id,
        process.agent_id,
+       tool_call.input AS tool_input,
        COALESCE(tool_call.input->>'path', '')::text AS path
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id

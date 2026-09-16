@@ -1880,6 +1880,217 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/memory-stores:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/OrganizationID"
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProjectID"
+    post:
+      operationId: createMemoryStore
+      tags:
+        - Memory Stores
+      summary: createMemoryStore
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMemoryStore"
+      responses:
+        "201":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStore"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: listMemoryStores
+      tags:
+        - Memory Stores
+      summary: listMemoryStores
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStoreList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/OrganizationID"
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProjectID"
+      - name: memoryStoreID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/MemoryStoreID"
+    get:
+      operationId: getMemoryStore
+      tags:
+        - Memory Stores
+      summary: getMemoryStore
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStore"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    patch:
+      operationId: updateMemoryStore
+      tags:
+        - Memory Stores
+      summary: updateMemoryStore
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemoryStore"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStore"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    delete:
+      operationId: deleteMemoryStore
+      tags:
+        - Memory Stores
+      summary: deleteMemoryStore
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        "204":
+          description: Success.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
   /orgs/{orgID}/secrets:
     parameters:
       - name: orgID
@@ -6814,6 +7025,105 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/tool-calls/{toolCallID}/file:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ToolCallID"
+    post:
+      operationId: uploadDaemonFile
+      x-hidden: true
+      tags:
+        - Machine Daemon
+      summary: uploadDaemonFile
+      security:
+        - machineDaemonAuth: []
+      parameters:
+        - name: filename
+          in: query
+          description: Required for artifact uploads; ignored for memory uploads.
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadFileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: The uploaded file is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: downloadDaemonFile
+      x-hidden: true
+      tags:
+        - Machine Daemon
+      summary: downloadDaemonFile
+      security:
+        - machineDaemonAuth: []
+      responses:
+        "200":
+          description: Success.
+          headers:
+            X-Omnara-Memory-Digest:
+              description: SHA-256 digest of the downloaded memory bytes; absent for artifacts.
+              schema:
+                type: string
+                pattern: '^sha256:[0-9a-f]{64}$'
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -8013,6 +8323,9 @@ components:
     SkillGrantID:
       type: string
       pattern: '^skg_[a-z2-7]{26}$'
+    MemoryStoreID:
+      type: string
+      pattern: ^mst_[a-z2-7]{26}$
     SecretID:
       type: string
       pattern: '^sec_[a-z2-7]{26}$'
@@ -8297,6 +8610,76 @@ components:
             $ref: '#/components/schemas/SkillGrantListItem'
         next_cursor:
           type: [string, "null"]
+    MemoryStore:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - description
+        - read_only
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/MemoryStoreID"
+        name:
+          $ref: "#/components/schemas/SkillName"
+        description:
+          type: string
+        read_only:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateMemoryStore:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          $ref: "#/components/schemas/SkillName"
+        description:
+          type: string
+        read_only:
+          type: boolean
+    UpdateMemoryStore:
+      type: object
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        read_only:
+          type: boolean
+    MemoryStoreList:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - has_more
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryStore"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+    UploadFileResponse:
+      type: object
+      additionalProperties: false
+      description: Returns artifact_id for artifact uploads or digest for memory uploads.
+      properties:
+        artifact_id:
+          $ref: '#/components/schemas/ArtifactID'
+        digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
     MCPOAuthStartRequest:
       type: object
       additionalProperties: false
