@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -65,8 +66,8 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		content,
 		http.StatusCreated,
 	)
-	artifactIDValue, ok := response["artifact_id"].(string)
-	if !ok {
+	artifactPath, ok := response["path"].(string)
+	if !ok || !strings.HasPrefix(artifactPath, "/artifacts/") || response["digest"] != blobstore.ContentDigest(content) {
 		t.Fatalf("upload response = %+v", response)
 	}
 	replayResponse := requestDaemonFileArtifactUpload(
@@ -77,14 +78,10 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		content,
 		http.StatusCreated,
 	)
-	replayArtifactIDValue, ok := replayResponse["artifact_id"].(string)
-	if !ok {
-		t.Fatalf("replay upload response = %+v", replayResponse)
+	if replayResponse["path"] != artifactPath || replayResponse["digest"] != response["digest"] {
+		t.Fatalf("replay upload response = %+v, want path %q", replayResponse, artifactPath)
 	}
-	if replayArtifactIDValue != artifactIDValue {
-		t.Fatalf("replay artifact id = %q, want %q", replayArtifactIDValue, artifactIDValue)
-	}
-	artifactID, err := publicid.Decode(publicid.KindArtifact, artifactIDValue)
+	artifactID, err := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(artifactPath, "/artifacts/"))
 	if err != nil {
 		t.Fatalf("decode artifact id: %v", err)
 	}
@@ -490,8 +487,12 @@ func requestDaemonFileArtifactDownload(
 	if recorder.Code != wantStatus {
 		t.Fatalf("artifact download status = %d, want %d body=%s", recorder.Code, wantStatus, recorder.Body.String())
 	}
-	if wantStatus == http.StatusOK && recorder.Header().Get("X-Omnara-Memory-Digest") != "" {
-		t.Fatal("artifact download returned memory digest header")
+	if wantStatus == http.StatusOK {
+		digest := blobstore.ContentDigest(recorder.Body.Bytes())
+		if recorder.Header().Get("ETag") != `"`+digest+`"` ||
+			recorder.Header().Get("X-Omnara-File-Digest") != digest {
+			t.Fatal("artifact download returned incorrect digest")
+		}
 	}
 	return recorder
 }
@@ -544,7 +545,7 @@ func requestDaemonFileArtifactUploadForToolCall(
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode artifact upload response: %v body=%s", err, rec.Body.String())
 	}
-	if wantStatus == http.StatusCreated && len(response) != 1 {
+	if wantStatus == http.StatusCreated && len(response) != 2 {
 		t.Fatalf("artifact upload response has extra fields: %+v", response)
 	}
 

@@ -3,6 +3,7 @@ package omnarad
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("artifact bytes")))
 	var wantName atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expectedFilename, ok := wantName.Load().(string)
@@ -45,7 +47,7 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 			t.Errorf("upload body = %q length=%d", body, r.ContentLength)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"artifact_id":%q}`, artifactID)
+		_, _ = fmt.Fprintf(w, `{"path":%q,"digest":%q}`, "/artifacts/"+artifactID, digest)
 	}))
 	defer server.Close()
 
@@ -92,7 +94,7 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("upload artifact: %v", err)
 			}
-			want := `{"artifact_id":"` + artifactID + `"}` + "\n"
+			want := `{"path":"/artifacts/` + artifactID + `","digest":"` + digest + `"}` + "\n"
 			if stdout.String() != want {
 				t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 			}
