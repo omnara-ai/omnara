@@ -31,8 +31,10 @@ import { resourceNameValid } from '@/lib/resource-name'
 import {
   isMachinePoolProvider,
   machinePoolCoreProviderOptions,
+  machinePoolMemoryDraft,
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
+  machinePoolResourcesInBounds,
 } from './machinePoolProviders'
 
 export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions).map(
@@ -201,6 +203,7 @@ export function machinePoolFormValid(
     maxMachinesValid &&
     cpuValid &&
     memoryValid &&
+    machinePoolResourcesInBounds(values.provider, values.cpu, values.memoryGb) &&
     textRowsValid(values.envRows) &&
     secretRowsValid(values.secretEnvRows) &&
     optionalPositiveInt32Valid(values.maxMachineCpu) &&
@@ -314,7 +317,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     envRows: textRowsFromRecord(pool.default_machine_env),
     secretEnvRows: secretRowsFromRecord(pool.default_machine_secret_env),
     cpu: numberDraft(cpuValue) || machinePoolFormDefaults.cpu,
-    memoryGb: memoryGbDraft(memoryValue) || machinePoolFormDefaults.memoryGb,
+    memoryGb: machinePoolMemoryDraft(provider, memoryValue) || machinePoolFormDefaults.memoryGb,
     maxMachines: numberDraft(pool.max_total_machines),
     maxTotalCpu: numberDraft(pool.max_total_cpu),
     maxTotalMemoryGb: memoryGbDraft(pool.max_total_memory_mb),
