@@ -7,9 +7,12 @@ import { RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import { installFileDropGuard } from '@/lib/file-drop-guard'
 import { queryClient } from '@/lib/query'
 import { router } from '@/router'
 import { omnaraClient } from '@/transport'
+
+installFileDropGuard(window)
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {

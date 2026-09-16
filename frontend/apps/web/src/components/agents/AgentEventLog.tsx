@@ -168,13 +168,14 @@ export function AgentEventLog({
             showSendInputGuide && 'justify-center',
           )}
         >
-          {chat.error && (
+          {chat.streamError && (
             <div
               role="alert"
               className="bg-destructive/10 text-destructive mb-4 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
             >
               <p className="text-sm">
-                <span className="font-medium">Event stream disconnected.</span> {chat.error.message}
+                <span className="font-medium">Event stream disconnected.</span>{' '}
+                {chat.streamError.message}
               </p>
               <Button size="sm" variant="outline" onClick={chat.reconnect}>
                 Reconnect

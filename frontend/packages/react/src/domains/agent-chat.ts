@@ -75,6 +75,7 @@ export interface UseAgentChatResult {
   status: AgentChatStatus
   isWorking: boolean
   error: Error | undefined
+  streamError: Error | undefined
   historyStatus: AgentChatHistoryStatus
   historyError: Error | null
   retryHistory: () => void
@@ -113,6 +114,7 @@ export class AgentChatSession {
     localInputs: [],
     backlogInputs: [],
     error: undefined,
+    streamError: undefined,
     hasOlderEvents: false,
   }
 
@@ -289,6 +291,7 @@ export class AgentChatSession {
       localInputs,
       backlogInputs: [],
       error: this.error,
+      streamError: this.errorSource === 'stream' ? this.error : undefined,
       hasOlderEvents: false,
     }
     for (const listener of this.listeners) listener()
@@ -299,10 +302,7 @@ export class AgentChatSession {
     if (this.cursor == null || sequence <= this.cursor) return
     this.cursor = sequence
     this.events = [...this.events, event]
-    if (this.errorSource === 'stream') {
-      this.error = undefined
-      this.errorSource = undefined
-    }
+    this.clearStreamError()
 
     const inputIdempotencyKey =
       event.event_kind === 'agent_input' ? event.input_idempotency_key : undefined
@@ -358,10 +358,7 @@ export class AgentChatSession {
 
   private handleDelta(delta: ModelOutputDelta): void {
     if (this.completedCalls.has(delta.model_call_context_id)) return
-    if (this.errorSource === 'stream') {
-      this.error = undefined
-      this.errorSource = undefined
-    }
+    this.clearStreamError()
     if (delta.event.kind === 'error') {
       this.completedCalls.add(delta.model_call_context_id)
       this.deltas = this.deltas.filter(
@@ -395,12 +392,15 @@ export class AgentChatSession {
   }
 
   reconnect = (): void => {
-    if (this.errorSource === 'stream') {
-      this.error = undefined
-      this.errorSource = undefined
-      this.notify()
-    }
+    if (this.clearStreamError()) this.notify()
     this.connect()
+  }
+
+  private clearStreamError(): boolean {
+    if (this.errorSource !== 'stream') return false
+    this.error = undefined
+    this.errorSource = undefined
+    return true
   }
 
   private connect(): void {
@@ -499,6 +499,7 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     status: projected.status,
     isWorking: projected.isWorking,
     error: data.error,
+    streamError: data.streamError,
     historyStatus: history.status,
     historyError: history.error,
     retryHistory: () => void history.refetch(),

@@ -611,9 +611,13 @@ describe('AgentChatSession streaming', () => {
     )
     await waitForSnapshot(session, (s) => s.status === 'error')
 
+    expect(session.getData().streamError?.message).toBe(
+      'Agent event stream request failed with HTTP 401',
+    )
     session.reconnect()
 
     expect(read(session).error).toBeUndefined()
+    expect(session.getData().streamError).toBeUndefined()
     const reopened = await connection(1)
     reopened.push({ event: 'agent_input', data: userInputEvent() })
     await waitForSnapshot(session, (s) => s.messages.length === 1)

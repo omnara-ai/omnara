@@ -35,6 +35,7 @@ describe('projectAgentChat input lifecycle', () => {
     events: [],
     deltas: [],
     error: undefined,
+    streamError: undefined,
     hasOlderEvents: false,
   }
 
@@ -198,6 +199,7 @@ describe('projectAgentChat delta previews', () => {
     localInputs: [],
     backlogInputs: [],
     error: undefined,
+    streamError: undefined,
     hasOlderEvents: false,
   }
 

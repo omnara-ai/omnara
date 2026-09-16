@@ -1,8 +1,6 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 
-function hasFiles(event: DragEvent): boolean {
-  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
-}
+import { dragHasFiles } from '@/lib/file-drop-guard'
 
 export function useWindowFileDrop(
   acceptsFiles: boolean,
@@ -12,11 +10,12 @@ export function useWindowFileDrop(
   const dropFiles = useEffectEvent(onFiles)
 
   useEffect(() => {
+    if (!acceptsFiles) return
     function onDragOver(event: DragEvent) {
-      if (!hasFiles(event)) return
+      if (!dragHasFiles(event)) return
       event.preventDefault()
-      if (event.dataTransfer != null) event.dataTransfer.dropEffect = acceptsFiles ? 'copy' : 'none'
-      if (acceptsFiles) setDragging(true)
+      if (event.dataTransfer != null) event.dataTransfer.dropEffect = 'copy'
+      setDragging(true)
     }
 
     function onDragLeave(event: DragEvent) {
@@ -24,10 +23,10 @@ export function useWindowFileDrop(
     }
 
     function onDrop(event: DragEvent) {
-      if (!hasFiles(event)) return
+      if (!dragHasFiles(event)) return
       event.preventDefault()
       setDragging(false)
-      if (acceptsFiles) dropFiles(event.dataTransfer?.files ?? null)
+      dropFiles(event.dataTransfer?.files ?? null)
     }
 
     window.addEventListener('dragover', onDragOver)

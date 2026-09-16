@@ -84,5 +84,6 @@ export interface AgentChatData {
   localInputs: LocalAgentInput[]
   backlogInputs: AgentInput[]
   error: Error | undefined
+  streamError: Error | undefined
   hasOlderEvents: boolean
 }

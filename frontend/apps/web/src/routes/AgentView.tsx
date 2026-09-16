@@ -255,6 +255,7 @@ function AgentDock({
   cancelError: Error | null
   onCancel: () => Promise<void>
 }) {
+  const composerHidden = !composer || configOpen
   return (
     <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
       {!archived && !configOpen && (
@@ -276,7 +277,7 @@ function AgentDock({
           </div>
         )
       ) : (
-        <div className={cn('min-w-0', (!composer || configOpen) && 'hidden')}>
+        <div className={cn('min-w-0', composerHidden && 'hidden')}>
           <AgentInputQueue
             backlog={chat.inputBacklog}
             canOperate={canOperate}
@@ -289,6 +290,7 @@ function AgentDock({
             cancelError={cancelError}
             onCancel={onCancel}
             canOperate={canOperate}
+            hidden={composerHidden}
           />
         </div>
       )}
