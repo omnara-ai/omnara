@@ -61,8 +61,9 @@ export class GatewayServer {
   async listen(): Promise<number> {
     if (this.server) throw new Error('channel gateway server is already listening')
     const listener = getRequestListener(this.createApp().fetch, {
-      // We own bounded body consumption and cleanup of incomplete requests.
-      autoCleanupIncoming: false,
+      // The adapter bounds discarded request bodies after responding. Destroying
+      // an incomplete request on response finish can reset an unreceived reply.
+      autoCleanupIncoming: true,
       hostname: 'channel-gateway.internal',
       // Native Fetch constructors keep provider body-copy accounting stable.
       overrideGlobalObjects: false,
@@ -389,10 +390,8 @@ export class GatewayServer {
 
 function closeIncompleteRequest(request: IncomingMessage, response: ServerResponse): void {
   if (request.complete || request.destroyed) return
-  request.pause()
+  // Also close GET/HEAD connections, whose bodies the adapter does not drain.
+  // Let Node finish its socket writes; response finish is not client receipt.
   response.shouldKeepAlive = false
   response.setHeader('connection', 'close')
-  response.once('finish', () => {
-    request.destroy()
-  })
 }

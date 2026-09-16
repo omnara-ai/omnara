@@ -1,7 +1,10 @@
+import { channel } from 'node:diagnostics_channel'
 import { once } from 'node:events'
+import { IncomingMessage, ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import {
   deferred,
@@ -94,6 +97,65 @@ describe('channel gateway HTTP adapter', () => {
       await server.close()
     }
   })
+
+  it.each(['POST', 'GET', 'HEAD'])(
+    'finishes the response socket before closing an incomplete %s request',
+    async (method) => {
+      const { port, server } = await startServer(providerRuntime())
+      const socket = connect(port, '127.0.0.1')
+      const finished = deferred()
+      const events: string[] = []
+      let incomplete: boolean | undefined
+      let status: number | undefined
+      const responseFinish = channel('http.server.response.finish')
+      const observe: Parameters<typeof responseFinish.subscribe>[0] = (message) => {
+        const { request, response } = z
+          .object({
+            request: z.instanceof(IncomingMessage),
+            response: z.instanceof(ServerResponse),
+          })
+          .parse(message)
+        if (request.socket.localPort !== port) return
+        incomplete = !request.complete
+        status = response.statusCode
+        events.push('response.finish')
+        request.socket.once('finish', () => {
+          events.push('socket.finish')
+        })
+        request.socket.once('close', () => {
+          events.push('socket.close')
+          finished.resolve()
+        })
+      }
+      responseFinish.subscribe(observe)
+      try {
+        let response = ''
+        socket.setEncoding('utf8')
+        socket.on('data', (chunk: string) => {
+          response += chunk
+        })
+        socket.setTimeout(1_000, () => {
+          socket.destroy(new Error('incomplete request response did not close'))
+        })
+        const ended = once(socket, 'end')
+        socket.write(
+          `${method} /healthz HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\na`,
+        )
+        await ended
+        await finished.promise
+        expect(response).toMatch(/^HTTP\/1\.1 200 /)
+        expect(response).toMatch(/\r\nconnection: close\r\n/i)
+        expect(response.split('\r\n\r\n')[1]).toBe(method === 'HEAD' ? '' : '{"ok":true}')
+        expect(incomplete).toBe(true)
+        expect(status).toBe(200)
+        expect(events).toEqual(['response.finish', 'socket.finish', 'socket.close'])
+      } finally {
+        responseFinish.unsubscribe(observe)
+        socket.destroy()
+        await server.close()
+      }
+    },
+  )
 
   it.each([
     ['/unknown', 404],
