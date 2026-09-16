@@ -81,6 +81,18 @@ function QueryErrorNotice({
   )
 }
 
+function AddModelsLink({ provider }: { provider: ModelProviderConfig | null }) {
+  const { activeOrg } = useActiveOrg()
+  if (provider === null || !canManageOrg(activeOrg.role)) return null
+  return (
+    <FieldDescription>
+      <Link to="/models" search={{ provider: provider.id }} className="underline">
+        Add more models to {provider.name}
+      </Link>
+    </FieldDescription>
+  )
+}
+
 export function GrantProjectModelDialog({
   open,
   onOpenChange,
@@ -95,8 +107,6 @@ export function GrantProjectModelDialog({
   onCloseAutoFocus?: ComponentProps<typeof DialogContent>['onCloseAutoFocus']
 }) {
   const [provider, setProvider] = useState<ModelProviderConfig | null>(null)
-  const { activeOrg } = useActiveOrg()
-  const canAddModels = canManageOrg(activeOrg.role)
   const providerSearch = useTypeaheadSearch()
   const createGrant = useCreateProjectModelGrant(orgId)
   const batch = useBatchGrantSubmit<ConfiguredModel>({
@@ -157,13 +167,7 @@ export function GrantProjectModelDialog({
                 query={providersQuery}
                 disabled={batch.isSubmitting || providersQuery.isError}
               />
-              {provider !== null && canAddModels && (
-                <FieldDescription>
-                  <Link to="/models" search={{ provider: provider.id }} className="underline">
-                    Add more models to {provider.name}
-                  </Link>
-                </FieldDescription>
-              )}
+              <AddModelsLink provider={provider} />
             </Field>
             <Field>
               <FieldLabel htmlFor="grant-project-model">Models</FieldLabel>
