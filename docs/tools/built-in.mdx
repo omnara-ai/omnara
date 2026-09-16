@@ -20,6 +20,7 @@ The tools are grouped by what they do:
 | Files | `upload_file`, `download_file`, `read_file`, `search_files` |
 | Integrations | `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
+| Tool loading | `tool_search` |
 
 A red <span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> marks required inputs.
 
@@ -265,6 +266,17 @@ Lists the agent's subagents with their `agent_id`, name, key, state, and last ac
 ### `skill`
 
 Loads an attached skill. Requires its [skill](/tools/skills) `name`. The tool returns the skill's instructions and, when the agent has machines, installs its supporting files there.
+
+## Tool loading
+
+### `tool_search`
+
+Added automatically when any tool is [deferred](/agents/configuration#deferred-tools). Searches deferred tools by name, description, and argument names, and loads the matches so the model can call them.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Case-insensitive regular expression, at most 200 characters |
+| `max_results` | integer | 1–50; default 5 |
 
 <Info>
 Full inputs and defaults, live from your deployment: [Get tool catalog](/api-reference/endpoints/configs-and-profiles/get-tool-catalog).

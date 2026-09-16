@@ -131,6 +131,19 @@ Existing machine configs gain missing machine-tool defaults only when saved agai
 
 Slack's `send_integration_message` remains contextual: it is available in Slack conversations without being added to the saved config, unless explicitly disabled. The builder only shows this tool when it is explicitly listed in the config.
 
+### Deferred tools
+
+Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to load matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
+
+```yaml
+tools:
+  web_search: {}                # always loaded
+  web_fetch:
+    deferred: true              # loaded only after a tool_search match
+```
+
+Deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+
 ### Custom tools
 
 A custom tool describes an operation that your system performs. Its `description` tells the model when to use it, and its `input_schema` defines the arguments.
