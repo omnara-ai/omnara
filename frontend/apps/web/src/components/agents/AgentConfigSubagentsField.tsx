@@ -9,7 +9,13 @@ import {
 } from '@/components/agents/agentConfigSubagents'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Field, FieldError, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  RequiredFieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import {
@@ -35,8 +41,8 @@ const ProfileNameCombobox = createResourceCombobox<ProfileOption>({
 })
 
 const subagentTypeOptions: { value: SubagentType; label: string }[] = [
-  { value: 'profile', label: 'Profile' },
-  { value: 'self', label: 'Copy of this agent' },
+  { value: 'profile', label: 'Agent profile' },
+  { value: 'self', label: 'Clone' },
 ]
 
 function subagentTypeLabel(type: SubagentType) {
@@ -62,10 +68,6 @@ export function AgentConfigSubagentsField({
   onMaxSubagentsChange: (value: string) => void
   onMaxDepthChange: (value: string) => void
 }) {
-  const keyCounts = new Map<string, number>()
-  for (const subagent of subagents) {
-    keyCounts.set(subagent.key, (keyCounts.get(subagent.key) ?? 0) + 1)
-  }
   const update = (id: string, fields: Partial<BasicSubagent>) => {
     onSubagentsChange(
       subagents.map((subagent) => (subagent.id === id ? { ...subagent, ...fields } : subagent)),
@@ -91,23 +93,35 @@ export function AgentConfigSubagentsField({
       }
     >
       {subagents.length > 0 ? (
-        <div className="space-y-4 px-5 py-4">
-          {subagents.map((subagent) => (
-            <SubagentRow
-              key={subagent.id}
-              orgId={orgId}
-              projectId={projectId}
-              subagent={subagent}
-              duplicateKey={(keyCounts.get(subagent.key) ?? 0) > 1}
-              onChange={(fields) => {
-                update(subagent.id, fields)
-              }}
-              onRemove={() => {
-                onSubagentsChange(subagents.filter((entry) => entry.id !== subagent.id))
-              }}
-            />
-          ))}
-          <div className="grid gap-3 sm:grid-cols-2">
+        <div className="divide-y">
+          {subagents.map((subagent) => {
+            const duplicateName = subagents.some(
+              (candidate) => candidate.id !== subagent.id && candidate.key === subagent.key,
+            )
+            return (
+              <SubagentFields
+                key={subagent.id}
+                orgId={orgId}
+                projectId={projectId}
+                subagent={subagent}
+                nameError={
+                  subagent.key === ''
+                    ? undefined
+                    : (subagentKeyError(subagent.key) ??
+                      (duplicateName
+                        ? 'Name must be unique within this configuration.'
+                        : undefined))
+                }
+                onChange={(fields) => {
+                  update(subagent.id, fields)
+                }}
+                onRemove={() => {
+                  onSubagentsChange(subagents.filter((entry) => entry.id !== subagent.id))
+                }}
+              />
+            )
+          })}
+          <div className="grid gap-4 px-5 py-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="agent-config-max-subagents">Max active subagents</FieldLabel>
               <Input
@@ -139,41 +153,53 @@ export function AgentConfigSubagentsField({
   )
 }
 
-function SubagentRow({
+function SubagentFields({
   orgId,
   projectId,
   subagent,
-  duplicateKey,
+  nameError,
   onChange,
   onRemove,
 }: {
   orgId: string
   projectId: string
   subagent: BasicSubagent
-  duplicateKey: boolean
+  nameError: string | undefined
   onChange: (fields: Partial<BasicSubagent>) => void
   onRemove: () => void
 }) {
-  const keyError = duplicateKey ? 'Key must be unique.' : subagentKeyError(subagent.key)
   const fieldId = (name: string) => `agent-config-subagent-${subagent.id}-${name}`
   return (
-    <div className="border-border bg-muted/30 space-y-3 rounded-md border p-3">
-      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-        <Field>
-          <FieldLabel htmlFor={fieldId('key')}>Key</FieldLabel>
+    <div className="space-y-4 px-5 py-4">
+      <Field data-invalid={nameError !== undefined}>
+        <RequiredFieldLabel htmlFor={fieldId('name')}>Subagent name</RequiredFieldLabel>
+        <div className="flex items-start gap-2">
           <Input
-            id={fieldId('key')}
+            id={fieldId('name')}
+            className="min-w-0 flex-1"
             value={subagent.key}
             placeholder="researcher"
-            aria-invalid={keyError !== undefined}
+            aria-invalid={nameError !== undefined}
             onChange={(event) => {
               onChange({ key: event.target.value.trim() })
             }}
           />
-          {keyError !== undefined && subagent.key !== '' && <FieldError>{keyError}</FieldError>}
-        </Field>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="shrink-0"
+            aria-label={`Remove subagent ${subagent.key || 'entry'}`}
+            onClick={onRemove}
+          >
+            <Trash2Icon />
+          </Button>
+        </div>
+        <FieldError>{nameError}</FieldError>
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field>
-          <FieldLabel htmlFor={fieldId('type')}>Runs</FieldLabel>
+          <FieldLabel htmlFor={fieldId('type')}>Subagent type</FieldLabel>
           <Select
             value={subagent.type}
             onValueChange={(value) => {
@@ -193,41 +219,34 @@ function SubagentRow({
             </SelectContent>
           </Select>
         </Field>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="self-end"
-          aria-label={`Remove subagent ${subagent.key || 'entry'}`}
-          onClick={onRemove}
-        >
-          <Trash2Icon />
-        </Button>
+        {subagent.type === 'profile' && (
+          <Field>
+            <RequiredFieldLabel htmlFor={fieldId('profile')}>Agent profile</RequiredFieldLabel>
+            <ProfileNameField
+              id={fieldId('profile')}
+              orgId={orgId}
+              projectId={projectId}
+              value={subagent.profileName}
+              onChange={(profileName) => {
+                onChange({ profileName })
+              }}
+            />
+          </Field>
+        )}
       </div>
-      {subagent.type === 'profile' && (
-        <Field>
-          <FieldLabel htmlFor={fieldId('profile')}>Agent profile</FieldLabel>
-          <ProfileNameField
-            id={fieldId('profile')}
-            orgId={orgId}
-            projectId={projectId}
-            value={subagent.profileName}
-            onChange={(profileName) => {
-              onChange({ profileName })
-            }}
-          />
-        </Field>
-      )}
       <Field>
         <FieldLabel htmlFor={fieldId('description')}>Description</FieldLabel>
         <Input
           id={fieldId('description')}
           value={subagent.description}
-          placeholder="What this subagent is for, shown to the model."
+          placeholder="Researches a topic and reports back a summary."
           onChange={(event) => {
             onChange({ description: event.target.value })
           }}
         />
+        <FieldDescription>
+          The model reads this description to decide when to use this subagent.
+        </FieldDescription>
       </Field>
       <Field>
         <FieldLabel htmlFor={fieldId('append')}>Extra instructions</FieldLabel>
@@ -241,7 +260,7 @@ function SubagentRow({
           }}
         />
       </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={fieldId('max-instances')}>Max instances</FieldLabel>
           <Input

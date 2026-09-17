@@ -22,14 +22,15 @@ const ModelCombobox = createResourceCombobox<ModelChoice>({
   itemKey: (model) => model.id,
   itemLabel: (model) => `${model.name} · ${model.provider_config}`,
   renderItem: (model) => (
-    <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-      <span className="truncate">{model.name}</span>
-      <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 items-baseline gap-1.5">
+        <span className="truncate">{model.name}</span>
+        <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
+      </span>
       {model.pricing && (
-        <ModelPricingSummary
-          className="text-muted-foreground ml-auto shrink-0 text-xs tabular-nums"
-          pricing={model.pricing}
-        />
+        <span className="text-muted-foreground text-xs tabular-nums">
+          <ModelPricingSummary pricing={model.pricing} /> per 1M tokens
+        </span>
       )}
     </span>
   ),
