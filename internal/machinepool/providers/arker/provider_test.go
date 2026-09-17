@@ -426,3 +426,16 @@ func TestArkerProviderProvisionFailsWhenTheDaemonEndsInAnyTerminalState(t *testi
 		})
 	}
 }
+
+func TestArkerProviderProvisionFailsWhileTheDaemonRunStaysPending(t *testing.T) {
+	fake := &fakeArker{daemonState: "pending"}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+	_, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), "tok-1", nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "pending") {
+		t.Fatalf("a run queued behind another is not a started daemon, got %v", err)
+	}
+}

@@ -41,6 +41,16 @@ var errNotThisMachine = errors.New("arker vm does not belong to this machine")
 //nolint:misspell // "cancelled" is the wire value.
 var terminalRunStates = map[string]bool{"completed": true, "failed": true, "cancelled": true}
 
+// A run is only started once it reports `running`; `pending` is queued behind
+// an earlier run on the session.
+const runStateRunning = "running"
+
+// The boot script installs omnarad before exec'ing it, which outlasts the
+// settle window. Variable so tests do not pay it.
+const defaultDaemonStartTimeout = 2 * time.Minute
+
+var daemonStartTimeout = defaultDaemonStartTimeout
+
 const defaultDaemonSettleWindow = 3 * time.Second
 
 var daemonSettleWindow = defaultDaemonSettleWindow
@@ -163,9 +173,16 @@ func (p *provider) ProvisionMachine(
 	if vm == nil || strings.TrimSpace(vm.ID) == "" {
 		return providers.ProvisionMachineResult{}, errors.New("arker fork returned no vm id")
 	}
+	sandboxURL := strings.TrimSpace(vm.BaseURL())
+	if sandboxURL == "" {
+		return providers.ProvisionMachineResult{}, fmt.Errorf(
+			"arker fork returned vm %s without an endpoint; the machine could not be woken later",
+			vm.ID,
+		)
+	}
 	result := providers.ProvisionMachineResult{
 		ProviderResourceID: vm.ID,
-		SandboxURL:         vm.BaseURL(),
+		SandboxURL:         sandboxURL,
 	}
 	if vm.Info == nil {
 		return result, fmt.Errorf("arker fork returned vm %s without its record", vm.ID)
@@ -248,6 +265,7 @@ func bootScript(env map[string]string) (string, error) {
 
 func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
 	deadline := time.Now().Add(daemonSettleWindow)
+	hardDeadline := time.Now().Add(daemonStartTimeout)
 	for {
 		record, err := vm.GetRun(ctx, runID)
 		if err != nil {
@@ -261,8 +279,16 @@ func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
 				exitText(record.ExitCode),
 			)
 		}
-		if !time.Now().Before(deadline) {
+		if record.State == runStateRunning && !time.Now().Before(deadline) {
 			return nil
+		}
+		if !time.Now().Before(hardDeadline) {
+			return fmt.Errorf(
+				"omnara daemon on arker vm %s is still %s after %s",
+				vm.ID,
+				record.State,
+				daemonStartTimeout,
+			)
 		}
 		select {
 		case <-ctx.Done():

@@ -224,7 +224,9 @@ func newTestProvider(baseURL string) *provider {
 }
 
 const liveTestSettleWindow = 10 * time.Millisecond
+const liveTestStartTimeout = 200 * time.Millisecond
 
 func init() {
 	daemonSettleWindow = liveTestSettleWindow
+	daemonStartTimeout = liveTestStartTimeout
 }
