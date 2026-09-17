@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/apivariantbody"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
@@ -126,26 +127,59 @@ type responsesReasoning struct {
 }
 
 type responsesTool struct {
-	Type        string          `json:"type"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters"`
-	Strict      bool            `json:"strict"`
+	Type         string          `json:"type"`
+	Name         string          `json:"name,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	Parameters   json.RawMessage `json:"parameters"`
+	Strict       *bool           `json:"strict,omitempty"`
+	Execution    string          `json:"execution,omitempty"`
+	DeferLoading bool            `json:"defer_loading,omitempty"`
 }
 
 func buildTools(specs []modelcontext.ToolSpec) []responsesTool {
+	clientToolSearch := modelcontext.DeferredToolsEnabled(specs)
 	tools := make([]responsesTool, 0, len(specs))
 	for _, spec := range specs {
-		parameters := spec.InputSchema
-		if len(parameters) == 0 {
-			parameters = json.RawMessage(`{"type":"object","properties":{}}`)
+		if clientToolSearch && spec.Name == toolcatalog.ToolNameToolSearch {
+			tools = append(tools, responsesTool{
+				Type:        "tool_search",
+				Execution:   "client",
+				Description: spec.Description,
+				Parameters:  toolParameters(spec),
+			})
+			continue
 		}
-		tools = append(
-			tools,
-			responsesTool{
-				Type: "function", Name: spec.Name, Description: spec.Description, Parameters: parameters, Strict: false,
-			},
-		)
+		tools = append(tools, functionToolDefinition(spec))
 	}
 	return tools
+}
+
+func functionToolDefinition(spec modelcontext.ToolSpec) responsesTool {
+	strict := false
+	return responsesTool{
+		Type:         "function",
+		Name:         spec.Name,
+		Description:  spec.Description,
+		Parameters:   toolParameters(spec),
+		Strict:       &strict,
+		DeferLoading: spec.Deferred,
+	}
+}
+
+func discoveredToolDefinition(definition modelcontext.ToolSearchDefinition) responsesTool {
+	strict := false
+	return responsesTool{
+		Type:        "function",
+		Name:        definition.Name,
+		Description: definition.Description,
+		Parameters:  definition.InputSchema,
+		Strict:      &strict,
+	}
+}
+
+func toolParameters(spec modelcontext.ToolSpec) json.RawMessage {
+	if len(spec.InputSchema) == 0 {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	return spec.InputSchema
 }

@@ -535,9 +535,10 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
   if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
 }
 
-function toolWire(tool: BasicTool): ToolEntry {
+export function toolWire(tool: BasicTool): ToolEntry {
   const wire: ToolEntry = { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
+  if (tool.deferred) wire.deferred = true
   return wire
 }

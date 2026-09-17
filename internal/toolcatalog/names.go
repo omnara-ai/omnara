@@ -32,6 +32,11 @@ const (
 	ToolNameSendAgentMessage       = "send_agent_message"
 	ToolNameStopAgent              = "stop_agent"
 	ToolNameListAgents             = "list_agents"
+	ToolNameToolSearch             = "tool_search"
+	ToolNameCallDeferredTool       = "call_deferred_tool"
+	ToolSearchMaxPatternLength     = 200
+	ToolSearchDefaultResults       = 5
+	ToolSearchMaxResults           = 50
 )
 
 func MachineToolNames() []string {
@@ -52,6 +57,10 @@ func MachinePoolToolNames() []string {
 	return []string{ToolNameCreateMachine, ToolNameDeleteMachine}
 }
 
+func IsReservedWireToolName(name string) bool {
+	return name == ToolNameCallDeferredTool
+}
+
 func SubagentToolNames() []string {
 	return []string{
 		ToolNameSpawnAgent,
@@ -69,7 +78,7 @@ func IsSubagentToolName(name string) bool {
 func implicit(name string) bool {
 	return slices.Contains(MachineToolNames(), name) || slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill || name == ToolNameSendIntegrationMessage ||
-		name == ToolNameReadFile || name == ToolNameSearchFiles
+		name == ToolNameReadFile || name == ToolNameSearchFiles || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

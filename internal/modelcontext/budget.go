@@ -1,6 +1,7 @@
 package modelcontext
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -39,13 +40,14 @@ func DefaultSafetyMarginTokens(contextTokens int) int {
 	return margin
 }
 
-// EstimatePreparedRequest replaces inline base64 with the adapter's media-token estimate.
+// EstimatePreparedRequest replaces inline base64 with the adapter's media-token estimate
+// and drops deferred tool definitions that no tool_reference has loaded into context.
 func EstimatePreparedRequest(body json.RawMessage, media []RenderedMedia) int {
-	projected := preparedRequestWithoutInlineMedia(body, media)
+	projected := projectPreparedRequest(body, media)
 	return len(projected)/4 + 1 + renderedMediaTokenEstimate(media)
 }
 
-func preparedRequestWithoutInlineMedia(body json.RawMessage, media []RenderedMedia) json.RawMessage {
+func projectPreparedRequest(body json.RawMessage, media []RenderedMedia) json.RawMessage {
 	encodedMedia := map[string]struct{}{}
 	for _, item := range media {
 		if item.Representation != MediaRepresentationInline || len(item.Media.Data) == 0 {
@@ -53,19 +55,68 @@ func preparedRequestWithoutInlineMedia(body json.RawMessage, media []RenderedMed
 		}
 		encodedMedia[base64.StdEncoding.EncodeToString(item.Media.Data)] = struct{}{}
 	}
-	if len(encodedMedia) == 0 {
+	hasDeferredTools := bytes.Contains(body, []byte(`"defer_loading"`))
+	if len(encodedMedia) == 0 && !hasDeferredTools {
 		return body
 	}
 	var request any
 	if err := json.Unmarshal(body, &request); err != nil {
 		return body
 	}
-	replaceInlineMediaFields(request, encodedMedia)
+	if len(encodedMedia) > 0 {
+		replaceInlineMediaFields(request, encodedMedia)
+	}
+	if hasDeferredTools {
+		removeUnloadedDeferredTools(request)
+	}
 	projected, err := json.Marshal(request)
 	if err != nil {
 		return body
 	}
 	return projected
+}
+
+func removeUnloadedDeferredTools(request any) {
+	object, ok := request.(map[string]any)
+	if !ok {
+		return
+	}
+	tools, ok := object["tools"].([]any)
+	if !ok {
+		return
+	}
+	loaded := map[string]struct{}{}
+	collectToolReferenceNames(object, loaded)
+	kept := make([]any, 0, len(tools))
+	for _, tool := range tools {
+		definition, ok := tool.(map[string]any)
+		if ok && definition["defer_loading"] == true {
+			name, _ := definition["name"].(string)
+			if _, referenced := loaded[name]; !referenced {
+				continue
+			}
+		}
+		kept = append(kept, tool)
+	}
+	object["tools"] = kept
+}
+
+func collectToolReferenceNames(value any, names map[string]struct{}) {
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			collectToolReferenceNames(item, names)
+		}
+	case map[string]any:
+		if typed["type"] == "tool_reference" {
+			if name, ok := typed["tool_name"].(string); ok {
+				names[name] = struct{}{}
+			}
+		}
+		for _, item := range typed {
+			collectToolReferenceNames(item, names)
+		}
+	}
 }
 
 func replaceInlineMediaFields(value any, encodedMedia map[string]struct{}) {

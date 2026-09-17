@@ -48,6 +48,7 @@ mcp:
 | `auth.region` | AWS signing region. Required for `sigv4`. |
 | `permission` | Server-wide default mode; per-tool `permission` overrides it. MCP tools default to `always_ask` — third-party code asks first. |
 | `default_enabled` | `false` disables tools by default. Set `enabled: true` for each tool you want to expose. |
+| `deferred` | `true` keeps the server's tools out of the model's context until `tool_search` loads them; per-tool `deferred` overrides it. See [Deferred tools](/agents/configuration#deferred-tools). |
 
 ### How MCP tools are named
 

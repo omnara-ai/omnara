@@ -79,6 +79,12 @@ const (
 	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
 		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
 		"If the download is still running after the initial wait, use the returned process_id with the process tools."
+	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
+		"and load the matches so they can be called as soon as the search returns. " +
+		"Deferred tools are not callable until a search returns them."
+	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
+		"deferred tool's name, description, argument names, and argument descriptions. " +
+		"Prefer broad patterns such as \"weather\" or \"get_.*_data\" over exact names."
 )
 
 type Catalog struct {
@@ -317,6 +323,9 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameListAgents], err = listAgentsTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameToolSearch], err = toolSearchTool(); err != nil {
+		return Catalog{}, err
+	}
 	for _, entry := range entries {
 		if err := entry.validate(); err != nil {
 			return Catalog{}, err
@@ -418,6 +427,33 @@ func integrationSendTool() (Entry, error) {
 				},
 				"description": "Use artifact IDs; for an upload_file result, use the final component of its /artifacts/<artifact_id> path. " +
 					"Omit this field or use an empty array for text-only messages.",
+			},
+		},
+	)
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
+	return entry, nil
+}
+
+func toolSearchTool() (Entry, error) {
+	entry, err := toolEntry(
+		ToolNameToolSearch,
+		toolSearchToolDescription,
+		[]string{"pattern"},
+		map[string]any{
+			"pattern": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   ToolSearchMaxPatternLength,
+				"description": toolSearchPatternDescription,
+			},
+			"max_results": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ToolSearchMaxResults,
+				"description": fmt.Sprintf("Maximum tools to return. Defaults to %d.", ToolSearchDefaultResults),
 			},
 		},
 	)

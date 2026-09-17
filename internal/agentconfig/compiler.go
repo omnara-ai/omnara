@@ -110,6 +110,7 @@ type ToolCompiled struct {
 	Enabled     bool                     `json:"enabled"`
 	Type        string                   `json:"type,omitempty"`
 	Permission  toolpermission.Selection `json:"permission"`
+	Deferred    bool                     `json:"deferred,omitempty"`
 	Description string                   `json:"description,omitempty"`
 	InputSchema json.RawMessage          `json:"input_schema,omitempty"`
 }
@@ -119,6 +120,7 @@ type MCPServerCompiled struct {
 	Auth           *MCPAuthCompiled           `json:"auth,omitempty"`
 	DefaultEnabled bool                       `json:"default_enabled"`
 	Permission     toolpermission.Selection   `json:"permission"`
+	Deferred       bool                       `json:"deferred,omitempty"`
 	Tools          map[string]MCPToolCompiled `json:"tools,omitempty"`
 }
 
@@ -132,6 +134,7 @@ type MCPAuthCompiled struct {
 type MCPToolCompiled struct {
 	Enabled    *bool                     `json:"enabled,omitempty"`
 	Permission *toolpermission.Selection `json:"permission,omitempty"`
+	Deferred   *bool                     `json:"deferred,omitempty"`
 }
 
 // Result is the complete compiler output for one agent config source. It is
@@ -322,6 +325,9 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
+	if sourceDefersAnyTool(source) {
+		names = append(names, toolcatalog.ToolNameToolSearch)
+	}
 	names = slices.DeleteFunc(names, func(name string) bool {
 		_, configured := source.Tools[name]
 		return configured
@@ -341,6 +347,25 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		}
 	}
 	return names
+}
+
+func sourceDefersAnyTool(source AgentConfigSource) bool {
+	for _, tool := range source.Tools {
+		if tool.Deferred && (tool.Enabled == nil || *tool.Enabled) {
+			return true
+		}
+	}
+	for _, server := range source.MCP {
+		if server.Deferred {
+			return true
+		}
+		for _, tool := range server.Tools {
+			if tool.Deferred != nil && *tool.Deferred {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // compileSkills validates and pins the attached skill set. Skills do not
@@ -399,9 +424,13 @@ func compileBuiltInTool(
 			return ToolCompiled{}, issueAt(jsonPointer("tools", name, "permission"), err)
 		}
 	}
+	if source.Deferred && name == toolcatalog.ToolNameToolSearch {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "deferred"), "tool_search cannot be deferred")
+	}
 	compiled := ToolCompiled{
 		Enabled:    enabled,
 		Permission: permission,
+		Deferred:   source.Deferred,
 	}
 	return compiled, nil
 }
@@ -417,6 +446,9 @@ func compileCustomTool(
 	}
 	if _, ok := catalog.Lookup(name); ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name collides with a built-in tool")
+	}
+	if toolcatalog.IsReservedWireToolName(name) {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name is reserved")
 	}
 	schema, err := valueToCanonicalJSON(source.InputSchema)
 	if err != nil {
@@ -436,6 +468,7 @@ func compileCustomTool(
 		Enabled:     enabled,
 		Type:        toolcatalog.ToolTypeCustom,
 		Permission:  permission,
+		Deferred:    source.Deferred,
 		Description: strings.TrimSpace(source.Description),
 		InputSchema: schema,
 	}, nil

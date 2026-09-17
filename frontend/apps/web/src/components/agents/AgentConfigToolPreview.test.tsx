@@ -334,7 +334,7 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     {
       source_format: 'json',
       source: JSON.stringify({
-        tools: { web_search: {} },
+        tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
         mcp: {},
         machine_sources: [],
         skills: [],
@@ -362,7 +362,9 @@ it('includes configured MCP servers in previews and removes them after deletion'
     />,
   )
   await vi.waitFor(() => {
-    expect(requests.at(-1)).toHaveProperty('mcp', { docs: { url: 'https://example.com/mcp' } })
+    expect(requests.at(-1)).toHaveProperty('mcp', {
+      docs: { url: 'https://example.com/mcp', default_enabled: false },
+    })
   })
   clickLabel('Remove MCP')
   await vi.waitFor(() => {

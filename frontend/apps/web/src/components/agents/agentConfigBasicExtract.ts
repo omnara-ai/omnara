@@ -3,6 +3,7 @@ import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
+import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type {
   BasicConfig,
   BasicMachineSource,
@@ -81,6 +82,7 @@ const mcpAuth = z.discriminatedUnion('type', [
 const mcpToolEntry = z.strictObject({
   enabled: z.boolean().nullable().optional(),
   permission: permission.optional(),
+  deferred: z.boolean().nullable().optional(),
 })
 
 export type McpToolEntry = z.infer<typeof mcpToolEntry>
@@ -89,6 +91,7 @@ const mcpEntry = z.strictObject({
   url: z.string(),
   permission: permission.optional(),
   default_enabled: z.boolean().nullable().optional(),
+  deferred: z.boolean().optional(),
   auth: mcpAuth.optional(),
   tools: z.record(z.string(), mcpToolEntry).optional(),
 })
@@ -99,6 +102,7 @@ const toolEntry = z.strictObject({
   type: z.literal('built_in').optional(),
   enabled: z.boolean().nullable().optional(),
   permission: permission.optional(),
+  deferred: z.boolean().optional(),
 })
 
 export type ToolEntry = z.infer<typeof toolEntry>
@@ -174,11 +178,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     providerConfig: doc.model?.provider_config ?? '',
     modelName: doc.model?.name ?? '',
     machineSources,
-    tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => ({
-      name,
-      enabled: entry.enabled ?? undefined,
-      permission: permissionDraft(entry.permission),
-    })),
+    tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
@@ -203,6 +203,16 @@ function subagentDraft(key: string, entry: z.infer<typeof subagentEntry>): Basic
 
 export function normalizeMultiline(value: string) {
   return value.replace(/\r\n?/g, '\n').trimEnd()
+}
+
+function toolDraft(name: string, entry: z.infer<typeof toolEntry>): BasicTool {
+  const draft: BasicTool = {
+    name,
+    enabled: entry.enabled ?? undefined,
+    permission: permissionDraft(entry.permission),
+  }
+  if (entry.deferred) draft.deferred = true
+  return draft
 }
 
 function permissionDraft(
@@ -267,7 +277,7 @@ function countDraft(value?: number): string {
 
 function mcpServerDraft(name: string, entry: z.infer<typeof mcpEntry>): BasicMcpServer {
   const auth = entry.auth
-  return {
+  const draft: BasicMcpServer = {
     id: crypto.randomUUID(),
     name,
     url: entry.url,
@@ -277,12 +287,18 @@ function mcpServerDraft(name: string, entry: z.infer<typeof mcpEntry>): BasicMcp
     secretId: auth?.secret_id ?? '',
     service: auth?.type === 'sigv4' ? auth.service : '',
     region: auth?.type === 'sigv4' ? auth.region : '',
-    tools: Object.entries(entry.tools ?? {}).map(
-      ([name, tool]): BasicMcpTool => ({
-        name,
-        enabled: tool.enabled ?? null,
-        permission: permissionDraft(tool.permission),
-      }),
-    ),
+    tools: Object.entries(entry.tools ?? {}).map(([name, tool]) => mcpToolDraft(name, tool)),
   }
+  if (entry.deferred) draft.deferred = true
+  return draft
+}
+
+function mcpToolDraft(name: string, tool: z.infer<typeof mcpToolEntry>): BasicMcpTool {
+  const draft: BasicMcpTool = {
+    name,
+    enabled: tool.enabled ?? null,
+    permission: permissionDraft(tool.permission),
+  }
+  if (tool.deferred != null) draft.deferred = tool.deferred
+  return draft
 }

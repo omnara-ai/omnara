@@ -28,6 +28,7 @@ export interface BasicTool {
   name: string
   enabled?: boolean
   permission: PermissionSelection | null
+  deferred?: boolean
 }
 
 const toolDescriptions = new Map([
@@ -62,7 +63,7 @@ export function AgentConfigToolsField({
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
-  const displayedTools = [
+  const displayedTools: BasicTool[] = [
     ...tools,
     ...(resolvedTools ?? [])
       .filter((tool) => !tools.some((configured) => configured.name === tool.name))
@@ -150,6 +151,19 @@ export function AgentConfigToolsField({
                                   ? currentTool.permission
                                   : { mode, parameters: {} },
                             }
+                          : currentTool,
+                      ),
+                    )
+                  }}
+                />
+                <ToolLoadingSelect
+                  name={tool.name}
+                  deferred={tool.deferred === true}
+                  onChange={(deferred) => {
+                    onToolsChange(
+                      tools.map((currentTool) =>
+                        currentTool.name === tool.name
+                          ? { ...currentTool, deferred: deferred || undefined }
                           : currentTool,
                       ),
                     )
@@ -316,6 +330,42 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
         <span className="bg-muted truncate rounded-md px-2 py-1 font-mono text-xs">{name}</span>
       )}
     </div>
+  )
+}
+
+export function ToolLoadingSelect({
+  name,
+  deferred,
+  onChange,
+}: {
+  name: string
+  deferred: boolean
+  onChange: (deferred: boolean) => void
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="min-w-0 flex-1 sm:w-28 sm:flex-none">
+          <Select
+            value={deferred ? 'deferred' : 'loaded'}
+            onValueChange={(value) => {
+              onChange(value === 'deferred')
+            }}
+          >
+            <SelectTrigger size="sm" className="w-full" aria-label={`${name} loading`}>
+              <SelectValue>{deferred ? 'Deferred' : 'Loaded'}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="loaded">Loaded</SelectItem>
+              <SelectItem value="deferred">Deferred</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs px-3 py-2 text-sm leading-relaxed">
+        Deferred tools stay out of the model&apos;s context until it finds them with tool_search.
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
