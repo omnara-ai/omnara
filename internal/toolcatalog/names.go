@@ -78,7 +78,7 @@ func IsSubagentToolName(name string) bool {
 func implicit(name string) bool {
 	return slices.Contains(MachineToolNames(), name) || slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill || name == ToolNameSendIntegrationMessage ||
-		name == ToolNameReadFile || name == ToolNameSearchFiles
+		name == ToolNameReadFile || name == ToolNameSearchFiles || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

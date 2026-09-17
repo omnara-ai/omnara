@@ -27,10 +27,6 @@ type Protocol interface {
 	ParseResponse(context.Context, Response) (model.Response, error)
 }
 
-type RequestHeaderProtocol interface {
-	RequestHeaders(body json.RawMessage) (Headers, error)
-}
-
 type StreamProtocol interface {
 	StreamAccept() string
 	IsStreamingResponse(contentType string) bool
@@ -350,31 +346,12 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 			return model.PreparedRequest{}, SetupError{Err: errors.New("model stream media type is required")}
 		}
 	}
-	auth, err := c.requestAuth(body)
-	if err != nil {
-		return model.PreparedRequest{}, SetupError{Err: err}
-	}
-	if err := c.Transport.validateRequest(ctx, endpoint, body, auth, streamMediaType); err != nil {
+	if err := c.Transport.validateRequest(ctx, endpoint, body, c.Auth, streamMediaType); err != nil {
 		return model.PreparedRequest{}, err
 	}
 	renderedMedia := c.Protocol.ProjectRenderedMedia(input.Context)
 	inputTokenEstimate := modelcontext.EstimatePreparedRequest(body, renderedMedia)
 	return model.PreparedRequest{Body: body, InputTokenEstimate: inputTokenEstimate}, nil
-}
-
-func (c Client) requestAuth(body json.RawMessage) (Auth, error) {
-	headerProtocol, ok := c.Protocol.(RequestHeaderProtocol)
-	if !ok {
-		return c.Auth, nil
-	}
-	headers, err := headerProtocol.RequestHeaders(body)
-	if err != nil {
-		return nil, err
-	}
-	if len(headers) == 0 {
-		return c.Auth, nil
-	}
-	return Chain{c.Auth, headers}, nil
 }
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
@@ -396,15 +373,11 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 	if strings.TrimSpace(streamMediaType) == "" {
 		return model.Response{}, SetupError{Err: errors.New("model stream media type is required")}
 	}
-	auth, err := c.requestAuth(input.ProviderRequest)
-	if err != nil {
-		return model.Response{}, SetupError{Err: err}
-	}
 	resp, err := c.Transport.StreamingDo(
 		ctx,
 		endpoint,
 		input.ProviderRequest,
-		auth,
+		c.Auth,
 		streamMediaType,
 	)
 	if err != nil {

@@ -77,18 +77,15 @@ func deferredToolNames(specs []modelcontext.ToolSpec) map[string]bool {
 	return names
 }
 
-func toolSearchOutputContent(search modelcontext.ToolSearchResult) (string, error) {
+func toolSearchOutputContent(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) (string, error) {
 	output := toolSearchOutput{
 		Pattern:            search.Pattern,
 		ToolNames:          search.ToolNames,
 		TotalDeferredTools: search.TotalDeferredTools,
-		Tools:              search.Tools,
+		Tools:              modelcontext.DeferredToolSearchDefinitions(specs, search),
 	}
 	if output.ToolNames == nil {
 		output.ToolNames = []string{}
-	}
-	if output.Tools == nil {
-		output.Tools = []modelcontext.ToolSearchDefinition{}
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {

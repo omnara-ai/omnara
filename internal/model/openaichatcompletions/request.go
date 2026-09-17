@@ -374,7 +374,7 @@ func appendToolResultMessages(
 		content := toolResultOutput(result, bundle.ResolvedMedia)
 		if deferredEnabled {
 			if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-				output, err := toolSearchOutputContent(search)
+				output, err := toolSearchOutputContent(bundle.ToolSpecs, search)
 				if err != nil {
 					return nil, err
 				}

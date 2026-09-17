@@ -9,11 +9,6 @@ func TestUserFacingMessageRewritesDeferredToolsUnsupported(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "anthropic tool addition",
-			message: "tool_addition/tool_removal is not supported on this model",
-			want:    DeferredToolsUnsupportedMessage,
-		},
-		{
 			name:    "openai responses tool search",
 			message: "Tool 'tool_search' is not supported with gpt-4.1.",
 			want:    DeferredToolsUnsupportedMessage,

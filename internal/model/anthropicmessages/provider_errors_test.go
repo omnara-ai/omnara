@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/providererrors"
 )
 
 func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
@@ -235,27 +234,5 @@ func TestRespondClassifiesCompleteMid200AnthropicError(t *testing.T) {
 	}
 	if model.IsAmbiguousProviderOutcome(err) {
 		t.Fatalf("complete mid-200 provider error must be explicit: %T %v", err, err)
-	}
-}
-
-func TestRespondRewritesUnsupportedToolAdditionError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(
-			`{"type":"error","error":{"type":"invalid_request_error",` +
-				`"message":"tool_addition/tool_removal is not supported on this model"}}`,
-		))
-	}))
-	defer server.Close()
-
-	_, err := testRespondClient(server).Respond(
-		context.Background(),
-		model.Request{ProviderRequest: json.RawMessage(`{"messages":[]}`)},
-	)
-	providerErr, ok := model.ClassifyError(err)
-	if !ok || providerErr.Kind != model.ErrorKindInvalidRequest ||
-		providerErr.Code != providererrors.DeferredToolsUnsupportedCode ||
-		providerErr.Message != providererrors.DeferredToolsUnsupportedMessage {
-		t.Fatalf("anthropic deferred tools error = %+v ok=%v err=%v", providerErr, ok, err)
 	}
 }

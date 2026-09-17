@@ -63,7 +63,7 @@ export function AgentConfigToolsField({
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
-  const displayedTools = [
+  const displayedTools: BasicTool[] = [
     ...tools,
     ...(resolvedTools ?? [])
       .filter((tool) => !tools.some((configured) => configured.name === tool.name))

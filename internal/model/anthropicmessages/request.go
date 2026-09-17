@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/apivariantbody"
-	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -106,9 +105,6 @@ type anthropicRole string
 const (
 	anthropicRoleUser      anthropicRole = "user"
 	anthropicRoleAssistant anthropicRole = "assistant"
-	anthropicRoleSystem    anthropicRole = "system"
-
-	MidConversationToolChangesBeta = "mid-conversation-tool-changes-2026-07-01"
 )
 
 type message struct {
@@ -144,63 +140,18 @@ type toolDefinition struct {
 	CacheControl *CacheControl   `json:"cache_control,omitempty"`
 }
 
-type toolAdditionBlock struct {
-	Type string        `json:"type"`
-	Tool toolReference `json:"tool"`
+type toolReferenceBlock struct {
+	Type     string `json:"type"`
+	ToolName string `json:"tool_name"`
 }
 
-type toolReference struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
-}
-
-func declaredDeferredToolNames(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) []string {
+func toolReferenceBlocks(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) []any {
 	definitions := modelcontext.DeferredToolSearchDefinitions(specs, search)
-	names := make([]string, 0, len(definitions))
+	blocks := make([]any, 0, len(definitions))
 	for _, definition := range definitions {
-		names = append(names, definition.Name)
-	}
-	return names
-}
-
-func toolAdditionBlocks(names []string) []any {
-	blocks := make([]any, 0, len(names))
-	for _, name := range names {
-		blocks = append(blocks, toolAdditionBlock{
-			Type: "tool_addition",
-			Tool: toolReference{Type: "tool_reference", Name: name},
-		})
+		blocks = append(blocks, toolReferenceBlock{Type: "tool_reference", ToolName: definition.Name})
 	}
 	return blocks
-}
-
-func (p protocol) RequestHeaders(body json.RawMessage) (route.Headers, error) {
-	var request struct {
-		Messages []struct {
-			Role    anthropicRole   `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-	}
-	if err := json.Unmarshal(body, &request); err != nil {
-		return nil, fmt.Errorf("decode anthropic-messages request: %w", err)
-	}
-	for _, message := range request.Messages {
-		if message.Role != anthropicRoleSystem {
-			continue
-		}
-		var blocks []struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(message.Content, &blocks) != nil {
-			continue
-		}
-		for _, block := range blocks {
-			if block.Type == "tool_addition" || block.Type == "tool_removal" {
-				return route.Headers{"Anthropic-Beta": MidConversationToolChangesBeta}, nil
-			}
-		}
-	}
-	return route.Headers{}, nil
 }
 
 func validateToolNames(specs []modelcontext.ToolSpec) error {
@@ -265,17 +216,6 @@ func buildMessages(
 	}
 	usedIDs := map[string]bool{}
 	historyAdded := false
-	var pendingToolAdditions []string
-	flushToolAdditions := func() {
-		if len(pendingToolAdditions) == 0 {
-			return
-		}
-		messages = append(messages, message{
-			Role:    anthropicRoleSystem,
-			Content: toolAdditionBlocks(pendingToolAdditions),
-		})
-		pendingToolAdditions = nil
-	}
 	for _, entry := range history {
 		if entry.Message.Role == modelprotocol.RoleAssistant {
 			assistantBlocks, toolUseIDByCallID, buildErr := assistantTurnForEntry(
@@ -290,7 +230,6 @@ func buildMessages(
 				return nil, buildErr
 			}
 			if len(assistantBlocks) > 0 {
-				flushToolAdditions()
 				historyAdded = true
 				messages = appendMessageBlocks(
 					messages,
@@ -303,18 +242,18 @@ func buildMessages(
 			}
 			resultContent := make([]any, 0, len(entry.ToolResults))
 			for _, result := range entry.ToolResults {
+				content := toolResultContent(result, bundle.ResolvedMedia)
+				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
+					if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
+						content = references
+					}
+				}
 				resultContent = append(resultContent, toolResultBlock{
 					Type:      "tool_result",
 					ToolUseID: toolUseIDByCallID[result.ProviderCallID],
-					Content:   toolResultContent(result, bundle.ResolvedMedia),
+					Content:   content,
 					IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
 				})
-				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-					pendingToolAdditions = append(
-						pendingToolAdditions,
-						declaredDeferredToolNames(bundle.ToolSpecs, search)...,
-					)
-				}
 			}
 			messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
 			historyAdded = true
@@ -329,7 +268,6 @@ func buildMessages(
 	if historyAdded {
 		messages = markLastMessageCacheBreakpoint(messages, control)
 	}
-	flushToolAdditions()
 	if len(messages) > 0 && messages[0].Role == anthropicRoleAssistant {
 		messages = append(
 			[]message{{Role: anthropicRoleUser, Content: []any{textBlock{Type: "text", Text: "Continue."}}}},
@@ -402,7 +340,7 @@ func messageBlocksFromParts(raw json.RawMessage, media map[string]modelcontext.R
 	return renderAnthropicContent(raw, media)
 }
 
-func toolResultContent(result modelcontext.ToolResultRef, media map[string]modelcontext.ResolvedMedia) any {
+func toolResultContent(result modelcontext.ToolResultRef, media map[string]modelcontext.ResolvedMedia) []any {
 	return renderAnthropicContent(result.ContentParts, media)
 }
 

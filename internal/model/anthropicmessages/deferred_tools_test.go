@@ -3,8 +3,6 @@ package anthropicmessages
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -45,7 +43,7 @@ func toolSearchBundle() modelcontext.Bundle {
 	}
 }
 
-func TestPrepareDefersToolsAndAddsDiscoveredToolsMidConversation(t *testing.T) {
+func TestPrepareDefersToolsAndReturnsDiscoveredToolReferences(t *testing.T) {
 	client := Client{
 		ModelProviderConfigID: testModelProviderConfigID,
 		EndpointPath:          testEndpointPath,
@@ -63,8 +61,13 @@ func TestPrepareDefersToolsAndAddsDiscoveredToolsMidConversation(t *testing.T) {
 			CacheControl json.RawMessage `json:"cache_control"`
 		} `json:"tools"`
 		Messages []struct {
-			Role    string            `json:"role"`
-			Content []json.RawMessage `json:"content"`
+			Role    string `json:"role"`
+			Content []struct {
+				Type         string            `json:"type"`
+				ToolUseID    string            `json:"tool_use_id"`
+				CacheControl json.RawMessage   `json:"cache_control"`
+				Content      []json.RawMessage `json:"content"`
+			} `json:"content"`
 		} `json:"messages"`
 	}
 	require.NoError(t, json.Unmarshal(prepared.Body, &payload))
@@ -76,53 +79,39 @@ func TestPrepareDefersToolsAndAddsDiscoveredToolsMidConversation(t *testing.T) {
 	require.True(t, payload.Tools[2].DeferLoading)
 	require.Empty(t, payload.Tools[2].CacheControl)
 
-	require.Len(t, payload.Messages, 4)
+	require.Len(t, payload.Messages, 3)
 	require.Equal(t, "user", payload.Messages[2].Role)
-	require.Contains(t, string(payload.Messages[2].Content[0]), `"tool_use_id":"mcc_1_toolu_search_`)
-	require.Contains(t, string(payload.Messages[2].Content[0]), `"cache_control"`)
-	require.Equal(t, "system", payload.Messages[3].Role)
+	require.Len(t, payload.Messages[2].Content, 1)
+	result := payload.Messages[2].Content[0]
+	require.Equal(t, "tool_result", result.Type)
+	require.Contains(t, result.ToolUseID, "mcc_1_toolu_search_")
+	require.NotEmpty(t, result.CacheControl)
+	require.Len(t, result.Content, 1)
 	require.JSONEq(
 		t,
-		`{"type":"tool_addition","tool":{"type":"tool_reference","name":"get_weather"}}`,
-		string(payload.Messages[3].Content[0]),
+		`{"type":"tool_reference","tool_name":"get_weather"}`,
+		string(result.Content[0]),
 	)
-
-	headers, err := (protocol{client: client}).RequestHeaders(prepared.Body)
-	require.NoError(t, err)
-	require.Equal(t, MidConversationToolChangesBeta, headers["Anthropic-Beta"])
+	require.NotContains(t, string(prepared.Body), "tool_addition")
 }
 
-func TestPrepareFlushesToolAdditionsBeforeNextAssistantTurn(t *testing.T) {
+func TestPrepareSkipsToolReferencesForUndeclaredTools(t *testing.T) {
 	client := Client{
 		ModelProviderConfigID: testModelProviderConfigID,
 		EndpointPath:          testEndpointPath,
 		ProviderModelSlug:     "claude-test",
 	}
 	bundle := toolSearchBundle()
-	bundle.Messages = append(
-		bundle.Messages,
-		messageAtSequence(anthropicTextMessage(modelprotocol.RoleUser, "hurry up"), 3),
-		messageAtSequence(anthropicTextMessage(modelprotocol.RoleAssistant, "on it"), 4),
-	)
+	bundle.ToolSpecs = modelcontext.LoadedToolSpecs(bundle.ToolSpecs)
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: bundle,
 		Policy:  model.RequestPolicy{MaxOutputTokens: 1024},
 	})
 	require.NoError(t, err)
-	var payload struct {
-		Messages []struct {
-			Role string `json:"role"`
-		} `json:"messages"`
-	}
-	require.NoError(t, json.Unmarshal(prepared.Body, &payload))
-	roles := make([]string, 0, len(payload.Messages))
-	for _, message := range payload.Messages {
-		roles = append(roles, message.Role)
-	}
-	require.Equal(t, []string{"user", "assistant", "user", "system", "assistant"}, roles)
+	require.NotContains(t, string(prepared.Body), "tool_reference")
 }
 
-func TestPrepareWithoutDeferredToolsSendsNoBetaHeader(t *testing.T) {
+func TestPrepareWithoutDeferredToolsSendsNoDeferLoading(t *testing.T) {
 	client := Client{
 		ModelProviderConfigID: testModelProviderConfigID,
 		EndpointPath:          testEndpointPath,
@@ -137,28 +126,4 @@ func TestPrepareWithoutDeferredToolsSendsNoBetaHeader(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotContains(t, string(prepared.Body), "defer_loading")
-	headers, err := (protocol{client: client}).RequestHeaders(prepared.Body)
-	require.NoError(t, err)
-	require.Empty(t, headers)
-}
-
-func TestRespondSendsBetaHeaderOnlyForToolChanges(t *testing.T) {
-	var betaHeaders []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		betaHeaders = append(betaHeaders, r.Header.Get("Anthropic-Beta"))
-		_, _ = w.Write([]byte(`{"id":"msg_1","model":"claude-served","content":[{"type":"text","text":"ok"}],` +
-			`"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
-	}))
-	defer server.Close()
-	client := testRespondClient(server)
-	withChanges := json.RawMessage(`{"model":"claude-test","max_tokens":10,"stream":true,"messages":[` +
-		`{"role":"user","content":[{"type":"text","text":"hi"}]},` +
-		`{"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_reference","name":"get_weather"}}]}]}`)
-	_, err := client.Respond(context.Background(), model.Request{ProviderRequest: withChanges})
-	require.NoError(t, err)
-	without := json.RawMessage(`{"model":"claude-test","max_tokens":10,"stream":true,"messages":[` +
-		`{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
-	_, err = client.Respond(context.Background(), model.Request{ProviderRequest: without})
-	require.NoError(t, err)
-	require.Equal(t, []string{MidConversationToolChangesBeta, ""}, betaHeaders)
 }

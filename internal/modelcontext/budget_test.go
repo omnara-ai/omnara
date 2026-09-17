@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -69,7 +70,7 @@ func TestPreparedRequestBudgetRemovesOnlyStructuredMediaFields(t *testing.T) {
 		},
 		Representation: MediaRepresentationInline,
 	}}
-	projected := preparedRequestWithoutInlineMedia(body, media)
+	projected := projectPreparedRequest(body, media)
 	if !bytes.Contains(projected, []byte(encoded)) {
 		t.Fatalf("ordinary user text matching media base64 was removed: %s", projected)
 	}
@@ -105,6 +106,40 @@ func TestPreparedRequestBudgetRemovesChatFileData(t *testing.T) {
 	}}
 	if estimate := EstimatePreparedRequest(body, media); estimate >= len(body)/4 {
 		t.Fatalf("estimate = %d, raw base64 byte estimate = %d", estimate, len(body)/4)
+	}
+}
+
+func TestEstimatePreparedRequestExcludesDeferredToolsUntilReferenced(t *testing.T) {
+	description := strings.Repeat("deferred ", 512)
+	largeSchema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"query": map[string]string{"type": "string", "description": description}},
+	}
+	loadedTool := map[string]any{"name": "get_time", "input_schema": map[string]string{"type": "object"}}
+	deferredTool := map[string]any{"name": "get_weather", "input_schema": largeSchema, "defer_loading": true}
+	unloaded := budgetFixtureJSON(t, map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"tools":    []map[string]any{loadedTool, deferredTool},
+	})
+	withoutDeferred := budgetFixtureJSON(t, map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"tools":    []map[string]any{loadedTool},
+	})
+	if got, want := EstimatePreparedRequest(unloaded, nil), EstimatePreparedRequest(withoutDeferred, nil); got != want {
+		t.Fatalf("unloaded deferred tool estimate = %d, want %d (deferred schema excluded)", got, want)
+	}
+
+	referenced := budgetFixtureJSON(t, map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": []map[string]any{{
+			"type":        "tool_result",
+			"tool_use_id": "toolu_1",
+			"content":     []map[string]string{{"type": "tool_reference", "tool_name": "get_weather"}},
+		}}}},
+		"tools": []map[string]any{loadedTool, deferredTool},
+	})
+	minimum := EstimatePreparedRequest(withoutDeferred, nil) + len(description)/8
+	if got := EstimatePreparedRequest(referenced, nil); got <= minimum {
+		t.Fatalf("referenced deferred tool estimate = %d, want the loaded schema charged", got)
 	}
 }
 

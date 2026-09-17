@@ -80,7 +80,7 @@ const (
 		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
 		"If the download is still running after the initial wait, use the returned process_id with the process tools."
 	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
-		"and load the matches so they can be called on the next turn. " +
+		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
 	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
 		"deferred tool's name, description, argument names, and argument descriptions. " +

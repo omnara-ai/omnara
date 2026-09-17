@@ -325,6 +325,9 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
+	if sourceDefersAnyTool(source) {
+		names = append(names, toolcatalog.ToolNameToolSearch)
+	}
 	names = slices.DeleteFunc(names, func(name string) bool {
 		_, configured := source.Tools[name]
 		return configured
@@ -344,6 +347,25 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		}
 	}
 	return names
+}
+
+func sourceDefersAnyTool(source AgentConfigSource) bool {
+	for _, tool := range source.Tools {
+		if tool.Deferred && (tool.Enabled == nil || *tool.Enabled) {
+			return true
+		}
+	}
+	for _, server := range source.MCP {
+		if server.Deferred {
+			return true
+		}
+		for _, tool := range server.Tools {
+			if tool.Deferred != nil && *tool.Deferred {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // compileSkills validates and pins the attached skill set. Skills do not

@@ -80,7 +80,7 @@ func TestPrepareRendersToolSearchResultWithDefinitionsAndWrapsDeferredCalls(t *t
 				ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"outcome":"succeeded"}},` +
 					`{"type":"text","text":"Loaded 1 tool(s)"},` +
 					`{"type":"structured_data","value":{"pattern":"weather","tool_names":["get_weather"],"total_deferred_tools":1,` +
-					`"tools":[{"name":"get_weather","description":"Get the weather.","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}}]`),
+					`"tools":[{"name":"get_weather","description":"stale","input_schema":{"type":"object"}}]}}]`),
 			},
 			{
 				ToolCallID:         "tcl_2",
