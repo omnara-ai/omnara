@@ -46,8 +46,11 @@ var terminalRunStates = map[string]bool{"completed": true, "failed": true, "canc
 const runStateRunning = "running"
 
 // The boot script installs omnarad before exec'ing it, which outlasts the
-// settle window. Variable so tests do not pay it.
-const defaultDaemonStartTimeout = 2 * time.Minute
+// settle window. Derived from provisioningTimeout so the inner wait cannot
+// outlive the deadline the manager already applies to ProvisionMachine, which
+// would surface as a cancellation instead of the state the daemon was stuck in.
+// Variable so tests do not pay it.
+const defaultDaemonStartTimeout = provisioningTimeout - 5*time.Second
 
 var daemonStartTimeout = defaultDaemonStartTimeout
 

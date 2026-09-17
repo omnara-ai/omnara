@@ -439,3 +439,13 @@ func TestArkerProviderProvisionFailsWhileTheDaemonRunStaysPending(t *testing.T) 
 		t.Fatalf("a run queued behind another is not a started daemon, got %v", err)
 	}
 }
+
+func TestArkerDaemonStartTimeoutFitsInsideTheProvisioningBudget(t *testing.T) {
+	if defaultDaemonStartTimeout >= provisioningTimeout {
+		t.Fatalf(
+			"daemon wait %s must finish before the manager's %s deadline, or a stuck boot "+
+				"is reported as a cancellation instead of the state it was stuck in",
+			defaultDaemonStartTimeout, provisioningTimeout,
+		)
+	}
+}
