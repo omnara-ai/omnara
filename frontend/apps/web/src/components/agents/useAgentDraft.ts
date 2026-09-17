@@ -47,7 +47,7 @@ export function useAgentDraft(
   const [name, setName] = useState(restored?.agentName ?? initial.name)
   const form = useAgentBuilderForm(session, restored?.draft ?? initial.draft, scope)
   const dirty = name !== initial.name || (mode.editorYaml ?? form.yaml) !== initial.yaml
-  useUnsavedChangesWarning(dirty)
+  const suppressUnsavedChangesWarning = useUnsavedChangesWarning(dirty)
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)
@@ -71,5 +71,14 @@ export function useAgentDraft(
     setName((prev) => agentTemplateName(prev, template))
   }
 
-  return { name, setName, mode, dispatchMode, form, switchMode, applyTemplate }
+  return {
+    name,
+    setName,
+    mode,
+    dispatchMode,
+    form,
+    switchMode,
+    applyTemplate,
+    suppressUnsavedChangesWarning,
+  }
 }

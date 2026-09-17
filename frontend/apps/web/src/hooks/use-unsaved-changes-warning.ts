@@ -1,6 +1,6 @@
 import { type ShouldBlockFn, useBlocker } from '@tanstack/react-router'
+import { useCallback, useRef } from 'react'
 
-let suppressed = false
 const confirmLeavingEditor: ShouldBlockFn = ({ current, next }) => {
   const sameAgent =
     'agentId' in current.params &&
@@ -14,22 +14,21 @@ const confirmLeavingEditor: ShouldBlockFn = ({ current, next }) => {
   if (sameAgent || samePage) return false
   return !window.confirm('You have unsaved changes. Discard them?')
 }
-const enableBeforeUnload = () => !suppressed
-
-export function suppressUnsavedChangesWarning() {
-  suppressed = true
-  const restore = () => {
-    suppressed = false
-    window.removeEventListener('pageshow', restore)
-  }
-  window.addEventListener('pageshow', restore)
-  return restore
-}
 
 export function useUnsavedChangesWarning(dirty: boolean) {
+  const suppressed = useRef(false)
+  const enableBeforeUnload = useCallback(() => !suppressed.current, [])
   useBlocker({
     shouldBlockFn: confirmLeavingEditor,
     enableBeforeUnload,
     disabled: !dirty,
   })
+  return function suppressUnsavedChangesWarning() {
+    suppressed.current = true
+    const restore = () => {
+      suppressed.current = false
+      window.removeEventListener('pageshow', restore)
+    }
+    window.addEventListener('pageshow', restore)
+  }
 }

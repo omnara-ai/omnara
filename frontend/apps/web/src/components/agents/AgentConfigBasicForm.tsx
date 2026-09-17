@@ -15,11 +15,13 @@ export function AgentConfigBasicForm({
   projectId,
   form,
   agentName,
+  onBeforeOAuthRedirect,
 }: {
   orgId: string
   projectId: string
   form: AgentBuilderForm
   agentName?: string
+  onBeforeOAuthRedirect?: () => void
 }) {
   const toolCatalog = useToolCatalog()
 
@@ -95,6 +97,7 @@ export function AgentConfigBasicForm({
             onServersChange={form.setMcpServers}
             builderDraft={form.draft}
             agentName={agentName}
+            onBeforeOAuthRedirect={onBeforeOAuthRedirect}
           />
         </div>
       </div>

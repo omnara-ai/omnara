@@ -59,7 +59,7 @@ export function useAgentConfigEditor({
   const editorYaml = mode.editorYaml ?? builderYaml
   const yaml = showBuilder ? builderYaml : editorYaml
   const dirty = yaml !== source
-  useUnsavedChangesWarning(dirty)
+  const suppressUnsavedChangesWarning = useUnsavedChangesWarning(dirty)
   const saveBlocked =
     yaml.trim() === '' ||
     (builderSession != null && form.blocked && (showBuilder || !yamlDiverged(mode)))
@@ -84,6 +84,7 @@ export function useAgentConfigEditor({
     editorYaml,
     yaml,
     dirty,
+    suppressUnsavedChangesWarning,
     saveBlocked,
     showBuilder,
   }
