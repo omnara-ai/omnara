@@ -220,17 +220,18 @@ When `has_more` is true, continue using the returned `next_offset_line` or `next
 
 ### `search_files`
 
-Searches text inside an artifact file using a regular expression. It accepts one exact artifact path per call and has the same file requirements as `read_file`.
+Searches text in one artifact or in memory files matching a path or glob.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact path |
-| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | RE2 regex, 1–1024 UTF-8 bytes; case-sensitive unless using `(?i)` |
-| `offset_line` | integer | ≥ 1; default 1; first line to search for matches |
-| `max_matches` | integer | 1–100 matching lines; default 20 |
-| `context_lines` | integer | 0–5 lines before and after each match; default 0 |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | For artifacts, one exact `/artifacts/<artifact_id>` path. For memory, an exact file path or a glob such as `/memory/notes/**/*.md`. |
+| `args`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string[] | Ripgrep options and `-e` patterns; for example `["-i", "-C", "2", "-e", "deploy"]` |
+| `limit` | integer | 1–100 entries across all files; default 20 |
+| `offset_line` | integer | Starting line, default 1; only for exact-file content searches |
 
-Results include line numbers and bounded text snippets. When `truncated` is true, continue with the same pattern and the returned `next_offset_line` as `offset_line`. Context may overlap between pages or include lines before `offset_line`. Patterns match within individual lines; use `read_file` to read more around a match.
+Supported options are `-e` (repeatable patterns), `-F` (literal), `-i` (ignore case), `-w` (whole word), `-x` (whole line), `-v` (invert), `-U` (multiline), `-l` (matching paths), `-c` (counts), and `-A`/`-B`/`-C` (0–5 context lines). Patterns total at most 1024 UTF-8 bytes. Other options and file operands are rejected.
+
+Content results are a sequence of match and context records with paths, original line numbers, and bounded snippets. Context does not count toward `limit`; counts in `-c` results are not capped by it. Context may be cut off at the response limit. Narrow the query when truncated.
 
 ### Large tool results
 

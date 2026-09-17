@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -19,22 +18,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const searchLineBytes = 256
-
 type readFileRequest struct {
 	Path       string `json:"path"`
 	OffsetLine *int   `json:"offset_line,omitempty"`
 	LimitLines *int   `json:"limit_lines,omitempty"`
 	OffsetChar *int   `json:"offset_char,omitempty"`
 	LimitChars *int   `json:"limit_chars,omitempty"`
-}
-
-type searchFilesRequest struct {
-	Path         string `json:"path"`
-	Pattern      string `json:"pattern"`
-	OffsetLine   *int   `json:"offset_line,omitempty"`
-	MaxMatches   *int   `json:"max_matches,omitempty"`
-	ContextLines int    `json:"context_lines,omitempty"`
 }
 
 func validateReadFileInput(raw json.RawMessage) error {
@@ -91,46 +80,6 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	return input, nil
 }
 
-func validateSearchFilesInput(raw json.RawMessage) error {
-	_, _, _, err := resolveSearchFilesRequest(raw)
-	return err
-}
-
-func resolveSearchFilesRequest(
-	raw json.RawMessage,
-) (searchFilesRequest, uuid.UUID, *regexp.Regexp, error) {
-	var input searchFilesRequest
-	if err := decodeSingleStrictJSON(raw, &input, "search_files request"); err != nil {
-		return searchFilesRequest{}, uuid.Nil, nil, fmt.Errorf("parse search_files request: %w", err)
-	}
-	id, err := resolveArtifactPath(input.Path)
-	if err != nil {
-		return searchFilesRequest{}, uuid.Nil, nil, errors.New(
-			"path must be /artifacts/<artifact_id>",
-		)
-	}
-	if input.Pattern == "" || len(input.Pattern) > toolcatalog.SearchMaxPatternBytes {
-		return searchFilesRequest{}, uuid.Nil, nil, errors.New("pattern must contain 1–1024 bytes")
-	}
-	pattern, err := regexp.Compile(input.Pattern)
-	if err != nil {
-		return searchFilesRequest{}, uuid.Nil, nil, fmt.Errorf("compile pattern: %w", err)
-	}
-	if input.OffsetLine == nil {
-		value := 1
-		input.OffsetLine = &value
-	}
-	if input.MaxMatches == nil {
-		value := toolcatalog.SearchDefaultMatches
-		input.MaxMatches = &value
-	}
-	if *input.OffsetLine < 1 || *input.MaxMatches < 1 || *input.MaxMatches > toolcatalog.SearchMaxMatches ||
-		input.ContextLines < 0 || input.ContextLines > toolcatalog.SearchMaxContextLines {
-		return searchFilesRequest{}, uuid.Nil, nil, errors.New("invalid artifact search limits")
-	}
-	return input, id, pattern, nil
-}
-
 func runReadFileAsync(
 	ctx context.Context,
 	call asyncToolContext,
@@ -146,9 +95,6 @@ func runReadFileAsync(
 		if err != nil {
 			return nil, err
 		}
-		if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-			return nil, errors.New("memory file must contain UTF-8 text without NUL bytes")
-		}
 		contentType = http.DetectContentType(content)
 	} else {
 		artifactID, err := resolveArtifactPath(input.Path)
@@ -156,11 +102,14 @@ func runReadFileAsync(
 			return nil, err
 		}
 		var record artifactstore.ArtifactRecord
-		content, record, err = loadReadableArtifact(ctx, call, artifactID)
+		content, record, err = loadArtifactContent(ctx, call, artifactID)
 		if err != nil {
 			return nil, err
 		}
 		digest, contentType = record.Digest, record.ContentType
+	}
+	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+		return nil, errors.New("file must contain UTF-8 text without NUL bytes")
 	}
 	var result map[string]any
 	if input.OffsetChar != nil {
@@ -171,29 +120,6 @@ func runReadFileAsync(
 	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
 	result["digest"] = digest
-	return completeFileTool(result)
-}
-
-func runSearchFilesAsync(
-	ctx context.Context,
-	call asyncToolContext,
-) (asyncPhaseResult, error) {
-	input, artifactID, pattern, err := resolveSearchFilesRequest(call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
-	content, _, err := loadReadableArtifact(ctx, call, artifactID)
-	if err != nil {
-		return nil, err
-	}
-	result := searchFilesLines(
-		content,
-		input.Path,
-		pattern,
-		*input.OffsetLine,
-		*input.MaxMatches,
-		input.ContextLines,
-	)
 	return completeFileTool(result)
 }
 
@@ -211,7 +137,7 @@ func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string
 	}, store.ID, relativePath)
 }
 
-func loadReadableArtifact(
+func loadArtifactContent(
 	ctx context.Context,
 	call asyncToolContext,
 	artifactID uuid.UUID,
@@ -245,9 +171,6 @@ func loadReadableArtifact(
 	}
 	if len(content) > toolcatalog.MaxReadableArtifactBytes {
 		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact exceeds readable limit")
-	}
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact must contain UTF-8 text without NUL bytes")
 	}
 	return content, record, nil
 }
@@ -333,120 +256,7 @@ func readFileLines(content []byte, path string, offsetLine, limitLines int) map[
 	return result
 }
 
-func searchFilesLines(
-	content []byte,
-	path string,
-	pattern *regexp.Regexp,
-	offsetLine, maxMatches, contextLines int,
-) map[string]any {
-	blocks := make([]map[string]any, 0, maxMatches)
-	renderedBytes, lineNumber, byteOffset := 0, 0, 0
-	nextOffsetLine := 0
-	for line := range bytes.SplitSeq(content, []byte{'\n'}) {
-		lineNumber++
-		lineStart := byteOffset
-		if lineStart >= len(content) {
-			break
-		}
-		byteOffset += len(line) + 1
-		if lineNumber < offsetLine {
-			continue
-		}
-		location := pattern.FindIndex(line)
-		if location == nil {
-			continue
-		}
-		if len(blocks) >= maxMatches {
-			nextOffsetLine = lineNumber
-			break
-		}
-		start, firstLine := lineStart, lineNumber
-		for n := 0; n < contextLines && start > 0; n++ {
-			start = bytes.LastIndexByte(content[:start-1], '\n') + 1
-			firstLine--
-		}
-		end := min(byteOffset, len(content))
-		for n := 0; n < contextLines && end < len(content); n++ {
-			next := bytes.IndexByte(content[end:], '\n')
-			if next < 0 {
-				end = len(content)
-				break
-			}
-			end += next + 1
-		}
-		visible := make([]map[string]any, 0, 2*contextLines+1)
-		blockBytes, currentLine := 0, firstLine
-		segment := bytes.TrimSuffix(content[start:end], []byte{'\n'})
-		for line := range bytes.SplitSeq(segment, []byte{'\n'}) {
-			var text string
-			if currentLine == lineNumber {
-				text = truncateAroundMatch(line, location[0], location[1], searchLineBytes)
-			} else {
-				text = textutil.TruncateBytes(string(line[:min(len(line), searchLineBytes+utf8.UTFMax)]), searchLineBytes)
-			}
-			visible = append(visible, map[string]any{
-				"line_number": currentLine,
-				"text":        text,
-				"is_match":    currentLine == lineNumber,
-			})
-			blockBytes += len(text) + 32
-			currentLine++
-		}
-		if renderedBytes+blockBytes > toolcatalog.FilePageBytes {
-			nextOffsetLine = lineNumber
-			break
-		}
-		blocks = append(blocks, map[string]any{
-			"match_line": lineNumber,
-			"lines":      visible,
-		})
-		renderedBytes += blockBytes
-	}
-	result := map[string]any{
-		"path":        path,
-		"pattern":     pattern.String(),
-		"matches":     blocks,
-		"match_count": len(blocks),
-		"truncated":   nextOffsetLine > 0,
-	}
-	if nextOffsetLine > 0 {
-		result["next_offset_line"] = nextOffsetLine
-	}
-	return result
-}
-
-func truncateAroundMatch(value []byte, matchStart, matchEnd, limit int) string {
-	if len(value) <= limit {
-		return string(value)
-	}
-	matchLength := matchEnd - matchStart
-	if matchLength >= limit {
-		return textutil.TruncateBytes(string(value[matchStart:min(matchEnd, matchStart+limit+utf8.UTFMax)]), limit)
-	}
-	remaining := limit - matchLength
-	start := max(0, matchStart-remaining/2)
-	end := min(len(value), matchEnd+(remaining-(matchStart-start)))
-	if end-start < limit {
-		start = max(0, end-limit)
-	}
-	for start < matchStart && !utf8.RuneStart(value[start]) {
-		start++
-	}
-	for end > matchEnd && end < len(value) && !utf8.RuneStart(value[end]) {
-		end--
-	}
-	prefix := ""
-	suffix := ""
-	if start > 0 {
-		prefix = "…"
-	}
-	if end < len(value) {
-		suffix = "…"
-	}
-	return prefix + string(value[start:end]) + suffix
-}
-
-func completeFileTool(value map[string]any) (asyncPhaseResult, error) {
+func completeFileTool(value any) (asyncPhaseResult, error) {
 	content, err := structuredToolResultContent(value)
 	if err != nil {
 		return nil, err

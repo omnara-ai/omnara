@@ -83,6 +83,9 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-
 
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+
       - run: make ${{ matrix.target }}
 
   daemon-darwin:
@@ -178,6 +181,10 @@ jobs:
             ~/.cache/go-build
           key: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-
+
+      - name: Install ripgrep
+        if: matrix.target == 'test-integration-runtime'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
 
       - uses: ./.github/actions/setup-test-db
 
