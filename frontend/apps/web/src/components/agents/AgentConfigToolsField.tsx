@@ -69,9 +69,11 @@ export function AgentConfigToolsField({
       .filter((tool) => !tools.some((configured) => configured.name === tool.name))
       .map((tool) => ({ name: tool.name, enabled: tool.enabled, permission: null })),
   ]
-  const includedTools = displayedTools.filter((tool) => catalogByName.get(tool.name)?.implicit)
+  const includedTools = displayedTools
+    .filter((tool) => catalogByName.get(tool.name)?.implicit)
+    .sort((a, b) => a.name.localeCompare(b.name))
   const visibleTools = catalog
-    ? displayedTools.filter(
+    ? tools.filter(
         (tool) => !catalogByName.get(tool.name)?.implicit && tool.name !== 'set_integration_target',
       )
     : []
@@ -156,19 +158,6 @@ export function AgentConfigToolsField({
                     )
                   }}
                 />
-                <ToolLoadingSelect
-                  name={tool.name}
-                  deferred={tool.deferred === true}
-                  onChange={(deferred) => {
-                    onToolsChange(
-                      tools.map((currentTool) =>
-                        currentTool.name === tool.name
-                          ? { ...currentTool, deferred: deferred || undefined }
-                          : currentTool,
-                      ),
-                    )
-                  }}
-                />
                 <Button
                   type="button"
                   size="icon"
@@ -214,10 +203,20 @@ function AgentConfigIncludedTools({
 
   return (
     <Collapsible className="border-t first:border-t-0">
-      <CollapsibleTrigger className="text-muted-foreground group flex w-full items-center gap-2 px-4 py-3 text-left text-sm sm:px-5">
-        <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-        Other tools
-      </CollapsibleTrigger>
+      <Tooltip>
+        <CollapsibleTrigger asChild>
+          <TooltipTrigger className="text-muted-foreground group flex w-fit items-center gap-2 px-4 py-3 text-left text-sm sm:px-5">
+            <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+            Other tools
+          </TooltipTrigger>
+        </CollapsibleTrigger>
+        <TooltipContent
+          side="right"
+          className="max-w-xs text-wrap px-4 py-2 text-left text-sm leading-relaxed"
+        >
+          Tools added automatically based on the agent&apos;s configuration.
+        </TooltipContent>
+      </Tooltip>
       <CollapsibleContent className="divide-y">
         {tools.map((tool) => {
           const { name } = tool
@@ -330,42 +329,6 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
         <span className="bg-muted truncate rounded-md px-2 py-1 font-mono text-xs">{name}</span>
       )}
     </div>
-  )
-}
-
-export function ToolLoadingSelect({
-  name,
-  deferred,
-  onChange,
-}: {
-  name: string
-  deferred: boolean
-  onChange: (deferred: boolean) => void
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="min-w-0 flex-1 sm:w-28 sm:flex-none">
-          <Select
-            value={deferred ? 'deferred' : 'loaded'}
-            onValueChange={(value) => {
-              onChange(value === 'deferred')
-            }}
-          >
-            <SelectTrigger size="sm" className="w-full" aria-label={`${name} loading`}>
-              <SelectValue>{deferred ? 'Deferred' : 'Loaded'}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="loaded">Loaded</SelectItem>
-              <SelectItem value="deferred">Deferred</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-xs px-3 py-2 text-sm leading-relaxed">
-        Deferred tools stay out of the model&apos;s context until it finds them with tool_search.
-      </TooltipContent>
-    </Tooltip>
   )
 }
 
