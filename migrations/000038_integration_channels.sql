@@ -411,6 +411,8 @@ $$;
 
 -- A route is one configured inbound behavior implementation. It never owns an
 -- agent; the optional profile authorizes launches by this configured behavior.
+-- Configuration holds mutable behavior settings. Workflow and binding identity
+-- stays attached to the route ID across setting and launch-profile changes.
 CREATE TABLE integration_routes (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
@@ -443,9 +445,11 @@ CREATE INDEX integration_routes_profile_idx
     ON integration_routes(project_id, agent_profile_id)
     WHERE agent_profile_id IS NOT NULL;
 
+-- Settings may change future activation without replacing workflow identity.
+-- The behavior implementation and owning scope remain immutable.
 CREATE TRIGGER integration_routes_definition_immutable
     BEFORE UPDATE OF id, project_id, integration_install_id, deployment_key,
-        behavior_key, configuration, created_at
+        behavior_key, created_at
     ON integration_routes
     FOR EACH ROW
     EXECUTE FUNCTION reject_immutable_column_update();

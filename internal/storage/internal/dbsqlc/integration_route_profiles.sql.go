@@ -7,6 +7,7 @@ package dbsqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -49,10 +50,12 @@ func (q *Queries) LockIntegrationRouteByDeploymentKey(ctx context.Context, arg L
 
 const updateIntegrationRouteProfile = `-- name: UpdateIntegrationRouteProfile :one
 UPDATE integration_routes
-SET agent_profile_id = $1, updated_at = statement_timestamp()
-WHERE project_id = $2
-  AND integration_install_id = $3
-  AND id = $4
+SET agent_profile_id = $1,
+  configuration = configuration || $2::jsonb,
+  updated_at = statement_timestamp()
+WHERE project_id = $3
+  AND integration_install_id = $4
+  AND id = $5
   AND deleted_at IS NULL
 RETURNING id, project_id, integration_install_id,
   deployment_key, behavior_key, configuration, agent_profile_id, state,
@@ -61,6 +64,7 @@ RETURNING id, project_id, integration_install_id,
 
 type UpdateIntegrationRouteProfileParams struct {
 	AgentProfileID       *uuid.UUID
+	ConfigurationPatch   json.RawMessage
 	ProjectID            uuid.UUID
 	IntegrationInstallID uuid.UUID
 	ID                   uuid.UUID
@@ -69,6 +73,7 @@ type UpdateIntegrationRouteProfileParams struct {
 func (q *Queries) UpdateIntegrationRouteProfile(ctx context.Context, arg UpdateIntegrationRouteProfileParams) (IntegrationRoute, error) {
 	row := q.db.QueryRow(ctx, updateIntegrationRouteProfile,
 		arg.AgentProfileID,
+		arg.ConfigurationPatch,
 		arg.ProjectID,
 		arg.IntegrationInstallID,
 		arg.ID,

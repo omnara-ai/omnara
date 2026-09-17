@@ -83,6 +83,9 @@ export const githubEvent = z.strictObject({
   review: review.optional(),
   before: githubCommitID.optional(),
   after: githubCommitID.optional(),
+  // PR edited callbacks also cover title/base changes. Retain only whether the
+  // description changed; old descriptions are unnecessary for activation.
+  body_edited: z.boolean().optional(),
 })
 export type GitHubEvent = z.infer<typeof githubEvent>
 export const githubLifecycleEvent = z.strictObject({
@@ -159,6 +162,12 @@ export function projectGitHubEvent(
     after: fields.has('after')
       ? githubCommitID.parse(JSON.parse(required(fields, 'after')))
       : undefined,
+    body_edited:
+      event === 'pull_request' && action === 'edited'
+        ? z
+            .object({ body: z.object({}).optional() })
+            .parse(JSON.parse(fields.get('changes') ?? '{}')).body !== undefined
+        : undefined,
   })
   if (event === 'pull_request' && action === 'synchronize' && (!result.before || !result.after))
     throw new Error('invalid GitHub commit event')

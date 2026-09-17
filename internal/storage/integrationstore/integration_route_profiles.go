@@ -2,6 +2,7 @@ package integrationstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -10,6 +11,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+type SetIntegrationRouteProfileInput struct {
+	CreateIntegrationRouteInput
+	// Supplied top-level configuration keys are merged under the route lock. Omission
+	// preserves all configuration keys. Provider-specific interpretation belongs to the caller.
+	// First-party behaviors reject unknown keys; their callers must validate each patch.
+	ConfigurationPatch json.RawMessage
+}
 
 func (s *Store) GetIntegrationRouteByDeploymentKey(
 	ctx context.Context, projectID, installID uuid.UUID, key string,
@@ -30,12 +39,17 @@ func (s *Store) GetIntegrationRouteByDeploymentKey(
 // existing workflow agents and grants. A missing route uses the supplied initial
 // definition; changing an existing behavior or undeleting a route is not allowed.
 // State and Configuration apply only to creation; existing values are preserved.
+// ConfigurationPatch changes only supplied keys, under the same route lock.
 // Disabled connections may be configured before re-enabling them. Admission still
 // requires both the installation and its app to be active.
 func (s *Store) SetIntegrationRouteProfile(
-	ctx context.Context, input CreateIntegrationRouteInput,
+	ctx context.Context, update SetIntegrationRouteProfileInput,
 ) (IntegrationRouteRecord, error) {
-	input, err := normalizeCreateIntegrationRouteInput(input)
+	input, err := normalizeCreateIntegrationRouteInput(update.CreateIntegrationRouteInput)
+	if err != nil {
+		return IntegrationRouteRecord{}, err
+	}
+	configurationPatch, err := normalizedJSONObject(update.ConfigurationPatch, "integration route configuration patch")
 	if err != nil {
 		return IntegrationRouteRecord{}, err
 	}
@@ -82,15 +96,20 @@ func (s *Store) SetIntegrationRouteProfile(
 				return IntegrationRouteRecord{}, err
 			}
 		}
-		row, err = q.UpdateIntegrationRouteProfile(ctx, dbsqlc.UpdateIntegrationRouteProfileParams{
-			ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
-			ID: row.ID, AgentProfileID: storeutil.IDFromNil(input.AgentProfileID),
-		})
 		result = integrationRouteRecordFromSQLC(row)
 	}
 	if err != nil {
 		return IntegrationRouteRecord{}, integrationChannelWriteError("set integration launch profile", err)
 	}
+	row, err = q.UpdateIntegrationRouteProfile(ctx, dbsqlc.UpdateIntegrationRouteProfileParams{
+		ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
+		ID: result.ID, AgentProfileID: storeutil.IDFromNil(input.AgentProfileID),
+		ConfigurationPatch: configurationPatch,
+	})
+	if err != nil {
+		return IntegrationRouteRecord{}, integrationChannelWriteError("set integration launch profile", err)
+	}
+	result = integrationRouteRecordFromSQLC(row)
 	if err := tx.Commit(ctx); err != nil {
 		return IntegrationRouteRecord{}, err
 	}

@@ -42,7 +42,9 @@ export async function githubInboundThread(
   return findGitHubReviewThread(client, number, rootID, context)
 }
 
-/** Locate an already-verified published root without fetching its comment again. */
+/** Locate an already-verified published root without fetching its comment again.
+ * SDK review thread addresses encode a REST root-comment number, not the opaque
+ * PullRequestReviewThread node required by history and the public channel. */
 export async function findGitHubReviewThread(
   client: GitHubClient,
   number: number,

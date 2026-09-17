@@ -78,6 +78,8 @@ describe('GitHub inbound read throttling', () => {
         } else json(response, { data: { viewer: { id: 'U_bot', login: 'example[bot]' } } })
       })
       const core = coreFixture()
+      // Exercise native auth/recovery for an already-active PR.
+      core.lookupWorkflow.mockResolvedValue({ exists: true, agent_state: 'active', input_keys: [] })
       const context = contexts()
       let queued = receipt(
         event(

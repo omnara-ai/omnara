@@ -792,7 +792,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 	}
 	_, err = pool.Exec(
 		ctx,
-		`UPDATE integration_routes SET configuration = '{"mode":"all"}'::jsonb WHERE id = $1`,
+		`UPDATE integration_routes SET behavior_key = 'different_behavior' WHERE id = $1`,
 		route.ID,
 	)
 	var pgErr *pgconn.PgError

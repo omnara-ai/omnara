@@ -1,7 +1,7 @@
 import type { ChannelConnectorEventReceipt, CreateAgentInputContentBlock } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { SlackAPIError } from './client'
+import { SlackAPIError } from './errors'
 import { slackEventFile, slackTimestamp } from './protocol'
 
 const envelopeSchema = z.object({

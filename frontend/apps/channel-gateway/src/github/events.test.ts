@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import type { JsonBody } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { githubEvent, githubInputKey, githubLifecycleEvent, projectGitHubEvent } from './events'
@@ -7,6 +8,22 @@ import { event, nativeComment, webhook } from './inbound-test-support'
 import { oldCommit } from './test-support'
 
 describe('GitHub signed event projection', () => {
+  it.each<{ changes?: JsonBody; edited: boolean }>([
+    { changes: undefined, edited: false },
+    { changes: { title: { from: 'Old title' } }, edited: false },
+    { changes: { base: { ref: { from: 'main' }, sha: { from: oldCommit } } }, edited: false },
+    { changes: { body: { from: 'Old description' } }, edited: true },
+    { changes: { body: { from: null } }, edited: true },
+  ])(
+    'retains the PR description edit fact without the old content: $changes',
+    ({ changes, edited }) => {
+      const payload = { ...webhook, action: 'edited' }
+      const saved = event(changes === undefined ? payload : { ...payload, changes })
+      expect(saved.body_edited).toBe(edited)
+      expect(saved).not.toHaveProperty('changes')
+      expect(event().body_edited).toBeUndefined()
+    },
+  )
   it('pins lifecycle delivery identity, original bytes and action without retaining repository inventories', () => {
     const raw = JSON.stringify({
       action: 'removed',

@@ -16,7 +16,7 @@ import {
   receipt,
   result,
 } from './behavior-test-support'
-import { body, credentials, deferred, json } from './test-support'
+import { body, credentials, deferred, json, slackPayload } from './test-support'
 
 function active(keys: string[] = []): LookupChannelConnectorWorkflowResponse {
   return { exists: true, agent_state: 'active', input_keys: keys }
@@ -494,7 +494,7 @@ describe('verified Slack receipt behavior', () => {
     const { context } = await fixture((request, response) => {
       if (request.url !== '/conversations.replies') return false
       void body(request).then((bytes) => {
-        expect(JSON.parse(bytes.toString())).toEqual({
+        expect(slackPayload(bytes)).toEqual({
           channel: 'C1',
           latest: '100.000002',
           inclusive: false,

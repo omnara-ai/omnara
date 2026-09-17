@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -25,7 +26,7 @@ func (s strictOpenAPIServer) GetIntegrationLaunchProfile(
 	if err != nil && !errors.Is(err, storeerr.ErrNotFound) {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := integrationLaunchProfileResponse(route.AgentProfileID)
+	response, err := integrationLaunchProfileResponse(install.Provider, route)
 	return openapi.GetIntegrationLaunchProfile200JSONResponse(response), err
 }
 
@@ -38,6 +39,23 @@ func (s strictOpenAPIServer) SetIntegrationLaunchProfile(
 	}
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	var configurationPatch json.RawMessage
+	if request.Body.GithubActivation != nil {
+		if install.Provider != integrationstore.IntegrationProviderGitHub {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "github_activation is only supported for GitHub")
+		}
+		switch *request.Body.GithubActivation {
+		case openapi.GitHubActivationPROpen, openapi.GitHubActivationMention:
+		default:
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid github_activation")
+		}
+		configurationPatch, err = json.Marshal(map[string]openapi.GitHubActivation{
+			"activation": *request.Body.GithubActivation,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	var profileID uuid.UUID
 	if !request.Body.AgentProfileId.IsNull() {
@@ -57,15 +75,18 @@ func (s strictOpenAPIServer) SetIntegrationLaunchProfile(
 			return nil, err
 		}
 	}
-	input := integrationstore.CreateIntegrationRouteInput{
-		ProjectID: install.ProjectID, IntegrationInstallID: install.ID, AgentProfileID: profileID,
-		DeploymentKey: install.Provider, BehaviorKey: behavior, State: integrationstore.IntegrationRouteStateActive,
+	input := integrationstore.SetIntegrationRouteProfileInput{
+		CreateIntegrationRouteInput: integrationstore.CreateIntegrationRouteInput{
+			ProjectID: install.ProjectID, IntegrationInstallID: install.ID, AgentProfileID: profileID,
+			DeploymentKey: install.Provider, BehaviorKey: behavior, State: integrationstore.IntegrationRouteStateActive,
+		},
+		ConfigurationPatch: configurationPatch,
 	}
 	route, err := s.server.store.Integrations().SetIntegrationRouteProfile(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := integrationLaunchProfileResponse(route.AgentProfileID)
+	response, err := integrationLaunchProfileResponse(install.Provider, route)
 	return openapi.SetIntegrationLaunchProfile200JSONResponse(response), err
 }
 
@@ -112,7 +133,29 @@ func builtInIntegrationBehavior(provider string) string {
 	}
 }
 
-func integrationLaunchProfileResponse(profileID uuid.UUID) (openapi.IntegrationLaunchProfile, error) {
-	id, err := idOrNil(publicid.KindAgentProfile, profileID)
-	return openapi.IntegrationLaunchProfile{AgentProfileId: nullableFromPtr(id)}, err
+func integrationLaunchProfileResponse(
+	provider string, route integrationstore.IntegrationRouteRecord,
+) (openapi.IntegrationLaunchProfile, error) {
+	id, err := idOrNil(publicid.KindAgentProfile, route.AgentProfileID)
+	if err != nil {
+		return openapi.IntegrationLaunchProfile{}, err
+	}
+	response := openapi.IntegrationLaunchProfile{AgentProfileId: nullableFromPtr(id)}
+	if provider == integrationstore.IntegrationProviderGitHub {
+		configuration := struct {
+			Activation openapi.GitHubActivation `json:"activation"`
+		}{Activation: openapi.GitHubActivationPROpen}
+		if len(route.Configuration) != 0 {
+			if err := json.Unmarshal(route.Configuration, &configuration); err != nil {
+				return openapi.IntegrationLaunchProfile{}, err
+			}
+		}
+		switch configuration.Activation {
+		case openapi.GitHubActivationPROpen, openapi.GitHubActivationMention:
+		default:
+			return openapi.IntegrationLaunchProfile{}, errors.New("invalid saved GitHub activation policy")
+		}
+		response.GithubActivation = &configuration.Activation
+	}
+	return response, nil
 }

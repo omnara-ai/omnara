@@ -63,7 +63,6 @@ export interface GitHubVariables {
   before?: string
   after?: string
   author?: string
-  input?: { subjectId: string; body: string }
 }
 
 /** The definition and transport validate the same fixed shape; no coercion or defaults. */

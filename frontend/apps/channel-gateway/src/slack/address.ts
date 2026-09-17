@@ -11,7 +11,8 @@ import {
   retryOperation,
 } from '../operations/retry'
 import { slackDefinition } from './behavior'
-import { SlackAPIError, type SlackClient } from './client'
+import { type SlackClient } from './client'
+import { SlackAPIError } from './errors'
 import { slackTimestamp } from './protocol'
 
 interface SlackAddressContext {

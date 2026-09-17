@@ -10,7 +10,9 @@ FOR UPDATE;
 
 -- name: UpdateIntegrationRouteProfile :one
 UPDATE integration_routes
-SET agent_profile_id = sqlc.narg(agent_profile_id), updated_at = statement_timestamp()
+SET agent_profile_id = sqlc.narg(agent_profile_id),
+  configuration = configuration || sqlc.arg(configuration_patch)::jsonb,
+  updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND integration_install_id = sqlc.arg(integration_install_id)
   AND id = sqlc.arg(id)

@@ -18,7 +18,7 @@ import {
 import { GatewayAtCapacityError } from '../work-budget'
 import { type GitHubAuthentication, GitHubClient } from './client'
 import { type GitHubConfiguration, githubConfiguration } from './configuration'
-import { githubEvent, githubInputKey, githubPRRef } from './events'
+import { type GitHubEvent, githubEvent, githubInputKey, githubPRRef } from './events'
 import { githubInboundThread } from './inbound-thread'
 import { githubWorkflowInput } from './input'
 import { GitHubAPIError, githubSendParamsSchema, githubThreadParamsSchema } from './protocol'
@@ -45,7 +45,7 @@ export interface GitHubBehaviorOptions {
 const route = schemas.zChannelConnectorRoute
   .extend({
     behavior_key: z.literal('github_pr'),
-    configuration: z.strictObject({}),
+    configuration: z.strictObject({ activation: schemas.zGitHubActivation.default('pr_open') }),
   })
   .strict()
 
@@ -125,10 +125,17 @@ export async function processGitHubEvent(
       signal,
     )
     if (lookup.agent_state === 'archived' || lookup.input_keys.includes(inputKey)) return
+    const needsMention = !lookup.exists && configured.configuration.activation === 'mention'
+    const mentionBody = needsMention ? activationBody(event) : undefined
+    if (!lookup.exists) {
+      if (needsMention) {
+        if (!mentionBody?.includes('@')) return
+      } else if (event.event !== 'pull_request' || event.action !== 'opened') return
+    }
     let thread: Awaited<ReturnType<typeof githubInboundThread>>
     // Preserve the signed observation in the inbox, but don't turn this App's
     // own published text into fresh instructions. No event authorizes mutations.
-    if (event.event !== 'pull_request') {
+    if (event.event !== 'pull_request' || needsMention) {
       // Native responses are capped at 1MiB; include decoding/validation copies.
       nativeWork.resize(32 * 1024 * 1024)
       const client = new GitHubClient(
@@ -146,9 +153,10 @@ export async function processGitHubEvent(
         signal,
         deadlineMs,
       }
-      const viewer = await client.viewerID(attempt)
+      const viewer = await client.viewer(attempt)
       const author = event.comment?.user ?? event.review?.user ?? event.sender
-      if (author.node_id === viewer) return
+      if (author.node_id === viewer.id) return
+      if (needsMention && !mentionsBot(mentionBody ?? '', viewer.login)) return
       if (event.event === 'pull_request_review_comment' && event.comment)
         thread = await githubInboundThread(
           client,
@@ -224,4 +232,31 @@ export async function processGitHubEvent(
     nativeWork.release()
     work.release()
   }
+}
+
+// Only the body being published/edited can activate a PR. In particular, a
+// synchronize event carrying an old PR description is not a fresh mention.
+function activationBody(event: GitHubEvent): string | undefined {
+  switch (event.event) {
+    case 'pull_request':
+      return event.action === 'opened' || (event.action === 'edited' && event.body_edited)
+        ? (event.pull_request.body ?? undefined)
+        : undefined
+    case 'issue_comment':
+    case 'pull_request_review_comment':
+      return ['created', 'edited'].includes(event.action) ? event.comment?.body : undefined
+    case 'pull_request_review':
+      return ['submitted', 'edited'].includes(event.action)
+        ? (event.review?.body ?? undefined)
+        : undefined
+  }
+}
+
+function mentionsBot(body: string, login: string): boolean {
+  const escaped = login.replace(/\[bot\]$/i, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Case-insensitive exact account mentions, excluding email/URL fragments,
+  // longer account names and team mentions. GitHub bot commands conventionally
+  // omit the API login's [bot] suffix; accept the full verified login as well.
+  const suffix = /\[bot\]$/i.test(login) ? '(?:\\[bot\\])?' : ''
+  return new RegExp(`(^|[^\\w/@.-])@${escaped}${suffix}(?![\\w/\\[\\]-])`, 'i').test(body)
 }

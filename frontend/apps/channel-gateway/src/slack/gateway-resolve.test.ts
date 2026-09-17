@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import type { GatewayOperation } from '../operations/handler'
-import { SlackAPIError } from './client'
+import { SlackAPIError } from './errors'
 import { installation, scope, setup, suffix } from './gateway-test-support'
 import { credentials, deferred, json, slackServer } from './test-support'
 

@@ -100,3 +100,42 @@ half the shared budget. The shared leased-receipt loop only owns scheduling,
 cancellation and retained memory; the message and control wrappers keep their
 own completion and retry policies. Connection reconciliation writes only Omnara
 availability state, never GitHub comments, reviews or repository identity.
+
+## Chat SDK boundary
+
+The gateway pins Chat SDK and the Slack, Discord, and GitHub adapters to 4.40.0.
+Adapters run directly for messaging operations; there is no second `Chat` router,
+subscription store, or SDK webhook deduplication layer. Omnara owns durable intake,
+project authorization, agent creation, and conversation bindings. SDK thread IDs
+are provider implementation details, never public channel IDs or authorization.
+
+Discord uses the adapter messaging methods. Slack and GitHub use the adapters’
+public native clients where the generic methods alter raw text, link previews,
+or large native identifiers. Each operation has one publication path. `src/operations/provider-context.ts` carries a
+request's deadline and cancellation into SDK hooks without sharing mutable
+request state.
+All provider I/O remains subject to Omnara's retry policy; hidden SDK retries are
+disabled. SDK logging is disabled where it can disclose provider response bodies.
+
+Native extensions preserve streaming artifacts, Slack's single file-and-text
+publication and interaction blocks, Discord's named threads and resumable socket
+sessions, and GitHub inline comments and review-thread discovery. Slack and GitHub
+history use native paging because the pinned SDK does not provide the complete
+pagination contract required by `read_channel`. Discord history also uses native
+pages to avoid constructing unused Markdown trees for raw messages. Native text is preserved,
+including code, mention identifiers, and literal emoji placeholders.
+
+When adding another provider, use its adapter for supported operations, keep
+verification and durable receipt ahead of processing, and implement only the
+missing provider capabilities. Test the published package's real HTTP boundary:
+abort and rate-limit behavior, publication identity, pagination, and raw text can
+differ from the adapter's TypeScript signature. Do not add a `Chat` host merely to
+call standalone adapter methods or pad incoming events with invented SDK fields.
+
+GitHub launch settings select automatic activation on PR opening (`pr_open`, the
+default), or activation by a bot mention (`mention`). Mention activation accepts
+PR descriptions on opening/editing and new or edited timeline/review comments
+and published reviews. Deletes, dismissed reviews, and commit events cannot start
+an agent. Once a PR workflow exists, supported later events continue its agent
+regardless of the activation setting. Changing settings preserves route identity,
+existing workflow agents, channel addresses, and grants.

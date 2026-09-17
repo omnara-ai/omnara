@@ -56,6 +56,8 @@ describe('GitHub cached authentication receipt recovery', () => {
     })
     const context = contexts()
     const core = coreFixture()
+    // Exercise native auth/recovery for an already-active PR.
+    core.lookupWorkflow.mockResolvedValue({ exists: true, agent_state: 'active', input_keys: [] })
     const runtime = await createGitHubFactory({ core, apiUrl: native }).create(context.factory)
     const behavior = runtime.processReceipt
     if (!behavior) throw new Error('missing receipt behavior')

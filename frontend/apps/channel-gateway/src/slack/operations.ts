@@ -9,7 +9,8 @@ import {
 
 import type { OperationArtifact } from '../operations/files'
 import type { OperationRetryOptions } from '../operations/retry'
-import { SlackAPIError, type SlackClient, type SlackUpload } from './client'
+import { type SlackClient, type SlackUpload } from './client'
+import { SlackAPIError } from './errors'
 import type { SlackHistoryMessage } from './messages'
 import type { SlackMessage } from './protocol'
 import { readSlackHistory } from './read'

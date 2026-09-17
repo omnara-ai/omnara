@@ -4,11 +4,11 @@ description: Keep one agent conversation for a pull request and its review threa
 icon: "github"
 ---
 
-The GitHub integration keeps one agent per pull request. Opening a PR, including
-a draft, starts an agent from the connection's profile. Later commits, comments
-and review activity become inputs to the same agent. If the connection first
-sees an existing PR through a later supported event, it can start that
-conversation then. Replayed events do not create duplicate agents or inputs.
+The GitHub integration keeps one agent per pull request. Choose whether opening
+a PR, including a draft, starts an agent automatically, or whether someone must
+mention the bot first. Later commits, comments and review activity become inputs
+to the same agent without another mention. Replayed events do not create
+duplicate agents or inputs.
 
 The integration handles PR communication. Repository checkout, private source
 access and execution tools are configured separately through the agent's machine
@@ -29,8 +29,14 @@ your GitHub account and choose an installation and repository you administer. If
 the app needs installing, open its installation link in another tab and refresh
 the picker afterward. Setup expires after ten minutes; start again if needed.
 
-Choose an optional agent profile to enable automatic PR agents. Updating that
-profile changes future launches; existing PR conversations keep their agents.
+Choose an optional agent profile and when to start a PR agent. The default starts
+an agent when a PR opens. Mention mode starts one when someone mentions the bot
+in a new or edited PR description, timeline comment, review comment, or published
+review. A commit or deletion cannot start an agent. To activate an existing PR,
+use mention mode and add a fresh mention.
+
+Updating the profile or activation setting changes future launches; existing PR
+conversations keep their agents and continue receiving supported events.
 The repository connection and channels belong to the project. You can also
 register a PR by number and grant an existing or scheduled agent access without
 enabling automatic launches.

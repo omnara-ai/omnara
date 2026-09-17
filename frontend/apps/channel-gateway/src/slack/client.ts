@@ -1,55 +1,13 @@
 import { Readable } from 'node:stream'
 
+import { ProviderResponseTooLargeError, readProviderResponseBody } from '../http-io'
 import { type OperationAttemptContext, parseRetryAfter } from '../operations/retry'
-import { ProviderDeliveryError } from '../types'
 import { GatewayAtCapacityError } from '../work-budget'
-import {
-  slackEnvelope,
-  type SlackMethod,
-  type SlackRequest,
-  type SlackResponse,
-  slackResponses,
-} from './protocol'
+import { SlackMessagingAdapter } from './adapter'
+import { SlackAPIError } from './errors'
+import type { SlackMethod, SlackRequest, SlackResponse } from './protocol'
 
 const responseBytes = 1024 * 1024 // Matches the native Slack control-plane client.
-const transientCodes = new Set([
-  'internal_error',
-  'fatal_error',
-  'service_unavailable',
-  'request_timeout',
-])
-const publicCodes = new Set([
-  'invalid_auth',
-  'not_authed',
-  'token_revoked',
-  'account_inactive',
-  'missing_scope',
-  'not_allowed_token_type',
-  'not_in_channel',
-  'channel_not_found',
-  'thread_not_found',
-  'no_permission',
-  'restricted_action',
-  'is_archived',
-  'msg_too_long',
-  'file_not_found',
-  'file_type_not_allowed',
-  'invalid_arguments',
-  'ratelimited',
-  'already_reacted',
-  'message_not_found',
-])
-
-export class SlackAPIError extends ProviderDeliveryError {
-  constructor(
-    readonly code: string,
-    options: { retryable?: boolean; outcomeUnknown?: boolean; retryAfterMs?: number } = {},
-  ) {
-    super(`Slack operation failed: ${code}`, options)
-    this.name = 'SlackAPIError'
-  }
-}
-
 export interface SlackUpload {
   filename: string
   sizeBytes: number
@@ -62,6 +20,7 @@ export interface SlackUpload {
  */
 export class SlackClient {
   private readonly base: URL
+  private readonly adapter: SlackMessagingAdapter
 
   constructor(
     private readonly botToken: string,
@@ -78,6 +37,7 @@ export class SlackClient {
       (this.base.protocol !== 'https:' && !isLoopbackURL(this.base))
     )
       throw new SlackAPIError('invalid_configuration')
+    this.adapter = new SlackMessagingAdapter(botToken, this.base.href)
   }
 
   async api<M extends SlackMethod>(
@@ -85,59 +45,7 @@ export class SlackClient {
     payload: SlackRequest[M],
     context: OperationAttemptContext,
   ): Promise<SlackResponse<M>> {
-    const publication = method === 'chat.postMessage' || method === 'files.completeUploadExternal'
-    const body = JSON.stringify(payload)
-    if (Buffer.byteLength(body) > 512 * 1024) throw new SlackAPIError('request_too_large')
-    const { bytes } = await this.request(
-      new URL(method, this.base),
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${this.botToken}`,
-          'content-type': 'application/json; charset=utf-8',
-        },
-        body,
-      },
-      context,
-      publication,
-    )
-    let result: unknown
-    try {
-      result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
-    } catch {
-      throw new SlackAPIError('invalid_response', {
-        outcomeUnknown: publication,
-        retryable: !publication,
-      })
-    }
-    const envelope = slackEnvelope.safeParse(result)
-    if (!envelope.success) {
-      throw new SlackAPIError('invalid_response', {
-        outcomeUnknown: publication,
-        retryable: !publication,
-      })
-    }
-    if (!envelope.data.ok) {
-      const code = envelope.data.error ?? ''
-      if (code === 'ratelimited') {
-        // Without valid guidance, stop rather than inventing a short rate-limit delay.
-        throw new SlackAPIError(code, { retryable: true, retryAfterMs: Infinity })
-      }
-      if (transientCodes.has(code)) {
-        throw new SlackAPIError('provider_unavailable', {
-          outcomeUnknown: publication,
-          retryable: !publication,
-        })
-      }
-      throw new SlackAPIError(publicCodes.has(code) ? code : 'provider_rejected', {
-        outcomeUnknown: publication && !publicCodes.has(code),
-      })
-    }
-    const parsed = slackResponses[method].safeParse(result)
-    if (!parsed.success)
-      throw new SlackAPIError('invalid_response', { outcomeUnknown: publication })
-    // SAFETY: The response was parsed with precisely the schema indexed by method.
-    return parsed.data as SlackResponse<M>
+    return this.adapter.api(method, payload, context)
   }
 
   async upload(url: string, file: SlackUpload, context: OperationAttemptContext): Promise<void> {
@@ -182,7 +90,7 @@ export class SlackClient {
         },
       }
       // Upload tickets contain their own authorization; never send the bot token here.
-      await this.request(destination, init, context, false)
+      await this.requestFile(destination, init, context)
     } catch (error) {
       if (state.invalidLength) throw new SlackAPIError('artifact_size_mismatch')
       throw error
@@ -202,11 +110,10 @@ export class SlackClient {
     reserveBytes?: (bytes: number) => void,
   ) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new SlackAPIError('file_too_large')
-    return this.request(
+    return this.requestFile(
       this.fileURL(url, 'invalid_file_url'),
       { method: 'GET', headers: { authorization: `Bearer ${this.botToken}` } },
       context,
-      false,
       maxBytes,
       'file_too_large',
       reserveBytes,
@@ -235,11 +142,10 @@ export class SlackClient {
     return url
   }
 
-  private async request(
+  private async requestFile(
     url: URL,
     init: RequestInit,
     context: OperationAttemptContext,
-    publication: boolean,
     maxBytes = responseBytes,
     oversizedCode = 'response_too_large',
     reserveBytes?: (bytes: number) => void,
@@ -266,44 +172,18 @@ export class SlackClient {
         }
         const transient = response.status >= 500 || response.status === 408
         throw new SlackAPIError(transient ? 'provider_unavailable' : 'http_rejected', {
-          retryable: transient && !publication,
-          outcomeUnknown: transient && publication,
+          retryable: transient,
         })
       }
-      if (!response.body)
-        throw new SlackAPIError('invalid_response', { outcomeUnknown: publication })
-      const declared = response.headers.get('content-length')
-      if (declared && /^\d+$/.test(declared) && BigInt(declared) > BigInt(maxBytes)) {
-        await response.body.cancel()
-        throw new SlackAPIError(oversizedCode, { outcomeUnknown: publication })
-      }
-      const reader = response.body.getReader()
-      const chunks: Uint8Array[] = []
-      let size = 0
-      try {
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          size += value.byteLength
-          if (size > maxBytes)
-            throw new SlackAPIError(oversizedCode, { outcomeUnknown: publication })
-          reserveBytes?.(size)
-          chunks.push(value)
-        }
-      } finally {
-        await reader.cancel().catch(() => undefined)
-        reader.releaseLock()
-      }
+      if (!response.body) throw new SlackAPIError('invalid_response')
       return {
-        bytes: Buffer.concat(chunks, size),
+        bytes: await readProviderResponseBody(response, maxBytes, signal, reserveBytes),
         contentType: response.headers.get('content-type') ?? '',
       }
     } catch (error) {
       if (error instanceof SlackAPIError || error instanceof GatewayAtCapacityError) throw error
-      throw new SlackAPIError('transport_failed', {
-        outcomeUnknown: publication,
-        retryable: !publication,
-      })
+      if (error instanceof ProviderResponseTooLargeError) throw new SlackAPIError(oversizedCode)
+      throw new SlackAPIError('transport_failed', { retryable: true })
     } finally {
       clearTimeout(timer)
       controller.abort()

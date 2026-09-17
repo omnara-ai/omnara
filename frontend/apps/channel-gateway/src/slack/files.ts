@@ -5,7 +5,8 @@ import { type InlineMediaContentBlock, schemas } from '@omnara/sdk'
 
 import type { OperationAttemptContext } from '../operations/retry'
 import type { ProviderWorkReservation } from '../types'
-import { SlackAPIError, type SlackClient } from './client'
+import { type SlackClient } from './client'
+import { SlackAPIError } from './errors'
 import type { SlackEventFile } from './protocol'
 
 // Existing native Slack/input admission budgets, not provider schema policy.

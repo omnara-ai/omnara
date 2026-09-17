@@ -4,7 +4,12 @@ import {
   useIntegrationLaunchProfile,
   useSetIntegrationLaunchProfile,
 } from '@omnara/react'
-import type { AgentProfile, IntegrationInstall } from '@omnara/sdk'
+import type {
+  AgentProfile,
+  GitHubActivation,
+  IntegrationInstall,
+  IntegrationLaunchProfile,
+} from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -18,12 +23,23 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { errorMessage } from '@/lib/submit-status'
 
 type ProfileOption = Pick<AgentProfile, 'id' | 'name'>
+const activationLabels: Record<GitHubActivation, string> = {
+  pr_open: 'Automatically when a PR opens',
+  mention: 'When the bot is mentioned',
+}
 const ProfileCombobox = createResourceCombobox<ProfileOption>({
   itemKey: (profile) => profile.id,
   itemLabel: (profile) => profile.name,
@@ -80,13 +96,18 @@ export function IntegrationLaunchProfileDialog({
             orgId={orgId}
             projectId={projectId}
             currentProfileId={query.data.agent_profile_id}
+            currentActivation={
+              install.provider === 'github'
+                ? (query.data.github_activation ?? 'pr_open')
+                : undefined
+            }
             canManage={canManage}
             pending={mutation.isPending}
             error={mutation.error}
             onClose={onClose}
-            onSave={(profileId) => {
+            onSave={(settings) => {
               if (!canManage || mutation.isPending) return
-              mutation.mutate({ agent_profile_id: profileId }, { onSuccess: onClose })
+              mutation.mutate(settings, { onSuccess: onClose })
             }}
           />
         )}
@@ -99,6 +120,7 @@ function LaunchProfileForm({
   orgId,
   projectId,
   currentProfileId,
+  currentActivation,
   canManage,
   pending,
   error,
@@ -108,11 +130,12 @@ function LaunchProfileForm({
   orgId: string
   projectId: string
   currentProfileId: string | null
+  currentActivation: GitHubActivation | undefined
   canManage: boolean
   pending: boolean
   error: Error | null
   onClose: () => void
-  onSave: (profileId: string | null) => void
+  onSave: (settings: IntegrationLaunchProfile) => void
 }) {
   const search = useTypeaheadSearch()
   const profilesQuery = useAgentProfiles(orgId, projectId, {
@@ -124,6 +147,9 @@ function LaunchProfileForm({
   const currentProfile = useAgentProfileQuery(orgId, projectId, currentProfileId ?? undefined)
   // An untouched selection follows refreshed server state; edits stay local until saved.
   const [draft, setDraft] = useState<ProfileOption | null | undefined>(undefined)
+  const [activationDraft, setActivationDraft] = useState<GitHubActivation>()
+  const activation = activationDraft ?? currentActivation
+  const activationChanged = activation !== currentActivation
   const savedProfile = currentProfileId
     ? (currentProfile.data ??
       profiles.find((profile) => profile.id === currentProfileId) ?? {
@@ -132,11 +158,13 @@ function LaunchProfileForm({
       })
     : null
   const selected = draft === undefined ? savedProfile : draft
-  const changed = (selected?.id ?? null) !== currentProfileId
+  const changed = (selected?.id ?? null) !== currentProfileId || activationChanged
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canManage || pending || !changed) return
-    onSave(selected?.id ?? null)
+    const settings: IntegrationLaunchProfile = { agent_profile_id: selected?.id ?? null }
+    if (activationChanged) settings.github_activation = activation
+    onSave(settings)
   }
   return (
     <form onSubmit={submit}>
@@ -164,6 +192,34 @@ function LaunchProfileForm({
             can still receive replies.
           </FieldDescription>
         </Field>
+        {activation && (
+          <Field>
+            <FieldLabel htmlFor="connection-github-activation">Start a PR agent</FieldLabel>
+            {canManage ? (
+              <Select
+                value={activation}
+                disabled={pending}
+                onValueChange={(value) => {
+                  if (value === 'pr_open' || value === 'mention') setActivationDraft(value)
+                }}
+              >
+                <SelectTrigger id="connection-github-activation" className="w-full">
+                  <SelectValue>{activationLabels[activation]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pr_open">{activationLabels.pr_open}</SelectItem>
+                  <SelectItem value="mention">{activationLabels.mention}</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-sm">{activationLabels[activation]}</p>
+            )}
+            <FieldDescription>
+              Mentions can be in a PR description, comment, or published review. Once an agent
+              starts, supported comments and commits continue that agent without another mention.
+            </FieldDescription>
+          </Field>
+        )}
         {error && (
           <p role="alert" className="text-destructive text-sm">
             {errorMessage(error, 'Could not save inbound profile')}

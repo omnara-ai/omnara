@@ -1808,7 +1808,16 @@ export type McpoAuthStartResponse = {
 
 export type IntegrationLaunchProfile = {
     agent_profile_id: string | null;
+    /**
+     * GitHub only; rejected for other providers. Omit on update to preserve the saved setting. Defaults to pr_open for an unconfigured connection. Returned only for GitHub connections. Changes initial activation only; existing PR agents continue receiving supported followups.
+     */
+    github_activation?: GitHubActivation;
 };
+
+/**
+ * Start one agent when a PR opens, or when the bot is mentioned in a PR description, timeline comment, published review, or review comment. Deletion, dismissal, and commit events cannot activate a new agent. PR description mentions are evaluated only on opening or editing. Once active, supported comments and commits continue the same agent.
+ */
+export type GitHubActivation = 'pr_open' | 'mention';
 
 export type StartIntegrationConnectionRequest = {
     integration_app_id: IntegrationAppId;

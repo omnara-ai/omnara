@@ -93,11 +93,17 @@ WHERE id = $1 AND state = 'active' AND archived_at IS NULL`, agentID).Scan(&curr
 			return
 		}
 		assert.Equal(t, "Bearer migration-fake-slack-token", r.Header.Get("Authorization"))
-		var post map[string]json.RawMessage
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&post); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		if err := r.ParseForm(); err != nil {
 			t.Errorf("decode Slack post: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
+		}
+		post := make(map[string]json.RawMessage, len(r.PostForm))
+		for key := range r.PostForm {
+			value, err := json.Marshal(r.PostForm.Get(key))
+			assert.NoError(t, err)
+			post[key] = value
 		}
 		select {
 		case posts <- post:

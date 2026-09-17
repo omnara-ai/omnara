@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { SlackClient } from './client'
 import { parseSlackMessage } from './messages'
 import { readSlackOperation, sendSlackOperation, slackDestination } from './operations'
-import { body, credentials, json, operation, slackServer } from './test-support'
+import { body, credentials, json, operation, slackPayload, slackServer } from './test-support'
 
 const input: ChannelSendOperation = {
   destination: {
@@ -85,7 +85,7 @@ describe('Slack generated operation mapping', () => {
     const requests: unknown[] = []
     const url = await slackServer((request, response) => {
       void body(request).then((raw) => {
-        requests.push(JSON.parse(raw.toString()))
+        requests.push(slackPayload(raw))
         json(response, { ok: true, channel: 'D1', ts: '100.000001' })
       })
     })
@@ -106,7 +106,7 @@ describe('Slack generated operation mapping', () => {
     )
     expect(result).toMatchObject({ publication: 'published', message_channel: 'destination' })
     expect(result.reply_channel).toBeUndefined()
-    expect(requests).toEqual([{ channel: 'D1', text: 'hello' }])
+    expect(requests).toMatchObject([{ channel: 'D1', text: 'hello' }])
   })
 
   it('uses accepted artifact order and never invents a message or continuation ID', async () => {
@@ -116,7 +116,7 @@ describe('Slack generated operation mapping', () => {
       void body(request).then((bytes) => {
         requests.push({
           path: request.url,
-          data: request.url === '/upload' ? bytes.toString() : JSON.parse(bytes.toString()),
+          data: request.url === '/upload' ? bytes.toString() : slackPayload(bytes),
         })
         if (request.url === '/files.getUploadURLExternal') {
           tickets++

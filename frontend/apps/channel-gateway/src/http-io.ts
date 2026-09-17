@@ -5,9 +5,9 @@ import { GatewayAtCapacityError } from './work-budget'
 
 export class BodyTooLargeError extends Error {}
 
-class ProviderResponseTooLargeError extends Error {
+export class ProviderResponseTooLargeError extends Error {
   constructor() {
-    super('provider webhook response body is too large')
+    super('provider response body is too large')
   }
 }
 
@@ -167,9 +167,11 @@ export async function readProviderResponseBody(
   response: Response,
   limit: number,
   signal: AbortSignal,
+  reserveBytes?: (bytes: number) => void,
 ): Promise<Buffer<ArrayBuffer>> {
   const declaredLength = response.headers.get('content-length')?.trim()
   if (declaredLength && /^\d+$/.test(declaredLength) && BigInt(declaredLength) > BigInt(limit)) {
+    void response.body?.cancel().catch(() => undefined)
     throw new ProviderResponseTooLargeError()
   }
   if (!response.body) return Buffer.alloc(0)
@@ -187,6 +189,7 @@ export async function readProviderResponseBody(
       }
       size += result.value.byteLength
       if (size > limit) throw new ProviderResponseTooLargeError()
+      reserveBytes?.(size)
       chunks.push(Buffer.from(result.value))
     }
   } finally {

@@ -43,10 +43,20 @@ import (
 // Real generated TS client/behavior, Go authenticated HTTP and PostgreSQL; only
 // GitHub is a local fake. Credentials are ephemeral fixture material, never live.
 func TestGitHubGatewayPRCommunicationJourney(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("OMNARA_TEST_GITHUB_GATEWAY_RUNNER") == "" {
 		t.Skip("OMNARA_TEST_GITHUB_GATEWAY_RUNNER is required")
 	}
-	t.Parallel()
+	for _, activation := range []string{"pr_open", "mention"} {
+		t.Run(activation, func(t *testing.T) {
+			t.Parallel()
+			testGitHubGatewayPRCommunicationJourney(t, activation)
+		})
+	}
+}
+
+func testGitHubGatewayPRCommunicationJourney(t *testing.T, activation string) {
+	t.Helper()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	core := httptest.NewUnstartedServer(nil)
@@ -93,7 +103,7 @@ func TestGitHubGatewayPRCommunicationJourney(t *testing.T) {
 	setupPath := project.ProjectPath + "/integration-installs/" +
 		testPublicID(t, publicid.KindIntegrationInstall, install.ID) + "/launch-profile"
 	requestJSONWithHeaders(t, handler, http.MethodPut, setupPath,
-		workflowHTTPJSON(t, map[string]any{"agent_profile_id": profileID}), "",
+		workflowHTTPJSON(t, map[string]any{"agent_profile_id": profileID, "github_activation": activation}), "",
 		http.StatusOK, authHeaders(project.AdminToken))
 	core.Config.Handler = handler
 	core.Start()
@@ -112,7 +122,19 @@ WHERE integration_install_id=$1 AND implementation_key='github_review_thread'`, 
 		"coreUrl": core.URL + "/api/v1", "githubUrl": native.URL, "token": token,
 		"appID": testPublicID(t, publicid.KindIntegrationApp, app.ID),
 	}
-	for index, kind := range []string{"opened", "synchronize", "timeline"} {
+	firstEvent := "opened"
+	if activation == "mention" {
+		configuration["webhooks"] = []any{githubJourneyWebhook(t, "opened")}
+		ignored := runGitHubJourney(t, configuration)
+		require.Equal(t, 1, ignored.Processed)
+		require.Equal(t, []int{http.StatusAccepted}, ignored.WebhookStatuses)
+		var agents int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`,
+			project.ProjectUUID).Scan(&agents))
+		require.Zero(t, agents, "opening a PR in mention mode must not launch an agent")
+		firstEvent = "mention"
+	}
+	for index, kind := range []string{firstEvent, "synchronize", "timeline"} {
 		configuration["webhooks"] = []any{githubJourneyWebhook(t, kind)}
 		result := runGitHubJourney(t, configuration)
 		require.Equal(t, 1, result.Processed)
@@ -179,11 +201,13 @@ WHERE agent_id=$1 AND integration_target_id=$2`, agentID, child.ID).Scan(&childI
 	require.Equal(t, 1, childInputs)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_event_receipts
 WHERE integration_install_id=$1 AND state='completed'`, install.ID).Scan(&completed))
-	require.Equal(t, 5, completed)
+	wantReceipts := 5
+	if activation == "mention" {
+		wantReceipts++ // The pre-activation PR opening was durably consumed without input.
+	}
+	require.Equal(t, wantReceipts, completed)
 	require.EqualValues(t, 5, sends.Load(), "inbound callbacks and replay cannot publish native content")
-	t.Run("durable_control_restart", func(t *testing.T) {
-		exerciseGitHubControlRecovery(t, handler, pool, project, app.ID, install.ID, token)
-	})
+	exerciseGitHubControlRecovery(t, handler, pool, project, app.ID, install.ID, token)
 }
 
 func exerciseGitHubUndelegatedComment(
@@ -382,7 +406,7 @@ func githubJourneyWebhook(t *testing.T, kind string) map[string]string {
 		body = map[string]any{"action": "added", "installation": map[string]int{"id": 123, "app_id": 42}}
 	case "synchronize":
 		body["before"], body["after"] = strings.Repeat("a", 40), strings.Repeat("b", 40)
-	case "timeline", "review":
+	case "timeline", "review", "mention":
 		body["action"] = "created"
 		body["comment"] = map[string]any{
 			"id": 33, "node_id": "PRRC_1", "user": author, "body": "Original signed comment",
@@ -391,7 +415,13 @@ func githubJourneyWebhook(t *testing.T, kind string) map[string]string {
 			"commit_id": strings.Repeat("a", 40),
 		}
 		event = "pull_request_review_comment"
-		if kind == "timeline" {
+		if kind != "review" {
+			if kind == "mention" {
+				body["comment"] = map[string]any{
+					"id": 34, "node_id": "IC_activation", "user": author, "body": "@example please review",
+					"created_at": "2026-09-15T11:00:00Z", "updated_at": "2026-09-15T11:00:00Z",
+				}
+			}
 			event = "issue_comment"
 			pr["pull_request"] = map[string]string{"url": "https://api.github.invalid/ignored"}
 			body["issue"] = pr
@@ -475,6 +505,18 @@ func githubJourneyProvider(t *testing.T, sends *atomic.Int32, beforeWrite func(b
 			value = map[string]any{"id": json.Number(databaseID), "node_id": id, "body": request["body"],
 				"path": path, "line": line, "commit_id": strings.Repeat("b", 40), "pull_request_review_id": 44,
 				"created_at": "2026-09-15T12:00:00Z", "user": map[string]string{"login": "example[bot]"}}
+		case "/repos/example/project/issues/7/comments":
+			assert.Equal(t, http.MethodPost, r.Method)
+			var request map[string]any
+			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&request)) {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			assert.Equal(t, map[string]any{"body": "Explicit agent reply"}, request)
+			sends.Add(1)
+			status = http.StatusCreated
+			value = map[string]any{"id": 101, "node_id": "IC_sent", "body": request["body"],
+				"created_at": "2026-09-15T12:00:00Z", "user": map[string]string{"login": "example[bot]"}}
 		case "/graphql":
 			var request struct {
 				Query     string         `json:"query"`
@@ -536,12 +578,6 @@ func githubJourneyProvider(t *testing.T, sends *atomic.Int32, beforeWrite func(b
 						"author": map[string]string{"login": "human"}, "createdAt": "2026-09-15T12:00:00Z",
 					}}, "pageInfo": map[string]any{"hasPreviousPage": false, "startCursor": "cursor-one"}},
 				}}
-			case strings.Contains(request.Query, "mutation GitHubTimelineComment"):
-				sends.Add(1)
-				data["addComment"] = map[string]any{"commentEdge": map[string]any{"node": map[string]any{
-					"id": "IC_sent", "body": "Explicit agent reply", "author": map[string]string{"login": "example[bot]"},
-					"createdAt": "2026-09-15T12:00:00Z",
-				}}}
 			default:
 				t.Errorf("unexpected native operation: %s", request.Query)
 				http.Error(w, "unsupported", http.StatusBadRequest)

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SlackClient } from './client'
 import { prepareSlackFiles } from './files'
 import { slackEventFile } from './protocol'
-import { attempt, body, credentials, json, slackServer } from './test-support'
+import { attempt, body, credentials, json, slackPayload, slackServer } from './test-support'
 
 function work() {
   return { resize: vi.fn<(bytes: number) => void>(), release: vi.fn<() => void>() }
@@ -18,7 +18,7 @@ describe('Slack input file preparation', () => {
       expect(request.headers.authorization).toBe(`Bearer ${credentials.botToken}`)
       if (request.url === '/files.info') {
         void body(request).then((bytes) => {
-          expect(JSON.parse(bytes.toString())).toEqual({ file: 'F1' })
+          expect(slackPayload(bytes)).toEqual({ file: 'F1' })
           json(response, {
             ok: true,
             file: { id: 'F1', url_private_download: `${apiUrl}/file`, size: 5 },

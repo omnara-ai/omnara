@@ -129,6 +129,17 @@ func TestIntegrationRouteProfileChangePreservesExistingWorkflowAndGrants(t *test
 			want := originalRoute
 			want.AgentProfileID, want.UpdatedAt = profileID, updated.UpdatedAt
 			require.Equal(t, want, updated, "only the profile and update timestamp may change")
+			// Editable behavior settings must preserve workflow identity and grants,
+			// and partial changes must retain unrelated configuration keys.
+			update.ConfigurationPatch = json.RawMessage(`{"mode":"mentions","retained":true}`)
+			configured, err := f.Store.Integrations().SetIntegrationRouteProfile(ctx, update)
+			require.NoError(t, err)
+			require.Equal(t, originalRoute.ID, configured.ID)
+			update.ConfigurationPatch = json.RawMessage(`{"mode":"all"}`)
+			configured, err = f.Store.Integrations().SetIntegrationRouteProfile(ctx, update)
+			require.NoError(t, err)
+			require.Equal(t, originalRoute.ID, configured.ID)
+			require.JSONEq(t, `{"mode":"all","retained":true}`, string(configured.Configuration))
 			first.Prepared, err = f.Store.Execution().PrepareChannelWorkflow(ctx, f.Identity)
 			require.NoError(t, err, "an existing workflow does not need a launch profile")
 			replay, err := f.Store.Execution().DeliverChannelWorkflow(ctx, first)
@@ -322,11 +333,13 @@ func TestIntegrationRouteProfileDisabledConnectionAllowsConfigurationOnly(t *tes
 
 func integrationProfileUpdate(
 	f channelWorkflowFixture, profileID uuid.UUID,
-) integrationstore.CreateIntegrationRouteInput {
-	return integrationstore.CreateIntegrationRouteInput{
-		ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
-		DeploymentKey: "conversation", BehaviorKey: "conversation", AgentProfileID: profileID,
-		State: integrationstore.IntegrationRouteStateActive,
+) integrationstore.SetIntegrationRouteProfileInput {
+	return integrationstore.SetIntegrationRouteProfileInput{
+		CreateIntegrationRouteInput: integrationstore.CreateIntegrationRouteInput{
+			ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
+			DeploymentKey: "conversation", BehaviorKey: "conversation", AgentProfileID: profileID,
+			State: integrationstore.IntegrationRouteStateActive,
+		},
 	}
 }
 

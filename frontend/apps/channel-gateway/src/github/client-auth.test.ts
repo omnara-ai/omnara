@@ -13,7 +13,13 @@ import {
 
 async function fixture() {
   const paths: string[] = []
-  const state = { tokenCount: 0, viewerID: 'U_bot', name: 'project', owner: 'example' }
+  const state = {
+    tokenCount: 0,
+    viewerID: 'U_bot',
+    viewerLogin: 'example[bot]',
+    name: 'project',
+    owner: 'example',
+  }
   const url = await localServer(async (request, response) => {
     expect(request.headers.accept).toBe('application/vnd.github.v3+json')
     expect(request.headers['x-github-api-version']).toBe('2022-11-28')
@@ -40,7 +46,7 @@ async function fixture() {
         owner: { login: state.owner },
       })
     } else if (path === '/graphql') {
-      json(response, { data: { viewer: { id: state.viewerID, login: 'example[bot]' } } })
+      json(response, { data: { viewer: { id: state.viewerID, login: state.viewerLogin } } })
     } else if (path.endsWith('/replies')) {
       expect(await requestBody(request)).toEqual({ body: 'Original reply' })
       json(response, { node_id: 'PRRC_published' }, 201)
@@ -55,7 +61,7 @@ async function fixture() {
   }
 }
 
-describe('GitHub scoped authentication and direct fetch', () => {
+describe('GitHub scoped authentication and bounded transport', () => {
   it.each(['cleared', 'refreshed'])(
     'retries a late old-token read after auth was concurrently %s',
     async (change) => {
@@ -71,7 +77,7 @@ describe('GitHub scoped authentication and direct fetch', () => {
         else json(response, { data: { viewer: { id: 'U_bot', login: 'example[bot]' } } })
       })
       const client = new GitHubClient(configuration, native.url, authentication)
-      await client.viewerID(attempt())
+      await client.viewer(attempt())
       const pending = client
         .query('viewer', {}, z.unknown(), attempt())
         .catch((cause: unknown) => cause)
@@ -80,7 +86,10 @@ describe('GitHub scoped authentication and direct fetch', () => {
       })
       const refreshed = { value: 'newer-token', expiresAt: Date.now() + 3_600_000 }
       authentication.token = change === 'refreshed' ? refreshed : undefined
-      authentication.viewer = change === 'refreshed' ? { token: refreshed, id: 'U_bot' } : undefined
+      authentication.viewer =
+        change === 'refreshed'
+          ? { token: refreshed, id: 'U_bot', login: 'example[bot]' }
+          : undefined
       rejectOld?.()
       const failure = await pending
       expect(failure).toMatchObject({
@@ -116,7 +125,7 @@ describe('GitHub scoped authentication and direct fetch', () => {
         } else json(response, { message: 'private credentials rejected' }, 401)
       })
       const client = new GitHubClient(configuration, endpoint)
-      await expect(client.viewerID(attempt())).rejects.toMatchObject({
+      await expect(client.viewer(attempt())).rejects.toMatchObject({
         code: 'http_rejected',
         retryable: true,
         outcomeUnknown: false,
@@ -127,8 +136,10 @@ describe('GitHub scoped authentication and direct fetch', () => {
 
   it('refreshes expired tokens and their verified identity while keeping each client repository check fresh', async () => {
     const f = await fixture()
-    expect(await f.client().viewerID(attempt())).toBe('U_bot')
-    expect(await f.client().viewerID(attempt())).toBe('U_bot')
+    const client = f.client()
+    expect(await client.viewer(attempt())).toEqual({ id: 'U_bot', login: 'example[bot]' })
+    expect(await client.viewerLogin(attempt())).toBe('example[bot]')
+    expect(await f.client().viewer(attempt())).toEqual({ id: 'U_bot', login: 'example[bot]' })
     expect(f.paths.filter((path) => path === '/repositories/456')).toHaveLength(2)
     expect(f.paths.filter((path) => path === '/graphql')).toHaveLength(1)
     expect(f.state.tokenCount).toBe(1)
@@ -136,7 +147,8 @@ describe('GitHub scoped authentication and direct fetch', () => {
     if (!token) throw new Error('missing token')
     token.expiresAt = Date.now() + 30_000
     f.state.viewerID = 'U_current'
-    expect(await f.client().viewerID(attempt())).toBe('U_current')
+    f.state.viewerLogin = 'renamed[bot]'
+    expect(await f.client().viewer(attempt())).toEqual({ id: 'U_current', login: 'renamed[bot]' })
     expect(f.paths.filter((path) => path === '/repositories/456')).toHaveLength(3)
     expect(f.paths.filter((path) => path === '/graphql')).toHaveLength(2)
     expect(f.state.tokenCount).toBe(2)
@@ -145,7 +157,7 @@ describe('GitHub scoped authentication and direct fetch', () => {
   it('refreshes the numeric repository address before a REST reply after rename', async () => {
     const f = await fixture()
     const client = f.client()
-    await client.viewerID(attempt())
+    await client.viewer(attempt())
     f.state.name = 'renamed'
     f.state.owner = 'new-owner'
     expect(await client.publishedReply(7, '9007199254740993', 'Original reply', attempt())).toBe(
@@ -173,22 +185,31 @@ describe('GitHub scoped authentication and direct fetch', () => {
     },
   )
 
-  it('rejects unsafe token response IDs before caching authentication or accessing the repository', async () => {
+  it('ignores unused large token-response IDs and still verifies the selected repository', async () => {
     const paths: (string | undefined)[] = []
     const authentication: GitHubAuthentication = {}
     const url = await localServer((request, response) => {
       paths.push(request.url)
-      response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(
-        `{"token":"local-token","expires_at":"${new Date(Date.now() + 3_600_000).toISOString()}",` +
-          '"repositories":[{"id":9007199254740993}]}',
-      )
+      if (request.url?.endsWith('/access_tokens')) {
+        response.writeHead(201, { 'content-type': 'application/json' })
+        response.end(
+          `{"token":"local-token","expires_at":"${new Date(Date.now() + 3_600_000).toISOString()}",` +
+            '"repositories":[{"id":9007199254740993}]}',
+        )
+      } else if (request.url === '/repositories/456') {
+        json(response, {
+          id: 456,
+          node_id: 'R_selected',
+          name: 'project',
+          owner: { login: 'example' },
+        })
+      } else json(response, { data: { viewer: { id: 'U_bot', login: 'example[bot]' } } })
     })
     await expect(
-      new GitHubClient(configuration, url, authentication).viewerID(attempt()),
-    ).rejects.toMatchObject({ code: 'invalid_response', outcomeUnknown: false })
-    expect(paths).toEqual(['/app/installations/123/access_tokens'])
-    expect(authentication.token).toBeUndefined()
+      new GitHubClient(configuration, url, authentication).viewer(attempt()),
+    ).resolves.toEqual({ id: 'U_bot', login: 'example[bot]' })
+    expect(paths).toEqual(['/app/installations/123/access_tokens', '/repositories/456', '/graphql'])
+    expect(authentication.token?.value).toBe('local-token')
   })
 
   it('accepts finite exponent notation in non-identity numeric fields', async () => {

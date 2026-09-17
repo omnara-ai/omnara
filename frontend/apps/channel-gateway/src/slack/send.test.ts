@@ -4,14 +4,25 @@ import { describe, expect, it } from 'vitest'
 
 import { SlackClient } from './client'
 import { sendSlackMessage } from './send'
-import { body, credentials, deferred, json, operation, slackServer } from './test-support'
+import {
+  body,
+  credentials,
+  deferred,
+  json,
+  operation,
+  slackPayload,
+  slackServer,
+} from './test-support'
 
 describe('sendSlackMessage', () => {
-  it('preserves native text and exact thread timestamps in one post', async () => {
+  it.each([
+    '*hello* @user :smile:',
+    '```js\nconst mentions = "@here @channel @user :thinking:"\n```\n<@U123> <#C123> <https://example.com|link>',
+  ])('preserves native text and exact thread timestamps in one post (%s)', async (text) => {
     let payload: unknown
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
-        payload = JSON.parse(bytes.toString())
+        payload = slackPayload(bytes)
         json(response, { ok: true, channel: 'C1', ts: '1720000000.000002' })
       })
     })
@@ -20,14 +31,14 @@ describe('sendSlackMessage', () => {
       {
         channel: 'C1',
         threadTs: '1720000000.000001',
-        text: '*hello* @user :smile:',
+        text,
       },
       operation(),
     )
     expect(payload).toEqual({
       channel: 'C1',
       thread_ts: '1720000000.000001',
-      text: '*hello* @user :smile:',
+      text,
     })
     expect(result).toEqual({
       channel: 'C1',
@@ -44,7 +55,7 @@ describe('sendSlackMessage', () => {
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
         const upload = request.url?.startsWith('/upload/')
-        const payload: unknown = upload ? bytes.toString() : JSON.parse(bytes.toString())
+        const payload: unknown = upload ? bytes.toString() : slackPayload(bytes)
         calls.push({ path: request.url, payload, authorization: request.headers.authorization })
         if (request.url === '/files.getUploadURLExternal') {
           nextFile++
@@ -194,7 +205,7 @@ describe('sendSlackMessage', () => {
         else response.end('OK')
       } else {
         void body(request).then((bytes) => {
-          completion = JSON.parse(bytes.toString())
+          completion = slackPayload(bytes)
           json(response, { ok: true })
         })
       }
@@ -306,6 +317,37 @@ describe('sendSlackMessage', () => {
       '/upload',
       '/files.completeUploadExternal',
     ])
+  })
+
+  it('aborts a stalled SDK publication without retrying an unknown send', async () => {
+    const started = deferred()
+    const closed = deferred()
+    let calls = 0
+    const url = await slackServer((_request, response) => {
+      calls++
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.write('{"ok":true,')
+      response.once('close', () => {
+        closed.resolve()
+      })
+      started.resolve()
+    })
+    const controller = new AbortController()
+    const pending = sendSlackMessage(
+      new SlackClient(credentials.botToken, url),
+      { channel: 'C1', text: 'hi' },
+      { ...operation(), signal: controller.signal },
+    )
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'canceled',
+      attempts: 1,
+      outcomeUnknown: true,
+    })
+    await started.promise
+    controller.abort()
+    await rejected
+    await closed.promise
+    expect(calls).toBe(1)
   })
 
   it('reports cancellation during staging as not published', async () => {

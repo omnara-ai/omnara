@@ -120,9 +120,10 @@ export function identity(request: IncomingMessage, response: ServerResponse): bo
 }
 export async function server(
   handler: (request: IncomingMessage, response: ServerResponse) => void,
+  botToken = config.botToken,
 ) {
   const api = createServer((request, response) => {
-    expect(request.headers.authorization).toBe(`Bot ${config.botToken}`)
+    expect(request.headers.authorization).toBe(`Bot ${botToken}`)
     handler(request, response)
   })
   api.listen(0, '127.0.0.1')

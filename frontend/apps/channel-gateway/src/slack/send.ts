@@ -3,7 +3,8 @@ import {
   type OperationRetryOptions,
   retryOperation,
 } from '../operations/retry'
-import { SlackAPIError, type SlackClient, type SlackUpload } from './client'
+import { type SlackClient, type SlackUpload } from './client'
+import { SlackAPIError } from './errors'
 import { type SlackRequest, type SlackResponse, slackTimestamp } from './protocol'
 
 export interface SlackDestination {

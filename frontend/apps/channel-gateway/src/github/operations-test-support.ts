@@ -7,7 +7,6 @@ import type { CoreClient } from '../core/client'
 import { githubReplyDestination } from './address'
 import {
   type APICall,
-  comment,
   configuration,
   finding,
   githubFixture,
@@ -16,6 +15,7 @@ import {
   noPrevious,
   oldCommit,
   pr,
+  restComment,
   thread,
 } from './test-support'
 
@@ -116,15 +116,20 @@ export async function operationFixture(
             },
           },
         })
-      else if (request.query.includes('GitHubTimelineComment')) {
-        events.push('timeline')
-        json(response, { data: { addComment: { commentEdge: { node: comment } } } })
-      } else throw new Error('unhandled native request')
+      else throw new Error('unhandled native request')
     },
     async (call, response) => {
-      events.push(call.path.endsWith('/replies') ? 'reply' : 'comment')
+      events.push(
+        call.path.includes('/issues/')
+          ? 'timeline'
+          : call.path.endsWith('/replies')
+            ? 'reply'
+            : 'comment',
+      )
       if (await settings.rest?.(call, response)) return
-      if (call.path === '/repos/new-owner/renamed/pulls/7/comments')
+      if (call.path === '/repos/new-owner/renamed/issues/7/comments')
+        json(response, restComment, 201)
+      else if (call.path === '/repos/new-owner/renamed/pulls/7/comments')
         json(response, { node_id: finding.id }, 201)
       else if (
         call.path === `/repos/new-owner/renamed/pulls/7/comments/${finding.fullDatabaseId}/replies`

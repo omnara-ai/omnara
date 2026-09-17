@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -142,18 +143,23 @@ type launchProfileHTTPFixture struct {
 
 func newLaunchProfileHTTPFixture(t *testing.T) launchProfileHTTPFixture {
 	t.Helper()
+	return newLaunchProfileHTTPFixtureForProvider(t, "discord")
+}
+
+func newLaunchProfileHTTPFixtureForProvider(t *testing.T, provider string) launchProfileHTTPFixture {
+	t.Helper()
 	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
 	project := bootstrapPublicHTTPProject(t, handler, "launch-profile")
 	app, err := project.Store.Integrations().CreateIntegrationApp(t.Context(), integrationstore.CreateIntegrationAppInput{
 		OrgID: project.OrgUUID, OwnerProjectID: project.ProjectUUID,
-		Provider: "discord", ProviderAppRef: "31", ConnectorKey: channelconnector.BuiltInConnectorKey,
+		Provider: provider, ProviderAppRef: "31", ConnectorKey: channelconnector.BuiltInConnectorKey,
 		State: integrationstore.IntegrationAppStateActive,
 	})
 	require.NoError(t, err)
 	input := integrationstore.UpsertIntegrationInstallInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
 		InstalledBy:     identitystore.NewUserPrincipal(project.AdminUserUUID),
-		IntegrationKind: integrationstore.IntegrationKindManaged, Provider: "discord", ConnectionMode: "gateway",
+		IntegrationKind: integrationstore.IntegrationKindManaged, Provider: provider, ConnectionMode: "gateway",
 		ProviderTenantID: "32", ProviderAccountRef: "33", State: integrationstore.IntegrationInstallStateActive,
 	}
 	install, err := project.Store.Integrations().UpsertIntegrationInstall(t.Context(), input)
@@ -177,9 +183,79 @@ func (f launchProfileHTTPFixture) request(t *testing.T, method, path string, bod
 func (f launchProfileHTTPFixture) route(t *testing.T) integrationstore.IntegrationRouteRecord {
 	t.Helper()
 	route, err := f.project.Store.Integrations().GetIntegrationRouteByDeploymentKey(
-		t.Context(), f.project.ProjectUUID, f.install.ID, "discord")
+		t.Context(), f.project.ProjectUUID, f.install.ID, f.install.Provider)
 	require.NoError(t, err)
 	return route
+}
+
+func TestPublicGitHubActivationPreservesRouteAndOmittedSetting(t *testing.T) {
+	t.Parallel()
+	f := newLaunchProfileHTTPFixtureForProvider(t, "github")
+	require.Equal(t, map[string]any{"agent_profile_id": nil, "github_activation": "pr_open"},
+		f.request(t, http.MethodGet, f.path, nil, http.StatusOK))
+	// Profile-only updates preserve the saved activation, and changing either
+	// setting must preserve route identity and lifecycle.
+	original, err := f.project.Store.Integrations().CreateIntegrationRoute(t.Context(),
+		integrationstore.CreateIntegrationRouteInput{
+			ProjectID: f.project.ProjectUUID, IntegrationInstallID: f.install.ID,
+			DeploymentKey: "github", BehaviorKey: "github_pr", State: integrationstore.IntegrationRouteStateActive,
+			Configuration: json.RawMessage(`{"activation":"pr_open"}`),
+		})
+	require.NoError(t, err)
+	for _, test := range []struct {
+		profile          any
+		activation, want string
+	}{
+		{f.profileID, "mention", "mention"},
+		{f.secondProfile(t), "", "mention"},
+		{nil, "", "mention"},
+		{f.profileID, "pr_open", "pr_open"},
+	} {
+		body := map[string]any{"agent_profile_id": test.profile}
+		if test.activation != "" {
+			body["github_activation"] = test.activation
+		}
+		response := f.request(t, http.MethodPut, f.path, body, http.StatusOK)
+		require.Equal(t, map[string]any{"agent_profile_id": test.profile, "github_activation": test.want}, response)
+		require.Equal(t, response, f.request(t, http.MethodGet, f.path, nil, http.StatusOK))
+		current := f.route(t)
+		require.Equal(t, original.ID, current.ID)
+		require.Equal(t, original.CreatedAt, current.CreatedAt)
+		require.Equal(t, original.State, current.State)
+		require.Equal(t, original.BehaviorKey, current.BehaviorKey)
+		require.JSONEq(t, `{"activation":"`+test.want+`"}`, string(current.Configuration))
+	}
+	for _, invalid := range []any{"all", "", nil, true} {
+		before := f.route(t)
+		f.request(t, http.MethodPut, f.path,
+			map[string]any{"agent_profile_id": nil, "github_activation": invalid}, http.StatusBadRequest)
+		require.Equal(t, before, f.route(t))
+	}
+	pool := integrationPoolForHandler(t, f.handler)
+	_, err = pool.Exec(t.Context(), `UPDATE integration_routes SET deployment_key='replacement' WHERE id=$1`, original.ID)
+	require.Error(t, err, "route identity remains immutable")
+}
+
+func TestPublicGitHubActivationCreationAndProviderScope(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{"github", "discord", "slack"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			f := newLaunchProfileHTTPFixtureForProvider(t, provider)
+			status := http.StatusBadRequest
+			if provider == "github" {
+				status = http.StatusOK
+			}
+			response := f.request(t, http.MethodPut, f.path,
+				map[string]any{"agent_profile_id": f.profileID, "github_activation": "mention"}, status)
+			if provider == "github" {
+				require.Equal(t, "mention", response["github_activation"])
+				require.JSONEq(t, `{"activation":"mention"}`, string(f.route(t).Configuration))
+			} else {
+				require.Equal(t, map[string]any{"agent_profile_id": nil}, f.request(t, http.MethodGet, f.path, nil, http.StatusOK))
+			}
+		})
+	}
 }
 
 func (f launchProfileHTTPFixture) secondProfile(t *testing.T) string {

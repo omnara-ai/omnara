@@ -5,7 +5,6 @@ import type { GitHubClient } from './client'
 import {
   GitHubAPIError,
   type GitHubComment,
-  githubComment,
   githubCommitID,
   type GitHubFinding,
   githubNodeID,
@@ -111,16 +110,8 @@ export async function postGitHubTimelineComment(
   context: OperationAttemptContext,
 ): Promise<GitHubMessage> {
   validateGitHubText(text)
-  const pr = await getGitHubPullRequest(client, number, context)
-  const data = await client.query(
-    'timelineComment',
-    { input: { subjectId: pr.id, body: text } },
-    z.object({
-      addComment: z.object({ commentEdge: z.object({ node: githubComment }) }),
-    }),
-    context,
-  )
-  return githubMessage(data.addComment.commentEdge.node, true)
+  await getGitHubPullRequest(client, number, context)
+  return githubMessage(await client.publishedTimeline(number, text, context), true)
 }
 
 const threadIdentity = z.object({
@@ -161,15 +152,10 @@ async function requireNoPendingReview(
   context: OperationAttemptContext,
 ): Promise<void> {
   providerValue(githubPRNumber, number)
-  const { viewer } = await client.query(
-    'viewer',
-    {},
-    z.object({ viewer: z.object({ login: z.string().min(1).max(256) }) }),
-    context,
-  )
+  const login = await client.viewerLogin(context)
   const result = await client.query(
     'pendingReviews',
-    { repository: client.configuration.repositoryNodeID, number, author: viewer.login },
+    { repository: client.configuration.repositoryNodeID, number, author: login },
     z.object({
       node: z
         .object({

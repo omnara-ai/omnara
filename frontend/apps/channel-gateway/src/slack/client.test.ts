@@ -3,10 +3,63 @@ import { Readable } from 'node:stream'
 
 import { describe, expect, it } from 'vitest'
 
+import { retryOperation } from '../operations/retry'
 import { SlackClient } from './client'
 import { attempt, body, credentials, deferred, json, slackServer } from './test-support'
 
 describe('SlackClient', () => {
+  it.each([408, 503])(
+    'distinguishes a rejected read from an uncertain publication on HTTP %s',
+    async (status) => {
+      let calls = 0
+      const url = await slackServer((_request, response) => {
+        calls++
+        json(response, { ok: false }, status)
+      })
+      const client = new SlackClient(credentials.botToken, url)
+      await expect(
+        client.api('chat.postMessage', { channel: 'C1', text: 'hello' }, attempt()),
+      ).rejects.toMatchObject({
+        code: 'provider_unavailable',
+        outcomeUnknown: true,
+        retryable: false,
+      })
+      await expect(
+        client.api('conversations.history', { channel: 'C1' }, attempt()),
+      ).rejects.toMatchObject({
+        code: 'provider_unavailable',
+        outcomeUnknown: false,
+        retryable: true,
+      })
+      expect(calls).toBe(2)
+    },
+  )
+
+  it('does not enqueue requests behind another operation’s async context', async () => {
+    // WebClient defaults to a queue of 100; its queued continuations inherit
+    // the completing request's context. Omnara's operation limiter owns queuing.
+    const count = 101
+    const received = deferred()
+    const respond: (() => void)[] = []
+    const url = await slackServer((_request, response) => {
+      respond.push(() => {
+        json(response, { ok: true, messages: [] })
+      })
+      if (respond.length === count) received.resolve()
+    })
+    const client = new SlackClient(credentials.botToken, url)
+    const completed = expect(
+      Promise.all(
+        Array.from({ length: count }, () =>
+          client.api('conversations.history', { channel: 'C1' }, attempt(undefined, 10_000)),
+        ),
+      ),
+    ).resolves.toHaveLength(count)
+    await received.promise
+    for (const send of respond) send()
+    await completed
+  })
+
   it('authenticates an API request and returns no credential in provider diagnostics', async () => {
     let calls = 0
     let authorization: string | undefined
@@ -96,8 +149,8 @@ describe('SlackClient', () => {
     controller.abort()
     await rejected
     await closed.promise
-    expect(await parallel).toEqual({ messages: [] })
-    expect(await client.api('conversations.history', { channel: 'C1' }, attempt())).toEqual({
+    expect(await parallel).toMatchObject({ messages: [] })
+    expect(await client.api('conversations.history', { channel: 'C1' }, attempt())).toMatchObject({
       messages: [],
     })
   })
@@ -121,7 +174,7 @@ describe('SlackClient', () => {
 
   it('bounds response bodies and treats malformed publication responses as unknown', async () => {
     const url = await slackServer((_request, response) => {
-      response.end('x'.repeat(1024 * 1024 + 1))
+      json(response, { ok: true, ts: '100.000001', messages: [], extra: 'x'.repeat(1024 * 1024) })
     })
     await expect(
       new SlackClient(credentials.botToken, url).api(
@@ -140,6 +193,21 @@ describe('SlackClient', () => {
         attempt(),
       ),
     ).rejects.toMatchObject({ code: 'invalid_response', outcomeUnknown: true })
+  })
+
+  it('does not retry a read that exceeds the SDK response budget', async () => {
+    let calls = 0
+    const url = await slackServer((_request, response) => {
+      calls++
+      json(response, { ok: true, ts: '100.000001', messages: [], extra: 'x'.repeat(1024 * 1024) })
+    })
+    const client = new SlackClient(credentials.botToken, url)
+    await expect(
+      retryOperation({ ...attempt(), idempotent: true }, (context) =>
+        client.api('conversations.history', { channel: 'C1' }, context),
+      ),
+    ).rejects.toMatchObject({ code: 'permanent_failure', attempts: 1 })
+    expect(calls).toBe(1)
   })
 
   it('streams uploads without a bot token and checks exact artifact size', async () => {

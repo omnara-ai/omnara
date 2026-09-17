@@ -12051,6 +12051,14 @@ components:
         agent_profile_id:
           type: [string, 'null']
           pattern: '^aprf_[a-z2-7]{26}$'
+        github_activation:
+          $ref: '#/components/schemas/GitHubActivation'
+          description: GitHub only; rejected for other providers. Omit on update to preserve the saved setting. Defaults to pr_open for an unconfigured connection. Returned only for GitHub connections. Changes initial activation only; existing PR agents continue receiving supported followups.
+    GitHubActivation:
+      type: string
+      enum: [pr_open, mention]
+      x-enum-varnames: [GitHubActivationPROpen, GitHubActivationMention]
+      description: Start one agent when a PR opens, or when the bot is mentioned in a PR description, timeline comment, published review, or review comment. Deletion, dismissal, and commit events cannot activate a new agent. PR description mentions are evaluated only on opening or editing. Once active, supported comments and commits continue the same agent.
     StartIntegrationConnectionRequest:
       type: object
       additionalProperties: false

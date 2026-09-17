@@ -307,6 +307,122 @@ it('retains the selected profile after a save failure and allows retry', async (
   ])
 })
 
+async function chooseActivation(label: string) {
+  await waitForUI(() => {
+    expect(document.getElementById('connection-github-activation')).not.toBeNull()
+  })
+  act(() => {
+    document
+      .getElementById('connection-github-activation')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  })
+  await waitForUI(() => {
+    expect(
+      [...document.querySelectorAll('[role="option"]')].some((item) => item.textContent === label),
+    ).toBe(true)
+  })
+  act(() => {
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((item) => item.textContent === label)
+      ?.click()
+  })
+}
+
+it('saves an activation-only edit and keeps the draft after failure', async () => {
+  let attempts = 0
+  const close = vi.fn()
+  const { api } = await render(dialog(true, close), [
+    {
+      method: 'GET',
+      path: launchPath,
+      respond: () => jsonResponse({ agent_profile_id: profile.id, github_activation: 'pr_open' }),
+    },
+    {
+      method: 'PUT',
+      path: launchPath,
+      respond: () =>
+        ++attempts === 1
+          ? jsonResponse({ code: 'conflict', error: 'Try again' }, 409)
+          : jsonResponse({ agent_profile_id: profile.id, github_activation: 'mention' }),
+    },
+  ])
+  await chooseActivation('When the bot is mentioned')
+  await submit()
+  await waitForUI(() => {
+    expect(document.body.textContent).toContain('Try again')
+  })
+  expect(document.getElementById('connection-github-activation')?.textContent).toBe(
+    'When the bot is mentioned',
+  )
+  await submit()
+  await waitForUI(() => {
+    expect(close).toHaveBeenCalledOnce()
+  })
+  expect(api.requestsTo('PUT', launchPath).map((request) => request.body)).toEqual([
+    { agent_profile_id: profile.id, github_activation: 'mention' },
+    { agent_profile_id: profile.id, github_activation: 'mention' },
+  ])
+})
+
+it('omits an untouched saved activation when clearing the profile', async () => {
+  const { api } = await render(dialog(), [
+    {
+      method: 'GET',
+      path: launchPath,
+      respond: () => jsonResponse({ agent_profile_id: profile.id, github_activation: 'mention' }),
+    },
+    {
+      method: 'PUT',
+      path: launchPath,
+      respond: () => jsonResponse({ agent_profile_id: null, github_activation: 'mention' }),
+    },
+  ])
+  await waitForUI(() => {
+    expect(button(`Clear ${profile.name}`)).toBeDefined()
+  })
+  expect(document.getElementById('connection-github-activation')?.textContent).toBe(
+    'When the bot is mentioned',
+  )
+  act(() => {
+    button(`Clear ${profile.name}`).click()
+  })
+  await submit()
+  await waitForUI(() => {
+    expect(api.requestsTo('PUT', launchPath)).toHaveLength(1)
+  })
+  expect(api.requestsTo('PUT', launchPath)[0]?.body).toEqual({ agent_profile_id: null })
+})
+
+it('shows the saved activation to readers without editable controls', async () => {
+  await render(dialog(false), [
+    {
+      method: 'GET',
+      path: launchPath,
+      respond: () => jsonResponse({ agent_profile_id: profile.id, github_activation: 'mention' }),
+    },
+  ])
+  await waitForUI(() => {
+    expect(document.body.textContent).toContain('When the bot is mentioned')
+  })
+  expect(document.querySelector('[role="combobox"]')).toBeNull()
+})
+
+it.each(['slack', 'discord'])('does not offer GitHub activation for %s', async (provider) => {
+  const { api } = await render(
+    <IntegrationLaunchProfileDialog
+      orgId={orgId}
+      projectId={projectId}
+      install={{ ...install, provider }}
+      canManage
+      onClose={vi.fn()}
+    />,
+  )
+  await chooseProfile()
+  expect(document.getElementById('connection-github-activation')).toBeNull()
+  expect(document.body.textContent).not.toContain('Start a PR agent')
+  expect(api.requestsTo('PUT', launchPath)).toHaveLength(0)
+})
+
 it('does not assume null after a load failure and permits retry without writing', async () => {
   let attempts = 0
   const { api } = await render(dialog(), [

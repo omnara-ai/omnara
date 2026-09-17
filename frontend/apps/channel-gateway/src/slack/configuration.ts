@@ -1,7 +1,7 @@
 import type { ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
 import { z } from 'zod'
 
-import { SlackAPIError } from './client'
+import { SlackAPIError } from './errors'
 
 export interface SlackCredentials {
   botToken: string

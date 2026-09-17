@@ -19,9 +19,10 @@ import type {
 import { ReceiptClientError } from '../core/receipt-http'
 import type { OperationAttemptContext } from '../operations/retry'
 import type { ProviderWorkReservation, ReceiptBehaviorContext } from '../types'
-import { SlackAPIError, SlackClient } from './client'
+import { SlackClient } from './client'
 import { slackCredentials } from './configuration'
 import { enrichSlackInput, type SlackEnrichment } from './enrichment'
+import { SlackAPIError } from './errors'
 import {
   displayMetadata,
   parseSlackReceipt,

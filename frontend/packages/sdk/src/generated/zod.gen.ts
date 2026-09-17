@@ -1308,8 +1308,14 @@ export const zMcpoAuthStartResponse = z.object({
     expires_at: zTimestamp
 });
 
+/**
+ * Start one agent when a PR opens, or when the bot is mentioned in a PR description, timeline comment, published review, or review comment. Deletion, dismissal, and commit events cannot activate a new agent. PR description mentions are evaluated only on opening or editing. Once active, supported comments and commits continue the same agent.
+ */
+export const zGitHubActivation = z.enum(['pr_open', 'mention']);
+
 export const zIntegrationLaunchProfile = z.object({
-    agent_profile_id: z.string().regex(/^aprf_[a-z2-7]{26}$/).nullable()
+    agent_profile_id: z.string().regex(/^aprf_[a-z2-7]{26}$/).nullable(),
+    github_activation: zGitHubActivation.optional()
 });
 
 export const zStartIntegrationConnectionRequest = z.object({

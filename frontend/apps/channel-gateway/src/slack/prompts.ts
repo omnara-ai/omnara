@@ -5,7 +5,8 @@ import type {
 } from '@omnara/sdk'
 
 import { type OperationRetryOptions, retryOperation } from '../operations/retry'
-import { SlackAPIError, type SlackClient } from './client'
+import { type SlackClient } from './client'
+import { SlackAPIError } from './errors'
 import { slackDestination } from './operations'
 import type { SlackRequest } from './protocol'
 
