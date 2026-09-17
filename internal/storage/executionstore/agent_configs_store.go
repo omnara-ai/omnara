@@ -25,7 +25,6 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 	if input.ProjectID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("project id is required")
 	}
-	input.Definition = normalizedJSON(input.Definition)
 	input = withDefaultAgentConfigCompilation(input)
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -56,7 +55,6 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 type CreateAgentConfigInput struct {
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
-	Definition              json.RawMessage
 	Source                  string
 	SourceFormat            string
 	SourceHash              string
@@ -70,7 +68,6 @@ type AgentConfigRecord struct {
 	ID                      uuid.UUID       `json:"id"`
 	OrgID                   uuid.UUID       `json:"org_id"`
 	ProjectID               uuid.UUID       `json:"project_id"`
-	Definition              json.RawMessage `json:"definition"`
 	Source                  string          `json:"source,omitempty"`
 	SourceFormat            string          `json:"source_format,omitempty"`
 	SourceHash              string          `json:"source_hash,omitempty"`
@@ -201,7 +198,6 @@ func insertAgentConfigTx(
 	qtx *dbsqlc.Queries,
 	input CreateAgentConfigInput,
 ) (AgentConfigRecord, error) {
-	input.Definition = normalizedJSON(input.Definition)
 	input = withDefaultAgentConfigCompilation(input)
 	if input.Source != "" {
 		if _, err := agentconfig.ParseSource(agentconfig.SourceFormat(input.SourceFormat), []byte(input.Source)); err != nil {
@@ -222,7 +218,6 @@ func insertAgentConfigTx(
 			OrgID:                   input.OrgID,
 			ProjectID:               input.ProjectID,
 			ConfiguredModelID:       input.ConfiguredModelID,
-			Definition:              input.Definition,
 			Source:                  storeutil.TextFromEmpty(input.Source),
 			SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
 			SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
@@ -253,7 +248,7 @@ func insertAgentConfigTx(
 				selectErr,
 			)
 		}
-		record = agentConfigRecordFromSQLC(existing)
+		record = agentConfigRecordFromSQLC(dbsqlc.GetAgentConfigRow(existing))
 		record.Created = false
 	case err != nil:
 		return AgentConfigRecord{}, fmt.Errorf("upsert agent config: %w", err)
@@ -336,8 +331,7 @@ func lockAndValidateAgentConfigModelContractTx(
 }
 
 func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigInput) bool {
-	return sameJSON(record.Definition, input.Definition) &&
-		record.Source == input.Source &&
+	return record.Source == input.Source &&
 		record.SourceFormat == input.SourceFormat &&
 		record.SourceHash == input.SourceHash &&
 		record.ConfiguredModelID == input.ConfiguredModelID &&
@@ -610,9 +604,6 @@ func (s *Store) ResolveAgentConfigMachinePoolName(
 }
 
 func withDefaultAgentConfigCompilation(input CreateAgentConfigInput) CreateAgentConfigInput {
-	if len(input.CompiledDefinition) == 0 {
-		input.CompiledDefinition = input.Definition
-	}
 	if input.Source != "" && input.SourceFormat == "" {
 		input.SourceFormat = string(agentconfig.SourceFormatYAML)
 	}
@@ -620,9 +611,6 @@ func withDefaultAgentConfigCompilation(input CreateAgentConfigInput) CreateAgent
 		input.SourceHash = agentConfigSourceHash(input.Source)
 	}
 	input.CompiledDefinition = normalizedJSON(input.CompiledDefinition)
-	if len(input.Definition) == 0 || string(input.Definition) == "null" {
-		input.Definition = input.CompiledDefinition
-	}
 	if input.EffectiveDefinitionHash == "" {
 		input.EffectiveDefinitionHash = configDefinitionHash(input.CompiledDefinition)
 	}

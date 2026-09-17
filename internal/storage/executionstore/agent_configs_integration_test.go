@@ -24,8 +24,7 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	source := testAgentConfigYAML()
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
 	input := executionstore.CreateAgentConfigInput{
-		Definition: compiled.CanonicalJSON,
-		ProjectID:  testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
 		CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
@@ -53,6 +52,13 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, authored.ID)
 	require.Equal(t, source, authored.Source)
+	for _, config := range []executionstore.AgentConfigRecord{first, authored} {
+		var legacyMatches bool
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT definition = compiled_definition FROM agent_configs WHERE id = $1`, config.ID,
+		).Scan(&legacyMatches))
+		require.True(t, legacyMatches)
+	}
 }
 
 func TestCreateAgentConfigRejectsInvalidSource(t *testing.T) {
@@ -87,7 +93,6 @@ func TestCreateAgentConfigRejectsUnresolvedModelContract(t *testing.T) {
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML)
 	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
@@ -125,7 +130,6 @@ model:
 	}
 	_, err = store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModelID,
@@ -154,7 +158,6 @@ model:
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -218,7 +221,6 @@ model:
 	}
 	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,

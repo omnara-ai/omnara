@@ -494,7 +494,6 @@ func mustCreateAgentConfigFromYAML(
 func changeInputFromRecord(record executionstore.AgentConfigRecord) executionstore.CreateAgentConfigInput {
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               record.ProjectID,
-		Definition:              record.Definition,
 		Source:                  record.Source,
 		ConfiguredModelID:       record.ConfiguredModelID,
 		CompiledDefinition:      record.CompiledDefinition,

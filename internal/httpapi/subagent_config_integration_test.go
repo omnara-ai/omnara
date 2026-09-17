@@ -24,7 +24,7 @@ func TestSubagentConfigReadOnly(t *testing.T) {
 	parent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, "readonly-subagent")
 	base := parent.AgentConfig
 	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID: project.ProjectUUID, Definition: base.Definition,
+		ProjectID:         project.ProjectUUID,
 		ConfiguredModelID: base.ConfiguredModelID, CompiledDefinition: base.CompiledDefinition,
 		CompilerVersion: base.CompilerVersion, EffectiveDefinitionHash: base.EffectiveDefinitionHash,
 	})

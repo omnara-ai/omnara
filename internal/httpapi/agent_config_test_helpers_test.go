@@ -69,7 +69,6 @@ model:
 	compiled := compileHTTPAgentYAMLResolved(t, ctx, store, orgID, projectID, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),

@@ -575,7 +575,6 @@ mcp:
 	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource)
 	nextConfig := executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  newSource,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),

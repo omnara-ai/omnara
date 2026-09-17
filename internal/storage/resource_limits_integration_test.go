@@ -623,7 +623,6 @@ model:
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),

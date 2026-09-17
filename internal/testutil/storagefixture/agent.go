@@ -26,7 +26,6 @@ func SeedAgentConfig(
 	require.NoError(t, err, "parse compiled configured model ID for project %s", projectID)
 	config, err := execution.CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		ConfiguredModelID:       modelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),

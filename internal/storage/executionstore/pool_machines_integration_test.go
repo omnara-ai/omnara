@@ -108,7 +108,7 @@ tools:
 		t.Fatalf("machine pool sources after name swap = %+v", sources)
 	}
 	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID: testProjectID, Definition: config.Definition,
+		ProjectID:         testProjectID,
 		ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: config.CompiledDefinition,
 		CompilerVersion: config.CompilerVersion, EffectiveDefinitionHash: config.EffectiveDefinitionHash,
 	})

@@ -17,7 +17,6 @@ import (
 )
 
 type Body struct {
-	Definition         json.RawMessage
 	Source             string
 	SourceFormat       string
 	ConfiguredModelID  uuid.UUID
@@ -29,7 +28,6 @@ type Body struct {
 func (body Body) CreateInput(projectID uuid.UUID) executionstore.CreateAgentConfigInput {
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
-		Definition:              body.Definition,
 		Source:                  body.Source,
 		SourceFormat:            body.SourceFormat,
 		ConfiguredModelID:       body.ConfiguredModelID,
@@ -274,7 +272,6 @@ func DeriveSubagentConfig(
 		return Body{}, fmt.Errorf("subagent model must resolve to a configured project-granted model")
 	}
 	return Body{
-		Definition:         json.RawMessage(encoded.CanonicalJSON),
 		ConfiguredModelID:  configuredModelID,
 		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
 		CompilerVersion:    agentconfig.CompilerVersion,
@@ -313,7 +310,6 @@ func Compile(
 		return Body{}, err
 	}
 	return Body{
-		Definition:         json.RawMessage(result.CanonicalJSON),
 		Source:             result.Source,
 		SourceFormat:       string(result.SourceFormat),
 		ConfiguredModelID:  resolvedConfiguredModelID,

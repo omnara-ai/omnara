@@ -6,12 +6,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func agentConfigRecordFromSQLC(row dbsqlc.AgentConfig) AgentConfigRecord {
+func agentConfigRecordFromSQLC(row dbsqlc.GetAgentConfigRow) AgentConfigRecord {
 	return AgentConfigRecord{
 		ID:                      row.ID,
 		OrgID:                   row.OrgID,
 		ProjectID:               row.ProjectID,
-		Definition:              row.Definition,
 		Source:                  storeutil.TextOrEmpty(row.Source),
 		SourceFormat:            storeutil.TextOrEmpty(row.SourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
@@ -28,7 +27,6 @@ func agentConfigRecordFromUpsertSQLC(row dbsqlc.UpsertAgentConfigByHashRow) Agen
 		ID:                      row.ID,
 		OrgID:                   row.OrgID,
 		ProjectID:               row.ProjectID,
-		Definition:              row.Definition,
 		Source:                  storeutil.TextOrEmpty(row.Source),
 		SourceFormat:            storeutil.TextOrEmpty(row.SourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
@@ -47,7 +45,6 @@ func agentConfigSnapshotFromSQLC(
 		ID:                      row.ID,
 		OrgID:                   row.OrgID,
 		ProjectID:               row.ProjectID,
-		Definition:              row.Definition,
 		Source:                  storeutil.TextOrEmpty(row.Source),
 		SourceFormat:            storeutil.TextOrEmpty(row.SourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
@@ -70,7 +67,6 @@ func agentConfigSnapshotAtWatermarkFromSQLC(
 		ID:                      row.ID,
 		OrgID:                   row.OrgID,
 		ProjectID:               row.ProjectID,
-		Definition:              row.Definition,
 		Source:                  storeutil.TextOrEmpty(row.Source),
 		SourceFormat:            storeutil.TextOrEmpty(row.SourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
