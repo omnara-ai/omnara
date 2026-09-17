@@ -244,7 +244,7 @@ test('creates an agent from YAML', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
   await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
@@ -302,7 +302,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
   await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
@@ -440,7 +440,7 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
   await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Launch' }).click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+$`))
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
   expect(failures).toEqual([])
 })
 
@@ -612,7 +612,7 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   const openChat = step(3).getByRole('link', { name: 'Open chat' })
   await expect(openChat).toBeVisible()
   await openChat.click()
-  await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+$`))
+  await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+/chat$`))
 
   expect(failures).toEqual([])
 })

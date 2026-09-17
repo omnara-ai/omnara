@@ -64,6 +64,10 @@ export function sequenceNumber(value: number | undefined): number {
   return value ?? 0
 }
 
+export function eventsAfterSequence(events: AgentEvent[], sequence: number): AgentEvent[] {
+  return events.filter((event) => sequenceNumber(event.sequence) > sequence)
+}
+
 export function eventMetadata(event: AgentEvent): OmnaraMessageMetadata {
   return {
     eventId: event.id,

@@ -733,7 +733,7 @@ func TestRunServiceRejectsInvalidRetryInterval(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	setConfiguredDaemonEnvironment(t, home, "https://example.com", "/bin")
 	t.Setenv("OMNARA_DAEMON_RETRY_INTERVAL_MS", "invalid")
-	err := runService(context.Background(), discardLogger(), false)
+	err := runService(context.Background(), discardLogger(), false, false)
 	if err == nil || err.Error() != "OMNARA_DAEMON_RETRY_INTERVAL_MS must be positive integer milliseconds" {
 		t.Fatalf("run service error = %v", err)
 	}

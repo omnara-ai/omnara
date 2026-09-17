@@ -221,7 +221,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
+            enum: [startup_script, daemon_install, daemon_update, daemon_runtime, daemon_uninstall, daemon_uninstalled]
         - name: exit_status
           in: query
           required: false
@@ -13602,14 +13602,15 @@ components:
     MachineFailureReport:
       description: >-
         The machine's most recent daemon-reported failure. A single slot,
-        overwritten by newer reports and cleared when the daemon recovers.
+        overwritten by newer reports. Runtime crash reports remain as historical
+        diagnostics; recovery may clear other failure stages.
       type: object
       additionalProperties: false
       required: [stage, output_tail, output_truncated, reported_at]
       properties:
         stage:
           type: string
-          enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
+          enum: [startup_script, daemon_install, daemon_update, daemon_runtime, daemon_uninstall, daemon_uninstalled]
         exit_status:
           type: integer
         output_tail:

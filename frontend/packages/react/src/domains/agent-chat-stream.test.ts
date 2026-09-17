@@ -599,6 +599,34 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
+  it('reopens the stream from the last cursor on reconnect', async () => {
+    const session = startSession()
+    const stream = await connection(0)
+    stream.fail(
+      new AgentEventStreamError({
+        kind: 'http',
+        message: 'Agent event stream request failed with HTTP 401',
+        status: 401,
+      }),
+    )
+    await waitForSnapshot(session, (s) => s.status === 'error')
+
+    expect(session.getData().streamError?.message).toBe(
+      'Agent event stream request failed with HTTP 401',
+    )
+    session.reconnect()
+
+    expect(read(session).error).toBeUndefined()
+    expect(session.getData().streamError).toBeUndefined()
+    const reopened = await connection(1)
+    reopened.push({ event: 'agent_input', data: userInputEvent() })
+    await waitForSnapshot(session, (s) => s.messages.length === 1)
+    expect(transport.openAgentEventStream).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
+    )
+    session.disconnect()
+  })
+
   it('surfaces a terminal API stream error', async () => {
     const session = startSession()
     const stream = await connection(0)

@@ -1980,13 +1980,14 @@ export const zAgentMachineBinding = z.object({
 });
 
 /**
- * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
  */
 export const zMachineFailureReport = z.object({
     stage: z.enum([
         'startup_script',
         'daemon_install',
         'daemon_update',
+        'daemon_runtime',
         'daemon_uninstall',
         'daemon_uninstalled'
     ]),
@@ -3819,6 +3820,7 @@ export const zRecordMachineFailureQuery = z.object({
         'startup_script',
         'daemon_install',
         'daemon_update',
+        'daemon_runtime',
         'daemon_uninstall',
         'daemon_uninstalled'
     ]),

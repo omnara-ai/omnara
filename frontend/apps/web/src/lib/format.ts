@@ -50,3 +50,16 @@ export function formatUsdPerMillion(decimal: string) {
   if (!Number.isFinite(value)) return decimal
   return usdPerMillionFormatter.format(value)
 }
+
+const timeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+export function formatTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return timeFormatter.format(date)
+}

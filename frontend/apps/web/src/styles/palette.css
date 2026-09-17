@@ -18,13 +18,13 @@
   --palette-dark-destructive: oklch(0.7 0.19 22);
   --palette-dark-success: 98 207 158;
 
-  --palette-light-bg: 250 250 250;
-  --palette-light-fg: 24 24 24;
-  --palette-light-surface: 255 255 255;
-  --palette-light-surface-2: 242 242 242;
-  --palette-light-surface-3: 230 230 230;
-  --palette-light-line: 218 218 218;
-  --palette-light-line-strong: 176 176 176;
+  --palette-light-bg: 243 244 247;
+  --palette-light-fg: 17 18 24;
+  --palette-light-surface: 249 250 252;
+  --palette-light-surface-2: 235 236 240;
+  --palette-light-surface-3: 226 228 235;
+  --palette-light-line: 208 212 222;
+  --palette-light-line-strong: 172 178 196;
   --palette-light-accent: 61 94 181;
   --palette-light-accent-strong: 51 81 164;
   --palette-light-accent-soft: 112 140 217;

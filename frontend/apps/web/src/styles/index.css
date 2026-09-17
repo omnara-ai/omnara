@@ -179,6 +179,52 @@
   }
 }
 
+@property --code-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes code-ring-spin {
+  to {
+    --code-ring-angle: 360deg;
+  }
+}
+
+.code-panel-ring {
+  padding: 1px;
+  background: conic-gradient(
+    from var(--code-ring-angle),
+    color-mix(in oklch, var(--primary) 55%, transparent),
+    color-mix(in oklch, var(--border) 80%, transparent) 30%,
+    color-mix(in oklch, var(--primary) 20%, transparent) 55%,
+    color-mix(in oklch, var(--border) 80%, transparent) 75%,
+    color-mix(in oklch, var(--primary) 55%, transparent)
+  );
+  animation: code-ring-spin 14s linear infinite;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.code-panel-body {
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-panel-ring {
+    animation: none;
+  }
+  .code-panel-body {
+    transition: none;
+  }
+}
+
 .code-highlight span {
   color: var(--shiki-light);
 }

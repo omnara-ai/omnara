@@ -90,9 +90,12 @@ const organizationMachinesRoute = createRoute({
   ),
 })
 
+const organizationModelsSearch = z.object({ provider: z.string().optional().catch(undefined) })
+
 const organizationModelsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/models',
+  validateSearch: organizationModelsSearch,
   component: lazyRouteComponent(
     () => import('@/routes/OrganizationModelsPage'),
     'OrganizationModelsPage',
@@ -206,6 +209,25 @@ const agentRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/AgentView'), 'AgentView'),
 })
 
+const agentIndexRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
+    throw redirect({ to: '/projects/$projectId/agents/$agentId/events', params })
+  },
+})
+
+const agentEventsRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/events',
+})
+
+const agentChatRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/chat',
+})
+
 const deviceAuthRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/device',
@@ -303,7 +325,7 @@ const routeTree = rootRoute.addChildren([
       projectUsageRoute,
       agentProfileRoute,
       createAgentRoute,
-      agentRoute,
+      agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute]),
     ]),
   ]),
 ])

@@ -5,6 +5,7 @@ import {
   useModelProviders,
 } from '@omnara/react'
 import { ApiError, type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -25,13 +26,14 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { modelPricingDetailItems } from '@/lib/model-pricing'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 type ActiveDialog =
-  | { kind: 'create' }
+  | { kind: 'create'; providerId?: string }
   | { kind: 'edit'; model: ConfiguredModel }
   | { kind: 'grant'; model: ConfiguredModel }
   | null
@@ -62,6 +64,10 @@ export function ConfiguredModelsSection() {
   const deleteModel = useDeleteConfiguredModel(activeOrg.id)
   const pricing = useClusterModelPricing(activeOrg.id)
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
+  const dialog: ActiveDialog =
+    activeDialog ?? (search.provider ? { kind: 'create', providerId: search.provider } : null)
   const list = useResourceList<string>('-created_at')
   // Newest first for the overview; the hook's name ordering is for pickers.
   const models = [...(modelsQuery.data ?? [])].sort((left, right) => {
@@ -97,6 +103,7 @@ export function ConfiguredModelsSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Configured models"
+          guide={guides.modelProviders}
           toolbar={
             <ResourceListToolbar
               search={list.search}
@@ -239,9 +246,10 @@ export function ConfiguredModelsSection() {
         <ConfiguredModelDialogs
           orgId={activeOrg.id}
           providers={providers}
-          activeDialog={activeDialog}
+          activeDialog={dialog}
           onClose={() => {
             setActiveDialog(null)
+            if (search.provider) void navigate({ to: '/models', search: {}, replace: true })
           }}
         />
       )}
@@ -270,6 +278,7 @@ function ConfiguredModelDialogs({
           }}
           orgId={orgId}
           providers={providers}
+          defaultProviderId={activeDialog?.kind === 'create' ? activeDialog.providerId : undefined}
         />
       )}
       {activeDialog?.kind === 'grant' && (

@@ -38,7 +38,10 @@ const (
 	updateFailureReportTimeout = 5 * time.Second
 	updateStagingDirName       = ".omnarad-update"
 	inheritedDaemonLockFDEnv   = "__OMNARA_DAEMON_LOCK_FD"
+	supervisorHandoffEnv       = "__OMNARA_SUPERVISOR_HANDOFF"
 )
+
+var errDaemonUpdateHandoff = errors.New("daemon update published; handing off to supervisor")
 
 type updateDiscoveryStatus uint8
 
@@ -116,6 +119,7 @@ func runDaemonService(
 	noUpdate bool,
 	executable string,
 	supervised bool,
+	handoff bool,
 	log *slog.Logger,
 ) error {
 	var daemonLock *localstore.Lock
@@ -241,7 +245,7 @@ func runDaemonService(
 					log.Warn("daemon update shutdown failed", "version", update.manifest.Version, "error", clientErr)
 					reporter.report(ctx, "runtime shutdown", update.manifest.Version, clientErr)
 				}
-				return reexecUpdatedDaemon(ctx, canonical, daemonLock, reexecArgs...)
+				return reexecUpdatedDaemon(ctx, canonical, daemonLock, supervised && handoff, reexecArgs...)
 			}
 
 			if ctx.Err() != nil {
@@ -253,10 +257,24 @@ func runDaemonService(
 			if renameErr != nil {
 				log.Warn("daemon update replacement failed", "version", update.manifest.Version, "error", renameErr)
 				reporter.report(ctx, "binary replacement", update.manifest.Version, renameErr)
+				return reexecUpdatedDaemon(ctx, canonical, daemonLock, supervised && handoff, reexecArgs...)
 			}
-			return reexecUpdatedDaemon(ctx, canonical, daemonLock, reexecArgs...)
+			return finishPublishedDaemonUpdate(ctx, canonical, daemonLock, supervised && handoff, reexecArgs...)
 		}
 	}
+}
+
+func finishPublishedDaemonUpdate(
+	ctx context.Context,
+	canonical string,
+	daemonLock *localstore.Lock,
+	handoff bool,
+	reexecArgs ...string,
+) error {
+	if handoff {
+		return errDaemonUpdateHandoff
+	}
+	return reexecUpdatedDaemon(ctx, canonical, daemonLock, false, reexecArgs...)
 }
 
 func acquireDaemonRuntimeLock(home string) (*localstore.Lock, error) {
@@ -690,17 +708,22 @@ func reexecUpdatedDaemon(
 	ctx context.Context,
 	path string,
 	daemonLock *localstore.Lock,
+	handoff bool,
 	args ...string,
 ) error {
+	env := os.Environ()
+	if handoff {
+		env = append(env, supervisorHandoffEnv+"=1")
+	}
 	if daemonLock == nil {
-		return reexecDaemon(ctx, path, args...)
+		return execDaemon(ctx, path, env, args...)
 	}
 	fd, restore, err := daemonLock.PrepareForExec()
 	if err != nil {
 		return err
 	}
 	defer restore()
-	env := append(os.Environ(), inheritedDaemonLockFDEnv+"="+strconv.Itoa(fd))
+	env = append(env, inheritedDaemonLockFDEnv+"="+strconv.Itoa(fd))
 	return execDaemon(ctx, path, env, args...)
 }
 

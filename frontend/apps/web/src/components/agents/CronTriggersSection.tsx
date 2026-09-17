@@ -5,7 +5,7 @@ import {
   useUpdateCronTrigger,
 } from '@omnara/react'
 import { type CronTrigger } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { cronTriggerDeliveryModeLabel } from '@/components/agents/cron-trigger-delivery-mode'
 import { EditCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
@@ -39,12 +39,14 @@ export function CronTriggersList({
   canManage,
   filters,
   emptyMessage,
+  emptyState,
 }: {
   orgId: string
   projectId: string
   canManage: boolean
   filters: CronTriggerListFilters
   emptyMessage: string
+  emptyState?: ReactNode
 }) {
   const query = useCronTriggers(orgId, projectId, { filters })
   const triggers = useInfiniteQueryItems(query)
@@ -177,9 +179,11 @@ export function CronTriggersList({
           </Button>
         </div>
       ) : (
-        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-          {emptyMessage}
-        </div>
+        (emptyState ?? (
+          <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
+            {emptyMessage}
+          </div>
+        ))
       )}
       {query.hasNextPage && (
         <Button
