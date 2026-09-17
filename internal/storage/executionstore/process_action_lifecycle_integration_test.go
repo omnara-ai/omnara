@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -94,7 +96,7 @@ func TestQueuedProcessActionFailureSkipsCompletedToolCall(t *testing.T) {
 		dbsqlc.MarkQueuedProcessActionsFailedForProcessParams{
 			OrgID:              fixture.OrgID,
 			ProcessID:          process.ID,
-			StateReasonCode:    sqlcTextFromEmpty(executionstore.ProcessToolReasonMachineUnreachable),
+			StateReasonCode:    storeutil.TextFromEmpty(executionstore.ProcessToolReasonMachineUnreachable),
 			StateReasonMessage: "",
 		},
 	)
@@ -468,7 +470,7 @@ func TestAcceptedProcessActionUnknownSkipsCompletedToolCall(t *testing.T) {
 		dbsqlc.ResolveAcceptedProcessActionsWithoutEvidenceParams{
 			OrgID:              fixture.OrgID,
 			ProcessID:          process.ID,
-			StateReasonCode:    sqlcTextFromEmpty(executionstore.ProcessToolReasonMachineUnreachable),
+			StateReasonCode:    storeutil.TextFromEmpty(executionstore.ProcessToolReasonMachineUnreachable),
 			StateReasonMessage: "",
 		},
 	)
@@ -526,7 +528,7 @@ func TestDaemonProcessFinishedPreservesOutstandingReads(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -563,7 +565,7 @@ func TestDaemonProcessFinishedPreservesOutstandingReads(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept action: %v", err)
@@ -726,7 +728,7 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept close input action: %v", err)
 	} else if !found {
 		t.Fatal("expected close input action accept")
@@ -853,7 +855,7 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept close input action: %v", err)
 	} else if !found {
 		t.Fatal("expected close input action accept")
@@ -882,7 +884,7 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept after process completion: %v", err)
 	} else if found {
 		t.Fatal("terminal process should not accept a new mutating action")
@@ -955,7 +957,7 @@ func TestProcessCompletionKeepsTerminalReadsAvailable(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -1296,7 +1298,7 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept close input action: %v", err)
 	} else if !found {
 		t.Fatal("expected close input action accept")
@@ -1415,7 +1417,7 @@ func TestAcceptedReadRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept read action: %v", err)
@@ -2058,7 +2060,7 @@ func TestCompleteProcessPreservesOutstandingReads(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -2084,7 +2086,7 @@ func TestCompleteProcessPreservesOutstandingReads(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept action: %v", err)
 	} else if !found {
 		t.Fatal("expected action accept")
@@ -2208,7 +2210,7 @@ func TestCompleteProcessPreservesAcceptedTerminateEvidence(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -2234,7 +2236,7 @@ func TestCompleteProcessPreservesAcceptedTerminateEvidence(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept terminate action: %v", err)
 	} else if !found {
 		t.Fatal("expected terminate action accept")
@@ -2484,7 +2486,7 @@ func TestUnknownTerminateRemainsMutationBarrier(t *testing.T) {
 			builtInProcessToolCallBatchItem("unknown_terminate_barrier_read", "read_process"),
 		},
 	)
-	toolCallIDsByLabel := map[string]ID{
+	toolCallIDsByLabel := map[string]uuid.UUID{
 		"unknown_terminate_barrier_stop":      toolCallIDs[0],
 		"unknown_terminate_barrier_write":     toolCallIDs[1],
 		"unknown_terminate_barrier_interrupt": toolCallIDs[2],
@@ -2726,7 +2728,7 @@ func TestCompleteProcessLeavesAppliedTerminateActionApplied(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -2752,7 +2754,7 @@ func TestCompleteProcessLeavesAppliedTerminateActionApplied(t *testing.T) {
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept terminate action: %v", err)
 	} else if !found {
 		t.Fatal("expected terminate action accept")
@@ -2867,7 +2869,7 @@ func TestDuplicateDaemonProcessActionReportReplaysTerminalState(t *testing.T) {
 				testOrgID,
 				fixture.MachineID,
 				fixture.RuntimeID,
-				NilID); err != nil {
+				uuid.Nil); err != nil {
 				t.Fatalf("accept process: %v", err)
 			} else if !found {
 				t.Fatal("expected process accept")
@@ -3192,7 +3194,7 @@ func TestProcessActionAcceptRequiresCurrentMachineRuntimeAndActiveGrant(t *testi
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept action before process accept: %v", err)
 	} else if found {
 		t.Fatal("action should not accept before the process is granted and running")
@@ -3203,7 +3205,7 @@ func TestProcessActionAcceptRequiresCurrentMachineRuntimeAndActiveGrant(t *testi
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -3263,7 +3265,7 @@ func TestProcessActionAcceptRequiresCurrentMachineRuntimeAndActiveGrant(t *testi
 		fixture.MachineID,
 		fixture.RuntimeID,
 		process.ID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept action after revoke: %v", err)
 	} else if found {
 		t.Fatalf("action %s should not accept after project machine grant revocation", action.ID)
@@ -3538,7 +3540,6 @@ func TestProcessAndActionReplayByToolCall(t *testing.T) {
 			ProjectID:             testProjectID,
 			AgentID:               fixture.AgentID,
 			ProjectMachineGrantID: otherGrant.ID,
-			MachineRef:            "mchr-repl42",
 			BindingKind:           "explicit",
 			Cwd:                   "/work",
 		},

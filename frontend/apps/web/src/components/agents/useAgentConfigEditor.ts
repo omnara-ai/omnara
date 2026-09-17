@@ -11,16 +11,21 @@ import {
   createBasicConfigSession,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
 
 export function useAgentConfigEditor({
+  orgId,
+  projectId,
   source,
   canManage,
   preferredMode,
   onModeChange,
   onDirtyChange,
 }: {
+  orgId: string
+  projectId: string
   source: string
   canManage: boolean
   preferredMode: AgentConfigMode
@@ -30,7 +35,7 @@ export function useAgentConfigEditor({
   const [session, setSession] = useState(() => createBasicConfigSession(source))
   const builderSession = canManage && session.initialDraft != null ? session : null
   const [restored] = useState(takeMcpBuilderOAuthRestore)
-  const form = useAgentBuilderForm(session, restored?.draft)
+  const form = useAgentBuilderForm(session, restored?.draft, { orgId, projectId })
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
     initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),
@@ -54,6 +59,7 @@ export function useAgentConfigEditor({
   const editorYaml = mode.editorYaml ?? builderYaml
   const yaml = showBuilder ? builderYaml : editorYaml
   const dirty = yaml !== source
+  const suppressUnsavedChangesWarning = useUnsavedChangesWarning(dirty)
   const saveBlocked =
     yaml.trim() === '' ||
     (builderSession != null && form.blocked && (showBuilder || !yamlDiverged(mode)))
@@ -78,6 +84,7 @@ export function useAgentConfigEditor({
     editorYaml,
     yaml,
     dirty,
+    suppressUnsavedChangesWarning,
     saveBlocked,
     showBuilder,
   }

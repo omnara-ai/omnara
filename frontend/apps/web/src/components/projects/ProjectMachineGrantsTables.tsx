@@ -26,6 +26,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
@@ -90,17 +91,19 @@ export function ProjectMachineGrantsTables({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine pool grants"
+          guide={guides.machinePools}
           toolbar={
-            poolToolbarVisible ? (
-              <ResourceListToolbar
-                search={poolList.search}
-                onSearchChange={poolList.setSearch}
-                sort={poolList.sort}
-                sortOptions={createdResourceSortOptions}
-                onSortChange={poolList.setSort}
-                placeholder="Search pool grants by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={poolList.search}
+              onSearchChange={poolList.setSearch}
+              sort={{
+                value: poolList.sort,
+                options: createdResourceSortOptions,
+                onChange: poolList.setSort,
+              }}
+              placeholder="Search pool grants by name…"
+              showSearch={poolToolbarVisible}
+            />
           }
         >
           {
@@ -222,17 +225,19 @@ export function ProjectMachineGrantsTables({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine grants"
+          guide={guides.machines}
           toolbar={
-            machineToolbarVisible ? (
-              <ResourceListToolbar
-                search={machineList.search}
-                onSearchChange={machineList.setSearch}
-                sort={machineList.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={machineList.setSort}
-                placeholder="Search machine grants by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={machineList.search}
+              onSearchChange={machineList.setSearch}
+              sort={{
+                value: machineList.sort,
+                options: resourceSortOptions,
+                onChange: machineList.setSort,
+              }}
+              placeholder="Search machine grants by name…"
+              showSearch={machineToolbarVisible}
+            />
           }
         >
           <GrantMachineButton />

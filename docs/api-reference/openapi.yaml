@@ -220,7 +220,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
+            enum: [startup_script, daemon_install, daemon_update, daemon_runtime, daemon_uninstall, daemon_uninstalled]
         - name: exit_status
           in: query
           required: false
@@ -590,6 +590,45 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgUsage
+      tags: [Organizations and Projects]
+      summary: Get org usage
+      description: >-
+        Tallies model token usage and provider-reported cost across every
+        agent in the organization, broken down by configured model. Optionally
+        limits the tally to a time window or to a subset of projects.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - $ref: '#/components/parameters/UsageIncludeProjectIDs'
+        - $ref: '#/components/parameters/UsageExcludeProjectIDs'
+      responses:
+        '200':
+          description: Usage totals for the organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects:
     parameters:
       - name: orgID
@@ -716,6 +755,48 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    get:
+      operationId: getProjectUsage
+      tags: [Organizations and Projects]
+      summary: Get project usage
+      description: >-
+        Tallies model token usage and provider-reported cost across every
+        agent in the project, including subagents, broken down by configured model.
+        Optionally limits the tally to a time window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+      responses:
+        '200':
+          description: Usage totals for the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -2277,6 +2358,58 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agent-configs/tools:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    post:
+      operationId: resolveAgentConfigTools
+      tags: [Configs and Profiles]
+      summary: Resolve agent config tools
+      description: >-
+        Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval
+        defaults, including disabled entries. Accepts YAML/JSON source. Source
+        previews validate tool-related fields only; they do not validate whether
+        the config can be saved or launched. Does not resolve contextual integration
+        tools, discover MCP tools, or
+        change any configuration.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveAgentConfigToolsRequest'
+      responses:
+        '200':
+          description: Resolved config tools.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedAgentConfigTools'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /orgs/{orgID}/projects/{projectID}/agent-configs:
     parameters:
       - name: orgID
@@ -2705,6 +2838,62 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentProfileID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentProfileID'
+    get:
+      operationId: getAgentProfileUsage
+      tags: [Configs and Profiles]
+      summary: Get agent profile usage
+      description: >-
+        Tallies model token usage and provider-reported cost across the
+        top-level agents launched from this profile, broken down by configured
+        model. Usage from subagents those agents spawned is included only when
+        `include_subagents` is true. Optionally limits the tally to a time window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also include usage from subagents spawned, at every depth, by
+            agents launched from this profile. Defaults to false.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Usage totals for the agent profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -3179,6 +3368,23 @@ paths:
           description: Return only agents launched from this agent profile.
           schema:
             $ref: '#/components/schemas/AgentProfileID'
+        - name: parent_agent_id
+          in: query
+          description: Return only subagents spawned by this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: include_subagents
+          in: query
+          description: >-
+            Include subagents alongside top-level agents. Defaults to false, so
+            only agents without a parent are returned unless parent_agent_id is set.
+          schema:
+            type: boolean
+        - name: include_archived
+          in: query
+          description: Include archived agents. Defaults to false.
+          schema:
+            type: boolean
         - name: sort
           in: query
           schema:
@@ -3187,7 +3393,7 @@ paths:
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Active agents in the project, newest first.
+          description: Agents in the project, newest first.
           content:
             application/json:
               schema:
@@ -3247,6 +3453,61 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentID'
+    get:
+      operationId: getAgentUsage
+      tags: [Agents]
+      summary: Get agent usage
+      description: >-
+        Tallies this agent's model token usage and provider-reported cost,
+        broken down by configured model. Optionally limits the tally to a time
+        window.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also include usage from this agent's subagents at every depth.
+            Defaults to false.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Usage totals for the agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -3469,6 +3730,14 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ToolCallType'
+        - name: include_subagents
+          in: query
+          required: false
+          description: >-
+            Also return tool calls from this agent's subagents at every depth.
+            Each row's agent_id says which agent made the call.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -3834,10 +4103,11 @@ paths:
             `model_output`, `tool_result`, or `context_checkpoint` as the
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
-            Best-effort tool lifecycle updates use `tool_call_update`, model
-            previews use `model_output_delta`, and stream-closing errors use
-            `error`; none carries an SSE `id`, so reconnects resume from the
-            last durable event. The response closes after every `error` frame.
+            Best-effort tool lifecycle updates use `tool_call_update` and
+            cover this agent and every subagent beneath it, model previews
+            use `model_output_delta`, and stream-closing errors use `error`;
+            none carries an SSE `id`, so reconnects resume from the last
+            durable event. The response closes after every `error` frame.
             Raw clients reconnect when the error's stable code is
             `service_unavailable` and treat other current codes as terminal.
             Heartbeats are SSE comments and carry no JSON payload.
@@ -3947,6 +4217,12 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionState'
+        - name: include_subagents
+          in: query
+          required: false
+          description: Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -6562,6 +6838,52 @@ components:
       bearerFormat: Omnara machine daemon token
       description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
+    UsageSince:
+      name: since
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Only tally model calls started at or after this instant. Omit to start
+        from the earliest recorded call.
+    UsageUntil:
+      name: until
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Only tally model calls started before this instant. Must be later than
+        `since` when both are given. Omit to include calls up to now.
+    UsageIncludeProjectIDs:
+      name: include_project_ids
+      in: query
+      required: false
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/ProjectID'
+      description: >-
+        Only tally model calls from these projects. Cannot be combined with
+        `exclude_project_ids`.
+    UsageExcludeProjectIDs:
+      name: exclude_project_ids
+      in: query
+      required: false
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/ProjectID'
+      description: >-
+        Tally model calls from every project except these. Cannot be combined
+        with `include_project_ids`.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -6870,19 +7192,6 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
-    Warning:
-      type: object
-      additionalProperties: false
-      required: [message, code]
-      properties:
-        message:
-          type: string
-          description: Human-readable warning message. Do not match on it programmatically.
-        code:
-          type: string
-          description: Stable warning code for programmatic handling.
-          enum:
-            - missing_recommended_machine_tools
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -7252,6 +7561,30 @@ components:
           minimum: 1
           maximum: 2147483647
           description: Provider-advertised maximum output limit in tokens, when available.
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+    DiscoveredModelPricing:
+      type: object
+      additionalProperties: false
+      description: >-
+        Provider-advertised list prices in USD per million tokens, as exact decimal
+        strings. Present only when the provider publishes pricing in its model
+        catalog (OpenRouter). Cache prices are omitted when the provider does not
+        publish them.
+      required: [input_usd_per_million, output_usd_per_million]
+      properties:
+        input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_read_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_write_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        output_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
     ModelProviderConfigList:
       type: object
       additionalProperties: false
@@ -7636,7 +7969,7 @@ components:
     ConfiguredModelSummary:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, name, provider_config, created_at, updated_at]
+      required: [id, org_id, model_provider_config_id, name, provider_config, provider_model_slug, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'
@@ -7650,6 +7983,9 @@ components:
         provider_config:
           $ref: '#/components/schemas/ResourceName'
           description: Name of the provider config that owns this model, used by agent YAML as model.provider_config.
+        provider_model_slug:
+          type: string
+          description: Exact provider model slug sent to the provider endpoint by the current revision.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -8157,6 +8493,37 @@ components:
           format: uri
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    ResolveAgentConfigToolsRequest:
+      type: object
+      additionalProperties: false
+      required: [source, source_format]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        source_format:
+          type: string
+          enum: [yaml, json]
+    ResolvedAgentConfigTools:
+      type: object
+      additionalProperties: false
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResolvedAgentConfigTool'
+    ResolvedAgentConfigTool:
+      type: object
+      additionalProperties: false
+      required: [name, enabled, permission]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        permission:
+          $ref: '#/components/schemas/ToolPermissionSelection'
     CreateAgentConfigRequest:
       type: object
       additionalProperties: false
@@ -8230,6 +8597,9 @@ components:
           type: string
         description:
           type: string
+        implicit:
+          type: boolean
+          description: Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
         default_permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
         permission_modes:
@@ -8582,13 +8952,6 @@ components:
           $ref: '#/components/schemas/AgentConfigModel'
         instruction_hash:
           type: string
-        warnings:
-          type: array
-          minItems: 1
-          x-go-type-skip-optional-pointer: true
-          description: Non-blocking diagnostics about the agent config.
-          items:
-            $ref: '#/components/schemas/Warning'
         created_at:
           $ref: '#/components/schemas/Timestamp'
     CreateAgentProfileRequest:
@@ -8852,11 +9215,35 @@ components:
           $ref: '#/components/schemas/AgentConfigID'
         model:
           $ref: '#/components/schemas/AgentModel'
+        parent_agent_id:
+          description: Set when this agent is a subagent spawned by another agent.
+          $ref: '#/components/schemas/AgentID'
+        subagent_key:
+          description: The `subagents` key this agent was spawned from.
+          type: string
+        activity:
+          description: Current activity, present on list responses.
+          $ref: '#/components/schemas/AgentActivity'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         archived_at:
+          $ref: '#/components/schemas/Timestamp'
+    AgentActivity:
+      type: object
+      additionalProperties: false
+      required: [state, last_activity_at]
+      properties:
+        state:
+          description: >-
+            running while the agent has work in progress, waiting_on_interaction
+            while it has an open question or permission request, idle otherwise,
+            and archived once the agent is archived.
+          type: string
+          enum: [running, idle, waiting_on_interaction, archived]
+        last_activity_at:
+          description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'
     AgentModel:
       type: object
@@ -9238,7 +9625,7 @@ components:
     AgentMachineBinding:
       type: object
       additionalProperties: false
-      required: [id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, created_at, updated_at]
+      required: [id, project_id, agent_id, machine_id, binding_kind, state, description, cwd, env_overlay, secret_env_overlay, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentMachineBindingID'
@@ -9248,8 +9635,6 @@ components:
           $ref: '#/components/schemas/AgentID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
-        machine_ref:
-          type: string
         binding_kind:
           $ref: '#/components/schemas/AgentMachineBindingKind'
         state:
@@ -9277,14 +9662,15 @@ components:
     MachineFailureReport:
       description: >-
         The machine's most recent daemon-reported failure. A single slot,
-        overwritten by newer reports and cleared when the daemon recovers.
+        overwritten by newer reports. Runtime crash reports remain as historical
+        diagnostics; recovery may clear other failure stages.
       type: object
       additionalProperties: false
       required: [stage, output_tail, output_truncated, reported_at]
       properties:
         stage:
           type: string
-          enum: [startup_script, daemon_install, daemon_update, daemon_uninstall, daemon_uninstalled]
+          enum: [startup_script, daemon_install, daemon_update, daemon_runtime, daemon_uninstall, daemon_uninstalled]
         exit_status:
           type: integer
         output_tail:
@@ -9428,10 +9814,12 @@ components:
       description: A model-emitted tool call together with its current lifecycle state.
       type: object
       additionalProperties: false
-      required: [id, turn_id, provider_call_id, name, input, type, state, created_at]
+      required: [id, agent_id, turn_id, provider_call_id, name, input, type, state, created_at]
       properties:
         id:
           $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         provider_call_id:
@@ -9451,13 +9839,21 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
     ToolCallUpdate:
-      description: An ephemeral notification that a tool call entered a lifecycle state.
+      description: >-
+        An ephemeral notification that a tool call entered a lifecycle state.
+        Sent for the streamed agent and for every subagent beneath it, so
+        questions, permission requests, and custom tool calls anywhere in the
+        tree surface here; query the list endpoints with `include_subagents`
+        for the current rows.
       type: object
       additionalProperties: false
       required: [tool_call_id, state]
       properties:
         tool_call_id:
           $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
+          $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
     ListToolCallsResponse:
@@ -10174,6 +10570,11 @@ components:
         tool_name:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+        agent_name:
+          $ref: '#/components/schemas/AgentName'
+        subagent_key:
+          type: string
+          description: Present when the interaction belongs to a subagent of the listed agent.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:
@@ -12166,6 +12567,116 @@ components:
             projects, ordered by updated_at descending.
           items:
             $ref: '#/components/schemas/AgentProfile'
+    UsageTokenTotals:
+      type: object
+      additionalProperties: false
+      description: >-
+        Summed token counts across the tallied model calls. Input totals are the
+        sum of uncached, cache-read, and cache-write tokens; output totals
+        include reasoning tokens.
+      required: [input_tokens_total, uncached_input_tokens, cache_read_input_tokens, cache_write_input_tokens, output_tokens_total, reasoning_output_tokens]
+      properties:
+        input_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        uncached_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_read_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_write_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoning_output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+    UsageCostTotals:
+      type: object
+      additionalProperties: false
+      required: [provider_reported_usd, model_calls_with_reported_cost]
+      properties:
+        provider_reported_usd:
+          type: string
+          description: >-
+            Exact decimal sum in USD of the costs the provider reported for the
+            tallied model calls. Calls whose provider reported no cost contribute
+            nothing; compare model_calls_with_reported_cost against model_calls
+            to see how complete the figure is.
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        model_calls_with_reported_cost:
+          type: integer
+          format: int64
+          minimum: 0
+    UsageTotals:
+      type: object
+      additionalProperties: false
+      required: [model_calls, tokens, cost]
+      properties:
+        model_calls:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Model calls that recorded token usage or a provider-reported cost.
+        tokens:
+          $ref: '#/components/schemas/UsageTokenTotals'
+        cost:
+          $ref: '#/components/schemas/UsageCostTotals'
+    UsageModel:
+      type: object
+      additionalProperties: false
+      required: [configured_model_id, name, provider_model_slug, model_provider_config_id, model_provider_config_name]
+      properties:
+        configured_model_id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Configured model name, resolved even if the model has since been deleted.
+        provider_model_slug:
+          type: string
+        model_provider_config_id:
+          $ref: '#/components/schemas/ModelProviderConfigID'
+        model_provider_config_name:
+          $ref: '#/components/schemas/ResourceName'
+    ModelUsageTotals:
+      type: object
+      additionalProperties: false
+      required: [model, model_calls, tokens, cost]
+      properties:
+        model:
+          $ref: '#/components/schemas/UsageModel'
+        model_calls:
+          type: integer
+          format: int64
+          minimum: 0
+        tokens:
+          $ref: '#/components/schemas/UsageTokenTotals'
+        cost:
+          $ref: '#/components/schemas/UsageCostTotals'
+    UsageReport:
+      type: object
+      additionalProperties: false
+      required: [totals, by_model]
+      properties:
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+        by_model:
+          type: array
+          description: >-
+            Per-model rows ordered by provider config name, configured model name,
+            then provider model slug. Models with distinct provider slugs across
+            revisions appear once per slug.
+          items:
+            $ref: '#/components/schemas/ModelUsageTotals'
     CurrentUserIdentity:
       type: object
       additionalProperties: false

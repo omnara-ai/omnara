@@ -14,8 +14,8 @@ import (
 
 type recordingAgentEventFrontierReader struct {
 	mu        sync.Mutex
-	frontiers map[executionstore.ID]int64
-	calls     [][]executionstore.ID
+	frontiers map[uuid.UUID]int64
+	calls     [][]uuid.UUID
 	started   chan struct{}
 	release   chan struct{}
 	startOnce sync.Once
@@ -35,11 +35,11 @@ func (c *tickerReadyClock) Ticker(interval time.Duration) *clock.Ticker {
 
 func (r *recordingAgentEventFrontierReader) ListAgentEventFrontiers(
 	ctx context.Context,
-	agentIDs []executionstore.ID,
+	agentIDs []uuid.UUID,
 ) ([]executionstore.AgentEventFrontier, error) {
 	r.mu.Lock()
-	r.calls = append(r.calls, append([]executionstore.ID(nil), agentIDs...))
-	frontiers := make(map[executionstore.ID]int64, len(r.frontiers))
+	r.calls = append(r.calls, append([]uuid.UUID(nil), agentIDs...))
+	frontiers := make(map[uuid.UUID]int64, len(r.frontiers))
 	for agentID, sequence := range r.frontiers {
 		frontiers[agentID] = sequence
 	}
@@ -67,7 +67,7 @@ func (r *recordingAgentEventFrontierReader) ListAgentEventFrontiers(
 }
 
 func (r *recordingAgentEventFrontierReader) setFrontier(
-	agentID executionstore.ID,
+	agentID uuid.UUID,
 	sequence int64,
 ) {
 	r.mu.Lock()
@@ -75,12 +75,12 @@ func (r *recordingAgentEventFrontierReader) setFrontier(
 	r.frontiers[agentID] = sequence
 }
 
-func (r *recordingAgentEventFrontierReader) recordedCalls() [][]executionstore.ID {
+func (r *recordingAgentEventFrontierReader) recordedCalls() [][]uuid.UUID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	calls := make([][]executionstore.ID, len(r.calls))
+	calls := make([][]uuid.UUID, len(r.calls))
 	for index, call := range r.calls {
-		calls[index] = append([]executionstore.ID(nil), call...)
+		calls[index] = append([]uuid.UUID(nil), call...)
 	}
 	return calls
 }
@@ -89,7 +89,7 @@ func TestAgentEventStreamReconcilerBatchesAgentsAndSignalsLaggingStreams(t *test
 	agentA := uuid.New()
 	agentB := uuid.New()
 	agentC := uuid.New()
-	reader := &recordingAgentEventFrontierReader{frontiers: map[executionstore.ID]int64{
+	reader := &recordingAgentEventFrontierReader{frontiers: map[uuid.UUID]int64{
 		agentA: 5,
 		agentB: 2,
 		agentC: 0,
@@ -140,7 +140,7 @@ func TestAgentEventStreamReconcilerBatchesAgentsAndSignalsLaggingStreams(t *test
 	if len(calls) != 2 {
 		t.Fatalf("frontier query calls=%d, want 2 batches", len(calls))
 	}
-	seen := make(map[executionstore.ID]int)
+	seen := make(map[uuid.UUID]int)
 	for _, call := range calls {
 		if len(call) > 2 {
 			t.Fatalf("frontier query batch size=%d, want at most 2", len(call))
@@ -149,7 +149,7 @@ func TestAgentEventStreamReconcilerBatchesAgentsAndSignalsLaggingStreams(t *test
 			seen[agentID]++
 		}
 	}
-	for _, agentID := range []executionstore.ID{agentA, agentB, agentC} {
+	for _, agentID := range []uuid.UUID{agentA, agentB, agentC} {
 		if seen[agentID] != 1 {
 			t.Fatalf("agent %s queried %d times, want once", agentID, seen[agentID])
 		}
@@ -166,7 +166,7 @@ func TestAgentEventStreamReconcilerBatchesAgentsAndSignalsLaggingStreams(t *test
 func TestAgentEventStreamReconcilerUsesCursorAfterFrontierRead(t *testing.T) {
 	agentID := uuid.New()
 	reader := &recordingAgentEventFrontierReader{
-		frontiers: map[executionstore.ID]int64{agentID: 5},
+		frontiers: map[uuid.UUID]int64{agentID: 5},
 		started:   make(chan struct{}),
 		release:   make(chan struct{}),
 	}
@@ -221,7 +221,7 @@ func TestAgentEventStreamReconcilerUsesCursorAfterFrontierRead(t *testing.T) {
 func TestAgentEventStreamReconcilerRunsOnItsProcessTicker(t *testing.T) {
 	agentID := uuid.New()
 	reader := &recordingAgentEventFrontierReader{
-		frontiers: map[executionstore.ID]int64{agentID: 2},
+		frontiers: map[uuid.UUID]int64{agentID: 2},
 	}
 	timer := clock.NewMock()
 	readyTimer := &tickerReadyClock{Clock: timer, ready: make(chan struct{})}
@@ -253,7 +253,7 @@ func TestAgentEventStreamReconcilerRunsOnItsProcessTicker(t *testing.T) {
 func TestAgentEventStreamReconcilerHonorsCallerCancellation(t *testing.T) {
 	agentID := uuid.New()
 	reader := &recordingAgentEventFrontierReader{
-		frontiers: map[executionstore.ID]int64{agentID: 2},
+		frontiers: map[uuid.UUID]int64{agentID: 2},
 		release:   make(chan struct{}),
 	}
 	reconciler := newAgentEventStreamReconciler(
@@ -280,7 +280,7 @@ func TestAgentEventStreamReconcilerHonorsCallerCancellation(t *testing.T) {
 func TestAgentEventStreamReconcilerCloseCancelsBlockedSweep(t *testing.T) {
 	agentID := uuid.New()
 	reader := &recordingAgentEventFrontierReader{
-		frontiers: map[executionstore.ID]int64{agentID: 2},
+		frontiers: map[uuid.UUID]int64{agentID: 2},
 		started:   make(chan struct{}),
 		release:   make(chan struct{}),
 	}

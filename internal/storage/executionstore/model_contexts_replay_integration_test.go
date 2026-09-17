@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
@@ -30,9 +31,9 @@ func TestProviderReplaySuppressionCutoffUsesCompatiblePriorFailures(t *testing.T
 		t.Fatalf("load original model revision: %v", err)
 	}
 
-	insertStarted := func(revisionID ID, frontier int64) ID {
+	insertStarted := func(revisionID uuid.UUID, frontier int64) uuid.UUID {
 		t.Helper()
-		var contextID ID
+		var contextID uuid.UUID
 		if err := fixture.Store.pool.QueryRow(ctx, `
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
@@ -47,9 +48,9 @@ RETURNING id
 		}
 		return contextID
 	}
-	insertStartedCompaction := func(revisionID ID, frontier int64) ID {
+	insertStartedCompaction := func(revisionID uuid.UUID, frontier int64) uuid.UUID {
 		t.Helper()
-		var contextID ID
+		var contextID uuid.UUID
 		if err := fixture.Store.pool.QueryRow(ctx, `
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
@@ -65,7 +66,7 @@ RETURNING id
 		return contextID
 	}
 	finishFailure := func(
-		contextID ID,
+		contextID uuid.UUID,
 		apiFormat modelprotocol.APIFormat,
 		apiVariant modelprotocol.APIVariant,
 		errorKind modelprotocol.ErrorKind,
@@ -84,7 +85,7 @@ WHERE id = $1
 		}
 	}
 	recordReplayRejection := func(
-		revisionID ID,
+		revisionID uuid.UUID,
 		frontier int64,
 		apiFormat modelprotocol.APIFormat,
 		apiVariant modelprotocol.APIVariant,
@@ -97,7 +98,7 @@ WHERE id = $1
 			modelprotocol.ErrorKindReplayRejected,
 		)
 	}
-	cutoff := func(contextID ID) int64 {
+	cutoff := func(contextID uuid.UUID) int64 {
 		t.Helper()
 		value, err := fixture.Store.Execution().GetProviderReplaySuppressionCutoff(
 			ctx,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -22,15 +23,15 @@ func (r LiveGrant) Resolve(
 	if r.Store == nil || r.Client == nil {
 		return model.ResolvedClient{}, errors.New("test model resolver store and client are required")
 	}
-	orgID, err := storage.ParseID(selection.OrgID)
+	orgID, err := uuid.Parse(selection.OrgID)
 	if err != nil {
 		return model.ResolvedClient{}, fmt.Errorf("parse model selection org id: %w", err)
 	}
-	projectID, err := storage.ParseID(selection.ProjectID)
+	projectID, err := uuid.Parse(selection.ProjectID)
 	if err != nil {
 		return model.ResolvedClient{}, fmt.Errorf("parse model selection project id: %w", err)
 	}
-	revisionID, err := storage.ParseID(selection.ConfiguredModelRevisionID)
+	revisionID, err := uuid.Parse(selection.ConfiguredModelRevisionID)
 	if err != nil {
 		return model.ResolvedClient{}, fmt.Errorf("parse configured model revision id: %w", err)
 	}

@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
@@ -103,8 +103,8 @@ skills:
 		t.Fatalf("execute skill-enabled model work: %v", err)
 	}
 	if modelClient.preparedCount() != 1 ||
-		len(modelClient.prepared[0].ToolSpecs) != 1 ||
-		modelClient.prepared[0].ToolSpecs[0].Name != toolcatalog.ToolNameSkill {
+		len(modelClient.prepared[0].ToolSpecs) != 3 ||
+		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.ToolNameSkill {
 		t.Fatalf("skill-enabled prompt tools = %+v, want skill", modelClient.prepared)
 	}
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)
@@ -726,7 +726,7 @@ ORDER BY context.input_event_sequence, context.attempt_number
 		sequence          int64
 		apiFormat         string
 		providerModelSlug string
-		configID          storage.ID
+		configID          uuid.UUID
 	}
 	var contexts []contextConfig
 	for rows.Next() {
@@ -789,7 +789,6 @@ func (f kernelFixture) kernelAgentConfigInput(
 	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -835,7 +834,6 @@ tools:
 	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -919,7 +917,7 @@ tools:
 	if err := scope.Err(); err != nil {
 		t.Fatalf("execute custom tool work: %v", err)
 	}
-	var callID storage.ID
+	var callID uuid.UUID
 	var callName, callType, callState string
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT call.id, call.name, call.type, call.state
@@ -944,7 +942,7 @@ WHERE call.project_id = $1
 			callState,
 		)
 	}
-	var fallbackCallID storage.ID
+	var fallbackCallID uuid.UUID
 	var fallbackName, fallbackType, fallbackState string
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT call.id, call.name, call.type, call.state

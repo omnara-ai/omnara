@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/google/uuid"
 )
 
 type toolResultContent struct {
@@ -26,7 +26,7 @@ type toolResultStructuredPart struct {
 }
 
 type toolResultMediaPart struct {
-	artifactID storage.ID
+	artifactID uuid.UUID
 }
 
 func (toolResultTextPart) toolResultPart()       {}
@@ -60,8 +60,8 @@ func structuredToolResultPart(value any) (toolResultPart, error) {
 	return toolResultStructuredPart{value: raw}, nil
 }
 
-func mediaToolResultPart(artifactID storage.ID) (toolResultPart, error) {
-	if artifactID == storage.NilID {
+func mediaToolResultPart(artifactID uuid.UUID) (toolResultPart, error) {
+	if artifactID == uuid.Nil {
 		return nil, errors.New("tool result media requires an artifact")
 	}
 	return toolResultMediaPart{artifactID: artifactID}, nil

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/emailaddr"
@@ -30,7 +31,7 @@ func (s *Store) CreateUserEmail(
 	ctx context.Context,
 	input CreateUserEmailInput,
 ) (UserEmailRecord, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return UserEmailRecord{}, errors.New("user id is required")
 	}
 	if input.Email == "" {
@@ -65,7 +66,12 @@ func isValidProjectRole(role string) bool {
 	}
 }
 
-func guardLastOwnerChange(ctx context.Context, qtx *dbsqlc.Queries, orgID ID, existingRole, newRole string) error {
+func guardLastOwnerChange(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID uuid.UUID,
+	existingRole, newRole string,
+) error {
 	if existingRole != authz.OrgRoleOwner || newRole == authz.OrgRoleOwner {
 		return nil
 	}
@@ -83,10 +89,10 @@ func (s *Store) CreateUserAuthIdentity(
 	ctx context.Context,
 	input CreateUserAuthIdentityInput,
 ) (UserAuthIdentityRecord, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return UserAuthIdentityRecord{}, errors.New("user id is required")
 	}
-	if isNilID(input.AuthConnectorID) {
+	if input.AuthConnectorID == uuid.Nil {
 		return UserAuthIdentityRecord{}, errors.New("auth connector id is required")
 	}
 	if input.Issuer == "" {
@@ -131,7 +137,7 @@ func (s *Store) resolveAuthIdentityUser(
 	sessionToken, csrfToken string,
 	sessionTTL time.Duration,
 ) (UserRecord, error) {
-	if isNilID(input.AuthConnectorID) {
+	if input.AuthConnectorID == uuid.Nil {
 		return UserRecord{}, errors.New("auth connector id is required")
 	}
 	if input.Issuer == "" {
@@ -299,7 +305,7 @@ func (s *Store) resolveAuthIdentityUser(
 
 func (s *Store) createAuthIdentitySession(
 	ctx context.Context,
-	userID ID,
+	userID uuid.UUID,
 	sessionToken, csrfToken string,
 	ttl time.Duration,
 ) (UserRecord, error) {
@@ -316,7 +322,7 @@ func (s *Store) createAuthIdentitySessionTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	userID ID,
+	userID uuid.UUID,
 	sessionToken, csrfToken string,
 	ttl time.Duration,
 ) (UserRecord, error) {
@@ -351,13 +357,13 @@ func (s *Store) AddProjectMembership(
 	ctx context.Context,
 	input AddProjectMembershipInput,
 ) (ProjectMembershipRecord, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ProjectMembershipRecord{}, errors.New("org id is required")
 	}
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return ProjectMembershipRecord{}, errors.New("project id is required")
 	}
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return ProjectMembershipRecord{}, errors.New("user id is required")
 	}
 	if !isValidProjectRole(input.Role) {
@@ -411,10 +417,10 @@ func (s *Store) AddOrgMembership(
 	ctx context.Context,
 	input AddOrgMembershipInput,
 ) (OrgMembershipRecord, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return OrgMembershipRecord{}, errors.New("org id is required")
 	}
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return OrgMembershipRecord{}, errors.New("user id is required")
 	}
 	if input.Role == "" {
@@ -499,10 +505,10 @@ func (s *Store) UpdateOrgMemberRole(
 	ctx context.Context,
 	input UpdateOrgMemberRoleInput,
 ) (OrgMembershipRecord, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return OrgMembershipRecord{}, errors.New("org id is required")
 	}
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return OrgMembershipRecord{}, errors.New("user id is required")
 	}
 	if input.Role != authz.OrgRoleAdmin && input.Role != authz.OrgRoleMember {
@@ -554,10 +560,10 @@ func (s *Store) UpdateOrgMemberRole(
 }
 
 func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput) error {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return errors.New("org id is required")
 	}
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return errors.New("user id is required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -651,13 +657,13 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 }
 
 func (s *Store) RemoveProjectMembership(ctx context.Context, input RemoveProjectMembershipInput) error {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return errors.New("org id is required")
 	}
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return errors.New("project id is required")
 	}
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return errors.New("user id is required")
 	}
 	membership, err := s.q.GetOrgMembershipForUser(
@@ -688,12 +694,12 @@ func (s *Store) RemoveProjectMembership(ctx context.Context, input RemoveProject
 
 func (s *Store) ListProjectMembershipGrantsForUser(
 	ctx context.Context,
-	orgID, userID ID,
+	orgID, userID uuid.UUID,
 ) ([]ProjectMembershipGrantRecord, error) {
-	if isNilID(orgID) {
+	if orgID == uuid.Nil {
 		return nil, errors.New("org id is required")
 	}
-	if isNilID(userID) {
+	if userID == uuid.Nil {
 		return nil, errors.New("user id is required")
 	}
 	rows, err := s.q.ListProjectMembershipsForUser(
@@ -715,8 +721,8 @@ func (s *Store) ListProjectMembershipGrantsForUser(
 	return records, nil
 }
 
-func (s *Store) GetUser(ctx context.Context, userID ID) (UserRecord, error) {
-	if isNilID(userID) {
+func (s *Store) GetUser(ctx context.Context, userID uuid.UUID) (UserRecord, error) {
+	if userID == uuid.Nil {
 		return UserRecord{}, errors.New("user id is required")
 	}
 	row, err := s.q.GetUser(ctx, dbsqlc.GetUserParams{ID: userID})
@@ -730,11 +736,11 @@ func (s *Store) GetUser(ctx context.Context, userID ID) (UserRecord, error) {
 }
 
 // PrimaryVerifiedUserEmail returns the user's verified primary email, if any.
-func (s *Store) PrimaryVerifiedUserEmail(ctx context.Context, userID ID) (string, error) {
-	if isNilID(userID) {
+func (s *Store) PrimaryVerifiedUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
+	if userID == uuid.Nil {
 		return "", errors.New("user id is required")
 	}
-	emails, err := s.PrimaryVerifiedUserEmails(ctx, []ID{userID})
+	emails, err := s.PrimaryVerifiedUserEmails(ctx, []uuid.UUID{userID})
 	if err != nil {
 		return "", err
 	}
@@ -742,12 +748,12 @@ func (s *Store) PrimaryVerifiedUserEmail(ctx context.Context, userID ID) (string
 }
 
 // PrimaryVerifiedUserEmails maps each user to their verified primary email.
-func (s *Store) PrimaryVerifiedUserEmails(ctx context.Context, userIDs []ID) (map[ID]string, error) {
+func (s *Store) PrimaryVerifiedUserEmails(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]string, error) {
 	if len(userIDs) == 0 {
-		return map[ID]string{}, nil
+		return map[uuid.UUID]string{}, nil
 	}
 	for _, userID := range userIDs {
-		if isNilID(userID) {
+		if userID == uuid.Nil {
 			return nil, errors.New("user id is required")
 		}
 	}
@@ -755,15 +761,15 @@ func (s *Store) PrimaryVerifiedUserEmails(ctx context.Context, userIDs []ID) (ma
 	if err != nil {
 		return nil, fmt.Errorf("primary verified emails: %w", err)
 	}
-	emails := make(map[ID]string, len(rows))
+	emails := make(map[uuid.UUID]string, len(rows))
 	for _, row := range rows {
 		emails[row.UserID] = row.Email
 	}
 	return emails, nil
 }
 
-func (s *Store) ListOrgMembershipsForUser(ctx context.Context, userID ID) ([]UserOrgMembershipRecord, error) {
-	if isNilID(userID) {
+func (s *Store) ListOrgMembershipsForUser(ctx context.Context, userID uuid.UUID) ([]UserOrgMembershipRecord, error) {
+	if userID == uuid.Nil {
 		return nil, errors.New("user id is required")
 	}
 	rows, err := s.q.ListOrgMembershipsForUser(ctx, dbsqlc.ListOrgMembershipsForUserParams{UserID: userID})
@@ -805,7 +811,7 @@ func (s *Store) ListOrgMembershipsForPrincipal(
 }
 
 type ListOrgMembersInput struct {
-	OrgID ID
+	OrgID uuid.UUID
 	Limit int
 	List  listing.Options
 }
@@ -818,7 +824,7 @@ type ListOrgMembersResult struct {
 
 // ListOrgMembers returns one filtered and ordered keyset page of an org's members.
 func (s *Store) ListOrgMembers(ctx context.Context, input ListOrgMembersInput) (ListOrgMembersResult, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ListOrgMembersResult{}, errors.New("org id is required")
 	}
 	if input.Limit <= 0 {
@@ -847,7 +853,7 @@ func (s *Store) ListOrgMembers(ctx context.Context, input ListOrgMembersInput) (
 		result.HasMore = true
 		rows = rows[:input.Limit]
 	}
-	userIDs := make([]ID, 0, len(rows))
+	userIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		userIDs = append(userIDs, row.UserID)
 	}
@@ -866,8 +872,8 @@ func (s *Store) ListOrgMembers(ctx context.Context, input ListOrgMembersInput) (
 }
 
 //nolint:lll // Keeping generated query parameters inline makes the account cleanup sequence auditable.
-func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
-	if isNilID(userID) {
+func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
+	if userID == uuid.Nil {
 		return errors.New("user is required")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -956,7 +962,7 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
 func deleteUserOwnedSkillsTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	userID ID,
+	userID uuid.UUID,
 ) ([]skillops.ArchiveRef, error) {
 	skills, err := q.ListUserOwnedSkillsForUser(ctx, dbsqlc.ListUserOwnedSkillsForUserParams{UserID: userID})
 	if err != nil {

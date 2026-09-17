@@ -9,16 +9,17 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/oapi-codegen/nullable"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	openapigen "github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -76,7 +77,7 @@ func createModelProviderConfigCommandFromOpenAPI(
 }
 
 func patchModelProviderConfigInputFromOpenAPI(
-	orgID, configID storage.ID,
+	orgID, configID uuid.UUID,
 	body openapigen.UpdateModelProviderConfigRequest,
 ) (modelstore.PatchModelProviderConfigInput, error) {
 	patch := modelstore.PatchModelProviderConfigInput{
@@ -108,7 +109,7 @@ func patchModelProviderConfigInputFromOpenAPI(
 		patch.AuthOptions = &value
 	}
 	if body.CredentialSecretId != nil {
-		parsed, err := parsePublicID(publicid.KindSecret, *body.CredentialSecretId)
+		parsed, err := publicid.Decode(publicid.KindSecret, *body.CredentialSecretId)
 		if err != nil {
 			return modelstore.PatchModelProviderConfigInput{}, errors.New("invalid credential_secret_id")
 		}
@@ -119,7 +120,7 @@ func patchModelProviderConfigInputFromOpenAPI(
 }
 
 func createConfiguredModelInputFromOpenAPI(
-	orgID, configID storage.ID,
+	orgID, configID uuid.UUID,
 	body openapigen.CreateConfiguredModelRequest,
 ) modelstore.CreateConfiguredModelInput {
 	input := modelstore.CreateConfiguredModelInput{
@@ -302,7 +303,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 	); err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
-	credentialSecretID, err := parsePublicID(publicid.KindSecret, command.CredentialSecretID)
+	credentialSecretID, err := publicid.Decode(publicid.KindSecret, command.CredentialSecretID)
 	if err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "invalid credential_secret_id")
 	}
@@ -335,7 +336,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 
 func (s strictOpenAPIServer) providerModelCatalog(
 	ctx context.Context,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	record modelstore.ModelProviderConfigRecord,
 ) openapigen.ModelCatalog {
 	if record.APIVariant == modelprotocol.APIVariantBedrock &&
@@ -384,6 +385,7 @@ func (s strictOpenAPIServer) providerModelCatalog(
 		}
 		entry.ContextWindowTokens = model.ContextWindowTokens
 		entry.MaxOutputTokens = model.MaxOutputTokens
+		entry.Pricing = discoveredModelPricingResponse(model.Pricing)
 		discovered = append(discovered, entry)
 	}
 	return openapigen.ModelCatalog{
@@ -664,7 +666,7 @@ func (s strictOpenAPIServer) UpdateConfiguredModel(
 }
 
 func patchConfiguredModelInput(
-	orgID, configID, configuredModelID storage.ID,
+	orgID, configID, configuredModelID uuid.UUID,
 	body openapigen.UpdateConfiguredModelRequest,
 ) (modelstore.PatchConfiguredModelInput, error) {
 	input := modelstore.PatchConfiguredModelInput{
@@ -798,11 +800,11 @@ func (s strictOpenAPIServer) CreateProjectModelGrant(
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeForbidden, "authenticated user principal is required")
 	}
 	body := *request.Body
-	configuredModelID, err := parsePublicID(publicid.KindConfiguredModel, body.ConfiguredModelId)
+	configuredModelID, err := publicid.Decode(publicid.KindConfiguredModel, body.ConfiguredModelId)
 	if err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "invalid configured_model_id")
 	}
@@ -915,9 +917,29 @@ func configuredModelSummaryResponse(
 		ModelProviderConfigId: providerConfigID,
 		Name:                  record.Name,
 		ProviderConfig:        record.ProviderConfigName,
+		ProviderModelSlug:     record.ProviderModelSlug,
 		CreatedAt:             record.CreatedAt,
 		UpdatedAt:             record.UpdatedAt,
 	}, nil
+}
+
+func discoveredModelPricingResponse(
+	pricing *modelprovider.DiscoveredModelPricing,
+) *openapigen.DiscoveredModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	response := &openapigen.DiscoveredModelPricing{
+		InputUsdPerMillion:  pricing.InputUSDPerMillion,
+		OutputUsdPerMillion: pricing.OutputUSDPerMillion,
+	}
+	if pricing.CacheReadInputUSDPerMillion != "" {
+		response.CacheReadInputUsdPerMillion = &pricing.CacheReadInputUSDPerMillion
+	}
+	if pricing.CacheWriteInputUSDPerMillion != "" {
+		response.CacheWriteInputUsdPerMillion = &pricing.CacheWriteInputUSDPerMillion
+	}
+	return response
 }
 
 func (s strictOpenAPIServer) UpdateProjectModelGrant(
@@ -956,7 +978,7 @@ func (s strictOpenAPIServer) UpdateProjectModelGrant(
 }
 
 func updateProjectModelGrantInput(
-	orgID, projectID, grantID storage.ID,
+	orgID, projectID, grantID uuid.UUID,
 	body openapigen.UpdateProjectModelGrantRequest,
 ) (modelstore.UpdateProjectModelGrantInput, error) {
 	input := modelstore.UpdateProjectModelGrantInput{

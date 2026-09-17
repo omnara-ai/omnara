@@ -8,12 +8,13 @@ import {
   useCurrentActorId,
   useMe,
 } from '@omnara/react'
-import { useParams } from '@tanstack/react-router'
+import { useMatchRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { type ComponentProps, useRef, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
 import { AgentConversation } from '@/components/agents/AgentConversation'
+import { AgentEventLog } from '@/components/agents/AgentEventLog'
 import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
 import { AgentInteractions } from '@/components/agents/AgentInteractions'
 import {
@@ -22,6 +23,7 @@ import {
   sidebarToggleActiveClass,
 } from '@/components/agents/AgentSidebar'
 import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
+import { PillTabs } from '@/components/agents/PillTabs'
 import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
@@ -35,7 +37,19 @@ import { cn } from '@/lib/utils'
 const agentDetailPollInterval = 5_000
 const agentSidebarStyle: CssVariables = { '--sidebar-width': '20rem' }
 
+type AgentViewMode = 'events' | 'chat'
+
+const viewTabs: { value: AgentViewMode; label: string }[] = [
+  { value: 'events', label: 'Event log' },
+  { value: 'chat', label: 'Chat' },
+]
+
 export function AgentView() {
+  const navigate = useNavigate()
+  const matchRoute = useMatchRoute()
+  const view: AgentViewMode = matchRoute({ to: '/projects/$projectId/agents/$agentId/chat' })
+    ? 'chat'
+    : 'events'
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
   const params = useParams({ strict: false })
@@ -57,13 +71,16 @@ export function AgentView() {
   const archived = agent.state === 'archived'
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
-  const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
+  const interactions = useAgentInteractions(activeOrg.id, projectId, agentId)
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(hasPendingMcpBuilderOAuthOutcome)
   const configDirty = useRef(false)
-  const canSendNow = canOperate && interactions.data?.data.length === 0
+  const canSendNow =
+    canOperate &&
+    interactions.data != null &&
+    !interactions.data.data.some((interaction) => interaction.agent_id === agentId)
 
   function closeConfig() {
     configDirty.current = false
@@ -115,7 +132,20 @@ export function AgentView() {
                   { id: 'agent', label: agent.name || 'Agent' },
                 ]}
               />
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex shrink-0 items-center gap-2">
+                <PillTabs
+                  value={view}
+                  tabs={viewTabs}
+                  onValueChange={(nextView) => {
+                    void navigate({
+                      to:
+                        nextView === 'chat'
+                          ? '/projects/$projectId/agents/$agentId/chat'
+                          : '/projects/$projectId/agents/$agentId/events',
+                      params: { projectId, agentId },
+                    })
+                  }}
+                />
                 {agent.current_config_id !== undefined && (
                   <Button
                     size="icon"
@@ -147,19 +177,29 @@ export function AgentView() {
             </main>
           ) : (
             <main className="min-h-0 flex-1">
-              <AgentConversation
-                chat={chat}
-                currentActorId={currentActorId}
-                orgID={activeOrg.id}
-                projectID={projectId}
-                agentID={agentId}
-              />
+              {view === 'events' ? (
+                <AgentEventLog
+                  chat={chat}
+                  orgId={activeOrg.id}
+                  projectId={projectId}
+                  agentId={agentId}
+                />
+              ) : (
+                <AgentConversation
+                  chat={chat}
+                  currentActorId={currentActorId}
+                  orgID={activeOrg.id}
+                  projectID={projectId}
+                  agentID={agentId}
+                />
+              )}
             </main>
           )}
 
           <AgentDock
             archived={archived}
             configOpen={configOpen}
+            composer={view === 'chat'}
             chat={chat}
             model={agentConfig?.model}
             canOperate={canOperate}
@@ -189,6 +229,7 @@ export function AgentView() {
 function AgentDock({
   archived,
   configOpen,
+  composer,
   chat,
   model,
   canOperate,
@@ -202,6 +243,7 @@ function AgentDock({
 }: {
   archived: boolean
   configOpen: boolean
+  composer: boolean
   chat: ReturnType<typeof useAgentChat>
   model: ComponentProps<typeof AgentComposer>['model']
   canOperate: boolean
@@ -213,6 +255,7 @@ function AgentDock({
   cancelError: Error | null
   onCancel: () => Promise<void>
 }) {
+  const composerHidden = !composer || configOpen
   return (
     <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
       {!archived && !configOpen && (
@@ -220,11 +263,11 @@ function AgentDock({
           orgID={orgID}
           projectID={projectID}
           agentID={agentID}
-          agentActive={chat.isWorking}
           canOperate={canOperate}
         />
       )}
       {archived ? (
+        composer &&
         !configOpen && (
           <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
             <p className="text-sm font-medium">This agent is archived</p>
@@ -234,22 +277,21 @@ function AgentDock({
           </div>
         )
       ) : (
-        <div className={cn('min-w-0', configOpen && 'hidden')}>
+        <div className={cn('min-w-0', composerHidden && 'hidden')}>
           <AgentInputQueue
             backlog={chat.inputBacklog}
             canOperate={canOperate}
             canSendNow={canSendNow}
           />
-          {!configOpen && (
-            <AgentComposer
-              chat={chat}
-              model={model}
-              cancelPending={cancelPending}
-              cancelError={cancelError}
-              onCancel={onCancel}
-              canOperate={canOperate}
-            />
-          )}
+          <AgentComposer
+            chat={chat}
+            model={model}
+            cancelPending={cancelPending}
+            cancelError={cancelError}
+            onCancel={onCancel}
+            canOperate={canOperate}
+            hidden={composerHidden}
+          />
         </div>
       )}
     </div>

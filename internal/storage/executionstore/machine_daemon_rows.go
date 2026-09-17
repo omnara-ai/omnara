@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func projectMachineGrantFromUpsert(
@@ -96,9 +98,9 @@ func projectMachineGrantFromDelete(
 }
 
 func projectMachineGrantRecord(
-	id, orgID, projectID, machineID ID,
+	id, orgID, projectID, machineID uuid.UUID,
 	sourceKind string,
-	projectMachinePoolGrantID *ID,
+	projectMachinePoolGrantID *uuid.UUID,
 	description string,
 	idempotencyKey string,
 	metadata []byte,
@@ -110,7 +112,7 @@ func projectMachineGrantRecord(
 		ProjectID:                 projectID,
 		MachineID:                 machineID,
 		SourceKind:                ProjectMachineGrantSourceKind(sourceKind),
-		ProjectMachinePoolGrantID: idFromSQLCPtr(projectMachinePoolGrantID),
+		ProjectMachinePoolGrantID: storeutil.IDFromPtr(projectMachinePoolGrantID),
 		Description:               description,
 		IdempotencyKey:            idempotencyKey,
 		Metadata:                  json.RawMessage(metadata),

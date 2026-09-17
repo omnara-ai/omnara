@@ -8,6 +8,7 @@ import {
   basicConfigValid,
   type BasicMcpServer,
   createBasicConfigSession,
+  emptyBasicConfig,
   mcpRuntimeToolNameError,
   mcpServerNameError,
   mcpToolEnabled,
@@ -95,6 +96,30 @@ const fullConfig: BasicConfig = {
     },
   ],
   skillIds: ['skl_1', 'skl_2'],
+  subagents: [
+    {
+      id: 'sub-1',
+      key: 'researcher',
+      type: 'profile',
+      profileName: 'research-agent',
+      description: 'Investigate.',
+      instructionAppend: 'Report as bullets.',
+      maxInstances: '2',
+      archiveAfterIdleMinutes: '30',
+    },
+    {
+      id: 'sub-2',
+      key: 'fork',
+      type: 'self',
+      profileName: '',
+      description: '',
+      instructionAppend: '',
+      maxInstances: '',
+      archiveAfterIdleMinutes: '',
+    },
+  ],
+  maxSubagents: '4',
+  maxDepth: '2',
 }
 
 const minimalYaml = `instruction: Do the thing.
@@ -147,6 +172,45 @@ function applyToSource(source: string, config: BasicConfig): string {
 }
 
 describe('createBasicConfigSession initialDraft', () => {
+  it.each([
+    `mcp:
+  external:
+    url: https://example.com/mcp
+    tools: &toolConfig
+      web_search: {}
+tools: *toolConfig
+`,
+    `tools: &toolConfig
+  web_search: {}
+mcp:
+  external:
+    url: https://example.com/mcp
+    default_enabled: false
+    tools: *toolConfig
+`,
+    `tools:
+  run_command: &shared {}
+  web_search: *shared
+`,
+    `<<: {tools: {run_command: {enabled: false}}}
+`,
+  ])('keeps shared or merged YAML in YAML mode: %s', (tools) => {
+    const source = `${minimalYaml}machine_sources: [{machine_pool_name: pool}]\n${tools}`
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).toBeNull()
+    expect(session.apply(fullConfig)).toBe(source)
+  })
+
+  it('does not serialize an unused builder draft for YAML-only source', () => {
+    const source = `tools: {run_command: {permission: {mode: &mode always_allow}}}
+instruction: *mode
+model: {provider_config: openai, name: primary}
+`
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).toBeNull()
+    expect(session.apply(emptyBasicConfig)).toBe(source)
+  })
+
   it('round-trips a full builder-authored config', () => {
     const source = applyToSource('', fullConfig)
     const config = mustDeserialize(source)
@@ -183,6 +247,51 @@ describe('createBasicConfigSession initialDraft', () => {
       secretId: 'sec_456',
       service: 'execute-api',
       region: 'us-east-1',
+    })
+    expect(config.subagents).toMatchObject([
+      {
+        key: 'researcher',
+        type: 'profile',
+        profileName: 'research-agent',
+        description: 'Investigate.',
+        instructionAppend: 'Report as bullets.',
+        maxInstances: '2',
+        archiveAfterIdleMinutes: '30',
+      },
+      { key: 'fork', type: 'self', profileName: '' },
+    ])
+    expect(config.maxSubagents).toBe('4')
+    expect(config.maxDepth).toBe('2')
+    expect(parse(source)).toMatchObject({
+      subagents: {
+        researcher: { type: 'profile', profile: 'research-agent', max_instances: 2 },
+        fork: { type: 'self' },
+      },
+      max_subagents: 4,
+      max_depth: 2,
+    })
+  })
+
+  it('keeps subagent model overrides authored in YAML', () => {
+    const source = `instruction: Do the thing.
+model:
+  provider_config: anthropic
+  name: claude-sonnet-5
+subagents:
+  fork:
+    type: self
+    model:
+      name: claude-haiku
+`
+    const config = mustDeserialize(source)
+    expect(config.subagents[0]?.modelOverride).toEqual({ name: 'claude-haiku' })
+    expect(applyToSource(source, config)).toBe(source)
+    const renamed = {
+      ...config,
+      subagents: config.subagents.map((subagent) => ({ ...subagent, description: 'Fork.' })),
+    }
+    expect(parse(applyToSource(source, renamed))).toMatchObject({
+      subagents: { fork: { type: 'self', description: 'Fork.', model: { name: 'claude-haiku' } } },
     })
   })
 
@@ -343,16 +452,6 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
-  it('rejects disabled tools', () => {
-    const source = `${minimalYaml}tools:
-  shell:
-    enabled: false
-    permission:
-      mode: always_ask
-`
-    expect(deserialize(source)).toBeNull()
-  })
-
   it('rejects unknown fields inside builder-owned entries', () => {
     expect(
       deserialize(`${minimalYaml}tools:
@@ -461,6 +560,9 @@ describe('createBasicConfigSession apply', () => {
       tools: [],
       mcpServers: [],
       skillIds: [],
+      subagents: [],
+      maxSubagents: '',
+      maxDepth: '',
     }
     expect(applyToSource('', emptyConfig)).toBe('')
   })

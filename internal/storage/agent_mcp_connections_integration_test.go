@@ -290,13 +290,13 @@ func TestRuntimeMCPServerResolveTool(t *testing.T) {
 			"delete": {RemoteName: "delete", Enabled: &disabled},
 		},
 	}
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
-	if permission, ok := server.ResolveTool("other"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAsk {
-		t.Fatalf("default resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("other"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAsk {
+		t.Fatalf("default resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("delete"); ok {
 		t.Fatalf("delete should be disabled")

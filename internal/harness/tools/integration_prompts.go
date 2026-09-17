@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -82,7 +82,7 @@ func (e Executor) enqueueIntegrationPromptCopy(
 func (e Executor) copyPermissionPromptToIntegration(
 	ctx context.Context,
 	turn Turn,
-	interactionID storage.ID,
+	interactionID uuid.UUID,
 ) error {
 	current, found, err := e.Store.Execution().GetAgentInteraction(
 		ctx,
@@ -285,7 +285,7 @@ func (e Executor) postIntegrationPayloadToTarget(
 
 func integrationInteractionPromptPayload(
 	target integrationToolTarget,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	interaction executionstore.AgentInteractionRecord,
 ) (json.RawMessage, error) {
 	interactionID, err := publicid.Encode(publicid.KindAgentInteraction, interaction.ID)

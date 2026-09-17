@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func setMachineSandboxURL(t *testing.T, ctx context.Context, store *Store, machineID ID, sandboxURL string) {
+func setMachineSandboxURL(t *testing.T, ctx context.Context, store *Store, machineID uuid.UUID, sandboxURL string) {
 	t.Helper()
 	if _, err := store.pool.Exec(
 		ctx,
@@ -30,7 +31,7 @@ func setMachineSandboxURL(t *testing.T, ctx context.Context, store *Store, machi
 func startSleepProcess(
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 	input executionstore.CreateProcessInput,
 ) (executionstore.ProcessRecord, error) {
 	return startProcessForTest(
@@ -121,9 +122,9 @@ WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
 	assertMachineState(t, ctx, fixture.Store, fixture.MachineID, "active", "offline")
 }
 
-func activeDaemonRuntimeID(t *testing.T, ctx context.Context, store *Store, orgID, machineID ID) ID {
+func activeDaemonRuntimeID(t *testing.T, ctx context.Context, store *Store, orgID, machineID uuid.UUID) uuid.UUID {
 	t.Helper()
-	var id ID
+	var id uuid.UUID
 	if err := store.pool.QueryRow(
 		ctx,
 		`SELECT id FROM daemon_runtimes WHERE org_id = $1 AND machine_id = $2 AND state = 'active'`,

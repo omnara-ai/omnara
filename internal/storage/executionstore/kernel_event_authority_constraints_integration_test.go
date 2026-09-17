@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -167,7 +168,7 @@ func TestKernelToolCallTransitionGraph(t *testing.T) {
 			}
 			defer func() { _ = tx.Rollback(ctx) }()
 
-			var id ID
+			var id uuid.UUID
 			if err := tx.QueryRow(ctx, `
 INSERT INTO tool_calls(
   agent_id, model_output_id, provider_call_id,
@@ -313,7 +314,7 @@ func TestKernelAgentInputEventRequiresResolvedBacklink(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var inputID ID
+	var inputID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 INSERT INTO agent_inputs(
   project_id, agent_id, state, input_kind, delivery_mode,
@@ -493,7 +494,7 @@ WHERE agent_id = $1 AND id = $2
 `, fixture.AgentID, toolCallID); err != nil {
 		t.Fatalf("stage completed tool call: %v", err)
 	}
-	var resultID ID
+	var resultID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 INSERT INTO tool_call_results(agent_id, tool_call_id, outcome, completed_at)
 SELECT tool_call.agent_id, tool_call.id, 'succeeded', $3
@@ -516,10 +517,10 @@ func settleToolCallTurnForNextInputTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 	testName string,
 	now time.Time,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	turnID := turnIDForProcessToolCallTest(t, ctx, fixture, toolCallID)
 	contextID := modelOutputContextForTurnTest(t, ctx, fixture, turnID, testName, now)
@@ -711,7 +712,7 @@ WHERE agent_id = $1 AND id = $2
 		t.Fatalf("create agent input content block: %v", err)
 	}
 	configInputID := testID("content_block_config_input_owner")
-	var currentConfigID ID
+	var currentConfigID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 		SELECT current_config_id
 		FROM agents
@@ -926,7 +927,7 @@ func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
 		t.Fatalf("create input: %v", err)
 	}
 
-	var turnID ID
+	var turnID uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT event.turn_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 ORDER BY event.sequence DESC LIMIT 1`,

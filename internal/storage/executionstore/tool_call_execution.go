@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -13,10 +14,10 @@ import (
 )
 
 type ExecuteToolCallInput struct {
-	ProjectID     ID
-	AgentID       ID
-	ToolCallID    ID
-	RuntimeLockID ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ToolCallID    uuid.UUID
+	RuntimeLockID uuid.UUID
 }
 
 type ExecuteToolCallResult struct {
@@ -61,8 +62,8 @@ func (s *Store) ExecuteToolCall(
 	input ExecuteToolCallInput,
 	plan ToolCallPlan,
 ) (ExecuteToolCallResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ToolCallID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return ExecuteToolCallResult{}, errors.New(
 			"project, agent, tool call, and runtime lock are required",
 		)
@@ -272,9 +273,9 @@ func (r *ToolCallReader) GetToolCall(ctx context.Context) (ToolCallRecord, error
 
 func (r *ToolCallReader) GetModelCallContext(
 	ctx context.Context,
-	id ID,
+	id uuid.UUID,
 ) (ModelCallContextRecord, bool, error) {
-	if isNilID(id) {
+	if id == uuid.Nil {
 		return ModelCallContextRecord{}, false, errors.New("model context id is required")
 	}
 	t := r.transaction

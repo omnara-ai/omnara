@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -262,7 +263,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 
 	// A pool-derived machine grant is managed through its parent pool grant and
 	// must not appear in the directly revocable individual-grant list.
-	var machinePoolID storage.ID
+	var machinePoolID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO machine_pools(
 			org_id, name, management_kind, provider, default_machine_memory_mb,
@@ -275,7 +276,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	`, project.OrgUUID).Scan(&machinePoolID); err != nil {
 		t.Fatalf("insert machine pool fixture: %v", err)
 	}
-	var poolGrantID storage.ID
+	var poolGrantID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO project_machine_pool_grants(
 			org_id, project_id, machine_pool_id, created_at, updated_at
@@ -285,7 +286,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	`, project.OrgUUID, project.ProjectUUID, machinePoolID).Scan(&poolGrantID); err != nil {
 		t.Fatalf("insert machine pool grant fixture: %v", err)
 	}
-	var poolMachineID storage.ID
+	var poolMachineID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO machines(
 			org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,

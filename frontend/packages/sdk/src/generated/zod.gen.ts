@@ -75,11 +75,6 @@ export const zError = z.object({
     ])
 });
 
-export const zWarning = z.object({
-    message: z.string(),
-    code: z.enum(['missing_recommended_machine_tools'])
-});
-
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -206,11 +201,22 @@ export const zModelCacheRetention = z.enum([
     'long'
 ]);
 
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export const zDiscoveredModelPricing = z.object({
+    input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    cache_read_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    cache_write_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    output_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
 export const zDiscoveredProviderModel = z.object({
     slug: z.string(),
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
-    max_output_tokens: z.int().gte(1).lte(2147483647).optional()
+    max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    pricing: zDiscoveredModelPricing.optional()
 });
 
 /**
@@ -454,6 +460,7 @@ export const zConfiguredModelSummary = z.object({
     model_provider_config_id: zModelProviderConfigId,
     name: zResourceName,
     provider_config: zResourceName,
+    provider_model_slug: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -662,6 +669,11 @@ export const zSlackSetup = z.object({
     expires_at: zTimestamp
 });
 
+export const zResolveAgentConfigToolsRequest = z.object({
+    source: z.string().min(1),
+    source_format: z.enum(['yaml', 'json'])
+});
+
 export const zCreateAgentConfigRequest = z.object({
     source: z.string().min(1),
     source_format: z.enum(['yaml', 'json'])
@@ -681,6 +693,16 @@ export const zToolPermissionSelection = z.object({
     parameters: z.record(z.string(), z.unknown())
 });
 
+export const zResolvedAgentConfigTool = z.object({
+    name: z.string(),
+    enabled: z.boolean(),
+    permission: zToolPermissionSelection
+});
+
+export const zResolvedAgentConfigTools = z.object({
+    tools: z.array(zResolvedAgentConfigTool)
+});
+
 export const zToolPermissionMode = z.object({
     name: z.string(),
     label: z.string(),
@@ -696,6 +718,7 @@ export const zToolPermissionProfile = z.object({
 export const zToolCatalogEntry = z.object({
     name: z.string(),
     description: z.string(),
+    implicit: z.boolean().optional(),
     default_permission: zToolPermissionSelection,
     permission_modes: z.array(zToolPermissionMode)
 });
@@ -852,7 +875,6 @@ export const zAgentConfig = z.object({
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
-    warnings: z.array(zWarning).min(1).optional(),
     created_at: zTimestamp
 });
 
@@ -976,6 +998,16 @@ export const zCreateAgentRequest = z.object({
     message: z.string().optional()
 });
 
+export const zAgentActivity = z.object({
+    state: z.enum([
+        'running',
+        'idle',
+        'waiting_on_interaction',
+        'archived'
+    ]),
+    last_activity_at: zTimestamp
+});
+
 export const zAgentModel = z.object({
     provider_config: zResourceName,
     name: zResourceName
@@ -999,6 +1031,9 @@ export const zAgent = z.object({
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
+    parent_agent_id: zAgentId.optional(),
+    subagent_key: z.string().optional(),
+    activity: zAgentActivity.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     archived_at: zTimestamp.optional()
@@ -1098,7 +1133,6 @@ export const zAgentMachineBinding = z.object({
     project_id: zProjectId,
     agent_id: zAgentId,
     machine_id: zMachineId,
-    machine_ref: z.string(),
     binding_kind: zAgentMachineBindingKind,
     state: zAgentMachineBindingState,
     description: z.string(),
@@ -1110,13 +1144,14 @@ export const zAgentMachineBinding = z.object({
 });
 
 /**
- * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
  */
 export const zMachineFailureReport = z.object({
     stage: z.enum([
         'startup_script',
         'daemon_install',
         'daemon_update',
+        'daemon_runtime',
         'daemon_uninstall',
         'daemon_uninstalled'
     ]),
@@ -1324,6 +1359,7 @@ export const zToolCallOutcome = z.enum([
  */
 export const zToolCall = z.object({
     id: zToolCallId,
+    agent_id: zAgentId,
     turn_id: zAgentTurnId,
     provider_call_id: z.string(),
     name: z.string(),
@@ -1336,10 +1372,11 @@ export const zToolCall = z.object({
 });
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export const zToolCallUpdate = z.object({
     tool_call_id: zToolCallId,
+    agent_id: zAgentId.optional(),
     state: zToolCallState
 });
 
@@ -1656,6 +1693,8 @@ export const zAgentInteraction = z.object({
     agent_id: zAgentId,
     tool_call_id: zToolCallId,
     tool_name: z.string().optional(),
+    agent_name: zAgentName.optional(),
+    subagent_key: z.string().optional(),
     interaction_kind: zAgentInteractionKind,
     state: zAgentInteractionState,
     request: zInteractionForm,
@@ -2558,6 +2597,49 @@ export const zOrgOverviewResponse = z.object({
     recent_agent_profiles: z.array(zAgentProfile)
 });
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export const zUsageTokenTotals = z.object({
+    input_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    uncached_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_read_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_write_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    output_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    reasoning_output_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageCostTotals = z.object({
+    provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
+export const zUsageTotals = z.object({
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageModel = z.object({
+    configured_model_id: zConfiguredModelId,
+    name: zResourceName,
+    provider_model_slug: z.string(),
+    model_provider_config_id: zModelProviderConfigId,
+    model_provider_config_name: zResourceName
+});
+
+export const zModelUsageTotals = z.object({
+    model: zUsageModel,
+    model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens: zUsageTokenTotals,
+    cost: zUsageCostTotals
+});
+
+export const zUsageReport = z.object({
+    totals: zUsageTotals,
+    by_model: z.array(zModelUsageTotals)
+});
+
 export const zCurrentUserIdentity = z.object({
     id: zUserId,
     email: z.string(),
@@ -2616,6 +2698,26 @@ export const zProjectMembershipGrant = z.object({
 export const zListProjectMembershipGrantsResponse = z.object({
     data: z.array(zProjectMembershipGrant)
 });
+
+/**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export const zUsageSince = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export const zUsageUntil = z.iso.datetime({ offset: true });
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 
 /**
  * Idempotency key for replay-safe mutating requests.
@@ -2743,6 +2845,7 @@ export const zRecordMachineFailureQuery = z.object({
         'startup_script',
         'daemon_install',
         'daemon_update',
+        'daemon_runtime',
         'daemon_uninstall',
         'daemon_uninstalled'
     ]),
@@ -2829,6 +2932,22 @@ export const zGetOrgOverviewPath = z.object({
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
 
+export const zGetOrgUsagePath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    exclude_project_ids: z.array(zProjectId).min(1).max(100).optional()
+});
+
+/**
+ * Usage totals for the organization.
+ */
+export const zGetOrgUsageResponse = zUsageReport;
+
 export const zListVisibleProjectsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -2867,6 +2986,21 @@ export const zDeleteProjectPath = z.object({
  * Project deleted.
  */
 export const zDeleteProjectResponse = z.void();
+
+export const zGetProjectUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zGetProjectUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
+ * Usage totals for the project.
+ */
+export const zGetProjectUsageResponse = zUsageReport;
 
 export const zListOrgMembersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
@@ -3355,6 +3489,18 @@ export const zDeleteIntegrationInstallPath = z.object({
  */
 export const zDeleteIntegrationInstallResponse = z.void();
 
+export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
+
+export const zResolveAgentConfigToolsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Resolved config tools.
+ */
+export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
+
 export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
 
 export const zCreateAgentConfigPath = z.object({
@@ -3474,6 +3620,23 @@ export const zRenameAgentProfilePath = z.object({
  * Agent profile renamed.
  */
 export const zRenameAgentProfileResponse = zAgentProfile;
+
+export const zGetAgentProfileUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentProfileID: zAgentProfileId
+});
+
+export const zGetAgentProfileUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent profile.
+ */
+export const zGetAgentProfileUsageResponse = zUsageReport;
 
 export const zUpdateAgentProfileBody = zUpdateAgentProfileRequest;
 
@@ -3596,13 +3759,16 @@ export const zListAgentsPath = z.object({
 export const zListAgentsQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     agent_profile_id: zAgentProfileId.optional(),
+    parent_agent_id: zAgentId.optional(),
+    include_subagents: z.boolean().optional(),
+    include_archived: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
 
 /**
- * Active agents in the project, newest first.
+ * Agents in the project, newest first.
  */
 export const zListAgentsResponse2 = zListAgentsResponse;
 
@@ -3632,6 +3798,23 @@ export const zGetAgentPath = z.object({
  * Agent.
  */
 export const zGetAgentResponse2 = zGetAgentResponse;
+
+export const zGetAgentUsagePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    agentID: zAgentId
+});
+
+export const zGetAgentUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    include_subagents: z.boolean().optional()
+});
+
+/**
+ * Usage totals for the agent.
+ */
+export const zGetAgentUsageResponse = zUsageReport;
 
 export const zArchiveAgentPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -3687,6 +3870,7 @@ export const zListToolCallsPath = z.object({
 export const zListToolCallsQuery = z.object({
     state: zToolCallState.optional(),
     type: zToolCallType.optional(),
+    include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
@@ -3776,7 +3960,7 @@ export const zStreamEventsQuery = z.object({
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 
@@ -3801,6 +3985,7 @@ export const zListAgentInteractionsPath = z.object({
 
 export const zListAgentInteractionsQuery = z.object({
     state: zAgentInteractionState.optional(),
+    include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });

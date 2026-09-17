@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -83,20 +83,26 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) pollDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) tokenRoute(w http.ResponseWriter, r *http.Request) {
 	form, ok := parseOAuthForm(w, r)
 	if !ok {
 		return
 	}
-	grantType := form.Get("grant_type")
-	if grantType == "" {
+	switch form.Get("grant_type") {
+	case "":
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
-		return
-	}
-	if grantType != OAuthDeviceGrantType {
+	case OAuthDeviceGrantType:
+		h.deviceCodeGrant(w, r, form)
+	case OAuthAuthorizationCodeGrant:
+		h.authorizationCodeGrant(w, r, form)
+	case OAuthRefreshTokenGrant:
+		h.refreshTokenGrant(w, r, form)
+	default:
 		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type is not supported")
-		return
 	}
+}
+
+func (h *Handler) deviceCodeGrant(w http.ResponseWriter, r *http.Request, form url.Values) {
 	deviceCode := form.Get("device_code")
 	clientID := form.Get("client_id")
 	if deviceCode == "" || clientID == "" {
@@ -149,8 +155,8 @@ func (h *Handler) writeOAuthTokenStorageError(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) pendingDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -176,8 +182,8 @@ func (h *Handler) pendingDeviceAuthRoute(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) approveDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -210,8 +216,8 @@ func (h *Handler) approveDeviceAuthRoute(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) denyDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.currentPrincipal(r.Context())
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID ||
-		principal.BrowserSessionID == storage.NilID {
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil ||
+		principal.BrowserSessionID == uuid.Nil {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
@@ -242,7 +248,7 @@ func (h *Handler) requireDeviceUserCodeRateLimits(
 	w http.ResponseWriter,
 	r *http.Request,
 	action string,
-	userID storage.ID,
+	userID uuid.UUID,
 	userCode string,
 ) bool {
 	code := identitystore.NormalizeDeviceUserCode(userCode)

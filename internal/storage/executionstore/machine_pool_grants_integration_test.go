@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -25,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 func completeMachinePoolInputForTest(
@@ -126,7 +128,7 @@ func TestMachinePoolRuntimeProtectionDefaultsOffAndToggleClearsMarkers(t *testin
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 
 	unprotected, err := store.Execution().CreateMachinePool(
 		ctx,
@@ -252,7 +254,7 @@ func completeMachinePoolCreateInputForTest(
 ) executionstore.CreateMachinePoolInput {
 	t.Helper()
 	input = completeMachinePoolInputForTest(input)
-	if input.ManagementKind != management.Cluster && isNilID(input.ProviderAuthSecretID) {
+	if input.ManagementKind != management.Cluster && input.ProviderAuthSecretID == uuid.Nil {
 		input.ProviderAuthSecretID = createMachinePoolProviderAuthSecretForTest(
 			t,
 			ctx,
@@ -268,9 +270,9 @@ func createMachinePoolProviderAuthSecretForTest(
 	ctx context.Context,
 	store *Store,
 	value string,
-) ID {
+) uuid.UUID {
 	t.Helper()
-	suffix, err := newSecretUUID()
+	suffix, err := uuid.NewV7()
 	if err != nil {
 		t.Fatalf("generate machine pool provider auth secret suffix: %v", err)
 	}
@@ -289,7 +291,7 @@ func createMachinePoolProviderAuthSecretForTest(
 	return secret.ID
 }
 
-func secretPublicIDForTest(t *testing.T, id ID) string {
+func secretPublicIDForTest(t *testing.T, id uuid.UUID) string {
 	t.Helper()
 	out, err := publicid.Encode(publicid.KindSecret, id)
 	if err != nil {
@@ -303,7 +305,7 @@ func TestUpdateMachinePoolRejectsUnknownDefaultMachineSecret(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	created, err := store.Execution().CreateMachinePool(
 		ctx,
 		completeMachinePoolCreateInputForTest(
@@ -380,7 +382,7 @@ func TestCreateMachinePoolRequiresDefaultMachineProviderOptions(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
 		t,
 		ctx,
@@ -414,7 +416,7 @@ func TestCreateMachinePoolAllowsOmittedDefaultMachineEnv(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
 		t,
 		ctx,
@@ -451,7 +453,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	machinePoolProviders := &capturingMachinePoolProviders{}
-	store := newIntegrationStore(pool, WithMachinePoolProviders(machinePoolProviders))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(machinePoolProviders))
 	created, err := store.Execution().CreateMachinePool(
 		ctx,
 		completeMachinePoolCreateInputForTest(
@@ -778,7 +780,7 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
 		t,
 		ctx,
@@ -955,7 +957,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 18, 13, 20, 0, 0, time.UTC)
 	user := createSecretTestUser(t, ctx, store, "pool-secret-env-admin", "admin")
 	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
@@ -1077,7 +1079,6 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 		t.Fatalf("create project grant with secret_env: %v", err)
 	}
 
-	machineRef := "mchr-secr3t"
 	agentID := mustCreateAgent(t, ctx, store)
 	poolGrant, err := store.q.GetActiveProjectMachinePoolGrantForLaunch(
 		ctx,
@@ -1104,7 +1105,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve pool machine: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreatePoolMachineBindingTx(
+	binding, err := executionstore.IntegrationCreatePoolMachineBindingTx(
 		ctx,
 		store.q,
 		executionstore.IntegrationPoolMachineBindingInput{
@@ -1114,13 +1115,13 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 			Description:      "secret env machine",
 			PoolGrant:        poolGrant,
 			ResolvedMachine:  resolvedMachine,
-			MachineRef:       machineRef,
-			CreateToolCallID: NilID,
+			CreateToolCallID: uuid.Nil,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("create pool machine binding: %v", err)
 	}
-	record, err := executionstore.IntegrationPoolMachineByRefTx(ctx, store.q, testProjectID, agentID, machineRef)
+	record, err := executionstore.IntegrationPoolMachineByIDTx(ctx, store.q, testProjectID, agentID, binding.MachineID)
 	if err != nil {
 		t.Fatalf("load pool machine: %v", err)
 	}
@@ -1268,7 +1269,7 @@ VALUES ($1, $2, 'Second Secret Env Project', 'idem-pool-secret-env-second-projec
 	if err != nil || !ok {
 		t.Fatalf("claim ungranted pool machine for provisioning ok=%v err=%v", ok, err)
 	}
-	if ungrantedClaim.GrantProjectID != NilID {
+	if ungrantedClaim.GrantProjectID != uuid.Nil {
 		t.Fatalf("ungranted claim grant project = %s, want nil", ungrantedClaim.GrantProjectID)
 	}
 	if _, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, ungrantedClaim); err == nil ||
@@ -1278,7 +1279,7 @@ VALUES ($1, $2, 'Second Secret Env Project', 'idem-pool-secret-env-second-projec
 	orgEnv, err := store.Execution().ResolveEnvironmentSecrets(
 		ctx,
 		testOrgID,
-		NilID,
+		uuid.Nil,
 		json.RawMessage(`{"PLAIN":"plain"}`),
 		json.RawMessage(`{"ORG_SECRET":"`+orgSecretID+`"}`),
 	)
@@ -1295,7 +1296,7 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
 		t,
 		ctx,
@@ -1471,7 +1472,7 @@ func TestCreateProjectMachinePoolGrantAllowsDefaultPool(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	machinePool := createDefaultMachinePoolForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
 			OrgID:            testOrgID,
@@ -1546,7 +1547,7 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	machinePool, err := store.Execution().CreateMachinePool(
 		ctx,
 		completeMachinePoolCreateInputForTest(
@@ -1571,7 +1572,7 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pool grant: %v", err)
 	}
-	if poolGrant.ID == NilID || !poolGrant.Created {
+	if poolGrant.ID == uuid.Nil || !poolGrant.Created {
 		t.Fatalf("pool grant should be created with server id: %+v", poolGrant)
 	}
 	grantPage, err := store.Execution().ListProjectMachineGrants(
@@ -1622,7 +1623,7 @@ func TestProjectMachinePoolGrantKeyFreedAfterDelete(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	machinePool, err := store.Execution().CreateMachinePool(
 		ctx,
 		completeMachinePoolCreateInputForTest(
@@ -1675,11 +1676,11 @@ func TestDeleteMachinePoolRevokesGrantsAndMarksMachinesDeleting(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 18, 15, 15, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "pool-archive-tester@example.com",
 			DisplayName: "Pool Archive Tester",
 		},
@@ -1892,7 +1893,7 @@ tools:
 	if err != nil {
 		t.Fatalf("archive machine pool: %v", err)
 	}
-	markedMachineIDs := make(map[ID]bool, len(archivedMachines))
+	markedMachineIDs := make(map[uuid.UUID]bool, len(archivedMachines))
 	for _, machine := range archivedMachines {
 		markedMachineIDs[machine.ID] = true
 	}
@@ -1971,7 +1972,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list pool machines for cleanup after pool archive: %v", err)
 	}
-	cleanupMachineIDs := make(map[ID]bool, len(cleanup))
+	cleanupMachineIDs := make(map[uuid.UUID]bool, len(cleanup))
 	for _, candidate := range cleanup {
 		if candidate.ReasonCode != "deleting_retry" {
 			t.Fatalf("cleanup after pool archive = %+v", cleanup)
@@ -1995,7 +1996,7 @@ func TestMachinePoolDeletionAndGrantRevocationSerialize(t *testing.T) {
 			ctx := context.Background()
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
-			store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+			store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 			machinePool, err := store.Execution().CreateMachinePool(
 				ctx,
 				completeMachinePoolCreateInputForTest(t, ctx, store, executionstore.CreateMachinePoolInput{
@@ -2095,10 +2096,10 @@ func TestProjectMachinePoolGrantRevocationRevokesGeneratedGrantsAndRequestsMachi
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{Email: "pool-revoke-tester@example.com", DisplayName: "Pool Revoke Tester"},
+		storagetest.CreateVerifiedUserInput{Email: "pool-revoke-tester@example.com", DisplayName: "Pool Revoke Tester"},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -2259,10 +2260,10 @@ func TestProjectMachinePoolGrantRevocationFencesInFlightProvisioning(t *testing.
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "pool-revoke-provisioning@example.com",
 			DisplayName: "Pool Revoke Provisioning Tester",
 		},
@@ -2390,10 +2391,10 @@ func TestProjectMachinePoolGrantRevocationOverwritesProviderNotConfiguredReason(
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "pool-revoke-provider-not-configured@example.com",
 			DisplayName: "Pool Revoke Provider Config Tester",
 		},
@@ -2531,11 +2532,11 @@ func TestProjectMachinePoolGrantRevocationStopsActivePoolMachineExecution(t *tes
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 18, 16, 0, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		CreateVerifiedUserInput{
+		storagetest.CreateVerifiedUserInput{
 			Email:       "pool-revoke-active@example.com",
 			DisplayName: "Pool Revoke Active Tester",
 		},
@@ -2834,7 +2835,7 @@ func TestListProjectMachinePoolGrantsSearchSortAndEmbeddedPool(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	betaPool, err := store.Execution().CreateMachinePool(
 		ctx,
 		completeMachinePoolCreateInputForTest(
@@ -2857,7 +2858,7 @@ func TestListProjectMachinePoolGrantsSearchSortAndEmbeddedPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create alpha pool: %v", err)
 	}
-	for i, poolID := range []ID{betaPool.ID, alphaPool.ID} {
+	for i, poolID := range []uuid.UUID{betaPool.ID, alphaPool.ID} {
 		if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
 			OrgID:         testOrgID,
 			ProjectID:     testProjectID,
@@ -2903,7 +2904,7 @@ func TestMachinePoolListSupportsServerSideSearchSortAndPagination(t *testing.T) 
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	machinePools := make(map[string]executionstore.MachinePoolRecord)
 	for _, name := range []string{"list-beta", "list-alpha", "list-gamma"} {
 		created, err := store.Execution().CreateMachinePool(
@@ -3028,7 +3029,7 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	providerAuthSecretID := createMachinePoolProviderAuthSecretForTest(
 		t,
 		ctx,

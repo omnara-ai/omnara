@@ -27,6 +27,7 @@ type RuntimeMCPServer struct {
 	Auth           *RuntimeMCPAuth
 	DefaultEnabled bool
 	Permission     toolpermission.Selection
+	Deferred       bool
 	Tools          map[string]RuntimeMCPTool
 }
 
@@ -41,18 +42,28 @@ type RuntimeMCPTool struct {
 	RemoteName string
 	Enabled    *bool
 	Permission *toolpermission.Selection
+	Deferred   *bool
+}
+
+type RuntimeMCPToolResolution struct {
+	Permission toolpermission.Selection
+	Deferred   bool
 }
 
 // ResolveTool returns the effective permission for a remote tool and whether the
 // tool should be exposed at all. ok is true only when the tool is enabled
 // through its per-tool override or the server default.
-func (s RuntimeMCPServer) ResolveTool(remoteName string) (toolpermission.Selection, bool) {
+func (s RuntimeMCPServer) ResolveTool(remoteName string) (RuntimeMCPToolResolution, bool) {
 	specific, hasSpecific := s.Tools[remoteName]
 	var enabled *bool
 	var specificPermission *toolpermission.Selection
+	deferred := s.Deferred
 	if hasSpecific {
 		enabled = specific.Enabled
 		specificPermission = specific.Permission
+		if specific.Deferred != nil {
+			deferred = *specific.Deferred
+		}
 	}
 	permission, enabledValue := resolveToolPermission(
 		enabled,
@@ -61,9 +72,21 @@ func (s RuntimeMCPServer) ResolveTool(remoteName string) (toolpermission.Selecti
 		s.Permission,
 	)
 	if !enabledValue {
-		return toolpermission.Selection{}, false
+		return RuntimeMCPToolResolution{}, false
 	}
-	return permission, true
+	return RuntimeMCPToolResolution{Permission: permission, Deferred: deferred}, true
+}
+
+func (s RuntimeMCPServer) DefersAnyTool() bool {
+	if s.Deferred {
+		return true
+	}
+	for _, tool := range s.Tools {
+		if tool.Deferred != nil && *tool.Deferred {
+			return true
+		}
+	}
+	return false
 }
 
 func compileMCPServers(
@@ -106,6 +129,7 @@ func compileMCPServers(
 			Auth:           auth,
 			DefaultEnabled: defaultEnabled,
 			Permission:     permission,
+			Deferred:       server.Deferred,
 			Tools:          tools,
 		}
 	}
@@ -241,6 +265,7 @@ func compileMCPTools(
 		compiled[remoteName] = MCPToolCompiled{
 			Enabled:    tool.Enabled,
 			Permission: permission,
+			Deferred:   tool.Deferred,
 		}
 	}
 	return compiled, nil
@@ -279,6 +304,7 @@ func runtimeMCPServers(compiled map[string]MCPServerCompiled) ([]RuntimeMCPServe
 			URL:            server.URL,
 			DefaultEnabled: server.DefaultEnabled,
 			Permission:     permission,
+			Deferred:       server.Deferred,
 			Tools:          map[string]RuntimeMCPTool{},
 		}
 		if server.Auth != nil {
@@ -316,6 +342,7 @@ func runtimeMCPServers(compiled map[string]MCPServerCompiled) ([]RuntimeMCPServe
 				RemoteName: remoteName,
 				Enabled:    tool.Enabled,
 				Permission: permission,
+				Deferred:   tool.Deferred,
 			}
 		}
 		out = append(out, runtime)

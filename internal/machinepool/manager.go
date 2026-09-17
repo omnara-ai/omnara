@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -71,8 +71,8 @@ func (m Manager) ValidateDefaultMachinePool(defaultPoolTemplate executionstore.D
 func (m Manager) StartLaunchProvisioning(
 	parent context.Context,
 	logger *slog.Logger,
-	orgID storage.ID,
-	machineIDs []storage.ID,
+	orgID uuid.UUID,
+	machineIDs []uuid.UUID,
 ) {
 	if len(machineIDs) == 0 {
 		return
@@ -96,7 +96,7 @@ func (m Manager) StartLaunchProvisioning(
 	}()
 }
 
-func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.ID) error {
+func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUID) error {
 	claim, claimed, err := m.Execution.ClaimPoolMachineForProvisioning(ctx, orgID, machineID)
 	if err != nil || !claimed {
 		return err
@@ -252,7 +252,7 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID storage.
 func provisionMachineWithRetry(
 	ctx context.Context,
 	provider providers.Provider,
-	installationID, machineID storage.ID,
+	installationID, machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -323,7 +323,7 @@ func waitForProviderProvisionRetry(ctx context.Context, delay time.Duration) err
 	}
 }
 
-func (m Manager) WakeMachine(ctx context.Context, orgID, machineID storage.ID) (bool, error) {
+func (m Manager) WakeMachine(ctx context.Context, orgID, machineID uuid.UUID) (bool, error) {
 	machine, err := m.Execution.GetMachine(ctx, orgID, machineID)
 	if err != nil {
 		return false, err
@@ -634,7 +634,7 @@ func (m Manager) providerForMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	includeDeletedPool bool,
 ) (providers.Provider, string, string, error) {
-	if machine.MachinePoolID == storage.NilID {
+	if machine.MachinePoolID == uuid.Nil {
 		err := errors.New("pool machine is missing machine pool")
 		return nil, "provider_config_invalid", err.Error(), err
 	}

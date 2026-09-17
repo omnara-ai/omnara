@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -26,7 +26,9 @@ func executableToolSet(specs []modelcontext.ToolSpec) map[string]tools.ToolSpec 
 		executable[spec.Name] = tools.ToolSpec{
 			Type:        spec.Type,
 			Permission:  spec.Permission,
+			Description: spec.Description,
 			InputSchema: spec.InputSchema,
+			Deferred:    spec.Deferred,
 		}
 	}
 	return executable
@@ -41,7 +43,7 @@ func toToolTurn(input ModelWorkExecution) tools.Turn {
 	}
 }
 
-func toolWorkTurn(input ToolWorkExecution, orgID storage.ID, specs []modelcontext.ToolSpec) tools.Turn {
+func toolWorkTurn(input ToolWorkExecution, orgID uuid.UUID, specs []modelcontext.ToolSpec) tools.Turn {
 	return tools.Turn{
 		OrgID:              orgID,
 		ProjectID:          input.ProjectID,

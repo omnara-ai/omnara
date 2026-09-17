@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -52,7 +51,7 @@ type MachineDeleter interface {
 	// DeleteMachine must be retry-safe and return nil when the owned resource is already absent.
 	DeleteMachine(
 		ctx context.Context,
-		installationID, machineID storage.ID,
+		installationID, machineID uuid.UUID,
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) error
@@ -80,14 +79,14 @@ type Provider interface {
 	// keep the environment it was created with.
 	ProvisionMachine(
 		ctx context.Context,
-		installationID, machineID storage.ID,
+		installationID, machineID uuid.UUID,
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		machineToken string,
 		machineEnv map[string]string,
 	) (ProvisionMachineResult, error)
 	InspectMachine(
 		ctx context.Context,
-		installationID, machineID storage.ID,
+		installationID, machineID uuid.UUID,
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
@@ -113,8 +112,8 @@ type Definition interface {
 	) (executionstore.MachineProvisioningConfig, error)
 }
 
-func MachineAllocationName(installationID, machineID storage.ID) (string, error) {
-	if installationID == storage.NilID || machineID == storage.NilID {
+func MachineAllocationName(installationID, machineID uuid.UUID) (string, error) {
+	if installationID == uuid.Nil || machineID == uuid.Nil {
 		return "", errors.New("installation and machine ids are required")
 	}
 	allocationID := uuid.NewSHA1(installationID, machineID[:])

@@ -1,10 +1,14 @@
 package executionstore
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/google/uuid"
+)
 
 type CreateIntegrationTargetContentInput struct {
-	IntegrationInstallID   ID
-	IntegrationTargetID    ID
+	IntegrationInstallID   uuid.UUID
+	IntegrationTargetID    uuid.UUID
 	ProviderTenantID       string
 	ProviderUserID         string
 	ActorDisplayName       string
@@ -16,7 +20,7 @@ type CreateIntegrationTargetContentInput struct {
 }
 
 type GetIntegrationTargetInputByIdempotencyInput struct {
-	IntegrationInstallID ID
-	IntegrationTargetID  ID
+	IntegrationInstallID uuid.UUID
+	IntegrationTargetID  uuid.UUID
 	IdempotencyKey       string
 }

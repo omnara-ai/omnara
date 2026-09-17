@@ -3,6 +3,7 @@ package executionstore
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -19,8 +20,8 @@ func eventFromProjectIdempotencySQLC(row dbsqlc.GetEventByProjectAgentIdempotenc
 }
 
 func eventFromSQLC(
-	id ID,
-	agentID ID,
+	id uuid.UUID,
+	agentID uuid.UUID,
 	sequence int64,
 	kind string,
 	createdAt time.Time,

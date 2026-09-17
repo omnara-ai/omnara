@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -184,7 +185,7 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 	}
 }
 
-func cronTriggerInput(name string, agentID ID, enabled bool) executionstore.CreateCronTriggerInput {
+func cronTriggerInput(name string, agentID uuid.UUID, enabled bool) executionstore.CreateCronTriggerInput {
 	return executionstore.CreateCronTriggerInput{
 		ProjectID: testProjectID,
 		Name:      name,

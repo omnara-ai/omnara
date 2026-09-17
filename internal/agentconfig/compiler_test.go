@@ -74,11 +74,11 @@ tools:
 	if contract.Model.ConfiguredModelID != "" {
 		t.Fatalf("unexpected model contract: %+v", contract.Model)
 	}
-	if len(contract.Tools) != 1 || contract.Tools[0].Name != "run_command" ||
-		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 3 || contract.Tools[1].Name != "run_command" ||
+		contract.Tools[1].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected tool contract: %+v", contract.Tools)
 	}
-	assertRunCommandInputSchema(t, contract.Tools[0].InputSchema)
+	assertRunCommandInputSchema(t, contract.Tools[1].InputSchema)
 }
 
 func TestCompilePreservesSourceWhileCanonicalizingResourceReferences(t *testing.T) {
@@ -222,7 +222,7 @@ tools:
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 1 || contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(contract.Tools) != 3 || contract.Tools[1].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("runtime tool permission = %+v, want %s", contract.Tools, toolpermission.ModeAlwaysAllow)
 	}
 }
@@ -257,20 +257,20 @@ mcp:
 	if server.ServerKey != "docs" || server.URL != "https://example.com/mcp" {
 		t.Fatalf("unexpected mcp server: %+v", server)
 	}
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
-	if permission, ok := server.ResolveTool("anything_else"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAsk {
-		t.Fatalf("default resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("anything_else"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAsk {
+		t.Fatalf("default resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("disabled_tool"); ok {
 		t.Fatalf("disabled_tool should not resolve enabled")
 	}
-	if permission, ok := server.ResolveTool("aws___call_aws"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysDeny {
-		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("aws___call_aws"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysDeny {
+		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", resolution, ok)
 	}
 }
 
@@ -298,9 +298,9 @@ mcp:
 		t.Fatalf("expected one mcp server, got %+v", contract.MCPServers)
 	}
 	server := contract.MCPServers[0]
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("anything_else"); ok {
 		t.Fatal("unlisted tool should be disabled when default_enabled is false")
@@ -704,8 +704,8 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 	if command := schema.Properties["command"]; command.Type != "string" {
 		t.Fatalf("run_command command schema = %+v", command)
 	}
-	if machineRef := schema.Properties["machine_ref"]; machineRef.Type != "string" {
-		t.Fatalf("run_command machine_ref schema = %+v", machineRef)
+	if machineID := schema.Properties["machine_id"]; machineID.Type != "string" {
+		t.Fatalf("run_command machine_id schema = %+v", machineID)
 	}
 	wantSelectors := []string{"default", "sh", "bash", "zsh", "pwsh", "powershell", "cmd"}
 	if got := schema.Properties["shell"].Enum; !sameStringSliceForAgentConfig(got, wantSelectors) {
@@ -1336,8 +1336,8 @@ tools:
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 1 {
-		t.Fatalf("runtime tools = %+v, want one custom tool", contract.Tools)
+	if len(contract.Tools) != 3 {
+		t.Fatalf("runtime tools = %+v, want custom tool and two retrieval tools", contract.Tools)
 	}
 	runtimeTool := contract.Tools[0]
 	if runtimeTool.Name != "lookup_customer" || runtimeTool.Type != toolcatalog.ToolTypeCustom ||
@@ -1752,7 +1752,7 @@ skills:
 	}
 }
 
-func TestCompileExplicitSkillToolOverridesImplicitAttachment(t *testing.T) {
+func TestCompileExplicitSkillToolOverridesDefaults(t *testing.T) {
 	explicit, err := Compile(
 		SourceFormatYAML,
 		[]byte(validAgentSource(`
@@ -1774,9 +1774,9 @@ tools:
 	if err != nil {
 		t.Fatalf("load explicit skill runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 1 ||
-		contract.Tools[0].Name != "skill" ||
-		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 3 ||
+		contract.Tools[2].Name != "skill" ||
+		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected explicit skill runtime contract: %+v", contract)
 	}
 
@@ -1878,10 +1878,10 @@ skills:
 	if !contract.RequiresModelToolSupport() {
 		t.Fatal("skill-only runtime contract must require model tool support")
 	}
-	if len(contract.Tools) != 1 ||
-		contract.Tools[0].Name != "skill" ||
-		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("implicit skill tool was not materialized: %+v", contract.Tools)
+	if len(contract.Tools) != 3 ||
+		contract.Tools[2].Name != "skill" ||
+		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
 
@@ -2063,6 +2063,47 @@ model:
   name: gpt-test
 `
 	return base + strings.TrimPrefix(extra, "\n")
+}
+
+func TestFileRetrievalHonorsExplicitConfiguration(t *testing.T) {
+	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+tools:
+  web_fetch: {}
+  read_file:
+    enabled: false
+  search_files:
+    permission:
+      mode: always_ask
+`)), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tool := range contract.Tools {
+		if tool.Name == toolcatalog.ToolNameReadFile {
+			t.Fatal("disabled read_file was enabled")
+		}
+		if tool.Name == toolcatalog.ToolNameSearchFiles {
+			found = true
+			if tool.Permission.Mode != toolpermission.ModeAlwaysAsk {
+				t.Fatal("search permission changed")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("search_files missing")
+	}
+	implicit, err := (RuntimeContract{}).WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(implicit.Tools) != 1 || implicit.Tools[0].Name != toolcatalog.ToolNameSendIntegrationMessage {
+		t.Fatal("late implicit tool must not add retrieval tools")
+	}
 }
 
 func hashJSON(raw json.RawMessage) string {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -22,10 +23,10 @@ import (
 )
 
 type ProjectMachinePoolGrantRecord struct {
-	ID                                   ID              `json:"id"`
-	OrgID                                ID              `json:"org_id"`
-	ProjectID                            ID              `json:"project_id"`
-	MachinePoolID                        ID              `json:"machine_pool_id"`
+	ID                                   uuid.UUID       `json:"id"`
+	OrgID                                uuid.UUID       `json:"org_id"`
+	ProjectID                            uuid.UUID       `json:"project_id"`
+	MachinePoolID                        uuid.UUID       `json:"machine_pool_id"`
 	Description                          string          `json:"description"`
 	DefaultMachineCPU                    *int            `json:"default_machine_cpu,omitempty"`
 	DefaultMachineMemoryMB               *int            `json:"default_machine_memory_mb,omitempty"`
@@ -49,15 +50,15 @@ type ProjectMachinePoolGrantRecord struct {
 }
 
 type ListProjectMachinePoolGrantsInput struct {
-	OrgID     ID
-	ProjectID ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
 	Limit     int
 	List      listing.Options
 }
 
 type MachinePoolSummaryRecord struct {
-	ID             ID              `json:"id"`
-	OrgID          ID              `json:"org_id"`
+	ID             uuid.UUID       `json:"id"`
+	OrgID          uuid.UUID       `json:"org_id"`
 	Name           string          `json:"name"`
 	ManagementKind management.Kind `json:"management_kind"`
 	Description    string          `json:"description,omitempty"`
@@ -83,9 +84,9 @@ type DeleteProjectMachinePoolGrantResult struct {
 }
 
 type CreateProjectMachinePoolGrantInput struct {
-	OrgID                                ID
-	ProjectID                            ID
-	MachinePoolID                        ID
+	OrgID                                uuid.UUID
+	ProjectID                            uuid.UUID
+	MachinePoolID                        uuid.UUID
 	Description                          string
 	DefaultMachineCPU                    *int
 	DefaultMachineMemoryMB               *int
@@ -106,9 +107,9 @@ type CreateProjectMachinePoolGrantInput struct {
 }
 
 type UpdateProjectMachinePoolGrantInput struct {
-	OrgID                                ID
-	ProjectID                            ID
-	ID                                   ID
+	OrgID                                uuid.UUID
+	ProjectID                            uuid.UUID
+	ID                                   uuid.UUID
 	Description                          *string
 	DefaultMachineCPU                    patch.NullableInt
 	DefaultMachineMemoryMB               patch.NullableInt
@@ -289,6 +290,9 @@ func normalizeProjectMachinePoolGrantConfig(
 			math.MaxInt32,
 		)
 	}
+	if err := validateMachineCwdLength("pool grant default_cwd", config.DefaultCwd); err != nil {
+		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, err
+	}
 	if strings.ContainsRune(config.DefaultCwd, 0) {
 		return config, MachineProvisioningOverlay{}, MachineEnvironmentOverlay{}, errors.New(
 			"pool grant default_cwd cannot contain NUL",
@@ -320,7 +324,7 @@ func normalizeProjectMachinePoolGrantConfig(
 func (s *Store) validateProjectMachinePoolGrantAgainstPoolTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	pool MachinePoolRecord,
 	config projectMachinePoolGrantConfig,
 	provisioningOverlay MachineProvisioningOverlay,
@@ -390,7 +394,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 	ctx context.Context,
 	input CreateProjectMachinePoolGrantInput,
 ) (ProjectMachinePoolGrantRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.MachinePoolID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.MachinePoolID == uuid.Nil {
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(errors.New(
 			"pool grant org, project, and machine pool are required",
 		))
@@ -493,7 +497,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			MaxMachineCpu:                        storeutil.Int32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   storeutil.Int32Ptr(config.MaxMachineMemoryMB),
 			DeleteAfterIdleMinutes:               storeutil.Int32Ptr(config.DeleteAfterIdleMinutes),
-			IdempotencyKey:                       sqlcTextFromEmpty(input.IdempotencyKey),
+			IdempotencyKey:                       storeutil.TextFromEmpty(input.IdempotencyKey),
 			Metadata:                             metadata,
 		},
 	)
@@ -555,7 +559,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 	ctx context.Context,
 	input UpdateProjectMachinePoolGrantInput,
 ) (ProjectMachinePoolGrantRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.ID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.ID == uuid.Nil {
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(errors.New(
 			"pool grant org, project, and id are required",
 		))
@@ -669,7 +673,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 
 func (s *Store) GetProjectMachinePoolGrant(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (ProjectMachinePoolGrantRecord, error) {
 	row, err := s.q.GetProjectMachinePoolGrant(
 		ctx,
@@ -683,7 +687,7 @@ func (s *Store) GetProjectMachinePoolGrant(
 
 func (s *Store) GetActiveProjectMachinePoolGrantForMachinePool(
 	ctx context.Context,
-	projectID, machinePoolID ID,
+	projectID, machinePoolID uuid.UUID,
 ) (ProjectMachinePoolGrantRecord, error) {
 	row, err := s.q.GetActiveProjectMachinePoolGrantForMachinePool(
 		ctx,
@@ -705,7 +709,7 @@ func (s *Store) ListProjectMachinePoolGrants(
 	ctx context.Context,
 	input ListProjectMachinePoolGrantsInput,
 ) (ListProjectMachinePoolGrantsResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return ListProjectMachinePoolGrantsResult{}, errors.New("org and project are required")
 	}
 	if input.Limit <= 0 {
@@ -753,9 +757,9 @@ func (s *Store) ListProjectMachinePoolGrants(
 
 func (s *Store) DeleteProjectMachinePoolGrant(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (DeleteProjectMachinePoolGrantResult, error) {
-	if isNilID(orgID) || isNilID(projectID) || isNilID(id) {
+	if orgID == uuid.Nil || projectID == uuid.Nil || id == uuid.Nil {
 		return DeleteProjectMachinePoolGrantResult{}, errors.New("pool grant org, project, and id are required")
 	}
 	return storeutil.RetryTransaction(ctx, "delete_project_machine_pool_grant",
@@ -766,7 +770,7 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 
 func (s *Store) deleteProjectMachinePoolGrantOnce(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (DeleteProjectMachinePoolGrantResult, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

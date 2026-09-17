@@ -148,7 +148,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("create org secret: %v", err)
 	}
-	if orgSecret.ID == NilID || orgSecret.CurrentVersionID != version.ID || orgSecret.CurrentVersionNumber != 1 ||
+	if orgSecret.ID == uuid.Nil || orgSecret.CurrentVersionID != version.ID || orgSecret.CurrentVersionNumber != 1 ||
 		version.VersionNumber != 1 {
 		t.Fatalf("unexpected org secret/version: secret=%+v version=%+v", orgSecret, version)
 	}
@@ -290,7 +290,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("create secret grant: %v", err)
 	}
-	if grant.ID == NilID || grant.TargetProjectID != testProjectID {
+	if grant.ID == uuid.Nil || grant.TargetProjectID != testProjectID {
 		t.Fatalf("unexpected grant: %+v", grant)
 	}
 	available, err = store.Secrets().AuthorizeSecretForProjectReference(
@@ -339,8 +339,8 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	if len(developerPage.Secrets) != 1 || developerPage.Secrets[0].ID != projectSecret.ID || developerPage.HasMore {
 		t.Fatalf("authorization-before-limit mismatch: %+v", developerPage)
 	}
-	wantCanonicalPages := []ID{newestOrgSecret.ID, projectSecret.ID, orgSecret.ID}
-	var gotCanonicalPages []ID
+	wantCanonicalPages := []uuid.UUID{newestOrgSecret.ID, projectSecret.ID, orgSecret.ID}
+	var gotCanonicalPages []uuid.UUID
 	var canonicalAfter listing.Cursor
 	for {
 		page, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{
@@ -413,8 +413,8 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 			t.Fatalf("granted org secret availability = %+v", access.Availability)
 		}
 	}
-	wantProjectPages := []ID{newestOrgSecret.ID, projectSecret.ID, orgSecret.ID}
-	var gotProjectPages []ID
+	wantProjectPages := []uuid.UUID{newestOrgSecret.ID, projectSecret.ID, orgSecret.ID}
+	var gotProjectPages []uuid.UUID
 	var afterSecret listing.Cursor
 	for {
 		page, err := store.Secrets().ListProjectAvailableSecrets(
@@ -698,7 +698,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("acquire first oauth refresh lease: %v", err)
 	}
-	if !acquired || firstLease.OwnerToken == NilID {
+	if !acquired || firstLease.OwnerToken == uuid.Nil {
 		t.Fatalf("first oauth refresh lease acquired=%v lease=%+v, want owner", acquired, firstLease)
 	}
 	if _, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(
@@ -901,7 +901,7 @@ func TestOAuthRefreshLeaseExpiryIsCheckedAfterRowLockWait(t *testing.T) {
 		FROM secret_oauth_refresh_leases
 		WHERE org_id = $1 AND secret_id = $2 AND owner_token = $3
 		FOR UPDATE
-	`, lease.OrgID, lease.SecretID, lease.OwnerToken).Scan(new(ID)); err != nil {
+	`, lease.OrgID, lease.SecretID, lease.OwnerToken).Scan(new(uuid.UUID)); err != nil {
 		t.Fatalf("lock oauth refresh lease: %v", err)
 	}
 
@@ -979,7 +979,7 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 		FROM secret_oauth_refresh_leases
 		WHERE org_id = $1 AND secret_id = $2 AND owner_token = $3
 		FOR UPDATE
-	`, lease.OrgID, lease.SecretID, lease.OwnerToken).Scan(new(ID)); err != nil {
+	`, lease.OrgID, lease.SecretID, lease.OwnerToken).Scan(new(uuid.UUID)); err != nil {
 		t.Fatalf("lock OAuth refresh lease: %v", err)
 	}
 
@@ -1122,7 +1122,7 @@ func TestProjectOAuthOperationsWaitingBehindGrantRevocationRejectRevokedAccess(t
 			if !errors.Is(outcome.Err, storeerr.ErrNotFound) || outcome.Value {
 				t.Fatalf("%s after grant revocation acquired=%v err=%v, want not found", operation, outcome.Value, outcome.Err)
 			}
-			var currentVersionID ID
+			var currentVersionID uuid.UUID
 			var versions, leases, grants int
 			if err := pool.QueryRow(ctx, `
 SELECT current_version_id,
@@ -1167,7 +1167,7 @@ func TestCanonicalSecretPaginationIsStableForEqualTimestamps(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
 	admin := createSecretTestUser(t, ctx, store, "Pagination Admin", "admin")
-	want := make([]ID, 0, 3)
+	want := make([]uuid.UUID, 0, 3)
 	for _, name := range []string{"equal-a", "equal-b", "equal-c"} {
 		record, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: name,
@@ -1180,7 +1180,7 @@ func TestCanonicalSecretPaginationIsStableForEqualTimestamps(t *testing.T) {
 		want = append(want, record.ID)
 	}
 	sort.Slice(want, func(i, j int) bool { return want[i].String() > want[j].String() })
-	var got []ID
+	var got []uuid.UUID
 	var after listing.Cursor
 	for {
 		page, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{
@@ -2389,7 +2389,7 @@ func createMachinePoolReferencingSecretForTest(
 	ctx context.Context,
 	store *Store,
 	name string,
-	secretID ID,
+	secretID uuid.UUID,
 ) (executionstore.MachinePoolRecord, error) {
 	return store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
@@ -2507,7 +2507,7 @@ func assertDecryptsSecretVersion(
 	store *Store,
 	keyWrapper secrets.KeyWrapper,
 	secret secretstore.SecretRecord,
-	versionID ID,
+	versionID uuid.UUID,
 	want secrets.Payload,
 ) {
 	t.Helper()
@@ -2549,7 +2549,7 @@ func assertDecryptsSecretVersion(
 	}
 }
 
-func assertSecretRowsDeleted(t *testing.T, ctx context.Context, store *Store, secretID ID) {
+func assertSecretRowsDeleted(t *testing.T, ctx context.Context, store *Store, secretID uuid.UUID) {
 	t.Helper()
 	var softDeleted bool
 	var versionsCount, grantsCount, leasesCount int
@@ -2597,7 +2597,7 @@ func assertDecodedJSONEqual(t *testing.T, got json.RawMessage, want string) {
 	}
 }
 
-func containsSecret(records []secretstore.SecretRecord, id ID) bool {
+func containsSecret(records []secretstore.SecretRecord, id uuid.UUID) bool {
 	for _, record := range records {
 		if record.ID == id {
 			return true

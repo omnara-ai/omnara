@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -24,7 +25,7 @@ const (
 )
 
 type CreateModelProviderConfigInput struct {
-	OrgID              ID
+	OrgID              uuid.UUID
 	Name               string
 	APIFormat          modelprotocol.APIFormat
 	APIVariant         modelprotocol.APIVariant
@@ -34,39 +35,39 @@ type CreateModelProviderConfigInput struct {
 	IdleTimeoutMS      int
 	AuthKind           string
 	AuthOptions        json.RawMessage
-	CredentialSecretID ID
+	CredentialSecretID uuid.UUID
 	managementKind     management.Kind
 }
 
 type modelProviderConfigUpdate struct {
-	OrgID              ID
-	ID                 ID
+	OrgID              uuid.UUID
+	ID                 uuid.UUID
 	BaseURL            string
 	EndpointPath       string
 	RequestTimeoutMS   int
 	IdleTimeoutMS      int
 	AuthKind           string
 	AuthOptions        json.RawMessage
-	CredentialSecretID ID
+	CredentialSecretID uuid.UUID
 	APIFormat          modelprotocol.APIFormat
 	APIVariant         modelprotocol.APIVariant
 }
 
 type PatchModelProviderConfigInput struct {
-	OrgID              ID
-	ID                 ID
+	OrgID              uuid.UUID
+	ID                 uuid.UUID
 	BaseURL            *string
 	EndpointPath       *string
 	RequestTimeoutMS   *int
 	IdleTimeoutMS      *int
 	AuthKind           *string
 	AuthOptions        *json.RawMessage
-	CredentialSecretID *ID
+	CredentialSecretID *uuid.UUID
 }
 
 type ModelProviderConfigRecord struct {
-	ID                 ID                       `json:"id"`
-	OrgID              ID                       `json:"org_id"`
+	ID                 uuid.UUID                `json:"id"`
+	OrgID              uuid.UUID                `json:"org_id"`
 	ManagementKind     management.Kind          `json:"management_kind"`
 	Name               string                   `json:"name"`
 	APIFormat          modelprotocol.APIFormat  `json:"api_format"`
@@ -77,15 +78,15 @@ type ModelProviderConfigRecord struct {
 	IdleTimeoutMS      int                      `json:"idle_timeout_ms"`
 	AuthKind           string                   `json:"auth_kind"`
 	AuthOptions        json.RawMessage          `json:"auth_options"`
-	CredentialSecretID ID                       `json:"credential_secret_id"`
+	CredentialSecretID uuid.UUID                `json:"credential_secret_id"`
 	DeletedAt          *time.Time               `json:"deleted_at,omitempty"`
 	CreatedAt          time.Time                `json:"created_at"`
 	UpdatedAt          time.Time                `json:"updated_at"`
 }
 
 type CreateConfiguredModelInput struct {
-	OrgID                     ID
-	ModelProviderConfigID     ID
+	OrgID                     uuid.UUID
+	ModelProviderConfigID     uuid.UUID
 	Name                      string
 	ProviderModelSlug         string
 	ContextWindowTokens       int
@@ -102,9 +103,9 @@ type CreateConfiguredModelInput struct {
 }
 
 type configuredModelUpdate struct {
-	OrgID                     ID
-	ModelProviderConfigID     ID
-	ID                        ID
+	OrgID                     uuid.UUID
+	ModelProviderConfigID     uuid.UUID
+	ID                        uuid.UUID
 	Name                      string
 	ProviderModelSlug         string
 	ContextWindowTokens       int
@@ -121,9 +122,9 @@ type configuredModelUpdate struct {
 }
 
 type PatchConfiguredModelInput struct {
-	OrgID                     ID
-	ModelProviderConfigID     ID
-	ID                        ID
+	OrgID                     uuid.UUID
+	ModelProviderConfigID     uuid.UUID
+	ID                        uuid.UUID
 	Name                      *string
 	ProviderModelSlug         *string
 	ContextWindowTokens       *int
@@ -140,12 +141,12 @@ type PatchConfiguredModelInput struct {
 }
 
 type ConfiguredModelRecord struct {
-	ID                        ID              `json:"id"`
-	OrgID                     ID              `json:"org_id"`
-	ModelProviderConfigID     ID              `json:"model_provider_config_id"`
+	ID                        uuid.UUID       `json:"id"`
+	OrgID                     uuid.UUID       `json:"org_id"`
+	ModelProviderConfigID     uuid.UUID       `json:"model_provider_config_id"`
 	ManagementKind            management.Kind `json:"management_kind"`
 	Name                      string          `json:"name"`
-	CurrentRevisionID         ID              `json:"current_revision_id"`
+	CurrentRevisionID         uuid.UUID       `json:"current_revision_id"`
 	ProviderModelSlug         string          `json:"provider_model_slug"`
 	ContextWindowTokens       int             `json:"context_window_tokens"`
 	MaxOutputTokens           *int            `json:"max_output_tokens"`
@@ -165,10 +166,10 @@ type ConfiguredModelRecord struct {
 }
 
 type ConfiguredModelRevisionRecord struct {
-	ID                        ID              `json:"id"`
-	OrgID                     ID              `json:"org_id"`
-	ConfiguredModelID         ID              `json:"configured_model_id"`
-	ModelProviderConfigID     ID              `json:"model_provider_config_id"`
+	ID                        uuid.UUID       `json:"id"`
+	OrgID                     uuid.UUID       `json:"org_id"`
+	ConfiguredModelID         uuid.UUID       `json:"configured_model_id"`
+	ModelProviderConfigID     uuid.UUID       `json:"model_provider_config_id"`
 	ProviderModelSlug         string          `json:"provider_model_slug"`
 	ContextWindowTokens       int             `json:"context_window_tokens"`
 	MaxOutputTokens           *int            `json:"max_output_tokens"`
@@ -193,9 +194,9 @@ type ConfiguredModelRevisionDisplayRecord struct {
 }
 
 type CreateProjectModelGrantInput struct {
-	OrgID                     ID
-	ProjectID                 ID
-	ConfiguredModelID         ID
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	ConfiguredModelID         uuid.UUID
 	ContextWindowTokens       *int
 	MaxOutputTokens           *int
 	DefaultMaxOutputTokens    *int
@@ -209,9 +210,9 @@ type CreateProjectModelGrantInput struct {
 }
 
 type UpdateProjectModelGrantInput struct {
-	OrgID                     ID
-	ProjectID                 ID
-	ID                        ID
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	ID                        uuid.UUID
 	ContextWindowTokens       patch.NullableInt
 	MaxOutputTokens           patch.NullableInt
 	DefaultMaxOutputTokens    patch.NullableInt
@@ -225,10 +226,10 @@ type UpdateProjectModelGrantInput struct {
 }
 
 type ProjectModelGrantRecord struct {
-	ID                        ID        `json:"id"`
-	OrgID                     ID        `json:"org_id"`
-	ProjectID                 ID        `json:"project_id"`
-	ConfiguredModelID         ID        `json:"configured_model_id"`
+	ID                        uuid.UUID `json:"id"`
+	OrgID                     uuid.UUID `json:"org_id"`
+	ProjectID                 uuid.UUID `json:"project_id"`
+	ConfiguredModelID         uuid.UUID `json:"configured_model_id"`
 	ContextWindowTokens       *int      `json:"context_window_tokens,omitempty"`
 	MaxOutputTokens           *int      `json:"max_output_tokens,omitempty"`
 	DefaultMaxOutputTokens    *int      `json:"default_max_output_tokens,omitempty"`
@@ -244,18 +245,19 @@ type ProjectModelGrantRecord struct {
 }
 
 type ListProjectModelGrantsInput struct {
-	OrgID     ID
-	ProjectID ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
 	Limit     int
 	List      listing.Options
 }
 
 type ConfiguredModelSummaryRecord struct {
-	ID                    ID        `json:"id"`
-	OrgID                 ID        `json:"org_id"`
-	ModelProviderConfigID ID        `json:"model_provider_config_id"`
+	ID                    uuid.UUID `json:"id"`
+	OrgID                 uuid.UUID `json:"org_id"`
+	ModelProviderConfigID uuid.UUID `json:"model_provider_config_id"`
 	Name                  string    `json:"name"`
 	ProviderConfigName    string    `json:"provider_config"`
+	ProviderModelSlug     string    `json:"provider_model_slug"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
 }

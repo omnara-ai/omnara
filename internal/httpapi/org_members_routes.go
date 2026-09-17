@@ -3,10 +3,10 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -68,14 +68,14 @@ func (s strictOpenAPIServer) listOrgMembers(
 	}), nil
 }
 
-func orgAndMemberUserID(ctx context.Context, userIDRaw string) (identitystore.OrgRecord, storage.ID, error) {
+func orgAndMemberUserID(ctx context.Context, userIDRaw string) (identitystore.OrgRecord, uuid.UUID, error) {
 	org, err := orgScopeFromContext(ctx)
 	if err != nil {
-		return identitystore.OrgRecord{}, storage.NilID, err
+		return identitystore.OrgRecord{}, uuid.Nil, err
 	}
 	userID, ok := parseOpenAPIPublicID(publicid.KindUser, userIDRaw)
 	if !ok {
-		return identitystore.OrgRecord{}, storage.NilID, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		return identitystore.OrgRecord{}, uuid.Nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	return org, userID, nil
 }

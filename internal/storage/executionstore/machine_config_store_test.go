@@ -176,8 +176,8 @@ func TestResolveEnvironmentSecretsRejectsOversizedEnvironment(t *testing.T) {
 	}
 	if _, err := store.ResolveEnvironmentSecrets(
 		context.Background(),
-		NilID,
-		NilID,
+		uuid.Nil,
+		uuid.Nil,
 		env,
 		json.RawMessage(`{}`),
 	); err == nil || !errors.Is(err, storeerr.ErrPermanentEnvironment) ||
@@ -529,4 +529,41 @@ func secretPublicIDForUnitTest(t *testing.T, seed string) string {
 		t.Fatalf("encode secret public id: %v", err)
 	}
 	return value
+}
+
+func TestMachineCwdLengthLimits(t *testing.T) {
+	t.Run("byo", func(t *testing.T) {
+		for _, length := range []int{4096, 4097} {
+			_, _, _, err := prepareDaemonMachineCreate(CreateDaemonMachineInput{
+				OrgID: uuid.New(), DisplayName: "Machine", Cwd: strings.Repeat("é", length),
+			})
+			assertMachineCwdLengthLimit(t, length, err)
+		}
+	})
+	t.Run("pool", func(t *testing.T) {
+		for _, length := range []int{4096, 4097} {
+			_, err := prepareMachinePoolConfigInput(&CreateMachinePoolInput{
+				DefaultCwd: strings.Repeat("é", length), DefaultMachineProviderOptions: json.RawMessage(`{}`),
+			})
+			assertMachineCwdLengthLimit(t, length, err)
+		}
+	})
+	t.Run("grant", func(t *testing.T) {
+		for _, length := range []int{4096, 4097} {
+			_, _, _, err := normalizeProjectMachinePoolGrantConfig(projectMachinePoolGrantConfig{
+				DefaultCwd: strings.Repeat("é", length),
+			})
+			assertMachineCwdLengthLimit(t, length, err)
+		}
+	})
+}
+
+func assertMachineCwdLengthLimit(t *testing.T, length int, err error) {
+	t.Helper()
+	if length == 4096 && err != nil {
+		t.Fatalf("valid cwd: %v", err)
+	}
+	if length == 4097 && (err == nil || !strings.Contains(err.Error(), "cwd cannot exceed")) {
+		t.Fatalf("oversized cwd: %v", err)
+	}
 }

@@ -8,5 +8,7 @@ allowBuilds:
 minimumReleaseAge: 14400
 
 overrides:
+  # @hey-api/json-schema-ref-parser pins the vulnerable js-yaml 4.2.0 release.
+  '@hey-api/json-schema-ref-parser@1.4.4>js-yaml': 4.3.2
   react: 19.3.0-canary-eb8feb71-20260814
   react-dom: 19.3.0-canary-eb8feb71-20260814

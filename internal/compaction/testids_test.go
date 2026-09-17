@@ -3,25 +3,17 @@ package compaction
 import (
 	"fmt"
 
-	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/google/uuid"
 )
 
 var (
-	testProjectID      = testID("019b18bf-0000-7000-8000-000000000001")
-	testAgentID        = testID("019b18bf-0000-7000-8000-000000000002")
-	testTurnID         = testID("019b18bf-0000-7000-8000-000000000003")
-	testOpeningInputID = testID("019b18bf-0000-7000-8000-000000000004")
-	testRuntimeLockID  = testID("019b18bf-0000-7000-8000-000000000005")
+	testProjectID      = uuid.MustParse("019b18bf-0000-7000-8000-000000000001")
+	testAgentID        = uuid.MustParse("019b18bf-0000-7000-8000-000000000002")
+	testTurnID         = uuid.MustParse("019b18bf-0000-7000-8000-000000000003")
+	testOpeningInputID = uuid.MustParse("019b18bf-0000-7000-8000-000000000004")
+	testRuntimeLockID  = uuid.MustParse("019b18bf-0000-7000-8000-000000000005")
 )
 
-func testID(raw string) storage.ID {
-	id, err := storage.ParseID(raw)
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
-func testIDN(n int) storage.ID {
-	return testID(fmt.Sprintf("019b18bf-0000-7000-8000-%012d", n))
+func testIDN(n int) uuid.UUID {
+	return uuid.MustParse(fmt.Sprintf("019b18bf-0000-7000-8000-%012d", n))
 }

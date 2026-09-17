@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -59,7 +59,7 @@ type processObservationRequest struct {
 }
 
 func runCommandAuthorizationInput(
-	bindingID storage.ID,
+	bindingID uuid.UUID,
 	resolved resolvedRunCommandRequest,
 ) (json.RawMessage, error) {
 	request, err := marshalJSON(runCommandAuthorization{
@@ -144,7 +144,7 @@ func runCommand(
 	if err != nil {
 		return nil, err
 	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineRef)
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineID)
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}
@@ -242,7 +242,7 @@ func processToolMachineResolutionError(
 	err error,
 ) (transactionalPhaseResult, error) {
 	if !errors.Is(err, ErrNoActiveAgentMachineBinding) &&
-		!errors.Is(err, ErrMachineRefUnavailable) &&
+		!errors.Is(err, ErrMachineIDUnavailable) &&
 		!errors.Is(err, ErrMachineSelectionRequired) {
 		return nil, err
 	}
@@ -645,11 +645,11 @@ func processListObservations(records []executionstore.ActiveProcessRecord) []pro
 	return out
 }
 
-func encodeProcessID(id storage.ID) (string, error) {
+func encodeProcessID(id uuid.UUID) (string, error) {
 	return publicid.Encode(publicid.KindProcess, id)
 }
 
-func decodeProcessID(value string) (storage.ID, error) {
+func decodeProcessID(value string) (uuid.UUID, error) {
 	return publicid.Decode(publicid.KindProcess, value)
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -22,7 +23,7 @@ type defaultMachinePoolReconciliation struct {
 func (s *Store) ReconcileDefaultMachinePoolsTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID ID,
+	orgID uuid.UUID,
 	templates []DefaultMachinePoolTemplate,
 	rows []dbsqlc.MachinePool,
 	apply bool,

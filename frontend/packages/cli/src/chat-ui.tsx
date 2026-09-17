@@ -1,8 +1,10 @@
 import {
+  abbreviate,
   type AgentChatScope,
   type AgentChatStatus,
   type AgentInputBacklogItem,
   backlogInputPreview,
+  blockText,
   type OmnaraUIMessage,
   useAgentChat,
   useAgentInteractions,
@@ -13,9 +15,8 @@ import { Box, Static, Text, useApp } from 'ink'
 import { useEffect, useMemo, useReducer, useState } from 'react'
 import * as z from 'zod'
 
-import { blockText, summaryWidth, toolCallSummary } from './agent-rendering.ts'
+import { summaryWidth, toolCallSummary } from './agent-rendering.ts'
 import { InteractionPrompt, Label, TextInput } from './chat-prompts.tsx'
-import { abbreviate } from './output.ts'
 
 type MessagePart = OmnaraUIMessage['parts'][number]
 type ToolPart = Extract<MessagePart, { type: 'dynamic-tool' }>
@@ -359,12 +360,7 @@ function Transcript({ items, live }: { items: TranscriptItem[]; live: OmnaraUIMe
 
 export function Chat({ scope }: { scope: AgentChatScope }) {
   const chat = useAgentChat(scope, { source: 'cli' })
-  const interactions = useAgentInteractions(
-    scope.orgID,
-    scope.projectID,
-    scope.agentID,
-    chat.isWorking,
-  )
+  const interactions = useAgentInteractions(scope.orgID, scope.projectID, scope.agentID)
   const resolveInteraction = useResolveAgentInteraction(scope.orgID, scope.projectID, scope.agentID)
   const { exit } = useApp()
   const [draft, setDraft] = useState('')
@@ -410,7 +406,11 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           interaction={interaction}
           onAnswer={(answers) => {
             void resolveInteraction
-              .mutateAsync({ interactionID: interaction.id, body: { answers } })
+              .mutateAsync({
+                interactionID: interaction.id,
+                body: { answers },
+                targetAgentID: interaction.agent_id,
+              })
               .catch(() => undefined)
           }}
         />

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	Path = "/api/mcp"
+	Path = "/mcp"
 
 	serverName           = "omnara"
 	bodyArgument         = "body"

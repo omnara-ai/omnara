@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type BuildInput struct {
-	ProjectID           storage.ID
-	AgentID             storage.ID
-	TurnID              storage.ID
-	OpeningInputIDs     []storage.ID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	OpeningInputIDs     []uuid.UUID
 	Now                 time.Time
 	AgentConfigSnapshot *executionstore.AgentConfigSnapshotRecord
 	CheckpointOverride  *CheckpointRef
@@ -23,10 +23,10 @@ type BuildInput struct {
 }
 
 type Bundle struct {
-	ProjectID             storage.ID               `json:"-"`
-	AgentID               storage.ID               `json:"-"`
-	TurnID                storage.ID               `json:"-"`
-	OpeningInputIDs       []storage.ID             `json:"-"`
+	ProjectID             uuid.UUID                `json:"-"`
+	AgentID               uuid.UUID                `json:"-"`
+	TurnID                uuid.UUID                `json:"-"`
+	OpeningInputIDs       []uuid.UUID              `json:"-"`
 	InputEventSequence    int64                    `json:"-"`
 	SystemPrompt          string                   `json:"system_prompt"`
 	Messages              []Message                `json:"messages"`
@@ -116,6 +116,7 @@ type ToolSpec struct {
 	Name        string                   `json:"name"`
 	Description string                   `json:"description"`
 	InputSchema json.RawMessage          `json:"input_schema"`
+	Deferred    bool                     `json:"deferred,omitempty"`
 	Type        string                   `json:"-"`
 	Permission  toolpermission.Selection `json:"-"`
 }

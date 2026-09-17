@@ -1,16 +1,25 @@
-import { type AgentListSort, useAgents, useArchiveAgent } from '@omnara/react'
+import {
+  type AgentListFilters,
+  type AgentListSort,
+  useAgents,
+  useArchiveAgent,
+} from '@omnara/react'
 import { type Agent, ApiError } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
+import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
+import { SectionTitle } from '@/components/layout/SectionTitle'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+import { Badge } from '@/components/ui/badge'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { type Guide, guides } from '@/lib/docs'
 
 export function AgentsSection({
   orgId,
@@ -23,11 +32,12 @@ export function AgentsSection({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="type-title">Agents</h2>
       <AgentsTable
         orgId={orgId}
         projectId={projectId}
         canManage={canManage}
+        title="Agents"
+        guide={guides.agents}
         emptyMessage="No agents yet. Launch one from a profile above, or create one with New agent."
       />
     </div>
@@ -40,36 +50,60 @@ export function AgentsTable({
   projectId,
   canManage,
   profileId,
+  title,
+  guide,
   emptyMessage,
 }: {
   orgId: string
   projectId: string
   canManage: boolean
   profileId?: string
+  title?: string
+  guide?: Guide
   emptyMessage: string
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
-  const query = useAgents(orgId, projectId, {
-    filters: profileId ? { ...list.apiFilters, agent_profile_id: profileId } : list.apiFilters,
-    sort: list.sort,
-  })
-  const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
+  const [includeSubagents, setIncludeSubagents] = useState(false)
+  const [includeArchived, setIncludeArchived] = useState(false)
+  const filters: AgentListFilters = { ...list.apiFilters }
+  if (profileId) filters.agent_profile_id = profileId
+  if (includeSubagents) filters.include_subagents = true
+  if (includeArchived) filters.include_archived = true
+  const query = useAgents(orgId, projectId, { filters, sort: list.sort })
+  const paged = usePagedQuery(
+    query,
+    `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}`,
+  )
+  const showSearch = useListToolbarVisibility(
+    list,
+    paged.pagination,
+    query.isSuccess && !query.isPlaceholderData,
+  )
   const archiveAgent = useArchiveAgent(orgId, projectId)
   const navigate = useNavigate()
 
   return (
     <div className="flex flex-col gap-3">
-      {showToolbar && (
-        <ResourceListToolbar
-          search={list.search}
-          onSearchChange={list.setSearch}
-          sort={list.sort}
-          sortOptions={resourceSortOptions}
-          onSortChange={list.setSort}
-          placeholder="Search agents by name…"
-        />
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {title && (
+          <div className="shrink-0 sm:mr-80">
+            <SectionTitle title={title} guide={guide} />
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 justify-end">
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            placeholder="Search agents by name…"
+            showSearch={showSearch}
+            sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+            filters={{
+              subagents: { checked: includeSubagents, onChange: setIncludeSubagents },
+              archived: { checked: includeArchived, onChange: setIncludeArchived },
+            }}
+          />
+        </div>
+      </div>
       <DataTable
         columns={[
           {
@@ -78,6 +112,11 @@ export function AgentsTable({
             cell: (agent) => (
               <span className="flex items-baseline gap-2.5 overflow-hidden">
                 <span className="font-medium">{agent.name || 'Agent'}</span>
+                {agent.parent_agent_id && (
+                  <Badge variant="outline" title={`Subagent of ${agent.parent_agent_id}`}>
+                    subagent
+                  </Badge>
+                )}
                 <span className="text-muted-foreground/70 truncate font-mono text-xs">
                   {agent.id}
                 </span>

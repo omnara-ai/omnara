@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -118,13 +119,13 @@ WHERE org_id = $1 AND id = $2
 	if len(candidates) != 2 {
 		t.Fatalf("discovery candidates = %+v, want two eligible machines", candidates)
 	}
-	wantMachines := map[ID]bool{first.machineID: true, second.machineID: true}
+	wantMachines := map[uuid.UUID]bool{first.machineID: true, second.machineID: true}
 	for _, candidate := range candidates {
 		if !wantMachines[candidate.MachineID] {
 			t.Fatalf("unexpected discovery candidate: %+v", candidate)
 		}
 		delete(wantMachines, candidate.MachineID)
-		if candidate.ScopeKey == "" || candidate.ProviderAuthVersionID == NilID ||
+		if candidate.ScopeKey == "" || candidate.ProviderAuthVersionID == uuid.Nil ||
 			candidate.ProviderAuthSecretID != fixture.secretID {
 			t.Fatalf("candidate scope identity = %+v", candidate)
 		}
@@ -1536,15 +1537,15 @@ type providerRuntimeStorageFixture struct {
 	pool          *pgxpool.Pool
 	store         *Store
 	machinePool   executionstore.MachinePoolRecord
-	secretID      ID
-	adminID       ID
+	secretID      uuid.UUID
+	adminID       uuid.UUID
 	providerToken string
 }
 
 type providerRuntimeMachine struct {
-	machineID ID
-	tokenID   ID
-	runtimeID ID
+	machineID uuid.UUID
+	tokenID   uuid.UUID
+	runtimeID uuid.UUID
 }
 
 func newProviderRuntimeStorageFixture(
@@ -1556,7 +1557,7 @@ func newProviderRuntimeStorageFixture(
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	admin := createSecretTestUser(t, ctx, store, "runtime protection "+seed, "admin")
 	providerToken := "provider-token-" + uuid.NewString()
 	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
@@ -1591,7 +1592,7 @@ func createProviderRuntimeMachinePoolForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	secretID ID,
+	secretID uuid.UUID,
 	seed string,
 	protected bool,
 ) executionstore.MachinePoolRecord {
@@ -1715,7 +1716,7 @@ func (f providerRuntimeStorageFixture) createQueuedProcess(
 	ctx context.Context,
 	machine providerRuntimeMachine,
 	seed string,
-) (processDaemonFixture, ID, ID) {
+) (processDaemonFixture, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	processFixture := f.createProcessFixture(t, ctx, machine, seed)
 	toolCallID := createToolCallForProcessTest(t, ctx, processFixture, seed, "run_command")
@@ -1790,7 +1791,6 @@ func (f providerRuntimeStorageFixture) createProcessFixture(
 			ProjectID:             testProjectID,
 			AgentID:               agentID,
 			ProjectMachineGrantID: machineGrant.ID,
-			MachineRef:            testMachineRef(seed),
 			BindingKind:           executionstore.MachineBindingKindPool,
 			Cwd:                   "/work",
 		},
@@ -1827,7 +1827,7 @@ func (f providerRuntimeStorageFixture) insertNeverConnectedMachine(
 	t *testing.T,
 	ctx context.Context,
 	seed string,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	machineID := uuid.New()
 	now := time.Now().UTC()
@@ -1860,7 +1860,7 @@ func (f providerRuntimeStorageFixture) insertInactiveBYOMachine(
 	t *testing.T,
 	ctx context.Context,
 	seed string,
-) ID {
+) uuid.UUID {
 	t.Helper()
 	machine, err := f.store.Execution().CreateDaemonMachine(
 		ctx,
@@ -1905,7 +1905,7 @@ func (f providerRuntimeStorageFixture) insertInactiveBYOMachine(
 func (f providerRuntimeStorageFixture) backdateMismatch(
 	t *testing.T,
 	ctx context.Context,
-	machineID ID,
+	machineID uuid.UUID,
 ) {
 	t.Helper()
 	tag, err := f.pool.Exec(ctx, `
@@ -1924,7 +1924,7 @@ WHERE org_id = $1 AND id = $2 AND provider_runtime_mismatch_since IS NOT NULL
 func (f providerRuntimeStorageFixture) dueCandidate(
 	t *testing.T,
 	ctx context.Context,
-	machineID ID,
+	machineID uuid.UUID,
 ) executionstore.ProviderRuntimeCandidate {
 	t.Helper()
 	candidate := f.discoveryCandidate(t, ctx, machineID)
@@ -1946,7 +1946,7 @@ func (f providerRuntimeStorageFixture) dueCandidate(
 func (f providerRuntimeStorageFixture) discoveryCandidate(
 	t *testing.T,
 	ctx context.Context,
-	machineID ID,
+	machineID uuid.UUID,
 ) executionstore.ProviderRuntimeCandidate {
 	t.Helper()
 	candidates, err := f.store.Execution().ListProviderRuntimeDiscoveryCandidates(
@@ -1963,7 +1963,7 @@ func (f providerRuntimeStorageFixture) discoveryCandidate(
 			break
 		}
 	}
-	if candidate.MachineID == NilID {
+	if candidate.MachineID == uuid.Nil {
 		t.Fatalf("machine %s was not a provider runtime discovery candidate", machineID)
 	}
 	return candidate
@@ -2003,7 +2003,7 @@ func seedProviderRuntimeMismatchForTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	machineIDs ...ID,
+	machineIDs ...uuid.UUID,
 ) {
 	t.Helper()
 	for _, machineID := range machineIDs {
@@ -2026,7 +2026,7 @@ func assertProviderRuntimeMismatchClearedForTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	machineIDs ...ID,
+	machineIDs ...uuid.UUID,
 ) {
 	t.Helper()
 	for _, machineID := range machineIDs {

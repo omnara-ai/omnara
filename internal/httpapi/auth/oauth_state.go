@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/redistore"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -17,11 +17,11 @@ const oauthStateTTL = 10 * time.Minute
 
 type OAuthStateStore interface {
 	Create(context.Context, OAuthStateCreateInput) (OAuthStateRecord, error)
-	Consume(context.Context, storage.ID, string, string) (OAuthStateRecord, error)
+	Consume(context.Context, uuid.UUID, string, string) (OAuthStateRecord, error)
 }
 
 type OAuthStateCreateInput struct {
-	AuthConnectorID     storage.ID
+	AuthConnectorID     uuid.UUID
 	State               string
 	BrowserBindingToken string
 	CodeVerifier        string
@@ -30,7 +30,7 @@ type OAuthStateCreateInput struct {
 }
 
 type OAuthStateRecord struct {
-	AuthConnectorID storage.ID
+	AuthConnectorID uuid.UUID
 	CodeVerifier    string
 	Nonce           string
 	ReturnTo        string
@@ -56,7 +56,7 @@ func (s *RedisOAuthStateStore) Create(ctx context.Context, input OAuthStateCreat
 	if s == nil || s.client == nil {
 		return OAuthStateRecord{}, errors.New("auth oauth state store unavailable")
 	}
-	if input.AuthConnectorID == storage.NilID || input.State == "" || input.BrowserBindingToken == "" ||
+	if input.AuthConnectorID == uuid.Nil || input.State == "" || input.BrowserBindingToken == "" ||
 		input.CodeVerifier == "" ||
 		input.Nonce == "" {
 		return OAuthStateRecord{}, errors.New("auth connector, state, browser binding, code verifier, and nonce are required")
@@ -108,13 +108,13 @@ return raw
 
 func (s *RedisOAuthStateStore) Consume(
 	ctx context.Context,
-	authConnectorID storage.ID,
+	authConnectorID uuid.UUID,
 	state, browserBindingToken string,
 ) (OAuthStateRecord, error) {
 	if s == nil || s.client == nil {
 		return OAuthStateRecord{}, errors.New("auth oauth state store unavailable")
 	}
-	if authConnectorID == storage.NilID || state == "" || browserBindingToken == "" {
+	if authConnectorID == uuid.Nil || state == "" || browserBindingToken == "" {
 		return OAuthStateRecord{}, storeerr.ErrUnauthorized
 	}
 	raw, ok, err := s.client.EvalBytes(

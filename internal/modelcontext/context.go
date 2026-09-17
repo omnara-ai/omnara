@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
@@ -293,7 +293,7 @@ func defaultSystemPromptForContract(
 func loadSkillCatalog(
 	ctx context.Context,
 	store SkillStore,
-	projectID storage.ID,
+	projectID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 ) ([]skillstore.SkillRecord, error) {
 	if len(contract.Skills) == 0 {

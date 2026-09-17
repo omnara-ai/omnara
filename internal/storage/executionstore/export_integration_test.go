@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -19,10 +20,10 @@ import (
 
 type ModelWorkSeed struct {
 	Kind                 ModelWorkKind
-	ModelCallContextID   ID
-	SourceModelOutputID  ID
-	TurnID               ID
-	InputIDs             []ID
+	ModelCallContextID   uuid.UUID
+	SourceModelOutputID  uuid.UUID
+	TurnID               uuid.UUID
+	InputIDs             []uuid.UUID
 	OpeningEventSequence int64
 }
 
@@ -37,10 +38,10 @@ func (s *Store) IntegrationCommitTxWithNotifications(
 
 func (s *Store) AcquireAgentRuntimeLock(
 	ctx context.Context,
-	projectID, agentID, workerProcessID ID,
+	projectID, agentID, workerProcessID uuid.UUID,
 	leaseDuration time.Duration,
 ) (AgentRuntimeLockRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(workerProcessID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || workerProcessID == uuid.Nil {
 		return AgentRuntimeLockRecord{}, errors.New("project, agent, and worker process ids are required")
 	}
 	if err := validateAgentRuntimeLockLeaseDuration(leaseDuration); err != nil {
@@ -70,10 +71,10 @@ func (s *Store) AcquireAgentRuntimeLock(
 
 func (s *Store) MarkAgentWakeup(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	metadata []byte,
 ) error {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return errors.New("project id and agent id are required")
 	}
 	if metadata == nil {
@@ -107,8 +108,8 @@ func (s *Store) MarkAgentWakeup(
 	return nil
 }
 
-func (s *Store) DeleteAgentWakeup(ctx context.Context, projectID, agentID ID) error {
-	if isNilID(projectID) || isNilID(agentID) {
+func (s *Store) DeleteAgentWakeup(ctx context.Context, projectID, agentID uuid.UUID) error {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return errors.New("project id and agent id are required")
 	}
 	if _, err := s.q.DeleteAgentWakeup(
@@ -122,9 +123,9 @@ func (s *Store) DeleteAgentWakeup(ctx context.Context, projectID, agentID ID) er
 
 func (s *Store) NextAgentModelWork(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) (ModelWorkSeed, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return ModelWorkSeed{}, false, errors.New("project id and agent id are required")
 	}
 	row, err := s.q.NextAgentModelWork(
@@ -149,7 +150,7 @@ func (s *Store) NextAgentModelWork(
 
 func (s *Store) GetToolCallResultAuthorityByToolCall(
 	ctx context.Context,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 ) (ToolCallResultAuthorityRecord, bool, error) {
 	return getToolCallResultAuthorityByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
 }
@@ -167,7 +168,7 @@ func (s *Store) RegisterDaemonRuntime(
 
 func (s *Store) ListCompletedToolCallsForTurn(
 	ctx context.Context,
-	projectID, agentID, turnID ID,
+	projectID, agentID, turnID uuid.UUID,
 ) ([]ToolCallRecord, error) {
 	watermark, err := s.MaxEventSequence(ctx, projectID, agentID)
 	if err != nil {
@@ -187,23 +188,22 @@ func (s *Store) ListCompletedToolCallsForTurn(
 }
 
 type IntegrationAdmitAgentInputAndOpenTurnInput struct {
-	ProjectID ID
-	AgentID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
 }
 
 type IntegrationCreateAgentContentInputTxResult struct {
 	AgentInput             AgentInputRecord
 	ContentBlocks          json.RawMessage
 	Created                bool
-	CanceledInteractionIDs []ID
+	CanceledInteractionIDs []uuid.UUID
 }
 
 type IntegrationInsertAgentMachineBindingInput struct {
-	ProjectID              ID
-	AgentID                ID
-	CreateToolCallID       ID
-	ProjectMachineGrantID  ID
-	MachineRef             string
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       uuid.UUID
+	ProjectMachineGrantID  uuid.UUID
 	BindingKind            AgentMachineBindingKind
 	Description            string
 	Cwd                    string
@@ -216,9 +216,9 @@ type IntegrationInsertAgentMachineBindingInput struct {
 type IntegrationLaunchMachineSource struct {
 	Index              int
 	Contract           agentconfig.RuntimeMachine
-	MachineID          ID
-	MachinePoolID      ID
-	GrantID            ID
+	MachineID          uuid.UUID
+	MachinePoolID      uuid.UUID
+	GrantID            uuid.UUID
 	PoolGrantForLaunch dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	Provisioning       MachineProvisioningConfig
 	MachineCwd         string
@@ -227,20 +227,19 @@ type IntegrationLaunchMachineSource struct {
 }
 
 type IntegrationPoolMachineBindingInput struct {
-	OrgID            ID
-	ProjectID        ID
-	AgentID          ID
+	OrgID            uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
 	Description      string
 	PoolGrant        dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	ResolvedMachine  ResolvedPoolMachine
-	MachineRef       string
-	CreateToolCallID ID
+	CreateToolCallID uuid.UUID
 }
 
 func IntegrationEnsureRuntimeLockActiveTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, runtimeID ID,
+	projectID, agentID, runtimeID uuid.UUID,
 ) error {
 	return ensureRuntimeLockActiveTx(ctx, tx, projectID, agentID, runtimeID)
 }
@@ -248,7 +247,7 @@ func IntegrationEnsureRuntimeLockActiveTx(
 func IntegrationSelectLockedSteeringAgentInputsForAdmissionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentInputRecord, error) {
 	return selectLockedSteeringAgentInputsForAdmissionTx(ctx, qtx, projectID, agentID)
 }
@@ -256,7 +255,7 @@ func IntegrationSelectLockedSteeringAgentInputsForAdmissionTx(
 func IntegrationSelectLockedQueuedAgentInputForAdmissionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]AgentInputRecord, error) {
 	return selectLockedQueuedAgentInputForAdmissionTx(ctx, qtx, projectID, agentID)
 }
@@ -282,13 +281,13 @@ func IntegrationAdmitLockedAgentInputsAndOpenTurnTx(
 func IntegrationModelCallOpeningInputSet(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, turnID ID,
+	projectID, agentID, turnID uuid.UUID,
 	inputEventSequence int64,
-) ([]ID, int64, error) {
+) ([]uuid.UUID, int64, error) {
 	return modelCallOpeningInputSet(ctx, qtx, projectID, agentID, turnID, inputEventSequence)
 }
 
-func IntegrationLoadAgentTx(ctx context.Context, tx pgx.Tx, id ID) (AgentRecord, error) {
+func IntegrationLoadAgentTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (AgentRecord, error) {
 	return loadAgentTx(ctx, tx, id)
 }
 
@@ -324,30 +323,30 @@ func IntegrationInsertAgentMachineBindingTx(
 	return insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput(input))
 }
 
-func IntegrationGetAgentMachineObservationByRef(
+func IntegrationGetAgentMachineObservationByMachineID(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
-	machineRef string,
+	projectID, agentID uuid.UUID,
+	machineID uuid.UUID,
 ) (AgentMachineObservationRecord, error) {
-	return getAgentMachineObservationByRef(ctx, qtx, projectID, agentID, machineRef)
+	return getAgentMachineObservationByMachineID(ctx, qtx, projectID, agentID, machineID)
 }
 
 func IntegrationListPoolMachinesTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]PoolMachineRecord, error) {
 	return listPoolMachinesTx(ctx, qtx, projectID, agentID)
 }
 
-func IntegrationPoolMachineByRefTx(
+func IntegrationPoolMachineByIDTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
-	machineRef string,
+	projectID, agentID uuid.UUID,
+	machineID uuid.UUID,
 ) (PoolMachineRecord, error) {
-	return poolMachineByRefTx(ctx, qtx, projectID, agentID, machineRef)
+	return poolMachineByIDTx(ctx, qtx, projectID, agentID, machineID)
 }
 
 func IntegrationCreatePoolMachineBindingTx(
@@ -362,7 +361,7 @@ func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID ID,
+	orgID, projectID uuid.UUID,
 	sources []IntegrationLaunchMachineSource,
 ) error {
 	ownerSources := make([]launchMachineSource, len(sources))
@@ -390,7 +389,7 @@ func IntegrationValidateResponseEnvelopeForModelCallContext(
 func IntegrationRenewAgentRuntimeLockTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	leaseDuration time.Duration,
 ) (AgentRuntimeLockRenewal, error) {
 	return renewAgentRuntimeLockTx(ctx, qtx, projectID, agentID, runtimeLockID, leaseDuration)
@@ -400,7 +399,7 @@ func IntegrationReapExpiredAgentRuntimeLockTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	retryBackoff func(int, string) time.Duration,
 ) (bool, error) {
 	return reapExpiredAgentRuntimeLockTx(
@@ -417,7 +416,7 @@ func IntegrationReapExpiredAgentRuntimeLockTx(
 func IntegrationSetAgentIntegrationTarget(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, integrationTargetID ID,
+	projectID, agentID, integrationTargetID uuid.UUID,
 ) (AgentRecord, error) {
 	return setAgentIntegrationTarget(ctx, qtx, projectID, agentID, integrationTargetID)
 }
@@ -466,7 +465,7 @@ func IntegrationAppendTypedAgentEventTx(
 func IntegrationUpdateAgentTurnLatestEventQuery(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, turnID, latestEventID, latestSemanticEventID ID,
+	projectID, agentID, turnID, latestEventID, latestSemanticEventID uuid.UUID,
 ) error {
 	return updateAgentTurnLatestEventQuery(
 		ctx,
@@ -512,9 +511,9 @@ func (s *Store) IntegrationCompleteDaemonProcessAction(
 
 func (s *Store) IntegrationCompleteMachineUnreachableToolCall(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	fallbackAt time.Time,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	result json.RawMessage,
 	graceSeconds int32,
 ) (bool, error) {
@@ -534,7 +533,7 @@ func (s *Store) IntegrationCompleteMachineUnreachableToolCall(
 func IntegrationMachineStillUnreachableForToolExpiryTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	fallbackAt time.Time,
 	graceSeconds int32,
 ) (bool, error) {
@@ -552,7 +551,7 @@ func IntegrationToolCallRecordFromInsertSQLC(row dbsqlc.InsertToolCallRow) ToolC
 }
 
 func IntegrationAgentMachineBindingRecordFromSQLC(
-	row dbsqlc.AgentMachineBinding,
+	row dbsqlc.GetAgentMachineBindingByMachineRow,
 ) AgentMachineBindingRecord {
 	return agentMachineBindingRecordFromSQLC(row)
 }
@@ -560,17 +559,17 @@ func IntegrationAgentMachineBindingRecordFromSQLC(
 func IntegrationResolveActorTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	params *ActorParams,
-	integrationTargetID ID,
-) (ID, error) {
+	integrationTargetID uuid.UUID,
+) (uuid.UUID, error) {
 	return resolveActorTx(ctx, qtx, projectID, agentID, params, integrationTargetID)
 }
 
 func IntegrationGetToolCallTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ToolCallRecord, error) {
 	return getToolCallTx(ctx, tx, projectID, agentID, id)
 }
@@ -582,4 +581,23 @@ func IntegrationAppendToolResultEventTx(
 	record ToolCallRecord,
 ) (events.Event, error) {
 	return appendToolResultEventTx(ctx, txNotifications, tx, record)
+}
+
+func (s *Store) ArchiveIdleAgentsAsOf(
+	ctx context.Context,
+	asOf time.Time,
+	limit int,
+) ([]MachineRecord, int, error) {
+	return s.archiveIdleAgents(ctx, &asOf, limit)
+}
+
+func (s *Store) ArchiveIdleAgentCandidateAsOf(
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
+	asOf time.Time,
+) (int, error) {
+	_, archived, err := s.archiveIdleCandidates(
+		ctx, []idleArchiveCandidate{{ProjectID: projectID, ID: agentID}}, &asOf,
+	)
+	return archived, err
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -23,33 +24,33 @@ type ProviderRuntimeScopeKey string
 
 type ProviderRuntimeCandidate struct {
 	ScopeKey                     ProviderRuntimeScopeKey
-	OrgID                        ID
-	MachineID                    ID
-	MachinePoolID                ID
+	OrgID                        uuid.UUID
+	MachineID                    uuid.UUID
+	MachinePoolID                uuid.UUID
 	Provider                     string
 	ProviderResourceID           string
 	MachineProvisioning          MachineProvisioningConfig
 	LifecycleVersion             int64
-	CurrentDaemonRuntimeID       ID
+	CurrentDaemonRuntimeID       uuid.UUID
 	InactiveSince                time.Time
 	ProviderRuntimeMismatchSince *time.Time
 	WakeAttemptExpiresAt         *time.Time
 	WakeAttemptExpired           bool
 	ManagementKind               management.Kind
 	ProviderConfig               json.RawMessage
-	ProviderAuthSecretID         ID
+	ProviderAuthSecretID         uuid.UUID
 	ProviderAuthEnvVar           string
-	ProviderAuthVersionID        ID
+	ProviderAuthVersionID        uuid.UUID
 }
 
 type ListProviderRuntimeCandidatesInput struct {
-	AfterMachineID ID
+	AfterMachineID uuid.UUID
 	Limit          int32
 }
 
 type ProviderRuntimeMismatchCursor struct {
 	MismatchSince time.Time
-	MachineID     ID
+	MachineID     uuid.UUID
 }
 
 type ListDueProviderRuntimeMismatchesInput struct {
@@ -66,7 +67,7 @@ func (s *Store) ListProviderRuntimeDiscoveryCandidates(
 	rows, err := s.q.ListProviderRuntimeDiscoveryCandidates(
 		ctx,
 		dbsqlc.ListProviderRuntimeDiscoveryCandidatesParams{
-			CursorSet:      input.AfterMachineID != NilID,
+			CursorSet:      input.AfterMachineID != uuid.Nil,
 			AfterMachineID: input.AfterMachineID,
 			RowLimit:       providerRuntimePageLimit(input.Limit),
 		},
@@ -110,7 +111,7 @@ func (s *Store) ListDueProviderRuntimeMismatches(
 	ctx context.Context,
 	input ListDueProviderRuntimeMismatchesInput,
 ) ([]ProviderRuntimeCandidate, error) {
-	cursorSet := input.After.MachineID != NilID
+	cursorSet := input.After.MachineID != uuid.Nil
 	if cursorSet != !input.After.MismatchSince.IsZero() {
 		return nil, errors.New("due provider runtime cursor requires mismatch time and machine id")
 	}
@@ -174,23 +175,23 @@ func providerRuntimePageLimit(limit int32) int32 {
 
 func providerRuntimeCandidateFromColumns(
 	scopeKey string,
-	orgID, machineID ID,
-	machinePoolID *ID,
+	orgID, machineID uuid.UUID,
+	machinePoolID *uuid.UUID,
 	provider string,
 	providerResourceID *string,
 	cpu, memoryMB *int32,
 	providerOptions *json.RawMessage,
 	lifecycleVersion int64,
-	currentDaemonRuntimeID *ID,
+	currentDaemonRuntimeID *uuid.UUID,
 	inactiveSince time.Time,
 	mismatchSince *time.Time,
 	wakeAttemptExpiresAt *time.Time,
 	wakeAttemptExpired bool,
 	managementKind string,
 	providerConfig json.RawMessage,
-	providerAuthSecretID *ID,
+	providerAuthSecretID *uuid.UUID,
 	providerAuthEnvVar string,
-	providerAuthVersionID *ID,
+	providerAuthVersionID *uuid.UUID,
 ) (ProviderRuntimeCandidate, error) {
 	if machinePoolID == nil || providerResourceID == nil || currentDaemonRuntimeID == nil ||
 		*providerResourceID == "" || scopeKey == "" {
@@ -224,9 +225,9 @@ func providerRuntimeCandidateFromColumns(
 		WakeAttemptExpired:           wakeAttemptExpired,
 		ManagementKind:               kind,
 		ProviderConfig:               providerConfig,
-		ProviderAuthSecretID:         idFromSQLCPtr(providerAuthSecretID),
+		ProviderAuthSecretID:         storeutil.IDFromPtr(providerAuthSecretID),
 		ProviderAuthEnvVar:           providerAuthEnvVar,
-		ProviderAuthVersionID:        idFromSQLCPtr(providerAuthVersionID),
+		ProviderAuthVersionID:        storeutil.IDFromPtr(providerAuthVersionID),
 	}, nil
 }
 
@@ -263,7 +264,7 @@ func (s *Store) MarkProviderRuntimeMismatch(
 		MachinePoolID:      candidate.MachinePoolID,
 		LifecycleVersion:   candidate.LifecycleVersion,
 		Provider:           candidate.Provider,
-		ProviderResourceID: sqlcTextFromEmpty(candidate.ProviderResourceID),
+		ProviderResourceID: storeutil.TextFromEmpty(candidate.ProviderResourceID),
 		DaemonRuntimeID:    candidate.CurrentDaemonRuntimeID,
 		InactiveSince:      candidate.InactiveSince,
 	})
@@ -300,7 +301,7 @@ func (s *Store) ApplyProviderRuntimeInactiveObservation(
 			MachinePoolID:        candidate.MachinePoolID,
 			LifecycleVersion:     candidate.LifecycleVersion,
 			Provider:             candidate.Provider,
-			ProviderResourceID:   sqlcTextFromEmpty(candidate.ProviderResourceID),
+			ProviderResourceID:   storeutil.TextFromEmpty(candidate.ProviderResourceID),
 			MismatchSince:        candidate.ProviderRuntimeMismatchSince,
 			WakeAttemptExpiresAt: candidate.WakeAttemptExpiresAt,
 			WakeAttemptExpired:   candidate.WakeAttemptExpired,
@@ -373,7 +374,7 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 			MachinePoolID:                 candidate.MachinePoolID,
 			LifecycleVersion:              candidate.LifecycleVersion,
 			Provider:                      candidate.Provider,
-			ProviderResourceID:            sqlcTextFromEmpty(candidate.ProviderResourceID),
+			ProviderResourceID:            storeutil.TextFromEmpty(candidate.ProviderResourceID),
 			MismatchSince:                 *candidate.ProviderRuntimeMismatchSince,
 			ConfirmationGraceMilliseconds: input.ConfirmationGrace.Milliseconds(),
 			WakeAttemptExpiresAt:          candidate.WakeAttemptExpiresAt,
@@ -444,7 +445,7 @@ func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
 			MachinePoolID:        candidate.MachinePoolID,
 			LifecycleVersion:     candidate.LifecycleVersion,
 			Provider:             candidate.Provider,
-			ProviderResourceID:   sqlcTextFromEmpty(candidate.ProviderResourceID),
+			ProviderResourceID:   storeutil.TextFromEmpty(candidate.ProviderResourceID),
 			MismatchSince:        candidate.ProviderRuntimeMismatchSince,
 			WakeAttemptExpiresAt: candidate.WakeAttemptExpiresAt,
 			DaemonRuntimeID:      candidate.CurrentDaemonRuntimeID,
@@ -477,8 +478,8 @@ func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
 }
 
 func providerRuntimeDeletionCandidateValid(candidate ProviderRuntimeCandidate) bool {
-	return candidate.OrgID != NilID && candidate.MachineID != NilID &&
-		candidate.MachinePoolID != NilID && candidate.CurrentDaemonRuntimeID != NilID &&
+	return candidate.OrgID != uuid.Nil && candidate.MachineID != uuid.Nil &&
+		candidate.MachinePoolID != uuid.Nil && candidate.CurrentDaemonRuntimeID != uuid.Nil &&
 		candidate.Provider != "" && candidate.ProviderResourceID != ""
 }
 
@@ -512,7 +513,7 @@ func lockProviderRuntimeDeletionCandidate(
 			Provider:             candidate.Provider,
 			ManagementKind:       string(candidate.ManagementKind),
 			ProviderConfig:       candidate.ProviderConfig,
-			ProviderAuthSecretID: sqlcIDFromNil(candidate.ProviderAuthSecretID),
+			ProviderAuthSecretID: storeutil.IDFromNil(candidate.ProviderAuthSecretID),
 			ProviderAuthEnvVar:   candidate.ProviderAuthEnvVar,
 		},
 	)
@@ -535,7 +536,7 @@ func lockProviderRuntimeDeletionCandidate(
 		return false, fmt.Errorf("lock provider runtime machine: %w", err)
 	}
 	if candidate.ManagementKind == management.Tenant {
-		if candidate.ProviderAuthSecretID == NilID || candidate.ProviderAuthVersionID == NilID {
+		if candidate.ProviderAuthSecretID == uuid.Nil || candidate.ProviderAuthVersionID == uuid.Nil {
 			return false, errors.New(
 				"tenant provider runtime deletion requires a credential version",
 			)
@@ -545,14 +546,14 @@ func lockProviderRuntimeDeletionCandidate(
 			dbsqlc.LockProviderRuntimeCredentialParams{
 				OrgID:                 candidate.OrgID,
 				ProviderAuthSecretID:  candidate.ProviderAuthSecretID,
-				ProviderAuthVersionID: sqlcIDFromNil(candidate.ProviderAuthVersionID),
+				ProviderAuthVersionID: storeutil.IDFromNil(candidate.ProviderAuthVersionID),
 			},
 		); errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		} else if err != nil {
 			return false, fmt.Errorf("lock provider runtime credential: %w", err)
 		}
-	} else if candidate.ProviderAuthVersionID != NilID {
+	} else if candidate.ProviderAuthVersionID != uuid.Nil {
 		return false, errors.New(
 			"cluster provider runtime deletion has a tenant credential version",
 		)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -16,11 +17,11 @@ import (
 )
 
 type CompleteToolCallInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ID                 ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
 	Outcome            ToolResultOutcome
-	RuntimeLockID      ID
+	RuntimeLockID      uuid.UUID
 	ResultContentParts json.RawMessage
 }
 
@@ -30,18 +31,18 @@ type ToolCallCompletionInput struct {
 }
 
 type CompleteRuntimeToolCallInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ID                 ID
-	RuntimeLockID      ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
+	RuntimeLockID      uuid.UUID
 	Outcome            ToolResultOutcome
 	ResultContentParts json.RawMessage
 }
 
 type CompleteCustomToolCallInput struct {
-	ProjectID     ID
-	AgentID       ID
-	ID            ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ID            uuid.UUID
 	Outcome       ToolResultOutcome
 	ContentBlocks json.RawMessage
 }
@@ -53,29 +54,29 @@ type CompleteCustomToolCallResult struct {
 }
 
 type MarkToolCallReadyInput struct {
-	ProjectID     ID
-	AgentID       ID
-	ID            ID
-	RuntimeLockID ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ID            uuid.UUID
+	RuntimeLockID uuid.UUID
 }
 
 type ReleaseToolCallRuntimeOwnershipInput struct {
-	ProjectID     ID
-	AgentID       ID
-	ToolCallID    ID
-	RuntimeLockID ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ToolCallID    uuid.UUID
+	RuntimeLockID uuid.UUID
 }
 
 type RequeueRuntimeToolCallInput struct {
-	ProjectID     ID
-	AgentID       ID
-	ToolCallID    ID
-	RuntimeLockID ID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ToolCallID    uuid.UUID
+	RuntimeLockID uuid.UUID
 }
 
 type ListToolCallsInput struct {
-	ProjectID ID
-	AgentID   ID
+	ProjectID uuid.UUID
+	AgentIDs  []uuid.UUID
 	State     ToolCallState
 	Type      string
 	Limit     int
@@ -120,12 +121,12 @@ func (outcome ToolResultOutcome) IsTerminal() bool {
 }
 
 type ToolCallRecord struct {
-	ID                 ID              `json:"id"`
-	ProjectID          ID              `json:"project_id"`
-	AgentID            ID              `json:"agent_id"`
-	TurnID             ID              `json:"turn_id"`
-	SourceEventID      ID              `json:"source_event_id"`
-	ModelCallContextID ID              `json:"model_call_context_id"`
+	ID                 uuid.UUID       `json:"id"`
+	ProjectID          uuid.UUID       `json:"project_id"`
+	AgentID            uuid.UUID       `json:"agent_id"`
+	TurnID             uuid.UUID       `json:"turn_id"`
+	SourceEventID      uuid.UUID       `json:"source_event_id"`
+	ModelCallContextID uuid.UUID       `json:"model_call_context_id"`
 	ProviderCallID     string          `json:"provider_call_id"`
 	Name               string          `json:"name"`
 	Input              json.RawMessage `json:"input"`
@@ -134,17 +135,38 @@ type ToolCallRecord struct {
 
 	State         ToolCallState     `json:"state"`
 	Outcome       ToolResultOutcome `json:"outcome,omitempty"`
-	RuntimeLockID ID                `json:"-"`
+	RuntimeLockID uuid.UUID         `json:"-"`
 	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
 
-	ToolCallResultID        ID              `json:"tool_call_result_id,omitempty"`
-	ToolResultEventID       ID              `json:"tool_result_event_id,omitempty"`
+	ToolCallResultID        uuid.UUID       `json:"tool_call_result_id,omitempty"`
+	ToolResultEventID       uuid.UUID       `json:"tool_result_event_id,omitempty"`
 	SourceEventSequence     int64           `json:"source_event_sequence,omitempty"`
 	ToolResultEventSequence int64           `json:"tool_result_event_sequence,omitempty"`
 	ResultContentParts      json.RawMessage `json:"result_content_parts"`
 }
 
 func (s *Store) CompleteToolCall(
+	ctx context.Context,
+	input CompleteToolCallInput,
+) (ToolCallRecord, error) {
+	parts, err := s.prepareToolResult(ctx, input.ProjectID, input.AgentID, input.ID, input.ResultContentParts)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	input.ResultContentParts = parts
+	record, err := s.completeToolCallOnce(ctx, input)
+	var read *toolResultArtifactReadRequiredError
+	if !errors.As(err, &read) {
+		return record, err
+	}
+	ctx, err = s.loadToolResultForReplay(ctx, read)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	return s.completeToolCallOnce(ctx, input)
+}
+
+func (s *Store) completeToolCallOnce(
 	ctx context.Context,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
@@ -168,8 +190,8 @@ func (s *Store) MarkToolCallReady(
 	ctx context.Context,
 	input MarkToolCallReadyInput,
 ) (ToolCallRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return ToolCallRecord{}, errors.New(
 			"project, agent, tool call id, and runtime lock are required",
 		)
@@ -241,8 +263,8 @@ func (s *Store) ReleaseToolCallRuntimeOwnership(
 	ctx context.Context,
 	input ReleaseToolCallRuntimeOwnershipInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ToolCallID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return errors.New("project, agent, tool call, and runtime lock are required")
 	}
 	txNotifications := s.newTxNotifications()
@@ -312,8 +334,8 @@ func (s *Store) RequeueRuntimeToolCall(
 	ctx context.Context,
 	input RequeueRuntimeToolCallInput,
 ) error {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ToolCallID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return errors.New("project, agent, tool call, and runtime lock are required")
 	}
 	txNotifications := s.newTxNotifications()
@@ -396,8 +418,8 @@ func completeToolCallTx(
 	tx pgx.Tx,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return ToolCallRecord{}, errors.New(
 			"project, agent, tool call id, and runtime lock are required",
 		)
@@ -494,6 +516,27 @@ func (s *Store) CompleteRuntimeToolCall(
 	ctx context.Context,
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
+	parts, err := s.prepareToolResult(ctx, input.ProjectID, input.AgentID, input.ID, input.ResultContentParts)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	input.ResultContentParts = parts
+	record, err := s.completeRuntimeToolCallOnce(ctx, input)
+	var read *toolResultArtifactReadRequiredError
+	if !errors.As(err, &read) {
+		return record, err
+	}
+	ctx, err = s.loadToolResultForReplay(ctx, read)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	return s.completeRuntimeToolCallOnce(ctx, input)
+}
+
+func (s *Store) completeRuntimeToolCallOnce(
+	ctx context.Context,
+	input CompleteRuntimeToolCallInput,
+) (ToolCallRecord, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -521,8 +564,8 @@ func completeRuntimeToolCallTx(
 	tx pgx.Tx,
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) ||
-		isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil ||
+		input.RuntimeLockID == uuid.Nil {
 		return ToolCallRecord{}, errors.New(
 			"project, agent, tool call id, and runtime lock are required",
 		)
@@ -668,6 +711,11 @@ func (s *Store) CompleteCustomToolCall(
 	ctx context.Context,
 	input CompleteCustomToolCallInput,
 ) (CompleteCustomToolCallResult, error) {
+	parts, err := s.prepareToolResult(ctx, input.ProjectID, input.AgentID, input.ID, input.ContentBlocks)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
+	}
+	input.ContentBlocks = parts
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -695,7 +743,7 @@ func completeCustomToolCallTx(
 	tx pgx.Tx,
 	input CompleteCustomToolCallInput,
 ) (CompleteCustomToolCallResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return CompleteCustomToolCallResult{}, errors.New(
 			"project, agent, and tool call ids are required",
 		)
@@ -781,9 +829,6 @@ func completeCustomToolCallTx(
 	}
 	existing, loadErr := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ID)
 	if loadErr != nil {
-		if errors.Is(loadErr, pgx.ErrNoRows) {
-			return CompleteCustomToolCallResult{}, storeerr.ErrNotFound
-		}
 		return CompleteCustomToolCallResult{}, loadErr
 	}
 	if existing.Type != toolcatalog.ToolTypeCustom {

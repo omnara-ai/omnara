@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 type ContextCheckpointRecord struct {
-	ID                             ID        `json:"id"`
-	ProjectID                      ID        `json:"project_id"`
-	AgentID                        ID        `json:"agent_id"`
+	ID                             uuid.UUID `json:"id"`
+	ProjectID                      uuid.UUID `json:"project_id"`
+	AgentID                        uuid.UUID `json:"agent_id"`
 	SummarizedThroughEventSequence int64     `json:"summarized_through_event_sequence"`
-	ProducerModelCallContextID     ID        `json:"producer_model_call_context_id"`
-	CheckpointEventID              ID        `json:"checkpoint_event_id"`
+	ProducerModelCallContextID     uuid.UUID `json:"producer_model_call_context_id"`
+	CheckpointEventID              uuid.UUID `json:"checkpoint_event_id"`
 	CheckpointEventSequence        int64     `json:"checkpoint_event_sequence"`
 	Summary                        string    `json:"summary"`
 	CreatedAt                      time.Time `json:"created_at"`
@@ -24,10 +25,10 @@ type ContextCheckpointRecord struct {
 
 func (s *Store) CountConsecutiveContextCheckpointLineage(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	inputEventSequence int64,
 ) (int, error) {
-	if isNilID(projectID) || isNilID(agentID) || inputEventSequence <= 0 {
+	if projectID == uuid.Nil || agentID == uuid.Nil || inputEventSequence <= 0 {
 		return 0, errors.New("project, agent, and positive event sequence are required")
 	}
 	count, err := s.q.CountConsecutiveContextCheckpointLineage(
@@ -46,9 +47,9 @@ func (s *Store) CountConsecutiveContextCheckpointLineage(
 
 func (s *Store) GetContextCheckpoint(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ContextCheckpointRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return ContextCheckpointRecord{}, false, errors.New("project, agent, and checkpoint are required")
 	}
 	row, err := s.q.GetContextCheckpoint(ctx, dbsqlc.GetContextCheckpointParams{
@@ -67,10 +68,10 @@ func (s *Store) GetContextCheckpoint(
 
 func (s *Store) GetLatestApplicableContextCheckpoint(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	maxEventSequence int64,
 ) (ContextCheckpointRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || maxEventSequence <= 0 {
+	if projectID == uuid.Nil || agentID == uuid.Nil || maxEventSequence <= 0 {
 		return ContextCheckpointRecord{}, false, errors.New("project, agent, and positive event sequence are required")
 	}
 	row, err := s.q.GetLatestApplicableContextCheckpoint(
@@ -93,7 +94,7 @@ func (s *Store) GetLatestApplicableContextCheckpoint(
 func getContextCheckpointByProducerContextTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 ) (ContextCheckpointRecord, bool, error) {
 	row, err := q.GetContextCheckpointByProducerContext(
 		ctx,
@@ -114,9 +115,9 @@ func getContextCheckpointByProducerContextTx(
 
 func (s *Store) GetContextCheckpointByProducerContext(
 	ctx context.Context,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 ) (ContextCheckpointRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(modelCallContextID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || modelCallContextID == uuid.Nil {
 		return ContextCheckpointRecord{}, false, errors.New("project, agent, and producer context are required")
 	}
 	return getContextCheckpointByProducerContextTx(ctx, s.q, projectID, agentID, modelCallContextID)

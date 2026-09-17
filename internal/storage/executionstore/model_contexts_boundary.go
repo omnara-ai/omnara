@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -14,7 +15,7 @@ func resolveModelReadyBoundaryTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	q *dbsqlc.Queries,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 ) (bool, error) {
 	hasLaterSemanticEvent, err := q.ModelCallContextHasLaterSemanticEvent(
 		ctx,
@@ -55,7 +56,7 @@ func supersedeUnacceptedAtLaterModelReadyBoundaryTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	q *dbsqlc.Queries,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 	wakeupReason string,
 ) (bool, error) {
 	preempted, err := resolveModelReadyBoundaryTx(

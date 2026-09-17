@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -21,7 +22,7 @@ func (s *Store) MarkProcessStarted(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonProcessReportApplication{}, err
 	}
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return DaemonProcessReportApplication{}, errors.New("project, agent, and process are required")
 	}
 	if input.SourceStartedAt.IsZero() {
@@ -205,7 +206,7 @@ func (s *Store) CompleteDaemonProcess(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonProcessReportApplication{}, err
 	}
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return DaemonProcessReportApplication{}, errors.New("project, agent, and process are required")
 	}
 	if !isProcessTerminal(input.State) {
@@ -268,7 +269,7 @@ func (s *Store) CompleteDaemonProcess(
 			SourceEndedAt:      endedAt,
 			ExitCode:           storeutil.Int32Ptr(input.ExitCode),
 			ExitSignal:         input.ExitSignal,
-			StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
+			StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
 			StateReasonMessage: input.StateReasonMessage,
 			StorageExhausted:   input.StorageExhausted,
 		},
@@ -299,7 +300,7 @@ func (s *Store) CompleteDaemonProcess(
 	reportMatchesProcess := processUpdated || daemonTerminalReportMatchesRecord(record, input)
 	resultCommitted := false
 	var committedResult json.RawMessage
-	if reportMatchesProcess && !isNilID(record.ToolCallID) {
+	if reportMatchesProcess && record.ToolCallID != uuid.Nil {
 		toolCall, err := getToolCallTx(
 			ctx,
 			tx,
@@ -402,7 +403,7 @@ func (s *Store) CompleteDaemonProcess(
 				return DaemonProcessReportApplication{}, fmt.Errorf("mark process tool result wakeup: %w", err)
 			}
 		}
-	} else if !isNilID(record.ToolCallID) {
+	} else if record.ToolCallID != uuid.Nil {
 		published, checkErr := publishedToolCallResultExistsTx(
 			ctx,
 			qtx,
@@ -470,7 +471,7 @@ func shouldCompleteLinkedToolCallOnProcessStartTx(
 	tx pgx.Tx,
 	process ProcessRecord,
 ) (bool, error) {
-	if isNilID(process.ToolCallID) {
+	if process.ToolCallID == uuid.Nil {
 		return false, nil
 	}
 	toolCall, err := getToolCallTx(
@@ -489,9 +490,9 @@ func shouldCompleteLinkedToolCallOnProcessStartTx(
 func daemonProcessForReportTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	authority DaemonRuntimeAuthority,
-	processID ID,
+	processID uuid.UUID,
 	allowUngranted bool,
 ) (ProcessRecord, error) {
 	row, err := qtx.GetDaemonProcessForProjectReport(
@@ -545,10 +546,10 @@ func matchesTerminalSourceTime(stored *time.Time, provided time.Time) bool {
 
 func (s *Store) GetProcessByToolCall(
 	ctx context.Context,
-	projectID, agentID ID,
-	toolCallID ID,
+	projectID, agentID uuid.UUID,
+	toolCallID uuid.UUID,
 ) (ProcessRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(toolCallID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || toolCallID == uuid.Nil {
 		return ProcessRecord{}, false, errors.New("project, agent, and tool call are required")
 	}
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
@@ -564,7 +565,7 @@ func (r *ToolCallReader) ListActiveProcesses(
 func listActiveProcesses(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]ActiveProcessRecord, error) {
 	rows, err := q.ListActiveProcesses(
 		ctx,
@@ -599,7 +600,7 @@ func sameOptionalInt(a, b *int) bool {
 func publishedToolCallResultExistsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 ) (bool, error) {
 	existing, err := qtx.GetToolCall(
 		ctx,
@@ -639,7 +640,7 @@ type toolCallResultPublication struct {
 func inspectPublishedToolCallResultTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	outcome ToolResultOutcome,
 	contentParts json.RawMessage,
 ) (toolCallResultPublication, error) {
@@ -714,7 +715,7 @@ func inspectPublishedToolCallResultTx(
 func completedToolCallMissIsBenignTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	allowStartedProcessResult bool,
 ) (bool, error) {
 	existing, err := qtx.GetToolCall(

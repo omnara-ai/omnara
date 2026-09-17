@@ -5,21 +5,26 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func getToolCallTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ToolCallRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return ToolCallRecord{}, errors.New("project, agent, and tool call id are required")
 	}
 	row, err := dbsqlc.New(tx).
 		GetToolCall(ctx, dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
@@ -28,15 +33,18 @@ func getToolCallTx(
 
 func (s *Store) GetToolCall(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ToolCallRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return ToolCallRecord{}, errors.New("project, agent, and tool call id are required")
 	}
 	row, err := s.q.GetToolCall(
 		ctx,
 		dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: id},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
@@ -47,8 +55,8 @@ func (s *Store) ListToolCalls(
 	ctx context.Context,
 	input ListToolCallsInput,
 ) (ListToolCallsResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
-		return ListToolCallsResult{}, errors.New("project and agent are required")
+	if input.ProjectID == uuid.Nil || len(input.AgentIDs) == 0 {
+		return ListToolCallsResult{}, errors.New("project and at least one agent are required")
 	}
 	if input.Limit <= 0 {
 		return ListToolCallsResult{}, errors.New("limit must be positive")
@@ -77,7 +85,7 @@ func (s *Store) ListToolCalls(
 	}
 	params := dbsqlc.ListToolCallsForAgentParams{
 		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
+		AgentIds:  input.AgentIDs,
 		State:     string(input.State),
 		Type:      input.Type,
 		RowLimit:  int64(input.Limit) + 1,
@@ -106,10 +114,10 @@ func (s *Store) ListToolCalls(
 
 func (s *Store) NextRunnableToolCall(
 	ctx context.Context,
-	projectID, agentID, modelOutputID ID,
-	excludedToolCallIDs []ID,
+	projectID, agentID, modelOutputID uuid.UUID,
+	excludedToolCallIDs []uuid.UUID,
 ) (ToolCallRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(modelOutputID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || modelOutputID == uuid.Nil {
 		return ToolCallRecord{}, false, errors.New(
 			"project, agent, and model output ids are required",
 		)
@@ -137,10 +145,10 @@ func (s *Store) NextRunnableToolCall(
 
 func (s *Store) GetToolCallByProviderCall(
 	ctx context.Context,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 	providerCallID string,
 ) (ToolCallRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(modelCallContextID) ||
+	if projectID == uuid.Nil || agentID == uuid.Nil || modelCallContextID == uuid.Nil ||
 		providerCallID == "" {
 		return ToolCallRecord{}, false, errors.New(
 			"project, agent, model context, and provider call id are required",
@@ -166,10 +174,10 @@ func (s *Store) GetToolCallByProviderCall(
 
 func (s *Store) ListCompletedToolCallsAtWatermark(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	afterEventSequence, watermark int64,
 ) ([]ToolCallRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	if afterEventSequence < 0 || watermark < afterEventSequence {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -209,7 +210,6 @@ model:
 		}
 		config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 			ProjectID:               created.Project.ID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  source,
 			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       model.ID,
@@ -863,7 +863,7 @@ func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.
 		t.Fatalf("get default model provider: %v", err)
 	}
 	controlTx := integrationdb.BeginTx(t, ctx, pool)
-	var grantID ID
+	var grantID uuid.UUID
 	if err := controlTx.QueryRow(
 		ctx,
 		`SELECT id FROM project_model_grants WHERE org_id = $1 AND project_id = $2 LIMIT 1 FOR UPDATE`,
@@ -1124,7 +1124,6 @@ model:
 	initialCompiled := compileConfig(initialSource)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               created.Project.ID,
-		Definition:              json.RawMessage(initialCompiled.CanonicalJSON),
 		Source:                  initialSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(initialCompiled.CanonicalJSON),
@@ -1155,7 +1154,6 @@ machine_sources:
 	nextCompiled := compileConfig(nextSource)
 	nextConfigInput := executionstore.CreateAgentConfigInput{
 		ProjectID:               created.Project.ID,
-		Definition:              json.RawMessage(nextCompiled.CanonicalJSON),
 		Source:                  nextSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),

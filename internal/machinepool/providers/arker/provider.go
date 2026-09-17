@@ -16,8 +16,8 @@ import (
 
 	arkersdk "github.com/ArkerHQ/arker-sdk/go"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -138,8 +138,8 @@ func provisionKey(allocationName string) string {
 
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -311,8 +311,8 @@ func exitText(code *int) string {
 
 func (p *provider) InspectMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
@@ -347,8 +347,8 @@ func (p *provider) InspectMachine(
 
 func (p *provider) DeleteMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {

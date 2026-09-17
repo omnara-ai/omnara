@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -20,7 +21,7 @@ func (s *Store) CreateIntegrationTarget(
 	ctx context.Context,
 	input CreateIntegrationTargetInput,
 ) (IntegrationTargetRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.IntegrationInstallID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.IntegrationInstallID == uuid.Nil ||
 		input.ProviderRef == "" || input.ProviderRefKind == "" {
 		return IntegrationTargetRecord{}, errors.New(
 			"project, agent, integration install, provider ref, and provider ref kind are required",
@@ -83,7 +84,7 @@ func (s *Store) CreateIntegrationTarget(
 	if install.State != IntegrationInstallStateActive {
 		return IntegrationTargetRecord{}, storeerr.ErrUnauthorized
 	}
-	if !isNilID(install.AgentID) && install.AgentID != input.AgentID {
+	if install.AgentID != uuid.Nil && install.AgentID != input.AgentID {
 		return IntegrationTargetRecord{}, storeerr.ErrConflict
 	}
 	for range 5 {
@@ -153,10 +154,10 @@ const integrationTargetRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"
 
 func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 	ctx context.Context,
-	projectID, installID ID,
+	projectID, installID uuid.UUID,
 	providerRefPrefix, displayName string,
 ) error {
-	if isNilID(projectID) || isNilID(installID) || providerRefPrefix == "" || displayName == "" {
+	if projectID == uuid.Nil || installID == uuid.Nil || providerRefPrefix == "" || displayName == "" {
 		return errors.New("project, integration install, provider ref prefix, and display name are required")
 	}
 	_, err := s.q.UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
@@ -176,7 +177,7 @@ func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 
 func (s *Store) GetIntegrationTarget(
 	ctx context.Context,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	return getIntegrationTarget(ctx, s.q, projectID, id)
 }
@@ -184,7 +185,7 @@ func (s *Store) GetIntegrationTarget(
 func (s *Store) GetIntegrationTargetTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	return getIntegrationTarget(ctx, dbsqlc.New(tx), projectID, id)
 }
@@ -192,7 +193,7 @@ func (s *Store) GetIntegrationTargetTx(
 func getIntegrationTarget(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, id ID,
+	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	row, err := q.GetIntegrationTarget(
 		ctx,
@@ -209,7 +210,7 @@ func getIntegrationTarget(
 
 func (s *Store) GetIntegrationTargetByProviderRef(
 	ctx context.Context,
-	projectID, integrationInstallID ID,
+	projectID, integrationInstallID uuid.UUID,
 	providerRef string,
 ) (IntegrationTargetRecord, error) {
 	row, err := s.q.GetIntegrationTargetByProviderRef(
@@ -231,7 +232,7 @@ func (s *Store) GetIntegrationTargetByProviderRef(
 
 func (s *Store) ListIntegrationTargets(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]IntegrationTargetSummary, error) {
 	return listIntegrationTargets(ctx, s.q, projectID, agentID)
 }
@@ -239,7 +240,7 @@ func (s *Store) ListIntegrationTargets(
 func (s *Store) ListIntegrationTargetsTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]IntegrationTargetSummary, error) {
 	return listIntegrationTargets(ctx, dbsqlc.New(tx), projectID, agentID)
 }
@@ -247,7 +248,7 @@ func (s *Store) ListIntegrationTargetsTx(
 func listIntegrationTargets(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 ) ([]IntegrationTargetSummary, error) {
 	rows, err := q.ListIntegrationTargets(
 		ctx,
@@ -265,7 +266,7 @@ func listIntegrationTargets(
 
 func integrationTargetRecordFromInsertSQLC(
 	row dbsqlc.IntegrationTarget,
-	orgID ID,
+	orgID uuid.UUID,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
 		row.ID, orgID, row.ProjectID, row.AgentID, row.IntegrationInstallID,
@@ -295,7 +296,7 @@ func integrationTargetRecordFromProviderRefSQLC(
 }
 
 func integrationTargetRecordFromFields(
-	id, orgID, projectID, agentID, integrationInstallID ID,
+	id, orgID, projectID, agentID, integrationInstallID uuid.UUID,
 	targetRef, providerRef, providerRefKind, displayName string,
 	providerMetadata json.RawMessage,
 	createdAt, updatedAt time.Time,

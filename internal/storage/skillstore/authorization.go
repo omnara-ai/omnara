@@ -40,7 +40,7 @@ func lockActiveUserSkillOwnerTx(
 }
 
 func (s *Store) validateCreateSkillInput(ctx context.Context, input CreateSkillInput) error {
-	if isNilUUID(input.OrgID) || isNilUUID(input.Actor.ID) {
+	if input.OrgID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return invalidSkillRequest("org and actor are required")
 	}
 	if err := s.AuthorizeSkillOwnerManage(ctx, input.OrgID, SkillOwner{
@@ -80,17 +80,17 @@ func (s *Store) AuthorizeSkillOwnerManage(
 ) error {
 	switch owner.Kind {
 	case SkillOwnerOrg:
-		if !isNilUUID(owner.ProjectID) || !isNilUUID(owner.UserID) {
+		if owner.ProjectID != uuid.Nil || owner.UserID != uuid.Nil {
 			return invalidSkillRequest("org-owned skill cannot set project or user owner")
 		}
 		return s.authorizeOrgSkillManage(ctx, orgID, actor)
 	case SkillOwnerProject:
-		if isNilUUID(owner.ProjectID) || !isNilUUID(owner.UserID) {
+		if owner.ProjectID == uuid.Nil || owner.UserID != uuid.Nil {
 			return invalidSkillRequest("project-owned skill requires only project owner")
 		}
 		return s.authorizeProjectSkillManage(ctx, orgID, owner.ProjectID, actor)
 	case SkillOwnerUser:
-		if !isNilUUID(owner.ProjectID) || isNilUUID(owner.UserID) {
+		if owner.ProjectID != uuid.Nil || owner.UserID == uuid.Nil {
 			return invalidSkillRequest("user-owned skill requires only user owner")
 		}
 		if actor.Type != identitystore.PrincipalTypeUser || owner.UserID != actor.ID {
@@ -117,7 +117,7 @@ func (s *Store) authorizeSkillRead(
 	skill SkillRecord,
 	actor identitystore.PrincipalRecord,
 ) error {
-	if isNilUUID(actor.ID) {
+	if actor.ID == uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
 	switch skill.OwnerKind {
@@ -217,7 +217,7 @@ func (s *Store) skillVisibleForCompile(
 	rec SkillRecord,
 	input GetSkillsByIDsInput,
 ) (bool, error) {
-	if rec.OrgID != input.OrgID || isNilUUID(input.ProjectID) {
+	if rec.OrgID != input.OrgID || input.ProjectID == uuid.Nil {
 		return false, nil
 	}
 	if rec.OwnerKind == SkillOwnerProject && rec.OwnerProjectID == input.ProjectID {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -132,10 +133,10 @@ func daemonTokenIDForSleepTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID, machineID storage.ID,
-) storage.ID {
+	orgID, machineID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
-	var id storage.ID
+	var id uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT id FROM machine_daemon_tokens WHERE org_id = $1 AND machine_id = $2 AND revoked_at IS NULL LIMIT 1`,

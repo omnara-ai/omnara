@@ -15,12 +15,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 func (e AgentExecutor) streamSinkForCall(
 	ctx context.Context,
-	agentID, turnID, modelCallContextID storage.ID,
+	agentID, turnID, modelCallContextID uuid.UUID,
 ) *harnessStreamSink {
 	if e.StreamPublisher == nil {
 		return nil
@@ -84,7 +83,7 @@ type harnessStreamSink struct {
 }
 
 type streamToolCall struct {
-	id       storage.ID
+	id       uuid.UUID
 	publicID string
 }
 
@@ -180,13 +179,13 @@ func (s *harnessStreamSink) mintToolCallID(providerCallID string) (string, bool)
 	return publicID, true
 }
 
-func (s *harnessStreamSink) ToolCallIDs() map[string]storage.ID {
+func (s *harnessStreamSink) ToolCallIDs() map[string]uuid.UUID {
 	if s == nil {
 		return nil
 	}
 	s.toolCallMu.Lock()
 	defer s.toolCallMu.Unlock()
-	ids := make(map[string]storage.ID, len(s.toolCalls))
+	ids := make(map[string]uuid.UUID, len(s.toolCalls))
 	for providerCallID, call := range s.toolCalls {
 		ids[providerCallID] = call.id
 	}
@@ -309,7 +308,7 @@ func (s *harnessStreamSink) logDroppedFrame(ctx context.Context, envelope stream
 func publishStreamDelta(
 	ctx context.Context,
 	publisher notifications.AgentStreamDeltaPublisher,
-	agentID storage.ID,
+	agentID uuid.UUID,
 	payload json.RawMessage,
 ) (err error) {
 	defer func() {

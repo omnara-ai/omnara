@@ -37,12 +37,12 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 		scope.OrgID,
 		scope.MachineID,
 		toolCallID,
-		toolcatalog.ToolNameUploadArtifact,
+		toolcatalog.ToolNameUploadFile,
 	)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	if !found {
+	if !found || uploadScope.Path != toolcatalog.ArtifactVFSRoot {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	filename := request.Params.Filename
@@ -117,12 +117,12 @@ func (s strictOpenAPIServer) DownloadDaemonArtifact(
 		scope.OrgID,
 		scope.MachineID,
 		toolCallID,
-		toolcatalog.ToolNameDownloadArtifact,
+		toolcatalog.ToolNameDownloadFile,
 	)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
-	if !found || downloadScope.ArtifactID != request.ArtifactID {
+	if !found || downloadScope.Path != toolcatalog.ArtifactVFSRoot+"/"+request.ArtifactID {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	content, artifact, err := s.server.store.Artifacts().GetArtifactBlob(

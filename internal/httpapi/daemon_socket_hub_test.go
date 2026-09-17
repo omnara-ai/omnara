@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -63,18 +62,18 @@ func newTestDaemonSocket(t *testing.T, socket *daemonSocket) *daemonSocket {
 		socket.send = make(chan daemonSocketOutbound, 1)
 	}
 	if socket.acceptedProcesses == nil {
-		socket.acceptedProcesses = map[storage.ID]struct{}{}
+		socket.acceptedProcesses = map[uuid.UUID]struct{}{}
 	}
 	if socket.acceptedActions == nil {
-		socket.acceptedActions = map[storage.ID]struct{}{}
+		socket.acceptedActions = map[uuid.UUID]struct{}{}
 	}
 	return socket
 }
 
 func TestDaemonSocketHubRegisterReplacesByMachineAndRuntime(t *testing.T) {
 	hub := &daemonSocketHub{
-		byMachine: map[storage.ID]*daemonSocket{},
-		byRuntime: map[storage.ID]*daemonSocket{},
+		byMachine: map[uuid.UUID]*daemonSocket{},
+		byRuntime: map[uuid.UUID]*daemonSocket{},
 	}
 	machineID := uuid.New()
 	runtimeA := uuid.New()
@@ -107,8 +106,8 @@ func TestDaemonSocketHubRuntimeEndedRoutesToOwningSocket(t *testing.T) {
 	runtimeID := uuid.New()
 	socket := newTestDaemonSocket(t, &daemonSocket{runtimeID: runtimeID})
 	hub := &daemonSocketHub{
-		byMachine: map[storage.ID]*daemonSocket{},
-		byRuntime: map[storage.ID]*daemonSocket{runtimeID: socket},
+		byMachine: map[uuid.UUID]*daemonSocket{},
+		byRuntime: map[uuid.UUID]*daemonSocket{runtimeID: socket},
 	}
 
 	hub.handleRuntimeEnded(
@@ -139,8 +138,8 @@ func TestDaemonSocketHubProcessTerminateRoutesToOwningSocket(t *testing.T) {
 	processID := uuid.New()
 	socket := newTestDaemonSocket(t, &daemonSocket{machineID: machineID})
 	hub := &daemonSocketHub{
-		byMachine: map[storage.ID]*daemonSocket{machineID: socket},
-		byRuntime: map[storage.ID]*daemonSocket{},
+		byMachine: map[uuid.UUID]*daemonSocket{machineID: socket},
+		byRuntime: map[uuid.UUID]*daemonSocket{},
 	}
 	processPublicID, err := publicID(publicid.KindProcess, processID)
 	if err != nil {
@@ -175,8 +174,8 @@ func TestDaemonSocketHubDropsUnencodableInboxMessage(t *testing.T) {
 	machineID := uuid.New()
 	socket := newTestDaemonSocket(t, &daemonSocket{machineID: machineID})
 	hub := &daemonSocketHub{
-		byMachine: map[storage.ID]*daemonSocket{machineID: socket},
-		byRuntime: map[storage.ID]*daemonSocket{},
+		byMachine: map[uuid.UUID]*daemonSocket{machineID: socket},
+		byRuntime: map[uuid.UUID]*daemonSocket{},
 	}
 	payload, err := json.Marshal(notifications.DaemonInboxMessage{
 		MachineID: machineID,

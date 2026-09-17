@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/emailaddr"
@@ -30,6 +31,8 @@ type AuthStateCleanupResult struct {
 	DeletedBrowserSessions int64
 	DeletedAbandonedUsers  int64
 	DeletedDeviceFlows     int64
+	DeletedOAuthCodes      int64
+	DeletedOAuthTokens     int64
 }
 
 func (s *Store) StartPasswordSignup(
@@ -112,6 +115,20 @@ func (s *Store) CleanupInactiveAuthState(ctx context.Context) (AuthStateCleanupR
 	if err != nil {
 		return AuthStateCleanupResult{}, fmt.Errorf("delete expired auth device flows: %w", err)
 	}
+	deletedAuthorizationCodes, err := s.q.DeleteExpiredOAuthAuthorizationCodes(
+		ctx,
+		dbsqlc.DeleteExpiredOAuthAuthorizationCodesParams{LimitCount: authCleanupBatchSize},
+	)
+	if err != nil {
+		return AuthStateCleanupResult{}, fmt.Errorf("delete expired oauth authorization codes: %w", err)
+	}
+	deletedOAuthTokens, err := s.q.DeleteInactiveOAuthAccessTokens(
+		ctx,
+		dbsqlc.DeleteInactiveOAuthAccessTokensParams{LimitCount: authCleanupBatchSize},
+	)
+	if err != nil {
+		return AuthStateCleanupResult{}, fmt.Errorf("delete inactive oauth access tokens: %w", err)
+	}
 	deletedBrowserSessions, err := s.q.DeleteInactiveBrowserSessions(
 		ctx,
 		dbsqlc.DeleteInactiveBrowserSessionsParams{LimitCount: authCleanupBatchSize},
@@ -131,6 +148,8 @@ func (s *Store) CleanupInactiveAuthState(ctx context.Context) (AuthStateCleanupR
 		DeletedBrowserSessions: deletedBrowserSessions,
 		DeletedAbandonedUsers:  deletedUsers,
 		DeletedDeviceFlows:     deletedDeviceFlows,
+		DeletedOAuthCodes:      deletedAuthorizationCodes,
+		DeletedOAuthTokens:     deletedOAuthTokens,
 	}, nil
 }
 
@@ -367,7 +386,7 @@ func (s *Store) AuthenticatePasswordAndCreateSession(
 
 func (s *Store) rehashPasswordAfterLogin(
 	ctx context.Context,
-	userID ID,
+	userID uuid.UUID,
 	previousPasswordHash, password string,
 ) {
 	passwordHash, err := authn.HashPassword(password)
@@ -529,8 +548,8 @@ func (s *Store) CompletePasswordReset(ctx context.Context, input CompletePasswor
 	return userRecordFromSQLC(user), nil
 }
 
-func (s *Store) PrimaryVerifiedEmailForUser(ctx context.Context, userID ID) (UserEmailRecord, bool, error) {
-	if isNilID(userID) {
+func (s *Store) PrimaryVerifiedEmailForUser(ctx context.Context, userID uuid.UUID) (UserEmailRecord, bool, error) {
+	if userID == uuid.Nil {
 		return UserEmailRecord{}, false, storeerr.ErrUnauthorized
 	}
 	rows, err := s.q.ListVerifiedUserEmailsByUser(ctx, dbsqlc.ListVerifiedUserEmailsByUserParams{UserID: userID})
@@ -588,7 +607,7 @@ func (s *Store) ChangePassword(ctx context.Context, input ChangePasswordInput) (
 func (s *Store) ValidateCompromiseRevocationTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	userID ID,
+	userID uuid.UUID,
 	currentPassword string,
 ) error {
 	qtx := s.q.WithTx(tx)
@@ -616,7 +635,7 @@ func (s *Store) ValidateCompromiseRevocationTx(
 	return err
 }
 
-func (s *Store) RevokeUserAuthTokensTx(ctx context.Context, tx pgx.Tx, userID ID) error {
+func (s *Store) RevokeUserAuthTokensTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
 	qtx := s.q.WithTx(tx)
 	if err := qtx.RevokeBrowserSessionsForUser(
 		ctx,
@@ -630,13 +649,25 @@ func (s *Store) RevokeUserAuthTokensTx(ctx context.Context, tx pgx.Tx, userID ID
 	); err != nil {
 		return fmt.Errorf("revoke compromised personal access tokens: %w", err)
 	}
+	if err := qtx.RevokeOAuthAccessTokensForUser(
+		ctx,
+		dbsqlc.RevokeOAuthAccessTokensForUserParams{UserID: userID},
+	); err != nil {
+		return fmt.Errorf("revoke compromised oauth access tokens: %w", err)
+	}
+	if err := qtx.ConsumeOAuthAuthorizationCodesForUser(
+		ctx,
+		dbsqlc.ConsumeOAuthAuthorizationCodesForUserParams{UserID: userID},
+	); err != nil {
+		return fmt.Errorf("consume compromised oauth authorization codes: %w", err)
+	}
 	return nil
 }
 
 func verifyUserPasswordForUpdate(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	userID ID,
+	userID uuid.UUID,
 	password string,
 ) (UserRecord, error) {
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: userID}); err != nil {
@@ -652,10 +683,10 @@ func verifyUserPasswordForUpdate(
 func verifyUserPasswordCredentialForUpdate(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	userID ID,
+	userID uuid.UUID,
 	password string,
 ) (UserRecord, error) {
-	if isNilID(userID) || password == "" {
+	if userID == uuid.Nil || password == "" {
 		authn.EqualizePasswordVerifyTiming(password)
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}
@@ -695,7 +726,7 @@ func verifyPasswordCredentialRow(
 func createBrowserSessionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	userID ID,
+	userID uuid.UUID,
 	sessionToken, csrfToken string,
 	ttl time.Duration,
 ) error {

@@ -14,43 +14,44 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type AgentTurnRecord struct {
-	ID                    ID    `json:"id"`
-	ProjectID             ID    `json:"project_id"`
-	AgentID               ID    `json:"agent_id"`
-	TurnSequence          int64 `json:"turn_sequence"`
-	LatestEventID         ID    `json:"latest_event_id,omitempty"`
-	LatestSemanticEventID ID    `json:"latest_semantic_event_id,omitempty"`
+	ID                    uuid.UUID `json:"id"`
+	ProjectID             uuid.UUID `json:"project_id"`
+	AgentID               uuid.UUID `json:"agent_id"`
+	TurnSequence          int64     `json:"turn_sequence"`
+	LatestEventID         uuid.UUID `json:"latest_event_id,omitempty"`
+	LatestSemanticEventID uuid.UUID `json:"latest_semantic_event_id,omitempty"`
 }
 
 type AgentEventReadRecord struct {
-	ID             ID     `json:"id"`
-	OrgID          ID     `json:"org_id"`
-	ProjectID      ID     `json:"project_id"`
-	AgentID        ID     `json:"agent_id"`
-	TurnID         ID     `json:"turn_id"`
-	TurnSequence   int64  `json:"turn_sequence,omitempty"`
-	IsOpeningEvent bool   `json:"is_opening_event"`
-	Sequence       int64  `json:"sequence"`
-	EventKind      string `json:"event_kind"`
-	InputKind      string `json:"input_kind,omitempty"`
-	ActorID        ID     `json:"actor_id,omitzero"`
-	AgentInputID   ID     `json:"agent_input_id,omitzero"`
+	ID             uuid.UUID `json:"id"`
+	OrgID          uuid.UUID `json:"org_id"`
+	ProjectID      uuid.UUID `json:"project_id"`
+	AgentID        uuid.UUID `json:"agent_id"`
+	TurnID         uuid.UUID `json:"turn_id"`
+	TurnSequence   int64     `json:"turn_sequence,omitempty"`
+	IsOpeningEvent bool      `json:"is_opening_event"`
+	Sequence       int64     `json:"sequence"`
+	EventKind      string    `json:"event_kind"`
+	InputKind      string    `json:"input_kind,omitempty"`
+	ActorID        uuid.UUID `json:"actor_id,omitzero"`
+	AgentInputID   uuid.UUID `json:"agent_input_id,omitzero"`
 	// InputIdempotencyKey echoes the caller-chosen idempotency key of the
 	// content input behind this event, so producers can correlate their own
 	// submissions. Empty for events from any other input path.
 	InputIdempotencyKey            string                         `json:"input_idempotency_key,omitempty"`
 	ControlType                    string                         `json:"control_type,omitempty"`
-	TargetInteractionID            ID                             `json:"target_interaction_id,omitzero"`
-	AgentConfigID                  ID                             `json:"agent_config_id,omitzero"`
-	ToolCallID                     ID                             `json:"tool_call_id,omitempty"`
+	TargetInteractionID            uuid.UUID                      `json:"target_interaction_id,omitzero"`
+	AgentConfigID                  uuid.UUID                      `json:"agent_config_id,omitzero"`
+	ToolCallID                     uuid.UUID                      `json:"tool_call_id,omitempty"`
 	ToolOutcome                    ToolResultOutcome              `json:"tool_outcome,omitempty"`
-	ModelCallContextID             ID                             `json:"model_call_context_id,omitempty"`
+	ModelCallContextID             uuid.UUID                      `json:"model_call_context_id,omitempty"`
 	ModelStopReason                modelenvelope.StopReason       `json:"model_stop_reason,omitempty"`
-	ContextCheckpointID            ID                             `json:"context_checkpoint_id,omitempty"`
+	ContextCheckpointID            uuid.UUID                      `json:"context_checkpoint_id,omitempty"`
 	SummarizedThroughEventSequence int64                          `json:"summarized_through_event_sequence,omitempty"`
 	CheckpointSummary              string                         `json:"checkpoint_summary,omitempty"`
 	ContentBlocks                  json.RawMessage                `json:"content_blocks"`
@@ -60,7 +61,7 @@ type AgentEventReadRecord struct {
 }
 
 type AgentEventFrontier struct {
-	AgentID       ID
+	AgentID       uuid.UUID
 	EventSequence int64
 }
 
@@ -93,9 +94,9 @@ const (
 func updateAgentTurnLatestEventTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, turnID, latestEventID, latestSemanticEventID ID,
+	projectID, agentID, turnID, latestEventID, latestSemanticEventID uuid.UUID,
 ) error {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(turnID) || isNilID(latestEventID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || turnID == uuid.Nil || latestEventID == uuid.Nil {
 		return errors.New("project id, agent id, turn id, and latest event id are required")
 	}
 	return updateAgentTurnLatestEventQuery(
@@ -112,7 +113,7 @@ func updateAgentTurnLatestEventTx(
 func updateAgentTurnLatestEventQuery(
 	ctx context.Context,
 	queries *dbsqlc.Queries,
-	projectID, agentID, turnID, latestEventID, latestSemanticEventID ID,
+	projectID, agentID, turnID, latestEventID, latestSemanticEventID uuid.UUID,
 ) error {
 	changed, err := queries.UpdateAgentTurnLatestEvent(
 		ctx,
@@ -121,7 +122,7 @@ func updateAgentTurnLatestEventQuery(
 			AgentID:               agentID,
 			ID:                    turnID,
 			LatestEventID:         latestEventID,
-			LatestSemanticEventID: sqlcIDFromNil(latestSemanticEventID),
+			LatestSemanticEventID: storeutil.IDFromNil(latestSemanticEventID),
 		},
 	)
 	if err != nil {
@@ -136,7 +137,7 @@ func updateAgentTurnLatestEventQuery(
 func createSingleEventAgentTurnTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, turnID ID,
+	projectID, agentID, turnID uuid.UUID,
 	event events.Event,
 ) (AgentTurnRecord, error) {
 	sequence, err := qtx.NextTurnSequence(ctx, dbsqlc.NextTurnSequenceParams{ProjectID: projectID, AgentID: agentID})
@@ -181,7 +182,7 @@ func appendEventToCurrentOrNewAgentTurnTx(
 		if err != nil {
 			return TypedAgentEventRecord{}, AgentTurnRecord{}, false, err
 		}
-		semanticEventID := NilID
+		semanticEventID := uuid.Nil
 		if semantic {
 			semanticEventID = eventRecord.Event.ID
 		}
@@ -227,11 +228,11 @@ func appendEventToCurrentOrNewAgentTurnTx(
 
 func (s *Store) ListAgentEventsForRead(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	afterSequence int64,
 	limit int32,
 ) ([]AgentEventReadRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	if limit <= 0 {
@@ -264,7 +265,7 @@ func (s *Store) ListAgentEventsForRead(
 
 func (s *Store) ListAgentEventFrontiers(
 	ctx context.Context,
-	agentIDs []ID,
+	agentIDs []uuid.UUID,
 ) ([]AgentEventFrontier, error) {
 	if len(agentIDs) == 0 {
 		return nil, nil
@@ -291,11 +292,11 @@ func (s *Store) ListAgentEventFrontiers(
 // events; page beyond limit rows to detect older history.
 func (s *Store) ListAgentEventsBeforeForRead(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	beforeSequence int64,
 	limit int32,
 ) ([]AgentEventReadRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	if limit <= 0 {
@@ -329,11 +330,11 @@ func (s *Store) ListAgentEventsBeforeForRead(
 
 func (s *Store) ListTurnEventsForRead(
 	ctx context.Context,
-	projectID, agentID, turnID ID,
+	projectID, agentID, turnID uuid.UUID,
 	beforeSequence int64,
 	limit int32,
 ) ([]AgentEventReadRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(turnID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || turnID == uuid.Nil {
 		return nil, errors.New("project, agent, and turn are required")
 	}
 	if limit <= 0 {
@@ -345,7 +346,17 @@ func (s *Store) ListTurnEventsForRead(
 	if err := s.requireAgentTurnInProject(ctx, projectID, agentID, turnID); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListTurnEventsForRead(
+	return listTurnEventsForReadTx(ctx, s.q, projectID, agentID, turnID, beforeSequence, limit)
+}
+
+func listTurnEventsForReadTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID, turnID uuid.UUID,
+	beforeSequence int64,
+	limit int32,
+) ([]AgentEventReadRecord, error) {
+	rows, err := qtx.ListTurnEventsForRead(
 		ctx,
 		dbsqlc.ListTurnEventsForReadParams{
 			ProjectID:      projectID,
@@ -368,11 +379,11 @@ func (s *Store) ListTurnEventsForRead(
 
 func (s *Store) ListAgentTurnsForRead(
 	ctx context.Context,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	beforeTurnSequence int64,
 	limit int32,
 ) ([]AgentTurnReadRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
 	if limit <= 0 {
@@ -384,7 +395,17 @@ func (s *Store) ListAgentTurnsForRead(
 	if err := s.requireAgentInProject(ctx, projectID, agentID); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListAgentTurnsForRead(
+	return listAgentTurnsForReadTx(ctx, s.q, projectID, agentID, beforeTurnSequence, limit)
+}
+
+func listAgentTurnsForReadTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+	beforeTurnSequence int64,
+	limit int32,
+) ([]AgentTurnReadRecord, error) {
+	rows, err := qtx.ListAgentTurnsForRead(
 		ctx,
 		dbsqlc.ListAgentTurnsForReadParams{
 			ProjectID:          projectID,
@@ -397,7 +418,7 @@ func (s *Store) ListAgentTurnsForRead(
 		return nil, fmt.Errorf("list agent turns for read: %w", err)
 	}
 	out := make([]AgentTurnReadRecord, 0, len(rows))
-	turnIDs := make([]ID, 0, len(rows))
+	turnIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		turn := AgentTurnReadRecord{
 			AgentTurnRecord: AgentTurnRecord{
@@ -416,7 +437,7 @@ func (s *Store) ListAgentTurnsForRead(
 	if len(turnIDs) == 0 {
 		return out, nil
 	}
-	boundaryRows, err := s.q.ListTurnBoundaryEventsForRead(
+	boundaryRows, err := qtx.ListTurnBoundaryEventsForRead(
 		ctx,
 		dbsqlc.ListTurnBoundaryEventsForReadParams{
 			ProjectID: projectID,
@@ -427,7 +448,7 @@ func (s *Store) ListAgentTurnsForRead(
 	if err != nil {
 		return nil, fmt.Errorf("list turn boundary events for read: %w", err)
 	}
-	turnIndex := make(map[ID]int, len(out))
+	turnIndex := make(map[uuid.UUID]int, len(out))
 	for i := range out {
 		turnIndex[out[i].ID] = i
 	}
@@ -454,7 +475,7 @@ func (s *Store) ListAgentTurnsForRead(
 	return out, nil
 }
 
-func (s *Store) requireAgentInProject(ctx context.Context, projectID, agentID ID) error {
+func (s *Store) requireAgentInProject(ctx context.Context, projectID, agentID uuid.UUID) error {
 	owned, err := s.q.AgentExistsInProject(
 		ctx,
 		dbsqlc.AgentExistsInProjectParams{ProjectID: projectID, ID: agentID},
@@ -468,7 +489,7 @@ func (s *Store) requireAgentInProject(ctx context.Context, projectID, agentID ID
 	return nil
 }
 
-func (s *Store) requireAgentTurnInProject(ctx context.Context, projectID, agentID, turnID ID) error {
+func (s *Store) requireAgentTurnInProject(ctx context.Context, projectID, agentID, turnID uuid.UUID) error {
 	owned, err := s.q.AgentTurnExistsInProject(
 		ctx,
 		dbsqlc.AgentTurnExistsInProjectParams{ProjectID: projectID, AgentID: agentID, ID: turnID},
@@ -495,11 +516,11 @@ func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEven
 		EventKind:           row.EventKind,
 		InputKind:           stringFromSQLCText(row.InputKind),
 		ControlType:         stringFromSQLCText(row.ControlType),
-		ToolCallID:          idFromSQLCPtr(row.ToolCallID),
+		ToolCallID:          storeutil.IDFromPtr(row.ToolCallID),
 		ToolOutcome:         ToolResultOutcome(stringFromSQLCText(row.ToolOutcome)),
-		ModelCallContextID:  idFromSQLCPtr(row.ModelCallContextID),
+		ModelCallContextID:  storeutil.IDFromPtr(row.ModelCallContextID),
 		ModelStopReason:     modelenvelope.StopReason(stringFromSQLCText(row.ModelStopReason)),
-		ContextCheckpointID: idFromSQLCPtr(row.ContextCheckpointID),
+		ContextCheckpointID: storeutil.IDFromPtr(row.ContextCheckpointID),
 		CheckpointSummary:   stringFromSQLCText(row.CheckpointSummary),
 		ContentBlocks:       normalizedJSONArray(row.ContentBlocks),
 		ModelUsage: modelUsageFromSQLC(
@@ -515,10 +536,10 @@ func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEven
 	if row.ProviderMetadata != nil {
 		record.ProviderMetadata = providerMetadataFromSQLC(*row.ProviderMetadata)
 	}
-	record.ActorID = idFromSQLCPtr(row.ActorID)
-	record.AgentInputID = idFromSQLCPtr(row.AgentInputID)
-	record.TargetInteractionID = idFromSQLCPtr(row.TargetInteractionID)
-	record.AgentConfigID = idFromSQLCPtr(row.AgentConfigID)
+	record.ActorID = storeutil.IDFromPtr(row.ActorID)
+	record.AgentInputID = storeutil.IDFromPtr(row.AgentInputID)
+	record.TargetInteractionID = storeutil.IDFromPtr(row.TargetInteractionID)
+	record.AgentConfigID = storeutil.IDFromPtr(row.AgentConfigID)
 	if stringFromSQLCText(row.IdempotencyScope) == "content_input" {
 		record.InputIdempotencyKey = stringFromSQLCText(row.InputIdempotencyKey)
 	}

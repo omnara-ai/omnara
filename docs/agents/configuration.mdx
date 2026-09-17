@@ -60,6 +60,18 @@ machine_sources:
     cwd: /workspace
 skills:
   - skl_ik7mv4qtrwz3jehcyd5n6a2bfg
+subagents:
+  researcher:
+    type: profile
+    profile: research-agent
+    description: Read-only codebase investigation.
+    max_instances: 4
+  fork:
+    type: self
+    instruction:
+      append: You are a subagent. Finish with a concise summary.
+max_subagents: 8
+max_depth: 2
 ```
 
 ## Instruction and identity
@@ -111,6 +123,27 @@ tools:
 
 Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
 
+When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_file`, and `download_file` to the compiled config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. Compilation leaves your YAML or JSON source unchanged. Explicit disables and permissions take precedence.
+
+The builder displays these defaults under **Tools → Other tools** without writing them into your source. Changing a permission or selecting **Disabled** saves an explicit override. Defaults disappear when their relevant source is removed; explicitly configured tools remain.
+
+Existing machine configs gain missing machine-tool defaults only when saved again. The builder previews that saved result, not the tools currently stored for an existing config.
+
+Slack's `send_integration_message` remains contextual: it is available in Slack conversations without being added to the saved config, unless explicitly disabled. The builder only shows this tool when it is explicitly listed in the config.
+
+### Deferred tools
+
+Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to load matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
+
+```yaml
+tools:
+  web_search: {}                # always loaded
+  web_fetch:
+    deferred: true              # loaded only after a tool_search match
+```
+
+Deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+
 ### Custom tools
 
 A custom tool describes an operation that your system performs. Its `description` tells the model when to use it, and its `input_schema` defines the arguments.
@@ -122,6 +155,8 @@ The full example above defines `create_ticket` as a custom tool. When the agent 
 `mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to the [secret](/organization/secrets) required by the selected authentication type. [MCP servers](/tools/mcp) explains the full setup.
 
 ## Machines
+
+For new agents only, the builder preselects a cluster-managed pool granted to the project if one exists; otherwise, it starts without a machine source.
 
 `machine_sources` provides execution environments for tools such as `run_command`. Use a machine you connected yourself or let Omnara create one from a pool:
 
@@ -145,6 +180,45 @@ Environment names beginning with `OMNARA_` are reserved case-insensitively and c
 ## Skills
 
 `skills` attaches reusable instructions and files that the agent can load with the `skill` tool. The project must own or hold a [grant](/tools/skills#grant-it-to-projects) for each referenced skill.
+
+## Subagents
+
+`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key adds missing entries for the five subagent tools (`spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`) to the compiled config without changing source; existing entries keep their enablement and permissions. `spawn_agent` requires at least one key, but the other four can be listed under `tools` without any keys, so an agent whose config dropped its `subagents` can still read, message, and stop the subagents it already has.
+
+```yaml
+subagents:
+  researcher:
+    type: profile
+    profile: research-agent
+    description: Read-only codebase investigation.
+    model:
+      name: gpt-5.6-mini
+    instruction:
+      append: Report findings as a bullet list.
+    max_instances: 4
+    archive_after_idle_minutes: 60
+  fork:
+    type: self
+    model:
+      reasoning:
+        effort: medium
+max_subagents: 8
+max_depth: 2
+```
+
+| Field | What it does |
+|---|---|
+| `type` | `profile` launches from the named profile's current config. `self` launches from a copy of this agent's own config. |
+| `profile` | Profile name; required for `type: profile`, rejected for `type: self`. |
+| `description` | Shown to the model when it chooses a subagent key. |
+| `model` | Partial override merged onto the launched config's model block. |
+| `instruction.append` | Text appended to the launched config's instruction. |
+| `max_instances` | Cap on active subagents spawned from this key. |
+| `archive_after_idle_minutes` | Archive subagents from this key once they have been idle this long. |
+| `max_subagents` | Top-level cap on active subagents across every key. |
+| `max_depth` | Top-level cap on how many levels of subagents can nest below this agent, at most 8. Defaults to 1, so subagents cannot spawn their own. The value is carried into every subagent config in the tree and cannot be raised by a subagent or by a profile it launches from. |
+
+Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. Each subagent launches from a new config derived from its base with the key's overrides applied; a subagent at the tree's `max_depth` has `subagents` and `spawn_agent` removed. Subagents share the parent's attached machines, including its pool machines, instead of provisioning from the base config's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent; `read_agent` reads its timeline on demand. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
 
 ## Create a config
 

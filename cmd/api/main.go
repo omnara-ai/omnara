@@ -469,6 +469,7 @@ func apiOptions(
 	}
 	opts = append(opts, httpapi.WithSkillDownloadSigningKey(skillSigningKey))
 	opts = append(opts, httpapi.WithAuthHTTPClient(operatorHTTPClient))
+	opts = append(opts, httpapi.WithOAuthClientMetadataHTTPClient(publicServiceHTTPClient))
 	opts = append(opts, httpapi.WithSlackOAuth(httpapi.SlackOAuthConfig{HTTPClient: publicServiceHTTPClient}))
 	opts = append(opts, httpapi.WithRedisBackedAuth(redisClient))
 	opts = append(opts, httpapi.WithTrustedProxyCIDRs(cfg.TrustedProxyCIDRs))

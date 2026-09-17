@@ -1327,3 +1327,165 @@ SELECT 'project'::text AS scope, roles.role
 FROM principal_project_authorization_roles roles
 WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND roles.user_id = sqlc.narg(user_id)::uuid)
    OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND roles.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);
+
+-- name: CreateOAuthAuthorizationCode :one
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+VALUES (
+  sqlc.arg(code_hash),
+  sqlc.arg(user_id),
+  sqlc.arg(client_id),
+  sqlc.arg(client_name),
+  sqlc.arg(redirect_uri),
+  sqlc.arg(code_challenge),
+  sqlc.arg(resource),
+  transaction_timestamp(),
+  transaction_timestamp() + (sqlc.arg(ttl_seconds)::bigint * interval '1 second')
+)
+RETURNING id;
+
+-- name: GetActiveOAuthAuthorizationCodeUserByHash :one
+SELECT user_id
+FROM oauth_authorization_codes
+WHERE code_hash = sqlc.arg(code_hash)
+  AND consumed_at IS NULL
+  AND expires_at > transaction_timestamp();
+
+-- name: ConsumeOAuthAuthorizationCode :one
+UPDATE oauth_authorization_codes
+SET consumed_at = transaction_timestamp()
+WHERE code_hash = sqlc.arg(code_hash)
+  AND consumed_at IS NULL
+  AND expires_at > transaction_timestamp()
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource;
+
+-- name: ConsumeOAuthAuthorizationCodesForUser :exec
+UPDATE oauth_authorization_codes
+SET consumed_at = transaction_timestamp()
+WHERE user_id = sqlc.arg(user_id)
+  AND consumed_at IS NULL;
+
+-- name: DeleteExpiredOAuthAuthorizationCodes :execrows
+WITH candidates AS (
+    SELECT id
+    FROM oauth_authorization_codes
+    WHERE expires_at <= transaction_timestamp()
+    ORDER BY expires_at, id
+    LIMIT sqlc.arg(limit_count)
+)
+DELETE FROM oauth_authorization_codes
+USING candidates
+WHERE oauth_authorization_codes.id = candidates.id;
+
+-- name: CreateOAuthAccessToken :one
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+VALUES (
+  sqlc.arg(user_id),
+  sqlc.arg(client_id),
+  sqlc.arg(client_name),
+  sqlc.arg(resource),
+  sqlc.arg(token_hash),
+  sqlc.arg(refresh_token_hash),
+  transaction_timestamp(),
+  transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
+  transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
+)
+RETURNING id;
+
+-- name: GetOAuthAccessTokenUserByRefreshToken :one
+SELECT token.user_id
+FROM oauth_access_tokens token
+LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
+WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+   OR retired.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+LIMIT 1;
+
+-- name: RotateOAuthAccessToken :one
+WITH presented AS (
+  SELECT token.id
+  FROM oauth_access_tokens token
+  WHERE token.client_id = sqlc.arg(client_id)
+    AND token.revoked_at IS NULL
+    AND token.refresh_expires_at > transaction_timestamp()
+    AND (
+      token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+      OR EXISTS (
+        SELECT 1
+        FROM oauth_retired_refresh_tokens latest
+        WHERE latest.oauth_access_token_id = token.id
+          AND latest.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+          AND latest.retired_at
+            > transaction_timestamp() - (sqlc.arg(reuse_grace_seconds)::bigint * interval '1 second')
+          AND latest.retired_at = (
+            SELECT max(retired.retired_at)
+            FROM oauth_retired_refresh_tokens retired
+            WHERE retired.oauth_access_token_id = token.id
+          )
+      )
+    )
+), rotated AS (
+  UPDATE oauth_access_tokens token
+  SET token_hash = sqlc.arg(token_hash),
+      refresh_token_hash = sqlc.arg(refresh_token_hash),
+      expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
+  FROM presented
+  WHERE token.id = presented.id
+  RETURNING token.id, token.user_id, token.resource
+), retired AS (
+  INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
+  SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
+  FROM rotated
+  JOIN oauth_access_tokens old ON old.id = rotated.id
+  ON CONFLICT (refresh_token_hash) DO NOTHING
+)
+SELECT id, user_id, resource
+FROM rotated;
+
+-- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
+UPDATE oauth_access_tokens token
+SET revoked_at = transaction_timestamp()
+FROM oauth_retired_refresh_tokens retired
+WHERE retired.oauth_access_token_id = token.id
+  AND retired.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+  AND token.revoked_at IS NULL;
+
+-- name: AuthenticateOAuthAccessToken :one
+WITH authenticated AS MATERIALIZED (
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  FROM oauth_access_tokens t
+  WHERE t.token_hash = sqlc.arg(token_hash)
+    AND t.revoked_at IS NULL
+    AND t.expires_at > transaction_timestamp()
+  LIMIT 1
+), touched AS (
+  UPDATE oauth_access_tokens token
+  SET last_used_at = transaction_timestamp()
+  FROM authenticated
+  WHERE token.id = authenticated.oauth_access_token_id
+    AND (
+      token.last_used_at IS NULL
+      OR token.last_used_at < transaction_timestamp() - (sqlc.arg(touch_interval_seconds)::bigint * interval '1 second')
+    )
+  RETURNING token.id
+)
+SELECT user_id, oauth_access_token_id, resource
+FROM authenticated;
+
+-- name: RevokeOAuthAccessTokensForUser :exec
+UPDATE oauth_access_tokens
+SET revoked_at = statement_timestamp()
+WHERE user_id = sqlc.arg(user_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteInactiveOAuthAccessTokens :execrows
+WITH candidates AS (
+    SELECT id
+    FROM oauth_access_tokens
+    WHERE refresh_expires_at <= transaction_timestamp()
+       OR revoked_at IS NOT NULL
+    ORDER BY refresh_expires_at, id
+    LIMIT sqlc.arg(limit_count)
+)
+DELETE FROM oauth_access_tokens
+USING candidates
+WHERE oauth_access_tokens.id = candidates.id;

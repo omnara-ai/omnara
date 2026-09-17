@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -17,10 +18,10 @@ func (s *Store) CreateAgentContentInput(
 	ctx context.Context,
 	input CreateAgentContentInputInput,
 ) (AgentInputRecord, json.RawMessage, bool, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("project id is required")
 	}
-	if isNilID(input.AgentID) {
+	if input.AgentID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("agent id is required")
 	}
 	exists, err := s.q.AgentExistsInProject(
@@ -117,7 +118,7 @@ type createAgentContentInputTxResult struct {
 	agentInput             AgentInputRecord
 	contentBlocks          json.RawMessage
 	created                bool
-	canceledInteractionIDs []ID
+	canceledInteractionIDs []uuid.UUID
 }
 
 func createAgentContentInputTx(
@@ -162,7 +163,7 @@ func createAgentContentInputTx(
 				qtx,
 				existingInput.ProjectID,
 				existingInput.AgentID,
-				[]ID{existingInput.ID},
+				[]uuid.UUID{existingInput.ID},
 			)
 			if err != nil {
 				return createAgentContentInputTxResult{}, err
@@ -278,10 +279,10 @@ func createAgentInputContentBlocksTx(
 func agentInputContentBlocks(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID ID,
-	inputIDs []ID,
-) (map[ID]json.RawMessage, error) {
-	contentBlocks := make(map[ID]json.RawMessage, len(inputIDs))
+	projectID, agentID uuid.UUID,
+	inputIDs []uuid.UUID,
+) (map[uuid.UUID]json.RawMessage, error) {
+	contentBlocks := make(map[uuid.UUID]json.RawMessage, len(inputIDs))
 	if len(inputIDs) == 0 {
 		return contentBlocks, nil
 	}
@@ -293,7 +294,7 @@ func agentInputContentBlocks(
 	if err != nil {
 		return nil, fmt.Errorf("list agent input content blocks: %w", err)
 	}
-	blocksByInput := make(map[ID][]CreateContentBlockInput, len(inputIDs))
+	blocksByInput := make(map[uuid.UUID][]CreateContentBlockInput, len(inputIDs))
 	for _, row := range rows {
 		metadata, err := resourcemeta.FromJSON(row.Metadata)
 		if err != nil {
@@ -322,10 +323,10 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
-	ProjectID              ID
-	AgentID                ID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
 	Actor                  *ActorParams
-	IntegrationTargetID    ID
+	IntegrationTargetID    uuid.UUID
 	ContentBlocks          json.RawMessage
 	Metadata               json.RawMessage
 	DeliveryMode           AgentInputDeliveryMode

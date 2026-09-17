@@ -20,6 +20,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -52,17 +53,15 @@ export function ModelProvidersSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Model providers"
+          guide={guides.modelProviders}
           toolbar={
-            showToolbar ? (
-              <ResourceListToolbar
-                search={list.search}
-                onSearchChange={list.setSearch}
-                sort={list.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={list.setSort}
-                placeholder="Search providers by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+              placeholder="Search providers by name…"
+              showSearch={showToolbar}
+            />
           }
         >
           {newProviderButton()}

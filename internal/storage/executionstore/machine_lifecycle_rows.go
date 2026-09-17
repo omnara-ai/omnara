@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -400,8 +401,8 @@ func machineRecordFromMarkArchivedAgentPoolMachinesDeletingSQLC(
 }
 
 func machineRecordFromSQLC(
-	id, orgID ID,
-	machinePoolID *ID,
+	id, orgID uuid.UUID,
+	machinePoolID *uuid.UUID,
 	sourceKind, displayName, description, provider, lifecycleState string,
 	providerResourceID *string,
 	providerProvisionAttemptedAt *time.Time,
@@ -422,7 +423,7 @@ func machineRecordFromSQLC(
 	return MachineRecord{
 		ID:                           id,
 		OrgID:                        orgID,
-		MachinePoolID:                idFromSQLCPtr(machinePoolID),
+		MachinePoolID:                storeutil.IDFromPtr(machinePoolID),
 		SourceKind:                   MachineSourceKind(sourceKind),
 		DisplayName:                  displayName,
 		Description:                  description,
@@ -454,7 +455,7 @@ func machineRecordFromSQLC(
 }
 
 func machineSummaryRecordFromSQLC(
-	id, orgID ID,
+	id, orgID uuid.UUID,
 	sourceKind, displayName, description, provider, lifecycleState, connectionState string,
 	lastObservedAt, deletedAt *time.Time,
 	createdAt, updatedAt time.Time,

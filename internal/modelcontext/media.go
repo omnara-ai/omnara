@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 )
 
@@ -39,7 +39,7 @@ func (b Builder) resolveMedia(ctx context.Context, bundle *Bundle, projector Med
 	if err != nil {
 		return err
 	}
-	byID := make(map[storage.ID]artifactstore.ArtifactRecord, len(records))
+	byID := make(map[uuid.UUID]artifactstore.ArtifactRecord, len(records))
 	for _, record := range records {
 		if !IsAttachmentMedia(record.ContentType) {
 			continue
@@ -85,9 +85,9 @@ func (b Builder) resolveMedia(ctx context.Context, bundle *Bundle, projector Med
 	}
 
 	resolved := make(map[string]ResolvedMedia, len(byID))
-	selectedRecords := make(map[storage.ID]artifactstore.ArtifactRecord, len(byID))
-	selectedIDs := make([]storage.ID, 0, len(byID))
-	loadData := make(map[storage.ID]bool, len(byID))
+	selectedRecords := make(map[uuid.UUID]artifactstore.ArtifactRecord, len(byID))
+	selectedIDs := make([]uuid.UUID, 0, len(byID))
+	loadData := make(map[uuid.UUID]bool, len(byID))
 	var totalBytes int64
 	var omittedCount int
 	var omittedBytes int64
@@ -193,7 +193,7 @@ type mediaContentOwner struct {
 type mediaOccurrence struct {
 	owner      mediaContentOwner
 	partIndex  int
-	artifactID storage.ID
+	artifactID uuid.UUID
 	opening    bool
 	selected   bool
 }
@@ -226,8 +226,8 @@ func collectMediaOccurrences(bundle *Bundle) []mediaOccurrence {
 			if err := json.Unmarshal(part["artifact_id"], &artifactID); err != nil {
 				continue
 			}
-			id, err := storage.ParseID(artifactID)
-			if err != nil || id == storage.NilID {
+			id, err := uuid.Parse(artifactID)
+			if err != nil || id == uuid.Nil {
 				continue
 			}
 			occurrences = append(occurrences, mediaOccurrence{
@@ -325,9 +325,9 @@ func (r MediaOccurrenceRef) owner(bundle Bundle) (mediaContentOwner, bool) {
 	}, true
 }
 
-func uniqueMediaArtifactIDs(occurrences []mediaOccurrence) []storage.ID {
-	seen := make(map[storage.ID]bool, len(occurrences))
-	ids := make([]storage.ID, 0, len(occurrences))
+func uniqueMediaArtifactIDs(occurrences []mediaOccurrence) []uuid.UUID {
+	seen := make(map[uuid.UUID]bool, len(occurrences))
+	ids := make([]uuid.UUID, 0, len(occurrences))
 	for _, occurrence := range occurrences {
 		if seen[occurrence.artifactID] {
 			continue
@@ -341,7 +341,7 @@ func uniqueMediaArtifactIDs(occurrences []mediaOccurrence) []storage.ID {
 func rewriteOmittedMediaOccurrences(
 	bundle *Bundle,
 	occurrences []mediaOccurrence,
-	records map[storage.ID]artifactstore.ArtifactRecord,
+	records map[uuid.UUID]artifactstore.ArtifactRecord,
 ) error {
 	for _, occurrence := range occurrences {
 		if occurrence.selected {
@@ -375,8 +375,8 @@ func mediaRefText(artifactID, filename string) string {
 }
 
 func ArtifactPublicID(artifactID string) string {
-	id, err := storage.ParseID(artifactID)
-	if err != nil || id == storage.NilID {
+	id, err := uuid.Parse(artifactID)
+	if err != nil || id == uuid.Nil {
 		return artifactID
 	}
 	publicArtifactID, err := publicid.Encode(publicid.KindArtifact, id)

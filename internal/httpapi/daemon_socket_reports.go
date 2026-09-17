@@ -7,14 +7,14 @@ import (
 	"fmt"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func (s *daemonSocket) handleProcessAccept(ctx context.Context, msg daemonprotocol.Message) error {
-	processID, err := parsePublicID(publicid.KindProcess, msg.ProcessID)
+	processID, err := publicid.Decode(publicid.KindProcess, msg.ProcessID)
 	if err != nil {
 		return err
 	}
@@ -46,11 +46,11 @@ func (s *daemonSocket) handleProcessAccept(ctx context.Context, msg daemonprotoc
 }
 
 func (s *daemonSocket) handleActionAccept(ctx context.Context, msg daemonprotocol.Message) error {
-	processID, err := parsePublicID(publicid.KindProcess, msg.ProcessID)
+	processID, err := publicid.Decode(publicid.KindProcess, msg.ProcessID)
 	if err != nil {
 		return err
 	}
-	actionID, err := parsePublicID(publicid.KindProcessAction, msg.ProcessActionID)
+	actionID, err := publicid.Decode(publicid.KindProcessAction, msg.ProcessActionID)
 	if err != nil {
 		return err
 	}
@@ -294,26 +294,26 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 	return message
 }
 
-func (s *daemonSocket) markAcceptedProcess(processID storage.ID) {
+func (s *daemonSocket) markAcceptedProcess(processID uuid.UUID) {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
 	s.acceptedProcesses[processID] = struct{}{}
 }
 
-func (s *daemonSocket) markAcceptedAction(actionID storage.ID) {
+func (s *daemonSocket) markAcceptedAction(actionID uuid.UUID) {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
 	s.acceptedActions[actionID] = struct{}{}
 }
 
-func (s *daemonSocket) processAcceptedOnConnection(processID storage.ID) bool {
+func (s *daemonSocket) processAcceptedOnConnection(processID uuid.UUID) bool {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
 	_, ok := s.acceptedProcesses[processID]
 	return ok
 }
 
-func (s *daemonSocket) actionAcceptedOnConnection(actionID storage.ID) bool {
+func (s *daemonSocket) actionAcceptedOnConnection(actionID uuid.UUID) bool {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
 	_, ok := s.acceptedActions[actionID]
@@ -324,11 +324,11 @@ func (s *daemonSocket) forgetAcceptedWork(event *daemonprotocol.ReportedEvent) {
 	if event == nil {
 		return
 	}
-	processID, processErr := parsePublicID(publicid.KindProcess, event.ProcessID)
-	var actionID storage.ID
+	processID, processErr := publicid.Decode(publicid.KindProcess, event.ProcessID)
+	var actionID uuid.UUID
 	var actionErr error
 	if event.ProcessActionID != "" {
-		actionID, actionErr = parsePublicID(publicid.KindProcessAction, event.ProcessActionID)
+		actionID, actionErr = publicid.Decode(publicid.KindProcessAction, event.ProcessActionID)
 	}
 	s.workMu.Lock()
 	defer s.workMu.Unlock()

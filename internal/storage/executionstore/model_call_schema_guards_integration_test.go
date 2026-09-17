@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -19,7 +20,7 @@ func TestConcurrentNormalModelCallClaimsHaveOneSender(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "normal_creator_authority")
-	openingInputIDs := make([]ID, 0, len(admitted.Inputs))
+	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
@@ -312,7 +313,7 @@ func TestModelCallOperationRejectsSecondSemanticOutcome(t *testing.T) {
 	ctx := context.Background()
 	fixture, _, first := newStartedNormalModelCallTestFixture(t, ctx, "operation_outcome_guard")
 
-	var turnID ID
+	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn_id
 FROM model_call_context_turns
@@ -332,7 +333,7 @@ WHERE project_id = $1 AND agent_id = $2 AND model_call_context_id = $3
 		fixture.Now.Add(2*time.Second),
 	)
 
-	var secondContextID ID
+	var secondContextID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind,
@@ -424,7 +425,7 @@ func TestContextCheckpointDatabaseGuardsRejectMutationAndDuplicateEvent(t *testi
 	_, err = fixture.Store.pool.Exec(ctx, `DELETE FROM context_checkpoints WHERE id = $1`, checkpoint.ID)
 	assertPgErrorMessage(t, err, "25006", "context_checkpoints are immutable")
 
-	var turnID ID
+	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT event.turn_id
 FROM agent_events event

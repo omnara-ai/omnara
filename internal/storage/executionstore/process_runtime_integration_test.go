@@ -13,11 +13,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type countingSecretKeyWrapper struct {
@@ -65,7 +67,7 @@ func TestDaemonTerminalReportAllowsRegisteredOfflineRuntimeAndReplay(t *testing.
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -140,7 +142,7 @@ func TestDaemonProcessStartedReportAllowsRegisteredOfflineRuntime(t *testing.T) 
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -445,7 +447,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 		t.Fatalf("set process binding environment: %v", err)
 	}
 	countingWrapper := &countingSecretKeyWrapper{KeyWrapper: newIntegrationKeyWrapper()}
-	fixture.Store = newIntegrationStore(fixture.Store.pool, WithSecretKeyWrapper(countingWrapper))
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithSecretKeyWrapper(countingWrapper))
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "shell_command_intent_process", "run_command")
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
@@ -582,7 +584,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process: %v", err)
@@ -806,7 +808,7 @@ func TestDaemonProcessAcceptGrantsQueuedProcessOnce(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process: %v", err)
@@ -976,7 +978,7 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 			testOrgID,
 			fixture.MachineID,
 			fixture.RuntimeID,
-			NilID); err != nil {
+			uuid.Nil); err != nil {
 			t.Fatalf("accept built-in process: %v", err)
 		} else if !found {
 			t.Fatal("expected built-in process accept")
@@ -1033,7 +1035,7 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 			testOrgID,
 			fixture.MachineID,
 			fixture.RuntimeID,
-			NilID); err != nil {
+			uuid.Nil); err != nil {
 			t.Fatalf("accept mislinked process: %v", err)
 		} else if !found {
 			t.Fatal("expected mislinked process accept")
@@ -1091,7 +1093,7 @@ func TestRunCommandStartCompletesLinkedToolCallWhenAddressable(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process: %v", err)
@@ -1175,16 +1177,22 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 	t.Parallel()
 	for _, test := range []struct {
 		name           string
+		toolName       string
+		input          json.RawMessage
 		createArtifact bool
 		wantOutcome    executionstore.ToolResultOutcome
 	}{
 		{
 			name:           "stored_artifact",
+			toolName:       "upload_file",
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			createArtifact: true,
 			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
 		},
 		{
 			name:        "missing_artifact",
+			toolName:    "upload_file",
+			input:       json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 	} {
@@ -1192,13 +1200,20 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(t, ctx, "upload_artifact_terminal_"+test.name)
-			toolCallID := createToolCallForProcessTest(
+			toolCallIDs := createToolCallBatchForProcessTest(
 				t,
 				ctx,
 				fixture,
 				"upload_artifact_terminal_"+test.name,
-				"upload_artifact",
+				[]processToolCallBatchItem{{
+					TestName: test.name,
+					ToolName: test.toolName,
+					ToolType: toolcatalog.ToolTypeBuiltIn,
+					Allowed:  true,
+					Input:    test.input,
+				}},
 			)
+			toolCallID := toolCallIDs[0]
 			process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 				ProjectID:     testProjectID,
 				AgentID:       fixture.AgentID,
@@ -1309,7 +1324,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			if test.createArtifact {
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
 				wantContent := []byte(
-					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID +
+					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
 						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
 						`","exclude_from_model_context":true}]`,
 				)
@@ -1339,7 +1354,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					)
 				}
 				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID + `"}}]`,
+					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}]`,
 				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {
@@ -1402,7 +1417,7 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				}
 				foundCompactionResult := false
 				for _, event := range compactionEvents {
-					if event.ToolName == "upload_artifact" &&
+					if event.ToolName == test.toolName &&
 						event.ToolOutcome == string(executionstore.ToolResultOutcomeSucceeded) {
 						foundCompactionResult = sameJSON(event.ContentParts, wantModelContent)
 					}
@@ -1463,7 +1478,7 @@ func TestRunCommandTerminalResultRetainsCanonicalProcessHandle(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
 		t.Fatal("expected process accept")
@@ -1545,7 +1560,7 @@ func TestDaemonProcessQueuedWorkCancelsBeforeAccept(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID); err != nil {
+		uuid.Nil); err != nil {
 		t.Fatalf("accept process after stop: %v", err)
 	} else if found {
 		t.Fatal("queued process remained acceptable after agent cancel")
@@ -1697,7 +1712,7 @@ func TestProcessAcceptUsesReplacementGrantAfterGrantRotation(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process after grant rotation: %v", err)
@@ -1720,7 +1735,7 @@ func TestRevokeProjectMachineGrantTerminatesActiveDaemonProcess(t *testing.T) {
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "revoke_grant_active_process")
 	publisher := &recordingPostCommitPublisher{}
-	fixture.Store = newIntegrationStore(fixture.Store.pool, WithPostCommitPublisher(publisher))
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "revoke_grant_active_process", "run_command")
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -1805,7 +1820,7 @@ func TestRevokeProjectMachineGrantResolvesTerminalProcessActions(t *testing.T) {
 	}
 	for _, expected := range []struct {
 		action     executionstore.ProcessActionRecord
-		toolCallID ID
+		toolCallID uuid.UUID
 		state      executionstore.ProcessActionState
 	}{
 		{
@@ -1862,7 +1877,7 @@ func TestArchiveAgentMarksActiveProcessUnknown(t *testing.T) {
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "archive_active_process")
 	publisher := &recordingPostCommitPublisher{}
-	fixture.Store = newIntegrationStore(fixture.Store.pool, WithPostCommitPublisher(publisher))
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "archive_active_process", "run_command")
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -1937,7 +1952,7 @@ func TestReplacementRuntimeMarksUnclaimedGrantedProcessUnknownAfterRuntimeEnds(
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID)
+		uuid.Nil)
 
 	if err != nil {
 		t.Fatalf("accept process: %v", err)
@@ -1994,7 +2009,7 @@ func assertToolCallStateForTest(
 	t *testing.T,
 	ctx context.Context,
 	fixture processDaemonFixture,
-	toolCallID ID,
+	toolCallID uuid.UUID,
 	wantType, wantState string,
 ) {
 	t.Helper()

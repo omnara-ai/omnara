@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 func (s *Store) GetProviderReplaySuppressionCutoff(
 	ctx context.Context,
-	projectID, agentID, modelCallContextID ID,
+	projectID, agentID, modelCallContextID uuid.UUID,
 ) (int64, error) {
 	cutoff, err := s.q.GetProviderReplaySuppressionCutoff(
 		ctx,

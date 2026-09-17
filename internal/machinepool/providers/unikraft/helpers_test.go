@@ -8,13 +8,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const testStartupScriptEnvVar = "OMNARA_STARTUP_SCRIPT_PAYLOAD"
 
-func testInstallationID() storage.ID {
+func testInstallationID() uuid.UUID {
 	return uuid.MustParse("00000000-0000-0000-0000-000000000002")
 }
 
@@ -76,7 +75,7 @@ func testMachineProvisioning(t *testing.T, overrides map[string]any) executionst
 	return machineProvisioning
 }
 
-func mustInstanceName(t *testing.T, machineID storage.ID) string {
+func mustInstanceName(t *testing.T, machineID uuid.UUID) string {
 	t.Helper()
 	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
 	if err != nil {

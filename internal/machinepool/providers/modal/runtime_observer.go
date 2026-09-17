@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	modalsdk "github.com/modal-labs/modal-client/go"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 var _ providers.RuntimeStateObserver = (*provider)(nil)
@@ -22,7 +22,7 @@ func (p *provider) ObserveRuntimeStates(
 ) ([]providers.RuntimeObservation, error) {
 	observations := make([]providers.RuntimeObservation, len(targets))
 	resourceCounts := make(map[string]int, len(targets))
-	machineCounts := make(map[storage.ID]int, len(targets))
+	machineCounts := make(map[uuid.UUID]int, len(targets))
 	for index, target := range targets {
 		observations[index] = target.UnknownObservation()
 		resourceCounts[target.ProviderResourceID]++
@@ -69,7 +69,7 @@ func observeRuntimeState(
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
 	observation := target.UnknownObservation()
-	if target.InstallationID == storage.NilID || target.MachineID == storage.NilID ||
+	if target.InstallationID == uuid.Nil || target.MachineID == uuid.Nil ||
 		target.ProviderResourceID == "" ||
 		target.ProviderResourceID != strings.TrimSpace(target.ProviderResourceID) {
 		return observation, nil

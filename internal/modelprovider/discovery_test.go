@@ -260,6 +260,8 @@ func TestDiscoverModelsOpenRouterCapabilityMetadata(t *testing.T) {
 			 "top_provider":{"context_length":32768,"max_completion_tokens":2048}},
 			{"id":"maker/new-tools","created":200,
 			 "context_length":131072,
+			 "pricing":{"prompt":"0.000003","completion":"0.000015",
+			            "input_cache_read":"0.0000003","input_cache_write":"0.00000375","request":"0"},
 			 "architecture":{"output_modalities":["text"]},"supported_parameters":["tools"],
 			 "top_provider":{"context_length":131072,"max_completion_tokens":8192}},
 			{"id":"maker/equal-limits","created":150,
@@ -296,6 +298,15 @@ func TestDiscoverModelsOpenRouterCapabilityMetadata(t *testing.T) {
 		models[2].ContextWindowTokens == nil || *models[2].ContextWindowTokens != 32768 ||
 		models[2].MaxOutputTokens == nil || *models[2].MaxOutputTokens != 2048 {
 		t.Fatalf("unexpected OpenRouter token limits: %+v", models)
+	}
+
+	if pricing := models[0].Pricing; pricing == nil ||
+		pricing.InputUSDPerMillion != "3" || pricing.OutputUSDPerMillion != "15" ||
+		pricing.CacheReadInputUSDPerMillion != "0.3" || pricing.CacheWriteInputUSDPerMillion != "3.75" {
+		t.Fatalf("unexpected OpenRouter pricing: %+v", models[0].Pricing)
+	}
+	if models[1].Pricing != nil || models[2].Pricing != nil {
+		t.Fatalf("expected no pricing without a pricing object: %+v %+v", models[1].Pricing, models[2].Pricing)
 	}
 
 	if _, err := DiscoverModels(context.Background(), config, "sk-bad", true); err == nil ||

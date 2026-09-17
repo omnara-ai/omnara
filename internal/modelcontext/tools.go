@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -27,7 +28,7 @@ func WithImplicitIntegrationMessageTool(
 func RuntimeContractToolSpecs(
 	ctx context.Context,
 	store Store,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 	now time.Time,
 ) ([]ToolSpec, error) {
@@ -57,10 +58,19 @@ func RuntimeContractToolSpecs(
 				now.UTC().Year(),
 			)
 		}
+		inputSchema := tool.InputSchema
+		if tool.Name == toolcatalog.ToolNameSpawnAgent && len(contract.Subagents) > 0 {
+			var err error
+			description, inputSchema, err = spawnAgentToolSpec(description, inputSchema, contract)
+			if err != nil {
+				return nil, err
+			}
+		}
 		spec := ToolSpec{
 			Name:        tool.Name,
 			Description: description,
-			InputSchema: tool.InputSchema,
+			InputSchema: inputSchema,
+			Deferred:    tool.Deferred,
 			Type:        tool.Type,
 			Permission:  tool.Permission,
 		}
@@ -95,7 +105,7 @@ type mcpToolSnapshot struct {
 func runtimeMCPToolSpecs(
 	ctx context.Context,
 	store Store,
-	projectID, agentID storage.ID,
+	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 ) ([]ToolSpec, error) {
 	if len(contract.MCPServers) == 0 {
@@ -124,7 +134,7 @@ func runtimeMCPToolSpecs(
 			)
 		}
 		for _, tool := range tools {
-			permission, ok := server.ResolveTool(tool.Name)
+			resolution, ok := server.ResolveTool(tool.Name)
 			if !ok {
 				continue
 			}
@@ -146,12 +156,46 @@ func runtimeMCPToolSpecs(
 					Name:        name,
 					Description: description,
 					InputSchema: schema,
+					Deferred:    resolution.Deferred,
 					Type:        toolcatalog.ToolTypeMCP,
-					Permission:  permission,
+					Permission:  resolution.Permission,
 				},
 			)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func spawnAgentToolSpec(
+	description string,
+	inputSchema json.RawMessage,
+	contract agentconfig.RuntimeContract,
+) (string, json.RawMessage, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(inputSchema, &schema); err != nil {
+		return "", nil, fmt.Errorf("decode spawn_agent schema: %w", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	agentProperty, _ := properties["agent"].(map[string]any)
+	if agentProperty == nil {
+		return "", nil, fmt.Errorf("spawn_agent schema has no agent property")
+	}
+	keys := contract.SubagentKeys()
+	agentProperty["enum"] = keys
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return "", nil, fmt.Errorf("encode spawn_agent schema: %w", err)
+	}
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		entry := contract.Subagents[key]
+		line := fmt.Sprintf("- %s (%s)", key, entry.Type)
+		if entry.Description != "" {
+			line += ": " + entry.Description
+		}
+		lines = append(lines, line)
+	}
+	description = description + " Available subagents:\n" + strings.Join(lines, "\n")
+	return description, encoded, nil
 }

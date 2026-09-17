@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -19,7 +20,7 @@ func createHTTPRuntimeAgent(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	name string,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
@@ -30,7 +31,7 @@ func createHTTPRuntimeAgentWithMachineSource(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	name string,
 	machineName string,
 ) executionstore.LaunchAgentResult {
@@ -68,7 +69,6 @@ model:
 	compiled := compileHTTPAgentYAMLResolved(t, ctx, store, orgID, projectID, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -108,7 +108,7 @@ func compileHTTPAgentYAMLResolved(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	orgID, projectID, userID storage.ID,
+	orgID, projectID, userID uuid.UUID,
 	sourceYAML string,
 ) agentconfig.Result {
 	t.Helper()
@@ -149,9 +149,9 @@ func resolvedHTTPAgentConfigModel(configuredModel modelstore.ConfiguredModelReco
 	}
 }
 
-func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {
+func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := storage.ParseID(compiled.Compiled.Model.ConfiguredModelID)
+	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("parse compiled configured model id: %v", err)
 	}

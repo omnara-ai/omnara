@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 )
 
 func TextFromEmpty(value string) *string {
@@ -15,6 +14,13 @@ func TextFromEmpty(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func TextOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func IDFromNil(value uuid.UUID) *uuid.UUID {
@@ -71,10 +77,6 @@ func NormalizeJSON(value json.RawMessage) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	return value
-}
-
-func SameJSON(left, right json.RawMessage) bool {
-	return jsoncanonical.Equal(left, right)
 }
 
 func IsUniqueViolation(err error) bool {

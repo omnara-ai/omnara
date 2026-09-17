@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -101,7 +103,7 @@ func TestClaimNormalModelCallRejectsInputOutsideTurnOpening(t *testing.T) {
 	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
-	var configInputID ID
+	var configInputID uuid.UUID
 	var configEventSequence int64
 	if err := fixture.Store.pool.QueryRow(ctx, `
 		SELECT input.id, event.sequence
@@ -123,7 +125,7 @@ func TestClaimNormalModelCallRejectsInputOutsideTurnOpening(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      claim.RuntimeLock.ID,
-		OpeningInputIDs:    []ID{configInputID},
+		OpeningInputIDs:    []uuid.UUID{configInputID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: configEventSequence,
 	})
@@ -176,7 +178,7 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 	if !found || claim.Kind != executionstore.AgentWorkModel || len(claim.Model.InputIDs) != 2 {
 		t.Fatalf("claim = %+v found=%v, want two opening inputs", claim, found)
 	}
-	inputIDs := []ID{first.ID, second.ID}
+	inputIDs := []uuid.UUID{first.ID, second.ID}
 	if claim.Model.InputIDs[0] != inputIDs[0] || claim.Model.InputIDs[1] != inputIDs[1] {
 		t.Fatalf("claim input ids = %v, want %v", claim.Model.InputIDs, inputIDs)
 	}
@@ -197,7 +199,7 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      claim.RuntimeLock.ID,
-		OpeningInputIDs:    []ID{first.ID},
+		OpeningInputIDs:    []uuid.UUID{first.ID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: watermark,
 	})
@@ -208,7 +210,7 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 		ProjectID:          testProjectID,
 		AgentID:            fixture.AgentID,
 		RuntimeLockID:      claim.RuntimeLock.ID,
-		OpeningInputIDs:    []ID{first.ID, first.ID},
+		OpeningInputIDs:    []uuid.UUID{first.ID, first.ID},
 		AgentConfigID:      agent.CurrentConfigID,
 		InputEventSequence: watermark,
 	})
@@ -237,7 +239,7 @@ func TestCompletedToolResultWakeupClearsAfterLaterModelOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load agent for continuation context: %v", err)
 	}
-	var openingInputID ID
+	var openingInputID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(
 		ctx,
 		`SELECT event.agent_input_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND event.is_opening_event ORDER BY event.sequence LIMIT 1`,
@@ -296,7 +298,7 @@ func TestCompletedToolResultWakeupClearsAfterLaterModelOutput(t *testing.T) {
 		t,
 		ctx,
 		continuationFixture,
-		[]ID{openingInputID},
+		[]uuid.UUID{openingInputID},
 		agent.CurrentConfigID,
 		continuationWatermark,
 		recoveryNow.Add(250*time.Millisecond),
@@ -442,7 +444,7 @@ func TestClaimNextAgentWorkStartsNewTurnAfterCanceledInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cancel agent: %v", err)
 	}
-	if cancelResult.Event.ID == NilID || !cancelResult.Affected {
+	if cancelResult.Event.ID == uuid.Nil || !cancelResult.Affected {
 		t.Fatalf("cancel event = %+v affected=%v, want stop event", cancelResult.Event, cancelResult.Affected)
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -549,7 +551,7 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,
-		WithPostCommitPublisher(publisher),
+		storage.WithPostCommitPublisher(publisher),
 	)
 	toolCallID := createToolCallForProcessTestWithPermission(
 		t,
@@ -764,8 +766,12 @@ func TestClaimNormalModelCallRejectsOpeningInputsPastWatermark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load agent: %v", err)
 	}
-	inputIDs := []ID{firstInput.ID, secondInput.ID}
-	claimContext := func(openingInputIDs []ID, frontier int64, at time.Time) (executionstore.ModelCallClaim, error) {
+	inputIDs := []uuid.UUID{firstInput.ID, secondInput.ID}
+	claimContext := func(
+		openingInputIDs []uuid.UUID,
+		frontier int64,
+		at time.Time,
+	) (executionstore.ModelCallClaim, error) {
 		return fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
 			ProjectID:          testProjectID,
 			AgentID:            fixture.AgentID,
@@ -776,14 +782,14 @@ func TestClaimNormalModelCallRejectsOpeningInputsPastWatermark(t *testing.T) {
 		})
 	}
 	if _, err := claimContext(
-		[]ID{firstInput.ID, firstInput.ID},
+		[]uuid.UUID{firstInput.ID, firstInput.ID},
 		admitted.Events[1].Sequence,
 		now.Add(3500*time.Millisecond),
 	); !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
 		t.Fatalf("claim model context with duplicate opening input err=%v, want %v", err, storeerr.ErrAgentNotAdvanceable)
 	}
 	if _, err := claimContext(
-		[]ID{firstInput.ID},
+		[]uuid.UUID{firstInput.ID},
 		admitted.Events[1].Sequence,
 		now.Add(3600*time.Millisecond),
 	); !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {

@@ -5,16 +5,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func agentMachineBindingRecordFromSQLC(row dbsqlc.AgentMachineBinding) AgentMachineBindingRecord {
+func agentMachineBindingRecordFromSQLC(row dbsqlc.GetAgentMachineBindingByMachineRow) AgentMachineBindingRecord {
 	return AgentMachineBindingRecord{
 		ID:                     row.ID,
 		OrgID:                  row.OrgID,
 		ProjectID:              row.ProjectID,
 		AgentID:                row.AgentID,
-		CreateToolCallID:       idFromSQLCPtr(row.CreateToolCallID),
-		DeleteToolCallID:       idFromSQLCPtr(row.DeleteToolCallID),
+		CreateToolCallID:       storeutil.IDFromPtr(row.CreateToolCallID),
+		DeleteToolCallID:       storeutil.IDFromPtr(row.DeleteToolCallID),
 		MachineID:              row.MachineID,
-		MachineRef:             row.MachineRef,
 		BindingKind:            AgentMachineBindingKind(row.BindingKind),
 		State:                  AgentMachineBindingState(row.State),
 		Description:            row.Description,
@@ -36,10 +35,9 @@ func agentMachineBindingRecordFromListSQLC(
 		OrgID:            row.OrgID,
 		ProjectID:        row.ProjectID,
 		AgentID:          row.AgentID,
-		CreateToolCallID: idFromSQLCPtr(row.CreateToolCallID),
-		DeleteToolCallID: idFromSQLCPtr(row.DeleteToolCallID),
+		CreateToolCallID: storeutil.IDFromPtr(row.CreateToolCallID),
+		DeleteToolCallID: storeutil.IDFromPtr(row.DeleteToolCallID),
 		MachineID:        row.MachineID,
-		MachineRef:       row.MachineRef,
 		BindingKind:      AgentMachineBindingKind(row.BindingKind),
 		State:            AgentMachineBindingState(row.State),
 		Description:      row.Description,
@@ -60,10 +58,9 @@ func executableAgentMachineBindingRecordFromSQLC(
 		OrgID:            row.OrgID,
 		ProjectID:        row.ProjectID,
 		AgentID:          row.AgentID,
-		CreateToolCallID: idFromSQLCPtr(row.CreateToolCallID),
-		DeleteToolCallID: idFromSQLCPtr(row.DeleteToolCallID),
+		CreateToolCallID: storeutil.IDFromPtr(row.CreateToolCallID),
+		DeleteToolCallID: storeutil.IDFromPtr(row.DeleteToolCallID),
 		MachineID:        row.MachineID,
-		MachineRef:       row.MachineRef,
 		BindingKind:      AgentMachineBindingKind(row.BindingKind),
 		State:            AgentMachineBindingState(row.State),
 		Description:      row.Description,

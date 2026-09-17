@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	modalsdk "github.com/modal-labs/modal-client/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -63,8 +63,8 @@ func (*provider) PrepareProvisioning(
 
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -142,8 +142,8 @@ func (p *provider) ProvisionMachine(
 
 func (p *provider) InspectMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
@@ -157,8 +157,8 @@ func (p *provider) InspectMachine(
 
 func (p *provider) DeleteMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {
@@ -190,8 +190,8 @@ func (p *provider) DeleteMachine(
 func (p *provider) inspectMachine(
 	ctx context.Context,
 	client *modalsdk.Client,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	providerResourceID string,
 ) (string, bool, error) {
 	expectedName, err := providers.MachineAllocationName(installationID, machineID)
@@ -272,7 +272,7 @@ func isNotFound(err error) bool {
 	return errors.As(err, &notFound) || status.Code(err) == codes.NotFound
 }
 
-func provisionResult(target sandbox, installationID, machineID storage.ID) (providers.ProvisionMachineResult, error) {
+func provisionResult(target sandbox, installationID, machineID uuid.UUID) (providers.ProvisionMachineResult, error) {
 	result := providers.ProvisionMachineResult{ProviderResourceID: target.ID}
 	if target.ID == "" {
 		return result, errors.New("modal sandbox is missing its id")
@@ -292,7 +292,7 @@ func provisionResult(target sandbox, installationID, machineID storage.ID) (prov
 	return result, nil
 }
 
-func sandboxOwnedBy(target sandbox, installationID, machineID storage.ID) bool {
+func sandboxOwnedBy(target sandbox, installationID, machineID uuid.UUID) bool {
 	installationOwner, machineOwner, err := sandboxOwnershipTagValues(installationID, machineID)
 	if err != nil {
 		return false
@@ -300,7 +300,7 @@ func sandboxOwnedBy(target sandbox, installationID, machineID storage.ID) bool {
 	return target.Tags[installationTag] == installationOwner && target.Tags[machineTag] == machineOwner
 }
 
-func sandboxOwnershipTagValues(installationID, machineID storage.ID) (string, string, error) {
+func sandboxOwnershipTagValues(installationID, machineID uuid.UUID) (string, string, error) {
 	installationOwner, err := publicid.Encode(publicid.KindInstallation, installationID)
 	if err != nil {
 		return "", "", err

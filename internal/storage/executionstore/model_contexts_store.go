@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -36,17 +37,17 @@ type ModelCallState string
 type ModelCallRecoveryKind string
 
 type ModelCallContextRecord struct {
-	ID                        ID                                    `json:"id"`
-	OrgID                     ID                                    `json:"org_id"`
-	ProjectID                 ID                                    `json:"project_id"`
-	AgentID                   ID                                    `json:"agent_id"`
+	ID                        uuid.UUID                             `json:"id"`
+	OrgID                     uuid.UUID                             `json:"org_id"`
+	ProjectID                 uuid.UUID                             `json:"project_id"`
+	AgentID                   uuid.UUID                             `json:"agent_id"`
 	OperationKind             ModelCallOperation                    `json:"operation_kind"`
 	AttemptNumber             int                                   `json:"attempt_number"`
-	AgentConfigID             ID                                    `json:"agent_config_id"`
-	ConfiguredModelRevisionID ID                                    `json:"configured_model_revision_id"`
+	AgentConfigID             uuid.UUID                             `json:"agent_config_id"`
+	ConfiguredModelRevisionID uuid.UUID                             `json:"configured_model_revision_id"`
 	InputEventSequence        int64                                 `json:"input_event_sequence"`
 	SourceEventSequenceEnd    *int64                                `json:"source_event_sequence_end,omitempty"`
-	RuntimeLockID             ID                                    `json:"runtime_lock_id"`
+	RuntimeLockID             uuid.UUID                             `json:"runtime_lock_id"`
 	State                     ModelCallState                        `json:"state"`
 	RecoveryKind              ModelCallRecoveryKind                 `json:"recovery_kind,omitempty"`
 	APIFormat                 modelprotocol.APIFormat               `json:"api_format,omitempty"`
@@ -95,37 +96,37 @@ type ModelCallClaim struct {
 }
 
 type ClaimNormalModelCallInput struct {
-	ProjectID                ID
-	AgentID                  ID
-	RuntimeLockID            ID
-	OpeningInputIDs          []ID
-	AgentConfigID            ID
+	ProjectID                uuid.UUID
+	AgentID                  uuid.UUID
+	RuntimeLockID            uuid.UUID
+	OpeningInputIDs          []uuid.UUID
+	AgentConfigID            uuid.UUID
 	InputEventSequence       int64
-	SourceModelCallContextID ID
-	SourceModelOutputID      ID
+	SourceModelCallContextID uuid.UUID
+	SourceModelOutputID      uuid.UUID
 }
 
 type ClaimCompactionModelCallInput struct {
-	ProjectID              ID
-	AgentID                ID
-	RuntimeLockID          ID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	RuntimeLockID          uuid.UUID
 	InputEventSequence     int64
 	SourceEventSequenceEnd int64
-	ParentContextID        ID
+	ParentContextID        uuid.UUID
 }
 
 type ClaimNextModelCallContextInput struct {
-	ProjectID                     ID
-	AgentID                       ID
-	PredecessorModelCallContextID ID
-	RuntimeLockID                 ID
+	ProjectID                     uuid.UUID
+	AgentID                       uuid.UUID
+	PredecessorModelCallContextID uuid.UUID
+	RuntimeLockID                 uuid.UUID
 }
 
 type ReplaceCompactionSourceInput struct {
-	ProjectID                  ID
-	AgentID                    ID
-	RuntimeLockID              ID
-	ModelCallContextID         ID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	RuntimeLockID              uuid.UUID
+	ModelCallContextID         uuid.UUID
 	APIFormat                  modelprotocol.APIFormat
 	APIVariant                 modelprotocol.APIVariant
 	ProviderRequestID          string
@@ -141,10 +142,10 @@ type ReplaceCompactionSourceInput struct {
 }
 
 type RecordRecoverableModelCallFailureInput struct {
-	ProjectID               ID
-	AgentID                 ID
-	ModelCallContextID      ID
-	RuntimeLockID           ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	ModelCallContextID      uuid.UUID
+	RuntimeLockID           uuid.UUID
 	RecoveryKind            ModelCallRecoveryKind
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
@@ -161,7 +162,7 @@ type RecordRecoverableModelCallFailureInput struct {
 }
 
 type RecordModelCallFailureAndClaimCompactionInput struct {
-	ParentContextID        ID
+	ParentContextID        uuid.UUID
 	Failure                RecordRecoverableModelCallFailureInput
 	SourceEventSequenceEnd int64
 }

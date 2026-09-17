@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -39,7 +40,7 @@ func TestPromoteQueuedInputToSteeringIsIdempotentAfterPromotionAndAdmission(t *t
 		}
 		return input
 	}
-	promote := func(inputID ID) error {
+	promote := func(inputID uuid.UUID) error {
 		return fixture.Store.Execution().PromoteQueuedInputToSteering(
 			ctx,
 			executionstore.PromoteQueuedInputToSteeringInput{
@@ -100,7 +101,7 @@ func TestQueuedBacklogMutationsRemainAvailableAfterCancel(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC)
-	var agentID ID
+	var agentID uuid.UUID
 	user := mustCreateProjectOperatorUser(t, ctx, store, "backlog-mutation@example.com", "Backlog Mutation")
 
 	agentID = mustCreateAgent(t, ctx, store)
@@ -164,7 +165,7 @@ WHERE id = $1
 	if err != nil {
 		t.Fatalf("cancel agent: %v", err)
 	}
-	if cancelResult.Event.ID != NilID || cancelResult.RuntimeCancelRequested || cancelResult.Affected {
+	if cancelResult.Event.ID != uuid.Nil || cancelResult.RuntimeCancelRequested || cancelResult.Affected {
 		t.Fatalf(
 			"idle cancel should be a no-op event=%+v runtime_cancel_requested=%v affected=%v",
 			cancelResult.Event,
@@ -313,7 +314,7 @@ func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) 
 	first := createInput("first", executionstore.DeliveryModeQueued)
 	second := createInput("second", executionstore.DeliveryModeQueued)
 	third := createInput("third", executionstore.DeliveryModeQueued)
-	move := func(inputID ID, position executionstore.MoveQueuedBacklogInputPosition, anchorID ID) {
+	move := func(inputID uuid.UUID, position executionstore.MoveQueuedBacklogInputPosition, anchorID uuid.UUID) {
 		t.Helper()
 		if err := store.Execution().MoveQueuedBacklogInput(ctx, executionstore.MoveQueuedBacklogInputInput{
 			ProjectID:     testProjectID,
@@ -325,7 +326,7 @@ func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) 
 			t.Fatalf("move input %s %s: %v", inputID, position, err)
 		}
 	}
-	assertOrder := func(want ...ID) {
+	assertOrder := func(want ...uuid.UUID) {
 		t.Helper()
 		got, err := store.Execution().ListQueuedBacklogInputs(
 			ctx,
@@ -406,9 +407,9 @@ func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) 
 		t.Fatalf("second page ids = %v, want [%s %s]", page2.Inputs, third.ID, second.ID)
 	}
 
-	move(second.ID, executionstore.MoveQueuedBacklogInputToFront, NilID)
+	move(second.ID, executionstore.MoveQueuedBacklogInputToFront, uuid.Nil)
 	assertOrder(firstSteering.ID, secondSteering.ID, second.ID, first.ID, third.ID)
-	move(second.ID, executionstore.MoveQueuedBacklogInputToBack, NilID)
+	move(second.ID, executionstore.MoveQueuedBacklogInputToBack, uuid.Nil)
 	assertOrder(firstSteering.ID, secondSteering.ID, first.ID, third.ID, second.ID)
 	move(first.ID, executionstore.MoveQueuedBacklogInputAfter, second.ID)
 	assertOrder(firstSteering.ID, secondSteering.ID, third.ID, second.ID, first.ID)
@@ -543,7 +544,7 @@ WHERE project_id = $3
 	}
 
 	moveResults := make(chan error, 2)
-	moveBeforeSecond := func(inputID ID) {
+	moveBeforeSecond := func(inputID uuid.UUID) {
 		moveResults <- store.Execution().MoveQueuedBacklogInput(
 			context.Background(),
 			executionstore.MoveQueuedBacklogInputInput{
@@ -603,7 +604,7 @@ WHERE project_id = $3
 	}
 }
 
-func loadAgentInputRank(t *testing.T, ctx context.Context, pool *pgxpool.Pool, inputID ID) int64 {
+func loadAgentInputRank(t *testing.T, ctx context.Context, pool *pgxpool.Pool, inputID uuid.UUID) int64 {
 	t.Helper()
 	var rank int64
 	if err := pool.QueryRow(ctx, `SELECT input_rank FROM agent_inputs WHERE id = $1`, inputID).Scan(&rank); err != nil {

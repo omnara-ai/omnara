@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react'
 
 export {
   ArrowDownIcon,
+  ArrowRightIcon as ArrowRight,
   ArrowUpRightIcon as ArrowUpRight,
   BookOpenIcon as BookOpen,
   CpuChipIcon as Bot,
@@ -9,6 +10,8 @@ export {
   LightBulbIcon as Brain,
   CpuChipIcon as BrainCircuit,
   BuildingOffice2Icon as Building2,
+  CalendarDaysIcon as CalendarIcon,
+  ChartBarIcon as ChartBar,
   CheckIcon as Check,
   CheckIcon,
   ChevronDownIcon as ChevronDown,
@@ -32,6 +35,7 @@ export {
   DocumentPlusIcon as FilePlus,
   FingerPrintIcon as Fingerprint,
   FolderIcon as Folder,
+  FunnelIcon,
   HomeIcon as House,
   InformationCircleIcon as InfoIcon,
   KeyIcon as KeyRound,
@@ -64,6 +68,8 @@ export {
   TrashIcon as Trash2Icon,
   ExclamationTriangleIcon as TriangleAlert,
   ArrowUpTrayIcon as Upload,
+  UserGroupIcon,
+  UserIcon,
   UsersIcon as Users,
   XMarkIcon as X,
   XMarkIcon as XIcon,

@@ -8,15 +8,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 type AgentFixtureInput struct {
-	ProjectID       ID
+	ProjectID       uuid.UUID
 	Name            string
-	CurrentConfigID ID
+	CurrentConfigID uuid.UUID
 }
 
 func (s *Store) IntegrationLaunchAgentOnce(
@@ -47,10 +48,11 @@ func (s *Store) IntegrationChangeAgentConfigOnce(
 
 func (s *Store) IntegrationArchiveAgentOnce(
 	ctx context.Context,
-	orgID, projectID, agentID ID,
+	orgID, projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) (AgentRecord, []MachineRecord, error) {
-	return s.archiveAgentOnce(ctx, orgID, projectID, agentID, actor)
+	_ = orgID
+	return s.archiveAgentOnce(ctx, projectID, agentID, actor)
 }
 
 func (s *Store) IntegrationDeleteMachineOnce(
@@ -62,30 +64,30 @@ func (s *Store) IntegrationDeleteMachineOnce(
 
 func (s *Store) IntegrationDeleteMachinePoolOnce(
 	ctx context.Context,
-	orgID, poolID ID,
+	orgID, poolID uuid.UUID,
 ) ([]MachineRecord, error) {
 	return s.deleteMachinePoolOnce(ctx, orgID, poolID)
 }
 
 func (s *Store) IntegrationDeleteProjectMachineGrantOnce(
 	ctx context.Context,
-	orgID, projectID, grantID ID,
+	orgID, projectID, grantID uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
 	return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, grantID)
 }
 
 func (s *Store) IntegrationDeleteProjectMachinePoolGrantOnce(
 	ctx context.Context,
-	orgID, projectID, grantID ID,
+	orgID, projectID, grantID uuid.UUID,
 ) (DeleteProjectMachinePoolGrantResult, error) {
 	return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, grantID)
 }
 
 func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput) (AgentRecord, error) {
-	if isNilID(input.ProjectID) {
+	if input.ProjectID == uuid.Nil {
 		return AgentRecord{}, errors.New("project id is required")
 	}
-	if isNilID(input.CurrentConfigID) {
+	if input.CurrentConfigID == uuid.Nil {
 		return AgentRecord{}, errors.New("current config id is required")
 	}
 	txNotifications := s.newTxNotifications()
@@ -136,7 +138,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 
 func (s *Store) IntegrationBeginMachineWakeOnce(
 	ctx context.Context,
-	orgID, machineID, machinePoolID ID,
+	orgID, machineID, machinePoolID uuid.UUID,
 	wakeTimeout time.Duration,
 ) (MachineWakeDisposition, error) {
 	return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -52,25 +53,25 @@ func validateRuntimeMachineSource(index int, machine agentconfig.RuntimeMachine)
 func resolveMachinePoolName(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID ID,
+	orgID uuid.UUID,
 	machinePoolName string,
-) (ID, bool, error) {
+) (uuid.UUID, bool, error) {
 	if machinePoolName == "" {
-		return NilID, false, nil
+		return uuid.Nil, false, nil
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", machinePoolName)
 	if err != nil {
-		return NilID, false, err
+		return uuid.Nil, false, err
 	}
 	pool, err := qtx.GetMachinePoolByName(
 		ctx,
 		dbsqlc.GetMachinePoolByNameParams{OrgID: orgID, Name: normalizedName},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NilID, false, nil
+		return uuid.Nil, false, nil
 	}
 	if err != nil {
-		return NilID, false, fmt.Errorf("load machine pool %q: %w", machinePoolName, err)
+		return uuid.Nil, false, fmt.Errorf("load machine pool %q: %w", machinePoolName, err)
 	}
 	return pool.ID, true, nil
 }

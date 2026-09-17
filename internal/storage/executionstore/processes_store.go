@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -20,17 +21,17 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonArtifactProcessScope struct {
-	ProjectID  ID
-	AgentID    ID
-	ArtifactID string
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	Path      string
 }
 
 func (s *Store) GetDaemonArtifactProcessScope(
 	ctx context.Context,
-	orgID, machineID, toolCallID ID,
+	orgID, machineID, toolCallID uuid.UUID,
 	toolName string,
 ) (DaemonArtifactProcessScope, bool, error) {
-	if isNilID(orgID) || isNilID(machineID) || isNilID(toolCallID) {
+	if orgID == uuid.Nil || machineID == uuid.Nil || toolCallID == uuid.Nil {
 		return DaemonArtifactProcessScope{}, false, errors.New(
 			"organization id, machine id, and tool call id are required",
 		)
@@ -51,9 +52,9 @@ func (s *Store) GetDaemonArtifactProcessScope(
 		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
 	}
 	return DaemonArtifactProcessScope{
-		ProjectID:  record.ProjectID,
-		AgentID:    record.AgentID,
-		ArtifactID: record.ArtifactID,
+		ProjectID: record.ProjectID,
+		AgentID:   record.AgentID,
+		Path:      record.Path,
 	}, true, nil
 }
 
@@ -61,7 +62,7 @@ func (t *toolCallTransaction) startProcess(
 	ctx context.Context,
 	input CreateProcessInput,
 ) (ProcessRecord, error) {
-	if isNilID(input.AgentMachineBindingID) {
+	if input.AgentMachineBindingID == uuid.Nil {
 		return ProcessRecord{}, errors.New("agent machine binding is required")
 	}
 	if input.Command == "" {
@@ -247,8 +248,8 @@ func processReplayMatches(existing ProcessRecord, input CreateProcessInput) bool
 func getProcessByToolCallTx(
 	ctx context.Context,
 	tx dbsqlc.DBTX,
-	projectID, agentID ID,
-	toolCallID ID,
+	projectID, agentID uuid.UUID,
+	toolCallID uuid.UUID,
 ) (ProcessRecord, bool, error) {
 	row, err := dbsqlc.New(tx).
 		GetProcessByToolCall(
@@ -268,7 +269,7 @@ func getProcessByToolCallTx(
 	return processRecordFromSQLC(row), true, nil
 }
 
-func (s *Store) GetProcess(ctx context.Context, projectID, agentID, id ID) (ProcessRecord, error) {
+func (s *Store) GetProcess(ctx context.Context, projectID, agentID, id uuid.UUID) (ProcessRecord, error) {
 	row, err := s.q.GetProcess(ctx, dbsqlc.GetProcessParams{ProjectID: projectID, AgentID: agentID, ID: id})
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("get process: %w", err)
@@ -279,8 +280,8 @@ func (s *Store) GetProcess(ctx context.Context, projectID, agentID, id ID) (Proc
 func machineReachableForProjectMachineTx(
 	ctx context.Context,
 	q dbsqlc.DBTX,
-	projectID, machineID ID,
-) (ID, bool, error) {
+	projectID, machineID uuid.UUID,
+) (uuid.UUID, bool, error) {
 	row, err := dbsqlc.New(q).
 		MachineReachableForProjectMachine(
 			ctx,
@@ -290,16 +291,17 @@ func machineReachableForProjectMachineTx(
 			},
 		)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NilID, false, nil
+		return uuid.Nil, false, nil
 	}
 	if err != nil {
-		return NilID, false, fmt.Errorf("machine reachable for project machine: %w", err)
+		return uuid.Nil, false, fmt.Errorf("machine reachable for project machine: %w", err)
 	}
 	return row, true, nil
 }
 
 func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput) (ProcessRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) || isNilID(input.RuntimeLockID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil ||
+		input.ID == uuid.Nil || input.RuntimeLockID == uuid.Nil {
 		return ProcessRecord{}, errors.New("project, agent, process, and runtime lock are required")
 	}
 	if input.SourceEndedAt.IsZero() {
@@ -330,7 +332,7 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 			SourceEndedAt:      input.SourceEndedAt,
 			ExitCode:           storeutil.Int32Ptr(input.ExitCode),
 			ExitSignal:         input.ExitSignal,
-			StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
+			StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
 			StateReasonMessage: input.StateReasonMessage,
 		},
 	)

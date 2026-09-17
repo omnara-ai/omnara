@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -93,7 +94,7 @@ func (s *Store) AuthorizeSecretForProjectReference(
 	ctx context.Context,
 	input AuthorizeSecretForProjectReferenceInput,
 ) (bool, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.SecretID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.SecretID == uuid.Nil {
 		return false, invalidSecretRequest("org, project, and secret are required")
 	}
 	allowed, err := s.q.SecretAvailableToProject(
@@ -112,10 +113,10 @@ func (s *Store) AuthorizeSecretForProjectReference(
 
 func (s *Store) ValidateProjectSecretReference(
 	ctx context.Context,
-	orgID, projectID, secretID ID,
+	orgID, projectID, secretID uuid.UUID,
 	expectedKind secrets.Kind,
 ) error {
-	if isNilID(orgID) || isNilID(projectID) || isNilID(secretID) || expectedKind == "" {
+	if orgID == uuid.Nil || projectID == uuid.Nil || secretID == uuid.Nil || expectedKind == "" {
 		return invalidSecretRequest("org, project, secret, and expected kind are required")
 	}
 	access, err := s.GetProjectAvailableSecret(ctx, orgID, projectID, secretID)
@@ -142,7 +143,7 @@ func (s *Store) ReadProjectAvailableSecretPayload(
 	if s.secretKeyWrapper == nil {
 		return SecretPayloadRecord{}, errors.New("secret key wrapper is required")
 	}
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.SecretID) || input.Kind == "" {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.SecretID == uuid.Nil || input.Kind == "" {
 		return SecretPayloadRecord{}, invalidSecretRequest("org, project, secret, and expected kind are required")
 	}
 	access, err := s.GetProjectAvailableSecret(ctx, input.OrgID, input.ProjectID, input.SecretID)
@@ -205,7 +206,7 @@ func (s *Store) ReadOrgOwnedSecretPayload(
 	if s.secretKeyWrapper == nil {
 		return SecretPayloadRecord{}, errors.New("secret key wrapper is required")
 	}
-	if isNilID(input.OrgID) || isNilID(input.SecretID) || input.Kind == "" {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Kind == "" {
 		return SecretPayloadRecord{}, invalidSecretRequest("org, secret, management kind, and kind are required")
 	}
 	if err := management.Validate(input.ManagementKind); err != nil {

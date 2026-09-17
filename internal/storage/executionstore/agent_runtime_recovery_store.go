@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -24,7 +25,7 @@ func recoverRuntimeModelCallContextTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	evidence runtimeModelCallRecoveryEvidence,
 	retryBackoff func(int, string) time.Duration,
 ) error {
@@ -101,12 +102,12 @@ func terminalizeExhaustedRuntimeModelCallContextTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeLockID ID,
+	projectID, agentID, runtimeLockID uuid.UUID,
 	contextRecord ModelCallContextRecord,
 	evidence runtimeModelCallRecoveryEvidence,
 	details json.RawMessage,
 ) error {
-	if contextRecord.ID == NilID {
+	if contextRecord.ID == uuid.Nil {
 		return errors.New("model call context is required for runtime recovery")
 	}
 	switch contextRecord.OperationKind {

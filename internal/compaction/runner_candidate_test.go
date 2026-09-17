@@ -493,3 +493,23 @@ func (m summaryModelWithOutputMinimum) OutputTokenLimits() (model.OutputTokenLim
 type summaryModelWithExplicitCapabilities struct{ *summaryModel }
 
 func (m summaryModelWithExplicitCapabilities) Capabilities() model.Capabilities { return m.caps }
+
+func TestCompactionRetainsOverflowLocator(t *testing.T) {
+	path := "/artifacts/art_overflow"
+	parts, err := json.Marshal([]map[string]any{
+		{"type": "structured_data", "value": map[string]any{"path": path, "preview": strings.Repeat("x", 8192)}},
+		{"type": "text", "text": strings.Repeat("other content", 5000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := mustCompactionEvent(1, "tool_result", "completed", parts)
+	event.ToolName = "web_fetch"
+	rendered, err := renderEventSource([]executionstore.CompactionSourceEventRecord{event})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, path) {
+		t.Fatal("compaction lost overflow locator")
+	}
+}

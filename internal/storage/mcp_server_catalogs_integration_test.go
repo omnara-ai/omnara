@@ -22,7 +22,7 @@ func acquireCatalogLease(
 	ctx context.Context,
 	store *Store,
 	identity executionstore.MCPServerCatalogIdentity,
-	owner executionstore.ID,
+	owner uuid.UUID,
 ) (executionstore.MCPServerCatalogRecord, bool) {
 	t.Helper()
 	record, acquired, err := store.Execution().AcquireMCPServerCatalogRefreshLease(

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
 
@@ -50,8 +51,8 @@ func FactsFromGet(row dbsqlc.GetSecretRow) Facts {
 		OrgID:          row.OrgID,
 		ManagementKind: management.Kind(row.ManagementKind),
 		OwnerKind:      row.OwnerKind,
-		OwnerProjectID: idFromPtr(row.OwnerProjectID),
-		OwnerUserID:    idFromPtr(row.OwnerUserID),
+		OwnerProjectID: storeutil.IDFromPtr(row.OwnerProjectID),
+		OwnerUserID:    storeutil.IDFromPtr(row.OwnerUserID),
 		Kind:           secrets.Kind(row.Kind),
 	}
 }
@@ -62,15 +63,8 @@ func FactsFromProjectAvailable(row dbsqlc.GetProjectAvailableSecretRow) Facts {
 		OrgID:          row.OrgID,
 		ManagementKind: management.Kind(row.ManagementKind),
 		OwnerKind:      row.OwnerKind,
-		OwnerProjectID: idFromPtr(row.OwnerProjectID),
-		OwnerUserID:    idFromPtr(row.OwnerUserID),
+		OwnerProjectID: storeutil.IDFromPtr(row.OwnerProjectID),
+		OwnerUserID:    storeutil.IDFromPtr(row.OwnerUserID),
 		Kind:           secrets.Kind(row.Kind),
 	}
-}
-
-func idFromPtr(id *uuid.UUID) uuid.UUID {
-	if id == nil {
-		return uuid.Nil
-	}
-	return *id
 }

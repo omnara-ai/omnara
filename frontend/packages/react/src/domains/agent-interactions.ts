@@ -1,17 +1,24 @@
-import { type ListAgentInteractionsResponse, type OmnaraClient, sdk } from '@omnara/sdk'
 import {
+  type Actor,
+  type AgentEvent,
+  type ListAgentInteractionsResponse,
+  type OmnaraClient,
+  sdk,
+} from '@omnara/sdk'
+import {
+  getActorOptions,
   getAgentQueryKey,
   listAgentInteractionsOptions,
   listAgentInteractionsQueryKey,
   listAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import type { AgentChatScope } from './agent-chat-types'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
-const openInteractionsQuery = { state: 'open', limit: 100 } as const
-const activeAgentRefetchIntervalMs = 1000
+const openInteractionsQuery = { state: 'open', limit: 100, include_subagents: true } as const
 
 /** The query key for an agent's open interactions, shared by everything that
  * reads or invalidates them (the hook, the resolve mutation, and the chat
@@ -24,25 +31,19 @@ export function openAgentInteractionsQueryKey(
 }
 
 /**
- * Open interactions for an agent. Interaction rows may be created after the
- * corresponding tool-call event, so active agents are polled in addition to
- * the immediate refreshes triggered by chat events.
+ * Open interactions for an agent and its subagents. The chat session refreshes
+ * this query from stream frames: tool-call events and tool_call_update frames,
+ * which the stream sends for the agent and every subagent beneath it.
  */
-export function useAgentInteractions(
-  orgID: string,
-  projectID: string,
-  agentID: string,
-  agentActive: boolean,
-) {
+export function useAgentInteractions(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
-  return useQuery({
-    ...listAgentInteractionsOptions({
+  return useQuery(
+    listAgentInteractionsOptions({
       path: { orgID, projectID, agentID },
       query: openInteractionsQuery,
       client,
     }),
-    refetchInterval: agentActive ? activeAgentRefetchIntervalMs : false,
-  })
+  )
 }
 
 export function useResolveAgentInteraction(orgID: string, projectID: string, agentID: string) {
@@ -53,13 +54,15 @@ export function useResolveAgentInteraction(orgID: string, projectID: string, age
     mutationFn: async ({
       interactionID,
       body,
+      targetAgentID = agentID,
     }: {
       interactionID: string
       body: Parameters<typeof sdk.resolveAgentInteraction>[0]['body']
+      targetAgentID?: string
     }) => {
       const { data } = await sdk.resolveAgentInteraction({
         client,
-        path: { orgID, projectID, agentID, interactionID },
+        path: { orgID, projectID, agentID: targetAgentID, interactionID },
         body,
       })
       return data
@@ -110,5 +113,65 @@ export function useCancelAgent(orgID: string, projectID: string, agentID: string
         }),
       ])
     },
+  })
+}
+
+function spawnsSubagent(
+  event: AgentEvent,
+  hasEvent: (matches: (event: AgentEvent) => boolean) => boolean,
+): boolean {
+  if (event.event_kind !== 'tool_result') return false
+  return hasEvent(
+    (candidate) =>
+      candidate.event_kind === 'model_output' &&
+      candidate.content_blocks.some(
+        (block) =>
+          block.type === 'tool_call' &&
+          block.tool_call_id === event.tool_call_id &&
+          block.name === 'spawn_agent',
+      ),
+  )
+}
+
+function isAgentActor(actor: Actor): boolean {
+  return actor.provider === 'omnara' && actor.provider_user_id.startsWith('agt_')
+}
+
+async function sentBySubagent(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  scope: AgentChatScope,
+  event: AgentEvent,
+): Promise<boolean> {
+  if (event.event_kind !== 'agent_input' || event.actor_id == null) return false
+  const actor = await queryClient
+    .ensureQueryData(
+      getActorOptions({
+        path: { orgID: scope.orgID, projectID: scope.projectID, actorID: event.actor_id },
+        client,
+      }),
+    )
+    .catch(() => null)
+  return actor != null && isAgentActor(actor)
+}
+
+export async function invalidateSubagentList(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  scope: AgentChatScope,
+  event: AgentEvent,
+  hasEvent: (matches: (event: AgentEvent) => boolean) => boolean,
+): Promise<void> {
+  if (
+    !spawnsSubagent(event, hasEvent) &&
+    !(await sentBySubagent(queryClient, client, scope, event))
+  ) {
+    return
+  }
+  await queryClient.invalidateQueries({
+    queryKey: listAgentsQueryKey({
+      path: { orgID: scope.orgID, projectID: scope.projectID },
+      client,
+    }),
   })
 }

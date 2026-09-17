@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -622,7 +623,6 @@ model:
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
@@ -729,7 +729,7 @@ func TestResourceLimitLocksDoNotBlockUnrelatedCreates(t *testing.T) {
 		ctx,
 		dbsqlc.New(blocker),
 		"skills",
-		resourceguard.OwnerScope(testOrgID, skillstore.SkillOwnerOrg, NilID, NilID),
+		resourceguard.OwnerScope(testOrgID, skillstore.SkillOwnerOrg, uuid.Nil, uuid.Nil),
 	); err != nil {
 		t.Fatalf("lock skill creation: %v", err)
 	}

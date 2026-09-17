@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
@@ -48,7 +49,7 @@ const (
 )
 
 type CreateProcessInput struct {
-	AgentMachineBindingID ID
+	AgentMachineBindingID uuid.UUID
 	IOMode                processcmd.IOMode
 	Command               string
 	ShellSelector         processcmd.ShellSelector
@@ -58,7 +59,7 @@ type CreateProcessInput struct {
 }
 
 type CreateProcessActionInput struct {
-	ProcessID  ID
+	ProcessID  uuid.UUID
 	ActionKind ProcessActionKind
 	Payload    json.RawMessage
 }
@@ -70,21 +71,21 @@ type DaemonWorkInput struct {
 
 type AcceptDaemonProcessInput struct {
 	Authority DaemonRuntimeAuthority
-	ProcessID ID
+	ProcessID uuid.UUID
 }
 
 type AcceptDaemonProcessActionInput struct {
 	Authority DaemonRuntimeAuthority
-	ProcessID ID
-	ID        ID
+	ProcessID uuid.UUID
+	ID        uuid.UUID
 }
 
 type CompleteDaemonProcessActionInput struct {
 	Authority          DaemonRuntimeAuthority
-	ProjectID          ID
-	AgentID            ID
-	ProcessID          ID
-	ID                 ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ProcessID          uuid.UUID
+	ID                 uuid.UUID
 	StateReasonCode    string
 	StateReasonMessage string
 	Result             json.RawMessage
@@ -103,9 +104,9 @@ type DaemonProcessActionGrant struct {
 
 type MarkProcessStartedInput struct {
 	Authority       DaemonRuntimeAuthority
-	ProjectID       ID
-	AgentID         ID
-	ID              ID
+	ProjectID       uuid.UUID
+	AgentID         uuid.UUID
+	ID              uuid.UUID
 	Result          json.RawMessage
 	SourceStartedAt time.Time
 }
@@ -116,10 +117,10 @@ type DaemonProcessReportApplication struct {
 }
 
 type CompleteProcessInput struct {
-	ProjectID          ID
-	AgentID            ID
-	ID                 ID
-	RuntimeLockID      ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
+	RuntimeLockID      uuid.UUID
 	State              ProcessState
 	ExitCode           *int
 	ExitSignal         string
@@ -130,9 +131,9 @@ type CompleteProcessInput struct {
 
 type CompleteDaemonProcessInput struct {
 	Authority          DaemonRuntimeAuthority
-	ProjectID          ID
-	AgentID            ID
-	ID                 ID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
 	State              ProcessState
 	ExitCode           *int
 	ExitSignal         string
@@ -145,14 +146,14 @@ type CompleteDaemonProcessInput struct {
 }
 
 type ProcessRecord struct {
-	ID                    ID                       `json:"id"`
-	OrgID                 ID                       `json:"org_id"`
-	ProjectID             ID                       `json:"project_id"`
-	AgentID               ID                       `json:"agent_id"`
-	ToolCallID            ID                       `json:"tool_call_id,omitempty"`
-	RuntimeLockID         ID                       `json:"runtime_lock_id"`
-	AgentMachineBindingID ID                       `json:"agent_machine_binding_id"`
-	MachineID             ID                       `json:"machine_id"`
+	ID                    uuid.UUID                `json:"id"`
+	OrgID                 uuid.UUID                `json:"org_id"`
+	ProjectID             uuid.UUID                `json:"project_id"`
+	AgentID               uuid.UUID                `json:"agent_id"`
+	ToolCallID            uuid.UUID                `json:"tool_call_id,omitempty"`
+	RuntimeLockID         uuid.UUID                `json:"runtime_lock_id"`
+	AgentMachineBindingID uuid.UUID                `json:"agent_machine_binding_id"`
+	MachineID             uuid.UUID                `json:"machine_id"`
 	ExecutionGrantedAt    *time.Time               `json:"execution_granted_at,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
 	Command               string                   `json:"command,omitempty"`
@@ -174,13 +175,13 @@ type ProcessRecord struct {
 }
 
 type ProcessActionRecord struct {
-	ID                 ID                 `json:"id"`
-	OrgID              ID                 `json:"org_id"`
-	ProjectID          ID                 `json:"project_id"`
-	AgentID            ID                 `json:"agent_id"`
-	ProcessID          ID                 `json:"process_id"`
-	ToolCallID         ID                 `json:"tool_call_id,omitempty"`
-	RuntimeLockID      ID                 `json:"runtime_lock_id"`
+	ID                 uuid.UUID          `json:"id"`
+	OrgID              uuid.UUID          `json:"org_id"`
+	ProjectID          uuid.UUID          `json:"project_id"`
+	AgentID            uuid.UUID          `json:"agent_id"`
+	ProcessID          uuid.UUID          `json:"process_id"`
+	ToolCallID         uuid.UUID          `json:"tool_call_id,omitempty"`
+	RuntimeLockID      uuid.UUID          `json:"runtime_lock_id"`
 	ActionKind         ProcessActionKind  `json:"action_kind"`
 	Seq                int64              `json:"seq"`
 	Payload            json.RawMessage    `json:"payload"`
@@ -192,9 +193,9 @@ type ProcessActionRecord struct {
 }
 
 type ActiveProcessRecord struct {
-	ID              ID                       `json:"id"`
+	ID              uuid.UUID                `json:"id"`
 	State           ProcessState             `json:"state"`
-	MachineID       ID                       `json:"machine_id"`
+	MachineID       uuid.UUID                `json:"machine_id"`
 	IOMode          processcmd.IOMode        `json:"io_mode"`
 	Command         string                   `json:"command,omitempty"`
 	ShellSelector   processcmd.ShellSelector `json:"shell_selector,omitempty"`
@@ -202,7 +203,7 @@ type ActiveProcessRecord struct {
 	SourceStartedAt *time.Time               `json:"source_started_at,omitempty"`
 	CreatedAt       time.Time                `json:"created_at"`
 	UpdatedAt       time.Time                `json:"updated_at"`
-	ToolCallID      ID                       `json:"tool_call_id,omitempty"`
+	ToolCallID      uuid.UUID                `json:"tool_call_id,omitempty"`
 }
 
 func isProcessTerminal(state ProcessState) bool {

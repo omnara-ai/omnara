@@ -1,4 +1,9 @@
-import { useAgentProfile, useCreateAgent, useDeleteAgentProfile } from '@omnara/react'
+import {
+  useAgentProfile,
+  useAgentProfileUsage,
+  useCreateAgent,
+  useDeleteAgentProfile,
+} from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -15,16 +20,19 @@ import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCred
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
+import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
+import { allTimeUsageRange, usageWindowIsActive } from '@/components/usage/usage-date-range'
+import { UsageReportView } from '@/components/usage/UsageReport'
 import { formatDateTime } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { useWebConfig } from '@/lib/web-config'
 
-type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents'
+type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents' | 'usage'
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -46,52 +54,13 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
   const [deployOpen, setDeployOpen] = useState(false)
   const [addCronOpen, setAddCronOpen] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
-  const [launchError, setLaunchError] = useState<ApiError>()
 
-  const createAgent = useCreateAgent(activeOrg.id, projectId)
-  const { data: webConfig } = useWebConfig()
-  const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
-  const navigate = useNavigate()
-
-  async function launch() {
-    if (
-      configDirty &&
-      !window.confirm(
-        'You have unsaved configuration changes. Launch uses the last saved revision. Continue?',
-      )
-    ) {
-      return
-    }
-    setLaunchError(undefined)
-    try {
-      const launched = await createAgent.mutateAsync({
-        profile: profile.id,
-        config: profile.current_config_id,
-      })
-      await navigate({
-        to: '/projects/$projectId/agents/$agentId',
-        params: { projectId, agentId: launched.agent.id },
-      })
-    } catch (error) {
-      if (isInsufficientCreditsError(error)) {
-        setLaunchError(error)
-      } else {
-        window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
-      }
-    }
-  }
-
-  function remove() {
-    if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
-    deleteProfile.mutate(profile.id, {
-      onSuccess: () => {
-        void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
-      },
-      onError: (error) => {
-        window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')
-      },
-    })
-  }
+  const { launch, launchError, launchPending, remove } = useProfileActions(
+    activeOrg.id,
+    projectId,
+    profile,
+    configDirty,
+  )
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -109,19 +78,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             { id: 'profile', label: profile.name },
           ]}
         />
-        {launchError && (
-          <div
-            className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
-            role="alert"
-          >
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            {webConfig?.billingURL ? (
-              <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
-            ) : (
-              launchError.message
-            )}
-          </div>
-        )}
+        <LaunchAlert error={launchError} />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <AgentProfileNameHeading
@@ -135,8 +92,8 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             {canOperate && (
               <Button
                 size="sm"
-                disabled={createAgent.isPending}
-                loading={createAgent.isPending}
+                disabled={launchPending}
+                loading={launchPending}
                 onClick={() => void launch()}
               >
                 Launch
@@ -152,6 +109,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             { value: 'integrations', label: 'Integrations' },
             { value: 'schedules', label: 'Schedules' },
             { value: 'agents', label: 'Agents' },
+            { value: 'usage', label: 'Usage' },
           ]}
         />
       </header>
@@ -167,56 +125,26 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
       </div>
       {tab === 'integrations' && (
-        <div className="flex flex-col gap-4">
-          {canManage && (
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setDeployOpen(true)
-                }}
-              >
-                Add integration
-              </Button>
-            </div>
-          )}
-          <AgentProfileIntegrations
-            orgId={activeOrg.id}
-            projectId={projectId}
-            profileId={profile.id}
-            canManage={canManage}
-          />
-        </div>
+        <IntegrationsTab
+          orgId={activeOrg.id}
+          projectId={projectId}
+          profileId={profile.id}
+          canManage={canManage}
+          onAdd={() => {
+            setDeployOpen(true)
+          }}
+        />
       )}
       {tab === 'schedules' && (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-muted-foreground text-sm">Launch new agents on a schedule</p>
-            {canManage && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setAddCronOpen(true)
-                }}
-              >
-                Add cron schedule
-              </Button>
-            )}
-          </div>
-          <CronTriggersList
-            orgId={activeOrg.id}
-            projectId={projectId}
-            canManage={canManage}
-            filters={{ agent_profile_id: profile.id }}
-            emptyMessage={
-              canManage
-                ? 'No schedules yet. Use “Add cron schedule” to launch a new agent from this profile on a recurring cadence.'
-                : 'No schedules yet.'
-            }
-          />
-        </div>
+        <SchedulesTab
+          orgId={activeOrg.id}
+          projectId={projectId}
+          profileId={profile.id}
+          canManage={canManage}
+          onAdd={() => {
+            setAddCronOpen(true)
+          }}
+        />
       )}
       {tab === 'agents' && (
         <AgentsTable
@@ -226,6 +154,9 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           profileId={profile.id}
           emptyMessage="No agents from this profile yet. Launch one to get started."
         />
+      )}
+      {tab === 'usage' && (
+        <ProfileUsageTab orgId={activeOrg.id} projectId={projectId} profileId={profile.id} />
       )}
 
       {canManage && deployOpen && (
@@ -298,6 +229,172 @@ function ConfigurationTab({
         }}
         onDelete={onDelete}
       />
+    </div>
+  )
+}
+
+function ProfileUsageTab({
+  orgId,
+  projectId,
+  profileId,
+}: {
+  orgId: string
+  projectId: string
+  profileId: string
+}) {
+  const [range, setRange] = useState(allTimeUsageRange)
+  const [includeSubagents, setIncludeSubagents] = useState(false)
+  const query = useAgentProfileUsage(orgId, projectId, profileId, {
+    ...range.window,
+    includeSubagents,
+  })
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <FiltersMenu
+          dateRange={{ value: range, onChange: setRange }}
+          subagents={{ checked: includeSubagents, onChange: setIncludeSubagents }}
+        />
+      </div>
+      <UsageReportView
+        query={query}
+        emptyMessage={
+          usageWindowIsActive(range.window)
+            ? 'No model usage from this profile in this time range.'
+            : 'No model usage from this profile yet. Launch an agent to get started.'
+        }
+      />
+    </div>
+  )
+}
+
+interface ProfileTabProps {
+  orgId: string
+  projectId: string
+  profileId: string
+  canManage: boolean
+  onAdd: () => void
+}
+
+function IntegrationsTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      {canManage && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={onAdd}>
+            Add integration
+          </Button>
+        </div>
+      )}
+      <AgentProfileIntegrations
+        orgId={orgId}
+        projectId={projectId}
+        profileId={profileId}
+        canManage={canManage}
+      />
+    </div>
+  )
+}
+
+function SchedulesTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-muted-foreground text-sm">Launch new agents on a schedule</p>
+        {canManage && (
+          <Button size="sm" variant="outline" onClick={onAdd}>
+            Add cron schedule
+          </Button>
+        )}
+      </div>
+      <CronTriggersList
+        orgId={orgId}
+        projectId={projectId}
+        canManage={canManage}
+        filters={{ agent_profile_id: profileId }}
+        emptyMessage={
+          canManage
+            ? 'No schedules yet. Use “Add cron schedule” to launch a new agent from this profile on a recurring cadence.'
+            : 'No schedules yet.'
+        }
+      />
+    </div>
+  )
+}
+
+function useProfileActions(
+  orgId: string,
+  projectId: string,
+  profile: AgentProfile,
+  configDirty: boolean,
+) {
+  const [launchError, setLaunchError] = useState<ApiError>()
+  const createAgent = useCreateAgent(orgId, projectId)
+  const deleteProfile = useDeleteAgentProfile(orgId, projectId)
+  const navigate = useNavigate()
+
+  async function launch() {
+    if (
+      configDirty &&
+      !window.confirm(
+        'You have unsaved configuration changes. Launch uses the last saved revision. Continue?',
+      )
+    ) {
+      return
+    }
+    setLaunchError(undefined)
+    try {
+      const launched = await createAgent.mutateAsync({
+        profile: profile.id,
+        config: profile.current_config_id,
+      })
+      await navigate({
+        to: '/projects/$projectId/agents/$agentId/events',
+        params: { projectId, agentId: launched.agent.id },
+        ignoreBlocker: true,
+      })
+    } catch (error) {
+      if (isInsufficientCreditsError(error)) {
+        setLaunchError(error)
+      } else {
+        window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
+      }
+    }
+  }
+
+  function remove() {
+    if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
+    deleteProfile.mutate(profile.id, {
+      onSuccess: () => {
+        void navigate({
+          to: '/projects/$projectId/agents',
+          params: { projectId },
+          ignoreBlocker: true,
+        })
+      },
+      onError: (error) => {
+        window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')
+      },
+    })
+  }
+
+  return { launch, launchError, launchPending: createAgent.isPending, remove }
+}
+
+function LaunchAlert({ error }: { error: ApiError | undefined }) {
+  const { data: webConfig } = useWebConfig()
+  if (!error) return null
+  return (
+    <div
+      className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+      role="alert"
+    >
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      {webConfig?.billingURL ? (
+        <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
+      ) : (
+        error.message
+      )}
     </div>
   )
 }

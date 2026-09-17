@@ -14,6 +14,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -59,17 +60,15 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Skills"
+          guide={guides.skills}
           toolbar={
-            showToolbar ? (
-              <ResourceListToolbar
-                search={list.search}
-                onSearchChange={list.setSearch}
-                sort={list.sort}
-                sortOptions={resourceSortOptions}
-                onSortChange={list.setSort}
-                placeholder="Search skills by name…"
-              />
-            ) : undefined
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+              placeholder="Search skills by name…"
+              showSearch={showToolbar}
+            />
           }
         >
           {canManage && (

@@ -12,6 +12,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { secretSubtitle } from '@/lib/secrets'
 
@@ -44,17 +45,15 @@ export function ProjectSecretGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Secret grants"
+        guide={guides.secrets}
         toolbar={
-          showToolbar ? (
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search secret grants by name…"
-            />
-          ) : undefined
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+            placeholder="Search secret grants by name…"
+            showSearch={showToolbar}
+          />
         }
       />
       <DataTable

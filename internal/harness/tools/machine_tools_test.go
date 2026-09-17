@@ -3,21 +3,28 @@ package tools
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMachineToolInputValidation(t *testing.T) {
 	valid := []model.ToolCall{
 		{Name: "create_machine", Input: json.RawMessage(`{}`)},
 		{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":"Build Pool"}`)},
-		{Name: "delete_machine", Input: json.RawMessage(`{"machine_ref":"mchr-123"}`)},
+		{Name: "delete_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{}`)},
-		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_ref":"mchr-123"}`)},
+		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "list_machines", Input: json.RawMessage(`{}`)},
+		{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 	}
 	for _, call := range valid {
 		if err := validateRegisteredToolInput(call.Name, call.Input); err != nil {
@@ -40,16 +47,24 @@ func TestMachineToolInputValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "delete requires ref",
+			name: "delete requires ID",
 			call: model.ToolCall{Name: "delete_machine", Input: json.RawMessage(`{}`)},
 		},
 		{
 			name: "inspect rejects null",
-			call: model.ToolCall{Name: "inspect_machine", Input: json.RawMessage(`{"machine_ref":null}`)},
+			call: model.ToolCall{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":null}`)},
 		},
 		{
 			name: "list rejects fields",
-			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"machine_ref":"mchr-123"}`)},
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
+		},
+		{
+			name: "list rejects nil cursor UUID",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
+		},
+		{
+			name: "list rejects noncanonical cursor",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaab"}`)},
 		},
 	}
 	for _, tc := range invalid {
@@ -114,19 +129,51 @@ func TestSelectCreateMachinePool(t *testing.T) {
 	}
 }
 
+func TestCreateMachineApprovalPinsPoolID(t *testing.T) {
+	poolID := uuid.New()
+	call := model.ToolCall{ID: "create", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":"Build Pool"}`)}
+	selection := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
+	descriptor, ok := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), selection.Mode)
+	require.True(t, ok)
+	approvedInput, err := machineCreateAuthorizationInput(poolID, "Build Pool")
+	require.NoError(t, err)
+	request, err := permissionChallenge(
+		call, permissionModeContext{descriptor: descriptor, selection: selection}, approvedInput,
+	)
+	require.NoError(t, err)
+	requestJSON, err := json.Marshal(request)
+	require.NoError(t, err)
+	action := executionstore.AgentInteractionRecord{
+		ProviderCallID: call.ID, InteractionKind: executionstore.AgentInteractionKindPermission, Request: requestJSON,
+	}
+	require.True(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
+	otherPool, err := machineCreateAuthorizationInput(uuid.New(), "Build Pool")
+	require.NoError(t, err)
+	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherPool))
+	renamedPool, err := machineCreateAuthorizationInput(poolID, "Renamed Pool")
+	require.NoError(t, err)
+	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, renamedPool))
+	request.Authorization.Input = call.Input
+	action.Request, err = json.Marshal(request)
+	require.NoError(t, err)
+	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
+}
+
 func TestSelectOnlyMachine(t *testing.T) {
-	first := executionstore.PoolMachineRecord{Binding: executionstore.AgentMachineBindingRecord{MachineRef: "mchr-first1"}}
+	first := executionstore.PoolMachineRecord{
+		Binding: executionstore.AgentMachineBindingRecord{MachineID: integrationToolTestID("machine-first")},
+	}
 	second := executionstore.PoolMachineRecord{
-		Binding: executionstore.AgentMachineBindingRecord{MachineRef: "mchr-secon2"},
+		Binding: executionstore.AgentMachineBindingRecord{MachineID: integrationToolTestID("machine-second")},
 	}
 	tests := []struct {
 		name     string
 		machines []executionstore.PoolMachineRecord
-		want     string
+		want     uuid.UUID
 		wantErr  error
 	}{
 		{name: "zero machines", wantErr: ErrNoMachine},
-		{name: "one machine", machines: []executionstore.PoolMachineRecord{first}, want: first.Binding.MachineRef},
+		{name: "one machine", machines: []executionstore.PoolMachineRecord{first}, want: first.Binding.MachineID},
 		{
 			name:     "multiple machines",
 			machines: []executionstore.PoolMachineRecord{first, second},
@@ -145,8 +192,8 @@ func TestSelectOnlyMachine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("select inspect machine: %v", err)
 			}
-			if got.Binding.MachineRef != tc.want {
-				t.Fatalf("selected machine_ref = %q, want %q", got.Binding.MachineRef, tc.want)
+			if got.Binding.MachineID != tc.want {
+				t.Fatalf("selected machine_id = %q, want %q", got.Binding.MachineID, tc.want)
 			}
 		})
 	}
@@ -156,18 +203,23 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 	machineCwd := "/pool"
 	record := executionstore.PoolMachineRecord{
 		Binding: executionstore.AgentMachineBindingRecord{
-			MachineRef:  "mchr-pool01",
+			MachineID:   integrationToolTestID("machine-pool"),
 			BindingKind: executionstore.MachineBindingKindPool,
 		},
 		Machine: executionstore.MachineRecord{
+			ID:          integrationToolTestID("machine-pool"),
 			SourceKind:  executionstore.MachineSourceKindPool,
 			DisplayName: "Build machine",
 			Cwd:         machineCwd,
 		},
 		MachinePoolName: "Build Pool",
 	}
-	got := machineObservation(record)
-	if got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
+	got, err := machineObservation(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MachineID != machinePublicIDForTest(t, record.Machine.ID) ||
+		got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
 		t.Fatalf("pool observation identity = %+v", got)
 	}
 	if got.MachinePoolName != "Build Pool" {
@@ -180,7 +232,7 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 
 func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 	record := executionstore.AgentMachineObservationRecord{
-		MachineRef:      "mchr-byo001",
+		MachineID:       integrationToolTestID("machine-byo"),
 		SourceKind:      executionstore.MachineSourceKindBYO,
 		BindingKind:     executionstore.MachineBindingKindExplicit,
 		BindingState:    executionstore.AgentMachineBindingStateAttached,
@@ -189,8 +241,12 @@ func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 		ConnectionState: executionstore.MachineConnectionStateOnline,
 		Executable:      true,
 	}
-	got := agentMachineObservation(record)
-	if got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
+	got, err := agentMachineObservation(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MachineID != machinePublicIDForTest(t, record.MachineID) ||
+		got.SourceKind != "byo" || got.BindingKind != "explicit" || got.DisplayName != "Developer laptop" {
 		t.Fatalf("BYO observation identity = %+v", got)
 	}
 	encoded, err := json.Marshal(got)
@@ -204,7 +260,7 @@ func TestAgentMachineObservationIdentifiesBYOBinding(t *testing.T) {
 
 func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) {
 	record := executionstore.AgentMachineObservationRecord{
-		MachineRef:             "mchr-byo001",
+		MachineID:              integrationToolTestID("machine-byo"),
 		SourceKind:             executionstore.MachineSourceKindBYO,
 		BindingKind:            executionstore.MachineBindingKindExplicit,
 		BindingState:           executionstore.AgentMachineBindingStateAttached,
@@ -220,7 +276,11 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 		LifecycleReasonMessage: "ready",
 		FailureReport:          json.RawMessage(`{"stage":"daemon_install"}`),
 	}
-	encoded, err := json.Marshal(agentMachineInspection(record))
+	inspection, err := agentMachineInspection(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(inspection)
 	if err != nil {
 		t.Fatalf("marshal ungranted machine observation: %v", err)
 	}
@@ -258,21 +318,236 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 func TestMachineInspectionIncludesFailureReport(t *testing.T) {
 	failure := json.RawMessage(`{"stage":"daemon_install","exit_status":7,"output_tail":"failed"}`)
 	record := executionstore.AgentMachineObservationRecord{
-		MachineRef:    "mchr-pool01",
+		MachineID:     integrationToolTestID("machine-pool"),
 		FailureReport: failure,
 	}
-	inspected, err := json.Marshal(agentMachineInspection(record))
+	inspection, err := agentMachineInspection(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := json.Marshal(inspection)
 	if err != nil {
 		t.Fatalf("marshal machine inspection: %v", err)
 	}
 	if !strings.Contains(string(inspected), `"failure_report":`+string(failure)) {
 		t.Fatalf("machine inspection = %s, want failure report", inspected)
 	}
-	listed, err := json.Marshal(agentMachineObservation(record))
+	observation, err := agentMachineObservation(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := json.Marshal(observation)
 	if err != nil {
 		t.Fatalf("marshal machine observation: %v", err)
 	}
 	if strings.Contains(string(listed), "failure_report") {
 		t.Fatalf("machine list observation = %s, want failure report omitted", listed)
 	}
+}
+
+func machinePublicIDForTest(t *testing.T, id uuid.UUID) string {
+	t.Helper()
+	value, err := publicid.Encode(publicid.KindMachine, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
+	id := integrationToolTestID("public-machine")
+	publicID := machinePublicIDForTest(t, id)
+	for _, tc := range []struct{ name, input string }{
+		{"run_command", `{"command":"pwd","%s":"%s"}`},
+		{"inspect_machine", `{"%s":"%s"}`},
+		{"delete_machine", `{"%s":"%s"}`},
+		{"upload_file", `{"path":"/artifacts","source":"report.pdf","%s":"%s"}`},
+		{"download_file", `{"path":"/artifacts/art_aaaaaaaaaaaaaaaaaaaaaaaaae","destination":"report.pdf","%s":"%s"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, value := range []string{
+				publicID, "mch_invalid", "", "agt_aaaaaaaaaaaaaaaaaaaaaaaaae",
+			} {
+				input := json.RawMessage(fmt.Sprintf(tc.input, "machine_id", value))
+				err := validateRegisteredToolInput(tc.name, input)
+				if (err == nil) != (value == publicID) {
+					t.Fatalf("machine_id %q: unexpected validation result: %v", value, err)
+				}
+			}
+			input := json.RawMessage(fmt.Sprintf(tc.input, "machine_ref", "mchr-abc234"))
+			if err := validateRegisteredToolInput(tc.name, input); err == nil {
+				t.Fatal("legacy machine_ref was accepted")
+			}
+		})
+	}
+}
+
+func TestMachineListPagination(t *testing.T) {
+	machines := make([]executionstore.AgentMachineObservationRecord, 150)
+	for i := range machines {
+		machines[i] = executionstore.AgentMachineObservationRecord{
+			MachineID: uuid.UUID{15: byte(len(machines) - i)}, Description: strings.Repeat("<é", 500),
+		}
+	}
+	cursor := ""
+	seen := []string{}
+	for range 151 {
+		page := machineListPageForTest(t, machines, cursor)
+		for _, machine := range page.Machines {
+			if slices.Contains(seen, machine.MachineID) {
+				t.Fatalf("machine %s repeated after cursor %s", machine.MachineID, cursor)
+			}
+			seen = append(seen, machine.MachineID)
+			cursor = machine.MachineID
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		if page.NextCursor != cursor {
+			t.Fatalf("next cursor %s does not match last entry %s", page.NextCursor, cursor)
+		}
+		machines = slices.DeleteFunc(machines, func(machine executionstore.AgentMachineObservationRecord) bool {
+			return machinePublicIDForTest(t, machine.MachineID) == cursor
+		})
+	}
+	if len(seen) != 150 {
+		t.Fatalf("listed %d machines, want 150", len(seen))
+	}
+	for i, ref := range seen {
+		if want := machinePublicIDForTest(t, uuid.UUID{15: byte(i + 1)}); ref != want {
+			t.Fatalf("machine %d = %s, want %s", i, ref, want)
+		}
+	}
+	for _, input := range [][]executionstore.AgentMachineObservationRecord{nil, machines} {
+		page := machineListPageForTest(t, input, cursor)
+		if page.Machines == nil || len(page.Machines) != 0 || page.NextCursor != "" {
+			t.Fatalf("final page = %+v", page)
+		}
+	}
+}
+
+func TestMachineListPageSizeBoundary(t *testing.T) {
+	for _, delta := range []int{-1, 0, 1} {
+		t.Run(fmt.Sprint(delta), func(t *testing.T) {
+			machines := []executionstore.AgentMachineObservationRecord{
+				{MachineID: uuid.UUID{15: 1}}, {MachineID: uuid.UUID{15: 2}},
+			}
+			content, err := structuredToolResultContent(machineListResult{
+				Machines:   []machineObservationPayload{machineObservationForPaginationTest(t, machines[0])},
+				NextCursor: machinePublicIDForTest(t, machines[0].MachineID),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts, err := content.contentParts()
+			if err != nil {
+				t.Fatal(err)
+			}
+			machines[0].Description = strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts)+delta)
+			if delta <= 0 {
+				page := machineListPageForTest(t, machines, "")
+				if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
+					t.Fatalf("unexpected boundary page: machines=%d cursor=%s", len(page.Machines), page.NextCursor)
+				}
+			} else {
+				result, err := machineListPage(machines, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				failure, ok := result.(failTransaction)
+				if !ok {
+					t.Fatalf("oversized entry returned %T", result)
+				}
+				parts, err := failure.content.contentParts()
+				if err != nil || len(parts) > executionstore.ToolResultInlineBudgetBytes ||
+					!strings.Contains(string(parts), "inspect_machine") ||
+					!strings.Contains(string(parts), machinePublicIDForTest(t, machines[0].MachineID)) ||
+					!strings.Contains(string(parts), "cursor") {
+					t.Fatalf("missing bounded recovery instructions: %s, %v", parts, err)
+				}
+			}
+			page := machineListPageForTest(t, machines, machinePublicIDForTest(t, machines[0].MachineID))
+			if len(page.Machines) != 1 || page.Machines[0].MachineID != machinePublicIDForTest(t, machines[1].MachineID) ||
+				page.NextCursor != "" {
+				t.Fatalf("continuation skipped remaining machine: %+v", page)
+			}
+		})
+	}
+}
+
+func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
+	for _, count := range []int{2, 3} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			machines := []executionstore.AgentMachineObservationRecord{
+				{MachineID: uuid.UUID{15: 1}, Description: "é<\"\\\n"},
+				{MachineID: uuid.UUID{15: 2}, Description: "é<\"\\\n"},
+				{MachineID: uuid.UUID{15: 3}},
+			}
+			machines = machines[:count]
+			cursor := ""
+			if count > 2 {
+				cursor = machinePublicIDForTest(t, machines[1].MachineID)
+			}
+			content, err := structuredToolResultContent(machineListResult{
+				Machines: []machineObservationPayload{
+					machineObservationForPaginationTest(t, machines[0]), machineObservationForPaginationTest(t, machines[1]),
+				},
+				NextCursor: cursor,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts, err := content.contentParts()
+			if err != nil {
+				t.Fatal(err)
+			}
+			machines[1].Description += strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts))
+			page := machineListPageForTest(t, machines, "")
+			if len(page.Machines) != 2 || page.NextCursor != cursor {
+				t.Fatalf("exact-size page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
+			}
+			machines[1].Description += "x"
+			page = machineListPageForTest(t, machines, "")
+			if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
+				t.Fatalf("oversized page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
+			}
+		})
+	}
+}
+
+func machineListPageForTest(
+	t *testing.T,
+	machines []executionstore.AgentMachineObservationRecord,
+	cursor string,
+) machineListResult {
+	t.Helper()
+	result, err := machineListPage(machines, cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, ok := result.(completeTransaction)
+	if !ok {
+		t.Fatalf("page returned %T", result)
+	}
+	parts, err := completed.content.contentParts()
+	if err != nil || len(parts) > executionstore.ToolResultInlineBudgetBytes {
+		t.Fatalf("page size=%d, error=%v", len(parts), err)
+	}
+	var blocks []struct{ Value machineListResult }
+	if err := json.Unmarshal(parts, &blocks); err != nil {
+		t.Fatal(err)
+	}
+	return blocks[0].Value
+}
+
+func machineObservationForPaginationTest(
+	t *testing.T,
+	machine executionstore.AgentMachineObservationRecord,
+) machineObservationPayload {
+	t.Helper()
+	observation, err := agentMachineObservation(machine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -19,19 +20,19 @@ const (
 
 type AuthorizeMachineInput struct {
 	Principal identitystore.PrincipalRecord
-	OrgID     ID
-	MachineID ID
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 	Action    string
 }
 
 func (s *Store) AuthorizeMachine(ctx context.Context, input AuthorizeMachineInput) (bool, error) {
-	if input.Principal.Type == "" || isNilID(input.Principal.ID) {
+	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return false, errors.New("org id is required")
 	}
-	if isNilID(input.MachineID) {
+	if input.MachineID == uuid.Nil {
 		return false, errors.New("machine id is required")
 	}
 	if input.Action == "" {
@@ -40,7 +41,7 @@ func (s *Store) AuthorizeMachine(ctx context.Context, input AuthorizeMachineInpu
 	if !identitystore.IsAccountPrincipal(input.Principal) {
 		return false, nil
 	}
-	if !isNilID(input.Principal.OrgID) && input.Principal.OrgID != input.OrgID {
+	if input.Principal.OrgID != uuid.Nil && input.Principal.OrgID != input.OrgID {
 		return false, nil
 	}
 	userID, orgAPIKeyID := identitystore.AccountPrincipalIDs(input.Principal)

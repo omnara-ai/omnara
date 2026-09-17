@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -14,24 +15,24 @@ import (
 )
 
 type AgentInputRecord struct {
-	ID                  ID                     `json:"id"`
-	ProjectID           ID                     `json:"project_id"`
-	AgentID             ID                     `json:"agent_id"`
+	ID                  uuid.UUID              `json:"id"`
+	ProjectID           uuid.UUID              `json:"project_id"`
+	AgentID             uuid.UUID              `json:"agent_id"`
 	State               string                 `json:"state"`
 	InputRank           int64                  `json:"input_rank"`
-	ActorID             ID                     `json:"actor_id,omitzero"`
+	ActorID             uuid.UUID              `json:"actor_id,omitzero"`
 	InputKind           string                 `json:"input_kind"`
-	IntegrationTargetID ID                     `json:"integration_target_id,omitempty"`
+	IntegrationTargetID uuid.UUID              `json:"integration_target_id,omitempty"`
 	IdempotencyScope    string                 `json:"idempotency_scope,omitempty"`
 	InputIdempotencyKey string                 `json:"input_idempotency_key,omitempty"`
 	QueuedAt            time.Time              `json:"queued_at"`
-	AdmittedEventID     ID                     `json:"admitted_event_id,omitempty"`
+	AdmittedEventID     uuid.UUID              `json:"admitted_event_id,omitempty"`
 	AdmittedAt          *time.Time             `json:"admitted_at,omitempty"`
 	CanceledAt          *time.Time             `json:"canceled_at,omitempty"`
 	DeliveryMode        AgentInputDeliveryMode `json:"delivery_mode"`
 	ControlType         string                 `json:"control_type,omitempty"`
-	TargetInteractionID ID                     `json:"target_interaction_id,omitempty"`
-	AgentConfigID       ID                     `json:"agent_config_id,omitempty"`
+	TargetInteractionID uuid.UUID              `json:"target_interaction_id,omitempty"`
+	AgentConfigID       uuid.UUID              `json:"agent_config_id,omitempty"`
 	ResolvedAt          *time.Time             `json:"resolved_at,omitempty"`
 	RejectedReason      string                 `json:"rejected_reason,omitempty"`
 	Metadata            json.RawMessage        `json:"metadata"`
@@ -43,14 +44,14 @@ type AgentInputQueueCursor struct {
 	DeliveryMode AgentInputDeliveryMode
 	InputRank    int64
 	QueuedAt     time.Time
-	ID           ID
+	ID           uuid.UUID
 }
 
 const agentInputRankStride int64 = 1024
 
 type ListQueuedBacklogInputsInput struct {
-	ProjectID ID
-	AgentID   ID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
 	Limit     int
 	After     AgentInputQueueCursor
 }
@@ -69,12 +70,12 @@ const (
 type AgentInputDeliveryMode string
 
 type insertAgentInputInput struct {
-	ID                  ID
-	ProjectID           ID
-	AgentID             ID
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
 	DeliveryMode        AgentInputDeliveryMode
-	ActorID             ID
-	IntegrationTargetID ID
+	ActorID             uuid.UUID
+	IntegrationTargetID uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	Metadata            json.RawMessage
@@ -99,12 +100,12 @@ func insertAgentInputTx(
 		RankStride:          agentInputRankStride,
 		ProjectID:           input.ProjectID,
 		AgentID:             input.AgentID,
-		ID:                  sqlcIDFromNil(input.ID),
+		ID:                  storeutil.IDFromNil(input.ID),
 		DeliveryMode:        string(input.DeliveryMode),
-		ActorID:             sqlcIDFromNil(input.ActorID),
-		IntegrationTargetID: sqlcIDFromNil(input.IntegrationTargetID),
-		IdempotencyScope:    sqlcTextFromEmpty(input.IdempotencyScope),
-		InputIdempotencyKey: sqlcTextFromEmpty(input.InputIdempotencyKey),
+		ActorID:             storeutil.IDFromNil(input.ActorID),
+		IntegrationTargetID: storeutil.IDFromNil(input.IntegrationTargetID),
+		IdempotencyScope:    storeutil.TextFromEmpty(input.IdempotencyScope),
+		InputIdempotencyKey: storeutil.TextFromEmpty(input.InputIdempotencyKey),
 		Metadata:            input.Metadata,
 	})
 	if err != nil {
@@ -119,10 +120,10 @@ func insertAgentInputTx(
 func loadAgentInputByIdempotencyMaybeTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	scope, key string,
 ) (AgentInputRecord, bool, error) {
-	if isNilID(projectID) || isNilID(agentID) || scope == "" || key == "" {
+	if projectID == uuid.Nil || agentID == uuid.Nil || scope == "" || key == "" {
 		return AgentInputRecord{}, false, nil
 	}
 	row, err := dbsqlc.New(tx).

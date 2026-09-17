@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -397,7 +397,7 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 	if len(retryModel.responded[1].ToolSpecs) != 0 {
 		t.Fatalf("compaction request exposed tools: %+v", retryModel.responded[1].ToolSpecs)
 	}
-	var completedCompactionContextID storage.ID
+	var completedCompactionContextID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT id
 FROM model_call_contexts
@@ -640,7 +640,7 @@ func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *t
 		t.Fatalf("requests before interrupted handoff = %d, want one overflow", modelClient.respondedCount())
 	}
 
-	var interruptedContextID storage.ID
+	var interruptedContextID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT id
 FROM model_call_contexts
@@ -1122,7 +1122,7 @@ WHERE context.project_id = $1
 
 type managedCompactionAdmissionJourney struct {
 	fixture  kernelFixture
-	agentID  storage.ID
+	agentID  uuid.UUID
 	turn     ModelWorkExecution
 	executor AgentExecutor
 	model    *sequenceKernelModel
@@ -1527,7 +1527,7 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 		t.Fatalf("release first runtime lock: %v", err)
 	}
 
-	var currentConfigID storage.ID
+	var currentConfigID uuid.UUID
 	if err := fixture.Pool.QueryRow(
 		ctx, `SELECT current_config_id FROM agents WHERE project_id = $1 AND id = $2`, kernelTestProjectID, agentID,
 	).

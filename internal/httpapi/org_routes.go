@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -167,7 +166,7 @@ func (s strictOpenAPIServer) DeleteOrganization(
 		return nil, err
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.ID == storage.NilID {
+	if !ok || principal.ID == uuid.Nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUnauthorized, "unauthorized")
 	}
 	machines, err := s.server.store.Organizations().DeleteOrganization(ctx, org.ID, principal)
@@ -204,7 +203,7 @@ func createOrganizationStorageError(ctx context.Context, operation string, err e
 }
 
 func newProposedOrganizationID(
-	actorUserID storage.ID,
+	actorUserID uuid.UUID,
 	orgCreationIdempotencyKey string,
 ) (uuid.UUID, error) {
 	if orgCreationIdempotencyKey == "" {

@@ -112,7 +112,7 @@ export function ChatGuide({ project, agent }: { project: VisibleProject; agent: 
   return (
     <Button asChild size="sm">
       <Link
-        to="/projects/$projectId/agents/$agentId"
+        to="/projects/$projectId/agents/$agentId/chat"
         params={{ projectId: project.id, agentId: agent.id }}
         data-action="open-agent"
       >

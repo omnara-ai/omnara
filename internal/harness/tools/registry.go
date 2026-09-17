@@ -167,22 +167,34 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 func builtInToolRegistrations() []toolRegistration {
 	return []toolRegistration{
 		{
+			name:                   toolcatalog.ToolNameReadFile,
+			semanticInputValidator: validateReadFileInput,
+			handler:                toolHandler{Async: runReadFileAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameSearchFiles,
+			semanticInputValidator: validateSearchFilesInput,
+			handler:                toolHandler{Async: runSearchFilesAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameRunCommand,
 			semanticInputValidator: validateRunCommandInput,
 			handler:                toolHandler{Transactional: runCommand, Background: wakeProcessTool},
 			permissionModes:        commonPermissionModeHandlers(runCommandPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameUploadArtifact,
-			semanticInputValidator: validateUploadArtifactInput,
-			handler:                toolHandler{Transactional: runUploadArtifact, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(uploadArtifactPermissionChallenge),
+			name:                   toolcatalog.ToolNameUploadFile,
+			semanticInputValidator: validateUploadFileInput,
+			handler:                toolHandler{Transactional: runUploadFile, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(uploadFilePermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameDownloadArtifact,
-			semanticInputValidator: validateDownloadArtifactInput,
-			handler:                toolHandler{Transactional: runDownloadArtifact, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(downloadArtifactPermissionChallenge),
+			name:                   toolcatalog.ToolNameDownloadFile,
+			semanticInputValidator: validateDownloadFileInput,
+			handler:                toolHandler{Transactional: runDownloadFile, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(downloadFilePermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteProcess,
@@ -244,6 +256,48 @@ func builtInToolRegistrations() []toolRegistration {
 			semanticInputValidator: validateInspectMachineInput,
 			handler:                toolHandler{Transactional: inspectMachine},
 			permissionModes:        commonPermissionModeHandlers(inspectMachinePermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameSpawnAgent,
+			semanticInputValidator: validateSpawnAgentInput,
+			handler: toolHandler{
+				Transactional: spawnAgent,
+				Background:    provisionSubagentMachinesInBackground,
+			},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameReadAgent,
+			semanticInputValidator: validateReadAgentInput,
+			handler:                toolHandler{Transactional: readAgent},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameSendAgentMessage,
+			semanticInputValidator: validateSendAgentMessageInput,
+			handler:                toolHandler{Transactional: sendAgentMessage},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameStopAgent,
+			semanticInputValidator: validateStopAgentInput,
+			handler: toolHandler{
+				Transactional: stopAgent,
+				Background:    stopAgentInBackground,
+			},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameListAgents,
+			semanticInputValidator: validateListAgentsInput,
+			handler:                toolHandler{Transactional: listAgents},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameToolSearch,
+			semanticInputValidator: validateToolSearchInput,
+			handler:                toolHandler{Transactional: runToolSearch},
+			permissionModes:        alwaysAllowPermissionModeHandlers(),
 		},
 		{
 			name:                   toolcatalog.ToolNameAskQuestion,

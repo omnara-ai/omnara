@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -88,7 +89,7 @@ func appendToolResultRecordTx(
 			record.AgentID,
 			record.TurnID,
 			admitted.Event.Event.ID,
-			NilID,
+			uuid.Nil,
 		); err != nil {
 			return admittedToolCallResult{}, err
 		}
@@ -109,7 +110,7 @@ func applyAdmittedToolResult(record *ToolCallRecord, admitted admittedToolCallRe
 func completedToolCallMatchesTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	outcome ToolResultOutcome,
 	contentParts json.RawMessage,
 ) (bool, error) {
@@ -155,8 +156,10 @@ func completedToolCallMatchesTx(
 	if err != nil {
 		return false, err
 	}
-	return result.Outcome == string(outcome) &&
-		sameJSON(storedParts, normalizedJSON(contentParts)), nil
+	if result.Outcome != string(outcome) {
+		return false, nil
+	}
+	return toolResultContentMatchesTx(ctx, qtx, projectID, agentID, toolCallID, storedParts, blocks, contentParts)
 }
 
 func processToolResult(process ProcessRecord) (ToolResultOutcome, json.RawMessage, error) {
@@ -217,7 +220,7 @@ func startedProcessToolResult(process ProcessRecord, observed json.RawMessage) (
 }
 
 func commandTerminalToolResult(
-	processID ID,
+	processID uuid.UUID,
 	result json.RawMessage,
 ) (json.RawMessage, error) {
 	if len(result) == 0 || string(result) == "null" {
@@ -235,11 +238,19 @@ func commandTerminalToolResult(
 }
 
 func isUploadArtifactToolCall(call ToolCallRecord) bool {
-	return call.Type == toolcatalog.ToolTypeBuiltIn &&
-		call.Name == toolcatalog.ToolNameUploadArtifact
+	if call.Type != toolcatalog.ToolTypeBuiltIn {
+		return false
+	}
+	if call.Name != toolcatalog.ToolNameUploadFile {
+		return false
+	}
+	var input struct {
+		Path string `json:"path"`
+	}
+	return json.Unmarshal(call.Input, &input) == nil && input.Path == toolcatalog.ArtifactVFSRoot
 }
 
-func UploadArtifactIdempotencyKey(toolCallID ID) string {
+func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
 
@@ -266,7 +277,7 @@ func uploadArtifactProcessToolResultContentParts(
 		{
 			"type": "structured_data",
 			"value": map[string]any{
-				"artifact_id": publicResourceID(publicid.KindArtifact, artifact.ID),
+				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
 			},
 		},
 		{

@@ -57,7 +57,12 @@ export function AgentConfigEditorFields({
             onChange={editor.form.setModel}
             onUnavailableChange={editor.form.reportModelUnavailable}
           />
-          <AgentConfigBasicForm orgId={orgId} projectId={projectId} form={editor.form} />
+          <AgentConfigBasicForm
+            orgId={orgId}
+            projectId={projectId}
+            form={editor.form}
+            onBeforeOAuthRedirect={editor.suppressUnsavedChangesWarning}
+          />
           <AgentConfigIssueList issues={issues ?? []} />
         </div>
       )}

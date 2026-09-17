@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -18,7 +19,7 @@ func (s *Store) CreateProjectModelGrant(
 	ctx context.Context,
 	input CreateProjectModelGrantInput,
 ) (ProjectModelGrantRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.ConfiguredModelID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.ConfiguredModelID == uuid.Nil {
 		return ProjectModelGrantRecord{}, errors.New("org, project, and configured model are required")
 	}
 	input = normalizeProjectModelGrantInput(input)
@@ -92,7 +93,7 @@ func (s *Store) UpdateProjectModelGrant(
 	ctx context.Context,
 	input UpdateProjectModelGrantInput,
 ) (ProjectModelGrantRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.ID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.ID == uuid.Nil {
 		return ProjectModelGrantRecord{}, storeerr.InvalidRequest(errors.New("org, project, and grant are required"))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -231,7 +232,7 @@ func applyProjectModelGrantPatch(
 
 func (s *Store) GetActiveProjectModelGrantForConfiguredModel(
 	ctx context.Context,
-	orgID, projectID, configuredModelID ID,
+	orgID, projectID, configuredModelID uuid.UUID,
 ) (ProjectModelGrantRecord, error) {
 	row, err := s.q.GetActiveProjectModelGrantForConfiguredModel(
 		ctx,
@@ -251,7 +252,7 @@ func (s *Store) ListProjectModelGrants(
 	ctx context.Context,
 	input ListProjectModelGrantsInput,
 ) (ListProjectModelGrantsResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return ListProjectModelGrantsResult{}, errors.New("org and project are required")
 	}
 	if input.Limit <= 0 {
@@ -306,6 +307,7 @@ func (s *Store) ListProjectModelGrants(
 				ModelProviderConfigID: row.ModelProviderConfigID,
 				Name:                  row.ModelName,
 				ProviderConfigName:    row.ProviderConfigName,
+				ProviderModelSlug:     row.ProviderModelSlug,
 				CreatedAt:             row.ModelCreatedAt,
 				UpdatedAt:             row.ModelUpdatedAt,
 			},
@@ -317,7 +319,7 @@ func (s *Store) ListProjectModelGrants(
 
 func (s *Store) DeleteProjectModelGrant(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (ProjectModelGrantRecord, error) {
 	row, err := s.q.DeleteProjectModelGrant(
 		ctx,

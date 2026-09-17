@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
@@ -51,15 +52,15 @@ type integrationToolFixture struct {
 	Agent              executionstore.AgentRecord
 	AgentConfig        executionstore.AgentConfigRecord
 	Lock               executionstore.AgentRuntimeLockRecord
-	ModelCallContextID storage.ID
-	ModelOutputEventID storage.ID
+	ModelCallContextID uuid.UUID
+	ModelOutputEventID uuid.UUID
 	Install            integrationstore.IntegrationInstallRecord
 	Target             integrationstore.IntegrationTargetRecord
 	Now                time.Time
 	WithMCP            bool
 }
 
-func toolsTestUserPrincipal(userID storage.ID) identitystore.PrincipalRecord {
+func toolsTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 
@@ -67,7 +68,7 @@ func integrationToolInteraction(
 	t *testing.T,
 	ctx context.Context,
 	fixture integrationToolFixture,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	kind executionstore.AgentInteractionKind,
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
@@ -898,7 +899,7 @@ func TestIntegrationSendToolDisabledAndMissingTargetFailures(t *testing.T) {
 		fixture.Pool,
 		toolsTestProjectID,
 		fixture.Agent.ID,
-		storage.NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("clear target: %v", err)
 	}
@@ -1757,7 +1758,23 @@ func newIntegrationToolFixtureWithMCP(
 	withMCP bool,
 	storeOptions ...storage.Option,
 ) integrationToolFixture {
+	return newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{withMCP: withMCP}, storeOptions...)
+}
+
+type toolFixtureOptions struct {
+	withMCP       bool
+	withSubagents bool
+}
+
+func newIntegrationToolFixtureWithOptions(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	fixtureOptions toolFixtureOptions,
+	storeOptions ...storage.Option,
+) integrationToolFixture {
 	t.Helper()
+	withMCP := fixtureOptions.withMCP
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 	options := []storage.Option{
 		storage.WithSecretKeyWrapper(integrationToolKeyWrapper(t)),
@@ -1804,7 +1821,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	ensureIntegrationToolsProjectAdmin(t, ctx, store, user.ID, now)
 
-	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, withMCP)
+	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, fixtureOptions)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -1882,10 +1899,10 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		toolsTestProjectID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		[]uuid.UUID{input.ID},
 		launch.AgentConfig.ID,
 		admitted.Events[0].Sequence,
-		storage.NilID,
+		uuid.Nil,
 	)
 	return integrationToolFixture{
 		Pool:               pool,
@@ -1985,7 +2002,7 @@ func (f *integrationToolFixture) recordPendingToolCalls(
 	at time.Time,
 ) {
 	t.Helper()
-	if f.ModelOutputEventID != storage.NilID {
+	if f.ModelOutputEventID != uuid.Nil {
 		t.Fatal("integration tool fixture already published its complete tool proposal batch")
 	}
 	if len(calls) == 0 {
@@ -2035,7 +2052,7 @@ func (f *integrationToolFixture) recordPendingToolCalls(
 	f.ModelOutputEventID = modelOutputEvent.ID
 }
 
-func (f *integrationToolFixture) toolCallID(t *testing.T, ctx context.Context, providerCallID string) storage.ID {
+func (f *integrationToolFixture) toolCallID(t *testing.T, ctx context.Context, providerCallID string) uuid.UUID {
 	t.Helper()
 	record, found, err := f.Store.Execution().GetToolCallByProviderCall(
 		ctx,
@@ -2057,11 +2074,12 @@ func createIntegrationToolProfile(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	label string,
-	withMCP bool,
+	fixtureOptions toolFixtureOptions,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
+	withMCP := fixtureOptions.withMCP
 	sourceYAML := `instruction: Reply to users.
 model:
   provider_config: openai-prod
@@ -2083,10 +2101,17 @@ tools:
       parameters: {}
 `
 	}
+	if fixtureOptions.withSubagents {
+		sourceYAML += `subagents:
+  fork:
+    type: self
+    instruction:
+      append: You are a fork.
+`
+	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -2113,7 +2138,7 @@ func compileToolsAgentYAMLResolved(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	sourceYAML string,
 ) agentconfig.Result {
 	t.Helper()
@@ -2185,9 +2210,9 @@ func resolvedToolsAgentConfigModel(
 	}
 }
 
-func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {
+func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := storage.ParseID(compiled.Compiled.Model.ConfiguredModelID)
+	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("parse compiled configured model id: %v", err)
 	}
@@ -2198,7 +2223,7 @@ func createIntegrationToolInstall(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	agentProfileID, userID storage.ID,
+	agentProfileID, userID uuid.UUID,
 	label string,
 	now time.Time,
 ) integrationstore.IntegrationInstallRecord {
@@ -2222,10 +2247,10 @@ func createIntegrationToolSecrets(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	label string,
 	now time.Time,
-) storage.ID {
+) uuid.UUID {
 	t.Helper()
 	secret, _, err := store.Secrets().CreateSecret(
 		ctx,
@@ -2250,8 +2275,8 @@ func createIntegrationToolSecrets(
 }
 
 func integrationToolInstallInput(
-	agentProfileID, userID storage.ID,
-	credentialSecretID storage.ID,
+	agentProfileID, userID uuid.UUID,
+	credentialSecretID uuid.UUID,
 	now time.Time,
 ) integrationstore.UpsertIntegrationInstallInput {
 	return integrationstore.UpsertIntegrationInstallInput{
@@ -2360,7 +2385,7 @@ func ensureIntegrationToolsProjectAdmin(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
-	userID storage.ID,
+	userID uuid.UUID,
 	now time.Time,
 ) {
 	t.Helper()

@@ -23,6 +23,7 @@ const (
 	TokenKindOrgAPIKey      TokenKind = "org_api_key"
 	TokenKindMachineDaemon  TokenKind = "machine_daemon_token"
 	TokenKindBrowserSession TokenKind = "browser_session"
+	TokenKindOAuthAccess    TokenKind = "oauth_access_token"
 	TokenKindUnknown        TokenKind = "unknown"
 )
 
@@ -130,6 +131,7 @@ func principal(p identitystore.PrincipalRecord) log.Fields {
 		"org_api_key.id":           p.OrgAPIKeyID,
 		"browser_session.id":       p.BrowserSessionID,
 		"machine_daemon_token.id":  p.MachineDaemonTokenID,
+		"oauth_access_token.id":    p.OAuthAccessTokenID,
 	}
 	if p.Type == identitystore.PrincipalTypeMachineDaemon {
 		f["machine.id"] = p.ID

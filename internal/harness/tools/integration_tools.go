@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -104,7 +104,7 @@ type integrationToolResult struct {
 }
 
 type integrationToolTarget struct {
-	ID              storage.ID
+	ID              uuid.UUID
 	Provider        string
 	PublicID        string
 	TargetRef       string
@@ -448,7 +448,7 @@ func setIntegrationTarget(
 			break
 		}
 	}
-	if selected.ID == storage.NilID ||
+	if selected.ID == uuid.Nil ||
 		selected.InstallState != integrationstore.IntegrationInstallStateActive {
 		content, resultErr := structuredToolResultContent(
 			integrationToolResult{
@@ -529,7 +529,7 @@ func (e Executor) currentIntegrationTargetIdentity(
 			break
 		}
 	}
-	if current.ID == storage.NilID {
+	if current.ID == uuid.Nil {
 		return integrationToolTarget{}, errMissingIntegrationTarget
 	}
 	target := integrationToolTarget{
@@ -547,7 +547,7 @@ func (e Executor) currentIntegrationTargetIdentity(
 
 func (e Executor) integrationToolTargetByID(
 	ctx context.Context,
-	projectID, agentID, targetID storage.ID,
+	projectID, agentID, targetID uuid.UUID,
 ) (integrationToolTarget, error) {
 	target, err := e.Store.Integrations().GetIntegrationTarget(ctx, projectID, targetID)
 	if err != nil {

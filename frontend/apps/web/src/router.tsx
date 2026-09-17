@@ -89,12 +89,24 @@ const organizationMachinesRoute = createRoute({
   ),
 })
 
+const organizationModelsSearch = z.object({ provider: z.string().optional().catch(undefined) })
+
 const organizationModelsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/models',
+  validateSearch: organizationModelsSearch,
   component: lazyRouteComponent(
     () => import('@/routes/OrganizationModelsPage'),
     'OrganizationModelsPage',
+  ),
+})
+
+const organizationUsageRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/usage',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrganizationUsagePage'),
+    'OrganizationUsagePage',
   ),
 })
 
@@ -150,6 +162,12 @@ const projectSkillsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
 })
 
+const projectUsageRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/usage',
+  component: lazyRouteComponent(() => import('@/routes/ProjectUsagePage'), 'ProjectUsagePage'),
+})
+
 const agentProfileRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agent-profiles/$profileId',
@@ -171,6 +189,25 @@ const agentRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/AgentView'), 'AgentView'),
 })
 
+const agentIndexRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
+    throw redirect({ to: '/projects/$projectId/agents/$agentId/events', params })
+  },
+})
+
+const agentEventsRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/events',
+})
+
+const agentChatRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/chat',
+})
+
 const deviceAuthRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/device',
@@ -178,6 +215,15 @@ const deviceAuthRoute = createRoute({
     requireOrganization(context.me, location.href)
   },
   component: lazyRouteComponent(() => import('@/routes/DeviceAuth'), 'DeviceAuth'),
+})
+
+const oauthAuthorizeRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/oauth/authorize',
+  beforeLoad: ({ context, location }) => {
+    requireOrganization(context.me, location.href)
+  },
+  component: lazyRouteComponent(() => import('@/routes/OAuthAuthorize'), 'OAuthAuthorize'),
 })
 
 const onboardingRoute = createRoute({
@@ -237,6 +283,7 @@ const routeTree = rootRoute.addChildren([
   forgotPasswordRoute,
   authenticatedRoute.addChildren([
     deviceAuthRoute,
+    oauthAuthorizeRoute,
     onboardingRoute,
     invitationsRoute,
     onboardedRoute.addChildren([
@@ -244,6 +291,7 @@ const routeTree = rootRoute.addChildren([
       membersRoute,
       organizationMachinesRoute,
       organizationModelsRoute,
+      organizationUsageRoute,
       secretsRoute,
       skillsRoute,
       apiTokensRoute,
@@ -252,9 +300,10 @@ const routeTree = rootRoute.addChildren([
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,
+      projectUsageRoute,
       agentProfileRoute,
       createAgentRoute,
-      agentRoute,
+      agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute]),
     ]),
   ]),
 ])

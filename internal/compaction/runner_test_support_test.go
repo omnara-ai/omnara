@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	agentevents "github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	modelresolvertest "github.com/omnara-ai/omnara/internal/testutil/modelresolver"
@@ -41,7 +41,7 @@ type fakeStore struct {
 
 func (s *fakeStore) ListCompactionSourceEvents(
 	_ context.Context,
-	_, _ storage.ID,
+	_, _ uuid.UUID,
 	afterSequence int64,
 	limit int32,
 ) ([]executionstore.CompactionSourceEventRecord, error) {
@@ -60,7 +60,7 @@ func (s *fakeStore) ListCompactionSourceEvents(
 
 func (s *fakeStore) ListCompactionAtomicGroups(
 	_ context.Context,
-	_, _ storage.ID,
+	_, _ uuid.UUID,
 	_, _ int64,
 ) ([]executionstore.CompactionAtomicGroupRecord, error) {
 	return append([]executionstore.CompactionAtomicGroupRecord(nil), s.atomicGroups...), nil
@@ -68,11 +68,11 @@ func (s *fakeStore) ListCompactionAtomicGroups(
 
 func (s *fakeStore) CaptureAgentConfigForEventWatermark(
 	_ context.Context,
-	projectID, _ storage.ID,
+	projectID, _ uuid.UUID,
 	watermark int64,
 ) (executionstore.AgentConfigSnapshotRecord, error) {
 	config := s.agentConfig
-	if config.ID == storage.NilID {
+	if config.ID == uuid.Nil {
 		config = defaultCompactionAgentConfig()
 	}
 	config.ProjectID = projectID
@@ -84,7 +84,7 @@ func (s *fakeStore) CaptureAgentConfigForEventWatermark(
 
 func (s *fakeStore) GetLatestApplicableContextCheckpoint(
 	_ context.Context,
-	_, _ storage.ID,
+	_, _ uuid.UUID,
 	maxEventSequence int64,
 ) (executionstore.ContextCheckpointRecord, bool, error) {
 	if s.priorCheckpoint == nil || s.priorCheckpoint.CheckpointEventSequence > maxEventSequence {
@@ -95,7 +95,7 @@ func (s *fakeStore) GetLatestApplicableContextCheckpoint(
 
 func (s *fakeStore) GetContextCheckpointByProducerContext(
 	_ context.Context,
-	_, _, modelCallContextID storage.ID,
+	_, _, modelCallContextID uuid.UUID,
 ) (executionstore.ContextCheckpointRecord, bool, error) {
 	if s.published != nil && s.published.ProducerModelCallContextID == modelCallContextID {
 		return *s.published, true, nil
@@ -105,7 +105,7 @@ func (s *fakeStore) GetContextCheckpointByProducerContext(
 
 func (s *fakeStore) CountConsecutiveContextCheckpointLineage(
 	_ context.Context,
-	_, _ storage.ID,
+	_, _ uuid.UUID,
 	_ int64,
 ) (int, error) {
 	return s.consecutiveCheckpointCount, nil
@@ -113,9 +113,9 @@ func (s *fakeStore) CountConsecutiveContextCheckpointLineage(
 
 func (s *fakeStore) GetProviderReplaySuppressionCutoff(
 	context.Context,
-	storage.ID,
-	storage.ID,
-	storage.ID,
+	uuid.UUID,
+	uuid.UUID,
+	uuid.UUID,
 ) (int64, error) {
 	return 0, nil
 }
@@ -323,7 +323,7 @@ func (s *fakeStore) PublishContextCheckpoint(
 	return record, nil
 }
 
-func (s *fakeStore) contextByID(id storage.ID) (executionstore.ModelCallContextRecord, bool) {
+func (s *fakeStore) contextByID(id uuid.UUID) (executionstore.ModelCallContextRecord, bool) {
 	for index := len(s.claims) - 1; index >= 0; index-- {
 		if s.claims[index].Context.ID == id {
 			return s.claims[index].Context, true
@@ -491,7 +491,7 @@ func runInput(plan Plan) RunInput {
 	return RunInput{
 		Plan:                     plan,
 		TurnID:                   testTurnID,
-		OpeningInputIDs:          []storage.ID{testOpeningInputID},
+		OpeningInputIDs:          []uuid.UUID{testOpeningInputID},
 		OpeningEventSequence:     plan.InputEventSequence,
 		RuntimeLockID:            testRuntimeLockID,
 		ParentModelCallContextID: testIDN(799),

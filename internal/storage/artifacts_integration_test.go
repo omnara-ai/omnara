@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -709,7 +710,7 @@ func TestListAgentArtifactsByIDsScopesToAgent(t *testing.T) {
 		t.Fatalf("create other artifact: %v", err)
 	}
 
-	records, err := store.Artifacts().ListAgentArtifactsByIDs(ctx, testProjectID, agentID, []ID{mine.ID, other.ID})
+	records, err := store.Artifacts().ListAgentArtifactsByIDs(ctx, testProjectID, agentID, []uuid.UUID{mine.ID, other.ID})
 	if err != nil {
 		t.Fatalf("list artifacts: %v", err)
 	}

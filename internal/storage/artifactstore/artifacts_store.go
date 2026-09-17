@@ -20,9 +20,9 @@ import (
 var ErrBlobStoreNotConfigured = errors.New("blob store is not configured")
 
 type ArtifactRecord struct {
-	ID             ID        `json:"id"`
-	ProjectID      ID        `json:"project_id"`
-	AgentID        ID        `json:"agent_id"`
+	ID             uuid.UUID `json:"id"`
+	ProjectID      uuid.UUID `json:"project_id"`
+	AgentID        uuid.UUID `json:"agent_id"`
 	ContentType    string    `json:"content_type"`
 	Filename       string    `json:"filename,omitempty"`
 	Digest         string    `json:"digest,omitempty"`
@@ -33,8 +33,8 @@ type ArtifactRecord struct {
 }
 
 type CreateArtifactInput struct {
-	ProjectID      ID
-	AgentID        ID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
 	ContentType    string
 	Filename       string
 	Digest         string
@@ -44,7 +44,7 @@ type CreateArtifactInput struct {
 	IdempotencyKey string
 }
 
-func artifactObjectKey(agentID, artifactID ID) string {
+func artifactObjectKey(agentID, artifactID uuid.UUID) string {
 	return "artifacts/" + agentID.String() + "/" + artifactID.String()
 }
 
@@ -52,7 +52,7 @@ func (s *Store) CreateArtifact(
 	ctx context.Context,
 	input CreateArtifactInput,
 ) (ArtifactRecord, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return ArtifactRecord{}, errors.New("project id and agent id are required")
 	}
 	if input.ContentType == "" {
@@ -91,7 +91,7 @@ func (s *Store) CreateArtifact(
 	input.SizeBytes = &metadata.SizeBytes
 	record, err := s.createArtifactRecord(ctx, artifactID, input)
 	// The transaction has committed or rolled back before external cleanup starts.
-	if err != nil || !record.Created {
+	if !record.Created || errors.Is(err, pgx.ErrTxCommitRollback) {
 		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
 		if err != nil && cleanupErr != nil {
 			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
@@ -107,12 +107,15 @@ func (s *Store) CreateArtifact(
 			event.Done(ctx)
 		}
 	}
-	return record, err
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	return record, nil
 }
 
 func (s *Store) createArtifactRecord(
 	ctx context.Context,
-	artifactID ID,
+	artifactID uuid.UUID,
 	input CreateArtifactInput,
 ) (ArtifactRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -157,7 +160,7 @@ func (s *Store) createArtifactRecord(
 		return ArtifactRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
+		return record, fmt.Errorf("commit create artifact: %w", err)
 	}
 	return record, nil
 }
@@ -187,9 +190,9 @@ func findArtifactReplayTx(
 
 func (s *Store) GetArtifact(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ArtifactRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) || isNilID(id) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return ArtifactRecord{}, errors.New("project id, agent id, and artifact id are required")
 	}
 	record, err := loadArtifact(ctx, s.q, projectID, agentID, id)
@@ -201,7 +204,7 @@ func (s *Store) GetArtifact(
 
 func (s *Store) GetArtifactBlob(
 	ctx context.Context,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) ([]byte, ArtifactRecord, error) {
 	record, err := s.GetArtifact(ctx, projectID, agentID, id)
 	if err != nil {
@@ -226,10 +229,10 @@ func (s *Store) GetArtifactBlob(
 
 func (s *Store) ListAgentArtifactsByIDs(
 	ctx context.Context,
-	projectID, agentID ID,
-	ids []ID,
+	projectID, agentID uuid.UUID,
+	ids []uuid.UUID,
 ) ([]ArtifactRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
+	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project id and agent id are required")
 	}
 	if len(ids) == 0 {
@@ -252,7 +255,7 @@ func (s *Store) ListAgentArtifactsByIDs(
 func insertArtifactTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	artifactID ID,
+	artifactID uuid.UUID,
 	input CreateArtifactInput,
 ) (ArtifactRecord, error) {
 	row, err := dbsqlc.New(tx).InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
@@ -260,10 +263,10 @@ func insertArtifactTx(
 		ProjectID:      input.ProjectID,
 		AgentID:        input.AgentID,
 		ContentType:    input.ContentType,
-		Filename:       sqlcTextFromEmpty(input.Filename),
-		Digest:         sqlcTextFromEmpty(input.Digest),
+		Filename:       storeutil.TextFromEmpty(input.Filename),
+		Digest:         storeutil.TextFromEmpty(input.Digest),
 		SizeBytes:      input.SizeBytes,
-		IdempotencyKey: sqlcTextFromEmpty(input.IdempotencyKey),
+		IdempotencyKey: storeutil.TextFromEmpty(input.IdempotencyKey),
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
@@ -279,7 +282,7 @@ func insertArtifactTx(
 func loadArtifact(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	projectID, agentID, id ID,
+	projectID, agentID, id uuid.UUID,
 ) (ArtifactRecord, error) {
 	row, err := q.GetArtifact(
 		ctx,

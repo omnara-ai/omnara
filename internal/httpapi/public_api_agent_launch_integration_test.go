@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -68,9 +67,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		"  name: gpt-test\n" +
 		"machine_sources:\n" +
 		"  - machine_name: " + machineName + "\n" +
-		"    cwd: /workspace\n" +
-		"tools:\n" +
-		"  run_command: {}\n"
+		"    cwd: /workspace\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -81,16 +78,8 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	warnings := testutil.RequireType[[]any](t, config["warnings"])
-	if len(warnings) != 1 {
-		t.Fatalf("config warnings = %v, want missing machine tools warning", warnings)
-	}
-	warning := testutil.RequireType[map[string]any](t, warnings[0])
-	if warning["code"] != "missing_recommended_machine_tools" ||
-		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "write_process") ||
-		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "upload_artifact") ||
-		!strings.Contains(testutil.RequireType[string](t, warning["message"]), "download_artifact") {
-		t.Fatalf("config warnings = %v, want missing machine tools warning", warnings)
+	if _, ok := config["warnings"]; ok {
+		t.Fatalf("config contains obsolete warnings: %v", config)
 	}
 	profile := createPublicHTTPAgentProfile(
 		t,
@@ -102,10 +91,6 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	profileWarnings := testutil.RequireType[map[string]any](t, profile["current_config"])["warnings"]
-	if diff := cmp.Diff(warnings, profileWarnings); diff != "" {
-		t.Fatalf("profile config warnings mismatch (-want +got):\n%s", diff)
-	}
 	profileID := testutil.RequireType[string](t, profile["id"])
 	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	retargetYAML := "instruction: Updated default.\nmodel:\n  provider_config: openai-prod\n  name: " +
@@ -272,16 +257,13 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 			binding,
 		)
 	}
-	if binding["machine_ref"] == "" {
-		t.Fatalf("machine binding response missing machine_ref: %+v", binding)
+	mustPublicHTTPID(t, publicid.KindMachine, testutil.RequireType[string](t, binding["machine_id"]))
+	if _, ok := binding["machine_ref"]; ok {
+		t.Fatalf("machine binding response exposes machine_ref: %+v", binding)
 	}
 	launchConfig := testutil.RequireType[map[string]any](t, retargetedLaunch["agent_config"])
 	if launchConfig["model"] == nil || launchConfig["instruction_hash"] == "" {
 		t.Fatalf("launch config projection missing model/instruction evidence: %+v", retargetedLaunch["agent_config"])
-	}
-	launchWarnings := launchConfig["warnings"]
-	if diff := cmp.Diff(warnings, launchWarnings); diff != "" {
-		t.Fatalf("launch warnings mismatch (-want +got):\n%s", diff)
 	}
 	retargetedAgentID := testutil.RequireType[string](
 		t, testutil.RequireType[map[string]any](t, retargetedLaunch["agent"])["id"],

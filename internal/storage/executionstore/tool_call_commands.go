@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -129,7 +130,7 @@ func DeletePoolMachineForToolCall(
 }
 
 func SetIntegrationTargetForToolCall(
-	integrationTargetID ID,
+	integrationTargetID uuid.UUID,
 	completion ToolCallCompletionInput,
 ) ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {

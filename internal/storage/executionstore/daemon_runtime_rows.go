@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -71,7 +72,7 @@ func daemonRuntimeFromExpired(row dbsqlc.EndExpiredDaemonRuntimeRow) DaemonRunti
 }
 
 func daemonRuntimeRecord(
-	id, orgID, machineID, daemonTokenID, daemonInstanceID ID,
+	id, orgID, machineID, daemonTokenID, daemonInstanceID uuid.UUID,
 	daemonVersion, state, stateReasonCode, stateReasonMessage string,
 	capacity, metadata []byte,
 	createdAt time.Time,

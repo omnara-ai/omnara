@@ -16,6 +16,13 @@ export {
   useAgentChat,
   type UseAgentChatResult,
 } from './domains/agent-chat'
+export { useAgentConfigTools } from './domains/agent-config-tools'
+export {
+  abbreviate,
+  agentEventPreview,
+  agentEventPreviewWidth,
+  blockText,
+} from './domains/agent-event-preview'
 export {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
@@ -122,9 +129,11 @@ export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,
+  type ModelPricingLookup,
   type ModelProviderListFilters,
   type ModelProviderListOptions,
   type ModelProviderListSort,
+  useClusterModelPricing,
   useConfiguredModelOptions,
   useConfiguredModels,
   useCreateConfiguredModel,
@@ -240,4 +249,13 @@ export {
   useUpdateSkill,
 } from './domains/skills'
 export { useToolCatalog } from './domains/tool-catalog'
+export {
+  type AgentProfileUsageFilters,
+  type OrgUsageFilters,
+  type UsageWindow,
+  useAgentProfileUsage,
+  useAgentUsage,
+  useOrgUsage,
+  useProjectUsage,
+} from './domains/usage'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

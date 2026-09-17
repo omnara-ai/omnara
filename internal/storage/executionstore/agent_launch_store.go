@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -18,17 +20,20 @@ import (
 )
 
 type LaunchAgentInput struct {
-	ProjectID     ID
-	ProfileID     ID
-	AgentConfigID ID
+	ProjectID     uuid.UUID
+	ProfileID     uuid.UUID
+	AgentConfigID uuid.UUID
 	LaunchedBy    identitystore.PrincipalRecord
 	Name          *string
 	Message       string
 	// MessageActor attributes the initial Message input. When nil, the actor
 	// is derived from LaunchedBy, which must then be a user or org API key
 	// principal.
-	MessageActor   *ActorParams
-	IdempotencyKey string
+	MessageActor            *ActorParams
+	IdempotencyKey          string
+	ArchiveAfterIdleMinutes *int
+	DerivedConfig           *CreateAgentConfigInput
+	Subagent                *SubagentLaunch
 }
 
 type LaunchAgentResult struct {
@@ -38,7 +43,7 @@ type LaunchAgentResult struct {
 	MCPServers          []agentconfig.RuntimeMCPServer
 	MCPConnections      []MCPConnectionRecord
 	MachineBindings     []AgentMachineBindingRecord
-	ProvisionMachineIDs []ID
+	ProvisionMachineIDs []uuid.UUID
 	AgentInput          AgentInputRecord
 	InputContentBlocks  json.RawMessage
 	Created             bool
@@ -48,38 +53,67 @@ func (s *Store) LaunchAgent(
 	ctx context.Context,
 	input LaunchAgentInput,
 ) (LaunchAgentResult, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentConfigID) || isNilID(input.LaunchedBy.ID) {
-		return LaunchAgentResult{}, errors.New(
-			"project, agent config, and launching principal are required",
-		)
-	}
-	if input.Name != nil {
-		name, err := resourcename.CanonicalizeAllowEmpty("agent name", *input.Name)
-		if err != nil {
-			return LaunchAgentResult{}, storeerr.InvalidRequest(err)
-		}
-		input.Name = &name
+	input, err := validateLaunchAgentInput(input)
+	if err != nil {
+		return LaunchAgentResult{}, err
 	}
 	return storeutil.RetryTransaction(ctx, "launch_agent", func() (LaunchAgentResult, error) {
 		return s.launchAgentOnce(ctx, input)
 	})
 }
 
+func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) {
+	if input.ProjectID == uuid.Nil || input.LaunchedBy.ID == uuid.Nil {
+		return LaunchAgentInput{}, errors.New("project and launching principal are required")
+	}
+	if (input.AgentConfigID == uuid.Nil) == (input.DerivedConfig == nil) {
+		return LaunchAgentInput{}, errors.New("exactly one of agent config or derived config is required")
+	}
+	if input.Name != nil {
+		name, err := resourcename.CanonicalizeAllowEmpty("agent name", *input.Name)
+		if err != nil {
+			return LaunchAgentInput{}, storeerr.InvalidRequest(err)
+		}
+		input.Name = &name
+	}
+	return input, nil
+}
+
 func (s *Store) launchAgentOnce(
 	ctx context.Context,
 	input LaunchAgentInput,
 ) (LaunchAgentResult, error) {
-	project, err := loadProjectTx(ctx, s.q, input.ProjectID)
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return LaunchAgentResult{}, fmt.Errorf("begin launch agent: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	result, err := s.launchAgentTx(ctx, tx, s.q.WithTx(tx), txNotifications, input)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	scope := "launch agent"
+	if !result.Created {
+		scope = "idempotent launch agent"
+	}
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, scope); err != nil {
+		return LaunchAgentResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Store) launchAgentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	txNotifications *notifications.TxNotifications,
+	input LaunchAgentInput,
+) (LaunchAgentResult, error) {
+	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -93,27 +127,37 @@ func (s *Store) launchAgentOnce(
 	}
 
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
-		if err != nil {
-			return LaunchAgentResult{}, err
-		}
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
-			return LaunchAgentResult{}, err
-		}
-		return result, nil
+		return result, err
 	}
 	if err := dbsafe.Text(input.Message); err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
 	}
 	var profile *AgentProfileRecord
-	if input.ProfileID != NilID {
+	if input.ProfileID != uuid.Nil {
 		record, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.ProfileID)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
 		profile = &record
 	}
+	if input.Subagent != nil {
+		if err := lockSubagentParentSourcesTx(ctx, tx, *input.Subagent); err != nil {
+			return LaunchAgentResult{}, err
+		}
+	}
 	agentName := launchAgentName(input.Name, profile)
-	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, input.AgentConfigID)
+	configID := input.AgentConfigID
+	if input.DerivedConfig != nil {
+		derived := *input.DerivedConfig
+		derived.OrgID = project.OrgID
+		derived.ProjectID = input.ProjectID
+		created, err := insertAgentConfigTx(ctx, qtx, derived)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		configID = created.ID
+	}
+	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, configID, input.DerivedConfig != nil)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -124,28 +168,29 @@ func (s *Store) launchAgentOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
-		OrgID:           project.OrgID,
-		ProjectID:       input.ProjectID,
-		AgentProfileID:  input.ProfileID,
-		Name:            agentName,
-		CurrentConfigID: config.ID,
-		IdempotencyKey:  input.IdempotencyKey,
-	})
+	insertInput := insertAgentInput{
+		OrgID:                   project.OrgID,
+		ProjectID:               input.ProjectID,
+		AgentProfileID:          input.ProfileID,
+		Name:                    agentName,
+		CurrentConfigID:         config.ID,
+		IdempotencyKey:          input.IdempotencyKey,
+		ArchiveAfterIdleMinutes: input.ArchiveAfterIdleMinutes,
+	}
+	if input.Subagent != nil {
+		if err := admitSubagentLaunchTx(ctx, tx, qtx, input.ProjectID, *input.Subagent); err != nil {
+			return LaunchAgentResult{}, err
+		}
+		insertInput.ParentAgentID = input.Subagent.ParentAgentID
+		insertInput.SubagentKey = input.Subagent.Key
+		machineSources = nil
+	}
+	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
 	if !inserted {
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
-			return LaunchAgentResult{}, err
-		}
 		return LaunchAgentResult{Agent: agent}, nil
-	}
-	result := LaunchAgentResult{
-		Agent:       agent,
-		AgentConfig: config,
-		MCPServers:  contract.MCPServers,
-		Created:     true,
 	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,
@@ -157,8 +202,23 @@ func (s *Store) launchAgentOnce(
 	); err != nil {
 		return LaunchAgentResult{}, err
 	}
+	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
+	if input.Subagent != nil {
+		sharedBindings, err = lockParentMachineBindingsForSharingTx(
+			ctx, tx, qtx, project.OrgID, input.ProjectID, input.Subagent.ParentAgentID,
+		)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+	}
+	result := LaunchAgentResult{
+		Agent:       agent,
+		AgentConfig: config,
+		MCPServers:  contract.MCPServers,
+		Created:     true,
+	}
 	for _, source := range machineSources {
-		if source.PoolGrantForLaunch.ID == NilID {
+		if source.PoolGrantForLaunch.ID == uuid.Nil {
 			continue
 		}
 		if err := ensurePoolCapacityForConfigTx(
@@ -202,16 +262,11 @@ func (s *Store) launchAgentOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	machineRefs, err := newMachineRefs(len(bindingRequests))
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
 	result.MachineBindings = make([]AgentMachineBindingRecord, 0, len(bindingRequests))
-	for index, bindingRequest := range bindingRequests {
+	for _, bindingRequest := range bindingRequests {
 		source := bindingRequest.Source
-		machineRef := machineRefs[index]
 		switch {
-		case source.GrantID != NilID:
+		case source.GrantID != uuid.Nil:
 			envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
 				source.BindingConfig.EnvironmentOverlay,
 			)
@@ -222,7 +277,6 @@ func (s *Store) launchAgentOnce(
 				ProjectID:             input.ProjectID,
 				AgentID:               agent.ID,
 				ProjectMachineGrantID: source.GrantID,
-				MachineRef:            machineRef,
 				BindingKind:           MachineBindingKindExplicit,
 				Description:           source.Contract.Description,
 				Cwd:                   source.BindingConfig.Cwd,
@@ -234,7 +288,7 @@ func (s *Store) launchAgentOnce(
 				return LaunchAgentResult{}, err
 			}
 			result.MachineBindings = append(result.MachineBindings, binding)
-		case source.PoolGrantForLaunch.ID != NilID:
+		case source.PoolGrantForLaunch.ID != uuid.Nil:
 			binding, err := allocateNewPoolMachineForAgentTx(
 				ctx,
 				qtx,
@@ -242,7 +296,6 @@ func (s *Store) launchAgentOnce(
 				input.ProjectID,
 				agent.ID,
 				bindingRequest,
-				machineRef,
 			)
 			if err != nil {
 				return LaunchAgentResult{}, err
@@ -250,6 +303,13 @@ func (s *Store) launchAgentOnce(
 			result.MachineBindings = append(result.MachineBindings, binding)
 			result.ProvisionMachineIDs = append(result.ProvisionMachineIDs, binding.MachineID)
 		}
+	}
+	if input.Subagent != nil {
+		shared, err := shareParentMachineBindingsTx(ctx, qtx, input.ProjectID, agent.ID, sharedBindings)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		result.MachineBindings = append(result.MachineBindings, shared...)
 	}
 	if input.Message != "" {
 		agentInput, contentBlocks, err := insertLaunchInitialContentInputTx(
@@ -276,9 +336,6 @@ func (s *Store) launchAgentOnce(
 		); err != nil {
 			return LaunchAgentResult{}, fmt.Errorf("mark launch agent wakeup: %w", err)
 		}
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "launch agent"); err != nil {
-		return LaunchAgentResult{}, err
 	}
 	return result, nil
 }
@@ -311,16 +368,17 @@ func launchReplayMaybeTx(
 func launchConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	projectID uuid.UUID,
 	profile *AgentProfileRecord,
-	configID ID,
+	configID uuid.UUID,
+	derived bool,
 ) (AgentConfigRecord, agentconfig.RuntimeContract, error) {
-	if configID == NilID {
+	if configID == uuid.Nil {
 		return AgentConfigRecord{}, agentconfig.RuntimeContract{}, errors.New(
 			"agent config is required",
 		)
 	}
-	if profile != nil && configID != profile.CurrentConfigID {
+	if profile != nil && !derived && configID != profile.CurrentConfigID {
 		matched, err := qtx.AgentProfileVersionExistsForConfig(
 			ctx,
 			dbsqlc.AgentProfileVersionExistsForConfigParams{
@@ -367,7 +425,7 @@ func launchAgentName(name *string, profile *AgentProfileRecord) string {
 func createAgentMCPConnectionsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
+	projectID, agentID uuid.UUID,
 	servers []agentconfig.RuntimeMCPServer,
 ) ([]MCPConnectionRecord, error) {
 	if len(servers) == 0 {

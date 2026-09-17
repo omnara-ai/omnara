@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/emailaddr"
@@ -20,7 +21,7 @@ func (s *Store) CreateOrgInvitation(
 	ctx context.Context,
 	input CreateOrgInvitationInput,
 ) (OrgInvitationRecord, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return OrgInvitationRecord{}, errors.New("org id is required")
 	}
 	if input.Email == "" {
@@ -129,7 +130,7 @@ func (s *Store) CreateOrgInvitation(
 }
 
 type ListOrgInvitationsInput struct {
-	OrgID ID
+	OrgID uuid.UUID
 	Limit int
 	After listing.KeysetCursor
 }
@@ -143,7 +144,7 @@ func (s *Store) ListOrgInvitations(
 	ctx context.Context,
 	input ListOrgInvitationsInput,
 ) (ListOrgInvitationsResult, error) {
-	if isNilID(input.OrgID) {
+	if input.OrgID == uuid.Nil {
 		return ListOrgInvitationsResult{}, errors.New("org id is required")
 	}
 	if input.Limit <= 0 {
@@ -177,7 +178,7 @@ func (s *Store) ListOrgInvitations(
 }
 
 type ListPendingOrgInvitationsForUserInput struct {
-	UserID ID
+	UserID uuid.UUID
 	Limit  int
 	After  listing.KeysetCursor
 }
@@ -191,7 +192,7 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 	ctx context.Context,
 	input ListPendingOrgInvitationsForUserInput,
 ) (ListPendingOrgInvitationsForUserResult, error) {
-	if isNilID(input.UserID) {
+	if input.UserID == uuid.Nil {
 		return ListPendingOrgInvitationsForUserResult{}, errors.New("user id is required")
 	}
 	if input.Limit <= 0 {
@@ -254,12 +255,12 @@ func (s *Store) DeclineOrgInvitation(
 
 func (s *Store) DeleteOrgInvitation(
 	ctx context.Context,
-	orgID, id ID,
+	orgID, id uuid.UUID,
 ) (OrgInvitationRecord, error) {
-	if isNilID(orgID) {
+	if orgID == uuid.Nil {
 		return OrgInvitationRecord{}, errors.New("org id is required")
 	}
-	if isNilID(id) {
+	if id == uuid.Nil {
 		return OrgInvitationRecord{}, errors.New("invitation id is required")
 	}
 	row, err := s.q.DeleteOrgInvitation(
@@ -277,13 +278,13 @@ func (s *Store) DeleteOrgInvitation(
 
 func (s *Store) answerOrgInvitation(
 	ctx context.Context,
-	id, userID ID,
+	id, userID uuid.UUID,
 	accept bool,
 ) (OrgInvitationWithOrgNameRecord, error) {
-	if isNilID(id) {
+	if id == uuid.Nil {
 		return OrgInvitationWithOrgNameRecord{}, errors.New("invitation id is required")
 	}
-	if isNilID(userID) {
+	if userID == uuid.Nil {
 		return OrgInvitationWithOrgNameRecord{}, errors.New("user id is required")
 	}
 	emailRows, err := s.q.ListVerifiedUserEmailsByUser(

@@ -4,8 +4,10 @@ import { useState } from 'react'
 import { CreateOrgApiKeyDialog } from '@/components/api-tokens/CreateOrgApiKeyDialog'
 import { OrgApiKeyDetailPanel } from '@/components/api-tokens/OrgApiKeyDetailPanel'
 import { DataTable } from '@/components/data-table/DataTable'
+import { SectionTitle } from '@/components/layout/SectionTitle'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 
 export function OrgApiKeysSection({ orgId }: { orgId: string }) {
@@ -16,7 +18,7 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="type-title">Organization API tokens</h2>
+        <SectionTitle title="Organization API tokens" guide={guides.apiTokens} />
         <Button
           size="sm"
           onClick={() => {

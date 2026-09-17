@@ -153,6 +153,10 @@ LEFT JOIN LATERAL (
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
       WHEN block.block_kind = 'artifact' THEN
         jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
+        || CASE
+          WHEN block.exclude_from_model_context THEN jsonb_build_object('exclude_from_model_context', true)
+          ELSE '{}'::jsonb
+        END
     END
     ORDER BY block.ordinal, block.id
   ) FILTER (
@@ -181,7 +185,7 @@ FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
 WHERE call.project_id = sqlc.arg(project_id)
-  AND call.agent_id = sqlc.arg(agent_id)
+  AND call.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
   AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
   AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
   AND (
@@ -506,7 +510,7 @@ RETURNING call.id, projection.project_id, call.agent_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at;
 
--- name: CompleteMachineUnreachableToolCall :one
+-- name: CompleteWaitingBuiltInToolCall :one
 WITH locked_agent AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent

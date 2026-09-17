@@ -30,12 +30,15 @@ func TestWriteAuthStorageErrorMapsConflict(t *testing.T) {
 	}
 }
 
-func TestSafeSignupReturnToAllowsOnlyDeviceApproval(t *testing.T) {
+func TestSafeSignupReturnToAllowsOnlyDeviceAndOAuthApproval(t *testing.T) {
 	for input, want := range map[string]string{
 		"/device?user_code=abcde-f1234":        "/device?user_code=ABCDE-F1234",
 		"/device?user_code=ABCDE-F1234&next=/": "/",
 		"/device?user_code=not-a-code":         "/",
 		"/projects/project":                    "/",
+		"/oauth/authorize?client_id=https%3A%2F%2Fclient.example%2Fc.json&state=abc": "/oauth/authorize?client_id=https%3A%2F%2Fclient.example%2Fc.json&state=abc",
+		"/oauth/authorize?state=abc#frag":                                            "/",
+		"//oauth/authorize?state=abc":                                                "/",
 	} {
 		if got := safeSignupReturnTo(input); got != want {
 			t.Errorf("safeSignupReturnTo(%q) = %q, want %q", input, got, want)

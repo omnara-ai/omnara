@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -65,7 +65,7 @@ func TestAgentExecutorStopsNinthConsecutivePreSendFailure(t *testing.T) {
 		if err != nil {
 			t.Fatalf("claim pre-send attempt %d: %v", attemptNumber+1, err)
 		}
-		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == storage.NilID {
+		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == uuid.Nil {
 			t.Fatalf("pre-send attempt %d claim = %+v found=%v", attemptNumber+1, claim, found)
 		}
 		predecessor, predecessorFound, loadErr := fixture.Store.Execution().GetModelCallContext(

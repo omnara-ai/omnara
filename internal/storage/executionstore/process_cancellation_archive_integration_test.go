@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -39,7 +40,7 @@ func TestCancelAgentOrdersCancelBeforeCanceledToolResult(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("accept process: %v", err)
 	} else if !found {
@@ -89,7 +90,7 @@ WHERE tool_call.project_id = $1
 	if err != nil {
 		t.Fatalf("get tool call: %v", err)
 	}
-	var latestEventID ID
+	var latestEventID uuid.UUID
 	err = fixture.Store.pool.QueryRow(ctx, `
 SELECT turn.latest_event_id
 FROM agent_turns turn
@@ -114,7 +115,7 @@ WHERE agent.project_id = $1 AND turn.agent_id = $2 AND turn.id = $3
 	if err != nil {
 		t.Fatalf("repeat cancel after fallout: %v", err)
 	}
-	if repeatedCancelResult.Event.ID != NilID ||
+	if repeatedCancelResult.Event.ID != uuid.Nil ||
 		!repeatedCancelResult.RuntimeCancelRequested ||
 		repeatedCancelResult.Affected {
 		t.Fatalf(
@@ -169,7 +170,7 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 	}
 	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID,
-		RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []ID{input.ID}, AgentConfigID: agent.CurrentConfigID,
+		RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []uuid.UUID{input.ID}, AgentConfigID: agent.CurrentConfigID,
 		InputEventSequence: admitted.Events[0].Sequence,
 	})
 	if err != nil {
@@ -213,7 +214,7 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cancel terminal turn with live runtime: %v", err)
 	}
-	if cancelResult.Event.ID != NilID || cancelResult.RuntimeCancelRequested || cancelResult.Affected {
+	if cancelResult.Event.ID != uuid.Nil || cancelResult.RuntimeCancelRequested || cancelResult.Affected {
 		t.Fatalf(
 			"cancel terminal turn with live runtime = event %+v runtime_cancel_requested %v affected %v, want no-op",
 			cancelResult.Event,
@@ -269,7 +270,7 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 	}
 	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID,
-		RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []ID{input.ID}, AgentConfigID: agent.CurrentConfigID,
+		RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []uuid.UUID{input.ID}, AgentConfigID: agent.CurrentConfigID,
 		InputEventSequence: admitted.Events[0].Sequence,
 	})
 	if err != nil {
@@ -286,7 +287,7 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 	if err != nil {
 		t.Fatalf("cancel active model call: %v", err)
 	}
-	if !cancelResult.Affected || !cancelResult.RuntimeCancelRequested || cancelResult.Event.ID == NilID {
+	if !cancelResult.Affected || !cancelResult.RuntimeCancelRequested || cancelResult.Event.ID == uuid.Nil {
 		t.Fatalf("cancel result = %+v, want affected turn and runtime", cancelResult)
 	}
 	contextRecord, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -396,7 +397,7 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 				ProjectID:          testProjectID,
 				AgentID:            fixture.AgentID,
 				RuntimeLockID:      fixture.Lock.ID,
-				OpeningInputIDs:    []ID{input.ID},
+				OpeningInputIDs:    []uuid.UUID{input.ID},
 				AgentConfigID:      agent.CurrentConfigID,
 				InputEventSequence: admitted.Events[0].Sequence,
 			})
@@ -554,7 +555,7 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 	if err != nil {
 		t.Fatalf("cancel active agent: %v", err)
 	}
-	if cancelResult.Event.ID == NilID || !cancelResult.Affected {
+	if cancelResult.Event.ID == uuid.Nil || !cancelResult.Affected {
 		t.Fatalf(
 			"cancel active agent = event %+v runtime_cancel_requested %v affected %v, want affected event",
 			cancelResult.Event,
@@ -644,7 +645,7 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cancel unstarted turn: %v", err)
 	}
-	if cancelResult.Event.ID == NilID || cancelResult.RuntimeCancelRequested || !cancelResult.Affected {
+	if cancelResult.Event.ID == uuid.Nil || cancelResult.RuntimeCancelRequested || !cancelResult.Affected {
 		t.Fatalf(
 			"cancel unstarted turn = event %+v runtime_cancel_requested %v affected %v, want affected event without runtime cancel",
 			cancelResult.Event,
@@ -697,7 +698,7 @@ func TestCancelAgentReportsAlreadyPendingRuntimeCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repeat runtime cancel request: %v", err)
 	}
-	if repeatedRuntimeCancel.ID != NilID {
+	if repeatedRuntimeCancel.ID != uuid.Nil {
 		t.Fatalf("repeat runtime cancel = %+v, want no-op", repeatedRuntimeCancel)
 	}
 	cancelResult, err := fixture.Store.Execution().CancelAgent(
@@ -711,7 +712,7 @@ func TestCancelAgentReportsAlreadyPendingRuntimeCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cancel already canceled runtime: %v", err)
 	}
-	if cancelResult.Event.ID != NilID || !cancelResult.RuntimeCancelRequested || cancelResult.Affected {
+	if cancelResult.Event.ID != uuid.Nil || !cancelResult.RuntimeCancelRequested || cancelResult.Affected {
 		t.Fatalf(
 			"cancel already canceled runtime = event %+v runtime_cancel_requested=%v affected=%v, want pending runtime cancel without new event",
 			cancelResult.Event,
@@ -751,7 +752,7 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("accept first process: %v", err)
 	} else if !found {
@@ -819,7 +820,7 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 		testOrgID,
 		fixture.MachineID,
 		fixture.RuntimeID,
-		NilID,
+		uuid.Nil,
 	); err != nil {
 		t.Fatalf("accept second process: %v", err)
 	} else if !found {

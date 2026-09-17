@@ -16,6 +16,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const MaxMachineCwdLength = 4096
+
 type SourceFormat string
 
 const (
@@ -24,13 +26,16 @@ const (
 )
 
 type AgentConfigSource struct {
-	Version        string                           `json:"version,omitempty"`
-	Instruction    string                           `json:"instruction"`
-	Model          AgentConfigModelSource           `json:"model"`
-	MachineSources []AgentConfigMachineSource       `json:"machine_sources,omitempty"`
-	Tools          map[string]AgentConfigToolSource `json:"tools,omitempty"`
-	MCP            map[string]AgentConfigMCPSource  `json:"mcp,omitempty"`
-	Skills         []string                         `json:"skills,omitempty"`
+	Version        string                               `json:"version,omitempty"`
+	Instruction    string                               `json:"instruction"`
+	Model          AgentConfigModelSource               `json:"model"`
+	MachineSources []AgentConfigMachineSource           `json:"machine_sources,omitempty"`
+	Tools          map[string]AgentConfigToolSource     `json:"tools,omitempty"`
+	MCP            map[string]AgentConfigMCPSource      `json:"mcp,omitempty"`
+	Skills         []string                             `json:"skills,omitempty"`
+	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
+	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
+	MaxDepth       *int                                 `json:"max_depth,omitempty"`
 }
 
 type AgentConfigModelSource struct {
@@ -65,6 +70,7 @@ type AgentConfigToolSource struct {
 	Type        string                    `json:"type,omitempty"`
 	Enabled     *bool                     `json:"enabled,omitempty"`
 	Permission  *toolpermission.Selection `json:"permission,omitempty"`
+	Deferred    bool                      `json:"deferred,omitempty"`
 	Description string                    `json:"description,omitempty"`
 	InputSchema map[string]any            `json:"input_schema,omitempty"`
 }
@@ -74,6 +80,7 @@ type AgentConfigMCPSource struct {
 	Auth           *AgentConfigMCPAuthSource           `json:"auth,omitempty"`
 	DefaultEnabled *bool                               `json:"default_enabled,omitempty"`
 	Permission     *toolpermission.Selection           `json:"permission,omitempty"`
+	Deferred       bool                                `json:"deferred,omitempty"`
 	Tools          map[string]AgentConfigMCPToolSource `json:"tools,omitempty"`
 }
 
@@ -87,6 +94,7 @@ type AgentConfigMCPAuthSource struct {
 type AgentConfigMCPToolSource struct {
 	Enabled    *bool                     `json:"enabled,omitempty"`
 	Permission *toolpermission.Selection `json:"permission,omitempty"`
+	Deferred   *bool                     `json:"deferred,omitempty"`
 }
 
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
@@ -173,6 +181,24 @@ func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 		for _, key := range []string{"provider_config", "name"} {
 			if err := canonicalize(model, key, jsonPointer("model", key)); err != nil {
 				return false, err
+			}
+		}
+	}
+	if subagents, ok := root["subagents"].(map[string]any); ok {
+		for key, value := range subagents {
+			subagent, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := canonicalize(subagent, "profile", jsonPointer("subagents", key, "profile")); err != nil {
+				return false, err
+			}
+			if model, ok := subagent["model"].(map[string]any); ok {
+				for _, field := range []string{"provider_config", "name"} {
+					if err := canonicalize(model, field, jsonPointer("subagents", key, "model", field)); err != nil {
+						return false, err
+					}
+				}
 			}
 		}
 	}
@@ -328,9 +354,64 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			),
 			kjsonschema.Null(),
 		)),
+		kjsonschema.Prop("subagents", kjsonschema.Object(
+			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern))),
+			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigSubagentSource")),
+		)),
+		kjsonschema.Prop(
+			"max_subagents",
+			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
+		),
+		kjsonschema.Prop(
+			"max_depth",
+			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(MaxSubagentDepth))),
+		),
 		kjsonschema.Required("instruction", "model"),
 		kjsonschema.AdditionalProps(false),
 		kjsonschema.Defs(map[string]*kjsonschema.Schema{
+			"AgentConfigSubagentSource": func() *kjsonschema.Schema {
+				def := kjsonschema.Object(
+					kjsonschema.Prop("type", kjsonschema.Enum(SubagentTypeProfile, SubagentTypeSelf)),
+					kjsonschema.Prop("profile", resourceNameReferenceSchema()),
+					kjsonschema.Prop("description", kjsonschema.String()),
+					kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigSubagentModelSource")),
+					kjsonschema.Prop("instruction", kjsonschema.Ref("#/$defs/AgentConfigSubagentInstructionSource")),
+					kjsonschema.Prop(
+						"max_instances",
+						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
+					),
+					kjsonschema.Prop(
+						"archive_after_idle_minutes",
+						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
+					),
+					kjsonschema.Required("type"),
+					kjsonschema.AdditionalProps(false),
+				)
+				def.If = kjsonschema.Object(
+					kjsonschema.Prop("type", kjsonschema.Const(SubagentTypeProfile)),
+					kjsonschema.Required("type"),
+				)
+				def.Then = &kjsonschema.Schema{Required: []string{"profile"}}
+				def.Else = kjsonschema.Not(kjsonschema.Object(kjsonschema.Required("profile")))
+				return def
+			}(),
+			"AgentConfigSubagentModelSource": kjsonschema.Object(
+				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
+				kjsonschema.Prop("name", resourceNameReferenceSchema()),
+				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
+				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
+				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
+				kjsonschema.Prop("reasoning", kjsonschema.Object(
+					kjsonschema.Prop("effort", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
+					kjsonschema.Required("effort"),
+					kjsonschema.AdditionalProps(false),
+				)),
+				kjsonschema.AdditionalProps(false),
+			),
+			"AgentConfigSubagentInstructionSource": kjsonschema.Object(
+				kjsonschema.Prop("append", kjsonschema.String()),
+				kjsonschema.AdditionalProps(false),
+			),
 			"AgentConfigModelSource": kjsonschema.Object(
 				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
 				kjsonschema.Prop("name", resourceNameReferenceSchema()),
@@ -357,7 +438,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 						kjsonschema.Integer(kjsonschema.Min(5), kjsonschema.Max(float64(math.MaxInt32))),
 					),
 				),
-				kjsonschema.Prop("cwd", kjsonschema.String()),
+				kjsonschema.Prop("cwd", kjsonschema.String(kjsonschema.MaxLength(MaxMachineCwdLength))),
 				kjsonschema.Prop(
 					"machine_cpu",
 					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
@@ -390,7 +471,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Object(),
 					kjsonschema.Null(),
 				)),
-				kjsonschema.Prop("description", kjsonschema.String()),
+				kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MaxLength(4096))),
 				kjsonschema.AdditionalProps(false),
 				kjsonschema.Keyword(func(s *kjsonschema.Schema) {
 					s.OneOf = []*kjsonschema.Schema{
@@ -404,6 +485,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Prop("type", kjsonschema.Enum(toolcatalog.ToolTypeBuiltIn, toolcatalog.ToolTypeCustom)),
 					kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 					kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
+					kjsonschema.Prop("deferred", kjsonschema.Boolean()),
 					kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MinLength(1))),
 					kjsonschema.Prop("input_schema", kjsonschema.Ref("#/$defs/AgentToolInputSchema")),
 					kjsonschema.AdditionalProps(false),
@@ -436,6 +518,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.Prop("auth", kjsonschema.Ref("#/$defs/AgentConfigMCPAuthSource")),
 				kjsonschema.Prop("default_enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
+				kjsonschema.Prop("deferred", kjsonschema.Boolean()),
 				kjsonschema.Prop("tools", kjsonschema.Object(
 					kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPRemoteToolNamePattern))),
 					kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPToolSource")),
@@ -460,6 +543,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			"AgentConfigMCPToolSource": kjsonschema.Object(
 				kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
+				kjsonschema.Prop("deferred", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.AdditionalProps(false),
 			),
 			"ToolPermissionSelection": kjsonschema.Object(

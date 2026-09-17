@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/skills"
@@ -78,7 +79,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	); err != nil {
 		t.Fatalf("set machine sandbox url: %v", err)
 	}
-	var tokenID storage.ID
+	var tokenID uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT id FROM machine_daemon_tokens WHERE org_id = $1 AND machine_id = $2 AND revoked_at IS NULL LIMIT 1`,
@@ -101,7 +102,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 
 	executor := Executor{Store: store}
 	turn := Turn{ProjectID: toolsTestProjectID, AgentID: agent.ID}
-	resolved, err := executor.ResolveMachineExecutionTarget(ctx, turn, agentBinding.MachineRef)
+	resolved, err := executor.ResolveMachineExecutionTarget(ctx, turn, agentBinding.MachineID)
 	if err != nil {
 		t.Fatalf("resolve asleep machine execution target: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	}
 
 	input := json.RawMessage(
-		`{"command":"pwd","machine_ref":"` + agentBinding.MachineRef + `","wait_ms":750}`,
+		`{"command":"pwd","machine_id":"` + machinePublicIDForTest(t, agentBinding.MachineID) + `","wait_ms":750}`,
 	)
 	toolCallID, lock, admitted, modelContext := createMachineToolCallForDirectStoreTest(
 		t,
@@ -124,10 +125,10 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 		input,
 		now.Add(5*time.Second),
 	)
-	wakeCalls := make(chan storage.ID, 1)
+	wakeCalls := make(chan uuid.UUID, 1)
 	manager := testPoolMachineManager{wake: func(
 		ctx context.Context,
-		orgID, machineID storage.ID,
+		orgID, machineID uuid.UUID,
 	) (bool, error) {
 		process, found, err := store.Execution().GetProcessByToolCall(
 			ctx,
@@ -201,7 +202,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	}
 
 	wakeCtx, cancelWake := context.WithCancel(ctx)
-	manager.wake = func(context.Context, storage.ID, storage.ID) (bool, error) {
+	manager.wake = func(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 		cancelWake()
 		return false, errors.New("wake failed")
 	}
@@ -213,7 +214,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	if !errors.Is(cleanupErr, context.Canceled) {
 		t.Fatalf("cleanup error = %v, want context canceled", cleanupErr)
 	}
-	manager.wake = func(context.Context, storage.ID, storage.ID) (bool, error) {
+	manager.wake = func(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 		return false, nil
 	}
 	cleanupErr = wakeProcessTool(ctx, backgroundToolContext{

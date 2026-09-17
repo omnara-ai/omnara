@@ -3,6 +3,7 @@ package storagetest
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -10,7 +11,7 @@ import (
 func ListCompletedToolCallsForTurn(
 	ctx context.Context,
 	store *storage.Store,
-	projectID, agentID, turnID storage.ID,
+	projectID, agentID, turnID uuid.UUID,
 ) ([]executionstore.ToolCallRecord, error) {
 	watermark, err := store.Execution().MaxEventSequence(ctx, projectID, agentID)
 	if err != nil {

@@ -1,7 +1,10 @@
-import { AgentEventStreamError } from '@omnara/sdk'
+import { type Actor, AgentEventStreamError } from '@omnara/sdk'
+import { getActorQueryKey } from '@omnara/sdk/tanstack'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
+import { agentChatHistoryQueryKey } from './agent-chat-history'
 import {
   chatTransport,
   client,
@@ -12,6 +15,7 @@ import {
   messageText,
   read,
   resetChatTestHarness,
+  scope,
   startSession,
   toolCallBlock,
   toolResultEvent,
@@ -20,6 +24,19 @@ import {
 } from './agent-chat-test-support'
 
 const transport = chatTransport()
+
+function actor(id: string, providerUserId: string): Actor {
+  return {
+    id,
+    org_id: 'org',
+    project_id: 'project',
+    provider: 'omnara',
+    provider_user_id: providerUserId,
+    metadata: {},
+    created_at: '2026-07-14T00:00:00Z',
+    updated_at: '2026-07-14T00:00:00Z',
+  }
+}
 
 describe('AgentChatSession streaming', () => {
   beforeEach(resetChatTestHarness)
@@ -522,7 +539,81 @@ describe('AgentChatSession streaming', () => {
       data: controlEvent({ sequence: 14 }),
     })
     await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(4)
+    })
+    expect(invalidate.mock.calls.some(([filters]) => filters?.predicate !== undefined)).toBe(true)
+    session.disconnect()
+  })
+
+  it('invalidates the agent list once a spawn completes or a subagent sends input', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const actorPath = { orgID: 'org', projectID: 'project' }
+    queryClient.setQueryData(
+      getActorQueryKey({ path: { ...actorPath, actorID: 'actor-user' }, client: sessionClient }),
+      actor('actor-user', 'user-1'),
+    )
+    queryClient.setQueryData(
+      getActorQueryKey({ path: { ...actorPath, actorID: 'actor-child' }, client: sessionClient }),
+      actor('actor-child', 'agt_child'),
+    )
+    const historicSpawn = event({
+      id: 'historic-spawn',
+      sequence: 8,
+      content_blocks: [{ ...toolCallBlock('historic'), name: 'spawn_agent' }],
+    })
+    queryClient.setQueryData(agentChatHistoryQueryKey(scope), {
+      pages: [{ data: [historicSpawn], next_before_sequence: null }],
+      pageParams: [0],
+    })
+    const session = startSession([historicSpawn], sessionClient, queryClient)
+    const stream = await connection(0)
+    const queryKeyEntry = z.object({ _id: z.string() })
+    const agentListCalls = () =>
+      invalidate.mock.calls.filter(
+        ([filters]) => queryKeyEntry.safeParse(filters?.queryKey?.[0]).data?._id === 'listAgents',
+      )
+
+    stream.push({ event: 'agent_input', data: userInputEvent({ actor_id: 'actor-user' }) })
+    stream.push({
+      event: 'model_output',
+      data: event({
+        sequence: 12,
+        content_blocks: [toolCallBlock(), { ...toolCallBlock('spawn'), name: 'spawn_agent' }],
+      }),
+    })
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({ sequence: 13, tool_call_id: 'call', content_blocks: [] }),
+    })
+    await vi.waitFor(() => {
       expect(invalidate).toHaveBeenCalledTimes(3)
+    })
+    expect(agentListCalls()).toHaveLength(0)
+
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({ sequence: 14, tool_call_id: 'spawn', content_blocks: [] }),
+    })
+    await vi.waitFor(() => {
+      expect(agentListCalls()).toHaveLength(1)
+    })
+
+    stream.push({
+      event: 'agent_input',
+      data: userInputEvent({ id: 'child-input', actor_id: 'actor-child', sequence: 15 }),
+    })
+    await vi.waitFor(() => {
+      expect(agentListCalls()).toHaveLength(2)
+    })
+
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({ sequence: 16, tool_call_id: 'historic', content_blocks: [] }),
+    })
+    await vi.waitFor(() => {
+      expect(agentListCalls()).toHaveLength(3)
     })
     session.disconnect()
   })
@@ -574,7 +665,9 @@ describe('AgentChatSession streaming', () => {
     const session = startSession()
     await connection(0)
     expect(transport.openAgentEventStream).toHaveBeenCalledWith(
-      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
+      expect.objectContaining({
+        query: { after_sequence: 0, stream_deltas: true },
+      }),
     )
     session.disconnect()
   })
@@ -593,6 +686,34 @@ describe('AgentChatSession streaming', () => {
 
     expect(snapshot.error?.message).toBe('Agent event stream request failed with HTTP 401')
     expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
+    session.disconnect()
+  })
+
+  it('reopens the stream from the last cursor on reconnect', async () => {
+    const session = startSession()
+    const stream = await connection(0)
+    stream.fail(
+      new AgentEventStreamError({
+        kind: 'http',
+        message: 'Agent event stream request failed with HTTP 401',
+        status: 401,
+      }),
+    )
+    await waitForSnapshot(session, (s) => s.status === 'error')
+
+    expect(session.getData().streamError?.message).toBe(
+      'Agent event stream request failed with HTTP 401',
+    )
+    session.reconnect()
+
+    expect(read(session).error).toBeUndefined()
+    expect(session.getData().streamError).toBeUndefined()
+    const reopened = await connection(1)
+    reopened.push({ event: 'agent_input', data: userInputEvent() })
+    await waitForSnapshot(session, (s) => s.messages.length === 1)
+    expect(transport.openAgentEventStream).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
+    )
     session.disconnect()
   })
 

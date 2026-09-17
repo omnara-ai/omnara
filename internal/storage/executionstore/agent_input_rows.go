@@ -3,7 +3,9 @@ package executionstore
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func agentInputRecordFromInsertSQLC(row dbsqlc.InsertAgentInputRow) AgentInputRecord {
@@ -191,22 +193,22 @@ func agentInputRecordFromBacklogSQLC(row dbsqlc.ListQueuedBacklogInputsRow) Agen
 }
 
 func agentInputRecordFromNewFields(
-	id ID,
-	projectID ID,
-	agentID ID,
+	id uuid.UUID,
+	projectID uuid.UUID,
+	agentID uuid.UUID,
 	state string,
 	inputRank int64,
-	actorID *ID,
+	actorID *uuid.UUID,
 	inputKind string,
-	integrationTargetID *ID,
+	integrationTargetID *uuid.UUID,
 	idempotencyScope, inputIdempotencyKey string,
 	queuedAt time.Time,
-	admittedEventID *ID,
+	admittedEventID *uuid.UUID,
 	admittedAt, canceledAt *time.Time,
 	deliveryMode string,
 	controlType string,
-	targetInteractionID *ID,
-	agentConfigID *ID,
+	targetInteractionID *uuid.UUID,
+	agentConfigID *uuid.UUID,
 	resolvedAt *time.Time,
 	rejectedReason string,
 	metadata []byte,
@@ -217,19 +219,19 @@ func agentInputRecordFromNewFields(
 		AgentID:             agentID,
 		State:               state,
 		InputRank:           inputRank,
-		ActorID:             idFromSQLCPtr(actorID),
+		ActorID:             storeutil.IDFromPtr(actorID),
 		InputKind:           inputKind,
-		IntegrationTargetID: idFromSQLCPtr(integrationTargetID),
+		IntegrationTargetID: storeutil.IDFromPtr(integrationTargetID),
 		IdempotencyScope:    idempotencyScope,
 		InputIdempotencyKey: inputIdempotencyKey,
 		QueuedAt:            queuedAt,
-		AdmittedEventID:     idFromSQLCPtr(admittedEventID),
+		AdmittedEventID:     storeutil.IDFromPtr(admittedEventID),
 		AdmittedAt:          admittedAt,
 		CanceledAt:          canceledAt,
 		DeliveryMode:        AgentInputDeliveryMode(deliveryMode),
 		ControlType:         controlType,
-		TargetInteractionID: idFromSQLCPtr(targetInteractionID),
-		AgentConfigID:       idFromSQLCPtr(agentConfigID),
+		TargetInteractionID: storeutil.IDFromPtr(targetInteractionID),
+		AgentConfigID:       storeutil.IDFromPtr(agentConfigID),
 		ResolvedAt:          resolvedAt,
 		RejectedReason:      rejectedReason,
 		Metadata:            metadata,

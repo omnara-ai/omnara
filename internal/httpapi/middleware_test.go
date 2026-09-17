@@ -18,7 +18,7 @@ func TestRequiresAuthCoversAllAPIRoutes(t *testing.T) {
 		{path: "/api/v1/daemon/runtimes/abc/socket", want: true},
 		{path: "/api/v1/orgs/abc/skills/skl_abc/archive", want: true},
 		{path: "/api/v1/orgs", want: true},
-		{path: "/api/mcp", want: true},
+		{path: "/mcp", want: true},
 		{path: "/healthz", want: false},
 		{path: "/api/auth/logout", want: true},
 	}

@@ -15,6 +15,7 @@ const (
 	KindPersonalAccess Kind = "pat"
 	KindOrganization   Kind = "org"
 	KindDaemon         Kind = "daemon"
+	KindOAuthAccess    Kind = "oauth"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	personalAccessPrefix = "omnara_" + string(KindPersonalAccess) + "_v1_"
 	organizationPrefix   = "omnara_" + string(KindOrganization) + "_v1_"
 	daemonPrefix         = "omnara_" + string(KindDaemon) + "_v1_"
+	oauthAccessPrefix    = "omnara_" + string(KindOAuthAccess) + "_v1_"
 
 	checksumSeparator = '_'
 	base62Radix       = uint32(len(alphabet))
@@ -101,6 +103,8 @@ func prefixForKind(kind Kind) (string, bool) {
 		return organizationPrefix, true
 	case KindDaemon:
 		return daemonPrefix, true
+	case KindOAuthAccess:
+		return oauthAccessPrefix, true
 	default:
 		return "", false
 	}
@@ -114,6 +118,8 @@ func kindAndPrefix(token string) (Kind, string, bool) {
 		return KindOrganization, organizationPrefix, true
 	case strings.HasPrefix(token, daemonPrefix):
 		return KindDaemon, daemonPrefix, true
+	case strings.HasPrefix(token, oauthAccessPrefix):
+		return KindOAuthAccess, oauthAccessPrefix, true
 	default:
 		return "", "", false
 	}

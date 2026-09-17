@@ -63,17 +63,6 @@ export type Error = {
     code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
-export type Warning = {
-    /**
-     * Human-readable warning message. Do not match on it programmatically.
-     */
-    message: string;
-    /**
-     * Stable warning code for programmatic handling.
-     */
-    code: 'missing_recommended_machine_tools';
-};
-
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -293,6 +282,17 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    pricing?: DiscoveredModelPricing;
+};
+
+/**
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ */
+export type DiscoveredModelPricing = {
+    input_usd_per_million: string;
+    cache_read_input_usd_per_million?: string;
+    cache_write_input_usd_per_million?: string;
+    output_usd_per_million: string;
 };
 
 export type ModelProviderConfigList = {
@@ -622,6 +622,10 @@ export type ConfiguredModelSummary = {
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
     provider_config: ResourceName;
+    /**
+     * Exact provider model slug sent to the provider endpoint by the current revision.
+     */
+    provider_model_slug: string;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -889,6 +893,21 @@ export type SlackSetup = {
     expires_at: Timestamp;
 };
 
+export type ResolveAgentConfigToolsRequest = {
+    source: string;
+    source_format: 'yaml' | 'json';
+};
+
+export type ResolvedAgentConfigTools = {
+    tools: Array<ResolvedAgentConfigTool>;
+};
+
+export type ResolvedAgentConfigTool = {
+    name: string;
+    enabled: boolean;
+    permission: ToolPermissionSelection;
+};
+
 export type CreateAgentConfigRequest = {
     source: string;
     source_format: 'yaml' | 'json';
@@ -927,6 +946,10 @@ export type ToolPermissionProfile = {
 export type ToolCatalogEntry = {
     name: string;
     description: string;
+    /**
+     * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
+     */
+    implicit?: boolean;
     default_permission: ToolPermissionSelection;
     permission_modes: Array<ToolPermissionMode>;
 };
@@ -1165,10 +1188,6 @@ export type AgentConfig = {
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
-    /**
-     * Non-blocking diagnostics about the agent config.
-     */
-    warnings?: Array<Warning>;
     created_at: Timestamp;
 };
 
@@ -1330,9 +1349,32 @@ export type Agent = {
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
+    /**
+     * Set when this agent is a subagent spawned by another agent.
+     */
+    parent_agent_id?: AgentId;
+    /**
+     * The `subagents` key this agent was spawned from.
+     */
+    subagent_key?: string;
+    /**
+     * Current activity, present on list responses.
+     */
+    activity?: AgentActivity;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
+};
+
+export type AgentActivity = {
+    /**
+     * running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
+     */
+    state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
+    /**
+     * When the agent's latest event was recorded, or its creation time before any event.
+     */
+    last_activity_at: Timestamp;
 };
 
 export type AgentModel = {
@@ -1544,7 +1586,6 @@ export type AgentMachineBinding = {
     project_id: ProjectId;
     agent_id: AgentId;
     machine_id: MachineId;
-    machine_ref: string;
     binding_kind: AgentMachineBindingKind;
     state: AgentMachineBindingState;
     description: string;
@@ -1566,10 +1607,10 @@ export type AgentMachineBinding = {
 };
 
 /**
- * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
  */
 export type MachineFailureReport = {
-    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
     exit_status?: number;
     output_tail: string;
     output_truncated: boolean;
@@ -1657,6 +1698,7 @@ export type ToolCallOutcome = 'succeeded' | 'failed' | 'denied' | 'canceled';
  */
 export type ToolCall = {
     id: ToolCallId;
+    agent_id: AgentId;
     turn_id: AgentTurnId;
     provider_call_id: string;
     name: string;
@@ -1669,10 +1711,14 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
+    /**
+     * The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
+     */
+    agent_id?: AgentId;
     state: ToolCallState;
 };
 
@@ -2087,6 +2133,11 @@ export type AgentInteraction = {
      * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
      */
     tool_name?: string;
+    agent_name?: AgentName;
+    /**
+     * Present when the interaction belongs to a subagent of the listed agent.
+     */
+    subagent_key?: string;
     interaction_kind: AgentInteractionKind;
     state: AgentInteractionState;
     request: InteractionForm;
@@ -3080,6 +3131,61 @@ export type OrgOverviewResponse = {
     recent_agent_profiles: Array<AgentProfile>;
 };
 
+/**
+ * Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
+ */
+export type UsageTokenTotals = {
+    input_tokens_total: number;
+    uncached_input_tokens: number;
+    cache_read_input_tokens: number;
+    cache_write_input_tokens: number;
+    output_tokens_total: number;
+    reasoning_output_tokens: number;
+};
+
+export type UsageCostTotals = {
+    /**
+     * Exact decimal sum in USD of the costs the provider reported for the tallied model calls. Calls whose provider reported no cost contribute nothing; compare model_calls_with_reported_cost against model_calls to see how complete the figure is.
+     */
+    provider_reported_usd: string;
+    model_calls_with_reported_cost: number;
+};
+
+export type UsageTotals = {
+    /**
+     * Model calls that recorded token usage or a provider-reported cost.
+     */
+    model_calls: number;
+    tokens: UsageTokenTotals;
+    cost: UsageCostTotals;
+};
+
+export type UsageModel = {
+    configured_model_id: ConfiguredModelId;
+    /**
+     * Configured model name, resolved even if the model has since been deleted.
+     */
+    name: ResourceName;
+    provider_model_slug: string;
+    model_provider_config_id: ModelProviderConfigId;
+    model_provider_config_name: ResourceName;
+};
+
+export type ModelUsageTotals = {
+    model: UsageModel;
+    model_calls: number;
+    tokens: UsageTokenTotals;
+    cost: UsageCostTotals;
+};
+
+export type UsageReport = {
+    totals: UsageTotals;
+    /**
+     * Per-model rows ordered by provider config name, configured model name, then provider model slug. Models with distinct provider slugs across revisions appear once per slug.
+     */
+    by_model: Array<ModelUsageTotals>;
+};
+
 export type CurrentUserIdentity = {
     id: UserId;
     /**
@@ -3168,6 +3274,26 @@ export type ProjectMembershipGrant = {
 export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
+
+/**
+ * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+ */
+export type UsageSince = string;
+
+/**
+ * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+ */
+export type UsageUntil = string;
+
+/**
+ * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+ */
+export type UsageIncludeProjectIds = Array<ProjectId>;
+
+/**
+ * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ */
+export type UsageExcludeProjectIds = Array<ProjectId>;
 
 /**
  * Idempotency key for replay-safe mutating requests.
@@ -3510,7 +3636,7 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
         exit_status?: number;
         capture_status?: number;
         daemon_version?: string;
@@ -4153,6 +4279,82 @@ export type GetOrgOverviewResponses = {
 
 export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
 
+export type GetOrgUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
+         */
+        include_project_ids?: Array<ProjectId>;
+        /**
+         * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+         */
+        exclude_project_ids?: Array<ProjectId>;
+    };
+    url: '/orgs/{orgID}/usage';
+};
+
+export type GetOrgUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOrgUsageError = GetOrgUsageErrors[keyof GetOrgUsageErrors];
+
+export type GetOrgUsageResponses = {
+    /**
+     * Usage totals for the organization.
+     */
+    200: UsageReport;
+};
+
+export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponses];
+
 export type ListVisibleProjectsData = {
     body?: never;
     path: {
@@ -4373,6 +4575,75 @@ export type DeleteProjectResponses = {
 };
 
 export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectResponses];
+
+export type GetProjectUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/usage';
+};
+
+export type GetProjectUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectUsageError = GetProjectUsageErrors[keyof GetProjectUsageErrors];
+
+export type GetProjectUsageResponses = {
+    /**
+     * Usage totals for the project.
+     */
+    200: UsageReport;
+};
+
+export type GetProjectUsageResponse = GetProjectUsageResponses[keyof GetProjectUsageResponses];
 
 export type ListOrgMembersData = {
     body?: never;
@@ -7137,6 +7408,60 @@ export type DeleteIntegrationInstallResponses = {
 
 export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
 
+export type ResolveAgentConfigToolsData = {
+    body: ResolveAgentConfigToolsRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/tools';
+};
+
+export type ResolveAgentConfigToolsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+};
+
+export type ResolveAgentConfigToolsError = ResolveAgentConfigToolsErrors[keyof ResolveAgentConfigToolsErrors];
+
+export type ResolveAgentConfigToolsResponses = {
+    /**
+     * Resolved config tools.
+     */
+    200: ResolvedAgentConfigTools;
+};
+
+export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
+
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;
     path: {
@@ -7840,6 +8165,80 @@ export type RenameAgentProfileResponses = {
 
 export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof RenameAgentProfileResponses];
 
+export type GetAgentProfileUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentProfileID: AgentProfileId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from subagents spawned, at every depth, by agents launched from this profile. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage';
+};
+
+export type GetAgentProfileUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentProfileUsageError = GetAgentProfileUsageErrors[keyof GetAgentProfileUsageErrors];
+
+export type GetAgentProfileUsageResponses = {
+    /**
+     * Usage totals for the agent profile.
+     */
+    200: UsageReport;
+};
+
+export type GetAgentProfileUsageResponse = GetAgentProfileUsageResponses[keyof GetAgentProfileUsageResponses];
+
 export type UpdateAgentProfileData = {
     body: UpdateAgentProfileRequest;
     headers?: {
@@ -8431,6 +8830,18 @@ export type ListAgentsData = {
          * Return only agents launched from this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Return only subagents spawned by this agent.
+         */
+        parent_agent_id?: AgentId;
+        /**
+         * Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+         */
+        include_subagents?: boolean;
+        /**
+         * Include archived agents. Defaults to false.
+         */
+        include_archived?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -8491,7 +8902,7 @@ export type ListAgentsError = ListAgentsErrors[keyof ListAgentsErrors];
 
 export type ListAgentsResponses = {
     /**
-     * Active agents in the project, newest first.
+     * Agents in the project, newest first.
      */
     200: ListAgentsResponse;
 };
@@ -8644,6 +9055,80 @@ export type GetAgentResponses = {
 };
 
 export type GetAgentResponse2 = GetAgentResponses[keyof GetAgentResponses];
+
+export type GetAgentUsageData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        agentID: AgentId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * Also include usage from this agent's subagents at every depth. Defaults to false.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage';
+};
+
+export type GetAgentUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentUsageError = GetAgentUsageErrors[keyof GetAgentUsageErrors];
+
+export type GetAgentUsageResponses = {
+    /**
+     * Usage totals for the agent.
+     */
+    200: UsageReport;
+};
+
+export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageResponses];
 
 export type ArchiveAgentData = {
     body?: never;
@@ -8874,6 +9359,10 @@ export type ListToolCallsData = {
     query?: {
         state?: ToolCallState;
         type?: ToolCallType;
+        /**
+         * Also return tool calls from this agent's subagents at every depth. Each row's agent_id says which agent made the call.
+         */
+        include_subagents?: boolean;
         /**
          * Maximum number of items to return in one page.
          */
@@ -9304,7 +9793,7 @@ export type StreamEventsError = StreamEventsErrors[keyof StreamEventsErrors];
 
 export type StreamEventsResponses = {
     /**
-     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
      */
     200: AgentEventStreamData;
 };
@@ -9389,6 +9878,10 @@ export type ListAgentInteractionsData = {
     };
     query?: {
         state?: AgentInteractionState;
+        /**
+         * Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+         */
+        include_subagents?: boolean;
         /**
          * Maximum number of items to return in one page.
          */

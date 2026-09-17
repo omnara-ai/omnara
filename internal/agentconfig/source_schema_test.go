@@ -30,6 +30,28 @@ machine_sources:
 	}
 }
 
+func TestParseSourceValidatesMachineTextLengths(t *testing.T) {
+	for _, sourceField := range []string{"machine_name", "machine_pool_name"} {
+		for _, field := range []string{"description", "cwd"} {
+			for _, length := range []int{4096, 4097} {
+				t.Run(fmt.Sprintf("%s/%s/%d", sourceField, field, length), func(t *testing.T) {
+					source := validAgentSource(fmt.Sprintf(`
+machine_sources:
+  - %s: Build Machine
+    %s: %q
+`, sourceField, field, strings.Repeat("é", length)))
+					_, err := ParseSource(SourceFormatYAML, []byte(source))
+					if length == 4096 {
+						require.NoError(t, err)
+					} else {
+						require.ErrorContains(t, err, field)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestParseSourceValidatesIdleDeletionMinutes(t *testing.T) {
 	for _, test := range []struct {
 		minutes int
@@ -227,13 +249,16 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
-		"AgentConfigModelSource":   reflect.TypeOf(AgentConfigModelSource{}),
-		"AgentConfigMachineSource": reflect.TypeOf(AgentConfigMachineSource{}),
-		"AgentConfigToolSource":    reflect.TypeOf(AgentConfigToolSource{}),
-		"AgentConfigMCPSource":     reflect.TypeOf(AgentConfigMCPSource{}),
-		"AgentConfigMCPAuthSource": reflect.TypeOf(AgentConfigMCPAuthSource{}),
-		"AgentConfigMCPToolSource": reflect.TypeOf(AgentConfigMCPToolSource{}),
-		"ToolPermissionSelection":  reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigModelSource":               reflect.TypeOf(AgentConfigModelSource{}),
+		"AgentConfigMachineSource":             reflect.TypeOf(AgentConfigMachineSource{}),
+		"AgentConfigToolSource":                reflect.TypeOf(AgentConfigToolSource{}),
+		"AgentConfigMCPSource":                 reflect.TypeOf(AgentConfigMCPSource{}),
+		"AgentConfigMCPAuthSource":             reflect.TypeOf(AgentConfigMCPAuthSource{}),
+		"AgentConfigMCPToolSource":             reflect.TypeOf(AgentConfigMCPToolSource{}),
+		"ToolPermissionSelection":              reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigSubagentSource":            reflect.TypeOf(AgentConfigSubagentSource{}),
+		"AgentConfigSubagentModelSource":       reflect.TypeOf(AgentConfigSubagentModelSource{}),
+		"AgentConfigSubagentInstructionSource": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
 	}
 	// Custom tool input_schema decodes into map[string]any, so its schema
 	// stays deliberately open.

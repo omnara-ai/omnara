@@ -11,6 +11,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { projectSkillOwnerLabel } from '@/lib/skills'
 
@@ -35,17 +36,15 @@ export function ProjectSkillGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Skill grants"
+        guide={guides.skills}
         toolbar={
-          showToolbar ? (
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search skill grants by name…"
-            />
-          ) : undefined
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+            placeholder="Search skill grants by name…"
+            showSearch={showToolbar}
+          />
         }
       />
       <DataTable

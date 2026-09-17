@@ -40,11 +40,20 @@ func (h *Handler) authorizationServerMetadataRoute(w http.ResponseWriter, r *htt
 	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"issuer":                                issuer,
-		"device_authorization_endpoint":         issuer + OAuthDeviceAuthorizationPath,
-		"token_endpoint":                        issuer + OAuthTokenPath,
-		"grant_types_supported":                 []string{OAuthDeviceGrantType},
-		"token_endpoint_auth_methods_supported": []string{"none"},
+		"issuer":                        issuer,
+		"authorization_endpoint":        issuer + OAuthAuthorizePagePath,
+		"device_authorization_endpoint": issuer + OAuthDeviceAuthorizationPath,
+		"token_endpoint":                issuer + OAuthTokenPath,
+		"response_types_supported":      []string{"code"},
+		"grant_types_supported": []string{
+			OAuthDeviceGrantType,
+			OAuthAuthorizationCodeGrant,
+			OAuthRefreshTokenGrant,
+		},
+		"token_endpoint_auth_methods_supported":          []string{"none"},
+		"code_challenge_methods_supported":               []string{oauthPKCEMethodS256},
+		"client_id_metadata_document_supported":          true,
+		"authorization_response_iss_parameter_supported": true,
 	})
 }
 

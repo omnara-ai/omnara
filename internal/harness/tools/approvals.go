@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -177,7 +178,7 @@ func (e Executor) evaluateExistingPermissionInteraction(
 	ctx context.Context,
 	turn Turn,
 	call model.ToolCall,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	selection toolpermission.Selection,
 	permission executionstore.AgentInteractionRecord,
 ) error {
@@ -223,7 +224,7 @@ func (e Executor) evaluateExistingPermissionInteraction(
 func (e Executor) assertTerminalPermissionInteraction(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 ) error {
 	toolCall, err := e.Store.Execution().GetToolCall(ctx, turn.ProjectID, turn.AgentID, toolCallID)
 	if err != nil {
@@ -242,7 +243,7 @@ func (e Executor) assertTerminalPermissionInteraction(
 func (e Executor) completeInvalidToolCall(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	errorCode string,
 	cause error,
 ) error {
@@ -276,7 +277,7 @@ func (e Executor) completeInvalidToolCall(
 func (e Executor) completeToolCallPreparationFailure(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	failure *toolCallPreparationError,
 ) error {
 	contentParts, err := failure.content.contentParts()
@@ -307,7 +308,7 @@ func firstError(left error, right error) error {
 func (e Executor) completeDeniedToolCall(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	reason string,
 ) error {
 	if reason == "" {
@@ -338,7 +339,7 @@ func (e Executor) completeDeniedToolCall(
 func (e Executor) completeAsyncToolFailure(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	content toolResultContent,
 	cause error,
 ) error {
@@ -366,52 +367,69 @@ func (e Executor) completeAsyncToolFailure(
 			return fmt.Errorf("marshal async tool failure result: %w", err)
 		}
 	}
-	contentParts, err := content.contentParts()
-	if err != nil {
-		return fmt.Errorf("marshal async tool failure content parts: %w", err)
-	}
-	err = retryAsyncToolPersistence(ctx, func(ctx context.Context) error {
-		_, err := e.Store.Execution().CompleteRuntimeToolCall(
-			ctx,
-			executionstore.CompleteRuntimeToolCallInput{
-				ProjectID:          turn.ProjectID,
-				AgentID:            turn.AgentID,
-				ID:                 toolCallID,
-				RuntimeLockID:      turn.RuntimeLockID,
-				Outcome:            executionstore.ToolResultOutcomeFailed,
-				ResultContentParts: contentParts,
-			},
-		)
-		return err
-	})
+	err := e.completeAsyncToolResult(ctx, turn, toolCallID, content, executionstore.ToolResultOutcomeFailed)
 	if errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		return nil
 	}
 	return err
 }
 
-func (e Executor) completeAsyncToolSuccess(
+func (e Executor) completeAsyncToolResult(
 	ctx context.Context,
 	turn Turn,
-	toolCallID storage.ID,
+	toolCallID uuid.UUID,
 	content toolResultContent,
+	outcome executionstore.ToolResultOutcome,
 ) error {
-	contentParts, err := content.contentParts()
+	parts, err := content.contentParts()
 	if err != nil {
-		return fmt.Errorf("marshal async tool success content parts: %w", err)
+		return fmt.Errorf("marshal async tool result: %w", err)
 	}
-	return retryAsyncToolPersistence(ctx, func(ctx context.Context) error {
-		_, err := e.Store.Execution().CompleteRuntimeToolCall(
-			ctx,
-			executionstore.CompleteRuntimeToolCallInput{
-				ProjectID:          turn.ProjectID,
-				AgentID:            turn.AgentID,
-				ID:                 toolCallID,
-				RuntimeLockID:      turn.RuntimeLockID,
-				Outcome:            executionstore.ToolResultOutcomeSucceeded,
-				ResultContentParts: contentParts,
-			},
-		)
+	input := executionstore.CompleteRuntimeToolCallInput{
+		ProjectID:          turn.ProjectID,
+		AgentID:            turn.AgentID,
+		ID:                 toolCallID,
+		RuntimeLockID:      turn.RuntimeLockID,
+		Outcome:            outcome,
+		ResultContentParts: parts,
+	}
+	persist := func(ctx context.Context) error {
+		_, err := e.Store.Execution().CompleteRuntimeToolCall(ctx, input)
 		return err
+	}
+	err = retryAsyncToolPersistence(ctx, persist)
+	if err == nil || errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
+		errors.Is(err, storeerr.ErrStateTransitionConflict) || errors.Is(err, storeerr.ErrIdempotencyConflict) ||
+		errors.Is(err, storeerr.ErrInvalidToolCallDisposition) || errors.Is(err, storeerr.ErrNotFound) {
+		return err
+	}
+	code := "tool_result_persistence_failed"
+	message := "The tool ran successfully, but its result could not be stored."
+	if outcome == executionstore.ToolResultOutcomeFailed {
+		message = "The tool failed, but its error result could not be stored."
+	}
+	if errors.Is(err, storeerr.ErrInvalidRequest) {
+		code = "tool_result_invalid"
+		message = "The tool returned an invalid result."
+	} else {
+		logpkg.LoggerFromContext(ctx).Error("persist async tool result", "tool_call_id", toolCallID, "error", err)
+	}
+	fallback, fallbackErr := structuredToolResultContent(map[string]any{
+		"code":    code,
+		"message": message,
 	})
+	if fallbackErr != nil {
+		return errors.Join(err, fallbackErr)
+	}
+	input.ResultContentParts, fallbackErr = fallback.contentParts()
+	if fallbackErr != nil {
+		return errors.Join(err, fallbackErr)
+	}
+	input.Outcome = executionstore.ToolResultOutcomeFailed
+	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
+	defer cancel()
+	if fallbackErr := retryAsyncToolPersistence(completionCtx, persist); fallbackErr != nil {
+		return errors.Join(err, fallbackErr)
+	}
+	return nil
 }

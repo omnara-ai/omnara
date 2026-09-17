@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -22,7 +23,7 @@ import (
 )
 
 type CreateDaemonMachineInput struct {
-	OrgID          ID
+	OrgID          uuid.UUID
 	DisplayName    string
 	Description    string
 	Cwd            string
@@ -33,16 +34,16 @@ type CreateDaemonMachineInput struct {
 }
 
 type UpdateMachineInput struct {
-	OrgID     ID
-	MachineID ID
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 	Cwd       *string
 	Env       *json.RawMessage
 	SecretEnv *json.RawMessage
 }
 
 type DeleteMachineInput struct {
-	OrgID     ID
-	MachineID ID
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 }
 
 type ProjectMachineGrantSourceKind string
@@ -53,12 +54,12 @@ const (
 )
 
 type ProjectMachineGrantRecord struct {
-	ID                        ID                            `json:"id"`
-	OrgID                     ID                            `json:"org_id"`
-	ProjectID                 ID                            `json:"project_id"`
-	MachineID                 ID                            `json:"machine_id"`
+	ID                        uuid.UUID                     `json:"id"`
+	OrgID                     uuid.UUID                     `json:"org_id"`
+	ProjectID                 uuid.UUID                     `json:"project_id"`
+	MachineID                 uuid.UUID                     `json:"machine_id"`
 	SourceKind                ProjectMachineGrantSourceKind `json:"source_kind"`
-	ProjectMachinePoolGrantID ID                            `json:"project_machine_pool_grant_id,omitempty"`
+	ProjectMachinePoolGrantID uuid.UUID                     `json:"project_machine_pool_grant_id,omitempty"`
 	Description               string                        `json:"description"`
 	IdempotencyKey            string                        `json:"idempotency_key,omitempty"`
 	Metadata                  json.RawMessage               `json:"metadata"`
@@ -68,10 +69,10 @@ type ProjectMachineGrantRecord struct {
 }
 
 type ListProjectMachineGrantsInput struct {
-	OrgID     ID
-	ProjectID ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
 	Limit     int
-	MachineID ID
+	MachineID uuid.UUID
 	Filters   MachineGrantListFilters
 	List      listing.Options
 }
@@ -103,8 +104,8 @@ const (
 
 type MachineAccessSourceRecord struct {
 	Kind            MachineAccessSourceKind
-	ProjectID       ID
-	GrantID         ID
+	ProjectID       uuid.UUID
+	GrantID         uuid.UUID
 	GrantSourceKind ProjectMachineGrantSourceKind
 }
 
@@ -115,7 +116,7 @@ type VisibleMachineRecord struct {
 }
 
 type ListVisibleMachinesForPrincipalInput struct {
-	OrgID     ID
+	OrgID     uuid.UUID
 	Principal identitystore.PrincipalRecord
 	Filters   MachineListFilters
 	Limit     int
@@ -127,7 +128,7 @@ type MachineListFilters struct {
 	SourceKinds      []MachineSourceKind
 	LifecycleStates  []MachineLifecycleState
 	ConnectionStates []MachineConnectionState
-	MachinePoolID    ID
+	MachinePoolID    uuid.UUID
 }
 
 type ListVisibleMachinesForPrincipalResult struct {
@@ -138,14 +139,14 @@ type ListVisibleMachinesForPrincipalResult struct {
 
 type ProjectVisibleMachineRecord struct {
 	Machine         MachineSummaryRecord
-	GrantID         ID
+	GrantID         uuid.UUID
 	GrantSourceKind ProjectMachineGrantSourceKind
 	CanManage       bool
 }
 
 type ListProjectVisibleMachinesForPrincipalInput struct {
-	OrgID     ID
-	ProjectID ID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
 	Principal identitystore.PrincipalRecord
 	Filters   MachineListFilters
 	Limit     int
@@ -159,18 +160,18 @@ type ListProjectVisibleMachinesForPrincipalResult struct {
 }
 
 type CreateProjectMachineGrantInput struct {
-	OrgID          ID
-	ProjectID      ID
-	MachineID      ID
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	MachineID      uuid.UUID
 	Description    string
 	IdempotencyKey string
 	Metadata       resourcemeta.Metadata
 }
 
 type MachineDaemonTokenRecord struct {
-	ID           ID              `json:"id"`
-	OrgID        ID              `json:"org_id"`
-	MachineID    ID              `json:"machine_id"`
+	ID           uuid.UUID       `json:"id"`
+	OrgID        uuid.UUID       `json:"org_id"`
+	MachineID    uuid.UUID       `json:"machine_id"`
 	Name         string          `json:"name"`
 	TokenHash    string          `json:"-"`
 	Metadata     json.RawMessage `json:"metadata"`
@@ -186,36 +187,37 @@ type CreatedMachineDaemonToken struct {
 }
 
 type CreateBYOMachineDaemonTokenInput struct {
-	OrgID     ID
-	MachineID ID
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
 	Name      string
 	Metadata  resourcemeta.Metadata
 }
 
 type MachineDaemonBootstrapInput struct {
-	OrgID         ID
-	MachineID     ID
-	DaemonTokenID ID
+	OrgID         uuid.UUID
+	MachineID     uuid.UUID
+	DaemonTokenID uuid.UUID
 }
 
 type MachineBootstrapRecord struct {
-	InstallationID ID
-	OrgID          ID
-	MachineID      ID
+	InstallationID uuid.UUID
+	OrgID          uuid.UUID
+	MachineID      uuid.UUID
 }
 
 const (
 	MachineFailureStageStartupScript     = "startup_script"
 	MachineFailureStageDaemonInstall     = "daemon_install"
 	MachineFailureStageDaemonUpdate      = "daemon_update"
+	MachineFailureStageDaemonRuntime     = "daemon_runtime"
 	MachineFailureStageDaemonUninstall   = "daemon_uninstall"
 	MachineFailureStageDaemonUninstalled = "daemon_uninstalled"
 )
 
 type MachineFailureReportInput struct {
-	OrgID           ID
-	MachineID       ID
-	DaemonTokenID   ID
+	OrgID           uuid.UUID
+	MachineID       uuid.UUID
+	DaemonTokenID   uuid.UUID
 	Stage           string
 	ExitStatus      *int
 	OutputTail      []byte
@@ -268,7 +270,7 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 func prepareDaemonMachineCreate(
 	input CreateDaemonMachineInput,
 ) (CreateDaemonMachineInput, MachineEnvironment, json.RawMessage, error) {
-	if isNilID(input.OrgID) || input.DisplayName == "" {
+	if input.OrgID == uuid.Nil || input.DisplayName == "" {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
 			"org and display name are required",
 		)
@@ -287,6 +289,9 @@ func prepareDaemonMachineCreate(
 	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, err
+	}
+	if err := validateMachineCwdLength("cwd", input.Cwd); err != nil {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, storeerr.InvalidRequest(err)
 	}
 	if strings.ContainsRune(input.Cwd, 0) {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
@@ -325,7 +330,7 @@ func createDaemonMachineTx(
 			Cwd:                    input.Cwd,
 			Env:                    env,
 			SecretEnv:              secretEnv,
-			IdempotencyKey:         sqlcTextFromEmpty(input.IdempotencyKey),
+			IdempotencyKey:         storeutil.TextFromEmpty(input.IdempotencyKey),
 			LifecycleReasonMessage: "",
 			Metadata:               metadata,
 		},
@@ -336,7 +341,7 @@ func createDaemonMachineTx(
 		}
 		return MachineRecord{}, fmt.Errorf("insert machine: %w", err)
 	}
-	if err := validateMachineEnvironmentSecretsTx(ctx, qtx, input.OrgID, NilID, environment); err != nil {
+	if err := validateMachineEnvironmentSecretsTx(ctx, qtx, input.OrgID, uuid.Nil, environment); err != nil {
 		return MachineRecord{}, err
 	}
 	record := machineRecordFromInsertSQLC(row)
@@ -345,7 +350,7 @@ func createDaemonMachineTx(
 }
 
 func (s *Store) UpdateMachine(ctx context.Context, input UpdateMachineInput) (MachineRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
 	return storeutil.RetryTransaction(ctx, "update_machine", func() (MachineRecord, error) {
@@ -365,7 +370,7 @@ func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput)
 		dbsqlc.LockPoolMachineGrantParams{OrgID: input.OrgID, MachineID: input.MachineID},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		projectID = NilID
+		projectID = uuid.Nil
 	} else if err != nil {
 		return MachineRecord{}, fmt.Errorf("lock pool machine grant: %w", err)
 	}
@@ -387,6 +392,9 @@ func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput)
 	}
 	cwd := locked.Cwd
 	if input.Cwd != nil {
+		if err := validateMachineCwdLength("cwd", *input.Cwd); err != nil {
+			return MachineRecord{}, storeerr.InvalidRequest(err)
+		}
 		cwd = *input.Cwd
 	}
 	if strings.ContainsRune(cwd, 0) {
@@ -461,7 +469,7 @@ func (s *Store) ListVisibleMachinesForPrincipal(
 	input ListVisibleMachinesForPrincipalInput,
 ) (ListVisibleMachinesForPrincipalResult, error) {
 	userID, orgAPIKeyID := identitystore.AccountPrincipalIDs(input.Principal)
-	if isNilID(input.OrgID) || (userID == nil && orgAPIKeyID == nil) {
+	if input.OrgID == uuid.Nil || (userID == nil && orgAPIKeyID == nil) {
 		return ListVisibleMachinesForPrincipalResult{}, errors.New("org id and principal are required")
 	}
 	if input.Limit <= 0 {
@@ -477,7 +485,7 @@ func (s *Store) ListVisibleMachinesForPrincipal(
 		Providers: input.Filters.Providers, SourceKinds: sqlcStrings(input.Filters.SourceKinds),
 		LifecycleStates:  sqlcStrings(input.Filters.LifecycleStates),
 		ConnectionStates: sqlcStrings(input.Filters.ConnectionStates),
-		MachinePoolID:    sqlcIDFromNil(input.Filters.MachinePoolID),
+		MachinePoolID:    storeutil.IDFromNil(input.Filters.MachinePoolID),
 	}
 	if !listing.SortAllowed(
 		input.List.SortField,
@@ -494,7 +502,7 @@ func (s *Store) ListVisibleMachinesForPrincipal(
 	}
 	out := make([]VisibleMachineRecord, 0, len(rows))
 	cursors := make([]listing.Cursor, 0, len(rows))
-	index := make(map[ID]int)
+	index := make(map[uuid.UUID]int)
 	for _, row := range rows {
 		i, ok := index[row.ID]
 		if !ok {
@@ -511,8 +519,8 @@ func (s *Store) ListVisibleMachinesForPrincipal(
 			out[i].Sources,
 			MachineAccessSourceRecord{
 				Kind:            MachineAccessSourceKind(row.AccessSourceKind),
-				ProjectID:       idFromSQLCPtr(row.AccessProjectID),
-				GrantID:         idFromSQLCPtr(row.AccessGrantID),
+				ProjectID:       storeutil.IDFromPtr(row.AccessProjectID),
+				GrantID:         storeutil.IDFromPtr(row.AccessGrantID),
 				GrantSourceKind: ProjectMachineGrantSourceKind(row.AccessGrantSourceKind),
 			},
 		)
@@ -533,7 +541,7 @@ func (s *Store) DeleteMachine(
 	ctx context.Context,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
 	return storeutil.RetryTransaction(ctx, "delete_machine", func() (MachineRecord, error) {
@@ -591,7 +599,7 @@ func (s *Store) DeleteMachineTx(
 				OrgID:     runtime.OrgID,
 				MachineID: runtime.MachineID,
 				ID:        runtime.ID,
-				Reason:    sqlcTextFromEmpty("machine_deleted"),
+				Reason:    storeutil.TextFromEmpty("machine_deleted"),
 				Message:   "",
 			},
 		); err != nil &&
@@ -635,7 +643,7 @@ func (s *Store) DeleteMachineTx(
 		dbsqlc.DeleteMachineParams{
 			OrgID:   input.OrgID,
 			ID:      input.MachineID,
-			Reason:  sqlcTextFromEmpty("user_deleted"),
+			Reason:  storeutil.TextFromEmpty("user_deleted"),
 			Message: "",
 		},
 	)
@@ -658,7 +666,7 @@ func (s *Store) CreateProjectMachineGrant(
 	ctx context.Context,
 	input CreateProjectMachineGrantInput,
 ) (ProjectMachineGrantRecord, MachineRecord, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.MachineID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.MachineID == uuid.Nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, errors.New(
 			"org, project, and machine are required",
 		)
@@ -728,7 +736,7 @@ func (s *Store) CreateProjectMachineGrant(
 			grant := projectMachineGrantFromIdempotency(replay)
 			if grant.MachineID != input.MachineID ||
 				grant.SourceKind != ProjectMachineGrantSourceKindExplicit ||
-				grant.ProjectMachinePoolGrantID != NilID ||
+				grant.ProjectMachinePoolGrantID != uuid.Nil ||
 				grant.Description != input.Description ||
 				!sameJSON(grant.Metadata, metadata) {
 				return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
@@ -761,7 +769,7 @@ func upsertExplicitProjectMachineGrantTx(
 			SourceKind:                string(ProjectMachineGrantSourceKindExplicit),
 			ProjectMachinePoolGrantID: nil,
 			Description:               input.Description,
-			IdempotencyKey:            sqlcTextFromEmpty(input.IdempotencyKey),
+			IdempotencyKey:            storeutil.TextFromEmpty(input.IdempotencyKey),
 			Metadata:                  metadata,
 		},
 	)
@@ -813,7 +821,7 @@ func (s *Store) ListProjectMachineGrants(
 	ctx context.Context,
 	input ListProjectMachineGrantsInput,
 ) (ListProjectMachineGrantsResult, error) {
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return ListProjectMachineGrantsResult{}, errors.New("org and project are required")
 	}
 	if input.Limit <= 0 {
@@ -825,7 +833,7 @@ func (s *Store) ListProjectMachineGrants(
 		ProjectID: input.ProjectID,
 		RowLimit:  int64(input.Limit) + 1,
 		SortField: input.List.SortField, SortDesc: input.List.SortDesc, NamePattern: input.List.NamePattern,
-		MachineID: sqlcIDFromNil(input.MachineID), SourceKinds: sqlcStrings(input.Filters.SourceKinds),
+		MachineID: storeutil.IDFromNil(input.MachineID), SourceKinds: sqlcStrings(input.Filters.SourceKinds),
 		Providers: input.Filters.Providers, LifecycleStates: sqlcStrings(input.Filters.LifecycleStates),
 		ConnectionStates: sqlcStrings(input.Filters.ConnectionStates),
 	}
@@ -854,7 +862,7 @@ func (s *Store) ListProjectMachineGrants(
 			Grant: ProjectMachineGrantRecord{
 				ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID, MachineID: row.MachineID,
 				SourceKind:                ProjectMachineGrantSourceKind(row.SourceKind),
-				ProjectMachinePoolGrantID: idFromSQLCPtr(row.ProjectMachinePoolGrantID),
+				ProjectMachinePoolGrantID: storeutil.IDFromPtr(row.ProjectMachinePoolGrantID),
 				Description:               row.Description,
 				IdempotencyKey:            row.IdempotencyKey, Metadata: row.Metadata,
 				CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
@@ -878,7 +886,7 @@ func (s *Store) ListProjectVisibleMachinesForPrincipal(
 	input ListProjectVisibleMachinesForPrincipalInput,
 ) (ListProjectVisibleMachinesForPrincipalResult, error) {
 	userID, orgAPIKeyID := identitystore.AccountPrincipalIDs(input.Principal)
-	if isNilID(input.OrgID) || isNilID(input.ProjectID) || (userID == nil && orgAPIKeyID == nil) {
+	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || (userID == nil && orgAPIKeyID == nil) {
 		return ListProjectVisibleMachinesForPrincipalResult{}, errors.New(
 			"org id, project id, and principal are required",
 		)
@@ -900,7 +908,7 @@ func (s *Store) ListProjectVisibleMachinesForPrincipal(
 		Providers: input.Filters.Providers, SourceKinds: sqlcStrings(input.Filters.SourceKinds),
 		LifecycleStates:  sqlcStrings(input.Filters.LifecycleStates),
 		ConnectionStates: sqlcStrings(input.Filters.ConnectionStates),
-		MachinePoolID:    sqlcIDFromNil(input.Filters.MachinePoolID),
+		MachinePoolID:    storeutil.IDFromNil(input.Filters.MachinePoolID),
 	}
 	if !listing.SortAllowed(
 		input.List.SortField,
@@ -938,7 +946,7 @@ func (s *Store) ListProjectVisibleMachinesForPrincipal(
 
 func (s *Store) ListActiveProjectMachineGrantsForMachine(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 ) ([]ProjectMachineGrantRecord, error) {
 	rows, err := s.q.ListActiveProjectMachineGrantsForMachine(
 		ctx,
@@ -967,7 +975,7 @@ func validateMachineSourceKindFilters(sourceKinds []MachineSourceKind) error {
 
 func (s *Store) GetProjectMachineGrant(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
 	row, err := s.q.GetProjectMachineGrant(
 		ctx,
@@ -981,7 +989,7 @@ func (s *Store) GetProjectMachineGrant(
 
 func (s *Store) DeleteProjectMachineGrant(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
 	return storeutil.RetryTransaction(ctx, "delete_project_machine_grant", func() (ProjectMachineGrantRecord, error) {
 		return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, id)
@@ -990,7 +998,7 @@ func (s *Store) DeleteProjectMachineGrant(
 
 func (s *Store) deleteProjectMachineGrantOnce(
 	ctx context.Context,
-	orgID, projectID, id ID,
+	orgID, projectID, id uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

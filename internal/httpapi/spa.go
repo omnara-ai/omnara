@@ -28,6 +28,7 @@ var spaContentSecurityPolicy = strings.Join([]string{
 var spaReservedPrefixes = []string{
 	"api/",
 	"install/",
+	"mcp/",
 	".well-known/",
 	"healthz/",
 }
@@ -35,6 +36,7 @@ var spaReservedPrefixes = []string{
 var spaReservedExact = []string{
 	"api",
 	"install",
+	"mcp",
 	".well-known",
 	"healthz",
 }

@@ -6,20 +6,22 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type RecordModelCallErrorAndCompleteContextInput struct {
-	ProjectID               ID
-	AgentID                 ID
-	RuntimeLockID           ID
-	ModelCallContextID      ID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	RuntimeLockID           uuid.UUID
+	ModelCallContextID      uuid.UUID
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
 	ServedProviderModelSlug string
@@ -38,8 +40,8 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	ctx context.Context,
 	input RecordModelCallErrorAndCompleteContextInput,
 ) (events.Event, error) {
-	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.RuntimeLockID) ||
-		isNilID(input.ModelCallContextID) ||
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
+		input.ModelCallContextID == uuid.Nil ||
 		input.ErrorKind == "" || input.ErrorMessage == "" {
 		return events.Event{}, errors.New(
 			"project, agent, runtime, context, and error are required",
@@ -57,6 +59,9 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
+	if err := lockAgentWithParentTx(ctx, tx, q, input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,
@@ -258,6 +263,16 @@ func publishModelCallErrorOutputTx(
 	}); err != nil {
 		return TypedAgentEventRecord{}, fmt.Errorf("reconcile wakeup after model call error: %w", err)
 	}
+	message := subagentMessage{
+		Kind:           SubagentMessageKindFailed,
+		Text:           input.ErrorMessage,
+		IdempotencyKey: "model_output:" + modelOutput.ID.String(),
+	}
+	if err := handleSubagentTurnEndedTx(
+		ctx, txNotifications, tx, q, contextRow.ProjectID, contextRow.AgentID, message,
+	); err != nil {
+		return TypedAgentEventRecord{}, err
+	}
 	return eventRecord, nil
 }
 
@@ -308,7 +323,7 @@ func replayModelCallErrorOutputTx(
 	blocks, err := q.ListContentBlocksForModelOutput(ctx, dbsqlc.ListContentBlocksForModelOutputParams{
 		ProjectID:     contextRow.ProjectID,
 		AgentID:       contextRow.AgentID,
-		ModelOutputID: sqlcIDFromNil(modelOutput.ID),
+		ModelOutputID: storeutil.IDFromNil(modelOutput.ID),
 	})
 	if err != nil {
 		return TypedAgentEventRecord{}, fmt.Errorf("list terminal model error content blocks for replay: %w", err)

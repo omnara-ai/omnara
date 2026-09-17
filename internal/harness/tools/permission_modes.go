@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -263,7 +265,7 @@ func createMachinePermissionChallenge(
 	}
 	source, err := selectPoolForMachineCreate(sources, input)
 	if err != nil {
-		content, contentErr := machineToolFailureContent(
+		content, contentErr := toolFailureContent(
 			"create_machine_failed",
 			err.Error(),
 			false,
@@ -273,7 +275,7 @@ func createMachinePermissionChallenge(
 		}
 		return toolpermission.Request{}, newToolCallPreparationError(content, err)
 	}
-	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolName)
+	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolID, source.MachinePoolName)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
@@ -301,12 +303,11 @@ func inspectMachinePermissionChallenge(
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	input, err := resolveMachineRefRequest(call.Input, true)
+	machineID, err := resolveMachineIDRequest(call.Input, true)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	machineRef := input.MachineRef
-	if machineRef == "" {
+	if machineID == uuid.Nil {
 		if executor.Store == nil {
 			return toolpermission.Request{}, fmt.Errorf("tool executor store is required")
 		}
@@ -322,11 +323,15 @@ func inspectMachinePermissionChallenge(
 		if err != nil {
 			return toolpermission.Request{}, executor.machinePreparationError(err)
 		}
-		machineRef = machine.MachineRef
+		machineID = machine.MachineID
+	}
+	machinePublicID, err := publicid.Encode(publicid.KindMachine, machineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := machineObservationAuthorizationInput(
 		machineObservationInspect,
-		machineRef,
+		machinePublicID,
 	)
 	if err != nil {
 		return toolpermission.Request{}, err
@@ -381,9 +386,13 @@ func runCommandPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := runCommandAuthorizationInput(binding.ID, resolved)
 	if err != nil {
@@ -391,7 +400,7 @@ func runCommandPermissionChallenge(
 	}
 	contextItems := []interactionform.ContextItem{
 		{Label: "Command", Value: resolved.Command},
-		{Label: "Machine", Value: binding.MachineRef},
+		{Label: "Machine", Value: machineID},
 		{Label: "Shell", Value: string(resolved.Selector)},
 	}
 	if resolved.Cwd != "" {
@@ -403,64 +412,67 @@ func runCommandPermissionChallenge(
 	return permissionChallenge(call, mode, authorizationInput, contextItems...)
 }
 
-func uploadArtifactPermissionChallenge(
+func uploadFilePermissionChallenge(
 	ctx context.Context,
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	resolved, err := resolveUploadArtifactRequest(call.Input)
+	resolved, err := resolveUploadFileRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
 	}
-	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Path)
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(
-		call,
-		mode,
-		authorizationInput,
-		interactionform.ContextItem{Label: "Path", Value: resolved.Path},
-		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
+	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Source)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	return permissionChallenge(call, mode, authorizationInput,
+		interactionform.ContextItem{Label: "Source", Value: resolved.Source},
+		interactionform.ContextItem{Label: "Destination", Value: toolcatalog.ArtifactVFSRoot},
+		interactionform.ContextItem{Label: "Machine", Value: machineID},
 	)
 }
 
-func downloadArtifactPermissionChallenge(
+func downloadFilePermissionChallenge(
 	ctx context.Context,
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	resolved, err := resolveDownloadArtifactRequest(call.Input)
+	resolved, err := resolveDownloadFileRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineID)
 	if err != nil {
 		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
+	if err != nil {
+		return toolpermission.Request{}, err
 	}
 	authorizationInput, err := downloadArtifactAuthorizationInput(
 		binding.ID,
 		resolved.ArtifactID,
-		resolved.Path,
+		resolved.Destination,
 	)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(
-		call,
-		mode,
-		authorizationInput,
-		interactionform.ContextItem{Label: "Artifact", Value: resolved.ArtifactID},
-		interactionform.ContextItem{Label: "Destination", Value: resolved.Path},
-		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
+	return permissionChallenge(call, mode, authorizationInput,
+		interactionform.ContextItem{Label: "Source", Value: toolcatalog.ArtifactVFSRoot + "/" + resolved.ArtifactID},
+		interactionform.ContextItem{Label: "Destination", Value: resolved.Destination},
+		interactionform.ContextItem{Label: "Machine", Value: machineID},
 	)
 }
 

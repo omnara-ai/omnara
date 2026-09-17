@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -35,9 +36,9 @@ func TestCreateModelOutputAuthorityRejectsUnsupportedStopReason(t *testing.T) {
 	} {
 		t.Run(string(reason), func(t *testing.T) {
 			_, err := createModelOutputAuthorityTx(context.Background(), nil, CreateModelOutputAuthorityInput{
-				ProjectID:               parseUUIDText("00000000-0000-4000-8000-000000000001"),
-				AgentID:                 parseUUIDText("00000000-0000-4000-8000-000000000002"),
-				ModelCallContextID:      parseUUIDText("00000000-0000-4000-8000-000000000003"),
+				ProjectID:               uuid.MustParse("00000000-0000-4000-8000-000000000001"),
+				AgentID:                 uuid.MustParse("00000000-0000-4000-8000-000000000002"),
+				ModelCallContextID:      uuid.MustParse("00000000-0000-4000-8000-000000000003"),
 				ServedProviderModelSlug: "test-model",
 				StopReason:              reason,
 			})
@@ -49,8 +50,8 @@ func TestCreateModelOutputAuthorityRejectsUnsupportedStopReason(t *testing.T) {
 }
 
 func TestBindToolCallsUsesBindingsForIdentityAndEnvelopeForContent(t *testing.T) {
-	firstID := parseUUIDText("00000000-0000-4000-8000-000000000001")
-	secondID := parseUUIDText("00000000-0000-4000-8000-000000000002")
+	firstID := uuid.MustParse("00000000-0000-4000-8000-000000000001")
+	secondID := uuid.MustParse("00000000-0000-4000-8000-000000000002")
 	envelope := validToolCallEnvelope(
 		modelenvelope.ResponsePart{Type: modelenvelope.ResponsePartTypeText, Text: "before tools"},
 		modelenvelope.ResponsePart{
@@ -112,7 +113,7 @@ func TestBindToolCallsRejectsInconsistentBatch(t *testing.T) {
 		ToolInput:      json.RawMessage(`{"path":"README.md"}`),
 	})
 	validBinding := ToolCallBindingInput{
-		ID:             parseUUIDText("00000000-0000-4000-8000-000000000001"),
+		ID:             uuid.MustParse("00000000-0000-4000-8000-000000000001"),
 		ProviderCallID: "call_one",
 		Type:           toolcatalog.ToolTypeBuiltIn,
 	}

@@ -1,5 +1,5 @@
-import { type OmnaraClient, sdk } from '@omnara/sdk'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { type AgentEvent, type OmnaraClient, sdk } from '@omnara/sdk'
+import { type InfiniteData, type QueryClient, useInfiniteQuery } from '@tanstack/react-query'
 
 import { sequenceNumber } from './agent-chat-messages'
 import type { AgentChatScope } from './agent-chat-types'
@@ -34,4 +34,15 @@ export function useAgentChatHistory(client: OmnaraClient, scope: AgentChatScope)
     }),
     staleTime: Infinity,
   })
+}
+
+export function historyHasEvent(
+  queryClient: QueryClient,
+  scope: AgentChatScope,
+  matches: (event: AgentEvent) => boolean,
+): boolean {
+  const history = queryClient.getQueryData<InfiniteData<{ data: AgentEvent[] }>>(
+    agentChatHistoryQueryKey(scope),
+  )
+  return history?.pages.some((page) => page.data.some(matches)) ?? false
 }

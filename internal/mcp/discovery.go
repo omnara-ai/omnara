@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -19,7 +19,7 @@ type DiscoveredServer struct {
 
 func (m Manager) DiscoverTools(
 	ctx context.Context,
-	orgID, projectID storage.ID,
+	orgID, projectID uuid.UUID,
 	endpointURL string,
 	auth *agentconfig.RuntimeMCPAuth,
 ) (DiscoveredServer, error) {

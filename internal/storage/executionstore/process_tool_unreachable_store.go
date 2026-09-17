@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -58,7 +60,7 @@ func (s *Store) ExpireProcessToolCallsForAllProjects(
 
 func (s *Store) expireProcessToolCallsForMachine(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	graceSeconds int32,
 ) (int64, error) {
 	total := int64(0)
@@ -260,8 +262,8 @@ func (s *Store) FailQueuedProcessAfterWakeFailure(
 	ctx context.Context,
 	process ProcessRecord,
 ) (bool, error) {
-	if isNilID(process.ID) || isNilID(process.OrgID) || isNilID(process.ProjectID) ||
-		isNilID(process.AgentID) || isNilID(process.MachineID) {
+	if process.ID == uuid.Nil || process.OrgID == uuid.Nil || process.ProjectID == uuid.Nil ||
+		process.AgentID == uuid.Nil || process.MachineID == uuid.Nil {
 		return false, errors.New("process, org, project, agent, and machine are required")
 	}
 	return s.expireQueuedProcessToolCall(ctx, process, 0)
@@ -288,7 +290,7 @@ func (s *Store) FailQueuedProcessActionsAfterWakeFailure(
 
 func (s *Store) failMachineUnreachableQueuedProcessActions(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	action ProcessActionRecord,
 	graceSeconds int32,
 ) (int64, error) {
@@ -336,7 +338,7 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 			OrgID:              action.OrgID,
 			ProcessID:          action.ProcessID,
 			ActionID:           &action.ID,
-			StateReasonCode:    sqlcTextFromEmpty(ProcessToolReasonMachineUnreachable),
+			StateReasonCode:    storeutil.TextFromEmpty(ProcessToolReasonMachineUnreachable),
 			StateReasonMessage: "",
 		},
 	)
@@ -395,7 +397,7 @@ func (s *Store) completeMachineUnreachableProcessToolCall(
 
 func (s *Store) completeMachineUnreachableProcessActionToolCall(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	action ProcessActionRecord,
 	graceSeconds int32,
 ) (bool, error) {
@@ -489,9 +491,9 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 
 func (s *Store) completeMachineUnreachableToolCall(
 	ctx context.Context,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	fallbackAt time.Time,
-	projectID, agentID, toolCallID ID,
+	projectID, agentID, toolCallID uuid.UUID,
 	result json.RawMessage,
 	graceSeconds int32,
 ) (bool, error) {
@@ -528,9 +530,9 @@ func (s *Store) completeMachineUnreachableToolCall(
 		}
 		return false, nil
 	}
-	row, err := qtx.CompleteMachineUnreachableToolCall(
+	row, err := qtx.CompleteWaitingBuiltInToolCall(
 		ctx,
-		dbsqlc.CompleteMachineUnreachableToolCallParams{
+		dbsqlc.CompleteWaitingBuiltInToolCallParams{
 			ProjectID: projectID,
 			AgentID:   agentID,
 			ID:        toolCallID,
@@ -548,7 +550,7 @@ func (s *Store) completeMachineUnreachableToolCall(
 		txNotifications,
 		tx,
 		qtx,
-		toolCallRecordFromMachineUnreachableCompleteSQLC(row),
+		toolCallRecordFromWaitingCompleteSQLC(row),
 		toolCallResultInput{
 			Outcome:            ToolResultOutcomeFailed,
 			ResultContentParts: parts,
@@ -570,7 +572,7 @@ func (s *Store) completeMachineUnreachableToolCall(
 func machineStillUnreachableForToolExpiryTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, machineID ID,
+	orgID, machineID uuid.UUID,
 	fallbackAt time.Time,
 	graceSeconds int32,
 ) (bool, error) {

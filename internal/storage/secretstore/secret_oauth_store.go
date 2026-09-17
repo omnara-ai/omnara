@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -20,8 +21,8 @@ func (s *Store) RotateProjectAvailableOAuthSecret(
 	if s.secretKeyWrapper == nil {
 		return SecretRecord{}, errors.New("secret key wrapper is required")
 	}
-	if isNilID(input.ProjectID) || isNilID(input.Lease.OrgID) || isNilID(input.Lease.SecretID) ||
-		isNilID(input.Lease.OwnerToken) || isNilID(input.Lease.ExpectedCurrentVersionID) {
+	if input.ProjectID == uuid.Nil || input.Lease.OrgID == uuid.Nil || input.Lease.SecretID == uuid.Nil ||
+		input.Lease.OwnerToken == uuid.Nil || input.Lease.ExpectedCurrentVersionID == uuid.Nil {
 		return SecretRecord{}, invalidSecretRequest(
 			"org, project, secret, refresh lease owner, and expected version are required",
 		)
@@ -182,7 +183,7 @@ func lockProjectAvailableSecretTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID, secretID ID,
+	orgID, projectID, secretID uuid.UUID,
 	expectedKind secrets.Kind,
 ) (SecretRecord, error) {
 	secret, err := getSecretTx(ctx, qtx, orgID, secretID)
@@ -192,7 +193,7 @@ func lockProjectAvailableSecretTx(
 		}
 		return SecretRecord{}, err
 	}
-	projectIDs := []ID{projectID}
+	projectIDs := []uuid.UUID{projectID}
 	if secret.OwnerKind == SecretOwnerProject {
 		projectIDs = append(projectIDs, secret.OwnerProjectID)
 	}
@@ -238,7 +239,7 @@ func (s *Store) ReleaseProjectOAuthRefreshLease(
 	ctx context.Context,
 	lease OAuthRefreshLeaseRecord,
 ) error {
-	if isNilID(lease.OrgID) || isNilID(lease.SecretID) || isNilID(lease.OwnerToken) {
+	if lease.OrgID == uuid.Nil || lease.SecretID == uuid.Nil || lease.OwnerToken == uuid.Nil {
 		return invalidSecretRequest("org, secret, and owner token are required")
 	}
 	if err := s.q.ReleaseSecretOAuthRefreshLease(
@@ -271,8 +272,8 @@ func oauthAccessTokenExpiry(kind secrets.Kind, ttl time.Duration) (bool, int64, 
 	return true, seconds, nil
 }
 
-func (s *Store) MCPOAuthFlowConsumed(ctx context.Context, flowID ID) (bool, error) {
-	if isNilID(flowID) {
+func (s *Store) MCPOAuthFlowConsumed(ctx context.Context, flowID uuid.UUID) (bool, error) {
+	if flowID == uuid.Nil {
 		return false, errors.New("flow id is required")
 	}
 	consumed, err := s.q.MCPOAuthFlowConsumed(
