@@ -8,6 +8,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
+// Arker's `idle` means no command is in flight, not suspended, so presence is
+// the signal: absence is the only terminal one.
 func runtimeState(found bool) providers.RuntimeState {
 	if found {
 		return providers.RuntimeStateRunning
