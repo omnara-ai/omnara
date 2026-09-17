@@ -23,7 +23,7 @@ func (p *provider) ObserveRuntimeStates(
 	for _, target := range targets {
 		observation, err := p.ObserveRuntimeState(ctx, target)
 		if err != nil {
-			observation = target.UnknownObservation()
+			return nil, err
 		}
 		observations = append(observations, observation)
 	}

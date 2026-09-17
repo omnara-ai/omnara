@@ -10844,7 +10844,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [unikraft, modal]
+                  enum: [arker, unikraft, modal]
                 default_machine_cpu:
                   type: integer
                   format: int32
