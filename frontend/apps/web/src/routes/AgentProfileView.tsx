@@ -351,6 +351,7 @@ function useProfileActions(
       await navigate({
         to: '/projects/$projectId/agents/$agentId/events',
         params: { projectId, agentId: launched.agent.id },
+        ignoreBlocker: true,
       })
     } catch (error) {
       if (isInsufficientCreditsError(error)) {
@@ -365,7 +366,11 @@ function useProfileActions(
     if (!window.confirm(`Delete agent profile ${profile.name}?`)) return
     deleteProfile.mutate(profile.id, {
       onSuccess: () => {
-        void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
+        void navigate({
+          to: '/projects/$projectId/agents',
+          params: { projectId },
+          ignoreBlocker: true,
+        })
       },
       onError: (error) => {
         window.alert(error instanceof ApiError ? error.message : 'Could not delete agent profile')

@@ -2,6 +2,7 @@ import { useSecrets, useStartSecretMcpOAuth } from '@omnara/react'
 import type { McpoAuthStartRequest } from '@omnara/sdk'
 
 import type { BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
+import { suppressUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
 
 export function isMcpOAuthLoginUrl(value: string) {
   try {
@@ -57,7 +58,13 @@ export function useMcpOAuthLogin({
       if (clientSecret !== '') request.client_secret = clientSecret
       const response = await startMcpOAuth.mutateAsync(request)
       onBeforeRedirect()
-      window.location.assign(response.authorization_url)
+      const restoreWarning = suppressUnsavedChangesWarning()
+      try {
+        window.location.assign(response.authorization_url)
+      } catch (error) {
+        restoreWarning()
+        throw error
+      }
     },
   }
 }
