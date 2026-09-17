@@ -209,6 +209,7 @@ const (
 	MachineFailureStageStartupScript     = "startup_script"
 	MachineFailureStageDaemonInstall     = "daemon_install"
 	MachineFailureStageDaemonUpdate      = "daemon_update"
+	MachineFailureStageDaemonRuntime     = "daemon_runtime"
 	MachineFailureStageDaemonUninstall   = "daemon_uninstall"
 	MachineFailureStageDaemonUninstalled = "daemon_uninstalled"
 )

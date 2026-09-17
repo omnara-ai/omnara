@@ -3,7 +3,10 @@ package omnarad
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,14 +22,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const longBackoffDelay = time.Hour
+
 func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 	home := t.TempDir()
+	setDaemonEnvironment(t, home, "", "")
 	args := filepath.Join(t.TempDir(), "args")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$SUPERVISOR_ARGS\"\nexit 0\n")
 	t.Setenv("SUPERVISOR_ARGS", args)
 	err := runSupervisorLoop(
-		context.Background(), home, time.Millisecond, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
+		context.Background(), home, time.Millisecond,
+		make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -38,6 +45,7 @@ func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 
 func TestSupervisorRestartsCrash(t *testing.T) {
 	home := t.TempDir()
+	setDaemonEnvironment(t, home, "", "")
 	count := filepath.Join(t.TempDir(), "count")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
@@ -47,7 +55,8 @@ exit 7
 `)
 	t.Setenv("SUPERVISOR_COUNT", count)
 	err := runSupervisorLoop(
-		context.Background(), home, 10*time.Millisecond, make(chan os.Signal), io.Discard, io.Discard, discardLogger(),
+		context.Background(), home, 10*time.Millisecond,
+		make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -57,8 +66,137 @@ exit 7
 	}
 }
 
+func TestSupervisorRestartBackoff(t *testing.T) {
+	home := t.TempDir()
+	setDaemonEnvironment(t, home, "", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
+	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nexit 7\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	logs := newLineChannelWriter()
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisorLoop(
+			ctx, home, 3*time.Millisecond,
+			make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil,
+		)
+	}()
+	var previous supervisorRestartLog
+	for _, delay := range []int{3, 6, 12, 24, 48, 96, 192, 384} {
+		entry := readSupervisorRestartLog(t, logs.lines)
+		require.Equal(t, time.Duration(delay)*time.Millisecond, entry.RestartAfter)
+		if !previous.Time.IsZero() {
+			require.GreaterOrEqual(t, entry.Time.Sub(previous.Time), previous.RestartAfter)
+		}
+		previous = entry
+	}
+	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nexit 0\n")
+	require.NoError(t, <-done)
+	require.NoError(t, ctx.Err())
+	select {
+	case line := <-logs.lines:
+		t.Fatalf("unexpected restart: %s", line)
+	default:
+	}
+}
+
+func TestSupervisorStopsDuringBackoff(t *testing.T) {
+	home := t.TempDir()
+	setDaemonEnvironment(t, home, "", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
+	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nexit 7\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logs := newLineChannelWriter()
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisorLoop(
+			ctx, home, longBackoffDelay, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil,
+		)
+	}()
+	require.Equal(t, time.Hour, readSupervisorRestartLog(t, logs.lines).RestartAfter)
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("supervisor did not stop during backoff")
+	}
+}
+
+func TestSupervisorManualRestartResetsBackoff(t *testing.T) {
+	for _, whileRunning := range []bool{false, true} {
+		t.Run(fmt.Sprintf("while_running_%t", whileRunning), func(t *testing.T) {
+			home := t.TempDir()
+			setDaemonEnvironment(t, home, "", "")
+			require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
+			t.Setenv("SUPERVISOR_COUNT", filepath.Join(home, "count"))
+			t.Setenv("SUPERVISOR_WAIT", strconv.FormatBool(whileRunning))
+			t.Setenv("OMNARA_API_URL", "")
+			t.Setenv("OMNARA_MACHINE_TOKEN", "")
+			t.Setenv("OMNARA_NO_UPDATE", "")
+			t.Setenv("OMNARA_RUNNER_PATH", "/temporary/bin")
+			writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
+printf x >> "$SUPERVISOR_COUNT"
+if [ "$(wc -c < "$SUPERVISOR_COUNT")" -eq 3 ] && [ "$SUPERVISOR_WAIT" = true ]; then
+  trap 'exit 0' USR1 TERM
+  printf 'started\n'
+  while :; do sleep 0.1; done
+fi
+exit 7
+`)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			restart := make(chan os.Signal, 1)
+			logs := newLineChannelWriter()
+			output := newLineChannelWriter()
+			done := make(chan error, 1)
+			go func() {
+				done <- runSupervisorLoop(
+					ctx, home, 100*time.Millisecond,
+					restart, output, io.Discard, errorLogger(logs), nil,
+				)
+			}()
+			require.Equal(t, 100*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
+			require.Equal(t, 200*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
+			if whileRunning {
+				waitForMarkerLine(t, output.lines, "started")
+			}
+			restart <- daemonRestartSignal
+			require.Equal(t, 100*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
+			cancel()
+			require.NoError(t, <-done)
+			_, set := os.LookupEnv("OMNARA_RUNNER_PATH")
+			require.False(t, set)
+		})
+	}
+}
+
+func errorLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+type supervisorRestartLog struct {
+	Time         time.Time     `json:"time"`
+	RestartAfter time.Duration `json:"restart_after"`
+}
+
+func readSupervisorRestartLog(t *testing.T, lines <-chan string) supervisorRestartLog {
+	t.Helper()
+	select {
+	case line := <-lines:
+		var entry supervisorRestartLog
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		return entry
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for supervisor restart")
+		return supervisorRestartLog{}
+	}
+}
+
 func TestSupervisorSignalsRestartAndStop(t *testing.T) {
 	home := t.TempDir()
+	setDaemonEnvironment(t, home, "", "")
 	environment := filepath.Join(t.TempDir(), "environment")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
@@ -77,7 +215,10 @@ while :; do sleep 1; done
 	childOutput := newLineChannelWriter()
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisorLoop(ctx, home, time.Hour, restart, childOutput, io.Discard, discardLogger())
+		done <- runSupervisorLoop(
+			ctx, home, longBackoffDelay,
+			restart, childOutput, io.Discard, discardLogger(), nil,
+		)
 	}()
 	waitForMarkerLine(t, childOutput.lines, "started")
 	restart <- daemonRestartSignal
@@ -103,7 +244,7 @@ func TestRestartDuringCrashBackoffClearsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("OMNARA_RUNNER_PATH", "/temporary/bin")
 	restart := make(chan os.Signal, 1)
 	restart <- daemonRestartSignal
-	waitForDaemonRestart(context.Background(), time.Hour, restart)
+	require.True(t, waitForDaemonRestart(context.Background(), time.Hour, restart))
 	if _, ok := os.LookupEnv("OMNARA_RUNNER_PATH"); ok {
 		t.Fatal("restart during crash backoff retained environment override")
 	}
@@ -131,6 +272,7 @@ func TestTerminateSupervisorChildKillsAfterTimeout(t *testing.T) {
 
 func TestRunForegroundSupervisorOwnsExistingLock(t *testing.T) {
 	home := t.TempDir()
+	setDaemonEnvironment(t, home, "", "")
 	ready := filepath.Join(t.TempDir(), "ready")
 	require.NoError(t, syscall.Mkfifo(ready, 0o600))
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
@@ -517,6 +659,7 @@ func TestSupervisorChildSurvivesOutputWriteFailure(t *testing.T) {
 	for _, failedDestination := range []string{"stdout", "stderr", "service_log"} {
 		t.Run(failedDestination, func(t *testing.T) {
 			home := t.TempDir()
+			setDaemonEnvironment(t, home, "", "")
 			count := filepath.Join(t.TempDir(), "count")
 			require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 			writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
@@ -548,7 +691,7 @@ exit 0
 			defer cancel()
 			err = runSupervisorLoop(
 				ctx, home, 10*time.Millisecond, make(chan os.Signal),
-				childStdout, childStderr, discardLogger(),
+				childStdout, childStderr, discardLogger(), nil,
 			)
 			require.NoError(t, err)
 			require.NoError(t, ctx.Err())

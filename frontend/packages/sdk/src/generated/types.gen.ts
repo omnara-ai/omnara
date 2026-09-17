@@ -1603,10 +1603,10 @@ export type AgentMachineBinding = {
 };
 
 /**
- * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
  */
 export type MachineFailureReport = {
-    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
     exit_status?: number;
     output_tail: string;
     output_truncated: boolean;
@@ -3632,7 +3632,7 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
         exit_status?: number;
         capture_status?: number;
         daemon_version?: string;

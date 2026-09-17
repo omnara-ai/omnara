@@ -509,11 +509,14 @@ func (s *Store) RecordMachineFailureReport(
 				return storeerr.InvalidRequest(fmt.Errorf("invalid target version: %w", err))
 			}
 		}
-	case MachineFailureStageDaemonUninstall, MachineFailureStageDaemonUninstalled:
-		if input.ExitStatus != nil || input.DaemonVersion != "" || input.TargetVersion != "" ||
-			(input.Stage == MachineFailureStageDaemonUninstalled &&
-				(len(input.OutputTail) != 0 || input.OutputTruncated)) {
-			return storeerr.InvalidRequest(errors.New("invalid daemon uninstall report"))
+	case MachineFailureStageDaemonRuntime, MachineFailureStageDaemonUninstall, MachineFailureStageDaemonUninstalled:
+		if input.ExitStatus != nil || input.DaemonVersion != "" || input.TargetVersion != "" {
+			return storeerr.InvalidRequest(errors.New(
+				"exit status and versions are not valid for this failure report stage",
+			))
+		}
+		if input.Stage == MachineFailureStageDaemonUninstalled && (len(input.OutputTail) != 0 || input.OutputTruncated) {
+			return storeerr.InvalidRequest(errors.New("output is not valid for daemon_uninstalled reports"))
 		}
 	default:
 		return storeerr.InvalidRequest(errors.New("invalid failure report stage"))

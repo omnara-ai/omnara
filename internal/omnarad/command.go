@@ -17,10 +17,12 @@ import (
 var version = daemonversion.Development
 
 const (
-	versionFlag          = "--version"
-	restartSubcommand    = "restart"
-	runServiceSubcommand = "run-service"
-	noServiceWarning     = "warning: no launchd/systemd user service manager is available; " +
+	versionFlag                 = "--version"
+	restartSubcommand           = "restart"
+	runServiceSubcommand        = "run-service"
+	superviseSubcommand         = "__omnara_supervise"
+	daemonUpdateHandoffExitCode = 75
+	noServiceWarning            = "warning: no launchd/systemd user service manager is available; " +
 		"running omnarad with foreground restart supervision"
 )
 
@@ -55,6 +57,7 @@ type daemonCommand struct {
 	RunService *struct {
 		Supervised bool `arg:"--supervised"`
 	} `arg:"subcommand:run-service,hidden"`
+	Supervise *struct{} `arg:"subcommand:__omnara_supervise,hidden"`
 }
 
 func (daemonCommand) Description() string {
@@ -251,12 +254,22 @@ func Run(
 		return 0
 	case command.RunService != nil && command.RunService.Supervised:
 		if err := runSupervisorChild(ctx, log); err != nil {
+			if errors.Is(err, errDaemonUpdateHandoff) {
+				return daemonUpdateHandoffExitCode
+			}
 			log.Error("supervisor child failed", "error", err)
 			return 1
 		}
 		return 0
+	case command.Supervise != nil:
+		home, err := localstore.ResolveHome()
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return runDaemonInForeground(ctx, home, log)
 	case command.RunService != nil:
-		if err := runService(ctx, log, false); err != nil {
+		if err := runService(ctx, log, false, false); err != nil {
 			log.Error("daemon failed", "error", err)
 			return 1
 		}
