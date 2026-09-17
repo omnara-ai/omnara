@@ -30,7 +30,6 @@ const (
 	SubagentMessageKindFailed          = "failed"
 	SubagentMessageKindQuestion        = "question"
 	SubagentMessageKindCanceled        = "canceled"
-	SubagentMessageKindArchived        = "archived"
 
 	SubagentStateRunning              = "running"
 	SubagentStateIdle                 = "idle"
@@ -449,8 +448,6 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 			"Messaging it with send_agent_message cancels the question."
 	case SubagentMessageKindCanceled:
 		header = label + " was canceled."
-	case SubagentMessageKindArchived:
-		header = label + " was archived."
 	default:
 		header = label + ":"
 	}
@@ -731,7 +728,7 @@ func StopSubagentForToolCall(
 		}
 		var machines []MachineRecord
 		if input.Archive {
-			machines, err = archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil, "")
+			machines, err = archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -858,9 +855,7 @@ func (s *Store) archiveIdleCandidateOnce(
 	if !idle {
 		return nil, errIdleArchiveNoLongerEligible
 	}
-	released, err := archiveLockedAgentTreeTx(
-		ctx, tx, qtx, txNotifications, locked, nil, SubagentMessageKindArchived,
-	)
+	released, err := archiveLockedAgentTreeTx(ctx, tx, qtx, txNotifications, locked, nil)
 	if err != nil {
 		return nil, err
 	}
