@@ -465,3 +465,12 @@ func TestArkerProviderProvisionFailsWhenAnAdoptedBootStaysPending(t *testing.T) 
 		t.Fatalf("started %d daemons, want the in-flight boot adopted not duplicated", fake.runs.Load())
 	}
 }
+
+func TestArkerWakeAvoidsTheSessionUserRunsLandOn(t *testing.T) {
+	if wakeSessionIdx == 0 {
+		t.Fatal("waking on session 0 queues behind user runs")
+	}
+	if wakeSessionIdx == daemonSessionIdx {
+		t.Fatal("waking on the daemon's session would interrupt it")
+	}
+}

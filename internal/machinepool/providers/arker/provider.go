@@ -32,6 +32,9 @@ const (
 	daemonCommand = "exec /bin/sh " + bootPath
 
 	daemonSessionIdx = 1
+	// Waking must not queue behind a user run on session 0, nor interrupt the
+	// daemon on session 1.
+	wakeSessionIdx = 2
 )
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -179,16 +182,9 @@ func (p *provider) ProvisionMachine(
 	if vm == nil || strings.TrimSpace(vm.ID) == "" {
 		return providers.ProvisionMachineResult{}, errors.New("arker fork returned no vm id")
 	}
-	sandboxURL := strings.TrimSpace(vm.BaseURL())
-	if sandboxURL == "" {
-		return providers.ProvisionMachineResult{}, fmt.Errorf(
-			"arker fork returned vm %s without an endpoint; the machine could not be woken later",
-			vm.ID,
-		)
-	}
 	result := providers.ProvisionMachineResult{
 		ProviderResourceID: vm.ID,
-		SandboxURL:         sandboxURL,
+		SandboxURL:         vm.BaseURL(),
 	}
 	if vm.Info == nil {
 		return result, fmt.Errorf("arker fork returned vm %s without its record", vm.ID)
@@ -385,7 +381,9 @@ func (p *provider) WakeMachine(ctx context.Context, input providers.WakeMachineI
 	wakeCtx, cancel := context.WithTimeout(ctx, wakeTimeout)
 	defer cancel()
 	if _, err := client.VM(input.ProviderResourceID).Run(wakeCtx, arkersdk.RunRequest{
-		Command: "true",
+		Command:          "true",
+		SessionIdx:       arkersdk.Ptr(wakeSessionIdx),
+		TimeToBackground: arkersdk.Ptr(0),
 	}); err != nil {
 		return classifyError(err)
 	}
