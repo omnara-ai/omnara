@@ -68,10 +68,9 @@ const (
 	readFileToolDescription = "Read a text file stored in Omnara. " +
 		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
-	searchFilesToolDescription = "Search text inside files stored in Omnara using a regular expression. " +
-		"Currently searches one /artifacts/<artifact_id> path per call. " +
-		"Returns matching lines with line numbers and optional surrounding lines. " +
-		"Use read_file to read more around a match."
+	searchFilesToolDescription = "Search text in Omnara files. " +
+		"Returns matching lines with context, matching file paths, or counts. " +
+		"Narrow the query when truncated. Use read_file to read more around a match."
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents; narrow the pattern when truncated."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
@@ -627,39 +626,31 @@ func searchFilesTool() (Entry, error) {
 	return toolEntry(
 		ToolNameSearchFiles,
 		searchFilesToolDescription,
-		[]string{"path", "pattern"},
+		[]string{"path", "args"},
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact file path: /artifacts/<artifact_id>.",
+				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as list_files and only search attached stores. Artifact globs are not supported.",
 			},
-			"pattern": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"maxLength":   SearchMaxPatternBytes,
-				"description": "RE2 regex, at most 1024 UTF-8 bytes. Case-sensitive by default; use (?i) for case-insensitive matching.",
+			"args": map[string]any{
+				"type":        "array",
+				"minItems":    1,
+				"maxItems":    64,
+				"items":       map[string]any{"type": "string"},
+				"description": "Ripgrep arguments: -e PATTERN (repeatable), -F literal, -i ignore case, -w whole word, -x whole line, -v invert, -U multiline, -l matching paths, -c counts, and -A/-B/-C context (0–5 lines). Supply patterns with -e, totaling at most 1024 UTF-8 bytes. No other options or file operands. Example: [\"-i\", \"-C\", \"2\", \"-e\", \"deploy\"].",
 			},
-			"max_matches": map[string]any{
+			"limit": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
 				"maximum":     SearchMaxMatches,
 				"default":     SearchDefaultMatches,
-				"description": "Maximum matching lines, not occurrences.",
+				"description": "Maximum entries across all files: matching lines or multiline blocks, or files in -l/-c modes. Context does not count toward this limit. A separate response budget also applies; counts are not capped by limit.",
 			},
 			"offset_line": map[string]any{
-				"type":    "integer",
-				"minimum": 1,
-				"default": 1,
-				"description": "Line number to start searching from, starting at 1. " +
-					"To continue, use next_offset_line from the previous result with the same pattern.",
-			},
-			"context_lines": map[string]any{
 				"type":        "integer",
-				"minimum":     0,
-				"maximum":     SearchMaxContextLines,
-				"default":     0,
-				"description": "Lines before and after each matching line.",
+				"minimum":     1,
+				"description": "Starting line, default 1, for exact-file content searches. Cannot be combined with globs, -l, or -c.",
 			},
 		},
 	)

@@ -69,7 +69,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 	}
 	call.Call = model.ToolCall{
 		Name:  toolcatalog.ToolNameSearchFiles,
-		Input: json.RawMessage(`{"path":"` + path + `","pattern":"TARGET"}`),
+		Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
 	}
 	result, err = runSearchFilesAsync(ctx, call)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		content, _, err := loadReadableArtifact(ctx, call, artifact.ID)
+		content, _, err := loadArtifactContent(ctx, call, artifact.ID)
 		if err != nil {
 			t.Fatalf("read %s artifact: %v", contentType, err)
 		}
@@ -95,22 +95,56 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		}
 	}
 	call.Turn.AgentID = uuid.New()
-	if _, _, err := loadReadableArtifact(ctx, call, artifact.ID); err == nil {
+	if _, _, err := loadArtifactContent(ctx, call, artifact.ID); err == nil {
 		t.Fatal("cross-agent access accepted")
 	}
 	call.Turn.AgentID = fixture.Agent.ID
-	for _, content := range [][]byte{{'a', 0, 'b'}, {'a', 0xff, 'b'}} {
+	for _, test := range []struct {
+		content, snippet string
+		binary           bool
+	}{
+		{"TARGET\n\x00binary", "TARGET", true},
+		{"TARGET\xff\n", "TARGET�", false},
+	} {
 		invalidArtifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 			ProjectID:   toolsTestProjectID,
 			AgentID:     fixture.Agent.ID,
 			ContentType: "text/plain",
-			Content:     content,
+			Content:     []byte(test.content),
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := loadReadableArtifact(ctx, call, invalidArtifact.ID); err == nil {
-			t.Fatalf("non-text content accepted: %v", content)
+		id, err := publicid.Encode(publicid.KindArtifact, invalidArtifact.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := "/artifacts/" + id
+		call.Call = model.ToolCall{
+			Name:  toolcatalog.ToolNameReadFile,
+			Input: json.RawMessage(`{"path":"` + path + `"}`),
+		}
+		if _, err := runReadFileAsync(ctx, call); err == nil || !strings.Contains(err.Error(), "UTF-8 text without NUL bytes") {
+			t.Fatalf("non-text read: %v", err)
+		}
+		call.Call = model.ToolCall{
+			Name:  toolcatalog.ToolNameSearchFiles,
+			Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
+		}
+		result, err := runSearchFilesAsync(ctx, call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parts []struct {
+			Value searchResult `json:"value"`
+		}
+		if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
+			t.Fatal(err)
+		}
+		if len(parts) != 1 || parts[0].Value.MatchCount != 1 || len(parts[0].Value.Lines) != 1 ||
+			parts[0].Value.Lines[0].Path != path || parts[0].Value.Lines[0].Text != test.snippet ||
+			parts[0].Value.Truncated != test.binary {
+			t.Fatalf("incorrect native artifact search: %+v", parts)
 		}
 	}
 }

@@ -126,7 +126,7 @@ Artifact content lives in S3-compatible object storage; a bucket is required.
 | --- | --- | --- | --- |
 | `OMNARA_MEMORY_DIR` | Absolute directory on the same persistent filesystem for API and every worker | *dev:* absolute `.local/memory` in the working directory; Compose: `/var/lib/omnara/memory` | API and worker |
 
-The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. Native development on a case-insensitive volume does not support distinct names differing only in case. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
+The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. Native development on a case-insensitive volume does not support distinct names differing only in case. Memory search requires a Linux worker with Landlock ABI 2 or newer and seccomp; on macOS, use Compose with its named volume. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
 
 ## Machine daemon and pools
 
