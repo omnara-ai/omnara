@@ -406,9 +406,9 @@ func TestBuildProjectsIntegrationTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 3 ||
-		bundle.ToolSpecs[2].Name != toolcatalog.ToolNameSendIntegrationMessage ||
-		bundle.ToolSpecs[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(bundle.ToolSpecs) != 1 ||
+		bundle.ToolSpecs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
+		bundle.ToolSpecs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("expected implicit integration send tool, got %+v", bundle.ToolSpecs)
 	}
 	if len(bundle.IntegrationTargets) != 1 ||

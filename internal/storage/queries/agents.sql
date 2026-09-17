@@ -14,33 +14,33 @@ INSERT INTO agent_configs(
 VALUES (
     sqlc.arg(org_id), sqlc.arg(project_id),
     sqlc.arg(configured_model_id),
-    sqlc.arg(definition), sqlc.arg(source), sqlc.arg(source_format),
-    sqlc.arg(source_hash), sqlc.arg(compiled_definition),
+    sqlc.arg(compiled_definition), sqlc.narg(source), sqlc.narg(source_format),
+    sqlc.narg(source_hash), sqlc.arg(compiled_definition),
     sqlc.arg(compiler_version), sqlc.arg(effective_definition_hash),
     transaction_timestamp()
 )
 ON CONFLICT (project_id, effective_definition_hash, source_format, source_hash) DO NOTHING
-RETURNING id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+RETURNING id, org_id, project_id, configured_model_id, source, source_format, source_hash,
           compiled_definition, compiler_version, effective_definition_hash,
           created_at, true AS inserted
 )
-SELECT id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
           compiled_definition, compiler_version, effective_definition_hash,
        created_at, inserted
 FROM inserted_config
 UNION ALL
-SELECT id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
           compiled_definition, compiler_version, effective_definition_hash,
        created_at, false AS inserted
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
   AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text
-  AND source_format = sqlc.arg(source_format)::text
-  AND source_hash = sqlc.arg(source_hash)::text
+  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
+  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text
 LIMIT 1;
 
 -- name: GetAgentConfig :one
-SELECT id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
           compiled_definition, compiler_version, effective_definition_hash,
        created_at
 FROM agent_configs
@@ -77,7 +77,7 @@ config_change AS MATERIALIZED (
   LIMIT 1
 )
 SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
-       config.definition, config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash,
        config.compiled_definition,
        config.compiler_version, config.effective_definition_hash,
        config.created_at,
@@ -111,7 +111,7 @@ config_change AS MATERIALIZED (
   LIMIT 1
 )
 SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
-       config.definition, config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash,
        config.compiled_definition,
        config.compiler_version, config.effective_definition_hash,
        config.created_at,
@@ -122,14 +122,14 @@ JOIN agent_configs config ON config.project_id = existing_agent.project_id
   AND config.id = config_change.agent_config_id;
 
 -- name: GetAgentConfigByHash :one
-SELECT id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
           compiled_definition, compiler_version, effective_definition_hash,
        created_at
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
   AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text
-  AND source_format = sqlc.arg(source_format)::text
-  AND source_hash = sqlc.arg(source_hash)::text;
+  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
+  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text;
 
 -- name: InsertAgentProfile :one
 WITH seed AS (

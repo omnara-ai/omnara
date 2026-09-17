@@ -1471,6 +1471,17 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		project.AdminToken,
 		http.StatusCreated,
 	)
+	savedSource := testutil.RequireType[string](t, config["source"])
+	if savedSource != sourceYAML {
+		t.Fatalf("compilation changed source: %s", savedSource)
+	}
+	repeated := createPublicHTTPAgentConfig(
+		t, handler, project, "default-pool-agent-config-repeat", "yaml", savedSource,
+		project.AdminToken, http.StatusOK,
+	)
+	if repeated["id"] != config["id"] || repeated["source"] != savedSource {
+		t.Fatalf("compiled config did not deduplicate: %+v", repeated)
+	}
 
 	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
 		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +

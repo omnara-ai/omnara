@@ -88,6 +88,7 @@ type Catalog struct {
 type Entry struct {
 	Name              string
 	Description       string
+	Implicit          bool
 	DefaultPermission toolpermission.Selection
 	PermissionModes   []toolpermission.ModeDescriptor
 	InputSchema       json.RawMessage
@@ -337,6 +338,7 @@ func toolEntry(
 	return Entry{
 		Name:              name,
 		Description:       description,
+		Implicit:          implicit(name),
 		DefaultPermission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		PermissionModes:   toolpermission.CommonModeDescriptors(),
 		InputSchema:       schema,

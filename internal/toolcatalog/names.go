@@ -34,6 +34,24 @@ const (
 	ToolNameListAgents             = "list_agents"
 )
 
+func MachineToolNames() []string {
+	return []string{
+		ToolNameRunCommand,
+		ToolNameWriteProcess,
+		ToolNameReadProcess,
+		ToolNameStopProcess,
+		ToolNameListProcesses,
+		ToolNameListMachines,
+		ToolNameInspectMachine,
+		ToolNameUploadFile,
+		ToolNameDownloadFile,
+	}
+}
+
+func MachinePoolToolNames() []string {
+	return []string{ToolNameCreateMachine, ToolNameDeleteMachine}
+}
+
 func SubagentToolNames() []string {
 	return []string{
 		ToolNameSpawnAgent,
@@ -46,6 +64,12 @@ func SubagentToolNames() []string {
 
 func IsSubagentToolName(name string) bool {
 	return slices.Contains(SubagentToolNames(), name)
+}
+
+func implicit(name string) bool {
+	return slices.Contains(MachineToolNames(), name) || slices.Contains(MachinePoolToolNames(), name) ||
+		IsSubagentToolName(name) || name == ToolNameSkill || name == ToolNameSendIntegrationMessage ||
+		name == ToolNameReadFile || name == ToolNameSearchFiles
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

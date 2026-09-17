@@ -210,7 +210,6 @@ model:
 		}
 		config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 			ProjectID:               created.Project.ID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  source,
 			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       model.ID,
@@ -1125,7 +1124,6 @@ model:
 	initialCompiled := compileConfig(initialSource)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               created.Project.ID,
-		Definition:              json.RawMessage(initialCompiled.CanonicalJSON),
 		Source:                  initialSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(initialCompiled.CanonicalJSON),
@@ -1156,7 +1154,6 @@ machine_sources:
 	nextCompiled := compileConfig(nextSource)
 	nextConfigInput := executionstore.CreateAgentConfigInput{
 		ProjectID:               created.Project.ID,
-		Definition:              json.RawMessage(nextCompiled.CanonicalJSON),
 		Source:                  nextSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),

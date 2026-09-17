@@ -727,7 +727,6 @@ model:
 	}
 	referencedAgentConfig, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(referencedCompiled.CanonicalJSON),
 		Source:                  referencedSource,
 		SourceFormat:            string(agentconfig.SourceFormatYAML),
 		ConfiguredModelID:       referencedModel.ID,
@@ -1155,7 +1154,6 @@ DROP FUNCTION IF EXISTS test_pause_agent_config_insert();
 	go func() {
 		_, createErr := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  source,
 			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       configuredModel.ID,
@@ -1301,7 +1299,6 @@ tools:
 
 	_, err = store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  source,
 		SourceFormat:            string(agentconfig.SourceFormatYAML),
 		ConfiguredModelID:       configuredModel.ID,
@@ -1803,7 +1800,6 @@ model:
 
 	agentConfig, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  source,
 		SourceFormat:            string(agentconfig.SourceFormatYAML),
 		ConfiguredModelID:       configuredModel.ID,

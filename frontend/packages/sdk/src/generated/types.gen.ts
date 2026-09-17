@@ -63,17 +63,6 @@ export type Error = {
     code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
-export type Warning = {
-    /**
-     * Human-readable warning message. Do not match on it programmatically.
-     */
-    message: string;
-    /**
-     * Stable warning code for programmatic handling.
-     */
-    code: 'missing_recommended_machine_tools';
-};
-
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -904,6 +893,21 @@ export type SlackSetup = {
     expires_at: Timestamp;
 };
 
+export type ResolveAgentConfigToolsRequest = {
+    source: string;
+    source_format: 'yaml' | 'json';
+};
+
+export type ResolvedAgentConfigTools = {
+    tools: Array<ResolvedAgentConfigTool>;
+};
+
+export type ResolvedAgentConfigTool = {
+    name: string;
+    enabled: boolean;
+    permission: ToolPermissionSelection;
+};
+
 export type CreateAgentConfigRequest = {
     source: string;
     source_format: 'yaml' | 'json';
@@ -942,6 +946,10 @@ export type ToolPermissionProfile = {
 export type ToolCatalogEntry = {
     name: string;
     description: string;
+    /**
+     * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
+     */
+    implicit?: boolean;
     default_permission: ToolPermissionSelection;
     permission_modes: Array<ToolPermissionMode>;
 };
@@ -1180,10 +1188,6 @@ export type AgentConfig = {
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
-    /**
-     * Non-blocking diagnostics about the agent config.
-     */
-    warnings?: Array<Warning>;
     created_at: Timestamp;
 };
 
@@ -7403,6 +7407,60 @@ export type DeleteIntegrationInstallResponses = {
 };
 
 export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
+
+export type ResolveAgentConfigToolsData = {
+    body: ResolveAgentConfigToolsRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/tools';
+};
+
+export type ResolveAgentConfigToolsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+};
+
+export type ResolveAgentConfigToolsError = ResolveAgentConfigToolsErrors[keyof ResolveAgentConfigToolsErrors];
+
+export type ResolveAgentConfigToolsResponses = {
+    /**
+     * Resolved config tools.
+     */
+    200: ResolvedAgentConfigTools;
+};
+
+export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
 
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;

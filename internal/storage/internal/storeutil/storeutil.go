@@ -16,6 +16,13 @@ func TextFromEmpty(value string) *string {
 	return &value
 }
 
+func TextOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func IDFromNil(value uuid.UUID) *uuid.UUID {
 	if value == uuid.Nil {
 		return nil

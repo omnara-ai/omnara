@@ -50,6 +50,7 @@ export function CreateAgentFormView({
     defaultPool,
     defaultModel,
     initialTemplate,
+    { orgId: activeOrg.id, projectId },
   )
 
   if (project == null) return null

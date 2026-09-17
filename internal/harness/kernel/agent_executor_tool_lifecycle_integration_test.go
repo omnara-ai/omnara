@@ -789,7 +789,6 @@ func (f kernelFixture) kernelAgentConfigInput(
 	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -835,7 +834,6 @@ tools:
 	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),

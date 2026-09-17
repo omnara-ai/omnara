@@ -52,7 +52,7 @@ export function subagentKeyError(key: string): string | undefined {
   return undefined
 }
 
-function subagentValid(subagent: BasicSubagent) {
+export function subagentValid(subagent: BasicSubagent) {
   return (
     subagentKeyError(subagent.key) === undefined &&
     (subagent.type === 'self' || resourceNameValid(subagent.profileName)) &&

@@ -291,7 +291,6 @@ func (f kernelFixture) createConfigAndProfileBookmarkWithModelOptions(
 	compiled := f.compileAgentYAMLResolvedWithModelOptions(t, ctx, sourceYAML, modelOptions)
 	config, err := f.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),

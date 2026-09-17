@@ -31,6 +31,7 @@ func (s strictOpenAPIServer) GetToolCatalog(
 		tools = append(tools, openapi.ToolCatalogEntry{
 			Name:              entry.Name,
 			Description:       entry.Description,
+			Implicit:          &entry.Implicit,
 			DefaultPermission: defaultPermission,
 			PermissionModes:   modes,
 		})

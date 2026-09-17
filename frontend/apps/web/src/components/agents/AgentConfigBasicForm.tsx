@@ -5,7 +5,6 @@ import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpSe
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
-import { addMissingMachineTools, hasMissingMachineTools } from '@/components/agents/builtInTools'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Separator } from '@/components/ui/separator'
@@ -23,9 +22,6 @@ export function AgentConfigBasicForm({
   agentName?: string
 }) {
   const toolCatalog = useToolCatalog()
-  const showMissingMachineTools =
-    form.machineSources.some((source) => source.name.trim() !== '') &&
-    hasMissingMachineTools(form.tools)
 
   return (
     <FieldGroup className="gap-8">
@@ -56,16 +52,24 @@ export function AgentConfigBasicForm({
             sources={form.machineSources}
             onSourcesChange={form.setMachineSources}
             onUnavailableIdsChange={form.reportUnavailableSourceIds}
-            showMissingToolsWarning={showMissingMachineTools}
-            onAddMissingTools={() => {
-              form.setTools(addMissingMachineTools(form.tools))
-            }}
           />
           <AgentConfigToolsField
             catalog={toolCatalog.data}
             tools={form.tools}
+            resolvedTools={form.resolvedTools}
             onToolsChange={form.setTools}
           />
+          {form.toolsPending && (
+            <p className="text-muted-foreground text-sm">Loading other tools…</p>
+          )}
+          {form.toolsError && (
+            <p className="text-destructive text-sm" role="alert">
+              Couldn’t load other tools.{' '}
+              <button type="button" className="underline" onClick={form.retryTools}>
+                Retry
+              </button>
+            </p>
+          )}
           <AgentConfigSkillsField
             orgId={orgId}
             projectId={projectId}

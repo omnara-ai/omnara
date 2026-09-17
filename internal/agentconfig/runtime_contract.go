@@ -42,18 +42,6 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 func (contract RuntimeContract) WithImplicitBuiltInTool(name string) (RuntimeContract, error) {
-	updated, err := contract.withImplicitBuiltInTool(name)
-	if err != nil {
-		return RuntimeContract{}, err
-	}
-	if len(updated.Tools) == len(contract.Tools) ||
-		name == toolcatalog.ToolNameReadFile || name == toolcatalog.ToolNameSearchFiles {
-		return updated, nil
-	}
-	return updated.withFileRetrievalTools()
-}
-
-func (contract RuntimeContract) withImplicitBuiltInTool(name string) (RuntimeContract, error) {
 	if _, configured := contract.configuredTools[name]; configured {
 		return contract, nil
 	}
@@ -73,17 +61,6 @@ func (contract RuntimeContract) withImplicitBuiltInTool(name string) (RuntimeCon
 	contract.Tools = append([]RuntimeTool(nil), contract.Tools...)
 	contract.Tools = append(contract.Tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
 	sort.Slice(contract.Tools, func(i, j int) bool { return contract.Tools[i].Name < contract.Tools[j].Name })
-	return contract, nil
-}
-
-func (contract RuntimeContract) withFileRetrievalTools() (RuntimeContract, error) {
-	var err error
-	for _, name := range []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles} {
-		contract, err = contract.withImplicitBuiltInTool(name)
-		if err != nil {
-			return RuntimeContract{}, err
-		}
-	}
 	return contract, nil
 }
 
@@ -166,23 +143,6 @@ func RuntimeContractFromCompiled(
 		MaxSubagents:    compiled.MaxSubagents,
 		MaxDepth:        compiled.MaxDepth,
 		configuredTools: configuredTools,
-	}
-	if len(compiled.Skills) > 0 {
-		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
-		if err != nil {
-			return RuntimeContract{}, err
-		}
-	}
-	if len(compiled.Subagents) > 0 {
-		for _, name := range toolcatalog.SubagentToolNames() {
-			contract, err = contract.WithImplicitBuiltInTool(name)
-			if err != nil {
-				return RuntimeContract{}, err
-			}
-		}
-	}
-	if len(contract.Tools) > 0 || len(contract.MCPServers) > 0 {
-		return contract.withFileRetrievalTools()
 	}
 	return contract, nil
 }

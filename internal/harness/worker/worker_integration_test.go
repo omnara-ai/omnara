@@ -1890,7 +1890,6 @@ func createWorkerAgentFromSource(
 	compiled := compileWorkerAgentYAMLResolved(t, ctx, store, projectID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseWorkerConfiguredModelID(t, compiled),

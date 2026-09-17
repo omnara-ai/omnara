@@ -12,7 +12,54 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCreateAgentConfigWithoutSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	source := testAgentConfigYAML()
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
+	input := executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+		CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+		EffectiveDefinitionHash: compiled.Hash,
+	}
+	first, err := store.Execution().CreateAgentConfig(ctx, input)
+	require.NoError(t, err)
+	second, err := store.Execution().CreateAgentConfig(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, second.ID)
+	require.False(t, second.Created)
+	var noSource bool
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT source IS NULL AND source_format IS NULL AND source_hash IS NULL FROM agent_configs WHERE id = $1`,
+		first.ID).Scan(&noSource))
+	require.True(t, noSource)
+	loaded, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, first.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Empty(t, loaded.Source)
+	require.JSONEq(t, string(compiled.CanonicalJSON), string(loaded.CompiledDefinition))
+	input.SourceFormat = "yaml"
+	_, err = store.Execution().CreateAgentConfig(ctx, input)
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	input.Source = source
+	authored, err := store.Execution().CreateAgentConfig(ctx, input)
+	require.NoError(t, err)
+	require.NotEqual(t, first.ID, authored.ID)
+	require.Equal(t, source, authored.Source)
+	for _, config := range []executionstore.AgentConfigRecord{first, authored} {
+		var legacyMatches bool
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT definition = compiled_definition FROM agent_configs WHERE id = $1`, config.ID,
+		).Scan(&legacyMatches))
+		require.True(t, legacyMatches)
+	}
+}
 
 func TestCreateAgentConfigRejectsInvalidSource(t *testing.T) {
 	t.Parallel()
@@ -46,7 +93,6 @@ func TestCreateAgentConfigRejectsUnresolvedModelContract(t *testing.T) {
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML)
 	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
@@ -84,7 +130,6 @@ model:
 	}
 	_, err = store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModelID,
@@ -113,7 +158,6 @@ model:
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
@@ -177,7 +221,6 @@ model:
 	}
 	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,

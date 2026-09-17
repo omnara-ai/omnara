@@ -22,6 +22,11 @@ type createMachineRequest struct {
 	MachinePoolName string `json:"machine_pool_name"`
 }
 
+type createMachineAuthorization struct {
+	MachinePoolID   string `json:"machine_pool_id"`
+	MachinePoolName string `json:"machine_pool_name"`
+}
+
 type listMachinesRequest struct {
 	Cursor string `json:"cursor,omitempty"`
 }
@@ -90,7 +95,7 @@ func createMachine(
 	if err != nil {
 		return failMachineTransaction("create_machine_failed", err, false)
 	}
-	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolName)
+	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolID, source.MachinePoolName)
 	if err != nil {
 		return nil, err
 	}
@@ -443,9 +448,10 @@ func agentConfigIDForModelContext(
 }
 
 func machineCreateAuthorizationInput(
+	machinePoolID uuid.UUID,
 	machinePoolName string,
 ) (json.RawMessage, error) {
-	return marshalJSON(createMachineRequest{MachinePoolName: machinePoolName})
+	return marshalJSON(createMachineAuthorization{MachinePoolID: machinePoolID.String(), MachinePoolName: machinePoolName})
 }
 
 func machineObservationAuthorizationInput(

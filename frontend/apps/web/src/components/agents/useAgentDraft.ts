@@ -10,6 +10,7 @@ import {
   type AgentTemplate,
   agentTemplateBasicConfig,
   agentTemplateName,
+  defaultAgentMachineSources,
   defaultAgentTools,
 } from '@/components/agents/agentTemplates'
 import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
@@ -24,6 +25,7 @@ export function useAgentDraft(
   defaultPool: MachinePoolSummary | undefined,
   defaultModel: ConfiguredModelSummary | undefined,
   initialTemplate: AgentTemplate | undefined,
+  scope: { orgId: string; projectId: string },
 ) {
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
@@ -37,7 +39,12 @@ export function useAgentDraft(
     restored?.draft ??
       (initialTemplate
         ? agentTemplateBasicConfig(initialTemplate, catalog, defaultPool, defaultModel)
-        : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) }),
+        : {
+            ...emptyBasicConfig,
+            tools: defaultAgentTools(catalog),
+            machineSources: defaultAgentMachineSources(defaultPool),
+          }),
+    scope,
   )
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {

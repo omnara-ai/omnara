@@ -166,7 +166,7 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 `path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
 
-Omnara automatically adds `read_file` and `search_files` to agents that have tools or MCP servers, including tools added implicitly for skills or integrations. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
 
 ### `upload_file`
 
