@@ -47,7 +47,7 @@ const (
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List this agent's existing machines and available machine pools in separate machines and machine_pools collections. Machines include machine_id and current availability; pools include machine_pool_id, name, and description, even when they have no machines. Use a pool's machine_pool_id with create_machine. Pass next_cursor as cursor to continue listing both collections."
+	listMachinesToolDescription   = "List this agent's machines and available pools for creating new machines."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
