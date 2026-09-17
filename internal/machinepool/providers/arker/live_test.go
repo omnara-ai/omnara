@@ -14,14 +14,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-// ARKER_API_KEY=ark_... go test -run TestArkerProviderLiveSmoke ./internal/machinepool/providers/arker/
 func TestArkerProviderLiveSmoke(t *testing.T) {
 	apiKey := strings.TrimSpace(os.Getenv("ARKER_API_KEY"))
 	if apiKey == "" {
 		t.Skip("ARKER_API_KEY is required; this test creates real VMs")
 	}
-	// Unit tests shorten this; the live run has to pay the real window or it
-	// would report a daemon healthy before it has had time to die.
 	daemonSettleWindow = defaultDaemonSettleWindow
 	t.Cleanup(func() { daemonSettleWindow = liveTestSettleWindow })
 

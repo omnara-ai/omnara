@@ -34,22 +34,13 @@ const (
 	daemonSessionIdx = 1
 )
 
-// Machine env names are only checked for "=" and NUL upstream, and they are
-// rendered into a script here.
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// Not a provider outage but a fact about one machine: the id resolves to a vm
-// that is not this machine's.
 var errNotThisMachine = errors.New("arker vm does not belong to this machine")
 
-// Wire values from Arker's RunState enum, so the spelling is theirs: changing
-// it would stop the state ever matching.
-//
 //nolint:misspell // "cancelled" is the wire value.
 var terminalRunStates = map[string]bool{"completed": true, "failed": true, "cancelled": true}
 
-// How long a boot must stay non-terminal to be treated as started. A variable
-// so unit tests do not pay it.
 const defaultDaemonSettleWindow = 3 * time.Second
 
 var daemonSettleWindow = defaultDaemonSettleWindow
@@ -122,8 +113,6 @@ func (*provider) PrepareProvisioning(
 	}, nil
 }
 
-// The allocation name alone, so every attempt for a machine presents the same
-// key and converges on the vm an earlier attempt built.
 func provisionKey(allocationName string) string {
 	return allocationName
 }
@@ -182,10 +171,6 @@ func (p *provider) ProvisionMachine(
 		return result, fmt.Errorf("arker fork returned vm %s without its record", vm.ID)
 	}
 	if vm.Info.Name != name {
-		// Reported with its id rather than deleted: the key is this machine's
-		// name, so deleting the vm it points at would spend the key for good and
-		// the machine could never provision again. The id is what lets cleanup
-		// remove the vm instead.
 		return result, fmt.Errorf(
 			"arker vm %s is named %q and does not belong to machine %q",
 			vm.ID,
@@ -199,11 +184,7 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
-// The machine token goes in a file the boot script deletes, not in the command
-// or the session env: both of those are readable back from the API.
 func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) error {
-	// The fork replays onto the same vm on a retry, so adopt a boot already
-	// under way instead of starting a second omnarad.
 	running, err := daemonIsRunning(ctx, vm)
 	if err != nil {
 		return err
@@ -218,9 +199,6 @@ func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) er
 	if err := vm.WriteFile(ctx, bootPath, []byte(script)); err != nil {
 		return fmt.Errorf("write omnara boot script to arker vm %s: %w", vm.ID, classifyError(err))
 	}
-	// A session index is find-or-create, so a retry reuses the daemon's session
-	// instead of leaving another behind. Not index 0, where plain runs land and
-	// would interrupt the daemon.
 	started, err := vm.Run(ctx, arkersdk.RunRequest{
 		Command:          daemonCommand,
 		SessionIdx:       arkersdk.Ptr(daemonSessionIdx),
@@ -235,8 +213,6 @@ func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) er
 	return waitForDaemon(ctx, vm, started.RunID)
 }
 
-// Both live states: a run queued behind another on its session is "pending",
-// which is not terminal, and missing it would start a second daemon.
 func daemonIsRunning(ctx context.Context, vm *arkersdk.VM) (bool, error) {
 	for _, state := range []string{"running", "pending"} {
 		runs, err := vm.ListRuns(ctx, arkersdk.ListRunsOptions{State: state})
@@ -252,8 +228,6 @@ func daemonIsRunning(ctx context.Context, vm *arkersdk.VM) (bool, error) {
 	return false, nil
 }
 
-// The script deletes itself first: a shell keeps reading a file it has already
-// opened, so the credentials are gone before anything that can fail runs.
 func bootScript(env map[string]string) (string, error) {
 	var out strings.Builder
 	out.WriteString("rm -f \"$0\"\n")
@@ -272,14 +246,6 @@ func bootScript(env map[string]string) (string, error) {
 	return out.String(), nil
 }
 
-// The boot script ends in `exec omnarad`, so a live daemon keeps its run
-// non-terminal for the life of the machine: any terminal state means omnarad is
-// gone, whatever it exited with, and `completed` with status 0 is the usual
-// shape of a boot that died before the exec.
-//
-// Staying non-terminal for the window is a liveness sample, not a readiness
-// proof. It catches a boot that dies on startup; a daemon that dies later is
-// for the machine's own connection tracking to notice.
 func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
 	deadline := time.Now().Add(daemonSettleWindow)
 	for {
@@ -313,8 +279,6 @@ func exitText(code *int) string {
 	return strconv.Itoa(*code)
 }
 
-// Arker allows duplicate names and resolves one arbitrarily, so an unknown id
-// is absence rather than a lookup that could adopt the wrong machine.
 func (p *provider) InspectMachine(
 	ctx context.Context,
 	installationID storage.ID,
@@ -365,11 +329,6 @@ func (p *provider) DeleteMachine(
 	if err != nil {
 		return err
 	}
-	// By the id this provider recorded, without the ownership check InspectMachine
-	// applies to adoption: an id only ever comes from this provider's own fork,
-	// vm ids are unique and never reused, and a 404 is org-scoped. Refusing a vm
-	// whose name is unexpected would leave it billable with nothing able to
-	// remove it.
 	if err := client.VM(providerResourceID).Delete(ctx); err != nil &&
 		!arkersdk.IsNotFound(err) {
 		return classifyError(err)
