@@ -892,7 +892,6 @@ model:
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  updatedYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
@@ -954,7 +953,6 @@ model:
 	secondChange, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(secondCompiled.CanonicalJSON),
 			Source:                  secondYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, secondCompiled),
 			CompiledDefinition:      json.RawMessage(secondCompiled.CanonicalJSON),
@@ -1056,7 +1054,6 @@ model:
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	updatedInput := executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  updatedYAML,
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
@@ -1085,7 +1082,6 @@ model:
 	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(staleCompiled.CanonicalJSON),
 			Source:                  staleYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, staleCompiled),
 			CompiledDefinition:      json.RawMessage(staleCompiled.CanonicalJSON),
@@ -1395,7 +1391,6 @@ mcp:
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  yaml,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
@@ -1927,7 +1922,6 @@ instruction: test
 	equivalentModelID := parseConfiguredModelID(t, compiledA)
 	equivalentA, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiledA.CanonicalJSON),
 		Source:                  sourceA,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledA.CanonicalJSON),
@@ -1939,7 +1933,6 @@ instruction: test
 	}
 	equivalentB, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiledB.CanonicalJSON),
 		Source:                  sourceB,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledB.CanonicalJSON),
@@ -1961,7 +1954,6 @@ instruction: test
 	}
 	replayedA, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiledA.CanonicalJSON),
 		Source:                  sourceA,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledA.CanonicalJSON),
@@ -2036,7 +2028,6 @@ func mustCompileAgentYAMLWithMachineSourceResolvers(
 func changeInputFromRecord(record executionstore.AgentConfigRecord) executionstore.CreateAgentConfigInput {
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               record.ProjectID,
-		Definition:              record.Definition,
 		Source:                  record.Source,
 		ConfiguredModelID:       record.ConfiguredModelID,
 		CompiledDefinition:      record.CompiledDefinition,

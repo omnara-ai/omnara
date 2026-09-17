@@ -44,15 +44,15 @@ const subagentToolNames = new Set([
 ])
 
 export function subagentKeyError(key: string): string | undefined {
-  if (key === '') return 'Key is required.'
+  if (key === '') return 'Name is required.'
   if (!subagentKeyPattern.test(key)) {
-    return 'Key must start with a letter or underscore and use only letters, numbers, and underscores.'
+    return 'Name must start with a letter or underscore and use only letters, numbers, and underscores.'
   }
-  if (subagentToolNames.has(key)) return 'Key collides with a subagent tool name.'
+  if (subagentToolNames.has(key)) return 'Name collides with a subagent tool name.'
   return undefined
 }
 
-function subagentValid(subagent: BasicSubagent) {
+export function subagentValid(subagent: BasicSubagent) {
   return (
     subagentKeyError(subagent.key) === undefined &&
     (subagent.type === 'self' || resourceNameValid(subagent.profileName)) &&

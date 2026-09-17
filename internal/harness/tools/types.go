@@ -59,7 +59,9 @@ type Turn struct {
 type ToolSpec struct {
 	Type        string
 	Permission  toolpermission.Selection
+	Description string
 	InputSchema json.RawMessage
+	Deferred    bool
 }
 
 type Executor struct {

@@ -34,6 +34,8 @@ export function AgentProfileConfigEditor({
   const updateProfile = useUpdateAgentProfile(orgId, projectId)
   const source = profile.current_config.source ?? ''
   const editor = useAgentConfigEditor({
+    orgId,
+    projectId,
     source,
     canManage,
     preferredMode,

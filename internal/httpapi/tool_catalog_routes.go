@@ -33,6 +33,7 @@ func (s strictOpenAPIServer) GetToolCatalog(
 			Name:              entry.Name,
 			Description:       entry.Description,
 			Configurable:      &configurable,
+			Implicit:          &entry.Implicit,
 			DefaultPermission: defaultPermission,
 			PermissionModes:   modes,
 		})

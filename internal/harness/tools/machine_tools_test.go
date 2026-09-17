@@ -12,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMachineToolInputValidation(t *testing.T) {
@@ -125,6 +127,36 @@ func TestSelectCreateMachinePool(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateMachineApprovalPinsPoolID(t *testing.T) {
+	poolID := uuid.New()
+	call := model.ToolCall{ID: "create", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":"Build Pool"}`)}
+	selection := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
+	descriptor, ok := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), selection.Mode)
+	require.True(t, ok)
+	approvedInput, err := machineCreateAuthorizationInput(poolID, "Build Pool")
+	require.NoError(t, err)
+	request, err := permissionChallenge(
+		call, permissionModeContext{descriptor: descriptor, selection: selection}, approvedInput,
+	)
+	require.NoError(t, err)
+	requestJSON, err := json.Marshal(request)
+	require.NoError(t, err)
+	action := executionstore.AgentInteractionRecord{
+		ProviderCallID: call.ID, InteractionKind: executionstore.AgentInteractionKindPermission, Request: requestJSON,
+	}
+	require.True(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
+	otherPool, err := machineCreateAuthorizationInput(uuid.New(), "Build Pool")
+	require.NoError(t, err)
+	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherPool))
+	renamedPool, err := machineCreateAuthorizationInput(poolID, "Renamed Pool")
+	require.NoError(t, err)
+	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, renamedPool))
+	request.Authorization.Input = call.Input
+	action.Request, err = json.Marshal(request)
+	require.NoError(t, err)
+	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
 }
 
 func TestSelectOnlyMachine(t *testing.T) {

@@ -462,22 +462,12 @@ func listMachinePoolSources(
 	if err != nil {
 		return nil, err
 	}
-	configSource, err := agentconfig.ParseSource(
-		agentconfig.SourceFormat(config.SourceFormat),
-		[]byte(config.Source),
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(configSource.MachineSources) != len(sources) {
-		return nil, errors.New("agent config source does not match compiled machine sources")
-	}
 	out := make([]MachinePoolSourceRecord, 0, len(sources))
 	for _, source := range sources {
 		if source.MachinePoolID == uuid.Nil {
 			continue
 		}
-		_, err := q.GetActiveProjectMachinePoolGrantForMachinePool(
+		grant, err := q.GetActiveProjectMachinePoolGrantForMachinePool(
 			ctx,
 			dbsqlc.GetActiveProjectMachinePoolGrantForMachinePoolParams{
 				ProjectID:     projectID,
@@ -492,7 +482,7 @@ func listMachinePoolSources(
 		}
 		out = append(out, MachinePoolSourceRecord{
 			MachinePoolID:   source.MachinePoolID,
-			MachinePoolName: configSource.MachineSources[source.Index].MachinePoolName,
+			MachinePoolName: grant.PoolName,
 			Description:     source.Contract.Description,
 		})
 	}

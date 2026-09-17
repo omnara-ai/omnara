@@ -16,6 +16,7 @@ export {
   useAgentChat,
   type UseAgentChatResult,
 } from './domains/agent-chat'
+export { useAgentConfigTools } from './domains/agent-config-tools'
 export {
   abbreviate,
   agentEventPreview,

@@ -10,6 +10,10 @@
 }
 
 @layer components {
+  [data-radix-popper-content-wrapper]:has(> [data-slot='tooltip-content']) {
+    pointer-events: none;
+  }
+
   .control-focus:focus-visible,
   .control-focus-within:has(:is(input, textarea):focus-visible) {
     outline: var(--focus-width) solid var(--ring);

@@ -1620,7 +1620,6 @@ tools:
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  updatedYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),

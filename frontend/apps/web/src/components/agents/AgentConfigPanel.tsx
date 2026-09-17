@@ -37,7 +37,15 @@ export function AgentConfigPanel({
 
   return (
     <div className="flex min-h-full flex-col gap-4">
-      {snapshot !== null ? (
+      {snapshot !== null && (agent.parent_agent_id || snapshot.source === undefined) ? (
+        <>
+          <h2 className="type-card-title">Agent configuration</h2>
+          <p className="text-muted-foreground text-sm">This derived configuration is read-only.</p>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </>
+      ) : snapshot !== null ? (
         <AgentConfigPanelEditor
           key={String(resetNonce)}
           orgId={orgId}
@@ -114,6 +122,8 @@ function AgentConfigPanelEditor({
 }) {
   const updateConfig = useUpdateAgentConfig(orgId, projectId, agentId)
   const editor = useAgentConfigEditor({
+    orgId,
+    projectId,
     source,
     canManage,
     preferredMode,

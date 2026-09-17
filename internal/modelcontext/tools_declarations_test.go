@@ -212,10 +212,10 @@ func TestRuntimeToolReconstructionPreservesBuiltinWithUnrelatedMCPSchema(t *test
 				context.Background(), store, testProjectID, testAgentID, contract, time.Time{},
 			)
 			require.NoError(t, err)
-			require.Len(t, specs, 4)
+			require.Len(t, specs, 2)
 			require.True(t, HasTool(specs, toolcatalog.ToolNameListProcesses))
-			require.True(t, HasTool(specs, toolcatalog.ToolNameReadFile))
-			require.True(t, HasTool(specs, toolcatalog.ToolNameSearchFiles))
+			require.False(t, HasTool(specs, toolcatalog.ToolNameReadFile))
+			require.False(t, HasTool(specs, toolcatalog.ToolNameSearchFiles))
 			for _, spec := range specs {
 				if spec.Name == "mcp__docs__lookup" {
 					want := schema

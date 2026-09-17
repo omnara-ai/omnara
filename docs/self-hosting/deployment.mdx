@@ -48,8 +48,8 @@ for connection-pool defaults.
 ### Channel toolkit cutover
 
 Rehearse this offline upgrade on a backup before scheduling the maintenance window.
-The schema cutover is `000038_integration_channels.sql`, followed by
-`000039_migrate_channel_tool_configs.go`. Preserve existing Slack apps, tokens,
+The schema cutover is `000040_integration_channels.sql`, followed by
+`000041_migrate_channel_tool_configs.go`. Preserve existing Slack apps, tokens,
 conversation links, and OAuth setup links; this procedure does not reset them.
 
 This release uses a coordinated downtime cutover. Stop the old cluster writers
@@ -134,13 +134,16 @@ reference them. These formerly valid custom names now conflict with builtins.
 Resolve any observed collision explicitly before upgrading; the config migration
 does not rename or delete custom tools.
 
-With all application writers stopped, `000039_migrate_channel_tool_configs.go` removes
+With all application writers stopped, `000041_migrate_channel_tool_configs.go` removes
 only the retired builtin declarations `send_integration_message` and
 `set_integration_target` from saved config source, definition, and compiled JSON,
-and recomputes the source and effective-definition hashes. Config IDs and all
-references remain unchanged. Historical config views intentionally show the
-migrated definitions. The five replacement channel tools derive from live
-bindings, not saved config declarations.
+and recomputes the source and effective-definition hashes. Configs without
+authored source retain NULL source, source format, and source hash; their
+definitions and effective-definition hash are still migrated. Explicit default
+tools added by `000038_explicit_default_tools.go` remain in the definitions.
+Config IDs and all references remain unchanged. Historical config views
+intentionally show the migrated definitions. The five replacement channel tools
+derive from live bindings, not saved config declarations.
 
 YAML and JSON source formatting may normalize during migration. Non-retired
 values retain their meaning, and YAML comments are retained; source bytes are
@@ -153,9 +156,9 @@ tools are unsupported. There are no runtime aliases or historical fallback reade
 Like `000026_migrate_agent_config_names.go`, this is a one-time transactional
 exception to config immutability: the config trigger is disabled for the updates and restored in the
 same transaction. Existing uniqueness constraints remain enforced. If configs
-converge on a duplicate, `000039_migrate_channel_tool_configs.go`'s updates and trigger
+converge on a duplicate, `000041_migrate_channel_tool_configs.go`'s updates and trigger
 changes roll back. Goose commits each migration separately:
-`000038_integration_channels.sql` remains applied. Do not restart the old release
+`000040_integration_channels.sql` remains applied. Do not restart the old release
 against that incompatible schema. Keep services stopped while repairing the
 observed duplicates and retrying the new
 release's migrator, or restore the entire pre-upgrade backup before reopening

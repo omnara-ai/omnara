@@ -62,6 +62,7 @@ func customScope(note string) operationScope {
 type operationID string
 
 const (
+	operationResolveAgentConfigTools                      operationID = "ResolveAgentConfigTools"
 	operationPublishExternalChannelDefinition             operationID = "PublishExternalChannelDefinition"
 	operationRegisterChannel                              operationID = "RegisterChannel"
 	operationListRegisteredChannels                       operationID = "ListRegisteredChannels"
@@ -286,8 +287,9 @@ func (a operationAuthorizer) policy(operation operationID) (operationPolicy, boo
 }
 
 var openAPIOperationPolicies = map[operationID]operationPolicy{
-	operationGetCurrentUser:    userPolicy(noScope()),
-	operationDeleteCurrentUser: userPolicy(noScope()),
+	operationResolveAgentConfigTools: accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetCurrentUser:          userPolicy(noScope()),
+	operationDeleteCurrentUser:       userPolicy(noScope()),
 	operationGetDaemonSkillArchive: machineDaemonPolicy(
 		customScope("machine daemon token + machine-bound download capability"),
 	),

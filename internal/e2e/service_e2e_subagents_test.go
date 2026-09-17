@@ -177,9 +177,15 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 					fail(w, http.StatusBadRequest, "child request lacks its task or appended instruction: %s", requestText)
 					return
 				}
-				if requestContainsTool(body, "read_agent") {
-					fail(w, http.StatusBadRequest, "self subagent must not expose subagent tools: %s", requestText)
+				if requestContainsTool(body, "spawn_agent") {
+					fail(w, http.StatusBadRequest, "leaf subagent must not expose spawn_agent: %s", requestText)
 					return
+				}
+				for _, name := range []string{"read_agent", "send_agent_message", "stop_agent", "list_agents"} {
+					if !requestContainsTool(body, name) {
+						fail(w, http.StatusBadRequest, "leaf subagent lost inherited tool %s: %s", name, requestText)
+						return
+					}
 				}
 				writeOpenAITruncatedMessage(w, fail, "resp_child_partial", childPartialText)
 			case 2:
@@ -487,18 +493,20 @@ func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
 	if childConfigID == mustDecodeServiceE2EPublicID(t, publicid.KindAgentConfig, helperConfigID) {
 		t.Fatalf("profile subagent config = %q, want a config derived from the helper profile", childConfigID)
 	}
-	var childSource, childSourceFormat string
+	var noSource bool
+	var childInstruction string
 	if err := env.db.QueryRow(
 		ctx,
-		`SELECT source, source_format FROM agent_configs WHERE id = $1`,
+		`SELECT source IS NULL AND source_format IS NULL AND source_hash IS NULL,
+		        compiled_definition->>'instruction' FROM agent_configs WHERE id = $1`,
 		childConfigID,
-	).Scan(&childSource, &childSourceFormat); err != nil {
-		t.Fatalf("load derived subagent config source: %v", err)
+	).Scan(&noSource, &childInstruction); err != nil {
+		t.Fatalf("load derived subagent config: %v", err)
 	}
-	if childSourceFormat != "yaml" || !strings.Contains(childSource, "Report back in one sentence.") {
-		t.Fatalf(
-			"derived subagent config source (%s) = %q, want yaml with the appended instruction",
-			childSourceFormat, childSource,
-		)
+	if !noSource {
+		t.Fatal("derived subagent config retained authored source metadata")
+	}
+	if !strings.Contains(childInstruction, "Report back in one sentence.") {
+		t.Fatalf("derived subagent instruction = %q, want appended instruction", childInstruction)
 	}
 }

@@ -6,6 +6,7 @@ import {
   basicConfigValid,
   type BasicMcpServer,
   createBasicConfigSession,
+  emptyBasicConfig,
   mcpRuntimeToolNameError,
   mcpServerNameError,
   mcpToolEnabled,
@@ -63,6 +64,45 @@ function applyToSource(source: string, config: BasicConfig): string {
 }
 
 describe('createBasicConfigSession initialDraft', () => {
+  it.each([
+    `mcp:
+  external:
+    url: https://example.com/mcp
+    tools: &toolConfig
+      web_search: {}
+tools: *toolConfig
+`,
+    `tools: &toolConfig
+  web_search: {}
+mcp:
+  external:
+    url: https://example.com/mcp
+    default_enabled: false
+    tools: *toolConfig
+`,
+    `tools:
+  run_command: &shared {}
+  web_search: *shared
+`,
+    `<<: {tools: {run_command: {enabled: false}}}
+`,
+  ])('keeps shared or merged YAML in YAML mode: %s', (tools) => {
+    const source = `${minimalYaml}machine_sources: [{machine_pool_name: pool}]\n${tools}`
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).toBeNull()
+    expect(session.apply(fullConfig)).toBe(source)
+  })
+
+  it('does not serialize an unused builder draft for YAML-only source', () => {
+    const source = `tools: {run_command: {permission: {mode: &mode always_allow}}}
+instruction: *mode
+model: {provider_config: openai, name: primary}
+`
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).toBeNull()
+    expect(session.apply(emptyBasicConfig)).toBe(source)
+  })
+
   it('round-trips a full builder-authored config', () => {
     const source = applyToSource('', fullConfig)
     const config = mustDeserialize(source)
@@ -302,16 +342,6 @@ mcp:
     expect(pool?.envRows.map((row) => [row.key, row.value])).toEqual([['MODE', null]])
     expect(pool?.secretEnvRows.map((row) => [row.key, row.secretId])).toEqual([['TOKEN', null]])
     expect(applyToSource(source, config)).toBe(source)
-  })
-
-  it('rejects disabled tools', () => {
-    const source = `${minimalYaml}tools:
-  shell:
-    enabled: false
-    permission:
-      mode: always_ask
-`
-    expect(deserialize(source)).toBeNull()
   })
 
   it('rejects unknown fields inside builder-owned entries', () => {

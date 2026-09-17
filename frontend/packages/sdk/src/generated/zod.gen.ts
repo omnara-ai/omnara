@@ -562,11 +562,6 @@ export const zError = z.object({
     ])
 });
 
-export const zWarning = z.object({
-    message: z.string(),
-    code: z.enum(['missing_recommended_machine_tools'])
-});
-
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -1503,6 +1498,11 @@ export const zSlackSetup = z.object({
     expires_at: zTimestamp
 });
 
+export const zResolveAgentConfigToolsRequest = z.object({
+    source: z.string().min(1),
+    source_format: z.enum(['yaml', 'json'])
+});
+
 export const zCreateAgentConfigRequest = z.object({
     source: z.string().min(1),
     source_format: z.enum(['yaml', 'json'])
@@ -1522,6 +1522,16 @@ export const zToolPermissionSelection = z.object({
     parameters: z.record(z.string(), z.unknown())
 });
 
+export const zResolvedAgentConfigTool = z.object({
+    name: z.string(),
+    enabled: z.boolean(),
+    permission: zToolPermissionSelection
+});
+
+export const zResolvedAgentConfigTools = z.object({
+    tools: z.array(zResolvedAgentConfigTool)
+});
+
 export const zToolPermissionMode = z.object({
     name: z.string(),
     label: z.string(),
@@ -1538,6 +1548,7 @@ export const zToolCatalogEntry = z.object({
     name: z.string(),
     description: z.string(),
     configurable: z.boolean().optional().default(true),
+    implicit: z.boolean().optional(),
     default_permission: zToolPermissionSelection,
     permission_modes: z.array(zToolPermissionMode)
 });
@@ -1694,7 +1705,6 @@ export const zAgentConfig = z.object({
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
-    warnings: z.array(zWarning).min(1).optional(),
     created_at: zTimestamp
 });
 
@@ -4658,6 +4668,18 @@ export const zDeleteIntegrationInstallPath = z.object({
  * Integration install deleted.
  */
 export const zDeleteIntegrationInstallResponse = z.void();
+
+export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
+
+export const zResolveAgentConfigToolsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Resolved config tools.
+ */
+export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
 
 export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
 

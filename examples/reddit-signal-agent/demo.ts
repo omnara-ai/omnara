@@ -247,7 +247,6 @@ const { data: config } = await sdk.createAgentConfig({
   path,
   body: { source: JSON.stringify(agent), source_format: 'json' },
 })
-for (const warning of config.warnings ?? []) console.warn('config warning:', warning.message)
 const { data: profiles } = await sdk.listAgentProfiles({
   client,
   path,

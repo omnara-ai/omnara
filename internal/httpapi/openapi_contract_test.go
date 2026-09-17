@@ -448,6 +448,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ToolCatalogEntry.name":                                "",
 		"ToolPermissionMode.name":                              "",
 		"UpdateMachinePoolRequest.provider_config":             "",
+		"ResolvedAgentConfigTool.name":                         "",
 	}
 
 	var failures []string

@@ -23,6 +23,7 @@ The tools are grouped by what they do:
 | Integrations | `list_channels`, `get_channel`, `set_current_channel`, `read_channel`, `send_channel_message` |
 | Subagents    | `spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`                |
 | Skills       | `skill`                                                                                       |
+| Tool loading | `tool_search` |
 
 A red <span style={{ color: "#c97a7a", fontWeight: 700 }}>\*</span> marks required inputs.
 
@@ -169,7 +170,7 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 `path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
 
-Omnara automatically adds `read_file` and `search_files` to agents that have tools or MCP servers, including tools added implicitly for skills or integrations. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
 
 ### `upload_file`
 
@@ -302,6 +303,17 @@ Lists the agent's subagents with their `agent_id`, name, key, state, and last ac
 ### `skill`
 
 Loads an attached skill. Requires its [skill](/tools/skills) `name`. The tool returns the skill's instructions and, when the agent has machines, installs its supporting files there.
+
+## Tool loading
+
+### `tool_search`
+
+Added automatically when any tool is [deferred](/agents/configuration#deferred-tools). Searches deferred tools by name, description, and argument names, and loads the matches so the model can call them.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Case-insensitive regular expression, at most 200 characters |
+| `max_results` | integer | 1–50; default 5 |
 
 <Info>
   Full inputs and defaults, live from your deployment: [Get tool

@@ -293,6 +293,7 @@ func TestPostgresIntegrationChannelsMigrationRejectsCustomChannelToolNames(t *te
 				defer func() { _ = db.Close() }()
 				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
 				fixture := seedLegacyChannelMigrationFixtureWithCustomTool(t, ctx, db, name, enabled)
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 39))
 				var before string
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT to_jsonb(config)::text
 FROM agent_configs config WHERE id = $1`, fixture.configID).Scan(&before))
@@ -308,7 +309,7 @@ FROM agent_configs config WHERE id = $1`, fixture.configID).Scan(&after))
 				var rolledBack bool
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.integration_apps') IS NULL`).
 					Scan(&rolledBack))
-				require.True(t, rolledBack, "failed preflight rolls back migration38")
+				require.True(t, rolledBack, "failed preflight rolls back migration 40")
 			})
 		}
 	}
@@ -497,7 +498,7 @@ model:
 		t.Fatalf("compile migration fixture agent config: %v", err)
 	}
 	// Freeze the actual pre-cutover builtin shape; the current compiler correctly
-	// rejects these names, and migration 39 must repair their stored definitions.
+	// rejects these names, and migration 41 must repair their stored definitions.
 	source += `tools:
   send_integration_message: {permission: {mode: always_allow}}
   set_integration_target: {enabled: false}

@@ -70,6 +70,7 @@ type AgentConfigToolSource struct {
 	Type        string                    `json:"type,omitempty"`
 	Enabled     *bool                     `json:"enabled,omitempty"`
 	Permission  *toolpermission.Selection `json:"permission,omitempty"`
+	Deferred    bool                      `json:"deferred,omitempty"`
 	Description string                    `json:"description,omitempty"`
 	InputSchema map[string]any            `json:"input_schema,omitempty"`
 }
@@ -79,6 +80,7 @@ type AgentConfigMCPSource struct {
 	Auth           *AgentConfigMCPAuthSource           `json:"auth,omitempty"`
 	DefaultEnabled *bool                               `json:"default_enabled,omitempty"`
 	Permission     *toolpermission.Selection           `json:"permission,omitempty"`
+	Deferred       bool                                `json:"deferred,omitempty"`
 	Tools          map[string]AgentConfigMCPToolSource `json:"tools,omitempty"`
 }
 
@@ -92,6 +94,7 @@ type AgentConfigMCPAuthSource struct {
 type AgentConfigMCPToolSource struct {
 	Enabled    *bool                     `json:"enabled,omitempty"`
 	Permission *toolpermission.Selection `json:"permission,omitempty"`
+	Deferred   *bool                     `json:"deferred,omitempty"`
 }
 
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
@@ -482,6 +485,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Prop("type", kjsonschema.Enum(toolcatalog.ToolTypeBuiltIn, toolcatalog.ToolTypeCustom)),
 					kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 					kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
+					kjsonschema.Prop("deferred", kjsonschema.Boolean()),
 					kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MinLength(1))),
 					kjsonschema.Prop("input_schema", kjsonschema.Ref("#/$defs/AgentToolInputSchema")),
 					kjsonschema.AdditionalProps(false),
@@ -514,6 +518,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.Prop("auth", kjsonschema.Ref("#/$defs/AgentConfigMCPAuthSource")),
 				kjsonschema.Prop("default_enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
+				kjsonschema.Prop("deferred", kjsonschema.Boolean()),
 				kjsonschema.Prop("tools", kjsonschema.Object(
 					kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPRemoteToolNamePattern))),
 					kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPToolSource")),
@@ -538,6 +543,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			"AgentConfigMCPToolSource": kjsonschema.Object(
 				kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
+				kjsonschema.Prop("deferred", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
 				kjsonschema.AdditionalProps(false),
 			),
 			"ToolPermissionSelection": kjsonschema.Object(

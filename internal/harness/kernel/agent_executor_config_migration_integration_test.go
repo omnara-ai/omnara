@@ -67,17 +67,21 @@ func seedRetiredChannelConfigForKernelTest(
 ) {
 	t.Helper()
 	ctx := t.Context()
-	// This fixture was compiled without a tools section. Recreate the pre-cutover
-	// row after pinning the ordinary MCP context; no current compiler accepts the
-	// retired declarations. Only test setup temporarily overrides immutability.
-	require.JSONEq(t, string(config.Definition), string(config.CompiledDefinition))
+	// Recreate the pre-cutover row after pinning the ordinary MCP context, keeping
+	// the retrieval tools materialized by compilation. Only test setup temporarily
+	// overrides immutability; no current compiler accepts the retired declarations.
 	var compiled map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(config.CompiledDefinition, &compiled))
-	require.NotContains(t, compiled, "tools")
-	compiled["tools"] = json.RawMessage(`{
-  "send_integration_message":{"enabled":true,"permission":{"mode":"always_allow"}},
-  "set_integration_target":{"enabled":true,"permission":{"mode":"always_allow"}}
-}`)
+	tools := make(map[string]json.RawMessage)
+	if raw := compiled["tools"]; len(raw) > 0 {
+		require.NoError(t, json.Unmarshal(raw, &tools))
+	}
+	for _, name := range []string{"send_integration_message", "set_integration_target"} {
+		tools[name] = json.RawMessage(`{"enabled":true,"permission":{"mode":"always_allow"}}`)
+	}
+	toolJSON, err := json.Marshal(tools)
+	require.NoError(t, err)
+	compiled["tools"] = toolJSON
 	encoded, err := json.Marshal(compiled)
 	require.NoError(t, err)
 	legacyCompiled, err := jsoncanonical.Normalize(encoded)
@@ -113,7 +117,7 @@ func applyChannelConfigMigrationForKernelTest(t *testing.T, fixture kernelFixtur
 	t.Helper()
 	var cutover *goose.Migration
 	for _, migration := range schemamigrations.GoMigrations() {
-		if migration.Version == 39 {
+		if migration.Version == 41 {
 			cutover = migration
 			break
 		}

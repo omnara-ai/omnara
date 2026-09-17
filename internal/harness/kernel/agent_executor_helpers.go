@@ -26,7 +26,9 @@ func executableToolSet(specs []modelcontext.ToolSpec) map[string]tools.ToolSpec 
 		executable[spec.Name] = tools.ToolSpec{
 			Type:        spec.Type,
 			Permission:  spec.Permission,
+			Description: spec.Description,
 			InputSchema: spec.InputSchema,
+			Deferred:    spec.Deferred,
 		}
 	}
 	return executable

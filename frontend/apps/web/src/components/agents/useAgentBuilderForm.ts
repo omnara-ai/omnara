@@ -22,7 +22,7 @@ import {
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
-import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
+import { useAgentBuilderTools } from '@/components/agents/useAgentBuilderTools'
 import {
   emptyProviderOptions,
   envOverlayFromRows,
@@ -117,6 +117,7 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   return {
     initialDraft,
     apply(config) {
+      if (doc != null && initialDraft == null) return source
       return applyToDocument(doc?.clone() ?? new Document({}), source, initialDraft, config)
     },
   }
@@ -124,10 +125,15 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
 
 export type AgentBuilderForm = ReturnType<typeof useAgentBuilderForm>
 
-export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: BasicConfig) {
+export function useAgentBuilderForm(
+  session: BasicConfigSession,
+  seedConfig: BasicConfig | undefined,
+  scope: { orgId: string; projectId: string },
+) {
   const [draft, setDraft] = useState<BasicConfig>(
     seedConfig ?? session.initialDraft ?? emptyBasicConfig,
   )
+  const tools = useAgentBuilderTools(draft, scope)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
@@ -146,6 +152,10 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     draft,
     yaml: session.apply(draft),
     blocked,
+    resolvedTools: tools.data?.tools,
+    toolsPending: tools.isPending,
+    toolsError: tools.isError,
+    retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
       setDraft(config ?? emptyBasicConfig)
     },
@@ -165,15 +175,7 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ providerConfig: model.providerConfig, modelName: model.modelName })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
-      setDraft((prev) => ({
-        ...prev,
-        machineSources,
-        tools: addMachineToolsForNewSourceSelection(
-          prev.machineSources,
-          machineSources,
-          prev.tools,
-        ),
-      }))
+      patch({ machineSources })
     },
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
@@ -185,7 +187,16 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ mcpServers })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
-      patch(subagents.length === 0 ? { subagents, maxSubagents: '', maxDepth: '' } : { subagents })
+      patch(
+        subagents.length === 0
+          ? {
+              subagents,
+              maxSubagents: '',
+              maxDepth: '',
+              tools: draft.tools.filter((tool) => tool.name !== 'spawn_agent'),
+            }
+          : { subagents },
+      )
     },
     setMaxSubagents: (maxSubagents: string) => {
       patch({ maxSubagents })
@@ -525,8 +536,10 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
   if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
 }
 
-function toolWire(tool: BasicTool): ToolEntry {
+export function toolWire(tool: BasicTool): ToolEntry {
   const wire: ToolEntry = { type: 'built_in' }
+  if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
+  if (tool.deferred) wire.deferred = true
   return wire
 }

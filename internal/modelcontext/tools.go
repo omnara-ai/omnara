@@ -46,6 +46,16 @@ func WithImplicitChannelTools(
 			return agentconfig.RuntimeContract{}, err
 		}
 	}
+	// Channel tools are added after compilation and can expose artifact content.
+	// Preserve access to retrieval tools while respecting explicit config overrides.
+	if channelTools.List || channelTools.Send || channelTools.Read {
+		for _, name := range []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles} {
+			contract, err = contract.WithImplicitBuiltInTool(name)
+			if err != nil {
+				return agentconfig.RuntimeContract{}, err
+			}
+		}
+	}
 	return contract, nil
 }
 
@@ -94,6 +104,7 @@ func RuntimeContractToolSpecs(
 			Name:        tool.Name,
 			Description: description,
 			InputSchema: inputSchema,
+			Deferred:    tool.Deferred,
 			Type:        tool.Type,
 			Permission:  tool.Permission,
 		}
@@ -161,7 +172,7 @@ func runtimeMCPToolSpecs(
 			)
 		}
 		for _, tool := range tools {
-			permission, ok := server.ResolveTool(tool.Name)
+			resolution, ok := server.ResolveTool(tool.Name)
 			if !ok {
 				continue
 			}
@@ -183,8 +194,9 @@ func runtimeMCPToolSpecs(
 					Name:        name,
 					Description: description,
 					InputSchema: schema,
+					Deferred:    resolution.Deferred,
 					Type:        toolcatalog.ToolTypeMCP,
-					Permission:  permission,
+					Permission:  resolution.Permission,
 				},
 			)
 		}

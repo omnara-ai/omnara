@@ -65,6 +65,11 @@ model:
 tools:
   upload_file: {}
   download_file: {}
+  read_file:
+    enabled: false
+  search_files:
+    permission:
+      mode: always_ask
   spawn_agent:
     permission:
       mode: always_ask
@@ -99,10 +104,15 @@ subagents:
 		require.Equal(t, eligibility.Read, HasTool(specs, toolcatalog.ToolNameReadChannel))
 		require.True(t, HasTool(specs, toolcatalog.ToolNameUploadFile))
 		require.True(t, HasTool(specs, toolcatalog.ToolNameDownloadFile))
+		require.False(t, HasTool(specs, toolcatalog.ToolNameReadFile))
+		require.True(t, HasTool(specs, toolcatalog.ToolNameSearchFiles))
 		for _, name := range toolcatalog.SubagentToolNames() {
 			require.Equal(t, name != toolcatalog.ToolNameStopAgent, HasTool(specs, name), name)
 		}
 		for _, spec := range specs {
+			if spec.Name == toolcatalog.ToolNameSearchFiles {
+				require.Equal(t, toolpermission.ModeAlwaysAsk, spec.Permission.Mode)
+			}
 			if spec.Name == toolcatalog.ToolNameSpawnAgent {
 				require.Equal(t, toolpermission.ModeAlwaysAsk, spec.Permission.Mode)
 				require.Contains(t, string(spec.InputSchema), `"enum":["fork"]`)

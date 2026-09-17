@@ -258,20 +258,20 @@ mcp:
 	if server.ServerKey != "docs" || server.URL != "https://example.com/mcp" {
 		t.Fatalf("unexpected mcp server: %+v", server)
 	}
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
-	if permission, ok := server.ResolveTool("anything_else"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAsk {
-		t.Fatalf("default resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("anything_else"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAsk {
+		t.Fatalf("default resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("disabled_tool"); ok {
 		t.Fatalf("disabled_tool should not resolve enabled")
 	}
-	if permission, ok := server.ResolveTool("aws___call_aws"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysDeny {
-		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("aws___call_aws"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysDeny {
+		t.Fatalf("AWS tool resolution = permission=%+v ok=%t", resolution, ok)
 	}
 }
 
@@ -299,9 +299,9 @@ mcp:
 		t.Fatalf("expected one mcp server, got %+v", contract.MCPServers)
 	}
 	server := contract.MCPServers[0]
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("anything_else"); ok {
 		t.Fatal("unlisted tool should be disabled when default_enabled is false")
@@ -1835,7 +1835,7 @@ skills:
 	}
 }
 
-func TestCompileExplicitSkillToolOverridesImplicitAttachment(t *testing.T) {
+func TestCompileExplicitSkillToolOverridesDefaults(t *testing.T) {
 	explicit, err := Compile(
 		SourceFormatYAML,
 		[]byte(validAgentSource(`
@@ -1964,7 +1964,7 @@ skills:
 	if len(contract.Tools) != 3 ||
 		contract.Tools[2].Name != "skill" ||
 		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("implicit skill tool was not materialized: %+v", contract.Tools)
+		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
 
@@ -2184,8 +2184,8 @@ tools:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(implicit.Tools) != 3 {
-		t.Fatal("late implicit tool lacks retrieval tools")
+	if len(implicit.Tools) != 1 || implicit.Tools[0].Name != toolcatalog.ToolNameSendChannelMessage {
+		t.Fatal("late implicit tool must not add retrieval tools")
 	}
 }
 

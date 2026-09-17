@@ -6,6 +6,7 @@ func GoMigrations() []*goose.Migration {
 	return []*goose.Migration{
 		newAgentConfigNameMigration(),
 		newFileToolCutoverMigration(),
+		newExplicitDefaultToolsMigration(),
 		newChannelToolConfigMigration(),
 	}
 }

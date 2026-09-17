@@ -15,7 +15,19 @@ import (
 )
 
 func newChannelToolConfigMigration() *goose.Migration {
-	return goose.NewGoMigration(39, &goose.GoFunc{RunTx: upMigrateChannelToolConfigs}, nil)
+	return goose.NewGoMigration(41, &goose.GoFunc{RunTx: upMigrateChannelToolConfigs}, nil)
+}
+
+// Migration 39 permits configs without authored source. Keep this row shape
+// local to the channel cutover so earlier, released migrations stay frozen.
+type storedChannelToolConfig struct {
+	id                      string
+	source                  sql.NullString
+	sourceFormat            sql.NullString
+	sourceHash              sql.NullString
+	definition              []byte
+	compiledDefinition      []byte
+	effectiveDefinitionHash string
 }
 
 // The offline Slack cutover deliberately migrates saved configs in place. Their
@@ -38,9 +50,9 @@ ORDER BY id`)
 		return fmt.Errorf("list channel tool configs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var configs []storedAgentConfig
+	var configs []storedChannelToolConfig
 	for rows.Next() {
-		var config storedAgentConfig
+		var config storedChannelToolConfig
 		if err := rows.Scan(&config.id, &config.source, &config.sourceFormat, &config.sourceHash,
 			&config.definition, &config.compiledDefinition, &config.effectiveDefinitionHash); err != nil {
 			return fmt.Errorf("scan channel tool config: %w", err)
@@ -81,8 +93,11 @@ WHERE id = $1::uuid`, config.id, config.source, config.sourceHash,
 	return nil
 }
 
-func migrateChannelToolConfig(config storedAgentConfig) (storedAgentConfig, bool, error) {
-	if config.sourceHash != hashBytes([]byte(config.source)) {
+func migrateChannelToolConfig(config storedChannelToolConfig) (storedChannelToolConfig, bool, error) {
+	if config.source.Valid != config.sourceFormat.Valid || config.source.Valid != config.sourceHash.Valid {
+		return config, false, errors.New("source, source format and source hash must be present together")
+	}
+	if config.source.Valid && config.sourceHash.String != hashBytes([]byte(config.source.String)) {
 		return config, false, errors.New("source hash does not match source")
 	}
 	compiledHash, err := channelToolCompiledHash(config.compiledDefinition)
@@ -100,27 +115,34 @@ func migrateChannelToolConfig(config storedAgentConfig) (storedAgentConfig, bool
 	if err != nil {
 		return config, false, err
 	}
-	var source []byte
-	var sourceNames []string
-	switch config.sourceFormat {
-	case "json":
-		source, sourceNames, err = removeChannelToolJSON([]byte(config.source))
-	case "yaml":
-		source, sourceNames, err = removeChannelToolYAML([]byte(config.source))
-	default:
-		err = errors.New("unsupported channel tool config source format")
-	}
-	if err != nil {
-		return config, false, err
-	}
-	if !slices.Equal(names, definitionNames) || !slices.Equal(names, sourceNames) {
+	if !slices.Equal(names, definitionNames) {
 		return config, false, errors.New("retired builtin declarations disagree across source and definitions")
+	}
+	var source []byte
+	if config.source.Valid {
+		var sourceNames []string
+		switch config.sourceFormat.String {
+		case "json":
+			source, sourceNames, err = removeChannelToolJSON([]byte(config.source.String))
+		case "yaml":
+			source, sourceNames, err = removeChannelToolYAML([]byte(config.source.String))
+		default:
+			err = errors.New("unsupported channel tool config source format")
+		}
+		if err != nil {
+			return config, false, err
+		}
+		if !slices.Equal(names, sourceNames) {
+			return config, false, errors.New("retired builtin declarations disagree across source and definitions")
+		}
 	}
 	compiledHash, err = channelToolCompiledHash(compiled)
 	if err != nil {
 		return config, false, err
 	}
-	config.source, config.sourceHash = string(source), hashBytes(source)
+	if config.source.Valid {
+		config.source.String, config.sourceHash.String = string(source), hashBytes(source)
+	}
 	config.definition, config.compiledDefinition = definition, compiled
 	config.effectiveDefinitionHash = compiledHash
 	return config, true, nil
