@@ -1,5 +1,4 @@
 import { useAgentConfigTools } from '@omnara/react'
-import { useState } from 'react'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
 import { mcpWire } from '@/components/agents/agentConfigMcp'
@@ -46,20 +45,8 @@ export function useAgentBuilderTools(
   source: BasicConfig,
   scope: { orgId: string; projectId: string },
 ) {
-  const query = useAgentConfigTools(scope.orgId, scope.projectId, {
+  return useAgentConfigTools(scope.orgId, scope.projectId, {
     source_format: 'json',
     source: agentBuilderToolsSource(source),
   })
-  const [lastResult, setLastResult] = useState({ ...scope, data: query.data })
-  const scopeChanged = lastResult.orgId !== scope.orgId || lastResult.projectId !== scope.projectId
-  if (scopeChanged || (query.data !== undefined && query.data !== lastResult.data)) {
-    setLastResult({ ...scope, data: query.data })
-  }
-  const data = query.data ?? lastResult.data
-  return {
-    data,
-    isPending: query.isPending && data === undefined,
-    isError: query.isError,
-    refetch: query.refetch,
-  }
 }
