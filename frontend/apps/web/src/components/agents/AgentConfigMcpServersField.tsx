@@ -79,6 +79,7 @@ export function AgentConfigMcpServersField({
   onServersChange,
   builderDraft,
   agentName = null,
+  onBeforeOAuthRedirect,
 }: {
   orgId: string
   projectId: string
@@ -87,6 +88,7 @@ export function AgentConfigMcpServersField({
   onServersChange: (servers: BasicMcpServer[]) => void
   builderDraft: BasicConfig
   agentName?: string | null
+  onBeforeOAuthRedirect?: () => void
 }) {
   function updateServer(id: string, patch: Partial<BasicMcpServer>) {
     onServersChange(servers.map((server) => (server.id === id ? { ...server, ...patch } : server)))
@@ -186,6 +188,7 @@ export function AgentConfigMcpServersField({
                           agentName: pendingOAuthContextRef.current.agentName,
                           draft: pendingOAuthContextRef.current.builderDraft,
                         })
+                        onBeforeOAuthRedirect?.()
                       }}
                     />
                   )}

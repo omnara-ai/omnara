@@ -45,13 +45,19 @@ export function CreateAgentFormView({
     launchError,
     issues,
   } = useCreateAgentSubmission(activeOrg.id, projectId)
-  const { name, setName, mode, dispatchMode, form, switchMode, applyTemplate } = useAgentDraft(
-    catalog,
-    defaultPool,
-    defaultModel,
-    initialTemplate,
-    { orgId: activeOrg.id, projectId },
-  )
+  const {
+    name,
+    setName,
+    mode,
+    dispatchMode,
+    form,
+    switchMode,
+    applyTemplate,
+    suppressUnsavedChangesWarning,
+  } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
+    orgId: activeOrg.id,
+    projectId,
+  })
 
   if (project == null) return null
 
@@ -148,6 +154,7 @@ export function CreateAgentFormView({
                 projectId={projectId}
                 form={form}
                 agentName={name}
+                onBeforeOAuthRedirect={suppressUnsavedChangesWarning}
               />
               <AgentConfigIssueList issues={issues} />
             </div>
