@@ -20,7 +20,11 @@ func TestArkerProviderLiveSmoke(t *testing.T) {
 		t.Skip("ARKER_API_KEY is required; this test creates real VMs")
 	}
 	daemonSettleWindow = defaultDaemonSettleWindow
-	t.Cleanup(func() { daemonSettleWindow = liveTestSettleWindow })
+	daemonStartTimeout = defaultDaemonStartTimeout
+	t.Cleanup(func() {
+		daemonSettleWindow = liveTestSettleWindow
+		daemonStartTimeout = liveTestStartTimeout
+	})
 
 	source := liveEnvOr("OMNARA_ARKER_TEST_SOURCE", "ubuntu-base")
 	placementProvider := liveEnvOr("OMNARA_ARKER_TEST_PROVIDER", "aws")
