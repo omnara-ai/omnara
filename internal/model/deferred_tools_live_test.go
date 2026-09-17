@@ -29,10 +29,10 @@ import (
 const liveDeferredToolsProviderConfigID = "live-deferred-tools"
 
 type liveDeferredToolsRoute struct {
-	name            string
-	keyEnv          string
-	client          func(apiKey string) model.Client
-	unsupportedTurn int
+	name        string
+	keyEnv      string
+	client      func(apiKey string) model.Client
+	unsupported bool
 }
 
 func liveDeferredToolsRoutes() []liveDeferredToolsRoute {
@@ -93,19 +93,14 @@ func liveDeferredToolsRoutes() []liveDeferredToolsRoute {
 	}
 	return []liveDeferredToolsRoute{
 		{name: "anthropic opus", keyEnv: "ANTHROPIC_API_KEY", client: anthropic("claude-opus-5")},
-		{
-			name:            "anthropic sonnet unsupported",
-			keyEnv:          "ANTHROPIC_API_KEY",
-			client:          anthropic(modeltest.LiveAnthropicProviderModelSlug),
-			unsupportedTurn: 2,
-		},
+		{name: "anthropic sonnet", keyEnv: "ANTHROPIC_API_KEY", client: anthropic(modeltest.LiveAnthropicProviderModelSlug)},
 		{name: "openai responses", keyEnv: "OPENAI_API_KEY", client: openAIResponses(modeltest.LiveOpenAIProviderModelSlug)},
 		{name: "openai responses gpt-5.4", keyEnv: "OPENAI_API_KEY", client: openAIResponses("gpt-5.4")},
 		{
-			name:            "openai responses gpt-4.1 unsupported",
-			keyEnv:          "OPENAI_API_KEY",
-			client:          openAIResponses("gpt-4.1"),
-			unsupportedTurn: 1,
+			name:        "openai responses gpt-4.1 unsupported",
+			keyEnv:      "OPENAI_API_KEY",
+			client:      openAIResponses("gpt-4.1"),
+			unsupported: true,
 		},
 		{name: "openai chat gpt-5.4", keyEnv: "OPENAI_API_KEY", client: openAIChat("gpt-5.4")},
 		{name: "openai chat gpt-4.1", keyEnv: "OPENAI_API_KEY", client: openAIChat("gpt-4.1")},
@@ -145,7 +140,7 @@ func TestLiveDeferredToolsLoadAfterSearch(t *testing.T) {
 				ToolSpecs: specs,
 			}
 			first, err := liveDeferredRespond(client, bundle)
-			if r.unsupportedTurn == 1 {
+			if r.unsupported {
 				assertLiveDeferredToolsUnsupported(t, err)
 				return
 			}
@@ -165,10 +160,6 @@ func TestLiveDeferredToolsLoadAfterSearch(t *testing.T) {
 			})
 			bundle.ToolResults = []modelcontext.ToolResultRef{result}
 			second, err := liveDeferredRespond(client, bundle)
-			if r.unsupportedTurn == 2 {
-				assertLiveDeferredToolsUnsupported(t, err)
-				return
-			}
 			if err != nil {
 				t.Fatalf("second turn: %v", err)
 			}
