@@ -180,6 +180,18 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 		).WithCause(err)
 	case errors.Is(err, context.Canceled):
 		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "mcp server request was canceled").WithCause(err)
+	case errors.Is(err, mcp.ErrInternal):
+		logpkg.Error(ctx, fmt.Errorf("mcp tool discovery: %w", err))
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error").WithCause(err)
+	case errors.Is(err, mcp.ErrRefreshBusy):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeConflict,
+			"another refresh for this mcp server or its secret is in progress; retry shortly",
+		).WithCause(err)
+	case errors.Is(err, mcp.ErrCredential) && mcp.IsRetryableConnectionFailure(err):
+		return nil, apierror.FromCode(apierror.CodeUpstreamUnavailable, message).WithCause(err)
+	case errors.Is(err, mcp.ErrCredential):
+		return mcpServerUnreachableResponse("the configured auth secret could not be used: " + message), nil
 	case hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden):
 		return s.mcpServerAuthRequired(ctx, endpoint, message)
 	case mcp.IsRetryableConnectionFailure(err):

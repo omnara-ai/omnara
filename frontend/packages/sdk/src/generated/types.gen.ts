@@ -8069,13 +8069,21 @@ export type ListMcpServerToolsErrors = {
      */
     404: Error;
     /**
-     * The MCP server did not speak MCP or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
+     * Another refresh of this MCP server's catalog or of its OAuth secret is in progress. Retry shortly.
+     */
+    409: Error;
+    /**
+     * The MCP server did not speak MCP, rejected the configured authentication, or the configured auth secret could not be used. When the server rejected authentication, `auth` hints which auth type it expects.
      */
     422: McpServerAuthRequiredError;
     /**
      * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
      */
     424: UpstreamUnavailableError;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
     /**
      * The service dependency required to satisfy the request is unavailable.
      */
