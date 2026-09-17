@@ -120,35 +120,14 @@ func (s *Store) ListFiles(
 		add(FileEntry{Path: memorystore.Root, Type: "directory"})
 	}
 	if len(entries) <= limit && relevant(memorystore.Root) && descend {
-		var stores []agentconfig.MemoryStoreCompiled
-		if err = json.Unmarshal(raw, &stores); err != nil {
-			return FileListResult{}, fmt.Errorf("load memory attachments: %w", err)
-		}
-		ids := make([]uuid.UUID, 0, len(stores))
-		access := make(map[uuid.UUID]string, len(stores))
-		for _, attached := range stores {
-			id, decodeErr := publicid.Decode(publicid.KindMemoryStore, attached.PublicID)
-			if decodeErr != nil {
-				return FileListResult{}, fmt.Errorf("load memory attachments: %w", decodeErr)
-			}
-			ids = append(ids, id)
-			access[id] = attached.Access
-		}
-		params := dbsqlc.ListAttachedMemoryStoresParams{ProjectID: projectID, StoreIds: ids}
-		if rest, ok := strings.CutPrefix(prefix, memorystore.Root+"/"); ok {
-			name, _, complete := strings.Cut(rest, "/")
-			params.StorePrefix = name
-			if complete || prefix == pattern {
-				params.StoreName = name
-			}
-		}
+		var rowLimit *int32
 		if len(parts) == 2 && !recursive {
-			rowLimit := int32(limit + 1 - len(entries))
-			params.RootPattern, params.RowLimit = matcher.String(), &rowLimit
+			value := int32(limit + 1 - len(entries))
+			rowLimit = &value
 		}
-		rows, queryErr := q.ListAttachedMemoryStores(ctx, params)
+		rows, access, queryErr := s.memoryListingStores(ctx, projectID, raw, pattern, rowLimit)
 		if queryErr != nil {
-			return FileListResult{}, fmt.Errorf("list memory stores: %w", queryErr)
+			return FileListResult{}, queryErr
 		}
 		remaining := memoryListingTraversalLimit
 		for _, row := range rows {
@@ -322,6 +301,14 @@ func (s *Store) globMemoryFiles(
 	if pattern == "" {
 		return nil
 	}
+	return s.withMemoryStoreRoot(ctx, projectID, store, func(root *os.Root) error {
+		return globFiles(ctx, root, pattern, remaining, visit)
+	})
+}
+
+func (s *Store) withMemoryStoreRoot(
+	ctx context.Context, projectID uuid.UUID, store dbsqlc.ListAttachedMemoryStoresRow, visit func(*os.Root) error,
+) error {
 	ref, err := memoryops.NewStoreRef(store.OrgID, projectID, store.ID, store.Name)
 	if err != nil {
 		return err
@@ -342,7 +329,7 @@ func (s *Store) globMemoryFiles(
 		}
 		return err
 	}
-	return globFiles(ctx, root, pattern, remaining, visit)
+	return visit(root)
 }
 
 func globFiles(
@@ -365,4 +352,44 @@ func globFiles(
 		return errFileTraversalLimit
 	}
 	return nil
+}
+
+func (s *Store) memoryListingStores(
+	ctx context.Context, projectID uuid.UUID, raw json.RawMessage, pattern string, limit *int32,
+) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]string, error) {
+	var stores []agentconfig.MemoryStoreCompiled
+	if err := json.Unmarshal(raw, &stores); err != nil {
+		return nil, nil, fmt.Errorf("load memory attachments: %w", err)
+	}
+	ids := make([]uuid.UUID, 0, len(stores))
+	access := make(map[uuid.UUID]string, len(stores))
+	for _, attached := range stores {
+		id, err := publicid.Decode(publicid.KindMemoryStore, attached.PublicID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("load memory attachments: %w", err)
+		}
+		ids = append(ids, id)
+		access[id] = attached.Access
+	}
+	prefix := pattern
+	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
+		prefix = prefix[:i]
+	}
+	params := dbsqlc.ListAttachedMemoryStoresParams{ProjectID: projectID, StoreIds: ids}
+	if rest, ok := strings.CutPrefix(prefix, memorystore.Root+"/"); ok {
+		name, _, complete := strings.Cut(rest, "/")
+		params.StorePrefix = name
+		if complete || prefix == pattern {
+			params.StoreName = name
+		}
+	}
+	if limit != nil {
+		matcher, err := CompileFilePattern(pattern)
+		if err != nil {
+			return nil, nil, err
+		}
+		params.RootPattern, params.RowLimit = matcher.String(), limit
+	}
+	rows, err := dbsqlc.New(s.pool).ListAttachedMemoryStores(ctx, params)
+	return rows, access, err
 }
