@@ -155,10 +155,11 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	defer cancel()
 	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
 	if err != nil {
-		apiErr := apierror.FromCode(
-			openapi.ErrorCodeUnprocessable,
-			"could not detect an MCP server that requires authorization at mcp_url: "+err.Error(),
-		).WithCause(err)
+		apiErr := mcpUpstreamFailure(
+			err,
+			"mcp_url or its authorization server did not respond: ",
+			"could not detect an MCP server that requires authorization at mcp_url: ",
+		)
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
 	if !requirement.Required {
@@ -269,17 +270,18 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 		if len(scopes) > 0 {
 			clientMeta.Scope = strings.Join(scopes, " ")
 		}
-		registered, err := oauthex.RegisterClient(
+		registered, err := mcp.RegisterClient(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
 			s.mcpOAuthHTTPClient,
 		)
 		if err != nil {
-			apiErr := apierror.FromCode(
-				openapi.ErrorCodeUnprocessable,
-				"the authorization server rejected dynamic client registration; supply client_id: "+err.Error(),
-			).WithCause(err)
+			apiErr := mcpUpstreamFailure(
+				err,
+				"the authorization server did not respond to dynamic client registration: ",
+				"the authorization server rejected dynamic client registration; supply client_id: ",
+			)
 			return "", "", &apiErr
 		}
 		return registered.ClientID, registered.ClientSecret, nil
@@ -507,4 +509,11 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 		return "", false
 	}
 	return s.absolutePublicURL(mcpOAuthClientMetadataPath), true
+}
+
+func mcpUpstreamFailure(err error, transientPrefix string, rejectedPrefix string) apierror.ResponseError {
+	if mcp.IsRetryableConnectionFailure(err) {
+		return apierror.FromCode(apierror.CodeUpstreamUnavailable, transientPrefix+err.Error()).WithCause(err)
+	}
+	return apierror.FromCode(openapi.ErrorCodeUnprocessable, rejectedPrefix+err.Error()).WithCause(err)
 }

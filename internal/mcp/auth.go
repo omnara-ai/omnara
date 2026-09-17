@@ -121,10 +121,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 	if response.StatusCode != http.StatusUnauthorized {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
 		if response.StatusCode < 200 || response.StatusCode > 299 {
-			return AuthRequirement{}, fmt.Errorf(
-				"mcp auth: server probe returned unexpected HTTP %d",
-				response.StatusCode,
-			)
+			return AuthRequirement{}, fmt.Errorf("mcp auth: server probe: %w", &HTTPError{Status: response.StatusCode})
 		}
 		return AuthRequirement{Required: false, EndpointURL: endpoint, Resource: canonicalResourceURI(endpoint)}, nil
 	}
@@ -574,7 +571,7 @@ func fetchAuthServerMetadata(
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
-		return nil, fmt.Errorf("metadata endpoint returned HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("metadata endpoint: %w", &HTTPError{Status: response.StatusCode})
 	}
 	body, err := readOAuthResponseBody(response.Body)
 	if err != nil {
