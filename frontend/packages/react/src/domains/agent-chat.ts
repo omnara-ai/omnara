@@ -5,17 +5,12 @@ import {
   type OmnaraClient,
 } from '@omnara/sdk'
 import { getAgentOptions } from '@omnara/sdk/tanstack'
-import {
-  type InfiniteData,
-  type QueryClient,
-  type QueryStatus,
-  useQueryClient,
-} from '@tanstack/react-query'
+import { type QueryClient, type QueryStatus, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
-import { agentChatHistoryQueryKey, useAgentChatHistory } from './agent-chat-history'
+import { historyHasEvent, useAgentChatHistory } from './agent-chat-history'
 import {
   eventsAfterSequence,
   hasToolCalls,
@@ -50,7 +45,7 @@ import {
   cacheAgentInputBacklog,
   useAgentInputBacklog,
 } from './agent-input-backlog'
-import { openAgentInteractionsQueryKey } from './agent-interactions'
+import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -274,13 +269,13 @@ export class AgentChatSession {
   }
 
   private inputEchoLoaded(id: string): boolean {
-    const matches = (event: AgentEvent) =>
-      event.event_kind === 'agent_input' && event.input_idempotency_key === id
-    if (this.events.some(matches)) return true
-    const history = this.queryClient.getQueryData<InfiniteData<{ data: AgentEvent[] }>>(
-      agentChatHistoryQueryKey(this.scope),
+    return this.hasLoadedEvent(
+      (event) => event.event_kind === 'agent_input' && event.input_idempotency_key === id,
     )
-    return history?.pages.some((page) => page.data.some(matches)) ?? false
+  }
+
+  private hasLoadedEvent(matches: (event: AgentEvent) => boolean): boolean {
+    return this.events.some(matches) || historyHasEvent(this.queryClient, this.scope, matches)
   }
 
   private notify(): void {
@@ -347,6 +342,9 @@ export class AgentChatSession {
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       this.invalidateInteractions()
     }
+    void invalidateSubagentList(this.queryClient, this.client, this.scope, event, (matches) =>
+      this.hasLoadedEvent(matches),
+    )
     this.notify()
   }
 

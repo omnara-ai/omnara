@@ -3,6 +3,7 @@ import {
   type CreateConfiguredModelRequest,
   type CreateModelProviderConfigRequest,
   type DiscoveredModelPricing,
+  type DiscoveredProviderModel,
   type ListModelProviderConfigsData,
   type ModelProviderConfig,
   type OmnaraClient,
@@ -83,6 +84,20 @@ export interface ModelPricingLookup {
   isPending: boolean
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function catalogPricing(
+  models: DiscoveredProviderModel[],
+  slug: string,
+): DiscoveredModelPricing | undefined {
+  const exact = models.find((model) => model.slug === slug)
+  if (exact) return exact.pricing
+  const dated = new RegExp(`^${escapeRegExp(slug)}-\\d+$`)
+  return models.find((model) => model.pricing && dated.test(model.slug))?.pricing
+}
+
 export function useClusterModelPricing(orgID: string): ModelPricingLookup {
   const client = useOmnaraClient()
   const providersQuery = useModelProviders(orgID, { pageSize: 100 })
@@ -100,18 +115,13 @@ export function useClusterModelPricing(orgID: string): ModelPricingLookup {
       staleTime: modelCatalogPricingStaleTime,
     })),
   })
-  const pricingByProvider = new Map<string, Map<string, DiscoveredModelPricing>>()
+  const catalogByProvider = new Map<string, DiscoveredProviderModel[]>()
   clusterProviders.forEach((provider, index) => {
-    const models = catalogs[index]?.data?.models ?? []
-    const bySlug = new Map<string, DiscoveredModelPricing>()
-    for (const model of models) {
-      if (model.pricing) bySlug.set(model.slug, model.pricing)
-    }
-    pricingByProvider.set(provider.id, bySlug)
+    catalogByProvider.set(provider.id, catalogs[index]?.data?.models ?? [])
   })
   return {
     pricingFor: (modelProviderConfigID, providerModelSlug) =>
-      pricingByProvider.get(modelProviderConfigID)?.get(providerModelSlug),
+      catalogPricing(catalogByProvider.get(modelProviderConfigID) ?? [], providerModelSlug),
     isPending:
       providersQuery.isPending ||
       (hasNextPage && !isError) ||
