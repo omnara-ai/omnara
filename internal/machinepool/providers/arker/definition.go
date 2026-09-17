@@ -1,4 +1,3 @@
-// Package arker provisions pool machines as Arker VMs.
 package arker
 
 import (
@@ -32,8 +31,6 @@ type Definition struct{}
 
 var _ providers.RuntimeProviderDefinition = Definition{}
 
-// A fork is sized by the request, so cpu and memory are configured rather than
-// provider-resolved.
 func resourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{
@@ -131,8 +128,6 @@ func (definition Definition) BuildMachineProvisioningIntent(
 	return machineProvisioning, nil
 }
 
-// A pool configures one or the other; both would silently disagree about where
-// a machine lives.
 func validatePlacement(config providerConfig, options providerOptions) error {
 	switch {
 	case config.BaseURL != "" && options.Provider != "":
@@ -207,7 +202,6 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	); err != nil {
 		return providerConfig{}, err
 	}
-	// Placement values reach the API hostname, so they are DNS labels.
 	if config.AllowedProviders, err = providers.NormalizeAllowlist(
 		"arker provider config allowed_providers",
 		config.AllowedProviders,

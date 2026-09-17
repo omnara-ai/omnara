@@ -138,12 +138,6 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 			f.deletes.Add(1)
 			fmt.Fprint(w, `{"deleted":true}`)
 		case strings.HasSuffix(path, "/sync"):
-			// SDK v0.2.0 dropped /sync-stream: WriteFile now POSTs /sync with
-			// {"op":"write","writes":[...]} and REQUIRES exactly one entry in
-			// `results`, checking complete+written on the final chunk. A bare
-			// {"status":"ok"} decodes cleanly but yields zero results, which the
-			// SDK reports as "sync write response missing result" — a 200 that
-			// still fails, so the shape matters as much as the status.
 			f.writes.Add(1)
 			if f.writeStatus != 0 {
 				w.WriteHeader(f.writeStatus)

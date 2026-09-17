@@ -103,7 +103,7 @@ func TestArkerProviderDeleteRemovesAVMWhoseNameIsUnexpected(t *testing.T) {
 		t.Fatalf("delete by recorded id: %v", err)
 	}
 	if fake.deletes.Load() != 1 {
-		t.Fatalf("issued %d deletes; a vm nothing can remove stays billable",
+		t.Fatalf("issued %d deletes; a VM nothing can remove is never cleaned up",
 			fake.deletes.Load())
 	}
 }
@@ -173,7 +173,7 @@ func TestArkerProviderDaemonKeepsTheTokenOutOfReadableFields(t *testing.T) {
 		t.Fatalf("daemon command carries the machine token: %s", command)
 	}
 	if _, present := env["OMNARA_MACHINE_TOKEN"]; present {
-		t.Fatalf("session env carries the machine token, which is readable back: %v", env)
+		t.Fatalf("session env carries the machine token; keep credentials out of it: %v", env)
 	}
 	if fake.writes.Load() != 1 {
 		t.Fatalf("wrote %d files, want one boot script", fake.writes.Load())
