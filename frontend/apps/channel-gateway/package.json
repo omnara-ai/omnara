@@ -14,22 +14,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@chat-adapter/discord": "4.40.0",
-    "@chat-adapter/github": "4.40.0",
-    "@chat-adapter/slack": "4.40.0",
     "@discordjs/rest": "2.6.3",
     "@discordjs/ws": "2.0.4",
     "@fastify/busboy": "3.2.2",
     "@hono/node-server": "2.1.1",
     "@octokit/auth-app": "8.3.1",
-    "@slack/web-api": "7.19.0",
-    "chat": "4.40.0",
     "hono": "4.13.7",
     "redis": "5.11.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@omnara/sdk": "workspace:*",
+    "@slack/web-api": "7.19.0",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
     "graphql": "16.14.2",

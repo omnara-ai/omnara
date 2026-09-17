@@ -3,15 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { SlackClient } from './client'
 import type { SlackInboundEvent } from './events'
 import { applySlackInputEffects } from './input-effects'
-import {
-  attempt,
-  body,
-  credentials,
-  deferred,
-  json,
-  slackPayload,
-  slackServer,
-} from './test-support'
+import { attempt, body, credentials, deferred, json, slackServer } from './test-support'
 
 const event: SlackInboundEvent = {
   type: 'message',
@@ -37,7 +29,7 @@ describe('Slack post-admission UI effects', () => {
     const url = await slackServer((request, response) => {
       requests.push(request.url ?? '')
       void body(request).then((bytes) => {
-        const payload: unknown = slackPayload(bytes)
+        const payload: unknown = JSON.parse(bytes.toString())
         if (request.url === '/reactions.add') {
           expect(payload).toEqual({ channel: 'C1', timestamp: event.ts, name: 'eyes' })
           json(response, { ok: false, error: 'already_reacted' })

@@ -6,20 +6,16 @@ import { z } from 'zod'
 
 import { parseObjectFields } from '../json'
 import type { OperationArtifact } from '../operations/files'
-import { withProviderOperation } from '../operations/provider-context'
 import { type OperationAttemptContext, parseRetryAfter } from '../operations/retry'
 import type { DiscordConfiguration } from './configuration'
 import {
   DiscordAPIError,
-  type DiscordChannel,
   discordChannel,
   discordID,
-  type DiscordMessage,
   discordMessage,
   discordUser,
   providerValue,
 } from './protocol'
-import { DiscordMessagingAdapter } from './sdk'
 
 const responseBytes = 1024 * 1024
 export const discordRequestBytes = 25 * 1024 * 1024
@@ -30,14 +26,12 @@ export type DiscordUpload = Pick<
 const application = z.object({ id: discordID })
 const rateLimit = z.object({ retry_after: z.number().nonnegative() })
 
-/** SDK messaging with native identity, named threads and streaming uploads.
- * apiUrl is deployment/test configuration only. Every path uses the same
- * bounded transport, with no hidden retries or shared abort state.
+/** Fixed Discord REST endpoints. apiUrl is deployment/test configuration only.
+ * No hidden retries, redirect following, shared abort state, or file buffering.
  */
 export class DiscordClient {
   readonly configuration: Readonly<DiscordConfiguration>
   private readonly base: URL
-  private readonly messaging: DiscordMessagingAdapter
   private verified = false
 
   constructor(configuration: DiscordConfiguration, apiUrl = 'https://discord.com/api/v10/') {
@@ -60,10 +54,6 @@ export class DiscordClient {
     } catch {
       throw new DiscordAPIError('invalid_configuration')
     }
-    this.messaging = new DiscordMessagingAdapter(
-      this.configuration,
-      (method, path, context, body) => this.request(method, path, context, body),
-    )
   }
 
   async verifyIdentity(context: OperationAttemptContext): Promise<void> {
@@ -81,11 +71,7 @@ export class DiscordClient {
 
   async getChannel(id: string, context: OperationAttemptContext) {
     validateID(id)
-    const channel = await withProviderOperation(context, () =>
-      this.messaging.fetchChannelInfo(this.messaging.channelID(id)),
-    )
-    // SAFETY: discordFetch validates discordChannel before returning JSON to the SDK.
-    return channel.metadata.raw as DiscordChannel
+    return providerValue(discordChannel, await this.request('GET', `channels/${id}`, context))
   }
 
   async getMessages(
@@ -98,8 +84,6 @@ export class DiscordClient {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100)
       throw new DiscordAPIError('invalid_request')
     if (before !== undefined) validateID(before)
-    // SDK history eagerly builds Markdown trees that raw channel history never
-    // uses. Read the bounded native page without that unbudgeted expansion.
     const query = new URLSearchParams({ limit: String(limit) })
     if (before !== undefined) query.set('before', before)
     return providerValue(
@@ -116,22 +100,11 @@ export class DiscordClient {
   ) {
     validateID(id)
     this.validateMessage(content, files)
-    if (files.length)
-      return providerValue(
-        discordMessage,
-        await this.multipart(
-          `channels/${id}/messages`,
-          messagePayload(content, files),
-          files,
-          context,
-        ),
-        true,
-      )
-    const result = await withProviderOperation(context, () =>
-      this.messaging.postMessage(this.messaging.channelID(id), { raw: content ?? '' }),
-    )
-    // SAFETY: discordFetch validates discordMessage before the SDK accesses the result.
-    return result.raw as DiscordMessage
+    const payload = messagePayload(content, files)
+    const result = files.length
+      ? await this.multipart(`channels/${id}/messages`, payload, files, context)
+      : await this.request('POST', `channels/${id}/messages`, context, JSON.stringify(payload))
+    return providerValue(discordMessage, result, true)
   }
 
   async createThread(

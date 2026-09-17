@@ -1,5 +1,6 @@
 import { verify } from 'node:crypto'
 
+import type { JsonBody } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -14,10 +15,9 @@ import {
   localServer,
   publicKey,
   requestBody,
-  restComment,
 } from './test-support'
 
-describe('GitHub SDK and native transport', () => {
+describe('GitHub native transport', () => {
   it('preserves reset guidance for a GraphQL HTTP 200 read throttle', async () => {
     const reset = Math.ceil(Date.now() / 1000) + 120
     const f = await githubFixture((_request, response) => {
@@ -50,19 +50,70 @@ describe('GitHub SDK and native transport', () => {
       remaining: '4999',
     },
     { name: 'untyped exhausted quota', errors: [{ message: 'PRIVATE' }], remaining: '0' },
-  ])('classifies $name GraphQL read limits without hidden retries', async (scenario) => {
+  ])('never replays a mutation with $name GraphQL errors', async (scenario) => {
+    for (const data of [null, { addComment: { commentEdge: { node: { id: 'IC_created' } } } }]) {
+      let calls = 0
+      const f = await githubFixture((_request, response) => {
+        calls += 1
+        response.setHeader('retry-after', '1')
+        if (scenario.remaining !== undefined)
+          response.setHeader('x-ratelimit-remaining', scenario.remaining)
+        json(response, { data, errors: scenario.errors })
+      })
+      const failure = await retryOperation(attempt(), (context) =>
+        postGitHubTimelineComment(f.client, 7, 'hello', context),
+      ).catch((cause: unknown) => cause)
+      expect(failure).toMatchObject({ outcomeUnknown: true, attempts: 1 })
+      expect(JSON.stringify(failure)).not.toContain('PRIVATE')
+      expect(calls).toBe(1)
+    }
+  })
+  it.each(['NOT_FOUND', 'FORBIDDEN', 'UNPROCESSABLE'])(
+    'reports a definite %s rejection as safely failed without replaying the mutation',
+    async (type) => {
+      for (const data of [null, { addComment: null }]) {
+        let mutations = 0
+        const f = await githubFixture((_request, response) => {
+          mutations++
+          json(response, { data, errors: [{ type, message: 'PRIVATE' }] })
+        })
+        const failure = await retryOperation(attempt(), (context) =>
+          postGitHubTimelineComment(f.client, 7, 'hello', context),
+        ).catch((cause: unknown) => cause)
+        expect(failure).toMatchObject({
+          code: 'permanent_failure',
+          outcomeUnknown: false,
+          attempts: 1,
+        })
+        expect(JSON.stringify(failure)).not.toContain('PRIVATE')
+        expect(mutations).toBe(1)
+      }
+    },
+  )
+  it.each<{ name: string; data: JsonBody; errors: JsonBody[] }>([
+    {
+      name: 'typed rejection with partial data',
+      data: { addComment: { commentEdge: { node: { id: 'IC_created' } } } },
+      errors: [{ type: 'FORBIDDEN', message: 'PRIVATE' }],
+    },
+    { name: 'untyped error', data: null, errors: [{ message: 'PRIVATE' }] },
+    {
+      name: 'mixed typed and untyped errors',
+      data: null,
+      errors: [{ type: 'NOT_FOUND' }, { message: 'PRIVATE' }],
+    },
+  ])('keeps $name ambiguous without replaying the mutation', async ({ data, errors }) => {
+    let mutations = 0
     const f = await githubFixture((_request, response) => {
-      response.setHeader('retry-after', '1')
-      if (scenario.remaining !== undefined)
-        response.setHeader('x-ratelimit-remaining', scenario.remaining)
-      json(response, { data: null, errors: scenario.errors })
+      mutations++
+      json(response, { data, errors })
     })
-    const failure = await f.client
-      .query('viewer', {}, z.unknown(), attempt())
-      .catch((cause: unknown) => cause)
-    expect(failure).toMatchObject({ outcomeUnknown: false, retryable: true, retryAfterMs: 1000 })
+    const failure = await retryOperation(attempt(), (context) =>
+      postGitHubTimelineComment(f.client, 7, 'hello', context),
+    ).catch((cause: unknown) => cause)
+    expect(failure).toMatchObject({ code: 'outcome_unknown', outcomeUnknown: true, attempts: 1 })
     expect(JSON.stringify(failure)).not.toContain('PRIVATE')
-    expect(f.calls.filter((call) => call.path === '/graphql')).toHaveLength(1)
+    expect(mutations).toBe(1)
   })
   it.each(['omitted', 'empty'])(
     'accepts a successful final allowance with %s errors',
@@ -229,17 +280,12 @@ describe('GitHub SDK and native transport', () => {
     'makes exactly one mutation attempt on HTTP %s, with safe diagnostics',
     async (status) => {
       let mutations = 0
-      const { client } = await githubFixture(
-        () => {
-          throw new Error('unexpected GraphQL')
-        },
-        (_call, response) => {
-          mutations++
-          if (status === 429) response.setHeader('retry-after', '60')
-          if (status === 403) response.setHeader('x-ratelimit-remaining', '4999')
-          json(response, { message: 'DO-NOT-LOG-TOKEN-OR-BODY' }, status)
-        },
-      )
+      const { client } = await githubFixture((_request, response) => {
+        mutations++
+        if (status === 429) response.setHeader('retry-after', '60')
+        if (status === 403) response.setHeader('x-ratelimit-remaining', '4999')
+        json(response, { message: 'DO-NOT-LOG-TOKEN-OR-BODY' }, status)
+      })
       await expect(postGitHubTimelineComment(client, 7, 'hello', attempt())).rejects.toMatchObject({
         code: status === 429 ? 'rate_limited' : 'http_rejected',
         outcomeUnknown: status === 503,
@@ -253,20 +299,15 @@ describe('GitHub SDK and native transport', () => {
     'honors GitHub 403 rate guidance from %s without a hidden retry',
     async (header) => {
       let mutations = 0
-      const { client } = await githubFixture(
-        () => {
-          throw new Error('unexpected GraphQL')
-        },
-        (_call, response) => {
-          mutations++
-          if (header === 'retry-after') response.setHeader(header, '60')
-          else {
-            response.setHeader('x-ratelimit-remaining', '0')
-            response.setHeader(header, String(Math.ceil(Date.now() / 1000) + 60))
-          }
-          json(response, { message: 'private details' }, 403)
-        },
-      )
+      const { client } = await githubFixture((_request, response) => {
+        mutations++
+        if (header === 'retry-after') response.setHeader(header, '60')
+        else {
+          response.setHeader('x-ratelimit-remaining', '0')
+          response.setHeader(header, String(Math.ceil(Date.now() / 1000) + 60))
+        }
+        json(response, { message: 'private details' }, 403)
+      })
       const failure = await postGitHubTimelineComment(client, 7, 'hello', attempt()).catch(
         (cause: unknown) => cause,
       )
@@ -288,15 +329,10 @@ describe('GitHub SDK and native transport', () => {
       redirected++
       json(response, {})
     })
-    const { client } = await githubFixture(
-      () => {
-        throw new Error('unexpected GraphQL')
-      },
-      (_call, response) => {
-        response.writeHead(307, { location: other })
-        response.end()
-      },
-    )
+    const { client } = await githubFixture((_request, response) => {
+      response.writeHead(307, { location: other })
+      response.end()
+    })
     await expect(postGitHubTimelineComment(client, 7, 'hello', attempt())).rejects.toMatchObject({
       code: 'http_rejected',
     })
@@ -309,20 +345,15 @@ describe('GitHub SDK and native transport', () => {
     )
   })
 
-  it.each(['{"data":{},"data":{}}', '\u0000'])(
-    'rejects malformed JSON without replaying an ambiguous mutation',
+  it.each(['{"data":{},"data":{}}', '{"data":"' + 'x'.repeat(1024 * 1024) + '"}', '\u0000'])(
+    'bounds and validates a response without replaying an ambiguous mutation',
     async (raw) => {
       let mutations = 0
-      const { client } = await githubFixture(
-        () => {
-          throw new Error('unexpected GraphQL')
-        },
-        (_call, response) => {
-          mutations++
-          response.writeHead(201, { 'content-type': 'application/json' })
-          response.end(raw)
-        },
-      )
+      const { client } = await githubFixture((_request, response) => {
+        mutations++
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(raw)
+      })
       await expect(
         retryOperation(attempt(), (context) =>
           postGitHubTimelineComment(client, 7, 'hello', context),
@@ -332,35 +363,13 @@ describe('GitHub SDK and native transport', () => {
     },
   )
 
-  it('caps a valid success comment before decoding even when only unused fields are oversized', async () => {
-    const f = await githubFixture(
-      () => {
-        throw new Error('unexpected GraphQL')
-      },
-      (_call, response) => {
-        json(response, { ...restComment, unused: 'x'.repeat(1024 * 1024) }, 201)
-      },
-    )
-    await expect(postGitHubTimelineComment(f.client, 7, 'hello', attempt())).rejects.toMatchObject({
-      code: 'response_too_large',
-      outcomeUnknown: true,
-      retryable: false,
-    })
-    expect(f.calls.filter((call) => call.path.endsWith('/comments'))).toHaveLength(1)
-  })
-
   it('aborts a stalled mutation body under the operation deadline', async () => {
     let mutations = 0
-    const { client } = await githubFixture(
-      () => {
-        throw new Error('unexpected GraphQL')
-      },
-      (_call, response) => {
-        mutations++
-        response.writeHead(201, { 'content-type': 'application/json' })
-        response.write('{"data":')
-      },
-    )
+    const { client } = await githubFixture((_request, response) => {
+      mutations++
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.write('{"data":')
+    })
     // Authenticate before starting the deliberately short mutation deadline.
     await import('./messages').then(({ getGitHubPullRequest }) =>
       getGitHubPullRequest(client, 7, attempt()),

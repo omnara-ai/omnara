@@ -104,7 +104,7 @@ export function slackDefinition(
   }
 }
 
-/** Process a verified saved callback directly, without the SDK's live dedupe.
+/** Process a verified saved callback using core's durable receipt identity.
  * The receipt consumer alone completes/retries the receipt after all routes.
  */
 export async function processSlackEvent(

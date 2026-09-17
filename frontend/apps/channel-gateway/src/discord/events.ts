@@ -19,7 +19,7 @@ export type DiscordInboundMessage = z.infer<typeof discordInboundMessage>
 export type DiscordAttachment = z.infer<typeof discordAttachment>
 
 /** The runtime already saved this raw Dispatch under the exact receipt lease.
- * Never enter the SDK's live dedupe/handlers again when processing a receipt.
+ * Replay processes the saved payload without re-entering live capture.
  */
 export function parseDiscordReceipt(receipt: Readonly<ChannelConnectorEventReceipt>) {
   const envelope = z

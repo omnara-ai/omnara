@@ -91,7 +91,7 @@ export async function prepareSlackFiles(
       const url = privateURL(file)
       if (!url) throw new SlackAPIError('missing_url')
       // Reserve before allocation: streamed chunks + joined bytes + base64,
-      // JSON serialization and canonical SDK validation can coexist temporarily.
+      // JSON serialization and generated API validation can coexist temporarily.
       work.resize(acceptedBytes * 8 + 1024 * 1024)
       const downloaded = await client.download(url, limit, context, (bytes) => {
         // The provider's declared size is only a hint. Charge actual streamed

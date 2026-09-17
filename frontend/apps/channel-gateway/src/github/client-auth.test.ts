@@ -185,31 +185,22 @@ describe('GitHub scoped authentication and bounded transport', () => {
     },
   )
 
-  it('ignores unused large token-response IDs and still verifies the selected repository', async () => {
+  it('rejects unsafe token response IDs before caching authentication or accessing the repository', async () => {
     const paths: (string | undefined)[] = []
     const authentication: GitHubAuthentication = {}
     const url = await localServer((request, response) => {
       paths.push(request.url)
-      if (request.url?.endsWith('/access_tokens')) {
-        response.writeHead(201, { 'content-type': 'application/json' })
-        response.end(
-          `{"token":"local-token","expires_at":"${new Date(Date.now() + 3_600_000).toISOString()}",` +
-            '"repositories":[{"id":9007199254740993}]}',
-        )
-      } else if (request.url === '/repositories/456') {
-        json(response, {
-          id: 456,
-          node_id: 'R_selected',
-          name: 'project',
-          owner: { login: 'example' },
-        })
-      } else json(response, { data: { viewer: { id: 'U_bot', login: 'example[bot]' } } })
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        `{"token":"local-token","expires_at":"${new Date(Date.now() + 3_600_000).toISOString()}",` +
+          '"repositories":[{"id":9007199254740993}]}',
+      )
     })
     await expect(
       new GitHubClient(configuration, url, authentication).viewer(attempt()),
-    ).resolves.toEqual({ id: 'U_bot', login: 'example[bot]' })
-    expect(paths).toEqual(['/app/installations/123/access_tokens', '/repositories/456', '/graphql'])
-    expect(authentication.token?.value).toBe('local-token')
+    ).rejects.toMatchObject({ code: 'invalid_response', outcomeUnknown: false })
+    expect(paths).toEqual(['/app/installations/123/access_tokens'])
+    expect(authentication.token).toBeUndefined()
   })
 
   it('accepts finite exponent notation in non-identity numeric fields', async () => {

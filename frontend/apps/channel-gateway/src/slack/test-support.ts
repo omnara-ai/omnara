@@ -41,31 +41,6 @@ export async function body(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks)
 }
 
-/** Slack accepts JSON and the SDK's form encoding. Preserve text and timestamp
- * strings; only structured/numeric API fields are decoded to their native types.
- */
-export function slackPayload(bytes: Buffer): Record<string, FixtureJSON> {
-  const text = bytes.toString('utf8')
-  if (text.startsWith('{')) return z.record(z.string(), z.json()).parse(JSON.parse(text))
-  const encoded = new Set([
-    'files',
-    'blocks',
-    'attachments',
-    'length',
-    'limit',
-    'inclusive',
-    'as_user',
-    'unfurl_links',
-    'unfurl_media',
-  ])
-  return Object.fromEntries(
-    [...new URLSearchParams(text)].map(([key, value]) => [
-      key,
-      encoded.has(key) ? JSON.parse(value) : value,
-    ]),
-  )
-}
-
 export function operation(durationMs = 10_000) {
   return { requestId: 'slack-operation-1', deadlineMs: Date.now() + durationMs }
 }

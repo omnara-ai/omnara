@@ -16,7 +16,7 @@ import {
   receipt,
   result,
 } from './behavior-test-support'
-import { body, credentials, deferred, json, slackPayload } from './test-support'
+import { body, credentials, deferred, json } from './test-support'
 
 function active(keys: string[] = []): LookupChannelConnectorWorkflowResponse {
   return { exists: true, agent_state: 'active', input_keys: keys }
@@ -280,7 +280,7 @@ describe('verified Slack receipt behavior', () => {
       expect(outcomes.get(files.receipt_id)).toBe(filesKey)
       expect(context.deliverWorkflow).toHaveBeenCalledTimes(3)
 
-      // New lease/receipt, same semantic message: no SDK TTL state or earlier
+      // New lease/receipt, same semantic message: no process-local state or earlier
       // in-memory file preparation is needed to avoid duplicate media/downloads.
       const replay = {
         ...files,
@@ -494,7 +494,7 @@ describe('verified Slack receipt behavior', () => {
     const { context } = await fixture((request, response) => {
       if (request.url !== '/conversations.replies') return false
       void body(request).then((bytes) => {
-        expect(slackPayload(bytes)).toEqual({
+        expect(JSON.parse(bytes.toString())).toEqual({
           channel: 'C1',
           latest: '100.000002',
           inclusive: false,

@@ -132,7 +132,7 @@ describe('Discord history', () => {
     expect(child.coverage).toBe('partial')
   })
 
-  it('retains raw code/mention text and real reply IDs instead of SDK plain text', async () => {
+  it('retains raw code/mention text and real reply IDs', async () => {
     const content = '```ts\nconst text = ":smile: <@123456789012345678>"\n```\n**bold** @Ada'
     const replyID = '123456789012345678'
     const url = await server((request, response) => {

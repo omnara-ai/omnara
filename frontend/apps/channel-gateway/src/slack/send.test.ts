@@ -4,15 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { SlackClient } from './client'
 import { sendSlackMessage } from './send'
-import {
-  body,
-  credentials,
-  deferred,
-  json,
-  operation,
-  slackPayload,
-  slackServer,
-} from './test-support'
+import { body, credentials, deferred, json, operation, slackServer } from './test-support'
 
 describe('sendSlackMessage', () => {
   it.each([
@@ -22,7 +14,7 @@ describe('sendSlackMessage', () => {
     let payload: unknown
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
-        payload = slackPayload(bytes)
+        payload = JSON.parse(bytes.toString())
         json(response, { ok: true, channel: 'C1', ts: '1720000000.000002' })
       })
     })
@@ -55,7 +47,7 @@ describe('sendSlackMessage', () => {
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
         const upload = request.url?.startsWith('/upload/')
-        const payload: unknown = upload ? bytes.toString() : slackPayload(bytes)
+        const payload: unknown = upload ? bytes.toString() : JSON.parse(bytes.toString())
         calls.push({ path: request.url, payload, authorization: request.headers.authorization })
         if (request.url === '/files.getUploadURLExternal') {
           nextFile++
@@ -205,7 +197,7 @@ describe('sendSlackMessage', () => {
         else response.end('OK')
       } else {
         void body(request).then((bytes) => {
-          completion = slackPayload(bytes)
+          completion = JSON.parse(bytes.toString())
           json(response, { ok: true })
         })
       }
@@ -319,7 +311,7 @@ describe('sendSlackMessage', () => {
     ])
   })
 
-  it('aborts a stalled SDK publication without retrying an unknown send', async () => {
+  it('aborts a stalled publication without retrying an unknown send', async () => {
     const started = deferred()
     const closed = deferred()
     let calls = 0

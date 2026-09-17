@@ -5,15 +5,7 @@ import { z } from 'zod'
 import type { CoreClient } from '../core/client'
 import { resolveSlackAddress } from './address'
 import { SlackClient } from './client'
-import {
-  body,
-  credentials,
-  deferred,
-  json,
-  operation,
-  slackPayload,
-  slackServer,
-} from './test-support'
+import { body, credentials, deferred, json, operation, slackServer } from './test-support'
 
 const suffix = 'aaaaaaaaaaaaaaaaaaaaaaaaae'
 const installation = {
@@ -52,7 +44,7 @@ describe('Slack address resolution', () => {
         paths.push(request.url ?? '')
         expect(request.headers.authorization).toBe(`Bearer ${credentials.botToken}`)
         void body(request).then((bytes) => {
-          expect(slackPayload(bytes)).toEqual({ channel: channel.id })
+          expect(JSON.parse(bytes.toString())).toEqual({ channel: channel.id })
           json(response, z.json().parse({ ok: true, channel }))
         })
       })
@@ -84,7 +76,7 @@ describe('Slack address resolution', () => {
     const requests: { path: string; input: unknown }[] = []
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
-        requests.push({ path: request.url ?? '', input: slackPayload(bytes) })
+        requests.push({ path: request.url ?? '', input: JSON.parse(bytes.toString()) })
         if (request.url === '/conversations.info') json(response, { ok: true, channel: room })
         else
           json(response, {

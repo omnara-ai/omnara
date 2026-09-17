@@ -505,18 +505,6 @@ func githubJourneyProvider(t *testing.T, sends *atomic.Int32, beforeWrite func(b
 			value = map[string]any{"id": json.Number(databaseID), "node_id": id, "body": request["body"],
 				"path": path, "line": line, "commit_id": strings.Repeat("b", 40), "pull_request_review_id": 44,
 				"created_at": "2026-09-15T12:00:00Z", "user": map[string]string{"login": "example[bot]"}}
-		case "/repos/example/project/issues/7/comments":
-			assert.Equal(t, http.MethodPost, r.Method)
-			var request map[string]any
-			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&request)) {
-				http.Error(w, "invalid request", http.StatusBadRequest)
-				return
-			}
-			assert.Equal(t, map[string]any{"body": "Explicit agent reply"}, request)
-			sends.Add(1)
-			status = http.StatusCreated
-			value = map[string]any{"id": 101, "node_id": "IC_sent", "body": request["body"],
-				"created_at": "2026-09-15T12:00:00Z", "user": map[string]string{"login": "example[bot]"}}
 		case "/graphql":
 			var request struct {
 				Query     string         `json:"query"`
@@ -578,6 +566,15 @@ func githubJourneyProvider(t *testing.T, sends *atomic.Int32, beforeWrite func(b
 						"author": map[string]string{"login": "human"}, "createdAt": "2026-09-15T12:00:00Z",
 					}}, "pageInfo": map[string]any{"hasPreviousPage": false, "startCursor": "cursor-one"}},
 				}}
+			case strings.Contains(request.Query, "mutation GitHubTimelineComment"):
+				assert.Equal(t, map[string]any{"input": map[string]any{
+					"subjectId": "PR_selected", "body": "Explicit agent reply",
+				}}, request.Variables)
+				sends.Add(1)
+				data["addComment"] = map[string]any{"commentEdge": map[string]any{"node": map[string]any{
+					"id": "IC_sent", "body": "Explicit agent reply", "author": map[string]string{"login": "example[bot]"},
+					"createdAt": "2026-09-15T12:00:00Z",
+				}}}
 			default:
 				t.Errorf("unexpected native operation: %s", request.Query)
 				http.Error(w, "unsupported", http.StatusBadRequest)

@@ -35,31 +35,6 @@ describe('SlackClient', () => {
     },
   )
 
-  it('does not enqueue requests behind another operation’s async context', async () => {
-    // WebClient defaults to a queue of 100; its queued continuations inherit
-    // the completing request's context. Omnara's operation limiter owns queuing.
-    const count = 101
-    const received = deferred()
-    const respond: (() => void)[] = []
-    const url = await slackServer((_request, response) => {
-      respond.push(() => {
-        json(response, { ok: true, messages: [] })
-      })
-      if (respond.length === count) received.resolve()
-    })
-    const client = new SlackClient(credentials.botToken, url)
-    const completed = expect(
-      Promise.all(
-        Array.from({ length: count }, () =>
-          client.api('conversations.history', { channel: 'C1' }, attempt(undefined, 10_000)),
-        ),
-      ),
-    ).resolves.toHaveLength(count)
-    await received.promise
-    for (const send of respond) send()
-    await completed
-  })
-
   it('authenticates an API request and returns no credential in provider diagnostics', async () => {
     let calls = 0
     let authorization: string | undefined
@@ -102,7 +77,7 @@ describe('SlackClient', () => {
     expect(redirected).toBe(0)
   })
 
-  it('surfaces Retry-After without an SDK retry', async () => {
+  it('surfaces Retry-After without a hidden retry', async () => {
     let calls = 0
     const url = await slackServer((_request, response) => {
       calls++
@@ -149,8 +124,8 @@ describe('SlackClient', () => {
     controller.abort()
     await rejected
     await closed.promise
-    expect(await parallel).toMatchObject({ messages: [] })
-    expect(await client.api('conversations.history', { channel: 'C1' }, attempt())).toMatchObject({
+    expect(await parallel).toEqual({ messages: [] })
+    expect(await client.api('conversations.history', { channel: 'C1' }, attempt())).toEqual({
       messages: [],
     })
   })
@@ -195,7 +170,7 @@ describe('SlackClient', () => {
     ).rejects.toMatchObject({ code: 'invalid_response', outcomeUnknown: true })
   })
 
-  it('does not retry a read that exceeds the SDK response budget', async () => {
+  it('does not retry a read that exceeds the response budget', async () => {
     let calls = 0
     const url = await slackServer((_request, response) => {
       calls++

@@ -48,7 +48,7 @@ export async function sendSlackLaunchDenial(
 
 /** Native post-admission UI effects. Each request happens at most once in this
  * invocation; a failure never retries the accepted input or changes its outcome.
- * The caller need not track SDK state: already_reacted is successful replay.
+ * An already_reacted response is successful replay.
  */
 export async function applySlackInputEffects(
   client: SlackClient,

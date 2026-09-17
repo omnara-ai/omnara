@@ -42,15 +42,6 @@ export const comment = {
   author: { login: 'example[bot]' },
   createdAt: '2026-09-15T12:00:00Z',
 }
-export const restComment = {
-  id: 101,
-  node_id: comment.id,
-  body: comment.body,
-  created_at: comment.createdAt,
-  updated_at: comment.createdAt,
-  html_url: 'https://github.com/new-owner/renamed/pull/7#issuecomment-101',
-  user: { id: 102, login: comment.author.login, type: 'Bot' },
-}
 export const review = {
   ...comment,
   id: 'PRR_1',

@@ -49,7 +49,7 @@ describe('Discord message publication', () => {
     expect(posts).toEqual([
       {
         path: `/channels/${room.id}/messages`,
-        input: { content: 'hello', allowed_mentions: { parse: [] } },
+        input: { content: 'hello', allowed_mentions: { parse: [] }, attachments: [] },
       },
       {
         path: `/channels/${room.id}/messages/${message.id}/threads`,

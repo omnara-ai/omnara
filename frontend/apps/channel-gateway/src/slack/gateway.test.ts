@@ -19,7 +19,7 @@ import { ReceiptBehaviorError } from '../types'
 import { WorkByteBudget } from '../work-budget'
 import { createSlackGateway } from './gateway'
 import { app, delivered, installation, scope, setup, suffix } from './gateway-test-support'
-import { body, credentials, deferred, json, slackPayload, slackServer } from './test-support'
+import { body, credentials, deferred, json, slackServer } from './test-support'
 
 const destination = {
   implementation_key: 'slack_channel',
@@ -259,7 +259,7 @@ describe('Slack gateway receipt composition', () => {
       const url = await slackServer((request, response) => {
         if (request.url === '/chat.postMessage')
           void body(request).then((bytes) => {
-            posts.push(slackPayload(bytes))
+            posts.push(JSON.parse(bytes.toString()))
             // A cosmetic failure must still leave a definite, non-retryable denial.
             json(response, { ok: false, error: 'internal_error' })
           })
@@ -346,7 +346,7 @@ describe('Slack gateway receipt composition', () => {
           })
         else if (request.url === '/chat.update')
           void body(request).then((bytes) => {
-            updates.push(slackPayload(bytes))
+            updates.push(JSON.parse(bytes.toString()))
             // Cleanup failure must not retry the successful admission.
             json(response, { ok: false, error: 'internal_error' })
           })
@@ -410,7 +410,7 @@ describe('Slack gateway operation composition', () => {
     const url = await slackServer((request, response) => {
       expect(request.headers.authorization).toBe(`Bearer ${credentials.botToken}`)
       void body(request).then((bytes) => {
-        sent.push(slackPayload(bytes))
+        sent.push(JSON.parse(bytes.toString()))
         json(response, { ok: true, channel: 'C1', ts: '100.000001' })
       })
     })
@@ -441,7 +441,7 @@ describe('Slack gateway operation composition', () => {
       scope.integration_install_id,
       expect.any(AbortSignal),
     )
-    expect(sent).toMatchObject([
+    expect(sent).toEqual([
       { channel: 'C1', text: 'hello' },
       { channel: 'C1', text: 'hello' },
     ])
@@ -575,7 +575,7 @@ describe('Slack gateway operation composition', () => {
     let post: unknown
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
-        post = slackPayload(bytes)
+        post = JSON.parse(bytes.toString())
         json(response, { ok: true, ts: '100.000002' })
       })
     })
@@ -609,7 +609,7 @@ describe('Slack gateway operation composition', () => {
       else if (request.url === '/upload') void body(request).then(() => response.end())
       else
         void body(request).then((bytes) => {
-          publication = slackPayload(bytes)
+          publication = JSON.parse(bytes.toString())
           json(response, { ok: true, files: [{ id: 'F1' }] })
         })
     })

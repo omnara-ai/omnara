@@ -16,27 +16,17 @@ import {
   mutationInputs,
   oldCommit,
   pr,
-  restComment,
   thread,
 } from './test-support'
 
 describe('GitHub immediate communication primitives', () => {
   it('posts unchanged timeline text without checking or changing pending reviews', async () => {
-    const fixture = await githubFixture(
-      () => {
-        throw new Error('unexpected GraphQL')
-      },
-      (_call, response) => {
-        json(response, restComment, 201)
-      },
-    )
+    const fixture = await githubFixture((_request, response) => {
+      json(response, { data: { addComment: { commentEdge: { node: comment } } } })
+    })
     const result = await postGitHubTimelineComment(fixture.client, 7, comment.body, attempt())
-    expect(mutationInputs(fixture.calls)).toEqual([])
-    expect(fixture.calls.filter((call) => call.path.includes('/comments'))).toEqual([
-      expect.objectContaining({
-        path: '/repos/new-owner/renamed/issues/7/comments',
-        body: { body: comment.body },
-      }),
+    expect(mutationInputs(fixture.calls)).toEqual([
+      { subjectId: 'PR_selected', body: comment.body },
     ])
     expect(result).toMatchObject({ text: comment.body, publication: 'published', id: 'IC_1' })
   })

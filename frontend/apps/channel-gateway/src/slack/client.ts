@@ -3,9 +3,14 @@ import { Readable } from 'node:stream'
 import { ProviderResponseTooLargeError, readProviderResponseBody } from '../http-io'
 import { type OperationAttemptContext, parseRetryAfter } from '../operations/retry'
 import { GatewayAtCapacityError } from '../work-budget'
-import { SlackMessagingAdapter } from './adapter'
-import { SlackAPIError } from './errors'
-import type { SlackMethod, SlackRequest, SlackResponse } from './protocol'
+import { publicCodes, SlackAPIError, transientCodes } from './errors'
+import {
+  slackEnvelope,
+  type SlackMethod,
+  type SlackRequest,
+  type SlackResponse,
+  slackResponses,
+} from './protocol'
 
 const responseBytes = 1024 * 1024 // Matches the native Slack control-plane client.
 export interface SlackUpload {
@@ -20,7 +25,6 @@ export interface SlackUpload {
  */
 export class SlackClient {
   private readonly base: URL
-  private readonly adapter: SlackMessagingAdapter
 
   constructor(
     private readonly botToken: string,
@@ -37,7 +41,6 @@ export class SlackClient {
       (this.base.protocol !== 'https:' && !isLoopbackURL(this.base))
     )
       throw new SlackAPIError('invalid_configuration')
-    this.adapter = new SlackMessagingAdapter(botToken, this.base.href)
   }
 
   async api<M extends SlackMethod>(
@@ -45,7 +48,59 @@ export class SlackClient {
     payload: SlackRequest[M],
     context: OperationAttemptContext,
   ): Promise<SlackResponse<M>> {
-    return this.adapter.api(method, payload, context)
+    const publication = method === 'chat.postMessage' || method === 'files.completeUploadExternal'
+    const body = JSON.stringify(payload)
+    if (Buffer.byteLength(body) > 512 * 1024) throw new SlackAPIError('request_too_large')
+    const { bytes } = await this.request(
+      new URL(method, this.base),
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.botToken}`,
+          'content-type': 'application/json; charset=utf-8',
+        },
+        body,
+      },
+      context,
+      publication,
+    )
+    let result: unknown
+    try {
+      result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+    } catch {
+      throw new SlackAPIError('invalid_response', {
+        outcomeUnknown: publication,
+        retryable: !publication,
+      })
+    }
+    const envelope = slackEnvelope.safeParse(result)
+    if (!envelope.success) {
+      throw new SlackAPIError('invalid_response', {
+        outcomeUnknown: publication,
+        retryable: !publication,
+      })
+    }
+    if (!envelope.data.ok) {
+      const code = envelope.data.error ?? ''
+      if (code === 'ratelimited') {
+        // Without valid guidance, stop rather than inventing a short rate-limit delay.
+        throw new SlackAPIError(code, { retryable: true, retryAfterMs: Infinity })
+      }
+      if (transientCodes.has(code)) {
+        throw new SlackAPIError('provider_unavailable', {
+          outcomeUnknown: publication,
+          retryable: !publication,
+        })
+      }
+      throw new SlackAPIError(publicCodes.has(code) ? code : 'provider_rejected', {
+        outcomeUnknown: publication && !publicCodes.has(code),
+      })
+    }
+    const parsed = slackResponses[method].safeParse(result)
+    if (!parsed.success)
+      throw new SlackAPIError('invalid_response', { outcomeUnknown: publication })
+    // SAFETY: The response was parsed with precisely the schema indexed by method.
+    return parsed.data as SlackResponse<M>
   }
 
   async upload(url: string, file: SlackUpload, context: OperationAttemptContext): Promise<void> {
@@ -90,7 +145,7 @@ export class SlackClient {
         },
       }
       // Upload tickets contain their own authorization; never send the bot token here.
-      await this.requestFile(destination, init, context)
+      await this.request(destination, init, context, false)
     } catch (error) {
       if (state.invalidLength) throw new SlackAPIError('artifact_size_mismatch')
       throw error
@@ -110,10 +165,11 @@ export class SlackClient {
     reserveBytes?: (bytes: number) => void,
   ) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new SlackAPIError('file_too_large')
-    return this.requestFile(
+    return this.request(
       this.fileURL(url, 'invalid_file_url'),
       { method: 'GET', headers: { authorization: `Bearer ${this.botToken}` } },
       context,
+      false,
       maxBytes,
       'file_too_large',
       reserveBytes,
@@ -142,10 +198,11 @@ export class SlackClient {
     return url
   }
 
-  private async requestFile(
+  private async request(
     url: URL,
     init: RequestInit,
     context: OperationAttemptContext,
+    publication: boolean,
     maxBytes = responseBytes,
     oversizedCode = 'response_too_large',
     reserveBytes?: (bytes: number) => void,
@@ -172,18 +229,24 @@ export class SlackClient {
         }
         const transient = response.status >= 500 || response.status === 408
         throw new SlackAPIError(transient ? 'provider_unavailable' : 'http_rejected', {
-          retryable: transient,
+          retryable: transient && !publication,
+          outcomeUnknown: transient && publication,
         })
       }
-      if (!response.body) throw new SlackAPIError('invalid_response')
+      if (!response.body)
+        throw new SlackAPIError('invalid_response', { outcomeUnknown: publication })
       return {
         bytes: await readProviderResponseBody(response, maxBytes, signal, reserveBytes),
         contentType: response.headers.get('content-type') ?? '',
       }
     } catch (error) {
       if (error instanceof SlackAPIError || error instanceof GatewayAtCapacityError) throw error
-      if (error instanceof ProviderResponseTooLargeError) throw new SlackAPIError(oversizedCode)
-      throw new SlackAPIError('transport_failed', { retryable: true })
+      if (error instanceof ProviderResponseTooLargeError)
+        throw new SlackAPIError(oversizedCode, { outcomeUnknown: publication })
+      throw new SlackAPIError('transport_failed', {
+        outcomeUnknown: publication,
+        retryable: !publication,
+      })
     } finally {
       clearTimeout(timer)
       controller.abort()

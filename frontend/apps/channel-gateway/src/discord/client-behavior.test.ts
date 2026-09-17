@@ -1,5 +1,4 @@
-import { DiscordAdapter, DiscordFormatConverter } from '@chat-adapter/discord'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { retryOperation } from '../operations/retry'
 import { DiscordClient } from './client'
@@ -16,32 +15,8 @@ import {
   thread,
 } from './test-support'
 
-describe('published Discord Chat SDK boundary', () => {
-  it('reuses one adapter for SDK posts and channel reads without initializing Chat', async () => {
-    const initialize = vi.spyOn(DiscordAdapter.prototype, 'initialize')
-    const post = vi.spyOn(DiscordAdapter.prototype, 'postMessage')
-    const channel = vi.spyOn(DiscordAdapter.prototype, 'fetchChannelInfo')
-    const url = await server((request, response) => {
-      if (request.url === `/channels/${room.id}`) json(response, room)
-      else json(response, request.method === 'POST' ? message : [message])
-    })
-    const client = new DiscordClient(config, url)
-    try {
-      expect((await client.createMessage(room.id, 'hello', [], attempt())).id).toBe(message.id)
-      expect(await client.getChannel(room.id, attempt())).toEqual(room)
-      expect(post).toHaveBeenCalledOnce()
-      expect(channel).toHaveBeenCalledOnce()
-      expect(channel.mock.contexts[0]).toBe(post.mock.contexts[0])
-      expect(initialize).not.toHaveBeenCalled()
-    } finally {
-      initialize.mockRestore()
-      post.mockRestore()
-      channel.mockRestore()
-    }
-  })
-
-  it('reads a full formatting-heavy history page without building unused Markdown trees', async () => {
-    const format = vi.spyOn(DiscordFormatConverter.prototype, 'toAst')
+describe('Discord client behavior', () => {
+  it('preserves raw formatting and large IDs in a full history page', async () => {
     const page = Array.from({ length: 100 }, (_, index) => ({
       ...message,
       id: String(900719925474099399n - BigInt(index)),
@@ -51,18 +26,13 @@ describe('published Discord Chat SDK boundary', () => {
       expect(request.url).toBe(`/channels/${room.id}/messages?limit=100&before=${message.id}`)
       json(response, page)
     })
-    try {
-      const result = await new DiscordClient(config, url).getMessages(
-        room.id,
-        100,
-        message.id,
-        attempt(),
-      )
-      expect(result).toEqual(page)
-      expect(format).not.toHaveBeenCalled()
-    } finally {
-      format.mockRestore()
-    }
+    const result = await new DiscordClient(config, url).getMessages(
+      room.id,
+      100,
+      message.id,
+      attempt(),
+    )
+    expect(result).toEqual(page)
   })
 
   it.each([room.id, thread.id])(
@@ -75,7 +45,11 @@ describe('published Discord Chat SDK boundary', () => {
       const url = await server((request, response) => {
         expect(request.url).toBe(`/channels/${id}/messages`)
         void body(request).then((bytes) => {
-          expect(JSON.parse(bytes.toString())).toEqual({ content, allowed_mentions: { parse: [] } })
+          expect(JSON.parse(bytes.toString())).toEqual({
+            content,
+            allowed_mentions: { parse: [] },
+            attachments: [],
+          })
           json(response, { ...message, channel_id: id, content })
         })
       })
@@ -102,11 +76,11 @@ describe('published Discord Chat SDK boundary', () => {
     },
   )
 
-  it('retries an explicitly rejected SDK post once with the provider delay', async () => {
+  it('retries an explicitly rejected post once with the provider delay', async () => {
     const calls: number[] = []
     const url = await server((_request, response) => {
       calls.push(Date.now())
-      if (calls.length === 1) json(response, { retry_after: 0.01 }, 429)
+      if (calls.length === 1) json(response, { retry_after: 0.3 }, 429)
       else json(response, message)
     })
     const client = new DiscordClient(config, url)
@@ -118,7 +92,7 @@ describe('published Discord Chat SDK boundary', () => {
       ).id,
     ).toBe(message.id)
     expect(calls).toHaveLength(2)
-    expect((calls[1] ?? 0) - (calls[0] ?? 0)).toBeGreaterThanOrEqual(10)
+    expect((calls[1] ?? 0) - (calls[0] ?? 0)).toBeGreaterThanOrEqual(300)
   })
 
   it.each(['channel', 'history'] as const)(
@@ -154,7 +128,7 @@ describe('published Discord Chat SDK boundary', () => {
   })
 
   it.each(['cancel', 'deadline'] as const)(
-    'isolates a direct SDK post %s from a concurrent history read on the same client',
+    'isolates a post %s from a concurrent history read on the same client',
     async (stop) => {
       const started = deferred()
       const closed = deferred()

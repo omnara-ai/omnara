@@ -15,7 +15,7 @@ import {
   discordThreadParams,
 } from './protocol'
 
-/** Native facts, not the private operation wire. The adapter must preserve a
+/** Native facts, not the private operation wire. The provider must preserve a
  * known root publication even if its separately requested thread failed.
  */
 export interface DiscordPublication {
@@ -123,8 +123,8 @@ export async function sendDiscordMessage(
   return { message: state.message, thread: state.thread }
 }
 
-/** Preserve Discord markdown and native mention IDs. No SDK reformatting or
- * remote enrichment; rich content/files remain explicit partial coverage.
+/** Preserve Discord markdown and native mention IDs without remote enrichment;
+ * rich content/files remain explicit partial coverage.
  */
 export function discordObservation(message: DiscordMessage, guild: string, parent?: string) {
   let partial =

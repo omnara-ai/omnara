@@ -37,7 +37,7 @@ export interface GitHubConfiguration {
 }
 
 /** App credentials stay in the gateway. OAuth client fields are not runtime inputs.
- * This SDK converts installation IDs to numbers; reject unsupported IDs rather
+ * Configuration stores installation IDs as numbers; reject unsupported IDs rather
  * than authenticating a silently rounded installation or repository.
  */
 export function githubConfiguration(

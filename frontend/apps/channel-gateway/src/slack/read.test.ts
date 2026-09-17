@@ -5,15 +5,7 @@ import { SlackClient } from './client'
 import { parseSlackMessage } from './messages'
 import { slackMessage } from './protocol'
 import { readSlackHistory } from './read'
-import {
-  body,
-  credentials,
-  deferred,
-  json,
-  operation,
-  slackPayload,
-  slackServer,
-} from './test-support'
+import { body, credentials, deferred, json, operation, slackServer } from './test-support'
 
 const historyRequest = z.object({
   channel: z.string(),
@@ -46,7 +38,7 @@ describe('readSlackHistory', () => {
     const requests: unknown[] = []
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
-        const payload = historyRequest.parse(slackPayload(bytes))
+        const payload = historyRequest.parse(JSON.parse(bytes.toString()))
         requests.push({ path: request.url, ...payload })
         json(
           response,
@@ -99,7 +91,7 @@ describe('readSlackHistory', () => {
     const url = await slackServer((request, response) => {
       void body(request).then((bytes) => {
         calls++
-        const payload = historyRequest.parse(slackPayload(bytes))
+        const payload = historyRequest.parse(JSON.parse(bytes.toString()))
         const before = payload.latest
         const eligible = all.filter((message) => !before || message.ts < before)
         const offset = Number(payload.cursor ?? '0')
@@ -210,7 +202,7 @@ describe('readSlackHistory', () => {
     expect(calls).toBe(2)
   })
 
-  it('reports incomplete file/rich-content representation and never exposes SDK download callbacks', () => {
+  it('reports incomplete file/rich-content representation and never exposes internal download callbacks', () => {
     const parse = parseSlackMessage
     const result = parse(
       slackMessage.parse({

@@ -5,6 +5,7 @@ import type { GitHubClient } from './client'
 import {
   GitHubAPIError,
   type GitHubComment,
+  githubComment,
   githubCommitID,
   type GitHubFinding,
   githubNodeID,
@@ -110,8 +111,16 @@ export async function postGitHubTimelineComment(
   context: OperationAttemptContext,
 ): Promise<GitHubMessage> {
   validateGitHubText(text)
-  await getGitHubPullRequest(client, number, context)
-  return githubMessage(await client.publishedTimeline(number, text, context), true)
+  const pr = await getGitHubPullRequest(client, number, context)
+  const data = await client.query(
+    'timelineComment',
+    { input: { subjectId: pr.id, body: text } },
+    z.object({
+      addComment: z.object({ commentEdge: z.object({ node: githubComment }) }),
+    }),
+    context,
+  )
+  return githubMessage(data.addComment.commentEdge.node, true)
 }
 
 const threadIdentity = z.object({

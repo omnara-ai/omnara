@@ -44,9 +44,7 @@ const timelineItem = z.discriminatedUnion('__typename', [
   githubReview.extend({ __typename: z.literal('PullRequestReview') }),
 ])
 
-/** SDK fetchMessages reads issue comments or one 100-comment REST review page;
- * it omits review summaries and cannot page actual GraphQL review threads.
- * Native last/before pagination returns a chronological page, newest page first.
+/** Native last/before pagination returns a chronological page, newest page first.
  * PR history covers comments/review summaries; inline discussion is on child threads.
  * No REST Link URL, diff, source contents, or unbounded history scan is followed.
  */

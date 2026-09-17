@@ -25,7 +25,7 @@ export interface GitHubIngressOptions {
 }
 
 /** Success for communication means durable core receipt acceptance, never a
- * detached task or an in-memory SDK dedupe entry. Lifecycle control is saved
+ * detached task or in-memory deduplication. Lifecycle control is saved
  * separately under app authority and never reconciled inside the webhook.
  */
 export async function receiveGitHubWebhook(

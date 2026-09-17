@@ -42,7 +42,7 @@ export interface SlackLabels {
 }
 
 /** Receipts already passed signature verification and strict JSON ingress in core.
- * Parsing saved data never re-enters a live SDK webhook or TTL dedupe path.
+ * Replay parses the saved payload without repeating live webhook admission.
  */
 export function parseSlackReceipt(receipt: Readonly<ChannelConnectorEventReceipt>) {
   if (Buffer.byteLength(JSON.stringify(receipt.payload)) > 1024 * 1024)
@@ -87,9 +87,7 @@ export function slackInputKeys(teamID: string, event: SlackInboundEvent) {
   return event.files.length ? { own: files, sibling: plain } : { own: plain, sibling: files }
 }
 
-/** Native events.go formatting preserves hidden context, visible labels and IDs.
- * SDK Markdown parsing would change these established input representations.
- */
+/** Slack input formatting preserves hidden context, visible labels and native IDs. */
 export function slackInputText(
   event: SlackInboundEvent,
   route: SlackInboundRoute,

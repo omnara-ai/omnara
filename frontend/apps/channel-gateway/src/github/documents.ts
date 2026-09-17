@@ -69,5 +69,8 @@ export const githubDocuments = {
       }
     } } }
   }`,
+  timelineComment: `mutation GitHubTimelineComment($input: AddCommentInput!) {
+    addComment(input: $input) { commentEdge { node { ${comment} } } }
+  }`,
 } as const
 export type GitHubDocument = keyof typeof githubDocuments

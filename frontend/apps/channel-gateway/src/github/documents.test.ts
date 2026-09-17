@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 
-import { buildSchema, getOperationAST, parse, validate } from 'graphql'
+import { buildSchema, getOperationAST, getVariableValues, parse, validate } from 'graphql'
 import { describe, expect, it } from 'vitest'
 
 import { controlRepositoryQuery } from './control-protocol'
@@ -29,8 +29,21 @@ describe('GitHub native GraphQL contract', () => {
       expect(validate(schema, parse(document)).map((error) => error.message)).toEqual([])
     },
   )
-  it('keeps every fixed GraphQL document a query so the transport can retry reads safely', () => {
-    for (const [name, document] of Object.entries(githubDocuments))
-      expect(getOperationAST(parse(document))?.operation, name).toBe('query')
+  it('validates timeline input and rejects invented mutation fields', () => {
+    const operation = getOperationAST(parse(githubDocuments.timelineComment))
+    const variables = { input: { subjectId: 'PR_1', body: 'Original text' } }
+    expect(
+      getVariableValues(schema, operation?.variableDefinitions ?? [], variables).errors,
+    ).toBeUndefined()
+    const invalid = { input: { ...variables.input, path: 'main.ts' } }
+    expect(
+      getVariableValues(schema, operation?.variableDefinitions ?? [], invalid).errors,
+    ).toHaveLength(1)
+  })
+  it('keeps all review writes out of the fixed GraphQL catalog', () => {
+    const mutations = Object.values(githubDocuments).filter((document) =>
+      document.startsWith('mutation '),
+    )
+    expect(mutations).toEqual([githubDocuments.timelineComment])
   })
 })

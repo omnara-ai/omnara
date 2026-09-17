@@ -69,7 +69,7 @@ const interactionSchema = schemas.zChannelInteractionOperation
 const resolveSchema = schemas.zChannelResolveAddressOperation.strict()
 
 /** Concrete composition callbacks only. Core retains Slack's verified public
- * intake; no duplicate webhook, SDK dedupe, runtime send shim, or outgoing queue.
+ * intake; outgoing operations use the shared synchronous request path.
  */
 export function createSlackGateway(options: SlackGatewayOptions) {
   const { core, workBudget, apiUrl } = options

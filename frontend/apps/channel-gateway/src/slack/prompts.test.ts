@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 import { SlackClient } from './client'
 import { renderSlackInteraction, sendSlackInteraction } from './prompts'
-import { body, credentials, json, operation, slackPayload, slackServer } from './test-support'
+import { body, credentials, json, operation, slackServer } from './test-support'
 
 const fixtures = z
   .array(
@@ -124,7 +124,7 @@ describe('Slack canonical interaction presentation', () => {
     const url = await slackServer((request, response) => {
       calls++
       void body(request).then((bytes) => {
-        requestBody = slackPayload(bytes)
+        requestBody = JSON.parse(bytes.toString())
         json(response, { ok: true, channel: 'C123', ts: '100.000002' })
       })
     })
