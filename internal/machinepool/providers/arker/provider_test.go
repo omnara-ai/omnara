@@ -449,3 +449,19 @@ func TestArkerDaemonStartTimeoutFitsInsideTheProvisioningBudget(t *testing.T) {
 		)
 	}
 }
+
+func TestArkerProviderProvisionFailsWhenAnAdoptedBootStaysPending(t *testing.T) {
+	fake := &fakeArker{daemonAliveIn: "pending", daemonState: "pending"}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+	_, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), "tok-1", nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "pending") {
+		t.Fatalf("an adopted boot still queued is not a started daemon, got %v", err)
+	}
+	if fake.runs.Load() != 0 {
+		t.Fatalf("started %d daemons, want the in-flight boot adopted not duplicated", fake.runs.Load())
+	}
+}
