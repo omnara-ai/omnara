@@ -24,6 +24,7 @@ import (
 )
 
 const searchLineBytes = 256
+const searchStoreBatchSize = 32
 
 const SearchProcessCommand = "__omnara_search"
 
@@ -133,8 +134,13 @@ func parseSearchArgs(args []string) (string, error) {
 
 type searchSource struct {
 	path    string
-	root    *os.Root
+	stores  []searchStore
 	content []byte
+}
+
+type searchStore struct {
+	name string
+	root *os.File
 }
 
 func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
@@ -147,11 +153,35 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 	output := &searchOutput{input: input}
 	searched := false
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
+		var stores []searchStore
+		closeStores := func() {
+			for _, store := range stores {
+				_ = store.root.Close()
+			}
+			stores = nil
+		}
+		defer closeStores()
+		searchStores := func() error {
+			err := output.search(ctx, searchSource{stores: stores})
+			closeStores()
+			return err
+		}
 		err = call.Executor.Store.VisitMemorySearchStores(ctx, call.Turn.ProjectID, call.Turn.AgentID,
 			input.Path, func(store storage.MemorySearchStore) error {
+				root, err := store.Root.Open(".")
+				if err != nil {
+					return err
+				}
+				stores = append(stores, searchStore{name: store.Name, root: root})
 				searched = true
-				return output.search(ctx, searchSource{path: memorystore.Root + "/" + store.Name, root: store.Root})
+				if len(stores) == searchStoreBatchSize {
+					return searchStores()
+				}
+				return nil
 			})
+		if err == nil && len(stores) > 0 {
+			err = searchStores()
+		}
 		if err == nil && !searched && !strings.ContainsAny(input.Path, "*?") {
 			return nil, storeerr.ErrNotFound
 		}
@@ -218,22 +248,29 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 		args = append(args, "--with-filename")
 	}
 	command := exec.CommandContext(commandCtx, "rg")
-	if source.root == nil {
+	if len(source.stores) == 0 {
 		command.Stdin = bytes.NewReader(source.content)
 		command.Args = append(command.Args, append(args, "--", "-")...)
 	} else {
 		args = append(args, "--hidden", "--no-ignore",
 			"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
-		operand := "."
-		if !strings.ContainsAny(p.input.Path, "*?") {
-			_, name, _ := memorystore.ParsePath(p.input.Path)
-			operand = "./" + name
-		} else {
-			for _, glob := range memorySearchGlobs(p.input.Path, strings.TrimPrefix(source.path, memorystore.Root+"/")) {
-				args = append(args, "--glob", glob)
+		var operands []string
+		var roots []*os.File
+		for i, store := range source.stores {
+			fd := strconv.Itoa(i + 3)
+			operand := fd + "/"
+			if !strings.ContainsAny(p.input.Path, "*?") {
+				_, name, _ := memorystore.ParsePath(p.input.Path)
+				operand += name
+			} else {
+				for _, glob := range memorySearchGlobs(p.input.Path, store.name) {
+					args = append(args, "--glob", "/"+fd+glob)
+				}
 			}
+			operands = append(operands, operand)
+			roots = append(roots, store.root)
 		}
-		args = append(args, "--", operand)
+		args = append(append(args, "--"), operands...)
 		rg, err := exec.LookPath("rg")
 		if err != nil {
 			return err
@@ -242,13 +279,9 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 		if err != nil {
 			return err
 		}
-		root, err := source.root.Open(".")
-		if err != nil {
-			return err
-		}
-		defer func() { _ = root.Close() }()
-		command = exec.CommandContext(commandCtx, executable, append([]string{SearchProcessCommand, rg}, args...)...)
-		command.ExtraFiles = []*os.File{root}
+		command = exec.CommandContext(commandCtx, executable,
+			append([]string{SearchProcessCommand, strconv.Itoa(len(roots)), rg}, args...)...)
+		command.ExtraFiles = roots
 	}
 	command.WaitDelay = time.Second
 	command.Env = []string{"LANG=C.UTF-8"}
@@ -320,17 +353,22 @@ type searchStream struct {
 }
 
 func (s *searchStream) resolvePath(name string) (string, bool, error) {
-	if s.source.root == nil {
+	if len(s.source.stores) == 0 {
 		if name != "<stdin>" {
 			return "", false, errors.New("unexpected ripgrep file")
 		}
 		return s.source.path, true, nil
 	}
 	name = strings.TrimPrefix(name, "./")
+	fd, name, _ := strings.Cut(name, "/")
+	n, err := strconv.Atoi(fd)
+	if err != nil || n < 3 || n-3 >= len(s.source.stores) {
+		return "", false, errors.New("unexpected ripgrep store")
+	}
 	if err := memorystore.ValidatePath(name); err != nil {
 		return "", false, err
 	}
-	path := s.source.path + "/" + name
+	path := memorystore.Root + "/" + s.source.stores[n-3].name + "/" + name
 	return path, s.output.input.matcher.MatchString(path), nil
 }
 

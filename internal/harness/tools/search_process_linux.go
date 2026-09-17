@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"strconv"
 	"strings"
 
 	seccomp "github.com/elastic/go-seccomp-bpf"
@@ -15,15 +17,19 @@ import (
 )
 
 func RunSearchProcess(args []string) error {
-	if len(args) < 2 || !filepath.IsAbs(args[0]) {
+	if len(args) < 3 || !filepath.IsAbs(args[1]) {
 		return errors.New("invalid search process arguments")
 	}
-	root := os.NewFile(3, "memory store")
-	if err := root.Chdir(); err != nil {
-		_ = root.Close()
-		return err
+	count, err := strconv.Atoi(args[0])
+	if err != nil || count < 1 || count > searchStoreBatchSize {
+		return errors.New("invalid search store count")
 	}
-	if err := root.Close(); err != nil {
+	args = args[1:]
+	roots := make([]string, count)
+	for i := range roots {
+		roots[i] = "/proc/self/fd/" + strconv.Itoa(i+3)
+	}
+	if err := os.Chdir("/proc/self/fd"); err != nil {
 		return err
 	}
 	info, err := arch.GetInfo("")
@@ -76,7 +82,7 @@ func RunSearchProcess(args []string) error {
 		return errors.New("unsupported memory search architecture")
 	}
 	rules := []landlock.Rule{
-		landlock.PathAccess(ll.AccessFSReadFile|ll.AccessFSReadDir, "."),
+		landlock.PathAccess(ll.AccessFSReadFile|ll.AccessFSReadDir, roots...),
 		landlock.ROFiles(args[0]),
 		landlock.ROFiles("/etc/ld.so.cache").IgnoreIfMissing(),
 	}
@@ -85,6 +91,7 @@ func RunSearchProcess(args []string) error {
 			rules = append(rules, landlock.ROFiles(filepath.Join(dir, name)).IgnoreIfMissing())
 		}
 	}
+	debug.SetGCPercent(-1)
 	runtime.LockOSThread()
 	if err := landlock.V2.Restrict(rules...); err != nil {
 		return err
