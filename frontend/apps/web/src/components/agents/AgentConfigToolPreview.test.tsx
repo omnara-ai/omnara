@@ -101,6 +101,8 @@ const includedCatalog: ToolCatalog = {
   })),
 }
 
+const allCatalogTools = [...catalog.built_in_tools, ...includedCatalog.built_in_tools]
+
 let container: HTMLDivElement
 let root: Root
 let restoreActEnvironment: () => void
@@ -201,10 +203,16 @@ tools:
       mode: always_ask
 `
 
-function BasicFormHarness({ source = includedSource }: { source?: string }) {
+function BasicFormHarness({
+  source = includedSource,
+  projectId = 'project-test',
+}: {
+  source?: string
+  projectId?: string
+}) {
   const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
     orgId: 'org-test',
-    projectId: 'project-test',
+    projectId,
   })
   return (
     <>
@@ -280,7 +288,7 @@ function BasicFormHarness({ source = includedSource }: { source?: string }) {
       >
         Remove pool
       </button>
-      <AgentConfigBasicForm orgId="org-test" projectId="project-test" form={form} />
+      <AgentConfigBasicForm orgId="org-test" projectId={projectId} form={form} />
       <output data-pending={form.toolsPending} data-error={form.toolsError}>
         {form.yaml}
       </output>
@@ -311,6 +319,155 @@ async function selectIncludedPermission(name: string, label: string) {
     option.click()
   })
 }
+
+it.each([
+  { name: 'web_search', label: 'Always allow' },
+  { name: 'run_command', label: 'Always ask' },
+  { name: 'read_file', label: 'Disabled' },
+])('keeps the builder stable while refreshing $name permissions', async ({ name, label }) => {
+  let requests = 0
+  let release: (response: Response) => void = () => undefined
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  Providers = testProviders([
+    {
+      method: 'GET',
+      path: '/api/v1/tool-catalog',
+      respond: () => Response.json({ ...catalog, built_in_tools: allCatalogTools }),
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: () => {
+        requests += 1
+        return requests === 1 ? toolResponse(['run_command', 'read_file']) : pending
+      },
+    },
+  ])
+  await renderAndFlush(<BasicFormHarness />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+  })
+  clickLabel('Other tools')
+  const trigger = container.querySelector('[data-slot="collapsible-trigger"]')
+  const readFile = container.querySelector('[aria-label="read_file permission"]')
+  const instruction = container.querySelector('textarea')
+  const toolOrder = () =>
+    [...container.querySelectorAll('[data-slot="collapsible-content"] [role="combobox"]')].map(
+      (element) => element.getAttribute('aria-label'),
+    )
+  const originalOrder = toolOrder()
+  const submit = vi.fn((event: Event) => {
+    event.preventDefault()
+  })
+  container.querySelector('form')?.addEventListener('submit', submit)
+  expect(readFile).not.toBeNull()
+  await selectIncludedPermission(name, label)
+  await vi.waitFor(() => {
+    expect(requests).toBe(2)
+  })
+  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
+  expect(trigger?.getAttribute('aria-expanded')).toBe('true')
+  expect(trigger?.getAttribute('data-state')).toBe('open')
+  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(container.querySelector('textarea')).toBe(instruction)
+  expect(toolOrder()).toEqual(originalOrder)
+  expect(container.textContent).not.toContain('Loading other tools')
+  expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(label)
+  await act(async () => {
+    release(toolResponse(['run_command', 'read_file', 'search_files']))
+    await pending
+  })
+  await vi.waitFor(() => {
+    expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
+  })
+  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
+  expect(trigger?.getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(submit).not.toHaveBeenCalled()
+})
+
+it('clears the retained tool preview when switching projects', async () => {
+  let release: (response: Response) => void = () => undefined
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  Providers = testProviders([
+    previewToolsRoute(() => ['read_file']),
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-other/agent-configs/tools',
+      respond: () => pending,
+    },
+  ])
+  await renderAndFlush(<BasicFormHarness />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+  })
+  await renderAndFlush(<BasicFormHarness projectId="project-other" />)
+  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('true')
+  await act(async () => {
+    release(toolResponse([]))
+    await pending
+  })
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+  })
+  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+})
+
+it('preserves expanded tools after a failed refresh and updates them on retry', async () => {
+  let requests = 0
+  Providers = testProviders([
+    {
+      method: 'GET',
+      path: '/api/v1/tool-catalog',
+      respond: () => Response.json({ ...catalog, built_in_tools: allCatalogTools }),
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: () => {
+        requests += 1
+        if (requests === 2) {
+          return jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500)
+        }
+        return toolResponse(
+          requests === 1 ? ['web_search', 'run_command', 'read_file'] : ['read_file'],
+        )
+      },
+    },
+  ])
+  await renderAndFlush(<BasicFormHarness />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+  })
+  clickLabel('Other tools')
+  const trigger = container.querySelector('[data-slot="collapsible-trigger"]')
+  const readFile = container.querySelector('[aria-label="read_file permission"]')
+  click('[aria-label="Remove web_search"]')
+  expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
+  await vi.waitFor(() => {
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Couldn’t load other tools',
+    )
+  })
+  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
+  expect(trigger?.getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
+    'tools.web_search',
+  )
+  click('[role="alert"] button')
+  await vi.waitFor(() => {
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(container.querySelector('[aria-label="run_command permission"]')).toBeNull()
+  })
+  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+})
 
 it('does not offer the Slack tool when it is absent from the source', async () => {
   const requests: unknown[] = []
@@ -559,9 +716,8 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   })
   clickLabel('Remove pool')
   await vi.waitFor(() => {
-    expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
+    expect(requests.at(-1)).toMatchObject({ machine_sources: [], skills: [] })
   })
-  expect(requests.at(-1)).toMatchObject({ machine_sources: [], skills: [] })
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
     web_search: { permission: { mode: 'always_ask' } },
     run_command: { enabled: false, permission: { mode: 'always_ask' } },
