@@ -243,7 +243,7 @@ func TestArkerProviderInspectRejectsAVMBelongingToAnotherMachine(t *testing.T) {
 	}
 }
 
-func TestArkerProviderInspectReportsAnUnknownResourceIDAsAbsent(t *testing.T) {
+func TestArkerProviderInspectFindsAMachineWhoseIDWasNeverRecorded(t *testing.T) {
 	fake := &fakeArker{}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
@@ -251,11 +251,27 @@ func TestArkerProviderInspectReportsAnUnknownResourceIDAsAbsent(t *testing.T) {
 		context.Background(), testInstallationID, testMachineID,
 		testProvisioning(testOptions()), "",
 	)
-	if err != nil || found || id != "" {
-		t.Fatalf("empty resource id = (%q, %v, %v), want absent", id, found, err)
+	if err != nil || !found {
+		t.Fatalf("empty resource id = (%q, %v, %v), want the machine found by its name", id, found, err)
+	}
+	if id != testVMID {
+		t.Fatalf("resource id = %q, want the vm id %q and not the name looked up", id, testVMID)
 	}
 	if fake.forks.Load() != 0 {
 		t.Fatal("inspect must not create anything")
+	}
+}
+
+func TestArkerProviderInspectRejectsAMachineThatIsNotThisOne(t *testing.T) {
+	fake := &fakeArker{vmName: "someone-elses-machine"}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+	_, found, err := machineProvider.InspectMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), "",
+	)
+	if found || err == nil || !strings.Contains(err.Error(), "does not belong to machine") {
+		t.Fatalf("a name resolving to another machine = (%v, %v), want an ownership error", found, err)
 	}
 }
 

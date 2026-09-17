@@ -316,18 +316,22 @@ func (p *provider) InspectMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
-	if strings.TrimSpace(providerResourceID) == "" {
-		return "", false, nil
-	}
 	expectedName, err := providers.MachineAllocationName(installationID, machineID)
 	if err != nil {
 		return "", false, err
+	}
+	// GET /v1/vms/{id} resolves a name as well as an id, so a machine whose id
+	// was never recorded is still reachable by the name it was allocated. The
+	// ownership check below rejects anything the name resolved to unexpectedly.
+	lookup := strings.TrimSpace(providerResourceID)
+	if lookup == "" {
+		lookup = expectedName
 	}
 	client, err := p.clientForMachine(machineProvisioning)
 	if err != nil {
 		return "", false, err
 	}
-	vm, found, err := client.GetVM(ctx, providerResourceID)
+	vm, found, err := client.GetVM(ctx, lookup)
 	if err != nil {
 		return "", false, classifyError(err)
 	}
@@ -337,12 +341,17 @@ func (p *provider) InspectMachine(
 	if vm.Info == nil || vm.Info.Name != expectedName {
 		return "", false, fmt.Errorf(
 			"arker vm %s does not belong to machine %q: %w",
-			providerResourceID,
+			lookup,
 			expectedName,
 			errNotThisMachine,
 		)
 	}
-	return vm.ID, true, nil
+	// Info.VMID, not vm.ID: Refresh does not rewrite the handle, so vm.ID is
+	// still the lookup — a name when the id was missing.
+	if vm.Info.VMID == "" {
+		return "", false, fmt.Errorf("arker vm %s returned no id", lookup)
+	}
+	return vm.Info.VMID, true, nil
 }
 
 func (p *provider) DeleteMachine(
