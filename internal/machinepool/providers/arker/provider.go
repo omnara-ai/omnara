@@ -46,10 +46,7 @@ var terminalRunStates = map[string]bool{"completed": true, "failed": true, "canc
 
 // A run is only started once it reports `running`; `pending` is queued behind
 // an earlier run on the session.
-const (
-	runStateRunning = "running"
-	runStatePending = "pending"
-)
+const runStateRunning = "running"
 
 // The boot script installs omnarad before exec'ing it, which outlasts the
 // settle window. Derived from provisioningTimeout so the inner wait cannot
@@ -204,13 +201,6 @@ func (p *provider) ProvisionMachine(
 }
 
 func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) error {
-	adopted, inFlight, err := daemonRunInFlight(ctx, vm)
-	if err != nil {
-		return err
-	}
-	if inFlight {
-		return waitForDaemon(ctx, vm, adopted)
-	}
 	script, err := bootScript(env)
 	if err != nil {
 		return err
@@ -230,23 +220,6 @@ func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) er
 		return fmt.Errorf("arker vm %s returned no run id for the omnara daemon", vm.ID)
 	}
 	return waitForDaemon(ctx, vm, started.RunID)
-}
-
-// Returns the run id of a boot already under way, so the caller adopts it and
-// still waits for it rather than reporting a queued boot as ready.
-func daemonRunInFlight(ctx context.Context, vm *arkersdk.VM) (string, bool, error) {
-	for _, state := range []string{runStateRunning, runStatePending} {
-		runs, err := vm.ListRuns(ctx, arkersdk.ListRunsOptions{State: state})
-		if err != nil {
-			return "", false, fmt.Errorf("list runs on arker vm %s: %w", vm.ID, classifyError(err))
-		}
-		for _, run := range runs.Runs {
-			if run.Command == daemonCommand {
-				return run.RunID, true, nil
-			}
-		}
-	}
-	return "", false, nil
 }
 
 func bootScript(env map[string]string) (string, error) {

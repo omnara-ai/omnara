@@ -108,24 +108,6 @@ func TestArkerProviderDeleteRemovesAVMWhoseNameIsUnexpected(t *testing.T) {
 	}
 }
 
-func TestArkerProviderDaemonStartAdoptsABootAlreadyRunning(t *testing.T) {
-	fake := &fakeArker{daemonAliveIn: "running"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	if _, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	); err != nil {
-		t.Fatalf("provision: %v", err)
-	}
-	if fake.runs.Load() != 0 {
-		t.Fatalf("started %d daemons, want the running one adopted", fake.runs.Load())
-	}
-	if fake.writes.Load() != 0 {
-		t.Fatalf("rewrote the boot script %d times while adopting", fake.writes.Load())
-	}
-}
-
 func TestArkerProviderProvisionReportsTheResourceIDWhenTheDaemonFails(t *testing.T) {
 	fake := &fakeArker{writeStatus: http.StatusBadRequest}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
@@ -385,21 +367,6 @@ func TestArkerProviderAllocationNameIsStablePerMachine(t *testing.T) {
 	}
 }
 
-func TestArkerProviderDaemonStartAdoptsAPendingBoot(t *testing.T) {
-	fake := &fakeArker{daemonAliveIn: "pending"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	if _, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	); err != nil {
-		t.Fatalf("provision: %v", err)
-	}
-	if fake.runs.Load() != 0 {
-		t.Fatalf("started %d daemons, want the pending boot adopted", fake.runs.Load())
-	}
-}
-
 func TestArkerProviderDaemonRunsInItsOwnSessionWithoutCreatingOne(t *testing.T) {
 	fake := &fakeArker{}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
@@ -466,27 +433,29 @@ func TestArkerDaemonStartTimeoutFitsInsideTheProvisioningBudget(t *testing.T) {
 	}
 }
 
-func TestArkerProviderProvisionFailsWhenAnAdoptedBootStaysPending(t *testing.T) {
-	fake := &fakeArker{daemonAliveIn: "pending", daemonState: "pending"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	_, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	)
-	if err == nil || !strings.Contains(err.Error(), "pending") {
-		t.Fatalf("an adopted boot still queued is not a started daemon, got %v", err)
-	}
-	if fake.runs.Load() != 0 {
-		t.Fatalf("started %d daemons, want the in-flight boot adopted not duplicated", fake.runs.Load())
-	}
-}
-
 func TestArkerWakeAvoidsTheSessionUserRunsLandOn(t *testing.T) {
 	if wakeSessionIdx == 0 {
 		t.Fatal("waking on session 0 queues behind user runs")
 	}
 	if wakeSessionIdx == daemonSessionIdx {
 		t.Fatal("waking on the daemon's session would interrupt it")
+	}
+}
+
+func TestArkerProviderProvisionAlwaysWritesCurrentCredentials(t *testing.T) {
+	fake := &fakeArker{daemonAliveIn: "running"}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), "tok-1", nil,
+	); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if fake.writes.Load() != 1 {
+		t.Fatalf("wrote the boot script %d times, want it written with this attempt's token", fake.writes.Load())
+	}
+	if fake.runs.Load() != 1 {
+		t.Fatalf("started %d daemons, want the daemon started for this attempt", fake.runs.Load())
 	}
 }
