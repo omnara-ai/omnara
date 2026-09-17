@@ -52,6 +52,37 @@ The schema cutover is `000038_integration_channels.sql`, followed by
 `000039_migrate_channel_tool_configs.go`. Preserve existing Slack apps, tokens,
 conversation links, and OAuth setup links; this procedure does not reset them.
 
+This release uses a coordinated downtime cutover. Stop the old cluster writers
+before migrating and start only the new release afterward. Do not add rolling
+upgrade compatibility machinery, dual writes, or legacy runtime fallbacks for
+this transition. Downtime does not mean canceling or archiving every agent;
+existing agents and their history are preserved.
+
+For deployments behind Cloudflare, prepare the maintenance snippet in
+`docs/snippets/cloudflare-maintenance.mjs` through **Rules → Snippets**. Scope its
+rule to the proxied app, public API, and provider webhook hostnames used by this
+deployment; exclude unrelated sites. Preview it and save it before the window.
+
+1. About one hour before the release, fill in the notice's date, time window,
+   and timezone, set `MODE = "banner"`, and deploy the snippet. The app keeps
+   working; the banner appears on a fresh page load or refresh.
+2. At the start of the window, deploy `MODE = "maintenance"` and verify the
+   full-page notice and HTTP 503 responses before beginning the shutdown below.
+   API and webhook requests also receive 503, never a false success. Cloudflare
+   does not queue these requests; provider retries are bounded and a message
+   may need to be resent. The snippet does not stop workers, close existing
+   connections, or block direct origin access, so it does not replace stopping
+   all application writers. Retain restricted administrative access for the
+   cancellation and verification steps.
+3. Keep maintenance mode active through both migrations and startup of the new
+   API, worker, maintenance, web, and channel gateway services. Verify service
+   health and an existing Slack conversation through restricted access before
+   reopening public traffic. Then deploy `MODE = "off"` to remove both notices
+   from subsequent responses. Already-open pages need a refresh.
+
+See Cloudflare's [dashboard instructions](https://developers.cloudflare.com/rules/snippets/create-dashboard/)
+and [maintenance example](https://developers.cloudflare.com/rules/snippets/examples/maintenance/).
+
 Before applying either migration, cancel outstanding legacy Slack approvals and
 questions through the old API. Their dashboard copies are the same interactions
 and close too; cancellation grants no permission and supplies no answer.
