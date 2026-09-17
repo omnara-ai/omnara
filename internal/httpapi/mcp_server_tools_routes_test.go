@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -408,5 +409,67 @@ func TestListMCPServerToolsReportsAuthRequiredFromJSONRPCUnauthorizedBody(t *tes
 	if hint.Auth.Type != openapi.MCPServerAuthHintTypeOauth ||
 		hint.Auth.AuthorizationServer == nil || *hint.Auth.AuthorizationServer != issuer {
 		t.Fatalf("response = %+v, want oauth hint for %s", hint, issuer)
+	}
+}
+
+func TestMCPServerToolsFailureMapsErrorOrigins(t *testing.T) {
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   openapi.ErrorCode
+		wantStatus int
+	}{
+		{
+			name:       "internal failure",
+			err:        fmt.Errorf("%w: store mcp catalog: %w", mcp.ErrInternal, errors.New("connection reset")),
+			wantCode:   openapi.ErrorCodeInternalError,
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "refresh busy",
+			err:        fmt.Errorf("%w: lease is busy", mcp.ErrRefreshBusy),
+			wantCode:   openapi.ErrorCodeConflict,
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "credential refresh transient",
+			err: fmt.Errorf(
+				"%w: refresh mcp oauth token: %w",
+				mcp.ErrCredential,
+				&mcp.HTTPError{Status: http.StatusServiceUnavailable},
+			),
+			wantCode:   apierror.CodeUpstreamUnavailable,
+			wantStatus: http.StatusFailedDependency,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.mcpServerToolsFailure(mcpServerToolsTestContext(), "https://mcp.example.com/mcp", tt.err)
+			var apiErr apierror.ResponseError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("mcpServerToolsFailure() error = %v, want ResponseError", err)
+			}
+			if apiErr.Code != tt.wantCode || apiErr.Status != tt.wantStatus {
+				t.Fatalf("code=%q status=%d, want %q %d", apiErr.Code, apiErr.Status, tt.wantCode, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestMCPServerToolsFailureRejectedCredentialDoesNotProbeAuth(t *testing.T) {
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	cause := fmt.Errorf(
+		"%w: refresh mcp oauth token: %w",
+		mcp.ErrCredential,
+		&mcp.HTTPError{Status: http.StatusUnauthorized},
+	)
+	response, err := server.mcpServerToolsFailure(mcpServerToolsTestContext(), "https://mcp.example.com/mcp", cause)
+	if err != nil {
+		t.Fatalf("mcpServerToolsFailure() error = %v", err)
+	}
+	rejected, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || rejected.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
 	}
 }

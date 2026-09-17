@@ -339,7 +339,8 @@ func (m Manager) refreshCatalogUntil(
 		)
 		if err != nil {
 			return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
-				"acquire mcp catalog refresh lease for %s: %w",
+				"%w: acquire mcp catalog refresh lease for %s: %w",
+				ErrInternal,
 				identity.EndpointURL,
 				err,
 			)
@@ -365,7 +366,8 @@ func (m Manager) refreshCatalogUntil(
 		}
 		if attempt >= maxWaits {
 			return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
-				"mcp catalog refresh lease for %s is busy",
+				"%w: mcp catalog refresh lease for %s is busy",
+				ErrRefreshBusy,
 				identity.EndpointURL,
 			)
 		}
@@ -397,7 +399,8 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 	}()
 	if timeout <= 0 {
 		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
-			"mcp catalog refresh lease for %s has insufficient remaining time",
+			"%w: mcp catalog refresh lease for %s has insufficient remaining time",
+			ErrRefreshBusy,
 			identity.EndpointURL,
 		)
 	}
@@ -420,7 +423,8 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 	snapshot, err := json.Marshal(tools)
 	if err != nil {
 		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
-			"marshal mcp tools snapshot for %s: %w",
+			"%w: marshal mcp tools snapshot for %s: %w",
+			ErrInternal,
 			identity.EndpointURL,
 			err,
 		)
@@ -440,7 +444,12 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 		ToolsFreshFor:      m.catalogFreshFor(contents.Listing.Cache),
 	})
 	if err != nil {
-		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf("store mcp catalog for %s: %w", identity.EndpointURL, err)
+		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
+			"%w: store mcp catalog for %s: %w",
+			ErrInternal,
+			identity.EndpointURL,
+			err,
+		)
 	}
 	return fetched, nil
 }
@@ -454,9 +463,12 @@ func (m Manager) markCatalogRefreshFailed(
 ) error {
 	ctx, cancel := failureRecordContext(ctx)
 	defer cancel()
-	return m.Execution.MarkMCPServerCatalogRefreshFailed(
+	if err := m.Execution.MarkMCPServerCatalogRefreshFailed(
 		ctx, identity.OrgID, current.ID, owner, sanitizeInitializationError(cause.Error()),
-	)
+	); err != nil {
+		return fmt.Errorf("%w: mark mcp catalog refresh failed for %s: %w", ErrInternal, identity.EndpointURL, err)
+	}
+	return nil
 }
 
 func (m Manager) refreshReadyCatalog(
