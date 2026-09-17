@@ -273,38 +273,13 @@ func DeriveSubagentConfig(
 	if err != nil || configuredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf("subagent model must resolve to a configured project-granted model")
 	}
-	source, sourceFormat, err := deriveSubagentSource(base, subagent, depth)
-	if err != nil {
-		return Body{}, err
-	}
 	return Body{
 		Definition:         json.RawMessage(encoded.CanonicalJSON),
-		Source:             source,
-		SourceFormat:       sourceFormat,
 		ConfiguredModelID:  configuredModelID,
 		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     encoded.Hash,
 	}, nil
-}
-
-func deriveSubagentSource(
-	base executionstore.AgentConfigRecord,
-	subagent agentconfig.SubagentCompiled,
-	depth agentconfig.SubagentDepth,
-) (string, string, error) {
-	if base.Source == "" {
-		return "", "", nil
-	}
-	parsed, err := agentconfig.ParseSource(agentconfig.SourceFormat(base.SourceFormat), []byte(base.Source))
-	if err != nil {
-		return "", "", fmt.Errorf("parse base agent config source: %w", err)
-	}
-	source, err := agentconfig.EncodeSourceYAML(agentconfig.SubagentSourceFrom(parsed, subagent, depth))
-	if err != nil {
-		return "", "", err
-	}
-	return source, string(agentconfig.SourceFormatYAML), nil
 }
 
 func Compile(

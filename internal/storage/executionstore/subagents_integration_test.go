@@ -22,7 +22,45 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
+	"github.com/stretchr/testify/require"
 )
+
+func TestSubagentConfigChangesAreRejected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "readonly-child@example.com", "Read-only child")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "readonly-child", "Read-only child", subagentParentYAML,
+	)
+	parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
+		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "readonly-parent",
+	})
+	require.NoError(t, err)
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, subagentParentYAML)
+	for _, source := range []string{subagentParentYAML, ""} {
+		config := executionstore.CreateAgentConfigInput{
+			Definition: compiled.CanonicalJSON,
+			ProjectID:  testProjectID, Source: source,
+			ConfiguredModelID:  parseConfiguredModelID(t, compiled),
+			CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+			EffectiveDefinitionHash: compiled.Hash,
+		}
+		child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil,
+			"readonly-child", "readonly-child-"+fmt.Sprint(len(source)), nil,
+			func(input *executionstore.LaunchAgentInput) { input.DerivedConfig = &config })
+		require.NoError(t, err)
+		_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: config, AgentID: child.Agent.ID,
+			ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID,
+		})
+		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+		require.ErrorContains(t, err, "subagent configurations are read-only")
+	}
+}
 
 func systemPrincipalForTest(id uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: id}

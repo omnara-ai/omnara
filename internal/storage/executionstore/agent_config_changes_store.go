@@ -89,6 +89,9 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("load agent for config change: %w", err)
 	}
+	if agent.ParentAgentID != nil {
+		return ChangeAgentConfigResult{}, storeerr.InvalidRequest(errors.New("subagent configurations are read-only"))
+	}
 	idempotentReplay := false
 	if input.IdempotencyKey != "" {
 		_, replayErr := qtx.GetAgentInputByIdempotency(

@@ -106,9 +106,9 @@ type CaptureAgentConfigForEventWatermarkRow struct {
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
 	Definition              json.RawMessage
-	Source                  string
-	SourceFormat            string
-	SourceHash              string
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string
@@ -191,9 +191,9 @@ type CaptureAgentConfigForModelContextRow struct {
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
 	Definition              json.RawMessage
-	Source                  string
-	SourceFormat            string
-	SourceHash              string
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string
@@ -302,15 +302,15 @@ SELECT id, org_id, project_id, configured_model_id, definition, source, source_f
 FROM agent_configs
 WHERE project_id = $1
   AND effective_definition_hash = $2::text
-  AND source_format = $3::text
-  AND source_hash = $4::text
+  AND source_format IS NOT DISTINCT FROM $3::text
+  AND source_hash IS NOT DISTINCT FROM $4::text
 `
 
 type GetAgentConfigByHashParams struct {
 	ProjectID               uuid.UUID
 	EffectiveDefinitionHash string
-	SourceFormat            string
-	SourceHash              string
+	SourceFormat            *string
+	SourceHash              *string
 }
 
 func (q *Queries) GetAgentConfigByHash(ctx context.Context, arg GetAgentConfigByHashParams) (AgentConfig, error) {
@@ -758,9 +758,9 @@ type ListAgentProfilesForProjectRow struct {
 	ConfigOrgID                   uuid.UUID
 	ConfigProjectID               uuid.UUID
 	ConfigConfiguredModelID       uuid.UUID
-	ConfigSource                  string
-	ConfigSourceFormat            string
-	ConfigSourceHash              string
+	ConfigSource                  *string
+	ConfigSourceFormat            *string
+	ConfigSourceHash              *string
 	ConfigCompiledDefinition      json.RawMessage
 	ConfigCompilerVersion         string
 	ConfigEffectiveDefinitionHash string
@@ -874,9 +874,9 @@ type ListRecentAgentProfilesForProjectsRow struct {
 	ConfigOrgID                   uuid.UUID
 	ConfigProjectID               uuid.UUID
 	ConfigConfiguredModelID       uuid.UUID
-	ConfigSource                  string
-	ConfigSourceFormat            string
-	ConfigSourceHash              string
+	ConfigSource                  *string
+	ConfigSourceFormat            *string
+	ConfigSourceHash              *string
 	ConfigCompiledDefinition      json.RawMessage
 	ConfigCompilerVersion         string
 	ConfigEffectiveDefinitionHash string
@@ -1113,8 +1113,8 @@ SELECT id, org_id, project_id, configured_model_id, definition, source, source_f
 FROM agent_configs
 WHERE project_id = $2
   AND effective_definition_hash = $10::text
-  AND source_format = $6::text
-  AND source_hash = $7::text
+  AND source_format IS NOT DISTINCT FROM $6::text
+  AND source_hash IS NOT DISTINCT FROM $7::text
 LIMIT 1
 `
 
@@ -1123,9 +1123,9 @@ type UpsertAgentConfigByHashParams struct {
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
 	Definition              json.RawMessage
-	Source                  string
-	SourceFormat            string
-	SourceHash              string
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string
@@ -1137,9 +1137,9 @@ type UpsertAgentConfigByHashRow struct {
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
 	Definition              json.RawMessage
-	Source                  string
-	SourceFormat            string
-	SourceHash              string
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string

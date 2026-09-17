@@ -14,8 +14,8 @@ INSERT INTO agent_configs(
 VALUES (
     sqlc.arg(org_id), sqlc.arg(project_id),
     sqlc.arg(configured_model_id),
-    sqlc.arg(definition), sqlc.arg(source), sqlc.arg(source_format),
-    sqlc.arg(source_hash), sqlc.arg(compiled_definition),
+    sqlc.arg(definition), sqlc.narg(source), sqlc.narg(source_format),
+    sqlc.narg(source_hash), sqlc.arg(compiled_definition),
     sqlc.arg(compiler_version), sqlc.arg(effective_definition_hash),
     transaction_timestamp()
 )
@@ -35,8 +35,8 @@ SELECT id, org_id, project_id, configured_model_id, definition, source, source_f
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
   AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text
-  AND source_format = sqlc.arg(source_format)::text
-  AND source_hash = sqlc.arg(source_hash)::text
+  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
+  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text
 LIMIT 1;
 
 -- name: GetAgentConfig :one
@@ -128,8 +128,8 @@ SELECT id, org_id, project_id, configured_model_id, definition, source, source_f
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
   AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text
-  AND source_format = sqlc.arg(source_format)::text
-  AND source_hash = sqlc.arg(source_hash)::text;
+  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
+  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text;
 
 -- name: InsertAgentProfile :one
 WITH seed AS (

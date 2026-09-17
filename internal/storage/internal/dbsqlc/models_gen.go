@@ -29,9 +29,9 @@ type AgentConfig struct {
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
 	Definition              json.RawMessage
-	Source                  string
-	SourceFormat            string
-	SourceHash              string
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string

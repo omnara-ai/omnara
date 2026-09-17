@@ -203,11 +203,12 @@ func insertAgentConfigTx(
 ) (AgentConfigRecord, error) {
 	input.Definition = normalizedJSON(input.Definition)
 	input = withDefaultAgentConfigCompilation(input)
-	if _, err := agentconfig.ParseSource(
-		agentconfig.SourceFormat(input.SourceFormat),
-		[]byte(input.Source),
-	); err != nil {
-		return AgentConfigRecord{}, storeerr.InvalidRequest(err)
+	if input.Source != "" {
+		if _, err := agentconfig.ParseSource(agentconfig.SourceFormat(input.SourceFormat), []byte(input.Source)); err != nil {
+			return AgentConfigRecord{}, storeerr.InvalidRequest(err)
+		}
+	} else if input.SourceFormat != "" || input.SourceHash != "" {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(errors.New("source metadata requires source"))
 	}
 	if input.ConfiguredModelID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
@@ -222,9 +223,9 @@ func insertAgentConfigTx(
 			ProjectID:               input.ProjectID,
 			ConfiguredModelID:       input.ConfiguredModelID,
 			Definition:              input.Definition,
-			Source:                  input.Source,
-			SourceFormat:            input.SourceFormat,
-			SourceHash:              input.SourceHash,
+			Source:                  storeutil.TextFromEmpty(input.Source),
+			SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
+			SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
 			CompiledDefinition:      input.CompiledDefinition,
 			CompilerVersion:         input.CompilerVersion,
 			EffectiveDefinitionHash: input.EffectiveDefinitionHash,
@@ -242,8 +243,8 @@ func insertAgentConfigTx(
 			dbsqlc.GetAgentConfigByHashParams{
 				ProjectID:               input.ProjectID,
 				EffectiveDefinitionHash: input.EffectiveDefinitionHash,
-				SourceFormat:            input.SourceFormat,
-				SourceHash:              input.SourceHash,
+				SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
+				SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
 			},
 		)
 		if selectErr != nil {
@@ -612,10 +613,10 @@ func withDefaultAgentConfigCompilation(input CreateAgentConfigInput) CreateAgent
 	if len(input.CompiledDefinition) == 0 {
 		input.CompiledDefinition = input.Definition
 	}
-	if input.SourceFormat == "" {
+	if input.Source != "" && input.SourceFormat == "" {
 		input.SourceFormat = string(agentconfig.SourceFormatYAML)
 	}
-	if input.SourceHash == "" {
+	if input.Source != "" && input.SourceHash == "" {
 		input.SourceHash = agentConfigSourceHash(input.Source)
 	}
 	input.CompiledDefinition = normalizedJSON(input.CompiledDefinition)

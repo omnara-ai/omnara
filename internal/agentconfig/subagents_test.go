@@ -255,6 +255,25 @@ max_subagents: 2
 	if _, ok := deeper.Tools["spawn_agent"]; !ok {
 		t.Fatal("child below the depth limit lost spawn_agent tool")
 	}
+	for _, state := range []string{"absent", "disabled"} {
+		t.Run(state, func(t *testing.T) {
+			restricted := base
+			restricted.Tools = copyTools(base.Tools)
+			if state == "absent" {
+				delete(restricted.Tools, toolcatalog.ToolNameSpawnAgent)
+			} else {
+				tool := restricted.Tools[toolcatalog.ToolNameSpawnAgent]
+				tool.Enabled = false
+				restricted.Tools[toolcatalog.ToolNameSpawnAgent] = tool
+			}
+			derived, err := SubagentCompiledFrom(
+				restricted, SubagentCompiled{}, SubagentDepth{MaxDepth: &maxDepth, Depth: 1}, nil,
+			)
+			require.NoError(t, err)
+			require.Equal(t, restricted.Tools, derived.Tools)
+			require.Equal(t, restricted.Subagents, derived.Subagents)
+		})
+	}
 	leaf, err := SubagentCompiledFrom(
 		base, SubagentCompiled{Type: SubagentTypeProfile}, SubagentDepth{MaxDepth: &maxDepth, Depth: 2}, nil,
 	)
@@ -264,16 +283,11 @@ max_subagents: 2
 	if leaf.Subagents != nil || leaf.MaxDepth == nil || *leaf.MaxDepth != 2 {
 		t.Fatalf("children at the depth limit drop subagents but keep max_depth: %+v", leaf)
 	}
-	source, _, err := parseSource(SourceFormatYAML, []byte(result.Source))
-	require.NoError(t, err)
-	leafSource := SubagentSourceFrom(source, base.Subagents["fork"], SubagentDepth{MaxDepth: &maxDepth, Depth: 2})
 	for _, name := range toolcatalog.SubagentToolNames() {
 		if name == toolcatalog.ToolNameSpawnAgent {
 			require.NotContains(t, leaf.Tools, name)
-			require.NotContains(t, leafSource.Tools, name)
 		} else {
 			require.Equal(t, base.Tools[name], leaf.Tools[name])
-			require.Contains(t, leafSource.Tools, name)
 		}
 	}
 }

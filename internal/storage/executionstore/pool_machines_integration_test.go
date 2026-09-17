@@ -107,6 +107,29 @@ tools:
 		sources[1].MachinePoolName != "Second Pool" || sources[1].MachinePoolID != secondPool.ID {
 		t.Fatalf("machine pool sources after name swap = %+v", sources)
 	}
+	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID, Definition: config.Definition,
+		ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: config.CompiledDefinition,
+		CompilerVersion: config.CompilerVersion, EffectiveDefinitionHash: config.EffectiveDefinitionHash,
+	})
+	if err != nil {
+		t.Fatalf("create source-less config: %v", err)
+	}
+	child, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID: testProjectID, CurrentConfigID: derived.ID,
+	})
+	if err != nil {
+		t.Fatalf("create source-less agent: %v", err)
+	}
+	sources, err = store.Execution().ListMachinePoolSources(ctx, testProjectID, child.ID, derived.ID)
+	if err != nil {
+		t.Fatalf("list source-less machine pool sources: %v", err)
+	}
+	if len(sources) != 2 ||
+		sources[0].MachinePoolName != "Second Pool" || sources[0].MachinePoolID != firstPool.ID ||
+		sources[1].MachinePoolName != "First Pool" || sources[1].MachinePoolID != secondPool.ID {
+		t.Fatalf("source-less machine pool sources after name swap = %+v", sources)
+	}
 }
 
 //nolint:tparallel // rollback checks must finish before the parent changes the pool configuration
