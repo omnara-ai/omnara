@@ -50,7 +50,7 @@ export const githubFileFinding = z.strictObject({
   ...findingFields,
   subject_type: z.literal('file'),
 })
-export const githubPRParams = z.union([z.strictObject({}), githubLineFinding, githubFileFinding])
+const githubPRParams = z.union([z.strictObject({}), githubLineFinding, githubFileFinding])
 export type GitHubFinding = z.infer<typeof githubLineFinding> | z.infer<typeof githubFileFinding>
 export type GitHubPRParams = z.infer<typeof githubPRParams>
 
@@ -83,7 +83,7 @@ export const githubSendParamsSchema = {
   dependentRequired: { start_side: ['start_line'], start_line: ['start_side'] },
 }
 export const githubThreadParamsSchema = z.toJSONSchema(z.strictObject({}))
-export const githubAuthor = z.object({ login: z.string().min(1).max(256) }).nullable()
+const githubAuthor = z.object({ login: z.string().min(1).max(256) }).nullable()
 export const githubReview = z.object({
   id: githubNodeID,
   body: z.string(),

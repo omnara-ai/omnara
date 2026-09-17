@@ -247,7 +247,7 @@ func TestProviderControlRechecksAppAfterWaitingForMutation(t *testing.T) {
 	}{
 		{"disabled", `UPDATE integration_apps SET state='disabled' WHERE id=$1`, storeerr.ErrNotFound},
 		{"deleted", `UPDATE integration_apps SET deleted_at=now() WHERE id=$1`, storeerr.ErrNotFound},
-		{"rotated", `UPDATE integration_apps SET provider_metadata='{"rotation":true}' WHERE id=$1`,
+		{"rotated", `UPDATE integration_apps SET provider_config='{"rotation":true}' WHERE id=$1`,
 			storeerr.ErrStateTransitionConflict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

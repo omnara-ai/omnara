@@ -88,11 +88,9 @@ func isIntegrationJSONBoundsViolation(err error) bool {
 	}
 	switch databaseError.ConstraintName {
 	case "integration_apps_provider_config_bytes_check",
-		"integration_apps_provider_metadata_bytes_check",
 		"integration_installs_channel_payload_bounds_check",
 		"integration_routes_configuration_bytes_check",
 		"integration_targets_channel_payload_bounds_check",
-		"integration_target_bindings_metadata_bytes_check",
 		"integration_runtime_units_configuration_bytes_check",
 		"integration_runtime_units_checkpoint_bytes_check",
 		"integration_runtime_units_last_error_bytes_check":

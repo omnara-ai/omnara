@@ -96,7 +96,7 @@ SET display_name = coalesce($1::text, display_name),
 WHERE org_id = $6 AND id = $7 AND deleted_at IS NULL
 RETURNING id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at
 `
 
@@ -135,7 +135,6 @@ func (q *Queries) UpdateIntegrationApp(ctx context.Context, arg UpdateIntegratio
 		&i.CredentialSecretID,
 		&i.InstallationCredentialKind,
 		&i.ProviderConfig,
-		&i.ProviderMetadata,
 		&i.ConfigurationRevision,
 		&i.State,
 		&i.DeletedAt,

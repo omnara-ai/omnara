@@ -17,15 +17,17 @@ import (
 
 func TestRuntimeConfigurationUpsertRechecksLifecycleAfterWaiting(t *testing.T) {
 	t.Parallel()
-	for _, scope := range []string{"organization", "project", "installation"} {
+	for _, scope := range []string{"organization", "project", "application"} {
 		t.Run(scope, func(t *testing.T) {
 			t.Parallel()
-			store, setup := discordRuntimeSetupFixture(t)
-			setup.DiscordRuntimeShardCount = 0
-			install, err := store.Integrations().UpsertIntegrationInstall(t.Context(), setup)
-			require.NoError(t, err)
+			ctx := t.Context()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newSecretIntegrationStore(pool)
+			_, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "runtime-upsert-"+scope)
+			require.Equal(t, testProjectID, app.OwnerProjectID)
 			input := integrationstore.UpsertIntegrationRuntimeUnitInput{
-				OrgID: testOrgID, IntegrationAppID: setup.IntegrationAppID,
+				OrgID: testOrgID, IntegrationAppID: app.ID,
 				UnitKey: "lifecycle-unit", RuntimeKind: "provider_socket", SpecRevision: 1,
 				DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			}
@@ -40,23 +42,21 @@ func TestRuntimeConfigurationUpsertRechecksLifecycleAfterWaiting(t *testing.T) {
 				statement, id = `UPDATE orgs SET deleted_at=now() WHERE id=$1`, testOrgID
 				waiting = "LockOrganizationLifecycleShared"
 			case "project":
-				input.ProjectID, input.IntegrationInstallID = testProjectID, install.ID
 				require.NoError(t, q.LockProjectLifecycleExclusive(t.Context(),
 					dbsqlc.LockProjectLifecycleExclusiveParams{ProjectID: testProjectID}))
 				statement, id = `UPDATE projects SET deleted_at=now() WHERE id=$1`, testProjectID
 				waiting = "LockProjectLifecycleShared"
-			case "installation":
-				input.ProjectID, input.IntegrationInstallID = testProjectID, install.ID
-				require.NoError(t, q.LockIntegrationInstallLifecycleExclusive(t.Context(),
-					dbsqlc.LockIntegrationInstallLifecycleExclusiveParams{InstallID: install.ID}))
-				statement, id = `UPDATE integration_installs SET deleted_at=now() WHERE id=$1`, install.ID
-				waiting = "LockIntegrationInstallLifecycleShared"
+			case "application":
+				_, err := blocker.Exec(ctx, `SELECT id FROM integration_apps WHERE id = $1 FOR UPDATE`, app.ID)
+				require.NoError(t, err)
+				statement, id = `UPDATE integration_apps SET state = 'disabled', deleted_at = now() WHERE id = $1`, app.ID
+				waiting = "LockIntegrationAppForInstallation"
 			}
 			pending := integrationdb.RunAsync(func() (integrationstore.IntegrationRuntimeUnitRecord, error) {
 				return store.Integrations().UpsertIntegrationRuntimeUnit(t.Context(), input)
 			})
 			integrationdb.WaitForNamedLockWaiters(t, t.Context(), store.pool, waiting, 1)
-			_, err = blocker.Exec(t.Context(), statement, id)
+			_, err := blocker.Exec(t.Context(), statement, id)
 			require.NoError(t, err)
 			require.NoError(t, blocker.Commit(t.Context()))
 			result := integrationdb.Await(t, pending, "runtime write behind retirement")
@@ -64,7 +64,7 @@ func TestRuntimeConfigurationUpsertRechecksLifecycleAfterWaiting(t *testing.T) {
 			var count int
 			require.NoError(t, store.pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM integration_runtime_units WHERE integration_app_id=$1`,
-				setup.IntegrationAppID).Scan(&count))
+				app.ID).Scan(&count))
 			require.Zero(t, count, "retirement must not leave an orphan runtime")
 		})
 	}

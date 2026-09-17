@@ -13,6 +13,6 @@ SELECT pg_advisory_xact_lock(hashtextextended(
 SELECT unit_key, runtime_kind, spec_revision, configuration
 FROM integration_runtime_units
 WHERE org_id = sqlc.arg(org_id) AND integration_app_id = sqlc.arg(integration_app_id)
-  AND project_id IS NULL AND integration_install_id IS NULL AND deleted_at IS NULL
+  AND deleted_at IS NULL
   AND (runtime_kind = 'discord_gateway' OR starts_with(unit_key, 'discord_gateway:'))
 ORDER BY unit_key;

@@ -252,13 +252,10 @@ func TestExternalChannelRequestRecordsPublicationWhenReplyRegistrationFails(t *t
 
 func TestExternalChannelRequestCancelAndDeadlineAreTerminal(t *testing.T) {
 	t.Parallel()
-	for _, cancel := range []bool{true, false} {
-		name := "deadline"
-		if cancel {
-			name = "cancel"
-		}
+	for _, name := range []string{"cancel", "deadline", "revoked"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			cancel := name == "cancel"
 			ctx := context.Background()
 			f := newExternalRequestFixture(t, ctx, toolcatalog.ToolNameSendChannelMessage)
 			lifetime := time.Second
@@ -281,7 +278,9 @@ func TestExternalChannelRequestCancelAndDeadlineAreTerminal(t *testing.T) {
 				})
 				require.NoError(t, err)
 			} else {
-				require.NoError(t, f.Store.Integrations().RevokeIntegrationTargetBinding(ctx, testProjectID, f.binding.ID))
+				if name == "revoked" {
+					require.NoError(t, f.Store.Integrations().RevokeIntegrationTargetBinding(ctx, testProjectID, f.binding.ID))
+				}
 				waitForIntegrationDatabaseTimeAfter(t, ctx, f.Store.pool, request.Deadline)
 				_, err := f.Store.Execution().CompleteExternalChannelRequest(ctx, externalRequestCompletion(t, request))
 				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict, "deadline applies before maintenance catches up")
@@ -298,10 +297,11 @@ func TestExternalChannelRequestCancelAndDeadlineAreTerminal(t *testing.T) {
 			call, err := f.Store.Execution().GetToolCall(ctx, testProjectID, f.AgentID, f.call.ID)
 			require.NoError(t, err)
 			var parts []struct {
-				Value struct{ Code, Detail string } `json:"value"`
+				Value struct{ Code, Detail, Status string } `json:"value"`
 			}
 			require.NoError(t, json.Unmarshal(call.ResultContentParts, &parts))
 			require.Len(t, parts, 1)
+			require.Equal(t, "unknown", parts[0].Value.Status)
 			require.Contains(t, parts[0].Value.Detail, "provider outcome is unknown")
 			require.Contains(t, parts[0].Value.Detail, "do not assume it is safe to resend")
 			if cancel {
@@ -309,7 +309,42 @@ func TestExternalChannelRequestCancelAndDeadlineAreTerminal(t *testing.T) {
 				require.Equal(t, "channel_operation_canceled", parts[0].Value.Code)
 			} else {
 				require.Equal(t, executionstore.ToolResultOutcomeFailed, call.Outcome)
-				require.Equal(t, "deadline_exceeded", parts[0].Value.Code)
+				if name == "revoked" {
+					require.Equal(t, "grant_revoked", parts[0].Value.Code)
+					require.Contains(t, parts[0].Value.Detail, "access was revoked")
+				} else {
+					require.Equal(t, "deadline_exceeded", parts[0].Value.Code)
+				}
+			}
+			f.requireOneResult(t, ctx)
+		})
+	}
+}
+
+func TestExternalChannelFailurePreservesOutcomeStatus(t *testing.T) {
+	t.Parallel()
+	for _, outcome := range []channelconnector.OperationOutcome{
+		channelconnector.OperationFailed, channelconnector.OperationUnknown,
+	} {
+		t.Run(string(outcome), func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			f := newExternalRequestFixture(t, ctx, toolcatalog.ToolNameSendChannelMessage)
+			request := f.start(t, ctx, time.Minute)
+			input := externalRequestCompletion(t, request)
+			input.Result.Outcome, input.Result.Payload = outcome, json.RawMessage(`{}`)
+			completed, err := f.Store.Execution().CompleteExternalChannelRequest(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeFailed, completed.ToolCall.Outcome)
+			var parts []struct {
+				Value struct{ Code, Detail, Status string } `json:"value"`
+			}
+			require.NoError(t, json.Unmarshal(completed.ToolCall.ResultContentParts, &parts))
+			require.Len(t, parts, 1)
+			require.Equal(t, string(outcome), parts[0].Value.Status)
+			require.Equal(t, "connector_"+string(outcome), parts[0].Value.Code)
+			if outcome == channelconnector.OperationUnknown {
+				require.Contains(t, parts[0].Value.Detail, "do not assume it is safe to resend")
 			}
 			f.requireOneResult(t, ctx)
 		})

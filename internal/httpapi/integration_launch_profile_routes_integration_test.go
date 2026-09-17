@@ -36,7 +36,6 @@ func TestPublicIntegrationLaunchProfileReadManageAndStableRoute(t *testing.T) {
 	original := f.route(t)
 	require.Equal(t, "discord", original.DeploymentKey)
 	require.Equal(t, "discord_conversation", original.BehaviorKey)
-	require.Equal(t, integrationstore.IntegrationRouteStateActive, original.State)
 	for _, selected := range []any{f.secondProfile(t), nil, f.profileID} {
 		response := f.request(t, http.MethodPut, f.path, map[string]any{"agent_profile_id": selected}, http.StatusOK)
 		require.Equal(t, map[string]any{"agent_profile_id": selected}, response)
@@ -45,7 +44,6 @@ func TestPublicIntegrationLaunchProfileReadManageAndStableRoute(t *testing.T) {
 		require.Equal(t, original.ID, current.ID)
 		require.Equal(t, original.CreatedAt, current.CreatedAt)
 		require.Equal(t, original.Configuration, current.Configuration)
-		require.Equal(t, original.State, current.State)
 		require.Equal(t, original.BehaviorKey, current.BehaviorKey)
 	}
 	var agents int
@@ -198,7 +196,7 @@ func TestPublicGitHubActivationPreservesRouteAndOmittedSetting(t *testing.T) {
 	original, err := f.project.Store.Integrations().CreateIntegrationRoute(t.Context(),
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: f.project.ProjectUUID, IntegrationInstallID: f.install.ID,
-			DeploymentKey: "github", BehaviorKey: "github_pr", State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "github", BehaviorKey: "github_pr",
 			Configuration: json.RawMessage(`{"activation":"pr_open"}`),
 		})
 	require.NoError(t, err)
@@ -221,7 +219,6 @@ func TestPublicGitHubActivationPreservesRouteAndOmittedSetting(t *testing.T) {
 		current := f.route(t)
 		require.Equal(t, original.ID, current.ID)
 		require.Equal(t, original.CreatedAt, current.CreatedAt)
-		require.Equal(t, original.State, current.State)
 		require.Equal(t, original.BehaviorKey, current.BehaviorKey)
 		require.JSONEq(t, `{"activation":"`+test.want+`"}`, string(current.Configuration))
 	}

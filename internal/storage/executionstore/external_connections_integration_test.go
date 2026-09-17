@@ -96,7 +96,7 @@ func TestExternalConnectionRegistrationRetainsRealPrincipalWithoutPhysicalIdenti
 	require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT integration_app_id IS NULL AND provider IS NULL
 		AND provider_tenant_id IS NULL AND provider_account_ref IS NULL AND credential_secret_id IS NULL
 		AND last_oauth_flow_id IS NULL
-		AND provider_config = '{}'::jsonb AND provider_identity = '{}'::jsonb
+		AND provider_identity = '{}'::jsonb
 		FROM integration_installs WHERE id = $1`, created.ID).Scan(&honestShape))
 	require.True(t, honestShape, "absence is SQL NULL, not invented provider/app identity")
 	require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT count(*) FROM integration_apps`).Scan(&appsAfter))
@@ -116,7 +116,6 @@ func TestExternalConnectionRegistrationRetainsRealPrincipalWithoutPhysicalIdenti
 
 	for _, statement := range []string{
 		`UPDATE integration_installs SET connection_mode = 'webhook' WHERE id = $1`,
-		`UPDATE integration_installs SET provider_config = '{"token":"fake"}' WHERE id = $1`,
 		`UPDATE integration_installs SET provider_identity = '{"tenant":"fake"}' WHERE id = $1`,
 	} {
 		_, err := f.Store.pool.Exec(ctx, statement, created.ID)
@@ -413,7 +412,6 @@ func TestManagedConnectionNullTenantIdentityAndDefinitionScope(t *testing.T) {
 	_, err = f.Store.Integrations().CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 		ProjectID: testProjectID, IntegrationInstallID: other.ID, AgentProfileID: agent.AgentProfileID,
 		DeploymentKey: "profile-setup", BehaviorKey: "conversation",
-		State: integrationstore.IntegrationRouteStateActive,
 	})
 	require.NoError(t, err)
 	listed, err := f.Store.Integrations().ListIntegrationInstallsForProject(ctx,

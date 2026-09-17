@@ -9647,7 +9647,8 @@ components:
         provider_ref:
           type: string
           minLength: 1
-          maxLength: 512
+          maxLength: 2048
+          description: Canonical provider address, at most 2048 UTF-8 bytes.
         provider_ref_kind:
           type: string
           minLength: 1
@@ -9680,7 +9681,8 @@ components:
         provider_ref:
           type: string
           minLength: 1
-          maxLength: 512
+          maxLength: 2048
+          description: Canonical provider address, at most 2048 UTF-8 bytes.
         provider_ref_kind:
           type: string
           minLength: 1
@@ -10158,7 +10160,7 @@ components:
     ChannelConnectorApp:
       type: object
       additionalProperties: false
-      required: [id, provider, provider_app_ref, display_name, connector_key, provider_config, provider_metadata, configuration_revision, updated_at]
+      required: [id, provider, provider_app_ref, display_name, connector_key, provider_config, configuration_revision, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/IntegrationAppID'
@@ -10175,8 +10177,6 @@ components:
         installation_credential_kind:
           $ref: '#/components/schemas/SecretKindResponse'
         provider_config:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
-        provider_metadata:
           $ref: '#/components/schemas/ChannelOpaqueObject'
         configuration_revision:
           type: integer
@@ -10270,7 +10270,7 @@ components:
     ChannelConnectorInstall:
       type: object
       additionalProperties: false
-      required: [id, project_id, provider_account_ref, display_name, provider_config, provider_identity, metadata, configuration_revision, updated_at]
+      required: [id, project_id, provider_account_ref, display_name, provider_identity, metadata, configuration_revision, updated_at]
       properties:
         project_id:
           $ref: '#/components/schemas/ProjectID'
@@ -10283,8 +10283,6 @@ components:
           type: string
         display_name:
           type: string
-        provider_config:
-          $ref: '#/components/schemas/ChannelOpaqueObject'
         provider_identity:
           $ref: '#/components/schemas/ChannelOpaqueObject'
         metadata:
@@ -10682,15 +10680,12 @@ components:
     ChannelConnectorRuntimeUnit:
       type: object
       additionalProperties: false
-      required: [id, integration_app_id, unit_key, runtime_kind, desired_state, spec_revision, configuration, status, lease_generation, checkpoint_version, checkpoint_revision, checkpoint, last_error, created_at, updated_at]
+      required: [id, integration_app_id, unit_key, runtime_kind, desired_state, spec_revision, configuration, status, lease_generation, checkpoint_version, checkpoint, last_error, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/IntegrationRuntimeUnitID'
         integration_app_id:
           $ref: '#/components/schemas/IntegrationAppID'
-        integration_install_id:
-          type: string
-          pattern: '^iin_[a-z2-7]{26}$'
         unit_key:
           type: string
         runtime_kind:
@@ -10728,18 +10723,10 @@ components:
           type: integer
           format: int64
           minimum: 1
-        lease_install_configuration_revision:
-          type: integer
-          format: int64
-          minimum: 1
         checkpoint_version:
           type: integer
           format: int32
           minimum: 1
-        checkpoint_revision:
-          type: integer
-          format: int64
-          minimum: 0
         checkpoint:
           $ref: '#/components/schemas/ChannelOpaqueObject'
         last_error:

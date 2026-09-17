@@ -125,7 +125,8 @@
             "pages": [
               "integrations/slack",
               "integrations/discord",
-              "integrations/github"
+              "integrations/github",
+              "integrations/external"
             ]
           },
           {

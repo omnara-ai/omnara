@@ -54,7 +54,6 @@ func managedInstallationSetupFixture(
 		CredentialSecretID: credentials[0], OAuthFlowID: uuid.Must(uuid.NewV7()),
 		InitialRoute: &integrationstore.CreateIntegrationRouteInput{
 			AgentProfileID: profile.ID, DeploymentKey: "default", BehaviorKey: "conversation",
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	}, credentials[1]
 }

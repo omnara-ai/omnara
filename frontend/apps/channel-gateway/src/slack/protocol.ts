@@ -42,7 +42,7 @@ export const slackMessage = z.object({
   attachments: z.array(z.unknown()).optional(),
 })
 export type SlackMessage = z.infer<typeof slackMessage>
-export const slackHistory = z.object({
+const slackHistory = z.object({
   messages: z.array(slackMessage).max(100),
   has_more: z.boolean().optional(),
   is_limited: z.boolean().optional(),

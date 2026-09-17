@@ -107,7 +107,6 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 			ConnectorKey: "test_connector", CredentialSecretID: appSecret.ID,
 			InstallationCredentialKind: string(secrets.KindIntegrationCredentials),
 			ProviderConfig:             json.RawMessage(`{"gateway_intents":["messages"]}`),
-			ProviderMetadata:           json.RawMessage(`{"environment":"test"}`),
 			State:                      integrationstore.IntegrationAppStateActive,
 		},
 	)
@@ -123,7 +122,6 @@ func TestChannelConnectorExactConfigurationJourney(t *testing.T) {
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "guild-configuration", ProviderAccountRef: "bot-configuration",
 			DisplayName: "Configuration bot", CredentialSecretID: installSecret.ID,
-			ProviderConfig:   json.RawMessage(`{"respond_to":"mentions"}`),
 			ProviderIdentity: json.RawMessage(`{"bot_user_id":"bot-user-1"}`),
 			Metadata:         json.RawMessage(`{"tenant_name":"Test guild"}`),
 		},
@@ -589,7 +587,7 @@ func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create runtime ingress app: %v", err)
 	}
-	install, err := store.Integrations().UpsertIntegrationInstall(
+	_, err = store.Integrations().UpsertIntegrationInstall(
 		ctx,
 		integrationstore.UpsertIntegrationInstallInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, IntegrationAppID: app.ID,
@@ -607,7 +605,6 @@ func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: project.OrgUUID, IntegrationAppID: app.ID,
-			ProjectID: project.ProjectUUID, IntegrationInstallID: install.ID,
 			UnitKey: "runtime-ingress", RuntimeKind: "provider_socket",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
@@ -658,7 +655,8 @@ func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	if heartbeat["checkpoint_revision"] != float64(1) {
+	checkpoint, ok := heartbeat["checkpoint"].(map[string]any)
+	if heartbeat["checkpoint_version"] != float64(1) || !ok || checkpoint["cursor"] != "before-event" {
 		t.Fatalf("runtime heartbeat response = %+v", heartbeat)
 	}
 	requestRawWithHeaders(
@@ -716,7 +714,9 @@ func TestChannelConnectorRuntimeLifecycle(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	if released["status"] != "idle" || released["checkpoint_revision"] != float64(3) {
+	checkpoint, ok = released["checkpoint"].(map[string]any)
+	if released["status"] != "idle" || released["checkpoint_version"] != float64(1) ||
+		!ok || checkpoint["cursor"] != "after-event" {
 		t.Fatalf("released runtime unit = %+v", released)
 	}
 	requestJSONWithHeaders(
@@ -809,7 +809,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 				integrationstore.CreateIntegrationRouteInput{
 					ProjectID:            project.ProjectUUID,
 					IntegrationInstallID: install.ID, DeploymentKey: "test-actions",
-					BehaviorKey: "test_actions", State: integrationstore.IntegrationRouteStateActive,
+					BehaviorKey: "test_actions",
 				},
 			)
 			if err != nil {
@@ -856,7 +856,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 				integrationstore.CreateIntegrationRouteInput{
 					ProjectID:            project.ProjectUUID,
 					IntegrationInstallID: install.ID, DeploymentKey: "test-actions-alternate",
-					BehaviorKey: "test_actions_alternate", State: integrationstore.IntegrationRouteStateActive,
+					BehaviorKey: "test_actions_alternate",
 				},
 			)
 			if err != nil {

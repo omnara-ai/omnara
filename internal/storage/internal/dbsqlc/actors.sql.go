@@ -54,7 +54,6 @@ SELECT EXISTS (
             WHERE route.project_id = binding.project_id
               AND route.integration_install_id = binding.integration_install_id
               AND route.id = binding.integration_route_id
-              AND route.state = 'active'
               AND route.deleted_at IS NULL
           )
         )

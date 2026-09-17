@@ -14,7 +14,7 @@ import (
 
 const lockIntegrationRouteByDeploymentKey = `-- name: LockIntegrationRouteByDeploymentKey :one
 SELECT id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = $1
@@ -40,7 +40,6 @@ func (q *Queries) LockIntegrationRouteByDeploymentKey(ctx context.Context, arg L
 		&i.BehaviorKey,
 		&i.Configuration,
 		&i.AgentProfileID,
-		&i.State,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -58,7 +57,7 @@ WHERE project_id = $3
   AND id = $5
   AND deleted_at IS NULL
 RETURNING id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at
 `
 
@@ -87,7 +86,6 @@ func (q *Queries) UpdateIntegrationRouteProfile(ctx context.Context, arg UpdateI
 		&i.BehaviorKey,
 		&i.Configuration,
 		&i.AgentProfileID,
-		&i.State,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

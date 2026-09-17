@@ -115,7 +115,7 @@ func TestManagedChannelSendOnlyGrantDoesNotRequireReceiveOrRead(t *testing.T) {
 		integrationstore.CreateIntegrationTargetBindingInput{
 			ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, IntegrationInstallID: channel.Install.ID,
 			IntegrationTargetID: channel.Target.ID, IntegrationRouteID: channel.Route.ID,
-			SendAllowed: true, Source: "test", Metadata: json.RawMessage(`{}`),
+			SendAllowed: true, Source: "test",
 		})
 	require.NoError(t, err)
 	id, err := publicid.Encode(publicid.KindIntegrationTarget, channel.Target.ID)
@@ -223,7 +223,7 @@ func TestManagedChannelReadMapsProviderFactsAndScopesPagination(t *testing.T) {
 		integrationstore.CreateIntegrationTargetBindingInput{
 			ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, IntegrationInstallID: channel.Install.ID,
 			IntegrationTargetID: channel.Target.ID, IntegrationRouteID: channel.Route.ID,
-			ReadAllowed: true, Source: "test", Metadata: json.RawMessage(`{}`),
+			ReadAllowed: true, Source: "test",
 		})
 	require.NoError(t, err)
 	id, err := publicid.Encode(publicid.KindIntegrationTarget, channel.Target.ID)

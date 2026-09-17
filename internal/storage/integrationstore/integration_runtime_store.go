@@ -46,30 +46,12 @@ func (s *Store) UpsertIntegrationRuntimeUnit(
 func upsertIntegrationRuntimeUnitTx(
 	ctx context.Context, q *dbsqlc.Queries, input UpsertIntegrationRuntimeUnitInput,
 ) (IntegrationRuntimeUnitRecord, error) {
-	var row dbsqlc.IntegrationRuntimeUnit
-	var err error
-	if input.IntegrationInstallID == uuid.Nil {
-		row, err = q.UpsertIntegrationAppRuntimeUnit(
-			ctx,
-			dbsqlc.UpsertIntegrationAppRuntimeUnitParams{
-				OrgID: input.OrgID, IntegrationAppID: input.IntegrationAppID,
-				UnitKey: input.UnitKey, RuntimeKind: input.RuntimeKind,
-				DesiredState: string(input.DesiredState), SpecRevision: int32(input.SpecRevision),
-				Configuration: input.Configuration,
-			},
-		)
-	} else {
-		row, err = q.UpsertIntegrationInstallRuntimeUnit(
-			ctx,
-			dbsqlc.UpsertIntegrationInstallRuntimeUnitParams{
-				OrgID: input.OrgID, IntegrationAppID: storeutil.IDFromNil(input.IntegrationAppID),
-				ProjectID: input.ProjectID, IntegrationInstallID: input.IntegrationInstallID,
-				UnitKey: input.UnitKey, RuntimeKind: input.RuntimeKind,
-				DesiredState: string(input.DesiredState), SpecRevision: int32(input.SpecRevision),
-				Configuration: input.Configuration,
-			},
-		)
-	}
+	row, err := q.UpsertIntegrationRuntimeUnit(ctx, dbsqlc.UpsertIntegrationRuntimeUnitParams{
+		OrgID: input.OrgID, IntegrationAppID: input.IntegrationAppID,
+		UnitKey: input.UnitKey, RuntimeKind: input.RuntimeKind,
+		DesiredState: string(input.DesiredState), SpecRevision: int32(input.SpecRevision),
+		Configuration: input.Configuration,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationRuntimeUnitRecord{}, storeerr.ErrConflict
 	}
@@ -292,11 +274,6 @@ func normalizeUpsertIntegrationRuntimeUnitInput(
 			"org and integration app are required",
 		)
 	}
-	if input.ProjectID == uuid.Nil != (input.IntegrationInstallID == uuid.Nil) {
-		return UpsertIntegrationRuntimeUnitInput{}, errors.New(
-			"runtime project and installation must either both be set or both be omitted",
-		)
-	}
 	input.UnitKey = strings.TrimSpace(input.UnitKey)
 	input.RuntimeKind = strings.TrimSpace(input.RuntimeKind)
 	if input.UnitKey == "" || input.RuntimeKind == "" || input.SpecRevision <= 0 {
@@ -364,8 +341,6 @@ func integrationRuntimeUnitRecordFromSQLC(
 		ID:                            row.ID,
 		OrgID:                         row.OrgID,
 		IntegrationAppID:              row.IntegrationAppID,
-		ProjectID:                     storeutil.IDFromPtr(row.ProjectID),
-		IntegrationInstallID:          storeutil.IDFromPtr(row.IntegrationInstallID),
 		Provider:                      row.Provider,
 		ConnectorKey:                  row.ConnectorKey,
 		UnitKey:                       row.UnitKey,
@@ -382,9 +357,7 @@ func integrationRuntimeUnitRecordFromSQLC(
 		LeaseExpiresAt:                row.LeaseExpiresAt,
 		LeaseSpecRevision:             intFromPtr(row.LeaseSpecRevision),
 		LeaseAppConfigurationRevision: int64FromPtr(row.LeaseAppConfigurationRevision),
-		LeaseInstallConfigRevision:    int64FromPtr(row.LeaseInstallConfigurationRevision),
 		CheckpointVersion:             int(row.CheckpointVersion),
-		CheckpointRevision:            row.CheckpointRevision,
 		Checkpoint:                    row.Checkpoint,
 		LastError:                     row.LastError,
 		CreatedAt:                     row.CreatedAt,

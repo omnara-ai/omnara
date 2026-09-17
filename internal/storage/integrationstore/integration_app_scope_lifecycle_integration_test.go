@@ -280,32 +280,7 @@ func TestProjectDeletionPreservesSharedIntegrationAppAndOtherProject(t *testing.
 	if err != nil {
 		t.Fatalf("create shared app runtime: %v", err)
 	}
-	createInstallRuntime := func(
-		projectID, installID uuid.UUID,
-		suffix string,
-	) integrationstore.IntegrationRuntimeUnitRecord {
-		t.Helper()
-		unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
-			ctx,
-			integrationstore.UpsertIntegrationRuntimeUnitInput{
-				OrgID: testOrgID, IntegrationAppID: app.ID,
-				ProjectID: projectID, IntegrationInstallID: installID,
-				UnitKey: "shared-" + suffix + "-runtime", RuntimeKind: "provider_socket",
-				DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
-				SpecRevision: 1,
-			},
-		)
-		if err != nil {
-			t.Fatalf("create %s install runtime: %v", suffix, err)
-		}
-		return unit
-	}
-	deletedProjectRuntime := createInstallRuntime(
-		testProjectID, deletedProjectInstall.ID, "deleted",
-	)
-	survivingRuntime := createInstallRuntime(
-		otherProject.ID, survivingInstall.ID, "surviving",
-	)
+	lease := claimOnlyIntegrationRuntime(t, ctx, store, "shared-app-before-project-delete", appRuntime.ID)
 
 	if _, err := store.Organizations().DeleteProject(
 		ctx,
@@ -360,8 +335,28 @@ WHERE app.id = $1
 		}
 	}
 	assertRuntimeLifecycle(appRuntime.ID, "running", false)
-	assertRuntimeLifecycle(deletedProjectRuntime.ID, "stopped", true)
-	assertRuntimeLifecycle(survivingRuntime.ID, "running", false)
+	if _, err := store.Integrations().HeartbeatIntegrationRuntimeUnit(ctx,
+		integrationstore.HeartbeatIntegrationRuntimeUnitInput{
+			ID: lease.ID, LeaseToken: lease.LeaseToken, LeaseGeneration: lease.LeaseGeneration,
+			LeaseDuration: time.Minute, Capabilities: testChannelCapabilities(testChannelProvider),
+		}); err != nil {
+		t.Fatalf("heartbeat shared app after one project deletion: %v", err)
+	}
+	for _, installation := range []struct {
+		id          uuid.UUID
+		wantCurrent bool
+	}{
+		{deletedProjectInstall.ID, false},
+		{survivingInstall.ID, true},
+	} {
+		current, err := store.Integrations().IntegrationRuntimeLeaseIsCurrent(
+			ctx, app.ID, lease.ID, installation.id, lease.LeaseToken, lease.LeaseGeneration,
+		)
+		if err != nil || current != installation.wantCurrent {
+			t.Fatalf("runtime proof for installation %s = %v, %v; want %v",
+				installation.id, current, err, installation.wantCurrent)
+		}
+	}
 }
 
 func TestIntegrationAppDeletionImmediatelyFencesLiveInstall(t *testing.T) {

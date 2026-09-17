@@ -14,28 +14,19 @@ import (
 
 const claimIntegrationRuntimeUnits = `-- name: ClaimIntegrationRuntimeUnits :many
 WITH candidate AS MATERIALIZED (
-  SELECT unit.id, app.configuration_revision AS app_configuration_revision,
-         install.configuration_revision AS install_configuration_revision
+  SELECT unit.id, app.configuration_revision AS app_configuration_revision
   FROM integration_runtime_units unit
   JOIN integration_apps app
     ON app.org_id = unit.org_id
    AND app.id = unit.integration_app_id
    AND app.state = 'active'
    AND app.deleted_at IS NULL
-  LEFT JOIN integration_installs install
-    ON install.org_id = unit.org_id
-   AND install.project_id = unit.project_id
-   AND install.id = unit.integration_install_id
-   AND install.integration_app_id = unit.integration_app_id
-   AND install.state = 'active'
-   AND install.deleted_at IS NULL
   WHERE unit.connector_key = $3
     AND unit.provider = $4
     AND unit.desired_state = 'running'
     AND unit.deleted_at IS NULL
     AND unit.available_at <= statement_timestamp()
     AND (unit.lease_token IS NULL OR unit.lease_expires_at <= statement_timestamp())
-    AND (unit.integration_install_id IS NULL OR install.id IS NOT NULL)
   ORDER BY unit.available_at, unit.id
   FOR UPDATE OF unit SKIP LOCKED
   LIMIT $5
@@ -53,19 +44,16 @@ SET status = 'running',
       ($2::bigint * interval '1 microsecond'),
     lease_spec_revision = unit.spec_revision,
     lease_app_configuration_revision = candidate.app_configuration_revision,
-    lease_install_configuration_revision = candidate.install_configuration_revision,
     last_error = '{}'::jsonb,
     updated_at = statement_timestamp()
 FROM candidate
 WHERE unit.id = candidate.id
-RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.project_id,
-  unit.integration_install_id, unit.provider, unit.connector_key, unit.unit_key, unit.runtime_kind,
+RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.provider, unit.connector_key, unit.unit_key, unit.runtime_kind,
   unit.desired_state, unit.spec_revision, unit.configuration,
   unit.status, unit.failure_count, unit.available_at, unit.lease_owner, unit.lease_token, unit.lease_generation,
   unit.leased_at, unit.renewed_at, unit.lease_expires_at,
   unit.lease_spec_revision, unit.lease_app_configuration_revision,
-  unit.lease_install_configuration_revision,
-  unit.checkpoint_version, unit.checkpoint_revision, unit.checkpoint,
+  unit.checkpoint_version, unit.checkpoint,
   unit.last_error, unit.deleted_at, unit.created_at, unit.updated_at
 `
 
@@ -96,8 +84,6 @@ func (q *Queries) ClaimIntegrationRuntimeUnits(ctx context.Context, arg ClaimInt
 			&i.ID,
 			&i.OrgID,
 			&i.IntegrationAppID,
-			&i.ProjectID,
-			&i.IntegrationInstallID,
 			&i.Provider,
 			&i.ConnectorKey,
 			&i.UnitKey,
@@ -116,9 +102,7 @@ func (q *Queries) ClaimIntegrationRuntimeUnits(ctx context.Context, arg ClaimInt
 			&i.LeaseExpiresAt,
 			&i.LeaseSpecRevision,
 			&i.LeaseAppConfigurationRevision,
-			&i.LeaseInstallConfigurationRevision,
 			&i.CheckpointVersion,
-			&i.CheckpointRevision,
 			&i.Checkpoint,
 			&i.LastError,
 			&i.DeletedAt,
@@ -135,35 +119,6 @@ func (q *Queries) ClaimIntegrationRuntimeUnits(ctx context.Context, arg ClaimInt
 	return items, nil
 }
 
-const deleteIntegrationInstallRuntimeUnits = `-- name: DeleteIntegrationInstallRuntimeUnits :exec
-UPDATE integration_runtime_units
-SET desired_state = 'stopped',
-    status = 'stopped',
-    lease_owner = NULL,
-    lease_token = NULL,
-    leased_at = NULL,
-    renewed_at = NULL,
-    lease_expires_at = NULL,
-    lease_spec_revision = NULL,
-    lease_app_configuration_revision = NULL,
-    lease_install_configuration_revision = NULL,
-    deleted_at = transaction_timestamp(),
-    updated_at = transaction_timestamp()
-WHERE project_id = $1::uuid
-  AND integration_install_id = $2
-  AND deleted_at IS NULL
-`
-
-type DeleteIntegrationInstallRuntimeUnitsParams struct {
-	ProjectID            uuid.UUID
-	IntegrationInstallID *uuid.UUID
-}
-
-func (q *Queries) DeleteIntegrationInstallRuntimeUnits(ctx context.Context, arg DeleteIntegrationInstallRuntimeUnitsParams) error {
-	_, err := q.db.Exec(ctx, deleteIntegrationInstallRuntimeUnits, arg.ProjectID, arg.IntegrationInstallID)
-	return err
-}
-
 const heartbeatIntegrationRuntimeUnit = `-- name: HeartbeatIntegrationRuntimeUnit :one
 UPDATE integration_runtime_units unit
 SET renewed_at = statement_timestamp(),
@@ -175,8 +130,6 @@ SET renewed_at = statement_timestamp(),
       THEN $3::jsonb ELSE checkpoint END,
     checkpoint_version = CASE WHEN $2::boolean
       THEN $4::integer ELSE checkpoint_version END,
-    checkpoint_revision = CASE WHEN $2::boolean
-      THEN checkpoint_revision + 1 ELSE checkpoint_revision END,
     failure_count = 0,
     updated_at = statement_timestamp()
 WHERE unit.id = $5
@@ -201,28 +154,13 @@ WHERE unit.id = $5
       AND app.state = 'active'
       AND app.deleted_at IS NULL
   )
-  AND (
-    unit.integration_install_id IS NULL
-    OR EXISTS (
-      SELECT 1
-      FROM integration_installs install
-      WHERE install.org_id = unit.org_id
-        AND install.project_id = unit.project_id
-        AND install.id = unit.integration_install_id
-        AND install.integration_app_id = unit.integration_app_id
-        AND install.state = 'active'
-        AND install.deleted_at IS NULL
-        AND install.configuration_revision = unit.lease_install_configuration_revision
-    )
-  )
-RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.project_id,
-  unit.integration_install_id, unit.provider, unit.connector_key,
+RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.provider, unit.connector_key,
   unit.unit_key, unit.runtime_kind, unit.desired_state,
   unit.spec_revision, unit.configuration, unit.status, unit.failure_count,
   unit.available_at, unit.lease_owner,
   unit.lease_token, unit.lease_generation, unit.leased_at, unit.renewed_at,
   unit.lease_expires_at, unit.lease_spec_revision, unit.lease_app_configuration_revision,
-  unit.lease_install_configuration_revision, unit.checkpoint_version, unit.checkpoint_revision,
+  unit.checkpoint_version,
   unit.checkpoint, unit.last_error, unit.deleted_at, unit.created_at, unit.updated_at
 `
 
@@ -255,8 +193,6 @@ func (q *Queries) HeartbeatIntegrationRuntimeUnit(ctx context.Context, arg Heart
 		&i.ID,
 		&i.OrgID,
 		&i.IntegrationAppID,
-		&i.ProjectID,
-		&i.IntegrationInstallID,
 		&i.Provider,
 		&i.ConnectorKey,
 		&i.UnitKey,
@@ -275,9 +211,7 @@ func (q *Queries) HeartbeatIntegrationRuntimeUnit(ctx context.Context, arg Heart
 		&i.LeaseExpiresAt,
 		&i.LeaseSpecRevision,
 		&i.LeaseAppConfigurationRevision,
-		&i.LeaseInstallConfigurationRevision,
 		&i.CheckpointVersion,
-		&i.CheckpointRevision,
 		&i.Checkpoint,
 		&i.LastError,
 		&i.DeletedAt,
@@ -305,14 +239,6 @@ SELECT EXISTS (
    AND install.deleted_at IS NULL
   WHERE unit.id = $2
     AND unit.integration_app_id = $3
-    AND (
-      unit.integration_install_id IS NULL
-      OR (
-        unit.integration_install_id = install.id
-        AND unit.project_id = install.project_id
-        AND install.configuration_revision = unit.lease_install_configuration_revision
-      )
-    )
     AND unit.lease_token = $4::uuid
     AND unit.lease_generation = $5
     AND unit.spec_revision = unit.lease_spec_revision
@@ -345,8 +271,7 @@ func (q *Queries) IntegrationRuntimeLeaseIsCurrent(ctx context.Context, arg Inte
 
 const lockIntegrationRuntimeLeaseForMutation = `-- name: LockIntegrationRuntimeLeaseForMutation :one
 WITH install_authority AS MATERIALIZED (
-  SELECT install.id, install.org_id, install.project_id, install.integration_app_id,
-    install.configuration_revision
+  SELECT install.org_id, install.integration_app_id
   FROM integration_installs install
   WHERE install.id = $1
     AND install.project_id = $2::uuid
@@ -366,20 +291,10 @@ WITH install_authority AS MATERIALIZED (
 ), unit_authority AS MATERIALIZED (
   SELECT unit.id
   FROM integration_runtime_units unit
-  JOIN install_authority install
-    ON install.integration_app_id = unit.integration_app_id
   JOIN app_authority app
     ON app.id = unit.integration_app_id
    AND app.org_id = unit.org_id
   WHERE unit.id = $4
-    AND (
-      unit.integration_install_id IS NULL
-      OR (
-        unit.integration_install_id = install.id
-        AND unit.project_id = install.project_id
-        AND install.configuration_revision = unit.lease_install_configuration_revision
-      )
-    )
     AND unit.lease_token = $5::uuid
     AND unit.lease_generation = $6
     AND unit.spec_revision = unit.lease_spec_revision
@@ -426,8 +341,6 @@ SET status = CASE
       THEN $3::jsonb ELSE checkpoint END,
     checkpoint_version = CASE WHEN $2::boolean
       THEN $4::integer ELSE checkpoint_version END,
-    checkpoint_revision = CASE WHEN $2::boolean
-      THEN checkpoint_revision + 1 ELSE checkpoint_revision END,
     lease_owner = NULL,
     lease_token = NULL,
     leased_at = NULL,
@@ -435,7 +348,6 @@ SET status = CASE
     lease_expires_at = NULL,
     lease_spec_revision = NULL,
     lease_app_configuration_revision = NULL,
-    lease_install_configuration_revision = NULL,
     last_error = $1,
     failure_count = CASE
       WHEN $1::jsonb = '{}'::jsonb THEN 0
@@ -477,28 +389,13 @@ WHERE unit.id = $5
       AND app.state = 'active'
       AND app.deleted_at IS NULL
   )
-  AND (
-    unit.integration_install_id IS NULL
-    OR EXISTS (
-      SELECT 1
-      FROM integration_installs install
-      WHERE install.org_id = unit.org_id
-        AND install.project_id = unit.project_id
-        AND install.id = unit.integration_install_id
-        AND install.integration_app_id = unit.integration_app_id
-        AND install.configuration_revision = unit.lease_install_configuration_revision
-        AND install.state = 'active'
-        AND install.deleted_at IS NULL
-    )
-  )
-RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.project_id,
-  unit.integration_install_id, unit.provider, unit.connector_key,
+RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.provider, unit.connector_key,
   unit.unit_key, unit.runtime_kind, unit.desired_state,
   unit.spec_revision, unit.configuration, unit.status, unit.failure_count,
   unit.available_at, unit.lease_owner,
   unit.lease_token, unit.lease_generation, unit.leased_at, unit.renewed_at,
   unit.lease_expires_at, unit.lease_spec_revision, unit.lease_app_configuration_revision,
-  unit.lease_install_configuration_revision, unit.checkpoint_version, unit.checkpoint_revision,
+  unit.checkpoint_version,
   unit.checkpoint, unit.last_error, unit.deleted_at, unit.created_at, unit.updated_at
 `
 
@@ -531,8 +428,6 @@ func (q *Queries) ReleaseIntegrationRuntimeUnit(ctx context.Context, arg Release
 		&i.ID,
 		&i.OrgID,
 		&i.IntegrationAppID,
-		&i.ProjectID,
-		&i.IntegrationInstallID,
 		&i.Provider,
 		&i.ConnectorKey,
 		&i.UnitKey,
@@ -551,9 +446,7 @@ func (q *Queries) ReleaseIntegrationRuntimeUnit(ctx context.Context, arg Release
 		&i.LeaseExpiresAt,
 		&i.LeaseSpecRevision,
 		&i.LeaseAppConfigurationRevision,
-		&i.LeaseInstallConfigurationRevision,
 		&i.CheckpointVersion,
-		&i.CheckpointRevision,
 		&i.Checkpoint,
 		&i.LastError,
 		&i.DeletedAt,
@@ -573,7 +466,6 @@ SET status = CASE WHEN desired_state = 'stopped' THEN 'stopped' ELSE 'idle' END,
     lease_expires_at = NULL,
     lease_spec_revision = NULL,
     lease_app_configuration_revision = NULL,
-    lease_install_configuration_revision = NULL,
     available_at = statement_timestamp(),
     updated_at = statement_timestamp()
 WHERE unit.id = $1
@@ -592,14 +484,13 @@ WHERE unit.id = $1
           AND ($5::text[])[capability.index] = unit.provider
       )
   )
-RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.project_id,
-  unit.integration_install_id, unit.provider, unit.connector_key,
+RETURNING unit.id, unit.org_id, unit.integration_app_id, unit.provider, unit.connector_key,
   unit.unit_key, unit.runtime_kind, unit.desired_state,
   unit.spec_revision, unit.configuration, unit.status, unit.failure_count,
   unit.available_at, unit.lease_owner,
   unit.lease_token, unit.lease_generation, unit.leased_at, unit.renewed_at,
   unit.lease_expires_at, unit.lease_spec_revision, unit.lease_app_configuration_revision,
-  unit.lease_install_configuration_revision, unit.checkpoint_version, unit.checkpoint_revision,
+  unit.checkpoint_version,
   unit.checkpoint, unit.last_error, unit.deleted_at, unit.created_at, unit.updated_at
 `
 
@@ -628,8 +519,6 @@ func (q *Queries) RelinquishStaleIntegrationRuntimeUnit(ctx context.Context, arg
 		&i.ID,
 		&i.OrgID,
 		&i.IntegrationAppID,
-		&i.ProjectID,
-		&i.IntegrationInstallID,
 		&i.Provider,
 		&i.ConnectorKey,
 		&i.UnitKey,
@@ -648,9 +537,7 @@ func (q *Queries) RelinquishStaleIntegrationRuntimeUnit(ctx context.Context, arg
 		&i.LeaseExpiresAt,
 		&i.LeaseSpecRevision,
 		&i.LeaseAppConfigurationRevision,
-		&i.LeaseInstallConfigurationRevision,
 		&i.CheckpointVersion,
-		&i.CheckpointRevision,
 		&i.Checkpoint,
 		&i.LastError,
 		&i.DeletedAt,
@@ -660,14 +547,14 @@ func (q *Queries) RelinquishStaleIntegrationRuntimeUnit(ctx context.Context, arg
 	return i, err
 }
 
-const upsertIntegrationAppRuntimeUnit = `-- name: UpsertIntegrationAppRuntimeUnit :one
+const upsertIntegrationRuntimeUnit = `-- name: UpsertIntegrationRuntimeUnit :one
 INSERT INTO integration_runtime_units(
-  org_id, integration_app_id, project_id, integration_install_id,
+  org_id, integration_app_id,
   provider, connector_key, unit_key, runtime_kind, desired_state, spec_revision,
   configuration, status, failure_count, available_at, created_at, updated_at
 )
 SELECT
-  $1, app.id, NULL, NULL, app.provider, app.connector_key,
+  $1, app.id, app.provider, app.connector_key,
   $2, $3,
   $4, $5,
   $6,
@@ -679,7 +566,7 @@ WHERE app.org_id = $1
   AND app.deleted_at IS NULL
   AND ($4::text <> 'running' OR app.state = 'active')
 ON CONFLICT (integration_app_id, unit_key)
-  WHERE project_id IS NULL AND deleted_at IS NULL
+  WHERE deleted_at IS NULL
 DO UPDATE SET
   desired_state = excluded.desired_state,
   spec_revision = excluded.spec_revision,
@@ -717,12 +604,9 @@ DO UPDATE SET
     THEN NULL ELSE integration_runtime_units.lease_spec_revision END,
   lease_app_configuration_revision = CASE WHEN excluded.desired_state = 'stopped'
     THEN NULL ELSE integration_runtime_units.lease_app_configuration_revision END,
-  lease_install_configuration_revision = NULL,
   updated_at = statement_timestamp()
 WHERE integration_runtime_units.deleted_at IS NULL
   AND integration_runtime_units.org_id = excluded.org_id
-  AND integration_runtime_units.project_id IS NULL
-  AND integration_runtime_units.integration_install_id IS NULL
   AND integration_runtime_units.runtime_kind = excluded.runtime_kind
   AND (
     excluded.spec_revision > integration_runtime_units.spec_revision
@@ -731,15 +615,15 @@ WHERE integration_runtime_units.deleted_at IS NULL
       AND excluded.configuration = integration_runtime_units.configuration
     )
   )
-RETURNING id, org_id, integration_app_id, project_id, integration_install_id,
+RETURNING id, org_id, integration_app_id,
   provider, connector_key, unit_key, runtime_kind, desired_state, spec_revision, configuration,
   status, failure_count, available_at, lease_owner, lease_token, lease_generation, leased_at, renewed_at,
   lease_expires_at, lease_spec_revision, lease_app_configuration_revision,
-  lease_install_configuration_revision, checkpoint_version, checkpoint_revision, checkpoint,
+  checkpoint_version, checkpoint,
   last_error, deleted_at, created_at, updated_at
 `
 
-type UpsertIntegrationAppRuntimeUnitParams struct {
+type UpsertIntegrationRuntimeUnitParams struct {
 	OrgID            uuid.UUID
 	UnitKey          string
 	RuntimeKind      string
@@ -749,8 +633,8 @@ type UpsertIntegrationAppRuntimeUnitParams struct {
 	IntegrationAppID uuid.UUID
 }
 
-func (q *Queries) UpsertIntegrationAppRuntimeUnit(ctx context.Context, arg UpsertIntegrationAppRuntimeUnitParams) (IntegrationRuntimeUnit, error) {
-	row := q.db.QueryRow(ctx, upsertIntegrationAppRuntimeUnit,
+func (q *Queries) UpsertIntegrationRuntimeUnit(ctx context.Context, arg UpsertIntegrationRuntimeUnitParams) (IntegrationRuntimeUnit, error) {
+	row := q.db.QueryRow(ctx, upsertIntegrationRuntimeUnit,
 		arg.OrgID,
 		arg.UnitKey,
 		arg.RuntimeKind,
@@ -764,8 +648,6 @@ func (q *Queries) UpsertIntegrationAppRuntimeUnit(ctx context.Context, arg Upser
 		&i.ID,
 		&i.OrgID,
 		&i.IntegrationAppID,
-		&i.ProjectID,
-		&i.IntegrationInstallID,
 		&i.Provider,
 		&i.ConnectorKey,
 		&i.UnitKey,
@@ -784,158 +666,7 @@ func (q *Queries) UpsertIntegrationAppRuntimeUnit(ctx context.Context, arg Upser
 		&i.LeaseExpiresAt,
 		&i.LeaseSpecRevision,
 		&i.LeaseAppConfigurationRevision,
-		&i.LeaseInstallConfigurationRevision,
 		&i.CheckpointVersion,
-		&i.CheckpointRevision,
-		&i.Checkpoint,
-		&i.LastError,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const upsertIntegrationInstallRuntimeUnit = `-- name: UpsertIntegrationInstallRuntimeUnit :one
-INSERT INTO integration_runtime_units(
-  org_id, integration_app_id, project_id, integration_install_id,
-  provider, connector_key, unit_key, runtime_kind, desired_state, spec_revision,
-  configuration, status, failure_count, available_at, created_at, updated_at
-)
-SELECT
-  $1, app.id, install.project_id, install.id,
-  app.provider, app.connector_key, $2, $3,
-  $4, $5, $6,
-  CASE WHEN $4::text = 'stopped' THEN 'stopped' ELSE 'idle' END,
-  0, transaction_timestamp(), transaction_timestamp(), transaction_timestamp()
-FROM integration_installs install
-JOIN integration_apps app
-  ON app.org_id = install.org_id
- AND app.id = install.integration_app_id
- AND app.deleted_at IS NULL
-WHERE install.org_id = $1
-  AND install.project_id = $7::uuid
-  AND install.id = $8
-  AND install.integration_app_id = $9
-  AND install.deleted_at IS NULL
-  AND (
-    $4::text <> 'running'
-    OR (app.state = 'active' AND install.state = 'active')
-  )
-ON CONFLICT (integration_app_id, integration_install_id, unit_key)
-  WHERE project_id IS NOT NULL AND deleted_at IS NULL
-DO UPDATE SET
-  desired_state = excluded.desired_state,
-  spec_revision = excluded.spec_revision,
-  configuration = excluded.configuration,
-  failure_count = CASE
-    WHEN integration_runtime_units.spec_revision IS DISTINCT FROM excluded.spec_revision
-      OR integration_runtime_units.configuration IS DISTINCT FROM excluded.configuration
-      OR integration_runtime_units.desired_state IS DISTINCT FROM excluded.desired_state
-      THEN 0
-    ELSE integration_runtime_units.failure_count
-  END,
-  available_at = CASE
-    WHEN integration_runtime_units.spec_revision IS DISTINCT FROM excluded.spec_revision
-      OR integration_runtime_units.configuration IS DISTINCT FROM excluded.configuration
-      OR integration_runtime_units.desired_state IS DISTINCT FROM excluded.desired_state
-      THEN statement_timestamp()
-    ELSE integration_runtime_units.available_at
-  END,
-  status = CASE
-    WHEN excluded.desired_state = 'stopped' THEN 'stopped'
-    WHEN integration_runtime_units.status = 'stopped' THEN 'idle'
-    ELSE integration_runtime_units.status
-  END,
-  lease_owner = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.lease_owner END,
-  lease_token = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.lease_token END,
-  leased_at = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.leased_at END,
-  renewed_at = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.renewed_at END,
-  lease_expires_at = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.lease_expires_at END,
-  lease_spec_revision = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.lease_spec_revision END,
-  lease_app_configuration_revision = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.lease_app_configuration_revision END,
-  lease_install_configuration_revision = CASE WHEN excluded.desired_state = 'stopped'
-    THEN NULL ELSE integration_runtime_units.lease_install_configuration_revision END,
-  updated_at = statement_timestamp()
-WHERE integration_runtime_units.deleted_at IS NULL
-  AND integration_runtime_units.org_id = excluded.org_id
-  AND integration_runtime_units.project_id = excluded.project_id
-  AND integration_runtime_units.integration_install_id = excluded.integration_install_id
-  AND integration_runtime_units.runtime_kind = excluded.runtime_kind
-  AND (
-    excluded.spec_revision > integration_runtime_units.spec_revision
-    OR (
-      excluded.spec_revision = integration_runtime_units.spec_revision
-      AND excluded.configuration = integration_runtime_units.configuration
-    )
-  )
-RETURNING id, org_id, integration_app_id, project_id, integration_install_id,
-  provider, connector_key, unit_key, runtime_kind, desired_state, spec_revision, configuration,
-  status, failure_count, available_at, lease_owner, lease_token, lease_generation, leased_at, renewed_at,
-  lease_expires_at, lease_spec_revision, lease_app_configuration_revision,
-  lease_install_configuration_revision, checkpoint_version, checkpoint_revision, checkpoint,
-  last_error, deleted_at, created_at, updated_at
-`
-
-type UpsertIntegrationInstallRuntimeUnitParams struct {
-	OrgID                uuid.UUID
-	UnitKey              string
-	RuntimeKind          string
-	DesiredState         string
-	SpecRevision         int32
-	Configuration        json.RawMessage
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
-	IntegrationAppID     *uuid.UUID
-}
-
-func (q *Queries) UpsertIntegrationInstallRuntimeUnit(ctx context.Context, arg UpsertIntegrationInstallRuntimeUnitParams) (IntegrationRuntimeUnit, error) {
-	row := q.db.QueryRow(ctx, upsertIntegrationInstallRuntimeUnit,
-		arg.OrgID,
-		arg.UnitKey,
-		arg.RuntimeKind,
-		arg.DesiredState,
-		arg.SpecRevision,
-		arg.Configuration,
-		arg.ProjectID,
-		arg.IntegrationInstallID,
-		arg.IntegrationAppID,
-	)
-	var i IntegrationRuntimeUnit
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.IntegrationAppID,
-		&i.ProjectID,
-		&i.IntegrationInstallID,
-		&i.Provider,
-		&i.ConnectorKey,
-		&i.UnitKey,
-		&i.RuntimeKind,
-		&i.DesiredState,
-		&i.SpecRevision,
-		&i.Configuration,
-		&i.Status,
-		&i.FailureCount,
-		&i.AvailableAt,
-		&i.LeaseOwner,
-		&i.LeaseToken,
-		&i.LeaseGeneration,
-		&i.LeasedAt,
-		&i.RenewedAt,
-		&i.LeaseExpiresAt,
-		&i.LeaseSpecRevision,
-		&i.LeaseAppConfigurationRevision,
-		&i.LeaseInstallConfigurationRevision,
-		&i.CheckpointVersion,
-		&i.CheckpointRevision,
 		&i.Checkpoint,
 		&i.LastError,
 		&i.DeletedAt,

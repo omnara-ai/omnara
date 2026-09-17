@@ -268,7 +268,7 @@ func TestChannelToolEligibilityUsesAllSendableBindingsInChannelMode(t *testing.T
 			IntegrationTargetID:  connector.Target.ID,
 			IntegrationRouteID:   connector.Route.ID,
 			ReceiveAllowed:       true, SendAllowed: false,
-			Source: "test", Metadata: json.RawMessage(`{}`),
+			Source: "test",
 		},
 	)
 	if err != nil {
@@ -356,7 +356,7 @@ func TestChannelToolEligibilityUsesAllSendableBindingsInChannelMode(t *testing.T
 			IntegrationTargetID:  connector.Target.ID,
 			IntegrationRouteID:   connector.Route.ID,
 			ReceiveAllowed:       true, SendAllowed: true,
-			Source: "test", Metadata: json.RawMessage(`{}`),
+			Source: "test",
 		},
 	)
 	if err != nil || sendBinding.ID == receiveOnlyBinding.ID {
@@ -968,7 +968,7 @@ func createIntegrationToolInstall(
 		Provider: integrationstore.IntegrationProviderSlack, ProviderAppRef: "A123",
 		DisplayName: "Slack test app", ConnectorKey: channelconnector.BuiltInConnectorKey,
 		InstallationCredentialKind: string(secrets.KindSlackAppCredentials),
-		CredentialSecretID:         secretID, ProviderConfig: json.RawMessage(`{}`), ProviderMetadata: json.RawMessage(`{}`),
+		CredentialSecretID:         secretID, ProviderConfig: json.RawMessage(`{}`),
 		State: integrationstore.IntegrationAppStateActive,
 	})
 	require.NoError(t, err)
@@ -1010,8 +1010,8 @@ func createConnectorToolChannel(
 			OrgID: toolsTestOrgID, OwnerProjectID: toolsTestProjectID,
 			Provider: "discord", ProviderAppRef: "discord-app-" + label,
 			DisplayName: "Discord " + label, ConnectorKey: channelconnector.BuiltInConnectorKey,
-			ProviderConfig: json.RawMessage(`{}`), ProviderMetadata: json.RawMessage(`{}`),
-			State: integrationstore.IntegrationAppStateActive,
+			ProviderConfig: json.RawMessage(`{}`),
+			State:          integrationstore.IntegrationAppStateActive,
 		},
 	)
 	if err != nil {
@@ -1025,8 +1025,8 @@ func createConnectorToolChannel(
 			Provider:    "discord", IntegrationKind: integrationstore.IntegrationKindManaged, ConnectionMode: "webhook",
 			State:            integrationstore.IntegrationInstallStateActive,
 			ProviderTenantID: "guild-" + label, ProviderAccountRef: "bot-" + label,
-			ProviderConfig: json.RawMessage(`{}`), ProviderIdentity: json.RawMessage(`{}`),
-			Metadata: json.RawMessage(`{}`),
+			ProviderIdentity: json.RawMessage(`{}`),
+			Metadata:         json.RawMessage(`{}`),
 		},
 	)
 	if err != nil {
@@ -1038,7 +1038,7 @@ func createConnectorToolChannel(
 			ProjectID:            toolsTestProjectID,
 			IntegrationInstallID: install.ID, DeploymentKey: "single-agent-channel-" + label,
 			BehaviorKey:   "single_agent_channel",
-			Configuration: json.RawMessage(`{}`), State: integrationstore.IntegrationRouteStateActive,
+			Configuration: json.RawMessage(`{}`),
 		},
 	)
 	if err != nil {
@@ -1077,7 +1077,7 @@ func createConnectorToolChannel(
 			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
 			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
 			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
-			Source: "test", Metadata: json.RawMessage(`{}`),
+			Source: "test",
 		},
 	)
 	if err != nil {

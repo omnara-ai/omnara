@@ -78,7 +78,7 @@ func (s strictOpenAPIServer) SetIntegrationLaunchProfile(
 	input := integrationstore.SetIntegrationRouteProfileInput{
 		CreateIntegrationRouteInput: integrationstore.CreateIntegrationRouteInput{
 			ProjectID: install.ProjectID, IntegrationInstallID: install.ID, AgentProfileID: profileID,
-			DeploymentKey: install.Provider, BehaviorKey: behavior, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: install.Provider, BehaviorKey: behavior,
 		},
 		ConfigurationPatch: configurationPatch,
 	}

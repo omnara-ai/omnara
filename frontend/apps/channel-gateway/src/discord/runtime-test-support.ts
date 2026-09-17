@@ -90,9 +90,6 @@ export async function runtimeSetup(saved: Partial<ChannelConnectorRuntimeUnit> =
   const factory = {
     configuration: app,
     signal: controller.signal,
-    getInstallation: vi
-      .fn<ProviderFactoryContext['getInstallation']>()
-      .mockResolvedValue(installation),
     resolveInstallation: vi
       .fn<ProviderFactoryContext['resolveInstallation']>()
       .mockResolvedValue(installation),

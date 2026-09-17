@@ -383,6 +383,9 @@ export type ChannelHistoryPage = {
  */
 export type ChannelOperationDestination = {
     implementation_key: string;
+    /**
+     * Canonical provider address, at most 2048 UTF-8 bytes.
+     */
     provider_ref: string;
     provider_ref_kind: string;
     provider_metadata: ChannelOpaqueObject;
@@ -403,6 +406,9 @@ export type ChannelSendOperation = {
  */
 export type ChannelReplyDestination = {
     implementation_key: string;
+    /**
+     * Canonical provider address, at most 2048 UTF-8 bytes.
+     */
     provider_ref: string;
     provider_ref_kind: string;
     display_name?: string;
@@ -698,7 +704,6 @@ export type ChannelConnectorApp = {
     connector_key: string;
     installation_credential_kind?: SecretKindResponse;
     provider_config: ChannelOpaqueObject;
-    provider_metadata: ChannelOpaqueObject;
     configuration_revision: number;
     updated_at: Timestamp;
 };
@@ -741,7 +746,6 @@ export type ChannelConnectorInstall = {
     provider_tenant_id?: string;
     provider_account_ref: string;
     display_name: string;
-    provider_config: ChannelOpaqueObject;
     provider_identity: ChannelOpaqueObject;
     metadata: ChannelOpaqueObject;
     configuration_revision: number;
@@ -946,7 +950,6 @@ export type ChannelRuntimeStatus = 'idle' | 'running' | 'error' | 'stopped';
 export type ChannelConnectorRuntimeUnit = {
     id: IntegrationRuntimeUnitId;
     integration_app_id: IntegrationAppId;
-    integration_install_id?: string;
     unit_key: string;
     runtime_kind: string;
     desired_state: ChannelRuntimeDesiredState;
@@ -961,9 +964,7 @@ export type ChannelConnectorRuntimeUnit = {
     lease_expires_at?: Timestamp;
     lease_spec_revision?: number;
     lease_app_configuration_revision?: number;
-    lease_install_configuration_revision?: number;
     checkpoint_version: number;
-    checkpoint_revision: number;
     checkpoint: ChannelOpaqueObject;
     last_error: ChannelOpaqueObject;
     created_at: Timestamp;

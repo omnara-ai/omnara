@@ -157,17 +157,10 @@ func channelConnectorRuntimeUnitResponse(
 		DesiredState: openapi.ChannelRuntimeDesiredState(record.DesiredState),
 		SpecRevision: int32(record.SpecRevision), Configuration: record.Configuration,
 		Status: openapi.ChannelRuntimeStatus(record.Status), LeaseGeneration: record.LeaseGeneration,
-		CheckpointVersion: int32(record.CheckpointVersion), CheckpointRevision: record.CheckpointRevision,
-		Checkpoint: record.Checkpoint, LastError: record.LastError,
+		CheckpointVersion: int32(record.CheckpointVersion),
+		Checkpoint:        record.Checkpoint, LastError: record.LastError,
 		LeasedAt: record.LeasedAt, RenewedAt: record.RenewedAt,
 		LeaseExpiresAt: record.LeaseExpiresAt, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
-	}
-	if record.IntegrationInstallID != uuid.Nil {
-		installID, err := publicID(publicid.KindIntegrationInstall, record.IntegrationInstallID)
-		if err != nil {
-			return openapi.ChannelConnectorRuntimeUnit{}, err
-		}
-		response.IntegrationInstallId = &installID
 	}
 	if record.LeaseOwner != "" {
 		response.LeaseOwner = &record.LeaseOwner
@@ -182,9 +175,6 @@ func channelConnectorRuntimeUnitResponse(
 	}
 	if record.LeaseAppConfigurationRevision > 0 {
 		response.LeaseAppConfigurationRevision = &record.LeaseAppConfigurationRevision
-	}
-	if record.LeaseInstallConfigRevision > 0 {
-		response.LeaseInstallConfigurationRevision = &record.LeaseInstallConfigRevision
 	}
 	return response, nil
 }

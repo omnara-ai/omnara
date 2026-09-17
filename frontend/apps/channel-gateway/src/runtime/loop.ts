@@ -172,15 +172,6 @@ export class RuntimeLoop {
         unit.lease_app_configuration_revision,
         operationController.signal,
       )
-      const installation = unit.integration_install_id
-        ? await raceWithAbort(
-            handle.getInstallation(
-              unit.integration_install_id,
-              unit.lease_install_configuration_revision,
-            ),
-            operationController.signal,
-          )
-        : undefined
       initialized = true
       if (!handle.runtime.runUnit) {
         lastError = {
@@ -191,7 +182,6 @@ export class RuntimeLoop {
       }
       settled = handle
         .runUnit(state.unit, {
-          installation,
           reserveWorkBytes: workReservations.reserve,
           signal: operationController.signal,
           updateCheckpoint: (checkpoint) => {
@@ -316,9 +306,7 @@ function validateRuntimeClaim(unit: ChannelConnectorRuntimeUnit): void {
   if (
     unit.lease_spec_revision === undefined ||
     unit.lease_spec_revision !== unit.spec_revision ||
-    unit.lease_app_configuration_revision === undefined ||
-    (unit.integration_install_id === undefined) !==
-      (unit.lease_install_configuration_revision === undefined)
+    unit.lease_app_configuration_revision === undefined
   ) {
     throw new Error('claimed runtime unit is missing a consistent configuration snapshot')
   }

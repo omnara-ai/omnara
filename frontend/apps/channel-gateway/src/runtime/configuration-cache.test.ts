@@ -1,8 +1,7 @@
 import { ApiError, type ChannelConnectorInstallationConfiguration } from '@omnara/sdk'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CoreClient } from '../core/client'
-import { unexpectedTestCall } from '../gateway-test-fixtures'
 import { InstallationConfigurationCache, LoadLimiter } from './configuration-cache'
 
 describe('channel configuration load limiter', () => {
@@ -53,228 +52,174 @@ describe('channel configuration load limiter', () => {
   })
 })
 
-describe('channel installation configuration cache identity', () => {
-  it('rejects a get-by-ID response for a different app or installation without caching it', async () => {
-    const getInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('different-install', 'tenant-1', 'account-1')),
-    )
-    const cache = installationCache({ getInstallationConfiguration })
+describe('channel installation configuration cache', () => {
+  afterEach(() => vi.restoreAllMocks())
 
-    await expect(cache.getByID('app-1', 'install-1', 1, 1)).rejects.toThrow(
-      'mismatched installation configuration',
-    )
-    await expect(cache.getByID('app-1', 'install-1', 1, 1)).rejects.toThrow(
-      'mismatched installation configuration',
-    )
+  it.each(['app', 'tenant', 'account'] as const)(
+    'rejects a mismatched %s without caching it',
+    async (field) => {
+      const wrong = testInstallationConfiguration('install-1', 'tenant-1', 'account-1')
+      if (field === 'app') wrong.integration_app_id = 'other-app'
+      else if (field === 'tenant') wrong.install.provider_tenant_id = 'other-tenant'
+      else wrong.install.provider_account_ref = 'other-account'
+      const resolveInstallationConfiguration = vi.fn().mockResolvedValue(wrong)
+      const cache = installationCache({ resolveInstallationConfiguration })
 
-    expect(getInstallationConfiguration).toHaveBeenCalledTimes(2)
-  })
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow(
+          'mismatched installation configuration',
+        )
+      }
+      expect(resolveInstallationConfiguration).toHaveBeenCalledTimes(2)
+    },
+  )
 
-  it('rejects an external lookup response for a different tenant or account', async () => {
-    const resolveInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'other-tenant', 'account-1')),
-    )
-    const cache = installationCache({ resolveInstallationConfiguration })
-
-    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow(
-      'mismatched installation configuration',
-    )
-
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-  })
-
-  it('resolves an omitted tenant only for a tenantless lookup and shares its canonical cache entry', async () => {
+  it('caches an omitted tenant only for a tenantless lookup', async () => {
     const configuration: ChannelConnectorInstallationConfiguration = testInstallationConfiguration(
       'install-1',
       '',
       'account-1',
     )
     delete configuration.install.provider_tenant_id
-    const resolveInstallationConfiguration = vi.fn(() => Promise.resolve(configuration))
+    const resolveInstallationConfiguration = vi.fn().mockResolvedValue(configuration)
     const cache = installationCache({ resolveInstallationConfiguration })
 
     await expect(cache.resolve('app-1', '', 'account-1', 1)).resolves.toBe(configuration)
-    await expect(cache.getByID('app-1', 'install-1', 1, 1)).resolves.toBe(configuration)
     await expect(cache.resolve('app-1', '', 'account-1', 1)).resolves.toBe(configuration)
     expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-
-    await expect(cache.resolve('app-1', 'different-tenant', 'account-1', 1)).rejects.toThrow(
+    await expect(cache.resolve('app-1', 'other-tenant', 'account-1', 1)).rejects.toThrow(
       'mismatched installation configuration',
     )
   })
 
-  it('keeps external aliases coherent after a by-ID refresh', async () => {
-    const resolveInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 1)),
-    )
-    const getInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 2)),
-    )
-    const cache = installationCache({
-      getInstallationConfiguration,
-      resolveInstallationConfiguration,
-    })
-
-    const first = await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    expect(first.install.configuration_revision).toBe(1)
-    const refreshed = await cache.getByID('app-1', 'install-1', 1, 2)
-    expect(refreshed.install.configuration_revision).toBe(2)
-    const aliased = await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    expect(aliased.install.configuration_revision).toBe(2)
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-    expect(getInstallationConfiguration).toHaveBeenCalledOnce()
-  })
-
-  it('does not let a delayed external lookup replace a newer canonical revision', async () => {
-    const external = deferredValue<ReturnType<typeof testInstallationConfiguration>>()
-    const resolveInstallationConfiguration = vi.fn(() => external.promise)
-    const getInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 2)),
-    )
-    const cache = installationCache(
-      { getInstallationConfiguration, resolveInstallationConfiguration },
-      2,
-    )
-
-    const delayed = cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    await vi.waitFor(() => {
-      expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-    })
-    const current = await cache.getByID('app-1', 'install-1', 1, 2)
-    external.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 1))
-
-    expect(current.install.configuration_revision).toBe(2)
-    await expect(delayed).resolves.toMatchObject({ install: { configuration_revision: 2 } })
-    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
-      install: { configuration_revision: 2 },
-    })
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-  })
-
-  it('does not let a delayed exact lookup reclaim a reinstalled external alias', async () => {
-    const oldInstall = deferredValue<ReturnType<typeof testInstallationConfiguration>>()
-    const getInstallationConfiguration = vi.fn(() => oldInstall.promise)
-    const resolveInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-2', 'tenant-1', 'account-1', 1)),
-    )
-    const cache = installationCache(
-      { getInstallationConfiguration, resolveInstallationConfiguration },
-      2,
-    )
-
-    const delayed = cache.getByID('app-1', 'install-1', 1, 7)
-    await vi.waitFor(() => {
-      expect(getInstallationConfiguration).toHaveBeenCalledOnce()
-    })
-    const reinstalled = await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    oldInstall.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 7))
-
-    expect(reinstalled.install.id).toBe('install-2')
-    await expect(delayed).resolves.toMatchObject({ install: { id: 'install-1' } })
-    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
-      install: { id: 'install-2' },
-    })
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-  })
-
-  it('never lets a later exact lookup reclaim another installation external alias', async () => {
-    const getInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 7)),
-    )
-    const resolveInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-2', 'tenant-1', 'account-1', 1)),
-    )
-    const cache = installationCache({
-      getInstallationConfiguration,
-      resolveInstallationConfiguration,
-    })
-
+  it('refreshes credentials and replaces a reinstalled account after expiry', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0)
+    const resolveInstallationConfiguration = vi
+      .fn()
+      .mockResolvedValueOnce(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 1))
+      .mockResolvedValueOnce(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 2))
+      .mockResolvedValueOnce(testInstallationConfiguration('install-2', 'tenant-1', 'account-1', 1))
+    const cache = installationCache({ resolveInstallationConfiguration })
     await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    await expect(cache.getByID('app-1', 'install-1', 1, 7)).resolves.toMatchObject({
+    now.mockReturnValue(1_000)
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
+      install: { id: 'install-1', configuration_revision: 2 },
+    })
+    now.mockReturnValue(2_000)
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
+      install: { id: 'install-2', configuration_revision: 1 },
+    })
+    await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
+    expect(resolveInstallationConfiguration).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([1, 2])(
+    'checks each coalesced caller when core returns app revision %i',
+    async (revision) => {
+      const pending = deferredValue<ChannelConnectorInstallationConfiguration>()
+      const resolveInstallationConfiguration = vi.fn().mockReturnValueOnce(pending.promise)
+      const cache = installationCache({ resolveInstallationConfiguration })
+      const oldCall = cache.resolve('app-1', 'tenant-1', 'account-1', 1)
+      const newCall = cache.resolve('app-1', 'tenant-1', 'account-1', 2)
+      const matching = revision === 1 ? oldCall : newCall
+      const stale = expect(revision === 1 ? newCall : oldCall).rejects.toThrow(
+        'configuration revision changed',
+      )
+      const configuration = {
+        ...testInstallationConfiguration('install-1', 'tenant-1', 'account-1'),
+        app_configuration_revision: revision,
+      }
+      pending.resolve(configuration)
+      await expect(matching).resolves.toBe(configuration)
+      await stale
+      await expect(cache.resolve('app-1', 'tenant-1', 'account-1', revision)).resolves.toBe(
+        configuration,
+      )
+      expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('refreshes on an app revision change and keeps the current configuration for stale callers', async () => {
+    const resolveInstallationConfiguration = vi
+      .fn()
+      .mockResolvedValue(testInstallationConfiguration('install-1', 'tenant-1', 'account-1'))
+    const cache = installationCache({ resolveInstallationConfiguration })
+    await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
+
+    const refreshed = {
+      ...testInstallationConfiguration('install-1', 'tenant-1', 'account-1'),
+      app_configuration_revision: 2,
+    }
+    resolveInstallationConfiguration.mockResolvedValue(refreshed)
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 2)).resolves.toBe(refreshed)
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow(
+      'configuration revision changed',
+    )
+    // A stale caller cannot replace the cached current app configuration.
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 2)).resolves.toBe(refreshed)
+    expect(resolveInstallationConfiguration).toHaveBeenCalledTimes(3)
+  })
+
+  it('evicts the least recently used account and bounds outstanding loads', async () => {
+    const resolveInstallationConfiguration = vi.fn(
+      (_app: string, tenant: string, account: string) =>
+        Promise.resolve(testInstallationConfiguration('install-' + account, tenant, account)),
+    )
+    const cache = installationCache({ resolveInstallationConfiguration }, 2)
+    await cache.resolve('app-1', 'tenant-1', 'a', 1)
+    await cache.resolve('app-1', 'tenant-1', 'b', 1)
+    await cache.resolve('app-1', 'tenant-1', 'a', 1)
+    await cache.resolve('app-1', 'tenant-1', 'c', 1)
+    await cache.resolve('app-1', 'tenant-1', 'a', 1)
+    expect(resolveInstallationConfiguration).toHaveBeenCalledTimes(3)
+    await cache.resolve('app-1', 'tenant-1', 'b', 1)
+    expect(resolveInstallationConfiguration).toHaveBeenCalledTimes(4)
+
+    const pending = deferredValue<ChannelConnectorInstallationConfiguration>()
+    const bounded = installationCache(
+      { resolveInstallationConfiguration: () => pending.promise },
+      1,
+    )
+    const first = bounded.resolve('app-1', 'tenant-1', 'a', 1)
+    await expect(bounded.resolve('app-1', 'tenant-1', 'b', 1)).rejects.toThrow('at capacity')
+    pending.resolve(testInstallationConfiguration('install-a', 'tenant-1', 'a'))
+    await first
+  })
+
+  it('expires missing-account results and never caches transient failures', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0)
+    const resolveInstallationConfiguration = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(404, 'not found'))
+      .mockRejectedValueOnce(new ApiError(503, 'unavailable'))
+      .mockResolvedValue(testInstallationConfiguration('install-1', 'tenant-1', 'account-1'))
+    const cache = installationCache({ resolveInstallationConfiguration })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow('not found')
+    }
+    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
+    now.mockReturnValue(100)
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow('unavailable')
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
       install: { id: 'install-1' },
     })
-
-    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
-      install: { id: 'install-2' },
-    })
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
+    expect(resolveInstallationConfiguration).toHaveBeenCalledTimes(3)
   })
 
-  it('lets the external resolver replace an alias populated by a later exact lookup', async () => {
-    const replacement = deferredValue<ReturnType<typeof testInstallationConfiguration>>()
-    const resolveInstallationConfiguration = vi.fn(() => replacement.promise)
-    const getInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 7)),
+  it('rejects new work during shutdown and drains outstanding loads', async () => {
+    const pending = deferredValue<ChannelConnectorInstallationConfiguration>()
+    const cache = installationCache({ resolveInstallationConfiguration: () => pending.promise })
+    const first = cache.resolve('app-1', 'tenant-1', 'account-1', 1)
+    const closing = cache.close()
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow(
+      'cache is closed',
     )
-    const cache = installationCache(
-      { getInstallationConfiguration, resolveInstallationConfiguration },
-      2,
+    pending.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1'))
+    await first
+    await closing
+    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).rejects.toThrow(
+      'cache is closed',
     )
-
-    const resolving = cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    await vi.waitFor(() => {
-      expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-    })
-    await cache.getByID('app-1', 'install-1', 1, 7)
-    replacement.resolve(testInstallationConfiguration('install-2', 'tenant-1', 'account-1', 1))
-
-    await expect(resolving).resolves.toMatchObject({ install: { id: 'install-2' } })
-    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
-      install: { id: 'install-2' },
-    })
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-  })
-
-  it('does not let a delayed external 404 hide a newer by-ID result', async () => {
-    const external = deferredValue<ReturnType<typeof testInstallationConfiguration>>()
-    const resolveInstallationConfiguration = vi.fn(() => external.promise)
-    const getInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 2)),
-    )
-    const cache = installationCache(
-      { getInstallationConfiguration, resolveInstallationConfiguration },
-      2,
-    )
-
-    const delayed = cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    const rejection = expect(delayed).rejects.toThrow('not found')
-    await vi.waitFor(() => {
-      expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-    })
-    await cache.getByID('app-1', 'install-1', 1, 2)
-    external.reject(new ApiError(404, 'not found'))
-
-    await rejection
-    await expect(cache.resolve('app-1', 'tenant-1', 'account-1', 1)).resolves.toMatchObject({
-      install: { configuration_revision: 2 },
-    })
-    expect(resolveInstallationConfiguration).toHaveBeenCalledOnce()
-  })
-
-  it('does not let a delayed by-ID 404 hide a newer external result', async () => {
-    const byID = deferredValue<ReturnType<typeof testInstallationConfiguration>>()
-    const getInstallationConfiguration = vi.fn(() => byID.promise)
-    const resolveInstallationConfiguration = vi.fn(() =>
-      Promise.resolve(testInstallationConfiguration('install-1', 'tenant-1', 'account-1', 2)),
-    )
-    const cache = installationCache(
-      { getInstallationConfiguration, resolveInstallationConfiguration },
-      2,
-    )
-
-    const delayed = cache.getByID('app-1', 'install-1', 1, 1)
-    const rejection = expect(delayed).rejects.toThrow('not found')
-    await vi.waitFor(() => {
-      expect(getInstallationConfiguration).toHaveBeenCalledOnce()
-    })
-    await cache.resolve('app-1', 'tenant-1', 'account-1', 1)
-    byID.reject(new ApiError(404, 'not found'))
-
-    await rejection
-    await expect(cache.getByID('app-1', 'install-1', 1, 2)).resolves.toMatchObject({
-      install: { configuration_revision: 2 },
-    })
-    expect(getInstallationConfiguration).toHaveBeenCalledOnce()
   })
 })
 
@@ -302,21 +247,13 @@ function deferredValue<T>() {
 }
 
 function installationCache(
-  client: Partial<
-    Pick<CoreClient, 'getInstallationConfiguration' | 'resolveInstallationConfiguration'>
-  >,
-  concurrentLoads = 1,
+  client: Pick<CoreClient, 'resolveInstallationConfiguration'>,
+  maxEntries = 10,
 ): InstallationConfigurationCache {
   return new InstallationConfigurationCache({
-    client: {
-      getInstallationConfiguration:
-        vi.fn<CoreClient['getInstallationConfiguration']>(unexpectedTestCall),
-      resolveInstallationConfiguration:
-        vi.fn<CoreClient['resolveInstallationConfiguration']>(unexpectedTestCall),
-      ...client,
-    },
-    limiter: new LoadLimiter(concurrentLoads),
-    maxEntries: 10,
+    client,
+    limiter: new LoadLimiter(2),
+    maxEntries,
     notFoundCacheMs: 100,
     refreshAfterMs: 1_000,
   })
@@ -336,7 +273,6 @@ function testInstallationConfiguration(
       id: installId,
       provider_account_ref: accountRef,
       display_name: 'Test',
-      provider_config: {},
       provider_identity: {},
       metadata: {},
       provider_tenant_id: tenantId,

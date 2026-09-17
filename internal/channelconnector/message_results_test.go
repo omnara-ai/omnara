@@ -105,6 +105,47 @@ func TestHistoryPreservesPartialAttachmentObservationsAndEmptyPages(t *testing.T
 	require.Empty(t, result.NextCursor)
 }
 
+func TestReplyAddressesUseRegistrationByteLimit(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		ref  string
+		ok   bool
+	}{
+		{"over_old_limit", strings.Repeat("a", 513), true},
+		{"ascii_limit", strings.Repeat("a", 2048), true},
+		{"utf8_limit", strings.Repeat("é", 1024), true},
+		{"ascii_over_limit", strings.Repeat("a", 2049), false},
+		{"utf8_over_limit", strings.Repeat("é", 1024) + "a", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			destination := &ReplyDestination{
+				ImplementationKey: "conversation", ProviderRef: tc.ref, ProviderRefKind: "thread",
+			}
+			send, err := json.Marshal(SendResult{
+				Publication: MessagePublished, MessageChannel: MessageAtReplyChannel, ReplyChannel: destination,
+			})
+			require.NoError(t, err)
+			_, sendErr := DecodeSendResult(send)
+			history, err := json.Marshal(ProviderReadResult{
+				Messages: []ProviderMessageObservation{{
+					Content: Message{Text: "hello"}, Publication: MessagePublished, ReplyChannel: destination,
+				}}, Coverage: HistoryComplete,
+			})
+			require.NoError(t, err)
+			_, readErr := DecodeReadResult(history, 1)
+			if tc.ok {
+				require.NoError(t, sendErr)
+				require.NoError(t, readErr)
+			} else {
+				require.Error(t, sendErr)
+				require.Error(t, readErr)
+			}
+		})
+	}
+}
+
 func TestHistoryRejectsMisleadingCoverageAndMalformedReferences(t *testing.T) {
 	t.Parallel()
 	message := ProviderMessageObservation{Content: Message{Text: "hello"}, Publication: MessagePublished}

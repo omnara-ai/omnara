@@ -19,7 +19,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +66,7 @@ func TestPostgresIntegrationChannelsMigrationPreservesSlackConversations(t *test
   AND install.installed_by_org_api_key_id IS NULL AND install.credential_secret_id = $3
   AND install.last_oauth_flow_id = $4 AND install.provider_identity = '{"bot_user_id":"U_BOT"}'::jsonb
   AND route.deployment_key = 'slack' AND route.behavior_key = 'slack_conversation'
-  AND route.agent_profile_id = $5 AND route.state = 'active' AND route.deleted_at IS NULL
+  AND route.agent_profile_id = $5 AND route.deleted_at IS NULL
 FROM integration_installs install
 JOIN integration_apps app ON app.id = install.integration_app_id
 JOIN integration_routes route ON route.integration_install_id = install.id
@@ -122,7 +124,7 @@ FROM integration_target_bindings WHERE integration_target_id = $1`, fixture.dele
 		var retired bool
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT
   (SELECT bool_and(state = 'disabled' AND deleted_at IS NOT NULL) FROM integration_apps WHERE owner_project_id = $1)
-  AND (SELECT bool_and(state = 'disabled' AND deleted_at IS NOT NULL) FROM integration_routes WHERE project_id = $1)
+  AND (SELECT bool_and(deleted_at IS NOT NULL) FROM integration_routes WHERE project_id = $1)
   AND (SELECT bool_and(revoked_at IS NOT NULL) FROM integration_target_bindings WHERE project_id = $1)`,
 			projectID).Scan(&retired))
 		require.True(t, retired, "deleted owners cannot regain live routes or grants")
@@ -159,6 +161,87 @@ FROM integration_target_bindings WHERE integration_target_id = $1`, fixture.dele
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_target_bindings WHERE project_id = $1`,
 		fixture.projectID).Scan(&bindings))
 	require.Equal(t, 3, bindings, "standalone target creation never grants authority")
+	assertMigratedSlackWorkflow(t, ctx, pool, fixture)
+}
+
+func TestPostgresMigratedDisabledSlackInstallationReconnects(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 37))
+	fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
+	// Token revocation/uninstallation disabled the released installation without
+	// deleting its setup or conversations. Reauthorization must recover that setup.
+	_, err := db.ExecContext(ctx, `UPDATE integration_installs SET state = 'disabled' WHERE id = $1`, fixture.installID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO org_memberships(org_id, user_id, role, created_at)
+VALUES ($1, $2, 'admin', statement_timestamp())`, fixture.orgID, fixture.userID)
+	require.NoError(t, err)
+	require.NoError(t, applyProductionPostgresMigrations(ctx, db))
+
+	store := storage.NewStore(pool)
+	projectID, installID := uuid.MustParse(fixture.projectID), uuid.MustParse(fixture.installID)
+	agentID, targetID := uuid.MustParse(fixture.agentID), uuid.MustParse(fixture.targetID)
+	install, err := store.Integrations().GetIntegrationInstall(ctx, projectID, installID)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.IntegrationInstallStateDisabled, install.State)
+	var installUndeleted bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at IS NULL FROM integration_installs WHERE id = $1`,
+		installID).Scan(&installUndeleted))
+	require.True(t, installUndeleted)
+	var routeID, bindingID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `SELECT route.id, binding.id
+FROM integration_routes route
+JOIN integration_target_bindings binding ON binding.integration_route_id = route.id
+WHERE route.integration_install_id = $1 AND binding.integration_target_id = $2
+  AND route.deleted_at IS NULL AND binding.revoked_at IS NULL`, installID, targetID).Scan(&routeID, &bindingID))
+	capability := channelconnector.Capability{
+		Provider: integrationstore.IntegrationProviderSlack, ConnectorKey: channelconnector.BuiltInConnectorKey,
+	}
+	_, err = store.Integrations().ReceiveIntegrationEvent(ctx, integrationstore.ReceiveIntegrationEventInput{
+		ProjectID: projectID, IntegrationInstallID: installID, EventID: "before-reconnect",
+		Payload: json.RawMessage(`{"text":"still disabled"}`), Capabilities: []channelconnector.Capability{capability},
+	})
+	require.ErrorIs(t, err, storeerr.ErrNotFound, "a migrated route cannot bypass the disabled installation")
+	target, err := store.Integrations().GetIntegrationTarget(ctx, projectID, targetID)
+	require.NoError(t, err)
+	_, err = store.Execution().PrepareChannelWorkflow(ctx, executionstore.ChannelWorkflowIdentity{
+		ProjectID: projectID, IntegrationInstallID: installID, IntegrationRouteID: routeID,
+		InstanceKey: target.ProviderRef, Capabilities: []channelconnector.Capability{capability},
+	})
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	_, err = store.Integrations().GetActiveSendBindingForTarget(ctx, projectID, agentID, targetID)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+
+	// Exercise the same atomic installation/initial-route setup used by Slack OAuth.
+	flowID := uuid.Must(uuid.NewV7())
+	reconnected, err := store.Integrations().UpsertIntegrationInstall(ctx, integrationstore.UpsertIntegrationInstallInput{
+		OrgID: uuid.MustParse(fixture.orgID), ProjectID: projectID, IntegrationAppID: install.IntegrationAppID,
+		InstalledBy: identitystore.NewUserPrincipal(uuid.MustParse(fixture.userID)),
+		Provider:    install.Provider, IntegrationKind: integrationstore.IntegrationKindManaged,
+		ConnectionMode: install.ConnectionMode, State: integrationstore.IntegrationInstallStateActive,
+		ProviderTenantID: install.ProviderTenantID, ProviderAccountRef: install.ProviderAccountRef,
+		DisplayName: install.DisplayName, CredentialSecretID: install.CredentialSecretID,
+		ProviderIdentity: install.ProviderIdentity, Metadata: install.Metadata, OAuthFlowID: flowID,
+		InitialRoute: &integrationstore.CreateIntegrationRouteInput{
+			AgentProfileID: uuid.MustParse(fixture.profileID), DeploymentKey: "slack", BehaviorKey: "slack_conversation",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, installID, reconnected.ID)
+	require.False(t, reconnected.Created)
+	require.Equal(t, integrationstore.IntegrationInstallStateActive, reconnected.State)
+	require.Equal(t, flowID, reconnected.LastOAuthFlowID)
+	routes, err := store.Integrations().ListActiveIntegrationRoutes(ctx, projectID, installID)
+	require.NoError(t, err)
+	require.Len(t, routes, 1)
+	require.Equal(t, routeID, routes[0].ID, "reconnect recovers the migrated behavior without replacing it")
+	binding, err := store.Integrations().GetActiveSendBindingForTarget(ctx, projectID, agentID, targetID)
+	require.NoError(t, err)
+	require.Equal(t, bindingID, binding.ID)
 	assertMigratedSlackWorkflow(t, ctx, pool, fixture)
 }
 

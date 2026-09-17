@@ -330,7 +330,7 @@ func TestChannelConnectorWorkflowOnlyIfUnboundUsesReceiptScopedFanout(t *testing
 	secondRoute, err := f.project.Store.Integrations().CreateIntegrationRoute(t.Context(),
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: f.install.ProjectID, IntegrationInstallID: f.install.ID, AgentProfileID: routes[0].AgentProfileID,
-			DeploymentKey: "second", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "second", BehaviorKey: "conversation",
 		})
 	require.NoError(t, err)
 	query := openapi.LookupChannelConnectorRecipientsRequest{

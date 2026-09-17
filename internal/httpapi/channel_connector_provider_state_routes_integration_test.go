@@ -130,7 +130,7 @@ func TestChannelConnectorProviderStateHTTPRestorationAndFences(t *testing.T) {
 	f.post(t, f.eventPath(t, f.app), f.event(t, f.install, "after-restoration", `{}`), f.token, http.StatusAccepted)
 	body.ExpectedConfigurationRevision++
 	_, err := f.pool.Exec(t.Context(),
-		`UPDATE integration_apps SET provider_metadata='{"rotation":1}' WHERE id=$1`, f.app.ID)
+		`UPDATE integration_apps SET provider_config='{"rotation":1}' WHERE id=$1`, f.app.ID)
 	require.NoError(t, err)
 	f.post(t, path, workflowHTTPJSON(t, body), f.token, http.StatusConflict)
 	app, err := f.project.Store.Integrations().GetIntegrationApp(t.Context(), f.app.OrgID, f.app.ID)

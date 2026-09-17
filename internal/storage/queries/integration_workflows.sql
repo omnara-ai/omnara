@@ -29,7 +29,7 @@ FROM integration_routes route
 WHERE route.project_id = sqlc.arg(project_id)
   AND route.integration_install_id = sqlc.arg(integration_install_id)
   AND route.id = sqlc.arg(integration_route_id)
-  AND route.state = 'active' AND route.deleted_at IS NULL
+  AND route.deleted_at IS NULL
 FOR SHARE;
 
 -- A callback cannot use an expired or superseded receipt to create new agent

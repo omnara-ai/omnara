@@ -17,7 +17,7 @@ SELECT pg_advisory_xact_lock(hashtextextended(
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -32,7 +32,7 @@ INSERT INTO integration_installs(
   org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, created_at, updated_at, integration_app_id, installed_by_org_api_key_id
 )
 VALUES (
@@ -40,7 +40,7 @@ VALUES (
   sqlc.narg(installed_by_user_id), sqlc.arg(provider), sqlc.arg(integration_kind),
   sqlc.arg(connection_mode), sqlc.arg(state), sqlc.narg(provider_tenant_id),
   sqlc.arg(provider_account_ref), sqlc.arg(display_name), sqlc.narg(credential_secret_id),
-  sqlc.arg(provider_config), sqlc.arg(provider_identity), sqlc.arg(metadata),
+  sqlc.arg(provider_identity), sqlc.arg(metadata),
   sqlc.narg(last_oauth_flow_id), transaction_timestamp(), transaction_timestamp(),
   sqlc.narg(integration_app_id), sqlc.narg(installed_by_org_api_key_id)
 )
@@ -49,7 +49,7 @@ ON CONFLICT (integration_app_id, provider_tenant_id, provider_account_ref)
 RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id;
 
@@ -64,7 +64,6 @@ SET installed_by_user_id = sqlc.narg(installed_by_user_id),
       ELSE sqlc.arg(display_name)::text
     END,
     credential_secret_id = sqlc.narg(credential_secret_id),
-    provider_config = sqlc.arg(provider_config),
     provider_identity = sqlc.arg(provider_identity),
     metadata = sqlc.arg(metadata),
     last_oauth_flow_id = coalesce(sqlc.narg(last_oauth_flow_id), last_oauth_flow_id),
@@ -80,7 +79,7 @@ WHERE project_id = sqlc.arg(project_id)
 RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id;
 
@@ -88,7 +87,7 @@ RETURNING id, org_id, project_id, installed_by_user_id,
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -103,7 +102,7 @@ FOR UPDATE;
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -133,7 +132,7 @@ SELECT pg_advisory_xact_lock(
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -145,7 +144,7 @@ SELECT install.id, install.org_id, install.project_id,
        install.installed_by_user_id, install.provider, install.integration_kind, install.connection_mode,
        install.state, install.provider_tenant_id, install.provider_account_ref,
        install.display_name, install.credential_secret_id,
-       install.provider_config, install.provider_identity, install.metadata,
+       install.provider_identity, install.metadata,
        install.last_oauth_flow_id, install.created_at, install.updated_at,
        install.integration_app_id, install.configuration_revision, install.installed_by_org_api_key_id,
        CASE sqlc.arg(sort_field)::text
@@ -168,7 +167,7 @@ WHERE install.project_id = sqlc.arg(project_id)
 SELECT id, org_id, project_id, installed_by_user_id,
        provider, integration_kind, connection_mode, state,
        provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-       provider_config, provider_identity, metadata,
+       provider_identity, metadata,
        last_oauth_flow_id, created_at, updated_at, integration_app_id,
        configuration_revision, installed_by_org_api_key_id, sort_key
 FROM listed
@@ -208,7 +207,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS 
 
 -- name: DeleteIntegrationRoutes :exec
 UPDATE integration_routes
-SET state = 'disabled', deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND integration_install_id = sqlc.arg(integration_install_id)
   AND deleted_at IS NULL;
@@ -264,7 +263,7 @@ SELECT EXISTS (
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -397,7 +396,7 @@ WHERE agents.project_id = sqlc.arg(project_id)
                 WHERE route.project_id = binding.project_id
                   AND route.integration_install_id = binding.integration_install_id
                   AND route.id = binding.integration_route_id
-                  AND route.state = 'active' AND route.deleted_at IS NULL
+                  AND route.deleted_at IS NULL
               )
             )
         )
@@ -442,6 +441,6 @@ INSERT INTO integration_installs (
 )
 RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref,
-  display_name, credential_secret_id, provider_config, provider_identity, metadata,
+  display_name, credential_secret_id, provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id;

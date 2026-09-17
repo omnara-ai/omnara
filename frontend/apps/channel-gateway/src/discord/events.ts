@@ -10,7 +10,7 @@ export const discordAttachment = z.object({
   content_type: z.string().max(256).optional(),
   url: z.string().max(4096),
 })
-export const discordInboundMessage = discordMessage.extend({
+const discordInboundMessage = discordMessage.extend({
   mentions: z.array(z.object({ id: discordID })).max(100),
   attachments: z.array(discordAttachment).max(100),
   webhook_id: discordID.optional(),

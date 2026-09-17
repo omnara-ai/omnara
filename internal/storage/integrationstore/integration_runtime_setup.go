@@ -69,7 +69,8 @@ func initializeDiscordRuntimeTx(
 }
 
 // All runtime configuration writers use the same order: active scopes, app-keyed
-// advisory serialization, installation lifecycle/row (if any), app SHARE, unit.
+// advisory serialization, app SHARE, unit. Installation setup takes its own
+// lifecycle/row locks between advisory serialization and the app lock.
 // Discovery is unlocked and immutable ownership is checked again under locks.
 func (s *Store) lockRuntimeConfigurationTx(
 	ctx context.Context, tx pgx.Tx, input UpsertIntegrationRuntimeUnitInput,
@@ -82,10 +83,7 @@ func (s *Store) lockRuntimeConfigurationTx(
 		return integrationChannelReadError("get runtime app", err)
 	}
 	app := integrationAppRecordFromSQLC(appRow)
-	projectID := input.ProjectID
-	if projectID == uuid.Nil {
-		projectID = app.OwnerProjectID
-	}
+	projectID := app.OwnerProjectID
 	if projectID == uuid.Nil {
 		err = lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID)
 	} else {
@@ -99,21 +97,6 @@ func (s *Store) lockRuntimeConfigurationTx(
 	}); err != nil {
 		return fmt.Errorf("lock runtime configuration: %w", err)
 	}
-	if input.IntegrationInstallID != uuid.Nil {
-		install, err := lockIntegrationInstallLifecycleShared(ctx, tx, input.ProjectID, input.IntegrationInstallID)
-		if err != nil {
-			return err
-		}
-		if install.OrgID != input.OrgID || install.IntegrationAppID != input.IntegrationAppID ||
-			(app.OwnerProjectID != uuid.Nil && app.OwnerProjectID != input.ProjectID) {
-			return storeerr.ErrNotFound
-		}
-		if _, err := q.LockIntegrationInstallForMutation(ctx, dbsqlc.LockIntegrationInstallForMutationParams{
-			ProjectID: input.ProjectID, ID: input.IntegrationInstallID,
-		}); err != nil {
-			return integrationChannelReadError("lock runtime installation", err)
-		}
-	}
 	locked, err := q.LockIntegrationAppForInstallation(ctx, dbsqlc.LockIntegrationAppForInstallationParams{
 		OrgID: input.OrgID, ID: input.IntegrationAppID,
 	})
@@ -123,7 +106,7 @@ func (s *Store) lockRuntimeConfigurationTx(
 	if locked.DeletedAt != nil {
 		return storeerr.ErrNotFound
 	}
-	// The upsert's existing predicates recheck app/install state after these locks,
+	// The upsert's predicates recheck app state after these locks,
 	// preserving its ability to stop an unavailable (but nondeleted) runtime.
 	return nil
 }

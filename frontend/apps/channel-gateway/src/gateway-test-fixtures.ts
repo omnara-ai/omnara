@@ -20,7 +20,6 @@ export function testAppConfiguration(
       provider: 'discord',
       provider_app_ref: 'app-1',
       provider_config: {},
-      provider_metadata: {},
       updated_at: '2026-08-30T00:00:00Z',
       ...overrides,
     },
@@ -30,10 +29,8 @@ export function testAppConfiguration(
 export function testRuntimeHandle(overrides: Partial<RuntimeHandle> = {}): RuntimeHandle {
   return {
     configuration: testAppConfiguration(),
-    getInstallation: vi.fn<RuntimeHandle['getInstallation']>(unexpectedTestCall),
     handleWebhook: vi.fn<RuntimeHandle['handleWebhook']>(unexpectedTestCall),
     release: vi.fn<RuntimeHandle['release']>(() => Promise.resolve()),
-    resolveInstallation: vi.fn<RuntimeHandle['resolveInstallation']>(unexpectedTestCall),
     runUnit: vi.fn<RuntimeHandle['runUnit']>(unexpectedTestCall),
     runtime: {
       close: () => Promise.resolve(),
@@ -48,7 +45,6 @@ export function testRuntimeUnit(
 ): ChannelConnectorRuntimeUnit {
   return {
     checkpoint: {},
-    checkpoint_revision: 0,
     checkpoint_version: 1,
     configuration: {},
     created_at: '2026-08-30T00:00:00Z',

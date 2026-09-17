@@ -50,7 +50,6 @@ export interface ProviderInboundContext {
 }
 
 export interface RuntimeUnitWorkContext {
-  installation?: GatewayInstallationConfiguration
   reserveWorkBytes: (bytes: number) => ProviderWorkReservation
   signal: AbortSignal
   updateCheckpoint: (checkpoint: RuntimeCheckpoint) => void
@@ -132,10 +131,6 @@ export interface ProviderRuntime {
 
 export interface ProviderFactoryContext {
   configuration: GatewayAppConfiguration
-  getInstallation(
-    integrationInstallId: string,
-    expectedRevision?: number,
-  ): Promise<GatewayInstallationConfiguration>
   logger: GatewayLogger
   reserveWorkBytes: (bytes: number) => ProviderWorkReservation
   resolveInstallation(

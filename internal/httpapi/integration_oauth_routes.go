@@ -201,7 +201,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			OAuthFlowID:        state.FlowID,
 			InitialRoute: &integrationstore.CreateIntegrationRouteInput{
 				AgentProfileID: state.AgentProfileID, DeploymentKey: "slack",
-				BehaviorKey: "slack_conversation", State: integrationstore.IntegrationRouteStateActive,
+				BehaviorKey: "slack_conversation",
 			},
 		},
 	)

@@ -41,7 +41,6 @@ func (p PreparedChannelOperation) Access() integrationstore.ChannelAccess {
 
 func (p PreparedChannelOperation) Binding() integrationstore.IntegrationTargetBindingRecord {
 	binding := p.binding
-	binding.Metadata = append([]byte(nil), binding.Metadata...)
 	if binding.ReplyChannelGrants != nil {
 		grants := *binding.ReplyChannelGrants
 		binding.ReplyChannelGrants = &grants

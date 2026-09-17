@@ -1,0 +1,193 @@
+---
+title: Custom channels
+description: Connect your own conversations through the public API
+icon: "plug"
+---
+
+Use an external connection when you want to run your own bot or connect a system
+Omnara does not host. Your service receives provider events and performs provider
+operations. Omnara supplies the agent, channel tools, access checks, and durable
+request/completion flow. You do not need access to Omnara's database or private
+gateway API, and provider credentials stay in your service.
+
+For example, a support bot could have a channel for each ticket, with child
+channels for conversations within that ticket. Your application decides whether
+an incoming event creates an agent or continues an existing one. Registering a
+channel or attaching it to an agent does not subscribe to provider events.
+
+## Register a connection and its channels
+
+The paths below are relative to
+`/api/v1/orgs/{orgID}/projects/{projectID}`. Use a bearer token with administrator
+access to the project for setup. Keep the returned IDs; the labels in these
+examples stand for those IDs.
+
+Create the connection with `POST /integration-installs`:
+
+```json
+{ "display_name": "Support bot" }
+```
+
+Save its `id` as `connectionID`. Publish a reusable channel definition with
+`POST /integration-installs/{connectionID}/channel-definitions`:
+
+```json
+{
+  "implementation_key": "conversation",
+  "kind": "EXTERNAL",
+  "description": "A conversation in a support ticket",
+  "send_params_schema": { "type": "object", "additionalProperties": false },
+  "capabilities": {
+    "read": true,
+    "send": true,
+    "text": true,
+    "artifacts": false,
+    "permissions": false,
+    "questions": false,
+    "creates_reply_channel": true
+  }
+}
+```
+
+The definition describes operations your connector implements. If sends need
+provider-specific options, declare them in `send_params_schema`. The agent sees
+that schema through `get_channel`, and Omnara validates `send_channel_message`'s
+`params` before asking your connector to send.
+
+Save the definition's `id` as `definitionID`, then register an address with
+`POST /integration-installs/{connectionID}/channels`:
+
+```json
+{
+  "source": "external",
+  "definition_id": "definitionID",
+  "provider_ref": "ticket-123",
+  "provider_ref_kind": "ticket",
+  "name": "Support ticket 123"
+}
+```
+
+The response contains `channel_id`. To register a child, use the same endpoint
+with a different provider address and `parent_channel_id` set to this ID. Repeat
+under an existing child for deeper nesting. Parents must be in the same
+connection, and a channel's parent is fixed when it is created. Parentage
+provides context; it never grants access to ancestors, siblings, or descendants.
+
+## Give an agent access and deliver input
+
+Create an agent using the ordinary [agent API](/agents/overview), or select an
+existing one. Attach a channel with
+`POST /agents/{agentID}/channel-bindings`:
+
+```json
+{
+  "channel_id": "channelID",
+  "grants": { "receive": true, "read": true, "send": true },
+  "reply_channel_grants": { "receive": true, "read": true, "send": true }
+}
+```
+
+These permissions are independent. A send-only binding is valid; your service
+does not have to forward incoming messages. `reply_channel_grants` is optional
+and authorizes a direct child returned by a send. It does not grant access to
+all existing children or let that child create further authorized descendants.
+Attach further grants explicitly when your application needs them.
+
+When your service receives a message, post it to
+`POST /agents/{agentID}/inputs` with an `Idempotency-Key` identifying that event:
+
+```json
+{
+  "channel_id": "channelID",
+  "actor": { "provider_user_id": "customer-alice" },
+  "content_blocks": [{ "type": "text", "text": "Can you check this ticket?" }]
+}
+```
+
+The channel must already exist and the agent must have receive access. Your
+application retains the mapping from provider conversation to agent and chooses
+which events to forward. Operator access to the project is sufficient for
+delivering inputs and completing requests.
+
+The project is the trust boundary. An operator can complete requests for any
+external connection in that project; requests are not owned by the API key that
+created the connection. Use separate projects for customers or connectors that
+must not operate each other's agents. Setup and runtime can use separate keys,
+so the running connector does not need administrator access.
+
+For a newly created agent, omit the launch message and deliver the first message
+through the input endpoint above so it carries the channel and actor. Creation
+and input delivery are separate requests: save the event in your service and
+retry each step with its own stable idempotency key. The agent does not start a
+model turn until it receives an input.
+
+You can include `channel_bindings` in the creation request to attach the initial
+grants in that transaction. Retain the event until Omnara accepts its input, not
+just until the agent has been created.
+
+## Execute channel requests
+
+The agent discovers its channels with `list_channels` and `get_channel`. When
+it calls `send_channel_message` or `read_channel`, the tool waits for your
+service to complete the operation.
+
+Poll `GET /integration-installs/{connectionID}/requests?limit=50`. Follow
+`next_cursor`, then start the next poll without a cursor. Each request contains
+an `id`, `channel_id`, `operation`, `payload`, and `deadline_at`. The payload
+includes the provider address and, for sends, the message and validated params.
+
+Polling does not claim a request. Deduplicate by request ID in your service,
+including across restarts or multiple workers. Perform the provider operation
+within its deadline and save the outcome so a repeated poll cannot send twice.
+Submit the result to
+`POST /integration-installs/{connectionID}/requests/{requestID}/result`:
+
+```json
+{
+  "outcome": "completed",
+  "payload": {
+    "publication": "published",
+    "message_channel": "destination",
+    "message_id": "provider-message-456"
+  }
+}
+```
+
+If the send opens a reply conversation, include its address in the same payload:
+
+```json
+{
+  "publication": "published",
+  "message_channel": "destination",
+  "message_id": "provider-message-456",
+  "reply_channel": {
+    "implementation_key": "conversation",
+    "provider_ref": "ticket-123/thread-456",
+    "provider_ref_kind": "thread"
+  }
+}
+```
+
+Here the message remains in the destination, with a new child for replies. Use
+`message_channel: "reply_channel"` when the message itself belongs to that
+child. Omnara checks the captured grants, registers the child, and returns its
+public ID in `tool_result_content_blocks`. The agent can then use that ID for
+later sends. Your service can forward replies as inputs using the same ID.
+
+For reads, return `messages`, `coverage`, and an optional provider `next_cursor`
+using the API's `ChannelReadOperationResult` schema. Both channel discovery and
+history reads are paginated. Report partial coverage when provider history is
+incomplete, and include the required `coverage_reason` explaining the gap.
+
+Report `failed` only when the operation is known not to have published, or
+`unknown` when publication may have happened. Repeating an identical accepted
+completion is safe; it does not repeat the provider operation. Expired or
+canceled requests cannot be reopened. Check the structured-data block's `value`
+in `tool_result_content_blocks` for `continuation_error`: a message can have been
+published even if its child channel could not be registered, so that error is
+not a reason to resend the message.
+
+The example leaves approval and question presentation disabled; both stay in
+the Omnara dashboard. A connector that advertises those capabilities also handles
+`interaction` requests. Completing a presentation records delivery only; use the
+[interaction API](/events/interactions) separately to submit the user's answer.

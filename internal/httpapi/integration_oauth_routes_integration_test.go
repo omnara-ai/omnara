@@ -27,6 +27,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
@@ -268,6 +269,48 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	}
 	if countSlackOAuthCredentialSecrets(t, ctx, project.Store, project) != 1 {
 		t.Fatalf("replayed callback should not create another bot secret")
+	}
+
+	// Profile-specific setup must not report a successful deployment of another
+	// profile. Reauthorization through the assigned profile restores the same route.
+	otherProfile := createPublicHTTPAgentProfile(t, handler, project, "other-slack-profile", "Another Slack profile",
+		testutil.RequireType[string](t, profile["current_config_id"]), project.AdminToken, http.StatusCreated)
+	_, err = pool.Exec(ctx, `UPDATE integration_installs SET state = 'disabled' WHERE id = $1`, install.ID)
+	require.NoError(t, err)
+	for _, selectedProfile := range []string{testutil.RequireType[string](t, otherProfile["id"]), profileID} {
+		reconnect := requestJSONWithHeaders(t, handler, http.MethodPost,
+			project.ProjectPath+"/agent-profiles/"+selectedProfile+"/integration-oauth/setup",
+			`{"provider":"slack","client_id":"client-123","client_secret":"client-secret",`+
+				`"signing_secret":"signing-secret","return_to":"/settings/integrations"}`,
+			"", http.StatusCreated, authHeaders(project.AdminToken))
+		authorize, err := url.Parse(testutil.RequireType[string](t, reconnect["oauth_url"]))
+		require.NoError(t, err)
+		request := httptest.NewRequest(http.MethodGet,
+			"https://app.omnara.test"+integrationOAuthCallbackPath+"?code=reconnect-code&state="+
+				url.QueryEscape(authorize.Query().Get("state")), nil)
+		request.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionHostCookieName, Value: "slack-browser-session"})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		require.Equal(t, http.StatusFound, response.Code)
+		redirect, err := url.Parse(response.Header().Get("Location"))
+		require.NoError(t, err)
+		current, err := project.Store.Integrations().GetIntegrationInstall(ctx, project.ProjectUUID, install.ID)
+		require.NoError(t, err)
+		if selectedProfile != profileID {
+			require.Equal(t, "already_connected", redirect.Query().Get("integration_oauth_error"))
+			require.Equal(t, integrationstore.IntegrationInstallStateDisabled, current.State)
+			require.Equal(t, install.CredentialSecretID, current.CredentialSecretID)
+			require.Equal(t, install.LastOAuthFlowID, current.LastOAuthFlowID)
+			require.Equal(t, 1, countSlackOAuthCredentialSecrets(t, ctx, project.Store, project),
+				"failed reconnect cleans up its new credential")
+			continue
+		}
+		require.Equal(t, "success", redirect.Query().Get("integration_oauth"))
+		require.Equal(t, integrationstore.IntegrationInstallStateActive, current.State)
+		require.NotEqual(t, install.CredentialSecretID, current.CredentialSecretID)
+		sameRoutes, err := project.Store.Integrations().ListActiveIntegrationRoutes(ctx, project.ProjectUUID, install.ID)
+		require.NoError(t, err)
+		require.Equal(t, routes, sameRoutes, "reconnect preserves the route and its assigned profile")
 	}
 }
 

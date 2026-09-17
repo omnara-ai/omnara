@@ -58,7 +58,6 @@ func TestIntegrationInstallRoutesIdentityAndOAuthReplay(t *testing.T) {
 	if !consumed {
 		t.Fatal("oauth flow should be consumed")
 	}
-	assertJSONRawEqual(t, profileInstall.ProviderConfig, `{}`)
 	assertJSONRawEqual(
 		t,
 		profileInstall.ProviderIdentity,

@@ -141,7 +141,7 @@ func (s *Server) saveManagedInstallation(
 			behavior := builtInIntegrationBehavior(input.Provider)
 			input.InitialRoute = &integrationstore.CreateIntegrationRouteInput{
 				AgentProfileID: state.AgentProfileID, DeploymentKey: input.Provider,
-				BehaviorKey: behavior, State: integrationstore.IntegrationRouteStateActive,
+				BehaviorKey: behavior,
 			}
 		} else if err != nil {
 			return integrationstore.IntegrationInstallRecord{}, err

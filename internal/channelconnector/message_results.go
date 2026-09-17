@@ -141,7 +141,7 @@ func validateReplyDestination(destination *ReplyDestination) error {
 		value string
 		limit int
 	}{
-		{destination.ProviderRef, 512}, {destination.ProviderRefKind, 128}, {destination.DisplayName, 512},
+		{destination.ProviderRef, 2048}, {destination.ProviderRefKind, 128}, {destination.DisplayName, 512},
 	} {
 		if err := boundedResultText(field.value, field.limit); err != nil {
 			return fmt.Errorf("reply channel address: %w", err)

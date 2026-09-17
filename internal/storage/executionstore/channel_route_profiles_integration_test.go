@@ -40,7 +40,6 @@ func TestChannelBehaviorProfileDeletionRace(t *testing.T) {
 				_, err := store.Integrations().CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 					ProjectID: testProjectID, IntegrationInstallID: install.ID, AgentProfileID: agent.AgentProfileID,
 					DeploymentKey: "conversation", BehaviorKey: "conversation",
-					State: integrationstore.IntegrationRouteStateActive,
 				})
 				registration <- err
 			}
@@ -64,14 +63,11 @@ func TestChannelBehaviorProfileDeletionRace(t *testing.T) {
 			if registrationFirst {
 				require.NoError(t, registrationErr)
 				require.ErrorIs(t, deletionErr, storeerr.ErrConflict)
-				_, err := pool.Exec(ctx,
-					`UPDATE integration_routes SET state = 'disabled' WHERE integration_install_id = $1`, install.ID)
-				require.NoError(t, err)
-				_, err = pool.Exec(ctx, `UPDATE integration_installs SET state = 'disabled' WHERE id = $1`, install.ID)
+				_, err := pool.Exec(ctx, `UPDATE integration_installs SET state = 'disabled' WHERE id = $1`, install.ID)
 				require.NoError(t, err)
 				require.ErrorIs(t, store.Execution().DeleteAgentProfile(
 					ctx, testProjectID, agent.AgentProfileID), storeerr.ErrConflict,
-					"retained disabled behavior must remain valid if re-enabled")
+					"retained route profile must remain valid when the installation reconnects")
 			} else {
 				require.NoError(t, deletionErr)
 				require.ErrorIs(t, registrationErr, storeerr.ErrNotFound)

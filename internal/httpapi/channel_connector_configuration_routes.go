@@ -306,7 +306,7 @@ func channelConnectorAppConfigurationResponse(
 		App: openapi.ChannelConnectorApp{
 			Id: appID, Provider: app.Provider, ProviderAppRef: app.ProviderAppRef,
 			DisplayName: app.DisplayName, ConnectorKey: app.ConnectorKey,
-			ProviderConfig: app.ProviderConfig, ProviderMetadata: app.ProviderMetadata,
+			ProviderConfig:        app.ProviderConfig,
 			ConfigurationRevision: app.ConfigurationRevision, UpdatedAt: app.UpdatedAt,
 		},
 		Credential: credential,
@@ -341,7 +341,6 @@ func channelConnectorInstallationConfigurationResponse(
 			Id: installID, ProjectId: projectID, ProviderTenantId: ptrFromNonEmpty(install.ProviderTenantID),
 			ProviderAccountRef:    install.ProviderAccountRef,
 			DisplayName:           install.DisplayName,
-			ProviderConfig:        install.ProviderConfig,
 			ProviderIdentity:      install.ProviderIdentity,
 			Metadata:              install.Metadata,
 			ConfigurationRevision: install.ConfigurationRevision,

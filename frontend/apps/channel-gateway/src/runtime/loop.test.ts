@@ -406,7 +406,6 @@ describe('persistent channel runtime supervision', () => {
         configuration: testConfiguration,
         handleWebhook: vi.fn(),
         release: handleRelease,
-        resolveInstallation: vi.fn(),
         runUnit,
         runtime: {
           close: () => Promise.resolve(),
@@ -739,7 +738,6 @@ const testConfiguration = {
     provider: 'discord',
     provider_app_ref: 'app-1',
     provider_config: {},
-    provider_metadata: {},
     updated_at: new Date().toISOString(),
   },
 }

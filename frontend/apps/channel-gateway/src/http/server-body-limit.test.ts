@@ -56,7 +56,6 @@ describe('provider webhook body limit at HTTP entry', () => {
               connector_key: apps.get(id),
             }),
           ),
-        getInstallationConfiguration: unexpectedTestCall,
         resolveInstallationConfiguration: unexpectedTestCall,
         resolveInteraction: unexpectedTestCall,
         resolveRuntimeInteraction: unexpectedTestCall,

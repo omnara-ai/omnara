@@ -170,7 +170,7 @@ func migratedSlackConfigurationServer(
 		appPath + "/configuration": map[string]any{"app": map[string]any{
 			"id": scope.IntegrationAppID, "provider": app.Provider, "connector_key": app.ConnectorKey,
 			"provider_app_ref": app.ProviderAppRef, "display_name": app.DisplayName,
-			"provider_config": app.ProviderConfig, "provider_metadata": app.ProviderMetadata,
+			"provider_config":        app.ProviderConfig,
 			"configuration_revision": app.ConfigurationRevision, "updated_at": app.UpdatedAt,
 		}},
 		appPath + "/installations/" + scope.IntegrationInstallID + "/configuration": map[string]any{
@@ -178,7 +178,7 @@ func migratedSlackConfigurationServer(
 			"install": map[string]any{
 				"id": scope.IntegrationInstallID, "project_id": scope.ProjectID,
 				"provider_account_ref": install.ProviderAccountRef, "provider_tenant_id": install.ProviderTenantID,
-				"display_name": install.DisplayName, "provider_config": install.ProviderConfig,
+				"display_name":      install.DisplayName,
 				"provider_identity": install.ProviderIdentity, "metadata": install.Metadata,
 				"configuration_revision": install.ConfigurationRevision, "updated_at": install.UpdatedAt,
 			},

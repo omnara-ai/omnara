@@ -136,7 +136,7 @@ FROM integration_routes route
 WHERE route.project_id = $1
   AND route.integration_install_id = $2
   AND route.id = $3
-  AND route.state = 'active' AND route.deleted_at IS NULL
+  AND route.deleted_at IS NULL
 FOR SHARE
 `
 

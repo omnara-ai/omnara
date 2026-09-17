@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -58,9 +59,8 @@ func (s *Store) expireExternalChannelRequest(
 		return false, nil
 	}
 	q := s.q.WithTx(tx)
-	row, err := q.TerminalizeExternalChannelRequest(ctx, dbsqlc.TerminalizeExternalChannelRequestParams{
+	row, err := q.ExpireExternalChannelRequest(ctx, dbsqlc.ExpireExternalChannelRequestParams{
 		ProjectID: request.ProjectID, IntegrationInstallID: request.IntegrationInstallID, ID: request.ID,
-		State: string(ExternalChannelRequestExpired), StateReasonCode: "deadline_exceeded",
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -145,9 +145,12 @@ func finishExternalChannelToolTx(
 }
 
 func externalChannelTimeoutCompletion(request ExternalChannelRequestRecord) (ToolCallCompletionInput, error) {
+	detail := "The connector did not report before the deadline. "
+	if request.StateReasonCode == "grant_revoked" {
+		detail = "Channel access was revoked before the request completed. "
+	}
 	return externalChannelTerminalCompletion(request, ToolResultOutcomeFailed,
-		"The connector did not report before the deadline. "+
-			"The provider outcome is unknown; do not assume it is safe to resend.")
+		detail+"The provider outcome is unknown; do not assume it is safe to resend.")
 }
 
 func externalChannelTerminalCompletion(
@@ -160,10 +163,11 @@ func externalChannelTerminalCompletion(
 		return ToolCallCompletionInput{}, err
 	}
 	result, err := json.Marshal(struct {
-		RequestID string `json:"request_id"`
-		Code      string `json:"code"`
-		Detail    string `json:"detail"`
-	}{requestID, request.StateReasonCode, detail})
+		RequestID string                            `json:"request_id"`
+		Status    channelconnector.OperationOutcome `json:"status"`
+		Code      string                            `json:"code"`
+		Detail    string                            `json:"detail"`
+	}{requestID, channelconnector.OperationUnknown, request.StateReasonCode, detail})
 	if err != nil {
 		return ToolCallCompletionInput{}, err
 	}

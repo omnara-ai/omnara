@@ -33,7 +33,7 @@ func newChannelWorkflowFixture(t *testing.T, ctx context.Context, name string) c
 	_, agent, _, install := createChannelLifecycleFixture(t, ctx, store, name)
 	route, err := store.Integrations().CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 		ProjectID: testProjectID, IntegrationInstallID: install.ID, AgentProfileID: agent.AgentProfileID,
-		DeploymentKey: "conversation", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+		DeploymentKey: "conversation", BehaviorKey: "conversation",
 	})
 	require.NoError(t, err)
 	definition, err := store.Integrations().PublishConnectorChannelDefinition(
@@ -259,7 +259,7 @@ func TestChannelWorkflowReplayPreservesOriginAfterBindingReplacement(t *testing.
 	replacementRoute, err := f.Store.Integrations().CreateIntegrationRoute(
 		ctx, integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
-			DeploymentKey: "replacement", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "replacement", BehaviorKey: "conversation",
 		})
 	require.NoError(t, err)
 	replacement, err := f.Store.Integrations().CreateIntegrationTargetBinding(

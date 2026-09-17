@@ -53,7 +53,6 @@ type UpsertIntegrationInstallInput struct {
 	ProviderAccountRef               string
 	DisplayName                      string
 	CredentialSecretID               uuid.UUID
-	ProviderConfig                   json.RawMessage
 	ProviderIdentity                 json.RawMessage
 	Metadata                         json.RawMessage
 	OAuthFlowID                      uuid.UUID
@@ -79,7 +78,6 @@ type IntegrationInstallRecord struct {
 	ProviderAccountRef    string                        `json:"provider_account_ref"`
 	DisplayName           string                        `json:"display_name"`
 	CredentialSecretID    uuid.UUID                     `json:"credential_secret_id,omitempty"`
-	ProviderConfig        json.RawMessage               `json:"provider_config"`
 	ProviderIdentity      json.RawMessage               `json:"provider_identity"`
 	Metadata              json.RawMessage               `json:"metadata"`
 	ConfigurationRevision int64                         `json:"configuration_revision"`

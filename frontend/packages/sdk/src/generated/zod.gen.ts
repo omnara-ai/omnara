@@ -237,7 +237,7 @@ export const zChannelContinuationError = z.object({
  */
 export const zChannelOperationDestination = z.object({
     implementation_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
-    provider_ref: z.string().min(1).max(512),
+    provider_ref: z.string().min(1).max(2048),
     provider_ref_kind: z.string().min(1).max(128),
     provider_metadata: zChannelOpaqueObject
 });
@@ -247,7 +247,7 @@ export const zChannelOperationDestination = z.object({
  */
 export const zChannelReplyDestination = z.object({
     implementation_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
-    provider_ref: z.string().min(1).max(512),
+    provider_ref: z.string().min(1).max(2048),
     provider_ref_kind: z.string().min(1).max(128),
     display_name: z.string().max(512).optional(),
     provider_metadata: zChannelOpaqueObject.optional()
@@ -1006,7 +1006,6 @@ export const zChannelConnectorInstall = z.object({
     provider_tenant_id: z.string().optional(),
     provider_account_ref: z.string(),
     display_name: z.string(),
-    provider_config: zChannelOpaqueObject,
     provider_identity: zChannelOpaqueObject,
     metadata: zChannelOpaqueObject,
     configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
@@ -1047,7 +1046,6 @@ export const zChannelConnectorEventReceipt = z.object({
 export const zChannelConnectorRuntimeUnit = z.object({
     id: zIntegrationRuntimeUnitId,
     integration_app_id: zIntegrationAppId,
-    integration_install_id: z.string().regex(/^iin_[a-z2-7]{26}$/).optional(),
     unit_key: z.string(),
     runtime_kind: z.string(),
     desired_state: zChannelRuntimeDesiredState,
@@ -1062,9 +1060,7 @@ export const zChannelConnectorRuntimeUnit = z.object({
     lease_expires_at: zTimestamp.optional(),
     lease_spec_revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }).optional(),
     lease_app_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
-    lease_install_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
     checkpoint_version: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    checkpoint_revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     checkpoint: zChannelOpaqueObject,
     last_error: zChannelOpaqueObject,
     created_at: zTimestamp,
@@ -2831,7 +2827,6 @@ export const zChannelConnectorApp = z.object({
     connector_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
     installation_credential_kind: zSecretKindResponse.optional(),
     provider_config: zChannelOpaqueObject,
-    provider_metadata: zChannelOpaqueObject,
     configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     updated_at: zTimestamp
 });

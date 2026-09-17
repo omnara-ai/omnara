@@ -1,8 +1,6 @@
-import type {
-  ChannelConnectorInstallationConfiguration,
-  ChannelConnectorRuntimeUnit,
-} from '@omnara/sdk'
+import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
 
+import { raceWithAbort } from '../async'
 import type { CoreClient } from '../core/client'
 import { isCoreNotFoundError } from '../core/requests'
 import { errorMessage } from '../diagnostics'
@@ -44,16 +42,8 @@ interface AppSlotReservation {
 
 export interface RuntimeHandle {
   configuration: GatewayAppConfiguration
-  getInstallation: (
-    integrationInstallId: string,
-    expectedRevision?: number,
-  ) => Promise<ChannelConnectorInstallationConfiguration>
   handleWebhook: (request: Request, context: ProviderWebhookWorkContext) => Promise<Response>
   release: () => Promise<void>
-  resolveInstallation: (
-    externalTenantId: string,
-    externalAccountRef: string,
-  ) => Promise<ChannelConnectorInstallationConfiguration>
   runUnit: (unit: ChannelConnectorRuntimeUnit, context: RuntimeUnitWorkContext) => Promise<void>
   runtime: ProviderRuntime
 }
@@ -62,7 +52,6 @@ export interface AppRuntimeRegistryOptions {
   client: Pick<
     CoreClient,
     | 'getAppConfiguration'
-    | 'getInstallationConfiguration'
     | 'resolveInstallationConfiguration'
     | 'resolveInteraction'
     | 'resolveRuntimeInteraction'
@@ -144,13 +133,9 @@ export class AppRuntimeRegistry {
     this.touchEntry(integrationAppId, entry)
     let released = false
     const appId = entry.configuration.app.id
-    const appRevision = entry.configuration.app.configuration_revision
-    const getInstallation = (integrationInstallId: string, installRevision?: number) =>
-      this.installations.getByID(appId, integrationInstallId, appRevision, installRevision)
 
     return {
       configuration: entry.configuration,
-      getInstallation,
       handleWebhook: (request, context) =>
         entry.runtime.handleWebhook(request, {
           ...context,
@@ -174,8 +159,6 @@ export class AppRuntimeRegistry {
         entry.refs -= 1
         if (entry.retired && entry.refs === 0) await this.closeEntry(entry)
       },
-      resolveInstallation: (externalTenantId, externalAccountRef) =>
-        this.installations.resolve(appId, externalTenantId, externalAccountRef, appRevision),
       runUnit: (unit, context) => {
         const runUnit = entry.runtime.runUnit
         if (!runUnit) {
@@ -293,13 +276,6 @@ export class AppRuntimeRegistry {
     const appRevision = configuration.app.configuration_revision
     const created = await this.createRuntime(factory, {
       configuration,
-      getInstallation: (integrationInstallId, expectedInstallRevision) =>
-        this.installations.getByID(
-          configuration.app.id,
-          integrationInstallId,
-          appRevision,
-          expectedInstallRevision,
-        ),
       logger: this.options.logger,
       reserveWorkBytes: this.options.reserveWorkBytes,
       resolveInstallation: (externalTenantId, externalAccountRef) =>
@@ -365,7 +341,7 @@ export class AppRuntimeRegistry {
     let creation: Promise<ProviderRuntime> | undefined
     try {
       creation = factory.create({ ...context, signal: controller.signal })
-      const runtime = await raceWithSignal(creation, controller.signal)
+      const runtime = await raceWithAbort(creation, controller.signal)
       return { lifecycle: controller, runtime }
     } catch (error) {
       controller.abort(error)
@@ -446,28 +422,4 @@ export class AppRuntimeRegistry {
     this.entries.delete(id)
     this.entries.set(id, entry)
   }
-}
-
-async function raceWithSignal<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) throw signalError(signal)
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      reject(signalError(signal))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (cause: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(cause instanceof Error ? cause : new Error(String(cause)))
-      },
-    )
-  })
-}
-
-function signalError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error('provider lifecycle aborted')
 }

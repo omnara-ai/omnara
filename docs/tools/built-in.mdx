@@ -235,6 +235,8 @@ Existing media references remain inline so their attachments remain available to
 
 Lists the managed and external channels attached to the agent. Omnara supplies this tool from live channel bindings; it is not a configurable tool declaration.
 
+To connect a customer-hosted bot, see [Custom channels](/integrations/external).
+
 Each result includes a stable `channel_id`, optional `parent_channel_id`, the provider and address kind, a display name, state, and `can_receive`, `can_read`, and `can_send` flags. Results are newest first. The `limit` defaults to 50 and accepts values from 1 to 100. Pass `next_cursor` back unchanged as `cursor` to continue a long list.
 
 Optionally pass `parent_channel_id` to list only directly bound children of that channel. Omit it to list all bound channels. The filter does not grant access to the parent or to unbound children. Cursors belong to the same agent, project, and parent filter; start a new page sequence when changing the filter.
@@ -266,6 +268,8 @@ Sends one logical message to an explicit `channel_id`. Supply `message` with non
 Every send requires an explicit destination, regardless of the current channel or which channel supplied the input. Omnara checks a live send binding and artifact access before execution. The tool supports only `always_allow`; this does not grant access to other channels.
 
 A successful result contains `request_id` and one `message` observation with `content`, `publication` (`published` or `draft`), and message/channel references when known. A failed continuation registration preserves the known publication and reports `continuation_error`. An unknown outcome must not be treated as safely unsent.
+
+Connector failures report `status: "failed"` when publication is known not to have happened, or `status: "unknown"` when it may have happened. Expiration and cancellation preserve that uncertainty. A request that expires after its grant was revoked reports `grant_revoked`, rather than blaming a connector timeout.
 
 Managed execution is bounded to an initial provider attempt and up to three safe retries within one deadline. Core does not retry HTTP mutations. External connections use a finite durable request whose completion settles the same tool call; there is no outgoing delivery queue or pending-success result.
 

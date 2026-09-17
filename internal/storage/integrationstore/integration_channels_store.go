@@ -58,7 +58,6 @@ func (s *Store) CreateIntegrationApp(
 		CredentialSecretID:         storeutil.IDFromNil(input.CredentialSecretID),
 		InstallationCredentialKind: storeutil.TextFromEmpty(input.InstallationCredentialKind),
 		ProviderConfig:             input.ProviderConfig,
-		ProviderMetadata:           input.ProviderMetadata,
 		State:                      string(input.State),
 	})
 	if err != nil {
@@ -181,7 +180,7 @@ func (s *Store) GetConnectorIntegrationInstall(
 		row.InstalledByUserID, row.InstalledByOrgApiKeyID,
 		row.Provider, row.IntegrationKind, row.ConnectionMode, row.State,
 		row.ProviderTenantID, row.ProviderAccountRef, row.DisplayName,
-		row.CredentialSecretID, row.ProviderConfig, row.ProviderIdentity,
+		row.CredentialSecretID, row.ProviderIdentity,
 		row.Metadata, row.LastOauthFlowID, row.CreatedAt, row.UpdatedAt,
 		row.ConfigurationRevision,
 	), nil
@@ -208,7 +207,7 @@ func (s *Store) GetConnectorIntegrationInstallByID(
 		row.InstalledByUserID, row.InstalledByOrgApiKeyID,
 		row.Provider, row.IntegrationKind, row.ConnectionMode, row.State,
 		row.ProviderTenantID, row.ProviderAccountRef, row.DisplayName,
-		row.CredentialSecretID, row.ProviderConfig, row.ProviderIdentity,
+		row.CredentialSecretID, row.ProviderIdentity,
 		row.Metadata, row.LastOauthFlowID, row.CreatedAt, row.UpdatedAt,
 		row.ConfigurationRevision,
 	), nil
@@ -223,7 +222,7 @@ func integrationInstallRecordFromConnectorFields(
 	providerTenantID, providerAccountRef *string,
 	displayName string,
 	credentialSecretID *uuid.UUID,
-	providerConfig, providerIdentity, metadata []byte,
+	providerIdentity, metadata []byte,
 	lastOAuthFlowID *uuid.UUID,
 	createdAt, updatedAt time.Time,
 	configurationRevision int64,
@@ -242,7 +241,6 @@ func integrationInstallRecordFromConnectorFields(
 		ProviderAccountRef:    stringFromPtr(providerAccountRef),
 		DisplayName:           displayName,
 		CredentialSecretID:    storeutil.IDFromPtr(credentialSecretID),
-		ProviderConfig:        providerConfig,
 		ProviderIdentity:      providerIdentity,
 		Metadata:              metadata,
 		LastOAuthFlowID:       storeutil.IDFromPtr(lastOAuthFlowID),
@@ -308,7 +306,6 @@ func (s *Store) createIntegrationRouteTx(
 		DeploymentKey:        input.DeploymentKey,
 		BehaviorKey:          input.BehaviorKey,
 		Configuration:        input.Configuration,
-		State:                string(input.State),
 		MaxActiveRoutes:      MaxActiveIntegrationRoutesPerInstall,
 	})
 	if err == nil {
@@ -532,7 +529,6 @@ func createIntegrationTargetBinding(
 		ReadAllowed:          input.ReadAllowed,
 		SendAllowed:          input.SendAllowed,
 		Source:               input.Source,
-		Metadata:             input.Metadata,
 	}
 	if grants := input.ReplyChannelGrants; grants != nil {
 		params.ReplyReceiveAllowed = &grants.ReceiveAllowed
@@ -622,7 +618,7 @@ func integrationTargetBindingDefinitionMatches(
 		record.ReadAllowed == input.ReadAllowed &&
 		record.SendAllowed == input.SendAllowed &&
 		sameChannelGrants(record.ReplyChannelGrants, input.ReplyChannelGrants) &&
-		record.Source == input.Source && jsoncanonical.Equal(record.Metadata, input.Metadata)
+		record.Source == input.Source
 }
 
 func (s *Store) GetIntegrationTargetBinding(
@@ -897,10 +893,6 @@ func normalizeCreateIntegrationAppInput(input CreateIntegrationAppInput) (Create
 	if err != nil {
 		return CreateIntegrationAppInput{}, err
 	}
-	input.ProviderMetadata, err = normalizedJSONObject(input.ProviderMetadata, "provider_metadata")
-	if err != nil {
-		return CreateIntegrationAppInput{}, err
-	}
 	return input, nil
 }
 
@@ -934,9 +926,6 @@ func normalizeCreateIntegrationRouteInput(
 		return CreateIntegrationRouteInput{}, errors.New(
 			"integration route behavior exceeds its contract",
 		)
-	}
-	if input.State != IntegrationRouteStateActive && input.State != IntegrationRouteStateDisabled {
-		return CreateIntegrationRouteInput{}, fmt.Errorf("unsupported integration route state %q", input.State)
 	}
 	configuration, err := normalizedJSONObject(input.Configuration, "configuration")
 	if err != nil {
@@ -975,11 +964,6 @@ func normalizeCreateIntegrationTargetBindingInput(
 		return CreateIntegrationTargetBindingInput{}, storeerr.InvalidRequest(
 			errors.New("binding source exceeds its size limit"))
 	}
-	metadata, err := normalizedJSONObject(input.Metadata, "metadata")
-	if err != nil {
-		return CreateIntegrationTargetBindingInput{}, err
-	}
-	input.Metadata = metadata
 	return input, nil
 }
 
@@ -1030,7 +1014,6 @@ func integrationAppRecordFromSQLC(row dbsqlc.IntegrationApp) IntegrationAppRecor
 		CredentialSecretID:         storeutil.IDFromPtr(row.CredentialSecretID),
 		InstallationCredentialKind: stringFromPtr(row.InstallationCredentialKind),
 		ProviderConfig:             row.ProviderConfig,
-		ProviderMetadata:           row.ProviderMetadata,
 		ConfigurationRevision:      row.ConfigurationRevision,
 		State:                      IntegrationAppState(row.State),
 		CreatedAt:                  row.CreatedAt,
@@ -1047,7 +1030,6 @@ func integrationRouteRecordFromSQLC(row dbsqlc.IntegrationRoute) IntegrationRout
 		DeploymentKey:        row.DeploymentKey,
 		BehaviorKey:          row.BehaviorKey,
 		Configuration:        row.Configuration,
-		State:                IntegrationRouteState(row.State),
 		CreatedAt:            row.CreatedAt,
 		UpdatedAt:            row.UpdatedAt,
 	}
@@ -1067,7 +1049,6 @@ func integrationTargetBindingRecordFromSQLC(
 		ReadAllowed:          row.ReadAllowed,
 		SendAllowed:          row.SendAllowed,
 		Source:               row.Source,
-		Metadata:             row.Metadata,
 		CreatedAt:            row.CreatedAt,
 		UpdatedAt:            row.UpdatedAt,
 		ReplyChannelGrants: channelGrantsFromSQLC(

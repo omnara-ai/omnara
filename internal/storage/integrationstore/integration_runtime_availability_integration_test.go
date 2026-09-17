@@ -14,9 +14,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
+func TestIntegrationRuntimeAppAndInstallationAvailability(t *testing.T) {
 	t.Parallel()
-	t.Run("installation", func(t *testing.T) {
+	t.Run("disabled_installation_fences_mutations_only", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		pool := openIntegrationDB(t, ctx)
@@ -25,14 +25,13 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 		_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-install-disable")
 		input := integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			UnitKey: "install-session", RuntimeKind: "provider_socket",
+			UnitKey: "gateway-shard-1", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
 		}
 		unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, input)
 		if err != nil {
-			t.Fatalf("create installation runtime: %v", err)
+			t.Fatalf("create app runtime: %v", err)
 		}
 		lease := claimOnlyIntegrationRuntime(t, ctx, store, "install-disable-before", unit.ID)
 
@@ -41,23 +40,39 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 			`UPDATE integration_installs SET state = 'disabled' WHERE id = $1`,
 			install.ID,
 		); err != nil {
-			t.Fatalf("disable runtime installation: %v", err)
+			t.Fatalf("disable installation: %v", err)
 		}
 		assertRunningIntegrationRuntime(t, ctx, pool, unit.ID)
-		assertIntegrationRuntimeLeaseFenced(t, ctx, store, lease)
+		current, err := store.Integrations().IntegrationRuntimeLeaseIsCurrent(
+			ctx, app.ID, unit.ID, install.ID, lease.LeaseToken, lease.LeaseGeneration,
+		)
+		if err != nil || current {
+			t.Fatalf("disabled installation accepted runtime proof = %v, %v", current, err)
+		}
+		if _, err := store.Integrations().HeartbeatIntegrationRuntimeUnit(ctx,
+			integrationstore.HeartbeatIntegrationRuntimeUnitInput{
+				ID: unit.ID, LeaseToken: lease.LeaseToken, LeaseGeneration: lease.LeaseGeneration,
+				LeaseDuration: time.Minute, Capabilities: testChannelCapabilities(testChannelProvider),
+			}); err != nil {
+			t.Fatalf("heartbeat shared app runtime with disabled installation: %v", err)
+		}
 		assertNoIntegrationRuntimeClaims(t, ctx, store, "install-disable-after")
-		if _, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, input); !errors.Is(
-			err,
-			storeerr.ErrConflict,
-		) {
-			t.Fatalf("reconcile disabled installation runtime error = %v, want conflict", err)
+		if reconciled, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, input); err != nil ||
+			reconciled.ID != unit.ID || reconciled.LeaseToken != lease.LeaseToken {
+			t.Fatalf("disabled installation changed app runtime = %+v, %v", reconciled, err)
 		}
 		if _, err := pool.Exec(
 			ctx,
 			`UPDATE integration_installs SET state = 'active' WHERE id = $1`,
 			install.ID,
 		); err != nil {
-			t.Fatalf("re-enable runtime installation: %v", err)
+			t.Fatalf("re-enable installation: %v", err)
+		}
+		current, err = store.Integrations().IntegrationRuntimeLeaseIsCurrent(
+			ctx, app.ID, unit.ID, install.ID, lease.LeaseToken, lease.LeaseGeneration,
+		)
+		if err != nil || !current {
+			t.Fatalf("re-enabled installation rejected current app runtime = %v, %v", current, err)
 		}
 		if _, err := pool.Exec(
 			ctx,
@@ -68,7 +83,7 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 			 WHERE id = $1`,
 			unit.ID,
 		); err != nil {
-			t.Fatalf("expire disabled installation runtime lease: %v", err)
+			t.Fatalf("expire app runtime lease: %v", err)
 		}
 		claimOnlyIntegrationRuntime(t, ctx, store, "install-reenable", unit.ID)
 	})
@@ -79,17 +94,16 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newSecretIntegrationStore(pool)
-		_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-app-disable")
+		_, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "runtime-app-disable")
 		appInput := integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			UnitKey: "app-session", RuntimeKind: "provider_gateway",
+			UnitKey: "gateway-shard-0", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
 		}
-		installInput := integrationstore.UpsertIntegrationRuntimeUnitInput{
+		secondShardInput := integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			UnitKey: "install-session", RuntimeKind: "provider_socket",
+			UnitKey: "gateway-shard-1", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
 		}
@@ -97,12 +111,12 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create app runtime: %v", err)
 		}
-		installUnit, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, installInput)
+		secondShard, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, secondShardInput)
 		if err != nil {
-			t.Fatalf("create app installation runtime: %v", err)
+			t.Fatalf("create second app runtime shard: %v", err)
 		}
 		leases := claimIntegrationRuntimes(t, ctx, store, "app-disable-before", 2)
-		if !runtimeClaimsContain(leasingIDs(leases), appUnit.ID, installUnit.ID) {
+		if !runtimeClaimsContain(leasingIDs(leases), appUnit.ID, secondShard.ID) {
 			t.Fatalf("runtime claims before app disable = %+v", leases)
 		}
 
@@ -114,14 +128,14 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 			t.Fatalf("disable runtime app: %v", err)
 		}
 		assertRunningIntegrationRuntime(t, ctx, pool, appUnit.ID)
-		assertRunningIntegrationRuntime(t, ctx, pool, installUnit.ID)
+		assertRunningIntegrationRuntime(t, ctx, pool, secondShard.ID)
 		for _, lease := range leases {
 			assertIntegrationRuntimeLeaseFenced(t, ctx, store, lease)
 		}
 		assertNoIntegrationRuntimeClaims(t, ctx, store, "app-disable-after")
 		for _, input := range []integrationstore.UpsertIntegrationRuntimeUnitInput{
 			appInput,
-			installInput,
+			secondShardInput,
 		} {
 			if _, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, input); !errors.Is(
 				err,
@@ -149,7 +163,7 @@ func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
 			t.Fatalf("expire disabled app runtime leases: %v", err)
 		}
 		restarted := claimIntegrationRuntimes(t, ctx, store, "app-reenable", 2)
-		if !runtimeClaimsContain(leasingIDs(restarted), appUnit.ID, installUnit.ID) {
+		if !runtimeClaimsContain(leasingIDs(restarted), appUnit.ID, secondShard.ID) {
 			t.Fatalf("runtime claims after app re-enable = %+v", restarted)
 		}
 	})

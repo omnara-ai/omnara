@@ -38,7 +38,7 @@ func (s *Store) GetIntegrationRouteByDeploymentKey(
 // SetIntegrationRouteProfile changes future launches, preserving route identity,
 // existing workflow agents and grants. A missing route uses the supplied initial
 // definition; changing an existing behavior or undeleting a route is not allowed.
-// State and Configuration apply only to creation; existing values are preserved.
+// Configuration applies only to creation; existing values are preserved.
 // ConfigurationPatch changes only supplied keys, under the same route lock.
 // Disabled connections may be configured before re-enabling them. Admission still
 // requires both the installation and its app to be active.

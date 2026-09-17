@@ -155,7 +155,6 @@ func TestChannelWorkflowSelectionResumesPartialFanoutForSameReceiptAndChannel(t 
 	route, err := f.Store.Integrations().CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 		ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
 		AgentProfileID: agent.AgentProfileID, DeploymentKey: "second", BehaviorKey: "conversation",
-		State: integrationstore.IntegrationRouteStateActive,
 	})
 	require.NoError(t, err)
 	identity := f.Identity

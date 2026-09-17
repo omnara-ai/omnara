@@ -122,7 +122,6 @@ func TestIntegrationRouteProfileChangePreservesExistingWorkflowAndGrants(t *test
 				profileID = uuid.Nil
 			}
 			update := integrationProfileUpdate(f, profileID)
-			update.State = integrationstore.IntegrationRouteStateDisabled
 			update.Configuration = json.RawMessage(`{"create_only":true}`)
 			updated, err := f.Store.Integrations().SetIntegrationRouteProfile(ctx, update)
 			require.NoError(t, err)
@@ -338,7 +337,6 @@ func integrationProfileUpdate(
 		CreateIntegrationRouteInput: integrationstore.CreateIntegrationRouteInput{
 			ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
 			DeploymentKey: "conversation", BehaviorKey: "conversation", AgentProfileID: profileID,
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	}
 }

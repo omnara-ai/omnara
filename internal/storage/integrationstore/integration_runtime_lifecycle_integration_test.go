@@ -20,7 +20,7 @@ import (
 
 func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
 	t.Parallel()
-	testCases := []string{"spec_revision", "app_revision", "install_revision", "expired_lease"}
+	testCases := []string{"spec_revision", "app_revision", "expired_lease"}
 	for _, testCase := range testCases {
 		t.Run(testCase, func(t *testing.T) {
 			t.Parallel()
@@ -28,7 +28,7 @@ func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			store := newSecretIntegrationStore(pool)
-			_, _, app, install := createChannelLifecycleFixture(
+			_, _, app, _ := createChannelLifecycleFixture(
 				t,
 				ctx,
 				store,
@@ -36,7 +36,6 @@ func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
 			)
 			unitInput := integrationstore.UpsertIntegrationRuntimeUnitInput{
 				OrgID: testOrgID, IntegrationAppID: app.ID,
-				ProjectID: testProjectID, IntegrationInstallID: install.ID,
 				UnitKey: "stale-release", RuntimeKind: "provider_socket",
 				DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 				SpecRevision: 1, Configuration: json.RawMessage(`{"revision":1}`),
@@ -75,14 +74,6 @@ func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
 				); err != nil {
 					t.Fatalf("advance app configuration: %v", err)
 				}
-			case "install_revision":
-				if _, err := pool.Exec(
-					ctx,
-					`UPDATE integration_installs SET provider_config = '{"revision":2}' WHERE id = $1`,
-					install.ID,
-				); err != nil {
-					t.Fatalf("advance install configuration: %v", err)
-				}
 			case "expired_lease":
 				if _, err := pool.Exec(
 					ctx,
@@ -100,24 +91,21 @@ func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
 
 			var beforeCheckpoint, beforeError json.RawMessage
 			var beforeCheckpointVersion, beforeSpecRevision, beforeFailureCount int
-			var beforeCheckpointRevision, appRevision, installRevision int64
+			var appRevision int64
 			if err := pool.QueryRow(ctx, `
-SELECT unit.checkpoint_version, unit.checkpoint_revision, unit.checkpoint,
+SELECT unit.checkpoint_version, unit.checkpoint,
        unit.last_error, unit.failure_count, unit.spec_revision,
-       app.configuration_revision, install.configuration_revision
+       app.configuration_revision
 FROM integration_runtime_units unit
 JOIN integration_apps app ON app.id = unit.integration_app_id
-JOIN integration_installs install ON install.id = unit.integration_install_id
 WHERE unit.id = $1
 `, unit.ID).Scan(
 				&beforeCheckpointVersion,
-				&beforeCheckpointRevision,
 				&beforeCheckpoint,
 				&beforeError,
 				&beforeFailureCount,
 				&beforeSpecRevision,
 				&appRevision,
-				&installRevision,
 			); err != nil {
 				t.Fatalf("load state before stale release: %v", err)
 			}
@@ -143,14 +131,12 @@ WHERE unit.id = $1
 
 			var afterCheckpoint, afterError json.RawMessage
 			var afterCheckpointVersion, afterFailureCount int
-			var afterCheckpointRevision int64
 			if err := pool.QueryRow(ctx, `
-SELECT checkpoint_version, checkpoint_revision, checkpoint, last_error, failure_count
+SELECT checkpoint_version, checkpoint, last_error, failure_count
 FROM integration_runtime_units
 WHERE id = $1
 `, unit.ID).Scan(
 				&afterCheckpointVersion,
-				&afterCheckpointRevision,
 				&afterCheckpoint,
 				&afterError,
 				&afterFailureCount,
@@ -158,17 +144,14 @@ WHERE id = $1
 				t.Fatalf("load state after stale release: %v", err)
 			}
 			if afterCheckpointVersion != beforeCheckpointVersion ||
-				afterCheckpointRevision != beforeCheckpointRevision ||
 				!sameJSON(afterCheckpoint, beforeCheckpoint) ||
 				!sameJSON(afterError, beforeError) ||
 				afterFailureCount != beforeFailureCount {
 				t.Fatalf(
-					"stale release published outcome: checkpoint %d/%d %s -> %d/%d %s, error %s -> %s, failures %d -> %d",
+					"stale release published outcome: checkpoint %d %s -> %d %s, error %s -> %s, failures %d -> %d",
 					beforeCheckpointVersion,
-					beforeCheckpointRevision,
 					beforeCheckpoint,
 					afterCheckpointVersion,
-					afterCheckpointRevision,
 					afterCheckpoint,
 					beforeError,
 					afterError,
@@ -180,8 +163,7 @@ WHERE id = $1
 			fresh := claimOnlyIntegrationRuntime(t, ctx, store, "stale-release-replacement", unit.ID)
 			if fresh.LeaseGeneration != lease.LeaseGeneration+1 ||
 				fresh.LeaseSpecRevision != beforeSpecRevision ||
-				fresh.LeaseAppConfigurationRevision != appRevision ||
-				fresh.LeaseInstallConfigRevision != installRevision {
+				fresh.LeaseAppConfigurationRevision != appRevision {
 				t.Fatalf("replacement runtime did not claim current revisions: %+v", fresh)
 			}
 		})
@@ -199,7 +181,6 @@ func TestIntegrationRuntimeMutationLocksInstallBeforeRuntimeUnit(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			UnitKey: "runtime-lock-order", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
@@ -219,6 +200,19 @@ func TestIntegrationRuntimeMutationLocksInstallBeforeRuntimeUnit(t *testing.T) {
 		t.Fatalf("claim integration runtime unit = %+v, %v", claims, err)
 	}
 	lease := claims[0]
+
+	wrongProjectTx := integrationdb.BeginTx(t, ctx, pool)
+	err = integrationstore.LockIntegrationRuntimeLeaseForMutation(ctx, dbsqlc.New(wrongProjectTx),
+		&integrationstore.IntegrationRuntimeLeaseProof{
+			IntegrationAppID: app.ID, UnitID: unit.ID,
+			LeaseToken: lease.LeaseToken, LeaseGeneration: lease.LeaseGeneration,
+		}, uuid.New(), install.ID)
+	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("mutation with mismatched installation project error = %v, want conflict", err)
+	}
+	if err := wrongProjectTx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback mismatched project proof: %v", err)
+	}
 
 	unitHolder, err := pool.Begin(ctx)
 	if err != nil {
@@ -294,12 +288,11 @@ func TestIntegrationRuntimeLeaseMovesClaimAvailabilityToExpiry(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-claim-availability")
+	_, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "runtime-claim-availability")
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			UnitKey: "runtime-claim-availability", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
@@ -403,12 +396,11 @@ func TestExpiredIntegrationRuntimeLeaseCanBeReclaimedWithoutRelease(t *testing.T
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	_, _, app, install := createChannelLifecycleFixture(t, ctx, store, "runtime-expiry-takeover")
+	_, _, app, _ := createChannelLifecycleFixture(t, ctx, store, "runtime-expiry-takeover")
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			UnitKey: "runtime-expiry-takeover", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
@@ -473,7 +465,7 @@ func TestExpiredIntegrationRuntimeLeaseCanBeReclaimedWithoutRelease(t *testing.T
 	}
 }
 
-func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
+func TestDeleteIntegrationInstallPreservesAppRuntimeAndFencesInstall(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -486,7 +478,7 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID:            testProjectID,
 			IntegrationInstallID: install.ID, DeploymentKey: "runtime-reinstall",
-			BehaviorKey: testChannelHandler, State: integrationstore.IntegrationRouteStateActive,
+			BehaviorKey: testChannelHandler,
 		},
 	)
 	if err != nil {
@@ -519,7 +511,6 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			UnitKey: "provider-session", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
@@ -551,11 +542,11 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 		 FROM integration_runtime_units WHERE id = $1`,
 		unit.ID,
 	).Scan(&runtimeDeleted, &leaseCleared, &desiredState, &status); err != nil {
-		t.Fatalf("load retired runtime unit: %v", err)
+		t.Fatalf("load app runtime unit after installation deletion: %v", err)
 	}
-	if !runtimeDeleted || !leaseCleared || desiredState != "stopped" || status != "stopped" {
+	if runtimeDeleted || leaseCleared || desiredState != "running" || status != "running" {
 		t.Fatalf(
-			"retired runtime deleted=%t lease_cleared=%t desired=%q status=%q",
+			"app runtime after installation deletion: deleted=%t lease_cleared=%t desired=%q status=%q",
 			runtimeDeleted,
 			leaseCleared,
 			desiredState,
@@ -579,8 +570,14 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 			LeaseGeneration: lease.LeaseGeneration, LeaseDuration: time.Minute,
 			Capabilities: testChannelCapabilities(testChannelProvider),
 		},
-	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("heartbeat deleted runtime error = %v, want conflict", err)
+	); err != nil {
+		t.Fatalf("heartbeat app runtime after installation deletion: %v", err)
+	}
+	current, err := store.Integrations().IntegrationRuntimeLeaseIsCurrent(
+		ctx, app.ID, unit.ID, install.ID, lease.LeaseToken, lease.LeaseGeneration,
+	)
+	if err != nil || current {
+		t.Fatalf("deleted installation accepted runtime proof = %v, %v", current, err)
 	}
 
 	reinstalled, err := store.Integrations().UpsertIntegrationInstall(
@@ -605,7 +602,6 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: reinstalled.ID,
 			UnitKey: unit.UnitKey, RuntimeKind: unit.RuntimeKind,
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1,
@@ -614,8 +610,14 @@ func TestDeleteIntegrationInstallRetiresAndFencesRuntimeUnits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create fresh runtime after reinstall: %v", err)
 	}
-	if fresh.ID == unit.ID || fresh.IntegrationInstallID != reinstalled.ID ||
-		fresh.LeaseToken != uuid.Nil || fresh.LeaseGeneration != 0 {
-		t.Fatalf("fresh reinstalled runtime inherited stale identity or lease: %+v", fresh)
+	if fresh.ID != unit.ID || fresh.LeaseToken != lease.LeaseToken ||
+		fresh.LeaseGeneration != lease.LeaseGeneration {
+		t.Fatalf("reinstallation replaced shared app runtime or lease: %+v", fresh)
+	}
+	current, err = store.Integrations().IntegrationRuntimeLeaseIsCurrent(
+		ctx, app.ID, unit.ID, reinstalled.ID, lease.LeaseToken, lease.LeaseGeneration,
+	)
+	if err != nil || !current {
+		t.Fatalf("new installation rejected shared app runtime proof = %v, %v", current, err)
 	}
 }

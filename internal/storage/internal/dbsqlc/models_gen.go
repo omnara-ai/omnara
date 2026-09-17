@@ -268,7 +268,6 @@ type IntegrationApp struct {
 	CredentialSecretID         *uuid.UUID
 	InstallationCredentialKind *string
 	ProviderConfig             json.RawMessage
-	ProviderMetadata           json.RawMessage
 	ConfigurationRevision      int64
 	State                      string
 	DeletedAt                  *time.Time
@@ -346,7 +345,6 @@ type IntegrationInstall struct {
 	ProviderAccountRef     *string
 	DisplayName            string
 	CredentialSecretID     *uuid.UUID
-	ProviderConfig         json.RawMessage
 	ProviderIdentity       json.RawMessage
 	Metadata               json.RawMessage
 	LastOauthFlowID        *uuid.UUID
@@ -366,44 +364,39 @@ type IntegrationRoute struct {
 	BehaviorKey          string
 	Configuration        json.RawMessage
 	AgentProfileID       *uuid.UUID
-	State                string
 	DeletedAt            *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
 
 type IntegrationRuntimeUnit struct {
-	ID                                uuid.UUID
-	OrgID                             uuid.UUID
-	IntegrationAppID                  uuid.UUID
-	ProjectID                         *uuid.UUID
-	IntegrationInstallID              *uuid.UUID
-	Provider                          string
-	ConnectorKey                      string
-	UnitKey                           string
-	RuntimeKind                       string
-	DesiredState                      string
-	SpecRevision                      int32
-	Configuration                     json.RawMessage
-	Status                            string
-	FailureCount                      int32
-	AvailableAt                       time.Time
-	LeaseOwner                        *string
-	LeaseToken                        *uuid.UUID
-	LeaseGeneration                   int64
-	LeasedAt                          *time.Time
-	RenewedAt                         *time.Time
-	LeaseExpiresAt                    *time.Time
-	LeaseSpecRevision                 *int32
-	LeaseAppConfigurationRevision     *int64
-	LeaseInstallConfigurationRevision *int64
-	CheckpointVersion                 int32
-	CheckpointRevision                int64
-	Checkpoint                        json.RawMessage
-	LastError                         json.RawMessage
-	DeletedAt                         *time.Time
-	CreatedAt                         time.Time
-	UpdatedAt                         time.Time
+	ID                            uuid.UUID
+	OrgID                         uuid.UUID
+	IntegrationAppID              uuid.UUID
+	Provider                      string
+	ConnectorKey                  string
+	UnitKey                       string
+	RuntimeKind                   string
+	DesiredState                  string
+	SpecRevision                  int32
+	Configuration                 json.RawMessage
+	Status                        string
+	FailureCount                  int32
+	AvailableAt                   time.Time
+	LeaseOwner                    *string
+	LeaseToken                    *uuid.UUID
+	LeaseGeneration               int64
+	LeasedAt                      *time.Time
+	RenewedAt                     *time.Time
+	LeaseExpiresAt                *time.Time
+	LeaseSpecRevision             *int32
+	LeaseAppConfigurationRevision *int64
+	CheckpointVersion             int32
+	Checkpoint                    json.RawMessage
+	LastError                     json.RawMessage
+	DeletedAt                     *time.Time
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
 }
 
 type IntegrationTarget struct {
@@ -436,7 +429,6 @@ type IntegrationTargetBinding struct {
 	ReplyReadAllowed     *bool
 	ReplySendAllowed     *bool
 	Source               string
-	Metadata             json.RawMessage
 	RevokedAt            *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time

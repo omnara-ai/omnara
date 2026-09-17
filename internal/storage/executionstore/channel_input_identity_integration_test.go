@@ -153,7 +153,7 @@ func TestChannelWorkflowLookupAllowsAbsentAppendOnlyConversation(t *testing.T) {
 	f := newChannelWorkflowFixture(t, ctx, "append-only-lookup")
 	route, err := f.Store.Integrations().CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 		ProjectID: f.Identity.ProjectID, IntegrationInstallID: f.Identity.IntegrationInstallID,
-		DeploymentKey: "append-only", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+		DeploymentKey: "append-only", BehaviorKey: "conversation",
 	})
 	require.NoError(t, err)
 	f.Identity.IntegrationRouteID = route.ID

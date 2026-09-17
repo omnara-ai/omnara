@@ -261,7 +261,7 @@ func TestPublicIntegrationAppHistoricalDisplayNames(t *testing.T) {
 			OrgID: f.project.OrgUUID, Provider: integrationstore.IntegrationProviderGitHub,
 			ProviderAppRef: uuid.NewString(), DisplayName: label, ConnectorKey: channelconnector.BuiltInConnectorKey,
 			CredentialSecretID: secretID, ProviderConfig: json.RawMessage(`{"client_id":"public","private":"local-secret"}`),
-			ProviderMetadata: json.RawMessage(`{"private":"local-secret"}`), State: integrationstore.IntegrationAppStateActive,
+			State: integrationstore.IntegrationAppStateActive,
 		}
 		app, err := f.project.Store.Integrations().CreateIntegrationApp(t.Context(), input)
 		require.NoError(t, err)
@@ -383,7 +383,7 @@ func publicAppIDs(t *testing.T, page map[string]any) []string {
 
 func assertPublicAppRedaction(t *testing.T, response map[string]any, summary bool) {
 	t.Helper()
-	for _, field := range []string{"material", "values", "client_secret", "provider_metadata", "configuration_revision",
+	for _, field := range []string{"material", "values", "client_secret", "configuration_revision",
 		"connector_key", "installation_credential_kind"} {
 		require.NotContains(t, response, field)
 	}

@@ -192,7 +192,6 @@ func TestIntegrationAppManagementConcurrentPatchesMerge(t *testing.T) {
 	require.Equal(t, name, updated.DisplayName)
 	require.JSONEq(t, `{"concurrent":true}`, string(updated.ProviderConfig))
 	require.Equal(t, app.ConfigurationRevision+2, updated.ConfigurationRevision)
-	require.Equal(t, app.ProviderMetadata, updated.ProviderMetadata)
 	require.Equal(t, app.OwnerProjectID, updated.OwnerProjectID)
 }
 
@@ -377,7 +376,7 @@ func (f integrationAppManagementFixture) app(
 		OrgID: testOrgID, OwnerProjectID: ownerProjectID, Provider: testChannelProvider,
 		ProviderAppRef: uuid.NewString(), DisplayName: "Original app", ConnectorKey: testChannelConnector,
 		CredentialSecretID: credentialID, State: integrationstore.IntegrationAppStateActive,
-		ProviderConfig: json.RawMessage(`{"original":true}`), ProviderMetadata: json.RawMessage(`{"preserved":true}`),
+		ProviderConfig: json.RawMessage(`{"original":true}`),
 	})
 	require.NoError(t, err)
 	return app

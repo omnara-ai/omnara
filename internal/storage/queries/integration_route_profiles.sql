@@ -1,6 +1,6 @@
 -- name: LockIntegrationRouteByDeploymentKey :one
 SELECT id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = sqlc.arg(project_id)
@@ -18,5 +18,5 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
 RETURNING id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at;

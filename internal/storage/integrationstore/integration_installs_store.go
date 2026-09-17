@@ -156,7 +156,6 @@ func insertIntegrationInstallTx(
 		ProviderAccountRef:     storeutil.TextFromEmpty(input.ProviderAccountRef),
 		DisplayName:            input.DisplayName,
 		CredentialSecretID:     storeutil.IDFromNil(input.CredentialSecretID),
-		ProviderConfig:         input.ProviderConfig,
 		ProviderIdentity:       input.ProviderIdentity,
 		Metadata:               input.Metadata,
 		LastOauthFlowID:        storeutil.IDFromNil(input.OAuthFlowID),
@@ -450,14 +449,6 @@ func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id 
 	if rows == 0 {
 		return storeerr.ErrNotFound
 	}
-	if err := qtx.DeleteIntegrationInstallRuntimeUnits(
-		ctx,
-		dbsqlc.DeleteIntegrationInstallRuntimeUnitsParams{
-			ProjectID: projectID, IntegrationInstallID: &id,
-		},
-	); err != nil {
-		return fmt.Errorf("delete integration install runtime units: %w", err)
-	}
 	if err := qtx.DeleteIntegrationRoutes(ctx, dbsqlc.DeleteIntegrationRoutesParams{
 		ProjectID: projectID, IntegrationInstallID: id,
 	}); err != nil {
@@ -540,10 +531,6 @@ func normalizeUpsertIntegrationInstallInput(
 		return UpsertIntegrationInstallInput{}, errors.New(
 			"integration installation identifier exceeds its size limit",
 		)
-	}
-	input.ProviderConfig, err = normalizedJSONObject(input.ProviderConfig, "provider_config")
-	if err != nil {
-		return UpsertIntegrationInstallInput{}, err
 	}
 	input.ProviderIdentity, err = normalizedJSONObject(input.ProviderIdentity, "provider_identity")
 	if err != nil {
@@ -650,7 +637,6 @@ func updateIntegrationInstallTx(
 		State:                  string(input.State),
 		DisplayName:            input.DisplayName,
 		CredentialSecretID:     storeutil.IDFromNil(input.CredentialSecretID),
-		ProviderConfig:         input.ProviderConfig,
 		ProviderIdentity:       input.ProviderIdentity,
 		Metadata:               input.Metadata,
 		LastOauthFlowID:        storeutil.IDFromNil(input.OAuthFlowID),
@@ -687,7 +673,6 @@ func integrationInstallRecordFromSQLC(row dbsqlc.IntegrationInstall) Integration
 		ProviderAccountRef:    stringFromPtr(row.ProviderAccountRef),
 		DisplayName:           row.DisplayName,
 		CredentialSecretID:    storeutil.IDFromPtr(row.CredentialSecretID),
-		ProviderConfig:        row.ProviderConfig,
 		ProviderIdentity:      row.ProviderIdentity,
 		Metadata:              row.Metadata,
 		LastOAuthFlowID:       storeutil.IDFromPtr(row.LastOauthFlowID),
@@ -714,7 +699,6 @@ func integrationInstallRecordFromListSQLC(row dbsqlc.ListIntegrationInstallsForP
 		ProviderAccountRef:    stringFromPtr(row.ProviderAccountRef),
 		DisplayName:           row.DisplayName,
 		CredentialSecretID:    storeutil.IDFromPtr(row.CredentialSecretID),
-		ProviderConfig:        row.ProviderConfig,
 		ProviderIdentity:      row.ProviderIdentity,
 		Metadata:              row.Metadata,
 		LastOAuthFlowID:       storeutil.IDFromPtr(row.LastOauthFlowID),

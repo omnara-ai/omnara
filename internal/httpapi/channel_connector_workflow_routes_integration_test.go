@@ -50,7 +50,7 @@ func newChannelWorkflowHTTPFixture(t *testing.T) channelWorkflowHTTPFixture {
 	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, channelReceiptString(t, profile, "id"))
 	routeInput := integrationstore.CreateIntegrationRouteInput{
 		ProjectID: f.install.ProjectID, IntegrationInstallID: f.install.ID, AgentProfileID: profileID,
-		DeploymentKey: "conversation", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+		DeploymentKey: "conversation", BehaviorKey: "conversation",
 	}
 	route, err := f.project.Store.Integrations().CreateIntegrationRoute(t.Context(), routeInput)
 	require.NoError(t, err)
@@ -371,7 +371,7 @@ func TestChannelConnectorWorkflowRejectsCrossInstallationResources(t *testing.T)
 	require.NoError(t, err)
 	route, err := f.project.Store.Integrations().CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 		ProjectID: f.otherInstall.ProjectID, IntegrationInstallID: f.otherInstall.ID,
-		DeploymentKey: "other", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+		DeploymentKey: "other", BehaviorKey: "conversation",
 	})
 	require.NoError(t, err)
 	f.post(t, f.eventPath(t, f.app), f.event(t, f.otherInstall, "foreign-event", `{}`), f.token, http.StatusAccepted)

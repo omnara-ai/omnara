@@ -49,8 +49,6 @@ func TestBindingInvalidInputsAreInvalidRequests(t *testing.T) {
 		{"empty_grants", func(in *CreateIntegrationTargetBindingInput) { in.ReceiveAllowed = false }},
 		{"empty_source", func(in *CreateIntegrationTargetBindingInput) { in.Source = " \t\n" }},
 		{"oversized_source", func(in *CreateIntegrationTargetBindingInput) { in.Source = strings.Repeat("a", 129) }},
-		{"invalid_metadata", func(in *CreateIntegrationTargetBindingInput) { in.Metadata = []byte(`{"broken":`) }},
-		{"nonobject_metadata", func(in *CreateIntegrationTargetBindingInput) { in.Metadata = []byte(`[]`) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -78,5 +76,4 @@ func TestBindingReceiveGrantDoesNotRequireRoute(t *testing.T) {
 	require.False(t, normalized.SendAllowed)
 	require.Nil(t, normalized.ReplyChannelGrants)
 	require.Equal(t, "api", normalized.Source)
-	require.JSONEq(t, `{}`, string(normalized.Metadata))
 }

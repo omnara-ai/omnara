@@ -52,7 +52,6 @@ export async function runDiscordUnit(
     unit.runtime_kind !== 'discord_gateway' ||
     unit.unit_key !== `discord_gateway:${shard.shard_id}` ||
     unit.integration_app_id !== factory.configuration.app.id ||
-    unit.integration_install_id !== undefined ||
     unit.lease_app_configuration_revision !== factory.configuration.app.configuration_revision ||
     unit.lease_spec_revision !== unit.spec_revision
   )

@@ -424,7 +424,6 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ChannelConnectorApp.display_name":                     "",
 		"ChannelConnectorApp.provider_config":                  "#/components/schemas/ChannelOpaqueObject",
 		"ChannelConnectorInstall.display_name":                 "",
-		"ChannelConnectorInstall.provider_config":              "#/components/schemas/ChannelOpaqueObject",
 		"CreateIntegrationAppRequest.provider_config":          "#/components/schemas/IntegrationAppConfiguration",
 		"UpdateIntegrationAppRequest.provider_config":          "#/components/schemas/IntegrationAppConfiguration",
 		"IntegrationApp.provider_config":                       "#/components/schemas/IntegrationAppConfiguration",

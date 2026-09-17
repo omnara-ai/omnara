@@ -83,6 +83,10 @@ Your Slack app must already be configured with Omnara's event, action, and redir
 
 Both setup paths connect one Slack workspace to the profile.
 
+When repeating profile-specific setup to reconnect an existing bot, select its
+currently assigned profile. Setup rejects a different profile; change the launch
+profile separately on the project's **Integrations** page.
+
 <Note>
   Removing a Slack integration from Omnara keeps its agents and histories, but
   does not uninstall the app from Slack. Remove it separately in Slack if you
@@ -103,6 +107,8 @@ starts a separate agent; the original sender keeps its existing permissions.
 If a thread's receiving agents have been archived or their receive access revoked,
 messages do not automatically launch replacements. Customer-managed listeners
 choose which events to submit, even when their agents have receive permission.
+To continue an existing thread with another agent, attach that agent to its
+channel with receive access using the [channel binding API](/integrations/external#give-an-agent-access-and-deliver-input).
 
 Slack messages are attributed to their sender and appear in the same [timeline](/events/streaming) as dashboard activity. [Questions and approvals](/events/interactions) can be answered in Slack or the dashboard; either response resumes the same agent.
 

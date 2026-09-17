@@ -159,8 +159,7 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 	first := claim("gateway-a")
 	if first.ID != unit.ID || first.LeaseToken == uuid.Nil || first.LeaseGeneration != 1 ||
 		first.LeaseSpecRevision != unit.SpecRevision ||
-		first.LeaseAppConfigurationRevision != app.ConfigurationRevision ||
-		first.LeaseInstallConfigRevision != 0 {
+		first.LeaseAppConfigurationRevision != app.ConfigurationRevision {
 		t.Fatalf("first runtime lease = %+v", first)
 	}
 	current, err := store.Integrations().IntegrationRuntimeLeaseIsCurrent(
@@ -194,7 +193,8 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 			Capabilities: testChannelCapabilities(testChannelProvider),
 		},
 	)
-	if err != nil || heartbeat.CheckpointRevision != 1 {
+	if err != nil || heartbeat.CheckpointVersion != 1 ||
+		!sameJSON(heartbeat.Checkpoint, json.RawMessage(`{"sequence":42}`)) {
 		t.Fatalf("heartbeat runtime unit = %+v, %v", heartbeat, err)
 	}
 	if _, err := store.Integrations().HeartbeatIntegrationRuntimeUnit(
@@ -219,7 +219,7 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 	if err != nil || released.Status != integrationstore.IntegrationRuntimeStatusError {
 		t.Fatalf("release failed runtime = %+v, %v", released, err)
 	}
-	if released.CheckpointRevision != 2 ||
+	if released.CheckpointVersion != 1 ||
 		!sameJSON(released.Checkpoint, json.RawMessage(`{"sequence":43}`)) {
 		t.Fatalf("release did not flush final runtime checkpoint: %+v", released)
 	}
@@ -241,7 +241,7 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update runtime configuration: %v", err)
 	}
-	if updated.CheckpointRevision != 2 {
+	if updated.CheckpointVersion != released.CheckpointVersion || !sameJSON(updated.Checkpoint, released.Checkpoint) {
 		t.Fatalf("configuration update discarded checkpoint: %+v", updated)
 	}
 	lowerRevision := unitInput
@@ -253,7 +253,8 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 		t.Fatalf("lower runtime specification revision error = %v, want conflict", err)
 	}
 	second := claim("gateway-b")
-	if second.LeaseGeneration != first.LeaseGeneration+1 || second.CheckpointRevision != 2 {
+	if second.LeaseGeneration != first.LeaseGeneration+1 ||
+		second.CheckpointVersion != released.CheckpointVersion || !sameJSON(second.Checkpoint, released.Checkpoint) {
 		t.Fatalf("reclaimed runtime unit = %+v", second)
 	}
 	if _, err := store.Integrations().HeartbeatIntegrationRuntimeUnit(
@@ -324,49 +325,47 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 		t.Fatalf("release fenced stopped app-wide runtime error = %v, want conflict", err)
 	}
 
-	installUnit, err := store.Integrations().UpsertIntegrationRuntimeUnit(
+	secondShard, err := store.Integrations().UpsertIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: testOrgID, IntegrationAppID: app.ID,
-			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			UnitKey: "installation-runtime", RuntimeKind: "provider_socket",
+			UnitKey: "gateway-shard-1", RuntimeKind: "provider_gateway",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 			SpecRevision: 1, Configuration: json.RawMessage(`{}`),
 		},
 	)
 	if err != nil {
-		t.Fatalf("create installation runtime unit: %v", err)
+		t.Fatalf("create second app runtime shard: %v", err)
 	}
-	installLease := claim("gateway-install")
-	if installLease.ID != installUnit.ID ||
-		installLease.LeaseInstallConfigRevision != install.ConfigurationRevision {
-		t.Fatalf("installation runtime lease = %+v", installLease)
+	secondShardLease := claim("gateway-second-shard")
+	if secondShardLease.ID != secondShard.ID {
+		t.Fatalf("second app shard runtime lease = %+v", secondShardLease)
 	}
 	current, err = store.Integrations().IntegrationRuntimeLeaseIsCurrent(
 		ctx,
 		app.ID,
-		installLease.ID,
+		secondShardLease.ID,
 		install.ID,
-		installLease.LeaseToken,
-		installLease.LeaseGeneration,
+		secondShardLease.LeaseToken,
+		secondShardLease.LeaseGeneration,
 	)
 	if err != nil || !current {
-		t.Fatalf("installation runtime lease = %v, %v", current, err)
+		t.Fatalf("second app shard runtime lease = %v, %v", current, err)
 	}
 	current, err = store.Integrations().IntegrationRuntimeLeaseIsCurrent(
 		ctx,
 		app.ID,
-		installLease.ID,
+		secondShardLease.ID,
 		uuid.New(),
-		installLease.LeaseToken,
-		installLease.LeaseGeneration,
+		secondShardLease.LeaseToken,
+		secondShardLease.LeaseGeneration,
 	)
 	if err != nil || current {
 		t.Fatalf("cross-install runtime lease = %v, %v", current, err)
 	}
 	if _, err := pool.Exec(
 		ctx,
-		`UPDATE integration_installs SET provider_config = '{"revision":2}'::jsonb WHERE id = $1`,
+		`UPDATE integration_installs SET metadata = '{"tenant_name":"Renamed tenant"}'::jsonb WHERE id = $1`,
 		install.ID,
 	); err != nil {
 		t.Fatalf("rotate runtime installation configuration: %v", err)
@@ -374,23 +373,26 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 	current, err = store.Integrations().IntegrationRuntimeLeaseIsCurrent(
 		ctx,
 		app.ID,
-		installLease.ID,
+		secondShardLease.ID,
 		install.ID,
-		installLease.LeaseToken,
-		installLease.LeaseGeneration,
+		secondShardLease.LeaseToken,
+		secondShardLease.LeaseGeneration,
 	)
-	if err != nil || current {
-		t.Fatalf("install-revision-stale runtime lease = %v, %v", current, err)
+	if err != nil || !current {
+		t.Fatalf("installation configuration change fenced app runtime = %v, %v", current, err)
 	}
-	if _, err := store.Integrations().HeartbeatIntegrationRuntimeUnit(
+	checkpointed, err := store.Integrations().HeartbeatIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.HeartbeatIntegrationRuntimeUnitInput{
-			ID: installLease.ID, LeaseToken: installLease.LeaseToken,
-			LeaseGeneration: installLease.LeaseGeneration, LeaseDuration: time.Minute,
+			ID: secondShardLease.ID, LeaseToken: secondShardLease.LeaseToken,
+			LeaseGeneration: secondShardLease.LeaseGeneration, LeaseDuration: time.Minute,
+			WriteCheckpoint: true, CheckpointVersion: 1,
+			Checkpoint:   json.RawMessage(`{"cursor":"before-app-delete"}`),
 			Capabilities: testChannelCapabilities(testChannelProvider),
 		},
-	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("install-revision-stale heartbeat error = %v", err)
+	)
+	if err != nil {
+		t.Fatalf("heartbeat app runtime after installation configuration change: %v", err)
 	}
 	if err := store.Integrations().DeleteIntegrationInstall(ctx, testProjectID, install.ID); err != nil {
 		t.Fatalf("delete leased runtime installation: %v", err)
@@ -404,15 +406,25 @@ func TestChannelFoundationRuntimeLeaseFencingAndCheckpoint(t *testing.T) {
 	); err != nil {
 		t.Fatalf("delete leased runtime app: %v", err)
 	}
-	if _, err := store.Integrations().ReleaseIntegrationRuntimeUnit(
+	relinquished, err := store.Integrations().ReleaseIntegrationRuntimeUnit(
 		ctx,
 		integrationstore.ReleaseIntegrationRuntimeUnitInput{
-			ID: installLease.ID, LeaseToken: installLease.LeaseToken,
-			LeaseGeneration: installLease.LeaseGeneration, LastError: json.RawMessage(`{}`),
+			ID: secondShardLease.ID, LeaseToken: secondShardLease.LeaseToken,
+			LeaseGeneration: secondShardLease.LeaseGeneration,
+			WriteCheckpoint: true, CheckpointVersion: 99,
+			Checkpoint: json.RawMessage(`{"cursor":"stale"}`), LastError: json.RawMessage(`{"code":"stale_worker"}`),
 			Capabilities: testChannelCapabilities(testChannelProvider),
 		},
-	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("release fenced runtime after app deletion error = %v, want conflict", err)
+	)
+	if err != nil {
+		t.Fatalf("relinquish runtime after app deletion: %v", err)
+	}
+	if relinquished.LeaseToken != uuid.Nil || relinquished.Status != integrationstore.IntegrationRuntimeStatusIdle ||
+		relinquished.LeaseGeneration != checkpointed.LeaseGeneration ||
+		relinquished.CheckpointVersion != checkpointed.CheckpointVersion ||
+		!sameJSON(relinquished.Checkpoint, checkpointed.Checkpoint) ||
+		!sameJSON(relinquished.LastError, checkpointed.LastError) {
+		t.Fatalf("stale release must only relinquish the lease, before=%+v after=%+v", checkpointed, relinquished)
 	}
 }
 
@@ -460,7 +472,6 @@ func TestChannelFoundationLifecycleDeletion(t *testing.T) {
 			ctx,
 			integrationstore.UpsertIntegrationRuntimeUnitInput{
 				OrgID: testOrgID, IntegrationAppID: app.ID,
-				ProjectID: testProjectID, IntegrationInstallID: install.ID,
 				UnitKey: "project-runtime", RuntimeKind: "provider_socket",
 				DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning,
 				SpecRevision: 1,
@@ -584,7 +595,6 @@ func TestChannelFoundationInstallDeletionRevokesConcurrentBinding(t *testing.T) 
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			DeploymentKey: "delete-binding-race", BehaviorKey: testChannelHandler,
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -765,7 +775,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{"mode":"mentions"}`),
 		},
 	)
 	if err != nil {
@@ -775,7 +785,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{ "mode": "mentions" }`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{ "mode": "mentions" }`),
 		},
 	)
 	if err != nil || replayed.ID != route.ID {
@@ -785,7 +795,7 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", BehaviorKey: "changed-behavior", Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: "changed-behavior", Configuration: json.RawMessage(`{"mode":"mentions"}`),
 		},
 	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("changed route create replay error = %v, want idempotency conflict", err)
@@ -801,21 +811,28 @@ func TestChannelFoundationRouteDefinitionIsImmutable(t *testing.T) {
 	}
 	if _, err := pool.Exec(
 		ctx,
-		`UPDATE integration_routes SET state = 'disabled' WHERE id = $1`,
+		`UPDATE integration_routes SET deleted_at = statement_timestamp() WHERE id = $1`,
 		route.ID,
 	); err != nil {
-		t.Fatalf("disable immutable route: %v", err)
+		t.Fatalf("delete immutable route: %v", err)
 	}
-	disabledReplay, err := store.Integrations().CreateIntegrationRoute(
+	_, err = store.Integrations().CreateIntegrationRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{"mode":"mentions"}`), State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "immutable-route", BehaviorKey: testChannelHandler, Configuration: json.RawMessage(`{"mode":"mentions"}`),
 		},
 	)
-	if err != nil || disabledReplay.ID != route.ID ||
-		disabledReplay.State != integrationstore.IntegrationRouteStateDisabled {
-		t.Fatalf("disabled route create replay changed lifecycle = %+v, %v", disabledReplay, err)
+	if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("deleted route create replay error = %v, want idempotency conflict", err)
+	}
+	var stillDeleted bool
+	if err := pool.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM integration_routes WHERE id = $1`,
+		route.ID).Scan(&stillDeleted); err != nil {
+		t.Fatalf("load deleted route after replay: %v", err)
+	}
+	if !stillDeleted {
+		t.Fatal("route create replay resurrected the deleted route")
 	}
 
 }
@@ -835,7 +852,7 @@ func TestChannelFoundationTargetAndBindingDefinitionsAreImmutable(t *testing.T) 
 			ctx,
 			integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: "route-" + handler, BehaviorKey: handler, State: integrationstore.IntegrationRouteStateActive,
+				DeploymentKey: "route-" + handler, BehaviorKey: handler,
 			},
 		)
 		if err != nil {
@@ -872,7 +889,7 @@ func TestChannelFoundationTargetAndBindingDefinitionsAreImmutable(t *testing.T) 
 			ProjectID: testProjectID, AgentID: agent.ID,
 			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
 			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
-			Source: "test", Metadata: json.RawMessage(`{"scope":"thread"}`),
+			Source: "test",
 		},
 	)
 	if err != nil {
@@ -925,7 +942,7 @@ VALUES (
 			ProjectID: testProjectID, AgentID: agent.ID,
 			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
 			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
-			Source: "test", Metadata: json.RawMessage(`{"scope":"thread"}`),
+			Source: "test",
 		},
 	)
 	if err != nil || replayedBinding.ID != binding.ID {
@@ -1001,7 +1018,7 @@ VALUES (
 			ProjectID: testProjectID, AgentID: agent.ID,
 			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
 			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: false,
-			Source: "test", Metadata: json.RawMessage(`{"scope":"read_only"}`),
+			Source: "test",
 		},
 	)
 	if err != nil || replacement.ID == binding.ID {
@@ -1109,7 +1126,7 @@ func TestDeleteIntegrationRouteRevokesOnlyItsBindings(t *testing.T) {
 			integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: install.ID,
 				DeploymentKey: "delete-single-route-" + label,
-				BehaviorKey:   "delete_single_route", State: integrationstore.IntegrationRouteStateActive,
+				BehaviorKey:   "delete_single_route",
 			},
 		)
 		if err != nil {
@@ -1188,23 +1205,20 @@ WHERE project_id = $1 AND id = $2`,
 		!channels.Targets[0].ReceiveAllowed || !channels.Targets[0].SendAllowed {
 		t.Fatalf("sibling route channel authority = %+v, %v", channels, err)
 	}
-	var deletedState, siblingState string
 	var deletedAt, siblingDeleted bool
 	if err := pool.QueryRow(ctx, `
-SELECT deleted.state, deleted.deleted_at IS NOT NULL,
-       sibling.state, sibling.deleted_at IS NOT NULL
+SELECT deleted.deleted_at IS NOT NULL, sibling.deleted_at IS NOT NULL
 FROM integration_routes deleted
 JOIN integration_routes sibling ON sibling.id = $2
 WHERE deleted.id = $1
 `, deletedRoute.ID, siblingRoute.ID).Scan(
-		&deletedState, &deletedAt, &siblingState, &siblingDeleted,
+		&deletedAt, &siblingDeleted,
 	); err != nil {
 		t.Fatalf("load route deletion lifecycle: %v", err)
 	}
-	if deletedState != "disabled" || !deletedAt || siblingState != "active" || siblingDeleted {
+	if !deletedAt || siblingDeleted {
 		t.Fatalf(
-			"route lifecycle deleted=%q/%t sibling=%q/%t",
-			deletedState, deletedAt, siblingState, siblingDeleted,
+			"route lifecycle deleted=%t sibling_deleted=%t", deletedAt, siblingDeleted,
 		)
 	}
 }
@@ -1260,7 +1274,7 @@ func TestChannelFoundationReceiveBindingLimitIsWriteSafe(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "binding-limit", BehaviorKey: testChannelHandler, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "binding-limit", BehaviorKey: testChannelHandler,
 		},
 	)
 	if err != nil {

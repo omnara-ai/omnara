@@ -58,7 +58,7 @@ func (q *Queries) DeleteIntegrationInstall(ctx context.Context, arg DeleteIntegr
 
 const deleteIntegrationRoutes = `-- name: DeleteIntegrationRoutes :exec
 UPDATE integration_routes
-SET state = 'disabled', deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = $1
   AND integration_install_id = $2
   AND deleted_at IS NULL
@@ -137,7 +137,7 @@ const getIntegrationInstall = `-- name: GetIntegrationInstall :one
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -167,7 +167,6 @@ func (q *Queries) GetIntegrationInstall(ctx context.Context, arg GetIntegrationI
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -185,7 +184,7 @@ const getIntegrationInstallByAppProviderAccount = `-- name: GetIntegrationInstal
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -220,7 +219,6 @@ func (q *Queries) GetIntegrationInstallByAppProviderAccount(ctx context.Context,
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -238,7 +236,7 @@ const getIntegrationInstallByID = `-- name: GetIntegrationInstallByID :one
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -265,7 +263,6 @@ func (q *Queries) GetIntegrationInstallByID(ctx context.Context, arg GetIntegrat
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -389,7 +386,7 @@ const getSlackIntegrationInstallByIdentity = `-- name: GetSlackIntegrationInstal
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -421,7 +418,6 @@ func (q *Queries) GetSlackIntegrationInstallByIdentity(ctx context.Context, arg 
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -445,7 +441,7 @@ INSERT INTO integration_installs (
 )
 RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref,
-  display_name, credential_secret_id, provider_config, provider_identity, metadata,
+  display_name, credential_secret_id, provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 `
@@ -482,7 +478,6 @@ func (q *Queries) InsertExternalIntegrationInstall(ctx context.Context, arg Inse
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -501,7 +496,7 @@ INSERT INTO integration_installs(
   org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, created_at, updated_at, integration_app_id, installed_by_org_api_key_id
 )
 VALUES (
@@ -509,16 +504,16 @@ VALUES (
   $3, $4, $5,
   $6, $7, $8,
   $9, $10, $11,
-  $12, $13, $14,
-  $15, transaction_timestamp(), transaction_timestamp(),
-  $16, $17
+  $12, $13,
+  $14, transaction_timestamp(), transaction_timestamp(),
+  $15, $16
 )
 ON CONFLICT (integration_app_id, provider_tenant_id, provider_account_ref)
   WHERE integration_kind = 'managed' AND deleted_at IS NULL DO NOTHING
 RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 `
@@ -535,7 +530,6 @@ type InsertIntegrationInstallParams struct {
 	ProviderAccountRef     *string
 	DisplayName            string
 	CredentialSecretID     *uuid.UUID
-	ProviderConfig         json.RawMessage
 	ProviderIdentity       json.RawMessage
 	Metadata               json.RawMessage
 	LastOauthFlowID        *uuid.UUID
@@ -556,7 +550,6 @@ func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegr
 		arg.ProviderAccountRef,
 		arg.DisplayName,
 		arg.CredentialSecretID,
-		arg.ProviderConfig,
 		arg.ProviderIdentity,
 		arg.Metadata,
 		arg.LastOauthFlowID,
@@ -577,7 +570,6 @@ func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegr
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -721,7 +713,7 @@ SELECT install.id, install.org_id, install.project_id,
        install.installed_by_user_id, install.provider, install.integration_kind, install.connection_mode,
        install.state, install.provider_tenant_id, install.provider_account_ref,
        install.display_name, install.credential_secret_id,
-       install.provider_config, install.provider_identity, install.metadata,
+       install.provider_identity, install.metadata,
        install.last_oauth_flow_id, install.created_at, install.updated_at,
        install.integration_app_id, install.configuration_revision, install.installed_by_org_api_key_id,
        CASE $6::text
@@ -744,7 +736,7 @@ WHERE install.project_id = $7
 SELECT id, org_id, project_id, installed_by_user_id,
        provider, integration_kind, connection_mode, state,
        provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-       provider_config, provider_identity, metadata,
+       provider_identity, metadata,
        last_oauth_flow_id, created_at, updated_at, integration_app_id,
        configuration_revision, installed_by_org_api_key_id, sort_key
 FROM listed
@@ -784,7 +776,6 @@ type ListIntegrationInstallsForProjectRow struct {
 	ProviderAccountRef     *string
 	DisplayName            string
 	CredentialSecretID     *uuid.UUID
-	ProviderConfig         json.RawMessage
 	ProviderIdentity       json.RawMessage
 	Metadata               json.RawMessage
 	LastOauthFlowID        *uuid.UUID
@@ -829,7 +820,6 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 			&i.ProviderAccountRef,
 			&i.DisplayName,
 			&i.CredentialSecretID,
-			&i.ProviderConfig,
 			&i.ProviderIdentity,
 			&i.Metadata,
 			&i.LastOauthFlowID,
@@ -877,7 +867,7 @@ const lockIntegrationInstallByAppProviderAccount = `-- name: LockIntegrationInst
 SELECT id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 FROM integration_installs
@@ -911,7 +901,6 @@ func (q *Queries) LockIntegrationInstallByAppProviderAccount(ctx context.Context
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,
@@ -1119,7 +1108,7 @@ WHERE agents.project_id = $2
                 WHERE route.project_id = binding.project_id
                   AND route.integration_install_id = binding.integration_install_id
                   AND route.id = binding.integration_route_id
-                  AND route.state = 'active' AND route.deleted_at IS NULL
+                  AND route.deleted_at IS NULL
               )
             )
         )
@@ -1190,23 +1179,22 @@ SET installed_by_user_id = $1,
       ELSE $5::text
     END,
     credential_secret_id = $6,
-    provider_config = $7,
-    provider_identity = $8,
-    metadata = $9,
-    last_oauth_flow_id = coalesce($10, last_oauth_flow_id),
+    provider_identity = $7,
+    metadata = $8,
+    last_oauth_flow_id = coalesce($9, last_oauth_flow_id),
     updated_at = statement_timestamp()
-WHERE project_id = $11
-  AND id = $12
+WHERE project_id = $10
+  AND id = $11
   AND deleted_at IS NULL
   AND (
-    $10::uuid IS NULL
+    $9::uuid IS NULL
     OR last_oauth_flow_id IS NULL
-    OR last_oauth_flow_id < $10::uuid
+    OR last_oauth_flow_id < $9::uuid
   )
 RETURNING id, org_id, project_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, display_name, credential_secret_id,
-  provider_config, provider_identity, metadata,
+  provider_identity, metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
   configuration_revision, installed_by_org_api_key_id
 `
@@ -1218,7 +1206,6 @@ type UpdateIntegrationInstallParams struct {
 	State                  string
 	DisplayName            string
 	CredentialSecretID     *uuid.UUID
-	ProviderConfig         json.RawMessage
 	ProviderIdentity       json.RawMessage
 	Metadata               json.RawMessage
 	LastOauthFlowID        *uuid.UUID
@@ -1234,7 +1221,6 @@ func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegr
 		arg.State,
 		arg.DisplayName,
 		arg.CredentialSecretID,
-		arg.ProviderConfig,
 		arg.ProviderIdentity,
 		arg.Metadata,
 		arg.LastOauthFlowID,
@@ -1255,7 +1241,6 @@ func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegr
 		&i.ProviderAccountRef,
 		&i.DisplayName,
 		&i.CredentialSecretID,
-		&i.ProviderConfig,
 		&i.ProviderIdentity,
 		&i.Metadata,
 		&i.LastOauthFlowID,

@@ -25,5 +25,5 @@ SET display_name = coalesce(sqlc.narg(display_name)::text, display_name),
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 RETURNING id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at;

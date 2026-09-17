@@ -26,6 +26,7 @@ ALTER TABLE actors
 ALTER TABLE integration_installs RENAME COLUMN provider_agent_display_name TO display_name;
 ALTER TABLE integration_installs RENAME COLUMN provider_metadata TO metadata;
 ALTER TABLE integration_installs
+    DROP COLUMN provider_config,
     ALTER COLUMN provider DROP NOT NULL,
     ALTER COLUMN provider_tenant_id DROP NOT NULL,
     ALTER COLUMN provider_account_ref DROP NOT NULL;
@@ -46,7 +47,6 @@ ALTER TABLE integration_installs
         AND octet_length(provider_tenant_id) <= 512
         AND octet_length(provider_account_ref) <= 512
         AND octet_length(display_name) <= 512
-        AND octet_length(provider_config::text) <= 262144
         AND octet_length(provider_identity::text) <= 262144
         AND octet_length(metadata::text) <= 262144
     ),
@@ -68,10 +68,6 @@ ALTER TABLE integration_installs
     ADD CONSTRAINT integration_installs_installer_org_api_key_fkey
         FOREIGN KEY (org_id, installed_by_org_api_key_id)
         REFERENCES org_api_keys(org_id, id);
-
-CREATE INDEX integration_installs_installer_org_api_key_idx
-    ON integration_installs(org_id, installed_by_org_api_key_id)
-    WHERE installed_by_org_api_key_id IS NOT NULL;
 
 ALTER TABLE integration_targets
     ADD COLUMN parent_channel_id uuid,
@@ -157,7 +153,6 @@ CREATE TABLE integration_apps (
     credential_secret_id uuid,
     installation_credential_kind text,
     provider_config jsonb NOT NULL DEFAULT '{}'::jsonb,
-    provider_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     configuration_revision bigint NOT NULL DEFAULT 1,
     state text NOT NULL,
     deleted_at timestamptz,
@@ -173,11 +168,8 @@ CREATE TABLE integration_apps (
         'aws_credentials', 'integration_credentials'
     )),
     CHECK (jsonb_typeof(provider_config) = 'object'),
-    CHECK (jsonb_typeof(provider_metadata) = 'object'),
     CONSTRAINT integration_apps_provider_config_bytes_check
         CHECK (octet_length(provider_config::text) <= 262144),
-    CONSTRAINT integration_apps_provider_metadata_bytes_check
-        CHECK (octet_length(provider_metadata::text) <= 262144),
     CHECK (configuration_revision > 0),
     CHECK (state IN ('active', 'disabled')),
     FOREIGN KEY (org_id, owner_project_id) REFERENCES projects(org_id, id),
@@ -210,23 +202,20 @@ CREATE FUNCTION lock_live_secret_reference()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    secret_id uuid;
 BEGIN
-    secret_id := (to_jsonb(NEW) ->> TG_ARGV[0])::uuid;
     IF TG_OP = 'UPDATE'
        AND NEW.org_id IS NOT DISTINCT FROM OLD.org_id
-       AND secret_id IS NOT DISTINCT FROM (to_jsonb(OLD) ->> TG_ARGV[0])::uuid THEN
+       AND NEW.credential_secret_id IS NOT DISTINCT FROM OLD.credential_secret_id THEN
         RETURN NEW;
     END IF;
-    IF secret_id IS NULL THEN
+    IF NEW.credential_secret_id IS NULL THEN
         RETURN NEW;
     END IF;
 
     PERFORM 1
     FROM secrets secret
     WHERE secret.org_id = NEW.org_id
-      AND secret.id = secret_id
+      AND secret.id = NEW.credential_secret_id
       AND secret.deleted_at IS NULL
     FOR SHARE;
     IF NOT FOUND THEN
@@ -242,13 +231,13 @@ CREATE TRIGGER integration_apps_credential_live
     BEFORE INSERT OR UPDATE OF org_id, credential_secret_id
     ON integration_apps
     FOR EACH ROW
-    EXECUTE FUNCTION lock_live_secret_reference('credential_secret_id');
+    EXECUTE FUNCTION lock_live_secret_reference();
 
 CREATE TRIGGER integration_installs_credential_live
     BEFORE INSERT OR UPDATE OF org_id, credential_secret_id
     ON integration_installs
     FOR EACH ROW
-    EXECUTE FUNCTION lock_live_secret_reference('credential_secret_id');
+    EXECUTE FUNCTION lock_live_secret_reference();
 
 -- Shared app credentials are organization-owned. A project-restricted app's
 -- credential is owned by that exact project. The secret row is authoritative
@@ -302,7 +291,6 @@ BEGIN
     IF OLD.display_name IS DISTINCT FROM NEW.display_name
        OR OLD.credential_secret_id IS DISTINCT FROM NEW.credential_secret_id
        OR OLD.provider_config IS DISTINCT FROM NEW.provider_config
-       OR OLD.provider_metadata IS DISTINCT FROM NEW.provider_metadata
        OR OLD.state IS DISTINCT FROM NEW.state
        OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at THEN
         NEW.configuration_revision := OLD.configuration_revision + 1;
@@ -421,7 +409,6 @@ CREATE TABLE integration_routes (
     behavior_key text NOT NULL,
     configuration jsonb NOT NULL DEFAULT '{}'::jsonb,
     agent_profile_id uuid,
-    state text NOT NULL,
     deleted_at timestamptz,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
@@ -430,7 +417,6 @@ CREATE TABLE integration_routes (
     CHECK (jsonb_typeof(configuration) = 'object'),
     CONSTRAINT integration_routes_configuration_bytes_check
         CHECK (octet_length(configuration::text) <= 262144),
-    CHECK (state IN ('active', 'disabled')),
     FOREIGN KEY (project_id, integration_install_id) REFERENCES integration_installs(project_id, id),
     FOREIGN KEY (project_id, agent_profile_id) REFERENCES agent_profiles(project_id, id),
     UNIQUE (project_id, integration_install_id, id),
@@ -439,7 +425,7 @@ CREATE TABLE integration_routes (
 
 CREATE INDEX integration_routes_active_install_idx
     ON integration_routes(project_id, integration_install_id, created_at, id)
-    WHERE state = 'active' AND deleted_at IS NULL;
+    WHERE deleted_at IS NULL;
 
 CREATE INDEX integration_routes_profile_idx
     ON integration_routes(project_id, agent_profile_id)
@@ -486,7 +472,6 @@ BEGIN
        OR OLD.state IS DISTINCT FROM NEW.state
        OR OLD.display_name IS DISTINCT FROM NEW.display_name
        OR OLD.credential_secret_id IS DISTINCT FROM NEW.credential_secret_id
-       OR OLD.provider_config IS DISTINCT FROM NEW.provider_config
        OR OLD.provider_identity IS DISTINCT FROM NEW.provider_identity
        OR OLD.metadata IS DISTINCT FROM NEW.metadata
        OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at THEN
@@ -518,7 +503,6 @@ CREATE TABLE integration_target_bindings (
     reply_read_allowed boolean,
     reply_send_allowed boolean,
     source text NOT NULL,
-    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     revoked_at timestamptz,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
@@ -530,9 +514,6 @@ CREATE TABLE integration_target_bindings (
         ))
     ),
     CHECK (source <> '' AND octet_length(source) <= 128),
-    CHECK (jsonb_typeof(metadata) = 'object'),
-    CONSTRAINT integration_target_bindings_metadata_bytes_check
-        CHECK (octet_length(metadata::text) <= 262144),
     FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
     FOREIGN KEY (project_id, integration_install_id, integration_target_id)
         REFERENCES integration_targets(project_id, integration_install_id, id),
@@ -564,7 +545,7 @@ CREATE TRIGGER integration_target_bindings_definition_immutable
     BEFORE UPDATE OF id, project_id, agent_id, integration_install_id,
         integration_target_id, target_created_at, integration_route_id,
         receive_allowed, read_allowed, send_allowed,
-        reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, metadata, created_at
+        reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, created_at
     ON integration_target_bindings
     FOR EACH ROW
     EXECUTE FUNCTION reject_immutable_column_update();
@@ -750,14 +731,13 @@ INSERT INTO integration_sweep_cursors (
     'event_unprocessable', '00000000-0000-0000-0000-000000000000', NULL, transaction_timestamp()
 );
 
--- Persistent transports lease opaque runtime units. Provider-specific checkpoint meaning
--- stays in the adapter; token plus generation fence every stale owner operation.
+-- Persistent transports lease runtime units for a registered provider app.
+-- Provider-specific checkpoints stay in the adapter; token plus generation fence
+-- every stale owner operation. Installation authority is checked on each input.
 CREATE TABLE integration_runtime_units (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL,
     integration_app_id uuid NOT NULL,
-    project_id uuid,
-    integration_install_id uuid,
     provider text NOT NULL,
     connector_key text NOT NULL,
     unit_key text NOT NULL,
@@ -776,9 +756,7 @@ CREATE TABLE integration_runtime_units (
     lease_expires_at timestamptz,
     lease_spec_revision integer,
     lease_app_configuration_revision bigint,
-    lease_install_configuration_revision bigint,
     checkpoint_version integer NOT NULL DEFAULT 1,
-    checkpoint_revision bigint NOT NULL DEFAULT 0,
     checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,
     last_error jsonb NOT NULL DEFAULT '{}'::jsonb,
     deleted_at timestamptz,
@@ -797,7 +775,6 @@ CREATE TABLE integration_runtime_units (
     CHECK (failure_count >= 0),
     CHECK (lease_generation >= 0),
     CHECK (checkpoint_version > 0),
-    CHECK (checkpoint_revision >= 0),
     CHECK (jsonb_typeof(checkpoint) = 'object'),
     CHECK (jsonb_typeof(last_error) = 'object'),
     CONSTRAINT integration_runtime_units_checkpoint_bytes_check
@@ -805,45 +782,34 @@ CREATE TABLE integration_runtime_units (
     CONSTRAINT integration_runtime_units_last_error_bytes_check
         CHECK (octet_length(last_error::text) <= 262144),
     CHECK (lease_owner IS NULL OR octet_length(lease_owner) <= 256),
-    CHECK ((project_id IS NULL) = (integration_install_id IS NULL)),
     CHECK (
         (lease_token IS NULL AND lease_owner IS NULL AND leased_at IS NULL
           AND renewed_at IS NULL AND lease_expires_at IS NULL
           AND lease_spec_revision IS NULL
-          AND lease_app_configuration_revision IS NULL
-          AND lease_install_configuration_revision IS NULL)
+          AND lease_app_configuration_revision IS NULL)
         OR
         (lease_token IS NOT NULL AND lease_owner IS NOT NULL AND leased_at IS NOT NULL
           AND renewed_at IS NOT NULL AND lease_expires_at IS NOT NULL
           AND lease_spec_revision IS NOT NULL
-          AND lease_app_configuration_revision IS NOT NULL
-          AND ((integration_install_id IS NULL) = (lease_install_configuration_revision IS NULL)))
+          AND lease_app_configuration_revision IS NOT NULL)
     ),
     CHECK (lease_expires_at IS NULL OR lease_expires_at > renewed_at),
-    FOREIGN KEY (org_id, integration_app_id) REFERENCES integration_apps(org_id, id),
-    FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id),
-    FOREIGN KEY (project_id, integration_install_id, integration_app_id)
-        REFERENCES integration_installs(project_id, id, integration_app_id)
+    FOREIGN KEY (org_id, integration_app_id) REFERENCES integration_apps(org_id, id)
 );
 
 -- A deleted runtime is a historical fenced lease lineage, not the active
--- provider unit. Reinstallation may therefore create a fresh row with the same
+-- provider unit. Reprovisioning may therefore create a fresh row with the same
 -- provider key without inheriting its predecessor's token or checkpoint.
 CREATE UNIQUE INDEX integration_runtime_units_active_app_key_idx
     ON integration_runtime_units(integration_app_id, unit_key)
-    WHERE project_id IS NULL AND deleted_at IS NULL;
-
-CREATE UNIQUE INDEX integration_runtime_units_active_install_key_idx
-    ON integration_runtime_units(integration_app_id, integration_install_id, unit_key)
-    WHERE project_id IS NOT NULL AND deleted_at IS NULL;
+    WHERE deleted_at IS NULL;
 
 CREATE INDEX integration_runtime_units_claim_idx
     ON integration_runtime_units(connector_key, provider, available_at, id)
     WHERE desired_state = 'running' AND deleted_at IS NULL;
 
 CREATE TRIGGER integration_runtime_units_identity_immutable
-    BEFORE UPDATE OF id, org_id, integration_app_id, project_id,
-        integration_install_id, provider, connector_key, unit_key,
+    BEFORE UPDATE OF id, org_id, integration_app_id, provider, connector_key, unit_key,
         runtime_kind, created_at
     ON integration_runtime_units
     FOR EACH ROW
@@ -986,7 +952,7 @@ ALTER TABLE integration_installs
          AND integration_app_id IS NULL AND provider IS NULL
          AND provider_account_ref IS NULL AND provider_tenant_id IS NULL
          AND credential_secret_id IS NULL AND last_oauth_flow_id IS NULL
-         AND provider_config = '{}'::jsonb AND provider_identity = '{}'::jsonb)
+         AND provider_identity = '{}'::jsonb)
     );
 
 UPDATE integration_installs SET provider_tenant_id = NULL WHERE provider_tenant_id = '';
@@ -1003,11 +969,10 @@ CREATE UNIQUE INDEX integration_installs_slack_tenant_account_idx
 -- Translate installation setup into the same route created by managed OAuth.
 INSERT INTO integration_routes (
     project_id, integration_install_id, deployment_key, behavior_key,
-    configuration, agent_profile_id, state, deleted_at, created_at, updated_at
+    configuration, agent_profile_id, deleted_at, created_at, updated_at
 )
 SELECT install.project_id, install.id, 'slack', 'slack_conversation',
        '{}'::jsonb, install.agent_profile_id,
-       CASE WHEN app.deleted_at IS NULL THEN install.state ELSE 'disabled' END,
        coalesce(install.deleted_at, app.deleted_at), install.created_at, install.updated_at
 FROM integration_installs install
 JOIN integration_apps app ON app.org_id = install.org_id AND app.id = install.integration_app_id;
@@ -1077,7 +1042,7 @@ ALTER TABLE agent_inputs
     );
 
 -- All writers now use explicit applications, configured routes and bindings.
--- Ownership survives in routes/workflows; the connection and target have none.
+-- Workflows map conversations to agents; connections and targets do not own agents.
 ALTER TABLE integration_installs DROP COLUMN agent_profile_id, DROP COLUMN agent_id;
 -- Public channel IDs and scoped provider addresses identify targets. The old
 -- agent-local random target_ref was never an installation-wide identity.

@@ -626,8 +626,6 @@ function testRegistry(
 function testClient(getConfiguration: CoreClient['getAppConfiguration']) {
   return {
     getAppConfiguration: vi.fn(getConfiguration),
-    getInstallationConfiguration:
-      vi.fn<CoreClient['getInstallationConfiguration']>(unexpectedTestCall),
     resolveInstallationConfiguration:
       vi.fn<CoreClient['resolveInstallationConfiguration']>(unexpectedTestCall),
     resolveInteraction: vi.fn<CoreClient['resolveInteraction']>(unexpectedTestCall),
@@ -661,7 +659,6 @@ function testConfiguration(
       provider: 'discord',
       provider_app_ref: 'discord-app-1',
       provider_config: { revision },
-      provider_metadata: {},
       updated_at: new Date(revision * 1_000).toISOString(),
     },
   }
@@ -696,7 +693,6 @@ const testInboundEvent: ChannelInboundEventRequest = {
 function testRuntimeUnit(): ChannelConnectorRuntimeUnit {
   return {
     checkpoint: {},
-    checkpoint_revision: 0,
     checkpoint_version: 1,
     configuration: {},
     created_at: '2026-08-30T00:00:00Z',

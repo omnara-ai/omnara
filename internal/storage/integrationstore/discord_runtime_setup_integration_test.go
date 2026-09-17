@@ -71,8 +71,6 @@ func TestDiscordRuntimeSetupReusesAppShardsAndCheckpointWithoutProfile(t *testin
 	for _, unit := range units {
 		require.Equal(t, "discord_gateway", unit.RuntimeKind)
 		require.Equal(t, input.IntegrationAppID, unit.IntegrationAppID)
-		require.Equal(t, uuid.Nil, unit.ProjectID)
-		require.Equal(t, uuid.Nil, unit.IntegrationInstallID)
 		require.Equal(t, 1, unit.SpecRevision)
 		require.JSONEq(t, want[unit.UnitKey], string(unit.Configuration))
 		delete(want, unit.UnitKey)
@@ -110,7 +108,7 @@ func TestDiscordRuntimeSetupReusesAppShardsAndCheckpointWithoutProfile(t *testin
 		require.Equal(t, unit.SpecRevision, retained.SpecRevision)
 		require.JSONEq(t, string(unit.Configuration), string(retained.Configuration))
 		require.JSONEq(t, `{"session":{"sequence":7}}`, string(retained.Checkpoint))
-		require.EqualValues(t, 1, retained.CheckpointRevision)
+		require.Equal(t, 1, retained.CheckpointVersion)
 	}
 }
 
@@ -119,7 +117,6 @@ func TestDiscordRuntimeSetupRollsBackUnitsInstallationAndOAuthWithRoute(t *testi
 	store, input := discordRuntimeSetupFixture(t)
 	input.InitialRoute = &integrationstore.CreateIntegrationRouteInput{
 		AgentProfileID: uuid.New(), DeploymentKey: "default", BehaviorKey: "conversation",
-		State: integrationstore.IntegrationRouteStateActive,
 	}
 	_, err := store.Integrations().UpsertIntegrationInstall(t.Context(), input)
 	require.Error(t, err)

@@ -25,7 +25,6 @@ type CreateIntegrationAppInput struct {
 	CredentialSecretID         uuid.UUID
 	InstallationCredentialKind string
 	ProviderConfig             json.RawMessage
-	ProviderMetadata           json.RawMessage
 	State                      IntegrationAppState
 }
 
@@ -40,19 +39,13 @@ type IntegrationAppRecord struct {
 	CredentialSecretID         uuid.UUID           `json:"credential_secret_id,omitempty"`
 	InstallationCredentialKind string              `json:"installation_credential_kind,omitempty"`
 	ProviderConfig             json.RawMessage     `json:"provider_config"`
-	ProviderMetadata           json.RawMessage     `json:"provider_metadata"`
 	ConfigurationRevision      int64               `json:"configuration_revision"`
 	State                      IntegrationAppState `json:"state"`
 	CreatedAt                  time.Time           `json:"created_at"`
 	UpdatedAt                  time.Time           `json:"updated_at"`
 }
 
-type IntegrationRouteState string
-
 const (
-	IntegrationRouteStateActive   IntegrationRouteState = "active"
-	IntegrationRouteStateDisabled IntegrationRouteState = "disabled"
-
 	MaxActiveIntegrationRoutesPerInstall   = 64
 	MaxActiveReceiveBindingsPerTargetRoute = 256
 	MaxAgentChannelTargetsPageSize         = 100
@@ -65,20 +58,18 @@ type CreateIntegrationRouteInput struct {
 	DeploymentKey        string
 	BehaviorKey          string
 	Configuration        json.RawMessage
-	State                IntegrationRouteState
 }
 
 type IntegrationRouteRecord struct {
-	AgentProfileID       uuid.UUID             `json:"agent_profile_id,omitempty"`
-	ID                   uuid.UUID             `json:"id"`
-	ProjectID            uuid.UUID             `json:"project_id"`
-	IntegrationInstallID uuid.UUID             `json:"integration_install_id"`
-	DeploymentKey        string                `json:"deployment_key"`
-	BehaviorKey          string                `json:"behavior_key"`
-	Configuration        json.RawMessage       `json:"configuration"`
-	State                IntegrationRouteState `json:"state"`
-	CreatedAt            time.Time             `json:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at"`
+	AgentProfileID       uuid.UUID       `json:"agent_profile_id,omitempty"`
+	ID                   uuid.UUID       `json:"id"`
+	ProjectID            uuid.UUID       `json:"project_id"`
+	IntegrationInstallID uuid.UUID       `json:"integration_install_id"`
+	DeploymentKey        string          `json:"deployment_key"`
+	BehaviorKey          string          `json:"behavior_key"`
+	Configuration        json.RawMessage `json:"configuration"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 // ChannelGrants is one explicit, nonempty receive/read/send permission tuple.
@@ -100,24 +91,22 @@ type CreateIntegrationTargetBindingInput struct {
 	SendAllowed          bool
 	ReplyChannelGrants   *ChannelGrants
 	Source               string
-	Metadata             json.RawMessage
 }
 
 type IntegrationTargetBindingRecord struct {
-	ID                   uuid.UUID       `json:"id"`
-	ProjectID            uuid.UUID       `json:"project_id"`
-	AgentID              uuid.UUID       `json:"agent_id"`
-	IntegrationInstallID uuid.UUID       `json:"integration_install_id"`
-	IntegrationTargetID  uuid.UUID       `json:"integration_target_id"`
-	IntegrationRouteID   uuid.UUID       `json:"integration_route_id,omitempty"`
-	ReceiveAllowed       bool            `json:"receive_allowed"`
-	ReadAllowed          bool            `json:"read_allowed"`
-	SendAllowed          bool            `json:"send_allowed"`
-	ReplyChannelGrants   *ChannelGrants  `json:"reply_channel_grants,omitempty"`
-	Source               string          `json:"source"`
-	Metadata             json.RawMessage `json:"metadata"`
-	CreatedAt            time.Time       `json:"created_at"`
-	UpdatedAt            time.Time       `json:"updated_at"`
+	ID                   uuid.UUID      `json:"id"`
+	ProjectID            uuid.UUID      `json:"project_id"`
+	AgentID              uuid.UUID      `json:"agent_id"`
+	IntegrationInstallID uuid.UUID      `json:"integration_install_id"`
+	IntegrationTargetID  uuid.UUID      `json:"integration_target_id"`
+	IntegrationRouteID   uuid.UUID      `json:"integration_route_id,omitempty"`
+	ReceiveAllowed       bool           `json:"receive_allowed"`
+	ReadAllowed          bool           `json:"read_allowed"`
+	SendAllowed          bool           `json:"send_allowed"`
+	ReplyChannelGrants   *ChannelGrants `json:"reply_channel_grants,omitempty"`
+	Source               string         `json:"source"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
 }
 
 type AgentChannelToolEligibility struct {
@@ -177,23 +166,19 @@ const (
 )
 
 type UpsertIntegrationRuntimeUnitInput struct {
-	OrgID                uuid.UUID
-	IntegrationAppID     uuid.UUID
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
-	UnitKey              string
-	RuntimeKind          string
-	DesiredState         IntegrationRuntimeDesiredState
-	SpecRevision         int
-	Configuration        json.RawMessage
+	OrgID            uuid.UUID
+	IntegrationAppID uuid.UUID
+	UnitKey          string
+	RuntimeKind      string
+	DesiredState     IntegrationRuntimeDesiredState
+	SpecRevision     int
+	Configuration    json.RawMessage
 }
 
 type IntegrationRuntimeUnitRecord struct {
 	ID                            uuid.UUID                      `json:"id"`
 	OrgID                         uuid.UUID                      `json:"org_id"`
 	IntegrationAppID              uuid.UUID                      `json:"integration_app_id"`
-	ProjectID                     uuid.UUID                      `json:"project_id,omitempty"`
-	IntegrationInstallID          uuid.UUID                      `json:"integration_install_id,omitempty"`
 	Provider                      string                         `json:"provider"`
 	ConnectorKey                  string                         `json:"connector_key"`
 	UnitKey                       string                         `json:"unit_key"`
@@ -210,9 +195,7 @@ type IntegrationRuntimeUnitRecord struct {
 	LeaseExpiresAt                *time.Time                     `json:"lease_expires_at,omitempty"`
 	LeaseSpecRevision             int                            `json:"lease_spec_revision,omitempty"`
 	LeaseAppConfigurationRevision int64                          `json:"lease_app_configuration_revision,omitempty"`
-	LeaseInstallConfigRevision    int64                          `json:"lease_install_configuration_revision,omitempty"`
 	CheckpointVersion             int                            `json:"checkpoint_version"`
-	CheckpointRevision            int64                          `json:"checkpoint_revision"`
 	Checkpoint                    json.RawMessage                `json:"checkpoint"`
 	LastError                     json.RawMessage                `json:"last_error"`
 	CreatedAt                     time.Time                      `json:"created_at"`

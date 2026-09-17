@@ -31,7 +31,7 @@ WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = sqlc.arg(agent_id) 
   AND (binding.integration_route_id IS NULL OR EXISTS (
     SELECT 1 FROM integration_routes route
     WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-      AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+      AND route.id = binding.integration_route_id AND route.deleted_at IS NULL
   ))
   AND (
     (sqlc.narg(tool_call_id)::uuid IS NOT NULL AND EXISTS (
@@ -115,7 +115,7 @@ WHERE request.project_id = sqlc.arg(project_id) AND request.integration_install_
   AND (binding.integration_route_id IS NULL OR EXISTS (
     SELECT 1 FROM integration_routes route
     WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-      AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+      AND route.id = binding.integration_route_id AND route.deleted_at IS NULL
   ))
   AND (
     (request.tool_call_id IS NOT NULL AND definition.capabilities->>request.operation = 'true' AND EXISTS (
@@ -147,18 +147,23 @@ RETURNING id, project_id, agent_id, turn_id, integration_install_id,
   notice_key, operation, payload, deadline_at, created_at,
   state, result, state_reason_code, terminal_at;
 
--- name: TerminalizeExternalChannelRequest :one
-UPDATE external_channel_requests
-SET state = sqlc.arg(state)::text, state_reason_code = sqlc.arg(state_reason_code)::text,
+-- name: ExpireExternalChannelRequest :one
+UPDATE external_channel_requests request
+SET state = 'expired',
+  state_reason_code = CASE WHEN EXISTS (
+    SELECT 1 FROM integration_target_bindings binding
+    WHERE binding.project_id = request.project_id
+      AND binding.id = request.integration_target_binding_id
+      AND binding.revoked_at IS NOT NULL
+  ) THEN 'grant_revoked' ELSE 'deadline_exceeded' END,
   terminal_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND integration_install_id = sqlc.arg(integration_install_id) AND id = sqlc.arg(id)
-  AND state = 'pending'
-  AND (sqlc.arg(state)::text = 'canceled'
-    OR (sqlc.arg(state)::text = 'expired' AND deadline_at <= statement_timestamp()))
-RETURNING id, project_id, agent_id, turn_id, integration_install_id,
-  integration_target_id, integration_target_binding_id, tool_call_id, interaction_id,
-  notice_key, operation, payload, deadline_at, created_at,
-  state, result, state_reason_code, terminal_at;
+WHERE request.project_id = sqlc.arg(project_id)
+  AND request.integration_install_id = sqlc.arg(integration_install_id) AND request.id = sqlc.arg(id)
+  AND request.state = 'pending' AND request.deadline_at <= statement_timestamp()
+RETURNING request.id, request.project_id, request.agent_id, request.turn_id, request.integration_install_id,
+  request.integration_target_id, request.integration_target_binding_id, request.tool_call_id, request.interaction_id,
+  request.notice_key, request.operation, request.payload, request.deadline_at, request.created_at,
+  request.state, request.result, request.state_reason_code, request.terminal_at;
 
 -- name: ListExpiredExternalChannelRequests :many
 SELECT id, project_id, agent_id, turn_id, integration_install_id,

@@ -130,7 +130,6 @@ func TestChannelRecipientsRequireLiveAuthorityButHistorySurvives(t *testing.T) {
 		{"target_deleted", `UPDATE integration_targets SET deleted_at = statement_timestamp() WHERE id = $1`, 2},
 		{"project_deleted", `UPDATE projects SET deleted_at = statement_timestamp() WHERE id = $1`, 3},
 		{"org_deleted", `UPDATE orgs SET deleted_at = statement_timestamp() WHERE id = $1`, 4},
-		{"route_disabled", `UPDATE integration_routes SET state = 'disabled' WHERE id = $1`, 5},
 		{"route_deleted", `UPDATE integration_routes SET deleted_at = statement_timestamp() WHERE id = $1`, 5},
 		{"agent_archived", `UPDATE agents SET state = 'archived', archived_at = statement_timestamp() WHERE id = $1`, 6},
 	} {
@@ -146,7 +145,7 @@ func TestChannelRecipientsRequireLiveAuthorityButHistorySurvives(t *testing.T) {
 			require.NoError(t, err)
 			route, err := store.CreateIntegrationRoute(ctx, integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: f.InstallID,
-				DeploymentKey: "route", BehaviorKey: "conversation", State: integrationstore.IntegrationRouteStateActive,
+				DeploymentKey: "route", BehaviorKey: "conversation",
 			})
 			require.NoError(t, err)
 			input := f.BindingInput("route")

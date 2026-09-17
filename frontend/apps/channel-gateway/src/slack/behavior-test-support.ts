@@ -38,7 +38,6 @@ export const installation: ChannelConnectorInstallationConfiguration = {
     provider_account_ref: 'A1',
     provider_tenant_id: 'T1',
     display_name: 'Omnara',
-    provider_config: {},
     provider_identity: { bot_user_id: credentials.botUserId },
     metadata: {},
     configuration_revision: 1,

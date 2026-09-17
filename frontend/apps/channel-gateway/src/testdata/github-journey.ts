@@ -86,7 +86,6 @@ async function main() {
     configuration,
     reserveWorkBytes: budget.reserve,
     signal: controller.signal,
-    getInstallation: (id) => core.getInstallationConfiguration(input.appID, id, controller.signal),
     resolveInstallation: (tenant, account) =>
       core.resolveInstallationConfiguration(input.appID, tenant, account, controller.signal),
     logger: { debug: unused, info: unused, warn: unused, error: unused },

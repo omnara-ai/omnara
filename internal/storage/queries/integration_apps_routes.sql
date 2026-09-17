@@ -2,25 +2,25 @@
 INSERT INTO integration_apps(
   org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   created_at, updated_at
 )
 VALUES (
   sqlc.arg(org_id), sqlc.narg(owner_project_id), sqlc.arg(provider),
   sqlc.arg(provider_app_ref), sqlc.arg(display_name), sqlc.arg(connector_key),
   sqlc.narg(credential_secret_id), sqlc.narg(installation_credential_kind),
-  sqlc.arg(provider_config), sqlc.arg(provider_metadata), 1, sqlc.arg(state),
+  sqlc.arg(provider_config), 1, sqlc.arg(state),
   transaction_timestamp(), transaction_timestamp()
 )
 RETURNING id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at;
 
 -- name: GetIntegrationApp :one
 SELECT id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at
 FROM integration_apps
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;
@@ -33,7 +33,7 @@ WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;
 -- Retirement remains observable; the caller must reject deleted/disabled apps.
 SELECT id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at
 FROM integration_apps
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id)
@@ -45,7 +45,7 @@ FOR SHARE;
 -- name: GetIntegrationAppByProviderRef :one
 SELECT id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at
 FROM integration_apps
 WHERE org_id = sqlc.arg(org_id)
@@ -57,7 +57,7 @@ WHERE org_id = sqlc.arg(org_id)
 -- name: GetConnectorIntegrationApp :one
 SELECT id, org_id, owner_project_id, provider, provider_app_ref, display_name,
   connector_key, credential_secret_id, installation_credential_kind,
-  provider_config, provider_metadata, configuration_revision, state,
+  provider_config, configuration_revision, state,
   deleted_at, created_at, updated_at
 FROM integration_apps
 WHERE id = sqlc.arg(id)
@@ -76,7 +76,7 @@ SELECT install.id, install.org_id, install.project_id, install.integration_app_i
   install.provider, install.integration_kind, install.connection_mode, install.state,
   install.provider_tenant_id, install.provider_account_ref,
   install.display_name, install.credential_secret_id,
-  install.provider_config, install.provider_identity, install.metadata,
+  install.provider_identity, install.metadata,
   install.last_oauth_flow_id, install.deleted_at, install.created_at, install.updated_at,
   install.configuration_revision, install.installed_by_org_api_key_id
 FROM integration_installs install
@@ -98,7 +98,7 @@ SELECT install.id, install.org_id, install.project_id, install.integration_app_i
   install.provider, install.integration_kind, install.connection_mode, install.state,
   install.provider_tenant_id, install.provider_account_ref,
   install.display_name, install.credential_secret_id,
-  install.provider_config, install.provider_identity, install.metadata,
+  install.provider_identity, install.metadata,
   install.last_oauth_flow_id, install.deleted_at, install.created_at, install.updated_at,
   install.configuration_revision, install.installed_by_org_api_key_id
 FROM integration_installs install
@@ -116,31 +116,29 @@ WHERE install.integration_kind = 'managed'
 -- name: InsertIntegrationRoute :one
 INSERT INTO integration_routes(
   project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   created_at, updated_at
 )
 SELECT
   sqlc.arg(project_id), sqlc.arg(integration_install_id),
   sqlc.arg(deployment_key), sqlc.arg(behavior_key),
-  sqlc.arg(configuration), sqlc.narg(agent_profile_id), sqlc.arg(state),
+  sqlc.arg(configuration), sqlc.narg(agent_profile_id),
   transaction_timestamp(), transaction_timestamp()
-WHERE sqlc.arg(state)::text <> 'active'
-   OR (
+WHERE (
      SELECT count(*)
      FROM integration_routes route
      WHERE route.project_id = sqlc.arg(project_id)
        AND route.integration_install_id = sqlc.arg(integration_install_id)
-       AND route.state = 'active'
        AND route.deleted_at IS NULL
    ) < sqlc.arg(max_active_routes)::integer
 ON CONFLICT (project_id, integration_install_id, deployment_key) DO NOTHING
 RETURNING id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at;
 
 -- name: GetIntegrationRouteByDeploymentKey :one
 SELECT id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = sqlc.arg(project_id)
@@ -149,7 +147,7 @@ WHERE project_id = sqlc.arg(project_id)
 
 -- name: GetIntegrationRoute :one
 SELECT id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = sqlc.arg(project_id)
@@ -166,8 +164,7 @@ FOR UPDATE;
 
 -- name: DeleteIntegrationRoute :execrows
 UPDATE integration_routes
-SET state = 'disabled',
-    deleted_at = statement_timestamp(),
+SET deleted_at = statement_timestamp(),
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND integration_install_id = sqlc.arg(integration_install_id)
@@ -176,12 +173,11 @@ WHERE project_id = sqlc.arg(project_id)
 
 -- name: ListActiveIntegrationRoutes :many
 SELECT id, project_id, integration_install_id,
-  deployment_key, behavior_key, configuration, agent_profile_id, state,
+  deployment_key, behavior_key, configuration, agent_profile_id,
   deleted_at, created_at, updated_at
 FROM integration_routes
 WHERE project_id = sqlc.arg(project_id)
   AND integration_install_id = sqlc.arg(integration_install_id)
-  AND state = 'active'
   AND deleted_at IS NULL
 ORDER BY created_at, id
 LIMIT sqlc.arg(row_limit);

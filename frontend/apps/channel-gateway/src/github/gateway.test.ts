@@ -27,7 +27,6 @@ async function fixture(settings?: Parameters<typeof operationFixture>[0]) {
       provider_app_ref: '42',
       display_name: 'Fixture',
       provider_config: {},
-      provider_metadata: {},
       configuration_revision: 1,
       updated_at: '2026-09-15T00:00:00Z',
     },
@@ -48,7 +47,6 @@ async function fixture(settings?: Parameters<typeof operationFixture>[0]) {
       provider_tenant_id: '123',
       provider_account_ref: '456',
       display_name: 'Fixture',
-      provider_config: {},
       metadata: {},
       provider_identity: {
         repository_owner: 'example',

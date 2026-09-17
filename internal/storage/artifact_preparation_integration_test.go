@@ -451,7 +451,7 @@ func artifactPreparationRuntime(
 	})
 	require.NoError(t, err)
 	unit, err := store.Integrations().UpsertIntegrationRuntimeUnit(ctx, integrationstore.UpsertIntegrationRuntimeUnitInput{
-		OrgID: testOrgID, IntegrationAppID: app.ID, ProjectID: testProjectID, IntegrationInstallID: install.ID,
+		OrgID: testOrgID, IntegrationAppID: app.ID,
 		UnitKey: "artifact-runtime", RuntimeKind: "provider_socket",
 		DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning, SpecRevision: 1,
 	})
@@ -475,7 +475,7 @@ func artifactPreparationRuntime(
 func TestCreateArtifactRuntimeProofRevalidatedAfterUpload(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
-		"valid copied proof", "wrong app", "wrong installation", "wrong project", "wrong token", "wrong generation",
+		"valid copied proof", "same app other installation", "wrong app", "wrong installation", "wrong project", "wrong token", "wrong generation",
 		"expired after upload", "runtime released after upload", "installation disabled after upload",
 	} {
 		t.Run(scenario, func(t *testing.T) {
@@ -487,9 +487,19 @@ func TestCreateArtifactRuntimeProofRevalidatedAfterUpload(t *testing.T) {
 			switch scenario {
 			case "wrong app":
 				proof.IntegrationAppID = testID("wrong-artifact-runtime-app")
-			case "wrong installation":
+			case "same app other installation", "wrong installation":
+				appID := install.IntegrationAppID
+				if scenario == "wrong installation" {
+					otherApp, err := store.Integrations().CreateIntegrationApp(ctx, integrationstore.CreateIntegrationAppInput{
+						OrgID: testOrgID, OwnerProjectID: testProjectID, Provider: install.Provider,
+						ProviderAppRef: "other-artifact-app", DisplayName: "Other artifact app",
+						ConnectorKey: channelconnector.BuiltInConnectorKey, State: integrationstore.IntegrationAppStateActive,
+					})
+					require.NoError(t, err)
+					appID = otherApp.ID
+				}
 				other, err := store.Integrations().UpsertIntegrationInstall(ctx, integrationstore.UpsertIntegrationInstallInput{
-					OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: install.IntegrationAppID,
+					OrgID: testOrgID, ProjectID: testProjectID, IntegrationAppID: appID,
 					InstalledBy: install.InstalledBy, Provider: install.Provider,
 					IntegrationKind: integrationstore.IntegrationKindManaged,
 					ConnectionMode:  "gateway", State: integrationstore.IntegrationInstallStateActive,
@@ -536,7 +546,7 @@ WHERE id = $1`, proof.UnitID)
 			}
 			record, err := store.Artifacts().CreateArtifactWithIntegrationRuntimeLease(ctx, input, installID, &proof)
 			require.Len(t, blobs.putKeys, 1)
-			if scenario == "valid copied proof" {
+			if scenario == "valid copied proof" || scenario == "same app other installation" {
 				require.NoError(t, err)
 				_, err := store.Artifacts().GetArtifact(ctx, input.ProjectID, input.AgentID, record.ID)
 				require.NoError(t, err)

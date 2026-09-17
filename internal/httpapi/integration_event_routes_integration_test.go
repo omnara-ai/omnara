@@ -1169,7 +1169,6 @@ func createSlackHTTPInstall(
 			IntegrationAppID: app.ID,
 			InitialRoute: &integrationstore.CreateIntegrationRouteInput{
 				AgentProfileID: profileID, DeploymentKey: "slack", BehaviorKey: "slack_conversation",
-				State: integrationstore.IntegrationRouteStateActive,
 			},
 			InstalledBy:        identitystore.NewUserPrincipal(project.AdminUserUUID),
 			Provider:           integrationstore.IntegrationProviderSlack,

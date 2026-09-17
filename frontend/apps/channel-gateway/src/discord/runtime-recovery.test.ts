@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { runDiscordUnit } from './runtime'
 import { dispatch, ready, runtimeSetup, savedCheckpoint, session } from './runtime-test-support'
-import { config, deferred, installation } from './test-support'
+import { config, deferred } from './test-support'
 
 describe('Discord runtime session recovery', () => {
   it.each([404, 503])('only consumes an unmapped guild; lookup status %s', async (status) => {
@@ -254,7 +254,6 @@ describe('Discord runtime session recovery', () => {
   )
 
   it.each<Partial<ChannelConnectorRuntimeUnit>>([
-    { integration_install_id: installation.install.id },
     { unit_key: 'discord_gateway:1' },
     { runtime_kind: 'another_runtime' },
     { lease_spec_revision: 9 },

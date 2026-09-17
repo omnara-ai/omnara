@@ -149,7 +149,7 @@ func SlackIntegrationInstallInput(
 	if routeProfileID != uuid.Nil {
 		input.InitialRoute = &integrationstore.CreateIntegrationRouteInput{
 			AgentProfileID: routeProfileID, DeploymentKey: "slack", BehaviorKey: "slack_conversation",
-			State: integrationstore.IntegrationRouteStateActive, Configuration: json.RawMessage(`{}`),
+			Configuration: json.RawMessage(`{}`),
 		}
 	}
 	return input

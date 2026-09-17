@@ -14,7 +14,7 @@ INSERT INTO integration_target_bindings(
   project_id, agent_id, integration_install_id, integration_target_id,
   target_created_at, integration_route_id,
   receive_allowed, read_allowed, send_allowed,
-  reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, metadata,
+  reply_receive_allowed, reply_read_allowed, reply_send_allowed, source,
   created_at, updated_at
 )
 SELECT
@@ -22,7 +22,7 @@ SELECT
   target.id, target.created_at, sqlc.narg(integration_route_id),
   sqlc.arg(receive_allowed), sqlc.arg(read_allowed), sqlc.arg(send_allowed),
   sqlc.narg(reply_receive_allowed), sqlc.narg(reply_read_allowed), sqlc.narg(reply_send_allowed), sqlc.arg(source),
-  sqlc.arg(metadata), transaction_timestamp(), transaction_timestamp()
+  transaction_timestamp(), transaction_timestamp()
 FROM integration_targets target
 WHERE target.project_id = sqlc.arg(project_id)
   AND target.integration_install_id = sqlc.arg(integration_install_id)
@@ -44,14 +44,13 @@ WHERE target.project_id = sqlc.arg(project_id)
       WHERE route.project_id = sqlc.arg(project_id)
         AND route.integration_install_id = sqlc.arg(integration_install_id)
         AND route.id = sqlc.narg(integration_route_id)::uuid
-        AND route.state = 'active'
         AND route.deleted_at IS NULL
     )
   )
 ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, integration_install_id, integration_target_id,
   target_created_at, integration_route_id, receive_allowed, read_allowed, send_allowed,
-  reply_receive_allowed, reply_read_allowed, reply_send_allowed, source, metadata,
+  reply_receive_allowed, reply_read_allowed, reply_send_allowed, source,
   revoked_at, created_at, updated_at;
 
 -- name: GetActiveIntegrationTargetBindingByIdentity :one
@@ -60,7 +59,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 WHERE binding.project_id = sqlc.arg(project_id)
@@ -79,7 +78,6 @@ WHERE binding.project_id = sqlc.arg(project_id)
       WHERE route.project_id = binding.project_id
         AND route.integration_install_id = binding.integration_install_id
         AND route.id = binding.integration_route_id
-        AND route.state = 'active'
         AND route.deleted_at IS NULL
     )
   );
@@ -119,7 +117,6 @@ FROM integration_routes
 WHERE project_id = sqlc.arg(project_id)
   AND integration_install_id = sqlc.arg(integration_install_id)
   AND id = sqlc.arg(id)
-  AND state = 'active'
   AND deleted_at IS NULL
 FOR SHARE;
 
@@ -198,7 +195,7 @@ SELECT DISTINCT ON (binding.agent_id) binding.id, binding.project_id, binding.ag
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 JOIN integration_targets target
@@ -220,7 +217,6 @@ LEFT JOIN integration_routes route
   ON route.project_id = binding.project_id
  AND route.integration_install_id = binding.integration_install_id
  AND route.id = binding.integration_route_id
- AND route.state = 'active'
  AND route.deleted_at IS NULL
 JOIN projects project
   ON project.id = binding.project_id
@@ -250,7 +246,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 WHERE binding.project_id = sqlc.arg(project_id)
@@ -263,7 +259,6 @@ WHERE binding.project_id = sqlc.arg(project_id)
       WHERE route.project_id = binding.project_id
         AND route.integration_install_id = binding.integration_install_id
         AND route.id = binding.integration_route_id
-        AND route.state = 'active'
         AND route.deleted_at IS NULL
     )
   );
@@ -294,7 +289,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 JOIN integration_targets target
@@ -324,7 +319,6 @@ WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'man
       WHERE route.project_id = binding.project_id
         AND route.integration_install_id = binding.integration_install_id
         AND route.id = binding.integration_route_id
-        AND route.state = 'active'
         AND route.deleted_at IS NULL
     )
   )
@@ -357,7 +351,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM app_authority install
 JOIN integration_target_bindings binding
@@ -373,7 +367,6 @@ LEFT JOIN LATERAL (
   WHERE route.project_id = binding.project_id
     AND route.integration_install_id = binding.integration_install_id
     AND route.id = binding.integration_route_id
-    AND route.state = 'active'
     AND route.deleted_at IS NULL
   FOR SHARE OF route
 ) route ON true
@@ -397,7 +390,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 JOIN integration_targets target
@@ -419,7 +412,6 @@ LEFT JOIN integration_routes route
   ON route.project_id = binding.project_id
  AND route.integration_install_id = binding.integration_install_id
  AND route.id = binding.integration_route_id
- AND route.state = 'active'
  AND route.deleted_at IS NULL
 WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'managed' AND app.id IS NOT NULL))
   AND binding.project_id = sqlc.arg(project_id)
@@ -472,7 +464,6 @@ WITH candidate_targets AS MATERIALIZED (
         WHERE route.project_id = binding.project_id
           AND route.integration_install_id = binding.integration_install_id
           AND route.id = binding.integration_route_id
-          AND route.state = 'active'
           AND route.deleted_at IS NULL
       )
     )
@@ -515,7 +506,6 @@ WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'man
       WHERE route.project_id = binding.project_id
         AND route.integration_install_id = binding.integration_install_id
         AND route.id = binding.integration_route_id
-        AND route.state = 'active'
         AND route.deleted_at IS NULL
     )
   )
@@ -549,7 +539,7 @@ WHERE binding.project_id = sqlc.arg(project_id) AND binding.agent_id = sqlc.arg(
   AND (binding.integration_route_id IS NULL OR EXISTS (
     SELECT 1 FROM integration_routes route
     WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-      AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+      AND route.id = binding.integration_route_id AND route.deleted_at IS NULL
   ));
 
 -- name: RevokeIntegrationInstallTargetBindings :exec
@@ -575,7 +565,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at,
+  binding.source, binding.revoked_at,
   binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 JOIN integration_targets target
@@ -605,7 +595,6 @@ WHERE (install.integration_kind = 'external' OR (install.integration_kind = 'man
       WHERE route.project_id = binding.project_id
         AND route.integration_install_id = binding.integration_install_id
         AND route.id = binding.integration_route_id
-        AND route.state = 'active'
         AND route.deleted_at IS NULL
     )
   )
@@ -648,7 +637,7 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at, binding.created_at, binding.updated_at
+  binding.source, binding.revoked_at, binding.created_at, binding.updated_at
 FROM app_authority install
 JOIN integration_targets target ON target.integration_install_id = install.id
 JOIN integration_target_bindings binding
@@ -661,7 +650,7 @@ LEFT JOIN LATERAL (
   WHERE route.project_id = binding.project_id
     AND route.integration_install_id = binding.integration_install_id
     AND route.id = binding.integration_route_id
-    AND route.state = 'active' AND route.deleted_at IS NULL
+    AND route.deleted_at IS NULL
   FOR SHARE OF route
 ) route ON true
 WHERE target.project_id = sqlc.arg(project_id)
@@ -688,12 +677,12 @@ SELECT binding.id, binding.project_id, binding.agent_id,
   binding.target_created_at, binding.integration_route_id,
   binding.receive_allowed, binding.read_allowed, binding.send_allowed,
   binding.reply_receive_allowed, binding.reply_read_allowed, binding.reply_send_allowed,
-  binding.source, binding.metadata, binding.revoked_at, binding.created_at, binding.updated_at
+  binding.source, binding.revoked_at, binding.created_at, binding.updated_at
 FROM integration_target_bindings binding
 LEFT JOIN LATERAL (
   SELECT route.id FROM integration_routes route
   WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-    AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+    AND route.id = binding.integration_route_id AND route.deleted_at IS NULL
   FOR SHARE OF route
 ) route ON true
 WHERE binding.project_id = sqlc.arg(project_id) AND binding.agent_id = sqlc.arg(agent_id)

@@ -46,7 +46,10 @@ func (s *Store) channelOperationCompletionTx(
 			return ToolCallCompletionInput{}, storeerr.InvalidRequest(err)
 		}
 		outcome = ToolResultOutcomeFailed
-		failure := map[string]any{"request_id": input.RequestID, "code": "connector_" + string(input.Result.Outcome)}
+		failure := map[string]any{
+			"request_id": input.RequestID, "status": input.Result.Outcome,
+			"code": "connector_" + string(input.Result.Outcome),
+		}
 		if input.Result.Outcome == channelconnector.OperationUnknown {
 			failure["detail"] = "The provider outcome is unknown; do not assume it is safe to resend."
 		}

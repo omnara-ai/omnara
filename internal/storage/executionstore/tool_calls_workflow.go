@@ -327,7 +327,7 @@ func canceledToolResultContentParts(call ToolCallRecord) (json.RawMessage, error
 		// Canceling a local tool cannot undo a provider mutation. This applies to
 		// both managed I/O and a customer's pending external request.
 		return ToolResultContentParts(json.RawMessage(
-			`{"code":"channel_operation_canceled","detail":"The send tool was canceled before local completion. ` +
+			`{"status":"unknown","code":"channel_operation_canceled","detail":"The send tool was canceled before local completion. ` +
 				`The provider outcome is unknown; do not assume it is safe to resend."}`,
 		))
 	}

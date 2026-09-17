@@ -150,7 +150,6 @@ func TestChannelDeletesEnterProjectLifecycleBeforeRowMutation(t *testing.T) {
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			DeploymentKey: "channel-delete-lifecycle", BehaviorKey: "channel_delete_lifecycle",
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -224,7 +223,6 @@ func TestRouteDeletionWaitsForBindingCreation(t *testing.T) {
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			DeploymentKey: "route-binding-lock-order", BehaviorKey: "route_binding_lock_order",
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -370,7 +368,6 @@ func TestRouteDeletionWaitsForReceiveAuthorization(t *testing.T) {
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			DeploymentKey: "route-receive-lock-order", BehaviorKey: "route_receive_lock_order",
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -542,7 +539,6 @@ func TestConcurrentReceiveTargetRefreshesDoNotDeadlock(t *testing.T) {
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
 			DeploymentKey: "concurrent-target-refresh", BehaviorKey: "concurrent_target_refresh",
-			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {

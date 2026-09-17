@@ -112,7 +112,7 @@ func (s *Store) resolveChannelWorkflow(
 	route, err := s.q.GetIntegrationRoute(ctx, dbsqlc.GetIntegrationRouteParams{
 		ProjectID: identity.ProjectID, IntegrationInstallID: identity.IntegrationInstallID, ID: identity.IntegrationRouteID,
 	})
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (route.State != "active" || route.DeletedAt != nil)) {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && route.DeletedAt != nil) {
 		return PreparedChannelWorkflow{}, storeerr.ErrNotFound
 	}
 	if err != nil {
@@ -333,7 +333,7 @@ func (s *Store) DeliverChannelWorkflow(
 			ProjectID: identity.ProjectID, AgentID: prepared.agentID, IntegrationInstallID: identity.IntegrationInstallID,
 			IntegrationTargetID: target.ID, IntegrationRouteID: identity.IntegrationRouteID,
 			ReceiveAllowed: true, ReadAllowed: input.ReadAllowed, SendAllowed: input.SendAllowed,
-			Source: "channel", Metadata: json.RawMessage(`{}`),
+			Source: "channel",
 		},
 	)
 	if err != nil {

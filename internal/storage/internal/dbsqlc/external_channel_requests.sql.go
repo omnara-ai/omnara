@@ -282,6 +282,57 @@ func (q *Queries) CompleteToolCallFromExternalChannelRequest(ctx context.Context
 	return i, err
 }
 
+const expireExternalChannelRequest = `-- name: ExpireExternalChannelRequest :one
+UPDATE external_channel_requests request
+SET state = 'expired',
+  state_reason_code = CASE WHEN EXISTS (
+    SELECT 1 FROM integration_target_bindings binding
+    WHERE binding.project_id = request.project_id
+      AND binding.id = request.integration_target_binding_id
+      AND binding.revoked_at IS NOT NULL
+  ) THEN 'grant_revoked' ELSE 'deadline_exceeded' END,
+  terminal_at = statement_timestamp()
+WHERE request.project_id = $1
+  AND request.integration_install_id = $2 AND request.id = $3
+  AND request.state = 'pending' AND request.deadline_at <= statement_timestamp()
+RETURNING request.id, request.project_id, request.agent_id, request.turn_id, request.integration_install_id,
+  request.integration_target_id, request.integration_target_binding_id, request.tool_call_id, request.interaction_id,
+  request.notice_key, request.operation, request.payload, request.deadline_at, request.created_at,
+  request.state, request.result, request.state_reason_code, request.terminal_at
+`
+
+type ExpireExternalChannelRequestParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	ID                   uuid.UUID
+}
+
+func (q *Queries) ExpireExternalChannelRequest(ctx context.Context, arg ExpireExternalChannelRequestParams) (ExternalChannelRequest, error) {
+	row := q.db.QueryRow(ctx, expireExternalChannelRequest, arg.ProjectID, arg.IntegrationInstallID, arg.ID)
+	var i ExternalChannelRequest
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.IntegrationInstallID,
+		&i.IntegrationTargetID,
+		&i.IntegrationTargetBindingID,
+		&i.ToolCallID,
+		&i.InteractionID,
+		&i.NoticeKey,
+		&i.Operation,
+		&i.Payload,
+		&i.DeadlineAt,
+		&i.CreatedAt,
+		&i.State,
+		&i.Result,
+		&i.StateReasonCode,
+		&i.TerminalAt,
+	)
+	return i, err
+}
+
 const getExternalChannelRequest = `-- name: GetExternalChannelRequest :one
 SELECT id, project_id, agent_id, turn_id, integration_install_id,
   integration_target_id, integration_target_binding_id, tool_call_id, interaction_id,
@@ -470,7 +521,7 @@ WHERE agent.project_id = $11 AND agent.id = $12 AND agent.state = 'active'
   AND (binding.integration_route_id IS NULL OR EXISTS (
     SELECT 1 FROM integration_routes route
     WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-      AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+      AND route.id = binding.integration_route_id AND route.deleted_at IS NULL
   ))
   AND (
     ($1::uuid IS NOT NULL AND EXISTS (
@@ -637,7 +688,7 @@ WHERE request.project_id = $1 AND request.integration_install_id = $2
   AND (binding.integration_route_id IS NULL OR EXISTS (
     SELECT 1 FROM integration_routes route
     WHERE route.project_id = binding.project_id AND route.integration_install_id = binding.integration_install_id
-      AND route.id = binding.integration_route_id AND route.state = 'active' AND route.deleted_at IS NULL
+      AND route.id = binding.integration_route_id AND route.deleted_at IS NULL
   ))
   AND (
     (request.tool_call_id IS NOT NULL AND definition.capabilities->>request.operation = 'true' AND EXISTS (
@@ -711,58 +762,4 @@ func (q *Queries) ListPendingExternalChannelRequests(ctx context.Context, arg Li
 		return nil, err
 	}
 	return items, nil
-}
-
-const terminalizeExternalChannelRequest = `-- name: TerminalizeExternalChannelRequest :one
-UPDATE external_channel_requests
-SET state = $1::text, state_reason_code = $2::text,
-  terminal_at = statement_timestamp()
-WHERE project_id = $3 AND integration_install_id = $4 AND id = $5
-  AND state = 'pending'
-  AND ($1::text = 'canceled'
-    OR ($1::text = 'expired' AND deadline_at <= statement_timestamp()))
-RETURNING id, project_id, agent_id, turn_id, integration_install_id,
-  integration_target_id, integration_target_binding_id, tool_call_id, interaction_id,
-  notice_key, operation, payload, deadline_at, created_at,
-  state, result, state_reason_code, terminal_at
-`
-
-type TerminalizeExternalChannelRequestParams struct {
-	State                string
-	StateReasonCode      string
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
-	ID                   uuid.UUID
-}
-
-func (q *Queries) TerminalizeExternalChannelRequest(ctx context.Context, arg TerminalizeExternalChannelRequestParams) (ExternalChannelRequest, error) {
-	row := q.db.QueryRow(ctx, terminalizeExternalChannelRequest,
-		arg.State,
-		arg.StateReasonCode,
-		arg.ProjectID,
-		arg.IntegrationInstallID,
-		arg.ID,
-	)
-	var i ExternalChannelRequest
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.TurnID,
-		&i.IntegrationInstallID,
-		&i.IntegrationTargetID,
-		&i.IntegrationTargetBindingID,
-		&i.ToolCallID,
-		&i.InteractionID,
-		&i.NoticeKey,
-		&i.Operation,
-		&i.Payload,
-		&i.DeadlineAt,
-		&i.CreatedAt,
-		&i.State,
-		&i.Result,
-		&i.StateReasonCode,
-		&i.TerminalAt,
-	)
-	return i, err
 }

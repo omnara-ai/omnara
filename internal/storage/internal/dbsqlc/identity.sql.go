@@ -1416,7 +1416,6 @@ SET desired_state = 'stopped',
     lease_expires_at = NULL,
     lease_spec_revision = NULL,
     lease_app_configuration_revision = NULL,
-    lease_install_configuration_revision = NULL,
     deleted_at = transaction_timestamp(),
     updated_at = transaction_timestamp()
 WHERE org_id = $1 AND deleted_at IS NULL
@@ -1638,7 +1637,7 @@ func (q *Queries) DeleteProjectIntegrationInstalls(ctx context.Context, arg Dele
 
 const deleteProjectIntegrationRoutes = `-- name: DeleteProjectIntegrationRoutes :exec
 UPDATE integration_routes
-SET state = 'disabled', deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = $1 AND deleted_at IS NULL
 `
 
@@ -1662,22 +1661,15 @@ SET desired_state = 'stopped',
     lease_expires_at = NULL,
     lease_spec_revision = NULL,
     lease_app_configuration_revision = NULL,
-    lease_install_configuration_revision = NULL,
     deleted_at = transaction_timestamp(),
     updated_at = transaction_timestamp()
 WHERE integration_runtime_units.org_id = $1
-  AND (
-    integration_runtime_units.project_id = $2::uuid
-    OR (
-      integration_runtime_units.project_id IS NULL
-      AND EXISTS (
-        SELECT 1
-        FROM integration_apps app
-        WHERE app.id = integration_runtime_units.integration_app_id
-          AND app.org_id = $1
-          AND app.owner_project_id = $2::uuid
-      )
-    )
+  AND EXISTS (
+    SELECT 1
+    FROM integration_apps app
+    WHERE app.id = integration_runtime_units.integration_app_id
+      AND app.org_id = $1
+      AND app.owner_project_id = $2::uuid
   )
   AND integration_runtime_units.deleted_at IS NULL
 `

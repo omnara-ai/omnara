@@ -479,7 +479,6 @@ func TestChannelConnectorReceiptRuntimeProof(t *testing.T) {
 		ctx,
 		integrationstore.UpsertIntegrationRuntimeUnitInput{
 			OrgID: f.project.OrgUUID, IntegrationAppID: f.app.ID,
-			ProjectID: f.install.ProjectID, IntegrationInstallID: f.install.ID,
 			UnitKey: "receipt-runtime", RuntimeKind: "provider_socket",
 			DesiredState: integrationstore.IntegrationRuntimeDesiredStateRunning, SpecRevision: 1,
 		},
@@ -506,9 +505,10 @@ func TestChannelConnectorReceiptRuntimeProof(t *testing.T) {
 	f.post(t, runtimePath, mustMarshalChannelRequest(t, stale), f.token, http.StatusConflict)
 	stale["lease_token"] = uuid.Nil.String()
 	f.post(t, runtimePath, mustMarshalChannelRequest(t, stale), f.token, http.StatusBadRequest)
+	foreignInstall := f.createInstall(t, f.otherApp, f.project.ProjectUUID, "foreign-app-runtime-install")
 	wrongInstall := mapsClone(body)
-	wrongInstall["event"] = json.RawMessage(f.event(t, f.otherInstall, "cross-install-runtime", `{}`))
-	f.post(t, runtimePath, mustMarshalChannelRequest(t, wrongInstall), f.token, http.StatusConflict)
+	wrongInstall["event"] = json.RawMessage(f.event(t, foreignInstall, "cross-app-runtime", `{}`))
+	f.post(t, runtimePath, mustMarshalChannelRequest(t, wrongInstall), f.token, http.StatusNotFound)
 	wrongAppPath := strings.Replace(runtimePath,
 		testPublicID(t, publicid.KindIntegrationApp, f.app.ID),
 		testPublicID(t, publicid.KindIntegrationApp, f.otherApp.ID), 1)
@@ -519,6 +519,22 @@ func TestChannelConnectorReceiptRuntimeProof(t *testing.T) {
 		ctx,
 		`SELECT count(*) FROM integration_event_receipts`).Scan(&count))
 	require.Zero(t, count)
+	// A shared app lease accepts either project's installation, but each mutation
+	// must still resolve a live installation belonging to that app.
+	_, err = f.pool.Exec(ctx, `UPDATE integration_installs SET state = 'disabled' WHERE id = $1`, f.install.ID)
+	require.NoError(t, err)
+	f.post(t, runtimePath, mustMarshalChannelRequest(t, body), f.token, http.StatusNotFound)
+	otherProjectBody := mapsClone(body)
+	otherProjectBody["event"] = json.RawMessage(f.event(t, f.otherInstall, "other-project-runtime", `{}`))
+	otherReceipt := f.post(t, runtimePath, mustMarshalChannelRequest(t, otherProjectBody), f.token, http.StatusAccepted)
+	require.Equal(t, "pending", otherReceipt["state"])
+	var receiptProjectID uuid.UUID
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT project_id FROM integration_event_receipts WHERE integration_install_id = $1 AND event_id = $2`,
+		f.otherInstall.ID, "other-project-runtime").Scan(&receiptProjectID))
+	require.Equal(t, f.otherInstall.ProjectID, receiptProjectID)
+	_, err = f.pool.Exec(ctx, `UPDATE integration_installs SET state = 'active' WHERE id = $1`, f.install.ID)
+	require.NoError(t, err)
 	receipt := f.post(t, runtimePath, mustMarshalChannelRequest(t, body), f.token, http.StatusAccepted)
 	require.Equal(t, "pending", receipt["state"])
 	_, err = f.pool.Exec(

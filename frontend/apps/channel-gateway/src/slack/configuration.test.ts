@@ -13,7 +13,6 @@ const configuration: ChannelConnectorInstallationConfiguration = {
     provider_account_ref: 'app-fixture',
     display_name: 'Existing Slack app',
     metadata: { team_name: 'Local fixture' },
-    provider_config: {},
     provider_identity: { bot_user_id: credentials.botUserId },
     configuration_revision: 1,
     updated_at: '2026-09-14T00:00:00Z',
