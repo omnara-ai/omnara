@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -278,9 +279,31 @@ func TestListMCPServerToolsDoesNotGuessBearerWhenProbeReturnsForbidden(t *testin
 	}
 }
 
-func TestListMCPServerToolsReportsUpstreamFailureForNonAuthErrors(t *testing.T) {
+func TestListMCPServerToolsReportsUpstreamUnavailableForTransientErrors(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	_, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+		mcpServerToolsTestContext(),
+		openapi.ListMCPServerToolsRequestObject{
+			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
+		},
+	)
+	var apiErr apierror.ResponseError
+	if !errors.As(err, &apiErr) || apiErr.Code != apierror.CodeUpstreamUnavailable {
+		t.Fatalf("ListMCPServerTools() error = %v, want upstream_unavailable", err)
+	}
+	if apiErr.Status != http.StatusFailedDependency {
+		t.Fatalf("status = %d, want 424", apiErr.Status)
+	}
+}
+
+func TestListMCPServerToolsReportsUnprocessableForNonMCPResponses(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html>not mcp</html>"))
 	}))
 	defer upstream.Close()
 
@@ -296,6 +319,29 @@ func TestListMCPServerToolsReportsUpstreamFailureForNonAuthErrors(t *testing.T) 
 	unreachable, ok := response.(openapi.ListMCPServerTools422JSONResponse)
 	if !ok || unreachable.Auth != nil {
 		t.Fatalf("response = %+v, want 422 without an auth hint", response)
+	}
+}
+
+func TestListMCPServerToolsReportsUpstreamUnavailableWhenAuthProbeFailsTransiently(t *testing.T) {
+	var probes int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&probes, 1) == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer upstream.Close()
+
+	_, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+		mcpServerToolsTestContext(),
+		openapi.ListMCPServerToolsRequestObject{
+			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
+		},
+	)
+	var apiErr apierror.ResponseError
+	if !errors.As(err, &apiErr) || apiErr.Code != apierror.CodeUpstreamUnavailable {
+		t.Fatalf("ListMCPServerTools() error = %v, want upstream_unavailable", err)
 	}
 }
 

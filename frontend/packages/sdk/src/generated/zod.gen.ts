@@ -806,6 +806,11 @@ export const zMcpServerToolsRequest = z.object({
     auth: zMcpServerAuth
 });
 
+export const zUpstreamUnavailableError = z.object({
+    error: z.string(),
+    code: z.enum(['upstream_unavailable'])
+});
+
 export const zMcpServerAuthHint = z.object({
     type: z.enum(['oauth', 'bearer']),
     scopes: z.array(z.string()).optional(),

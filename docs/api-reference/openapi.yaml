@@ -2003,6 +2003,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '424': { $ref: '#/components/responses/FailedDependency' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '4XX':
@@ -2558,7 +2559,7 @@ paths:
       operationId: listMCPServerTools
       tags: [Configs and Profiles]
       summary: List an MCP server's tools
-      description: Connects to a remote MCP server over streamable HTTP, negotiates the protocol version (stateless `server/discover` first, falling back to the `initialize` handshake for session-based servers), and returns the server's `tools/list` result. The request is not stored; use it to preview which tools a server exposes before referencing it from an agent config. Authentication mirrors the agent config `mcp_servers.<key>.auth` shape and resolves secrets available to the project. When the server cannot be reached or does not speak MCP, the API responds 422 without an `auth` hint. When the server rejects the connection with HTTP 401 or 403, the API probes the server's authorization requirements and responds 422 with an `auth` hint — `oauth` when the server advertises an OAuth authorization server, `bearer` when it expects a token but advertises no OAuth metadata. If that probe itself fails, the 422 carries no `auth` hint.
+      description: Connects to a remote MCP server over streamable HTTP, negotiates the protocol version (stateless `server/discover` first, falling back to the `initialize` handshake for session-based servers), and returns the server's `tools/list` result. The request is not stored; use it to preview which tools a server exposes before referencing it from an agent config. Authentication mirrors the agent config `mcp_servers.<key>.auth` shape and resolves secrets available to the project. When the server does not speak MCP, the API responds 422 without an `auth` hint. When the server or its authorization server does not respond or fails transiently, the API responds 424 so the caller can retry. When the server rejects the connection with HTTP 401 or 403, the API probes the server's authorization requirements and responds 422 with an `auth` hint — `oauth` when the server advertises an OAuth authorization server, `bearer` when it expects a token but advertises no OAuth metadata. If that probe fails for a non-transient reason, the 422 carries no `auth` hint.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2585,11 +2586,13 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          description: The MCP server could not be reached, did not speak MCP, or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
+          description: The MCP server did not speak MCP or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MCPServerAuthRequiredError'
+        '424':
+          $ref: '#/components/responses/FailedDependency'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -7065,6 +7068,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    FailedDependency:
+      description: A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UpstreamUnavailableError'
     InternalServerError:
       description: An unexpected internal server error occurred.
       content:
@@ -8814,6 +8823,17 @@ components:
           minLength: 1
           maxLength: 64
           description: AWS signing region, for example `us-east-1`.
+    UpstreamUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message. Do not match on it programmatically.
+        code:
+          type: string
+          enum: [upstream_unavailable]
     MCPServerAuthRequiredError:
       type: object
       additionalProperties: false

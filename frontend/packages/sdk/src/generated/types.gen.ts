@@ -1108,6 +1108,14 @@ export type McpServerAuthSigV4 = {
     region: string;
 };
 
+export type UpstreamUnavailableError = {
+    /**
+     * Human-readable error message. Do not match on it programmatically.
+     */
+    error: string;
+    code: 'upstream_unavailable';
+};
+
 export type McpServerAuthRequiredError = {
     /**
      * Human-readable error message. Do not match on it programmatically.
@@ -7078,6 +7086,10 @@ export type StartSecretMcpoAuthErrors = {
      */
     422: Error;
     /**
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
+     */
+    424: UpstreamUnavailableError;
+    /**
      * An unexpected internal server error occurred.
      */
     500: Error;
@@ -8057,9 +8069,13 @@ export type ListMcpServerToolsErrors = {
      */
     404: Error;
     /**
-     * The MCP server could not be reached, did not speak MCP, or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
+     * The MCP server did not speak MCP or rejected the configured authentication. When the server rejected authentication, `auth` hints which auth type it expects.
      */
     422: McpServerAuthRequiredError;
+    /**
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
+     */
+    424: UpstreamUnavailableError;
     /**
      * The service dependency required to satisfy the request is unavailable.
      */
