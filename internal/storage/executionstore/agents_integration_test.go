@@ -1648,7 +1648,7 @@ tools:
 		t.Fatalf("reconciled bindings = first %+v second %+v", firstBinding, secondBinding)
 	}
 	if !sameJSON(firstBinding.EnvOverlay, json.RawMessage(`{"APP":"changed","Base":null,"UNUSED":null}`)) ||
-		!sameJSON(firstBinding.SecretEnvOverlay, json.RawMessage(`{"BASE":"`+secretPublicIDForTest(t, secret.ID)+`"}`)) {
+		!sameJSON(firstBinding.SecretEnvOverlay, json.RawMessage(`{"BASE":"`+secret.ID.String()+`"}`)) {
 		t.Fatalf("reconciled first binding environment = %s / %s", firstBinding.EnvOverlay, firstBinding.SecretEnvOverlay)
 	}
 	reorderedYAML := `

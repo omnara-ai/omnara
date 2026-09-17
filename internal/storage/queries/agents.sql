@@ -7,14 +7,14 @@ WHERE id = $1
 -- name: UpsertAgentConfigByHash :one
 WITH inserted_config AS (
 INSERT INTO agent_configs(
-    org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+    org_id, project_id, configured_model_id, source, source_format, source_hash,
     compiled_definition, compiler_version, effective_definition_hash,
     created_at
 )
 VALUES (
     sqlc.arg(org_id), sqlc.arg(project_id),
     sqlc.arg(configured_model_id),
-    sqlc.arg(compiled_definition), sqlc.narg(source), sqlc.narg(source_format),
+    sqlc.narg(source), sqlc.narg(source_format),
     sqlc.narg(source_hash), sqlc.arg(compiled_definition),
     sqlc.arg(compiler_version), sqlc.arg(effective_definition_hash),
     transaction_timestamp()

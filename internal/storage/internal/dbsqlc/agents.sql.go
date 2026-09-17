@@ -271,23 +271,9 @@ type GetAgentConfigParams struct {
 	ID        uuid.UUID
 }
 
-type GetAgentConfigRow struct {
-	ID                      uuid.UUID
-	OrgID                   uuid.UUID
-	ProjectID               uuid.UUID
-	ConfiguredModelID       uuid.UUID
-	Source                  *string
-	SourceFormat            *string
-	SourceHash              *string
-	CompiledDefinition      json.RawMessage
-	CompilerVersion         string
-	EffectiveDefinitionHash string
-	CreatedAt               time.Time
-}
-
-func (q *Queries) GetAgentConfig(ctx context.Context, arg GetAgentConfigParams) (GetAgentConfigRow, error) {
+func (q *Queries) GetAgentConfig(ctx context.Context, arg GetAgentConfigParams) (AgentConfig, error) {
 	row := q.db.QueryRow(ctx, getAgentConfig, arg.ProjectID, arg.ID)
-	var i GetAgentConfigRow
+	var i AgentConfig
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -322,28 +308,14 @@ type GetAgentConfigByHashParams struct {
 	SourceHash              *string
 }
 
-type GetAgentConfigByHashRow struct {
-	ID                      uuid.UUID
-	OrgID                   uuid.UUID
-	ProjectID               uuid.UUID
-	ConfiguredModelID       uuid.UUID
-	Source                  *string
-	SourceFormat            *string
-	SourceHash              *string
-	CompiledDefinition      json.RawMessage
-	CompilerVersion         string
-	EffectiveDefinitionHash string
-	CreatedAt               time.Time
-}
-
-func (q *Queries) GetAgentConfigByHash(ctx context.Context, arg GetAgentConfigByHashParams) (GetAgentConfigByHashRow, error) {
+func (q *Queries) GetAgentConfigByHash(ctx context.Context, arg GetAgentConfigByHashParams) (AgentConfig, error) {
 	row := q.db.QueryRow(ctx, getAgentConfigByHash,
 		arg.ProjectID,
 		arg.EffectiveDefinitionHash,
 		arg.SourceFormat,
 		arg.SourceHash,
 	)
-	var i GetAgentConfigByHashRow
+	var i AgentConfig
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -1107,15 +1079,15 @@ func (q *Queries) UpdateAgentCurrentConfig(ctx context.Context, arg UpdateAgentC
 const upsertAgentConfigByHash = `-- name: UpsertAgentConfigByHash :one
 WITH inserted_config AS (
 INSERT INTO agent_configs(
-    org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+    org_id, project_id, configured_model_id, source, source_format, source_hash,
     compiled_definition, compiler_version, effective_definition_hash,
     created_at
 )
 VALUES (
     $1, $2,
     $3,
-    $4, $5, $6,
-    $7, $4,
+    $4, $5,
+    $6, $7,
     $8, $9,
     transaction_timestamp()
 )
@@ -1135,8 +1107,8 @@ SELECT id, org_id, project_id, configured_model_id, source, source_format, sourc
 FROM agent_configs
 WHERE project_id = $2
   AND effective_definition_hash = $9::text
-  AND source_format IS NOT DISTINCT FROM $6::text
-  AND source_hash IS NOT DISTINCT FROM $7::text
+  AND source_format IS NOT DISTINCT FROM $5::text
+  AND source_hash IS NOT DISTINCT FROM $6::text
 LIMIT 1
 `
 
@@ -1144,10 +1116,10 @@ type UpsertAgentConfigByHashParams struct {
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
-	CompiledDefinition      json.RawMessage
 	Source                  *string
 	SourceFormat            *string
 	SourceHash              *string
+	CompiledDefinition      json.RawMessage
 	CompilerVersion         string
 	EffectiveDefinitionHash string
 }
@@ -1172,10 +1144,10 @@ func (q *Queries) UpsertAgentConfigByHash(ctx context.Context, arg UpsertAgentCo
 		arg.OrgID,
 		arg.ProjectID,
 		arg.ConfiguredModelID,
-		arg.CompiledDefinition,
 		arg.Source,
 		arg.SourceFormat,
 		arg.SourceHash,
+		arg.CompiledDefinition,
 		arg.CompilerVersion,
 		arg.EffectiveDefinitionHash,
 	)

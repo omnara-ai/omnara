@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"github.com/google/uuid"
 	"slices"
 	"strings"
 	"testing"
@@ -87,10 +88,10 @@ func TestDefaultMachineTools(t *testing.T) {
 			for _, supportsTools := range []bool{true, false} {
 				opts := testMachineSourceCompileOptions(t)
 				opts.ResolveModelSelection = func(_, _ string) (ResolvedModelSelection, error) {
-					return ResolvedModelSelection{ConfiguredModelID: "test-model", SupportsTools: &supportsTools}, nil
+					return ResolvedModelSelection{ConfiguredModelID: publicidTestID(93), SupportsTools: &supportsTools}, nil
 				}
 				opts.ResolveSkillID = func(id string) (SkillResolution, error) {
-					return SkillResolution{PublicID: id, Name: "test-skill"}, nil
+					return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 				}
 				source := validAgentSource(test.source)
 				result, err := Compile(SourceFormatYAML, []byte(source), opts)

@@ -19,7 +19,7 @@ type skillStoreStub struct{}
 func (*skillStoreStub) GetSkillForDispatch(
 	context.Context,
 	uuid.UUID,
-	string,
+	uuid.UUID,
 ) (skillstore.SkillRecord, error) {
 	return skillstore.SkillRecord{}, nil
 }

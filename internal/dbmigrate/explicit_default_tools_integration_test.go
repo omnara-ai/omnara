@@ -66,7 +66,7 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 				`"input_schema":{"type":"object","properties":{"x":{"type":"number","minimum":1e-7,"maximum":1e21}}}}}}`
 			opts := agentconfig.CompileOptions{
 				ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-					return agentconfig.SkillResolution{PublicID: id, Name: "test"}, nil
+					return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test"}, nil
 				},
 			}
 			normalized, err := agentconfig.Compile(agentconfig.SourceFormatJSON, []byte(numericSource), opts)
@@ -151,11 +151,13 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 				require.JSONEq(t, legacyCompiled, string(compiled))
 				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiled))), effectiveHash)
 			} else {
-				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
-				require.NoError(t, err)
-				require.Len(t, contract.Tools, 3)
-				require.Equal(t, "skill", contract.Tools[2].Name)
-				require.Equal(t, "always_allow", contract.Tools[2].Permission.Mode)
+				var legacy struct {
+					Tools map[string]agentconfig.ToolCompiled
+				}
+				require.NoError(t, json.Unmarshal(compiled, &legacy))
+				require.Len(t, legacy.Tools, 3)
+				require.True(t, legacy.Tools["skill"].Enabled)
+				require.Equal(t, "always_allow", legacy.Tools["skill"].Permission.Mode)
 				var references int
 				require.NoError(t, db.QueryRowContext(ctx, `
 					SELECT count(*) FROM config_references r JOIN agent_configs c ON c.id=r.config_id

@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -21,8 +20,6 @@ import (
 type launchMachineSource struct {
 	Index              int
 	Contract           agentconfig.RuntimeMachine
-	MachineID          uuid.UUID
-	MachinePoolID      uuid.UUID
 	GrantID            uuid.UUID
 	PoolGrantForLaunch dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	Provisioning       MachineProvisioningConfig
@@ -48,20 +45,6 @@ func decodeLaunchMachineSources(
 		if err := validateRuntimeMachineSource(index, machine); err != nil {
 			return nil, err
 		}
-		if machine.MachineID != "" {
-			machineID, err := publicid.Decode(publicid.KindMachine, machine.MachineID)
-			if err != nil {
-				return nil, fmt.Errorf("machine_sources[%d].machine_id must be a machine public id: %w", index, err)
-			}
-			source.MachineID = machineID
-		}
-		if machine.MachinePoolID != "" {
-			machinePoolID, err := publicid.Decode(publicid.KindMachinePool, machine.MachinePoolID)
-			if err != nil {
-				return nil, fmt.Errorf("machine_sources[%d].machine_pool_id must be a machine pool public id: %w", index, err)
-			}
-			source.MachinePoolID = machinePoolID
-		}
 		out = append(out, source)
 	}
 	return out, nil
@@ -72,11 +55,11 @@ func expandLaunchMachineBindingRequests(
 ) ([]launchMachineBindingRequest, error) {
 	var bindings []launchMachineBindingRequest
 	for _, source := range sources {
-		if source.MachineID != uuid.Nil {
+		if source.Contract.MachineID != uuid.Nil {
 			bindings = append(bindings, launchMachineBindingRequest{Source: source})
 			continue
 		}
-		if source.MachinePoolID == uuid.Nil {
+		if source.Contract.MachinePoolID == uuid.Nil {
 			return nil, fmt.Errorf("machine_sources[%d] has no machine source", source.Index)
 		}
 		for slotIndex := range source.Contract.InitialNumMachines {
@@ -115,11 +98,11 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	var poolIndexes []int
 	poolRefs := make([]lifecyclelock.PoolRef, 0, len(sources))
 	for index := range sources {
-		if sources[index].MachinePoolID != uuid.Nil {
+		if sources[index].Contract.MachinePoolID != uuid.Nil {
 			poolIndexes = append(poolIndexes, index)
 			poolRefs = append(poolRefs, lifecyclelock.PoolRef{
 				OrgID:  orgID,
-				PoolID: sources[index].MachinePoolID,
+				PoolID: sources[index].Contract.MachinePoolID,
 			})
 		}
 	}
@@ -129,7 +112,7 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	sort.Slice(poolIndexes, func(i, j int) bool {
 		left := sources[poolIndexes[i]]
 		right := sources[poolIndexes[j]]
-		return bytes.Compare(left.MachinePoolID[:], right.MachinePoolID[:]) < 0
+		return bytes.Compare(left.Contract.MachinePoolID[:], right.Contract.MachinePoolID[:]) < 0
 	})
 	for _, index := range poolIndexes {
 		poolGrant, err := qtx.GetActiveProjectMachinePoolGrantForLaunch(
@@ -137,7 +120,7 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 			dbsqlc.GetActiveProjectMachinePoolGrantForLaunchParams{
 				OrgID:         orgID,
 				ProjectID:     projectID,
-				MachinePoolID: sources[index].MachinePoolID,
+				MachinePoolID: sources[index].Contract.MachinePoolID,
 			},
 		)
 		if err != nil {
@@ -177,8 +160,8 @@ func lockLaunchMachineSourcesTx(
 ) error {
 	refs := make([]lifecyclelock.MachineRef, 0, len(sources)+len(additionalMachineIDs))
 	for _, source := range sources {
-		if source.MachineID != uuid.Nil {
-			refs = append(refs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: source.MachineID})
+		if source.Contract.MachineID != uuid.Nil {
+			refs = append(refs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: source.Contract.MachineID})
 		}
 	}
 	for _, machineID := range additionalMachineIDs {
@@ -198,8 +181,8 @@ func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 ) error {
 	machineIDs := make([]uuid.UUID, 0, len(sources))
 	for _, source := range sources {
-		if source.MachineID != uuid.Nil {
-			machineIDs = append(machineIDs, source.MachineID)
+		if source.Contract.MachineID != uuid.Nil {
+			machineIDs = append(machineIDs, source.Contract.MachineID)
 		}
 	}
 	sort.Slice(machineIDs, func(i, j int) bool {
@@ -214,14 +197,14 @@ func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 		}
 	}
 	for index := range sources {
-		if sources[index].MachineID == uuid.Nil {
+		if sources[index].Contract.MachineID == uuid.Nil {
 			continue
 		}
 		grant, err := qtx.GetActiveProjectMachineGrantForMachine(
 			ctx,
 			dbsqlc.GetActiveProjectMachineGrantForMachineParams{
 				ProjectID: projectID,
-				MachineID: sources[index].MachineID,
+				MachineID: sources[index].Contract.MachineID,
 			},
 		)
 		if err != nil {

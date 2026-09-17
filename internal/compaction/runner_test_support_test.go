@@ -450,7 +450,7 @@ model:
 		[]byte(source),
 		agentconfig.CompileOptions{
 			ResolveModelSelection: func(_, _ string) (agentconfig.ResolvedModelSelection, error) {
-				return agentconfig.ResolvedModelSelection{ConfiguredModelID: testIDN(600).String()}, nil
+				return agentconfig.ResolvedModelSelection{ConfiguredModelID: testIDN(600)}, nil
 			},
 		},
 	)

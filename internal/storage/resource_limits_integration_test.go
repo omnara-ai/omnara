@@ -601,11 +601,11 @@ FROM generate_series(1, $5::integer) AS n
 	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO agent_configs(
-  org_id, project_id, configured_model_id, definition, source, source_format,
+  org_id, project_id, configured_model_id, source, source_format,
   source_hash, compiled_definition, compiler_version, effective_definition_hash,
   created_at
 )
-SELECT org_id, project_id, configured_model_id, definition,
+SELECT org_id, project_id, configured_model_id,
        source || n, source_format, source_hash || n, compiled_definition,
        compiler_version, effective_definition_hash || n, $2
 FROM agent_configs

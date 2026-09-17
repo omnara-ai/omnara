@@ -266,14 +266,10 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	compiled := storagefixture.SeedModelAndCompileAgentYAML(
 		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, derivedYAML,
 	)
-	modelID, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse configured model id: %v", err)
-	}
 	derived := executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Source:                  derivedYAML,
-		ConfiguredModelID:       modelID,
+		ConfiguredModelID:       compiled.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
 		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,

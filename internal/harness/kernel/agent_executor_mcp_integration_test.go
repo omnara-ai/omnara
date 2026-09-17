@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -1576,11 +1575,7 @@ mcp:
 	})
 
 	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {
-		secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-		if err != nil {
-			t.Fatal(err)
-		}
-		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: secretID}
+		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: uuid.New()}
 		ensureFailed(t, load(t), "read mcp auth secret")
 	})
 }

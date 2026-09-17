@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -29,44 +28,13 @@ type MachinePoolSourceRecord struct {
 	Description     string    `json:"description,omitempty"`
 }
 
-type machineSource struct {
-	Index         int
-	Contract      agentconfig.RuntimeMachine
-	MachineID     uuid.UUID
-	MachinePoolID uuid.UUID
-}
-
-func decodeMachineSources(contract agentconfig.RuntimeContract) ([]machineSource, error) {
-	if len(contract.MachineSources) == 0 {
-		return nil, nil
-	}
-	out := make([]machineSource, 0, len(contract.MachineSources))
-	for index, machine := range contract.MachineSources {
-		source := machineSource{Index: index, Contract: machine}
+func validateRuntimeMachineSources(sources []agentconfig.RuntimeMachine) error {
+	for index, machine := range sources {
 		if err := validateRuntimeMachineSource(index, machine); err != nil {
-			return nil, err
+			return err
 		}
-		if machine.MachineID != "" {
-			machineID, err := publicid.Decode(publicid.KindMachine, machine.MachineID)
-			if err != nil {
-				return nil, fmt.Errorf("machine_sources[%d].machine_id must be a machine public id: %w", index, err)
-			}
-			source.MachineID = machineID
-		}
-		if machine.MachinePoolID != "" {
-			machinePoolID, err := publicid.Decode(publicid.KindMachinePool, machine.MachinePoolID)
-			if err != nil {
-				return nil, fmt.Errorf(
-					"machine_sources[%d].machine_pool_id must be a machine pool public id: %w",
-					index,
-					err,
-				)
-			}
-			source.MachinePoolID = machinePoolID
-		}
-		out = append(out, source)
 	}
-	return out, nil
+	return nil
 }
 
 type CreatePoolMachineInput struct {
@@ -227,7 +195,7 @@ func (t *toolCallTransaction) createPoolMachine(
 		ctx,
 		t.q,
 		poolGrant,
-		currentSource.Contract,
+		currentSource,
 	)
 	if err != nil {
 		return CreatePoolMachineResult{}, fmt.Errorf("machine source configuration: %w", err)
@@ -236,7 +204,7 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
-	if machineCount >= currentSource.Contract.MaxMachines {
+	if machineCount >= currentSource.MaxMachines {
 		return CreatePoolMachineResult{}, fmt.Errorf("machine pool limit reached: %w", storeerr.ErrStateTransitionConflict)
 	}
 	if err := ensurePoolCapacityForConfigTx(
@@ -254,7 +222,7 @@ func (t *toolCallTransaction) createPoolMachine(
 		OrgID:            agent.OrgID,
 		ProjectID:        projectID,
 		AgentID:          agentID,
-		Description:      currentSource.Contract.Description,
+		Description:      currentSource.Description,
 		PoolGrant:        poolGrant,
 		ResolvedMachine:  resolvedMachine,
 		CreateToolCallID: toolCallID,
@@ -458,12 +426,11 @@ func listMachinePoolSources(
 	if err != nil {
 		return nil, err
 	}
-	sources, err := decodeMachineSources(contract)
-	if err != nil {
+	if err := validateRuntimeMachineSources(contract.MachineSources); err != nil {
 		return nil, err
 	}
-	out := make([]MachinePoolSourceRecord, 0, len(sources))
-	for _, source := range sources {
+	out := make([]MachinePoolSourceRecord, 0, len(contract.MachineSources))
+	for _, source := range contract.MachineSources {
 		if source.MachinePoolID == uuid.Nil {
 			continue
 		}
@@ -483,7 +450,7 @@ func listMachinePoolSources(
 		out = append(out, MachinePoolSourceRecord{
 			MachinePoolID:   source.MachinePoolID,
 			MachinePoolName: grant.PoolName,
-			Description:     source.Contract.Description,
+			Description:     source.Description,
 		})
 	}
 	return out, nil
@@ -617,21 +584,21 @@ func currentAgentPoolMachineSourceTx(
 	projectID uuid.UUID,
 	agent AgentRecord,
 	machinePoolID uuid.UUID,
-) (machineSource, error) {
+) (agentconfig.RuntimeMachine, error) {
 	currentConfig, err := loadAgentConfigTx(ctx, qtx, projectID, agent.CurrentConfigID)
 	if err != nil {
-		return machineSource{}, err
+		return agentconfig.RuntimeMachine{}, err
 	}
 	currentContract, err := launchableRuntimeContract(currentConfig)
 	if err != nil {
-		return machineSource{}, err
+		return agentconfig.RuntimeMachine{}, err
 	}
 	currentSource, found, err := machineSourceForPool(currentContract, machinePoolID)
 	if err != nil {
-		return machineSource{}, err
+		return agentconfig.RuntimeMachine{}, err
 	}
 	if !found {
-		return machineSource{}, fmt.Errorf(
+		return agentconfig.RuntimeMachine{}, fmt.Errorf(
 			"machine pool is no longer configured for this agent: %w",
 			storeerr.ErrStateTransitionConflict,
 		)
@@ -639,25 +606,27 @@ func currentAgentPoolMachineSourceTx(
 	return currentSource, nil
 }
 
-func machineSourceForPool(contract agentconfig.RuntimeContract, machinePoolID uuid.UUID) (machineSource, bool, error) {
-	sources, err := decodeMachineSources(contract)
-	if err != nil {
-		return machineSource{}, false, err
+func machineSourceForPool(
+	contract agentconfig.RuntimeContract,
+	machinePoolID uuid.UUID,
+) (agentconfig.RuntimeMachine, bool, error) {
+	if err := validateRuntimeMachineSources(contract.MachineSources); err != nil {
+		return agentconfig.RuntimeMachine{}, false, err
 	}
-	for _, source := range sources {
+	for _, source := range contract.MachineSources {
 		if source.MachinePoolID != machinePoolID {
 			continue
 		}
 		return source, true, nil
 	}
-	return machineSource{}, false, nil
+	return agentconfig.RuntimeMachine{}, false, nil
 }
 
 func poolMachineSourceStatusTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID, agentID uuid.UUID,
-	source machineSource,
+	source agentconfig.RuntimeMachine,
 ) (int, error) {
 	count, err := qtx.CountActiveAgentPoolMachines(
 		ctx,
