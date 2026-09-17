@@ -27,12 +27,6 @@ const daemonRestartSignal = syscall.SIGUSR1
 const supervisorChildShutdownTimeout = 20 * time.Second
 const supervisorFailureReportTimeout = 2 * time.Second
 
-type supervisorRestartPolicy struct {
-	initialDelay time.Duration
-	maxDelay     time.Duration
-	resetAfter   time.Duration
-}
-
 func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger) (resultErr error) {
 	_, resuming := os.LookupEnv(inheritedDaemonLockFDEnv)
 	var installLock *localstore.Lock
@@ -84,11 +78,7 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 	}()
 	childStdout, childStderr := supervisorChildWriters(os.Stdout, os.Stderr, logFile)
 	log = slog.New(logpkg.NewJSONHandler(childStdout, nil))
-	return runSupervisorLoop(ctx, home, supervisorRestartPolicy{
-		initialDelay: daemonRestartDelay,
-		maxDelay:     daemonRestartMaxDelay,
-		resetAfter:   daemonRestartResetAfter,
-	}, restart, childStdout, childStderr, log, lock)
+	return runSupervisorLoop(ctx, home, daemonRestartDelay, restart, childStdout, childStderr, log, lock)
 }
 
 func supervisorChildWriters(stdout, stderr, logFile io.Writer) (io.Writer, io.Writer) {
@@ -109,7 +99,7 @@ func (b bestEffortWriter) Write(p []byte) (int, error) {
 func runSupervisorLoop(
 	ctx context.Context,
 	home string,
-	policy supervisorRestartPolicy,
+	initialRestartDelay time.Duration,
 	restart <-chan os.Signal,
 	childStdout io.Writer,
 	childStderr io.Writer,
@@ -117,7 +107,7 @@ func runSupervisorLoop(
 	lock *localstore.Lock,
 ) error {
 	binary := canonicalDaemonPath(home)
-	restartDelay := policy.initialDelay
+	restartDelay := initialRestartDelay
 	var reports sync.WaitGroup
 	defer reports.Wait()
 	running, _ := os.Stat(binary)
@@ -172,7 +162,7 @@ func runSupervisorLoop(
 		}
 		if manualRestart || cmd.ProcessState.ExitCode() == daemonUpdateHandoffExitCode {
 			if refreshSupervisor() || manualRestart {
-				restartDelay = policy.initialDelay
+				restartDelay = initialRestartDelay
 				continue
 			}
 		}
@@ -180,8 +170,8 @@ func runSupervisorLoop(
 			return nil
 		}
 		elapsed := time.Since(startedAt)
-		if elapsed >= policy.resetAfter {
-			restartDelay = policy.initialDelay
+		if elapsed >= daemonRestartResetAfter {
+			restartDelay = initialRestartDelay
 		}
 		log.Error("supervised daemon exited", "error", err, "restart_after", restartDelay)
 		if configErr != nil {
@@ -215,9 +205,9 @@ func runSupervisorLoop(
 		}
 		if waitForDaemonRestart(ctx, restartDelay, restart) {
 			refreshSupervisor()
-			restartDelay = policy.initialDelay
+			restartDelay = initialRestartDelay
 		} else {
-			restartDelay = min(restartDelay*2, policy.maxDelay)
+			restartDelay = min(restartDelay*2, daemonRestartMaxDelay)
 		}
 	}
 	return nil

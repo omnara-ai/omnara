@@ -1,10 +1,21 @@
 package omnarad
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 )
+
+var supervisorFatalOutputMarkers = [...]string{
+	"panic:",
+	"fatal error:",
+	"runtime: out of memory:",
+	"runtime: goroutine stack exceeds ",
+	"runtime: program exceeds ",
+	"runtime: failed to create new OS thread",
+	"runtime: mmap",
+}
 
 type supervisorOutputTail struct {
 	mu        sync.Mutex
@@ -12,8 +23,8 @@ type supervisorOutputTail struct {
 	size      int
 	truncated bool
 	fatal     bool
-	line      [len("runtime: failed to create new OS thread")]byte
-	lineSize  int
+	line      []byte
+	skipLine  bool
 }
 
 type supervisorOutputWriter struct {
@@ -21,58 +32,81 @@ type supervisorOutputWriter struct {
 	stderr bool
 }
 
-func (w supervisorOutputWriter) Write(p []byte) (int, error) {
-	b := w.tail
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	n := len(p)
-	if b.fatal && !w.stderr {
-		b.truncated = b.truncated || n > 0
-		return n, nil
-	}
-	if !b.fatal && w.stderr {
-	scan:
-		for i, c := range p {
-			if c == '\n' {
-				b.lineSize = 0
-				continue
-			}
-			if b.lineSize < len(b.line) {
-				b.line[b.lineSize] = c
-				b.lineSize++
-			}
-			switch string(b.line[:b.lineSize]) {
-			case "panic:", "fatal error:", "runtime: out of memory:",
-				"runtime: goroutine stack exceeds ", "runtime: program exceeds ",
-				"runtime: failed to create new OS thread", "runtime: mmap":
-				b.truncated = b.truncated || b.size+i+1 > b.lineSize
-				b.size = copy(b.data[:], b.line[:b.lineSize])
-				b.fatal = true
-				p = p[i+1:]
-				break scan
-			}
-		}
-	}
-	if b.fatal {
-		b.truncated = b.truncated || len(p) > len(b.data)-b.size
-		b.size += copy(b.data[b.size:], p)
-		return n, nil
-	}
-	b.truncated = b.truncated || b.size+n > len(b.data)
-	p = p[max(0, n-len(b.data)):]
-	if excess := b.size + len(p) - len(b.data); excess > 0 {
-		b.size = copy(b.data[:], b.data[excess:b.size])
-	}
-	b.size += copy(b.data[b.size:], p)
-	return n, nil
+func (writer supervisorOutputWriter) Write(output []byte) (int, error) {
+	return writer.tail.write(output, writer.stderr)
 }
 
-func (b *supervisorOutputTail) snapshot(limit int) (string, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	size := min(b.size, max(0, limit))
-	if b.fatal {
-		return string(b.data[:size]), b.truncated || size < b.size
+func (tail *supervisorOutputTail) write(output []byte, stderr bool) (int, error) {
+	tail.mu.Lock()
+	defer tail.mu.Unlock()
+	originalLength := len(output)
+	if tail.fatal && !stderr {
+		tail.truncated = tail.truncated || originalLength > 0
+		return originalLength, nil
 	}
-	return string(b.data[b.size-size : b.size]), b.truncated || size < b.size
+	if !tail.fatal && stderr {
+		if markerEnd := tail.scanFatalOutput(output); markerEnd >= 0 {
+			tail.truncated = tail.truncated || tail.size+markerEnd > len(tail.line)
+			tail.size = copy(tail.data[:], tail.line)
+			tail.fatal = true
+			output = output[markerEnd:]
+		}
+	}
+	if tail.fatal {
+		tail.truncated = tail.truncated || len(output) > len(tail.data)-tail.size
+		tail.size += copy(tail.data[tail.size:], output)
+		return originalLength, nil
+	}
+	tail.truncated = tail.truncated || tail.size+originalLength > len(tail.data)
+	output = output[max(0, originalLength-len(tail.data)):]
+	if excess := tail.size + len(output) - len(tail.data); excess > 0 {
+		tail.size = copy(tail.data[:], tail.data[excess:tail.size])
+	}
+	tail.size += copy(tail.data[tail.size:], output)
+	return originalLength, nil
+}
+
+func (tail *supervisorOutputTail) scanFatalOutput(output []byte) int {
+	for index, value := range output {
+		if value == '\n' {
+			tail.line = tail.line[:0]
+			tail.skipLine = false
+			continue
+		}
+		if tail.skipLine {
+			continue
+		}
+		tail.line = append(tail.line, value)
+		matched, possible := matchSupervisorFatalOutput(tail.line)
+		if matched {
+			return index + 1
+		}
+		if !possible {
+			tail.line = tail.line[:0]
+			tail.skipLine = true
+		}
+	}
+	return -1
+}
+
+func matchSupervisorFatalOutput(line []byte) (bool, bool) {
+	text := string(line)
+	possible := false
+	for _, marker := range supervisorFatalOutputMarkers {
+		if text == marker {
+			return true, true
+		}
+		possible = possible || strings.HasPrefix(marker, text)
+	}
+	return false, possible
+}
+
+func (tail *supervisorOutputTail) snapshot(limit int) (string, bool) {
+	tail.mu.Lock()
+	defer tail.mu.Unlock()
+	size := min(tail.size, max(0, limit))
+	if tail.fatal {
+		return string(tail.data[:size]), tail.truncated || size < tail.size
+	}
+	return string(tail.data[tail.size-size : tail.size]), tail.truncated || size < tail.size
 }

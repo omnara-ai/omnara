@@ -67,7 +67,7 @@ func TestSupervisorHandoffExitWithoutReplacementIsCrash(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = lock.Release() }()
 	require.NoError(t, runSupervisorLoop(
-		ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), lock,
+		ctx, home, longBackoffDelay, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), lock,
 	))
 	require.EqualValues(t, 1, calls.Load())
 }
@@ -94,9 +94,10 @@ exit 7
 	require.NoError(t, err)
 	defer func() { _ = lock.Release() }()
 	output := newLineChannelWriter()
-	require.NoError(t, runSupervisorLoop(ctx, home, supervisorRestartPolicy{
-		initialDelay: 10 * time.Millisecond, maxDelay: time.Second, resetAfter: time.Minute,
-	}, make(chan os.Signal), output, io.Discard, discardLogger(), lock))
+	require.NoError(t, runSupervisorLoop(
+		ctx, home, 10*time.Millisecond,
+		make(chan os.Signal), output, io.Discard, discardLogger(), lock,
+	))
 	waitForMarkerLine(t, output.lines, "child v1")
 	waitForMarkerLine(t, output.lines, "child v2")
 	require.EqualValues(t, 1, calls.Load())

@@ -22,11 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var longBackoffPolicy = supervisorRestartPolicy{
-	initialDelay: time.Hour,
-	maxDelay:     time.Hour,
-	resetAfter:   time.Hour,
-}
+const longBackoffDelay = time.Hour
 
 func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 	home := t.TempDir()
@@ -36,11 +32,8 @@ func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$SUPERVISOR_ARGS\"\nexit 0\n")
 	t.Setenv("SUPERVISOR_ARGS", args)
 	err := runSupervisorLoop(
-		context.Background(), home, supervisorRestartPolicy{
-			initialDelay: time.Millisecond,
-			maxDelay:     time.Second,
-			resetAfter:   time.Minute,
-		}, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
+		context.Background(), home, time.Millisecond,
+		make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -62,11 +55,8 @@ exit 7
 `)
 	t.Setenv("SUPERVISOR_COUNT", count)
 	err := runSupervisorLoop(
-		context.Background(), home, supervisorRestartPolicy{
-			initialDelay: 10 * time.Millisecond,
-			maxDelay:     time.Second,
-			resetAfter:   time.Minute,
-		}, make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
+		context.Background(), home, 10*time.Millisecond,
+		make(chan os.Signal), io.Discard, io.Discard, discardLogger(), nil,
 	)
 	if err != nil {
 		t.Fatalf("run supervisor loop: %v", err)
@@ -86,14 +76,13 @@ func TestSupervisorRestartBackoff(t *testing.T) {
 	logs := newLineChannelWriter()
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisorLoop(ctx, home, supervisorRestartPolicy{
-			initialDelay: 3 * time.Millisecond,
-			maxDelay:     180 * time.Millisecond,
-			resetAfter:   time.Hour,
-		}, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil)
+		done <- runSupervisorLoop(
+			ctx, home, 3*time.Millisecond,
+			make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil,
+		)
 	}()
 	var previous supervisorRestartLog
-	for _, delay := range []int{3, 6, 12, 24, 48, 96, 180, 180} {
+	for _, delay := range []int{3, 6, 12, 24, 48, 96, 192, 384} {
 		entry := readSupervisorRestartLog(t, logs.lines)
 		require.Equal(t, time.Duration(delay)*time.Millisecond, entry.RestartAfter)
 		if !previous.Time.IsZero() {
@@ -111,32 +100,6 @@ func TestSupervisorRestartBackoff(t *testing.T) {
 	}
 }
 
-func TestSupervisorRestartBackoffResetsAfterStableRun(t *testing.T) {
-	home := t.TempDir()
-	setDaemonEnvironment(t, home, "", "")
-	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
-	t.Setenv("SUPERVISOR_COUNT", filepath.Join(home, "count"))
-	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
-printf x >> "$SUPERVISOR_COUNT"
-count=$(wc -c < "$SUPERVISOR_COUNT")
-[ "$count" -eq 3 ] && sleep 0.6
-[ "$count" -eq 5 ] && exit 0
-exit 7
-`)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	logs := newLineChannelWriter()
-	require.NoError(t, runSupervisorLoop(ctx, home, supervisorRestartPolicy{
-		initialDelay: 5 * time.Millisecond,
-		maxDelay:     time.Second,
-		resetAfter:   500 * time.Millisecond,
-	}, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil))
-	require.NoError(t, ctx.Err())
-	for _, delay := range []int{5, 10, 5, 10} {
-		require.Equal(t, time.Duration(delay)*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
-	}
-}
-
 func TestSupervisorStopsDuringBackoff(t *testing.T) {
 	home := t.TempDir()
 	setDaemonEnvironment(t, home, "", "")
@@ -148,7 +111,7 @@ func TestSupervisorStopsDuringBackoff(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- runSupervisorLoop(
-			ctx, home, longBackoffPolicy, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil,
+			ctx, home, longBackoffDelay, make(chan os.Signal), io.Discard, io.Discard, errorLogger(logs), nil,
 		)
 	}()
 	require.Equal(t, time.Hour, readSupervisorRestartLog(t, logs.lines).RestartAfter)
@@ -189,11 +152,10 @@ exit 7
 			output := newLineChannelWriter()
 			done := make(chan error, 1)
 			go func() {
-				done <- runSupervisorLoop(ctx, home, supervisorRestartPolicy{
-					initialDelay: 100 * time.Millisecond,
-					maxDelay:     time.Hour,
-					resetAfter:   time.Hour,
-				}, restart, output, io.Discard, errorLogger(logs), nil)
+				done <- runSupervisorLoop(
+					ctx, home, 100*time.Millisecond,
+					restart, output, io.Discard, errorLogger(logs), nil,
+				)
 			}()
 			require.Equal(t, 100*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
 			require.Equal(t, 200*time.Millisecond, readSupervisorRestartLog(t, logs.lines).RestartAfter)
@@ -253,11 +215,10 @@ while :; do sleep 1; done
 	childOutput := newLineChannelWriter()
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisorLoop(ctx, home, supervisorRestartPolicy{
-			initialDelay: time.Hour,
-			maxDelay:     time.Hour,
-			resetAfter:   time.Minute,
-		}, restart, childOutput, io.Discard, discardLogger(), nil)
+		done <- runSupervisorLoop(
+			ctx, home, longBackoffDelay,
+			restart, childOutput, io.Discard, discardLogger(), nil,
+		)
 	}()
 	waitForMarkerLine(t, childOutput.lines, "started")
 	restart <- daemonRestartSignal
@@ -729,11 +690,7 @@ exit 0
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			err = runSupervisorLoop(
-				ctx, home, supervisorRestartPolicy{
-					initialDelay: 10 * time.Millisecond,
-					maxDelay:     time.Second,
-					resetAfter:   time.Minute,
-				}, make(chan os.Signal),
+				ctx, home, 10*time.Millisecond, make(chan os.Signal),
 				childStdout, childStderr, discardLogger(), nil,
 			)
 			require.NoError(t, err)
