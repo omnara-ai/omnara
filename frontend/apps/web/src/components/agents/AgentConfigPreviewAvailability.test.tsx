@@ -3,6 +3,12 @@
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient, schemas } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterContextProvider,
+} from '@tanstack/react-router'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
@@ -46,10 +52,16 @@ function testProviders(routes: FakeRoute[]) {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   client.setConfig({ fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createRouter({
+    routeTree: createRootRoute(),
+    history: createMemoryHistory(),
+  })
   return function Providers({ children }: { children: ReactNode }) {
     return (
       <OmnaraClientProvider client={client}>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          <RouterContextProvider router={router}>{children}</RouterContextProvider>
+        </QueryClientProvider>
       </OmnaraClientProvider>
     )
   }
