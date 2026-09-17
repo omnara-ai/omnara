@@ -46,6 +46,19 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := fixture.AgentConfig.Source + "  - name: secondary\n    access: read_only\n"
+	for i := range searchStoreBatchSize + 1 {
+		name := fmt.Sprintf("batch-%02d", i)
+		store, err := fixture.Store.Memories().Create(ctx, scope, name, "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: store.ID, Path: "n.txt", Content: []byte("TARGET\n"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		source += "  - name: " + name + "\n    access: read_only\n"
+	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, fixture.Store, fixture.User.ID, source)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID: scope.ProjectID, Source: source, SourceFormat: "yaml",
@@ -140,6 +153,37 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		if err != nil || len(result.Files) != 13 || result.MatchCount != 13 {
 			t.Fatalf("%s: %+v, %v", mode, result, err)
 		}
+	}
+	for _, mode := range []string{"", "-l", "-c"} {
+		args := []string{"-e", "TARGET"}
+		if mode != "" {
+			args = append(args, mode)
+		}
+		result, err := search("/memory/batch-*/*.txt", args, 100, 0)
+		if err != nil || result.Truncated || result.MatchCount != searchStoreBatchSize+1 {
+			t.Fatalf("cross-batch %s search: %+v, %v", mode, result, err)
+		}
+	}
+	var lastStorePath string
+	if err := fixture.Store.VisitMemorySearchStores(ctx, scope.ProjectID, agent.ID,
+		fmt.Sprintf("/memory/batch-%02d/n.txt", searchStoreBatchSize), func(store storage.MemorySearchStore) error {
+			lastStorePath = store.Root.Name()
+			return nil
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(lastStorePath, lastStorePath+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(lastStorePath+"-moved", lastStorePath); err != nil {
+		t.Fatal(err)
+	}
+	result, err = search("/memory/batch-*/*.txt", []string{"-e", "TARGET"}, 1, 0)
+	if err != nil || result.MatchCount != 1 || !result.Truncated {
+		t.Fatalf("opened later batch after reaching the limit: %+v, %v", result, err)
+	}
+	if _, err := search("/memory/batch-*/*.txt", []string{"-e", "TARGET"}, 100, 0); err == nil {
+		t.Fatal("searched a store replaced by a symlink")
 	}
 	if _, err := fixture.Pool.Exec(
 		ctx, "UPDATE agents SET current_config_id = $1 WHERE id = $2", fixture.AgentConfig.ID, agent.ID,
