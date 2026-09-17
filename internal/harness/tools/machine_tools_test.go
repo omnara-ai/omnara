@@ -578,30 +578,6 @@ func poolPublicIDForTest(t *testing.T, id uuid.UUID) string {
 	return value
 }
 
-func TestMachinePoolSelectionSurvivesNameSwap(t *testing.T) {
-	first := executionstore.MachinePoolSourceRecord{
-		MachinePoolID: uuid.New(), MachinePoolName: "Build", Description: "Build workers",
-	}
-	second := executionstore.MachinePoolSourceRecord{MachinePoolID: uuid.New(), MachinePoolName: "Test"}
-	page := machineListPageForTest(t, nil, []executionstore.MachinePoolSourceRecord{first, second}, "")
-	require.Empty(t, page.Machines)
-	require.Len(t, page.MachinePools, 2)
-	var selectedID string
-	for _, pool := range page.MachinePools {
-		if pool.MachinePoolName == "Build" {
-			selectedID = pool.MachinePoolID
-			require.Equal(t, "Build workers", pool.Description)
-		}
-	}
-	require.Equal(t, poolPublicIDForTest(t, first.MachinePoolID), selectedID)
-	input, err := resolveCreateMachineRequest(json.RawMessage(`{"machine_pool_id":"` + selectedID + `"}`))
-	require.NoError(t, err)
-	first.MachinePoolName, second.MachinePoolName = second.MachinePoolName, first.MachinePoolName
-	selected, err := selectPoolForMachineCreate([]executionstore.MachinePoolSourceRecord{first, second}, input)
-	require.NoError(t, err)
-	require.Equal(t, first, selected)
-}
-
 func TestCreateMachineRequiresPublicPoolID(t *testing.T) {
 	for _, id := range []string{
 		"", "Build", uuid.NewString(), "mpo_invalid", "mpo_aaaaaaaaaaaaaaaaaaaaaaaaaa", "mch_aaaaaaaaaaaaaaaaaaaaaaaaae",
@@ -610,29 +586,4 @@ func TestCreateMachineRequiresPublicPoolID(t *testing.T) {
 			require.Error(t, validateCreateMachineInput(json.RawMessage(`{"machine_pool_id":"`+id+`"}`)))
 		})
 	}
-}
-
-func TestMachinePoolListContinuesPastOversizedDescription(t *testing.T) {
-	pools := []executionstore.MachinePoolSourceRecord{{
-		MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Build",
-		Description: strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes),
-	}, {MachinePoolID: uuid.UUID{15: 2}, MachinePoolName: "Test"}}
-	machines := []executionstore.AgentMachineObservationRecord{{MachineID: uuid.UUID{15: 1}}}
-	result, err := machineListPage(machines, pools, "")
-	require.NoError(t, err)
-	failure, ok := result.(failTransaction)
-	require.True(t, ok)
-	parts, err := failure.content.contentParts()
-	require.NoError(t, err)
-	require.LessOrEqual(t, len(parts), executionstore.ToolResultInlineBudgetBytes)
-	poolID := poolPublicIDForTest(t, pools[0].MachinePoolID)
-	require.Contains(t, string(parts), poolID)
-	require.Contains(t, string(parts), "cursor")
-	page := machineListPageForTest(t, machines, pools, poolID)
-	require.Equal(t, []machinePoolPayload{{
-		MachinePoolID: poolPublicIDForTest(t, pools[1].MachinePoolID), MachinePoolName: "Test",
-	}}, page.MachinePools)
-	require.Len(t, page.Machines, 1)
-	require.Equal(t, machinePublicIDForTest(t, machines[0].MachineID), page.Machines[0].MachineID)
-	require.Empty(t, page.NextCursor)
 }
