@@ -127,54 +127,6 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 	t.Fatalf("function_call_output not found in payload: %s", prepared.Body)
 }
 
-func TestPrepareIncludesAvailableMachinePoolsInProviderInput(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(
-		context.Background(),
-		model.PrepareInput{
-			Context: modelcontext.Bundle{
-				SystemPrompt:          "sys",
-				ToolSpecs:             []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-				AvailableMachinePools: []modelcontext.MachinePoolRef{{MachinePoolName: "Build Pool", Description: "Build workers"}},
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload struct {
-		Input []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode prepared payload: %v", err)
-	}
-	if len(payload.Input) != 1 || payload.Input[0].Role != string(responsesRoleSystem) {
-		t.Fatalf("expected one system machine-pools input, got %+v", payload.Input)
-	}
-	for _, want := range []string{"Available machine pools", "create_machine", "machine_pool_name", "Build Pool"} {
-		if !strings.Contains(payload.Input[0].Content, want) {
-			t.Fatalf("machine pool content missing %q: %s", want, payload.Input[0].Content)
-		}
-	}
-}
-
-func TestPrepareExplainsWhenCreateMachineHasNoAvailablePools(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
-		SystemPrompt: "sys",
-		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-	}})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if !strings.Contains(string(prepared.Body), "no machine pools are currently available") {
-		t.Fatalf("missing empty machine-pool context: %s", prepared.Body)
-	}
-}
-
 func TestPrepareIncludesIntegrationTargetsAtEndOfProviderInput(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{

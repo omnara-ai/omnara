@@ -547,7 +547,6 @@ type fakeContextStore struct {
 	toolCalls                  []executionstore.ToolCallRecord
 	completedToolCallWatermark int64
 	integrationTargets         []integrationstore.IntegrationTargetSummary
-	machinePools               []executionstore.MachinePoolSourceRecord
 	watermark                  int64
 	checkpoints                []executionstore.ContextCheckpointRecord
 	outputLimitBoundaries      map[int64]bool
@@ -674,17 +673,6 @@ func (s *fakeContextStore) ListIntegrationTargets(
 	_ = projectID
 	_ = agentID
 	return s.integrationTargets, nil
-}
-
-func (s *fakeContextStore) ListMachinePoolSources(
-	ctx context.Context,
-	projectID, agentID, agentConfigID uuid.UUID,
-) ([]executionstore.MachinePoolSourceRecord, error) {
-	_ = ctx
-	_ = projectID
-	_ = agentID
-	_ = agentConfigID
-	return s.machinePools, nil
 }
 
 func (s *fakeContextStore) GetLatestApplicableContextCheckpoint(
@@ -1043,87 +1031,6 @@ skills:
 		specs[2].Permission.Mode != toolpermission.ModeAlwaysAsk ||
 		!strings.Contains(specs[2].Description, "available_skills catalog") {
 		t.Fatalf("runtime tool specs = %+v, want one explicit skill tool", specs)
-	}
-}
-
-func TestBuildIncludesAvailableMachinePoolsWhenCreateToolEnabled(t *testing.T) {
-	store := &fakeContextStore{
-		watermark: 1,
-		hasConfig: true,
-		config:    testAgentConfigRecordWithTools(t, "create_machine"),
-		machinePools: []executionstore.MachinePoolSourceRecord{{
-			MachinePoolName: "Build Pool",
-			Description:     "Build pool",
-		}},
-	}
-	store.messages = append(
-		store.messages,
-		executionstore.ContextEventRecord{
-			ID:           testIDN(931),
-			ProjectID:    testProjectID,
-			AgentID:      testAgentID,
-			Sequence:     1,
-			Role:         modelprotocol.RoleUser,
-			ContentParts: contextFixtureJSON(t, []map[string]string{{"type": "text", "text": "hi"}}),
-		},
-	)
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if len(bundle.AvailableMachinePools) != 1 {
-		t.Fatalf("expected one machine pool, got %+v", bundle.AvailableMachinePools)
-	}
-	pool := bundle.AvailableMachinePools[0]
-	if pool.MachinePoolName != "Build Pool" || pool.Description != "Build pool" {
-		t.Fatalf("unexpected machine pool context: %+v", pool)
-	}
-}
-
-func TestBuildOmitsAvailableMachinePoolsWhenCreateToolDisabled(t *testing.T) {
-	store := &fakeContextStore{
-		watermark: 1,
-		hasConfig: true,
-		config:    testAgentConfigRecordWithTools(t, "list_machines"),
-		machinePools: []executionstore.MachinePoolSourceRecord{{
-			MachinePoolName: "Build Pool",
-		}},
-	}
-	store.messages = append(
-		store.messages,
-		executionstore.ContextEventRecord{
-			ID:           testIDN(932),
-			ProjectID:    testProjectID,
-			AgentID:      testAgentID,
-			Sequence:     1,
-			Role:         modelprotocol.RoleUser,
-			ContentParts: contextFixtureJSON(t, []map[string]string{{"type": "text", "text": "hi"}}),
-		},
-	)
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if len(bundle.AvailableMachinePools) != 0 {
-		t.Fatalf("expected no machine pools, got %+v", bundle.AvailableMachinePools)
 	}
 }
 

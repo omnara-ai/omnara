@@ -19,11 +19,12 @@ import (
 func TestMachineToolInputValidation(t *testing.T) {
 	valid := []model.ToolCall{
 		{Name: "create_machine", Input: json.RawMessage(`{}`)},
-		{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":"Build Pool"}`)},
+		{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "delete_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "list_machines", Input: json.RawMessage(`{}`)},
+		{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 	}
 	for _, call := range valid {
@@ -37,13 +38,13 @@ func TestMachineToolInputValidation(t *testing.T) {
 	}{
 		{
 			name: "create rejects null",
-			call: model.ToolCall{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":null}`)},
+			call: model.ToolCall{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":null}`)},
 		},
 		{
 			name: "create rejects extra",
 			call: model.ToolCall{
 				Name:  "create_machine",
-				Input: json.RawMessage(`{"machine_pool_name":"Build Pool","count":2}`),
+				Input: json.RawMessage(`{"machine_pool_id":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae","count":2}`),
 			},
 		},
 		{
@@ -77,37 +78,37 @@ func TestMachineToolInputValidation(t *testing.T) {
 }
 
 func TestSelectCreateMachinePool(t *testing.T) {
-	first := executionstore.MachinePoolSourceRecord{MachinePoolName: "Build Pool"}
-	second := executionstore.MachinePoolSourceRecord{MachinePoolName: "Test Pool"}
+	first := executionstore.MachinePoolSourceRecord{MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Build Pool"}
+	second := executionstore.MachinePoolSourceRecord{MachinePoolID: uuid.UUID{15: 2}, MachinePoolName: "Test Pool"}
 	tests := []struct {
 		name    string
 		sources []executionstore.MachinePoolSourceRecord
 		input   createMachineRequest
-		want    string
+		want    uuid.UUID
 		wantErr string
 	}{
 		{name: "omitted with zero sources", wantErr: "no machine pools are configured"},
 		{
 			name:    "omitted with one source",
 			sources: []executionstore.MachinePoolSourceRecord{first},
-			want:    first.MachinePoolName,
+			want:    first.MachinePoolID,
 		},
 		{
 			name:    "omitted with multiple sources",
 			sources: []executionstore.MachinePoolSourceRecord{first, second},
-			wantErr: "machine_pool_name is required",
+			wantErr: "machine_pool_id is required",
 		},
 		{
 			name:    "explicit matching source",
 			sources: []executionstore.MachinePoolSourceRecord{first, second},
-			input:   createMachineRequest{MachinePoolName: second.MachinePoolName},
-			want:    second.MachinePoolName,
+			input:   createMachineRequest{MachinePoolID: poolPublicIDForTest(t, second.MachinePoolID)},
+			want:    second.MachinePoolID,
 		},
 		{
 			name:    "explicit missing source",
 			sources: []executionstore.MachinePoolSourceRecord{first},
-			input:   createMachineRequest{MachinePoolName: second.MachinePoolName},
-			wantErr: "machine_pool_name is not configured",
+			input:   createMachineRequest{MachinePoolID: poolPublicIDForTest(t, second.MachinePoolID)},
+			wantErr: "machine_pool_id is not available",
 		},
 	}
 	for _, tc := range tests {
@@ -122,8 +123,8 @@ func TestSelectCreateMachinePool(t *testing.T) {
 			if err != nil {
 				t.Fatalf("select create machine pool: %v", err)
 			}
-			if got.MachinePoolName != tc.want {
-				t.Fatalf("selected pool = %q, want %q", got.MachinePoolName, tc.want)
+			if got.MachinePoolID != tc.want {
+				t.Fatalf("selected pool = %q, want %q", got.MachinePoolID, tc.want)
 			}
 		})
 	}
@@ -131,11 +132,11 @@ func TestSelectCreateMachinePool(t *testing.T) {
 
 func TestCreateMachineApprovalPinsPoolID(t *testing.T) {
 	poolID := uuid.New()
-	call := model.ToolCall{ID: "create", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_name":"Build Pool"}`)}
+	call := model.ToolCall{ID: "create", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"` + poolPublicIDForTest(t, poolID) + `"}`)}
 	selection := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
 	descriptor, ok := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), selection.Mode)
 	require.True(t, ok)
-	approvedInput, err := machineCreateAuthorizationInput(poolID, "Build Pool")
+	approvedInput, err := machineCreateAuthorizationInput(poolID)
 	require.NoError(t, err)
 	request, err := permissionChallenge(
 		call, permissionModeContext{descriptor: descriptor, selection: selection}, approvedInput,
@@ -147,16 +148,9 @@ func TestCreateMachineApprovalPinsPoolID(t *testing.T) {
 		ProviderCallID: call.ID, InteractionKind: executionstore.AgentInteractionKindPermission, Request: requestJSON,
 	}
 	require.True(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
-	otherPool, err := machineCreateAuthorizationInput(uuid.New(), "Build Pool")
+	otherPool, err := machineCreateAuthorizationInput(uuid.New())
 	require.NoError(t, err)
 	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherPool))
-	renamedPool, err := machineCreateAuthorizationInput(poolID, "Renamed Pool")
-	require.NoError(t, err)
-	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, renamedPool))
-	request.Authorization.Input = call.Input
-	action.Request, err = json.Marshal(request)
-	require.NoError(t, err)
-	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
 }
 
 func TestSelectOnlyMachine(t *testing.T) {
@@ -199,7 +193,7 @@ func TestSelectOnlyMachine(t *testing.T) {
 	}
 }
 
-func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
+func TestMachineObservationIncludesMachinePoolIdentity(t *testing.T) {
 	machineCwd := "/pool"
 	record := executionstore.PoolMachineRecord{
 		Binding: executionstore.AgentMachineBindingRecord{
@@ -207,10 +201,11 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 			BindingKind: executionstore.MachineBindingKindPool,
 		},
 		Machine: executionstore.MachineRecord{
-			ID:          integrationToolTestID("machine-pool"),
-			SourceKind:  executionstore.MachineSourceKindPool,
-			DisplayName: "Build machine",
-			Cwd:         machineCwd,
+			ID:            integrationToolTestID("machine-pool"),
+			MachinePoolID: integrationToolTestID("pool"),
+			SourceKind:    executionstore.MachineSourceKindPool,
+			DisplayName:   "Build machine",
+			Cwd:           machineCwd,
 		},
 		MachinePoolName: "Build Pool",
 	}
@@ -222,7 +217,7 @@ func TestMachineObservationIncludesMachinePoolName(t *testing.T) {
 		got.SourceKind != "pool" || got.BindingKind != "pool" || got.DisplayName != "Build machine" {
 		t.Fatalf("pool observation identity = %+v", got)
 	}
-	if got.MachinePoolName != "Build Pool" {
+	if got.MachinePoolID != poolPublicIDForTest(t, record.Machine.MachinePoolID) || got.MachinePoolName != "Build Pool" {
 		t.Fatalf("machine_pool_name = %q, want Build Pool", got.MachinePoolName)
 	}
 	if got.Cwd != machineCwd {
@@ -266,6 +261,7 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 		BindingState:           executionstore.AgentMachineBindingStateAttached,
 		DisplayName:            "Developer laptop",
 		MachinePoolName:        "Private pool",
+		MachinePoolID:          integrationToolTestID("private-pool"),
 		LifecycleState:         executionstore.MachineLifecycleStateActive,
 		ConnectionState:        executionstore.MachineConnectionStateOnline,
 		ConnectionStateReason:  "connected",
@@ -295,6 +291,7 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 		"source_kind",
 		"display_name",
 		"machine_pool_name",
+		"machine_pool_id",
 		"connection_state_reason",
 		"failure_report",
 	} {
@@ -383,46 +380,59 @@ func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 }
 
 func TestMachineListPagination(t *testing.T) {
-	machines := make([]executionstore.AgentMachineObservationRecord, 150)
-	for i := range machines {
-		machines[i] = executionstore.AgentMachineObservationRecord{
-			MachineID: uuid.UUID{15: byte(len(machines) - i)}, Description: strings.Repeat("<é", 500),
-		}
-	}
-	cursor := ""
-	seen := []string{}
-	for range 151 {
-		page := machineListPageForTest(t, machines, cursor)
-		for _, machine := range page.Machines {
-			if slices.Contains(seen, machine.MachineID) {
-				t.Fatalf("machine %s repeated after cursor %s", machine.MachineID, cursor)
+	for _, counts := range []struct{ pools, machines int }{{0, 150}, {150, 0}, {75, 75}} {
+		t.Run(fmt.Sprintf("pools=%d/machines=%d", counts.pools, counts.machines), func(t *testing.T) {
+			machines := make([]executionstore.AgentMachineObservationRecord, counts.machines)
+			for i := range machines {
+				machines[i] = executionstore.AgentMachineObservationRecord{
+					MachineID: uuid.UUID{15: byte(len(machines) - i)}, Description: strings.Repeat("<é", 500),
+				}
 			}
-			seen = append(seen, machine.MachineID)
-			cursor = machine.MachineID
-		}
-		if page.NextCursor == "" {
-			break
-		}
-		if page.NextCursor != cursor {
-			t.Fatalf("next cursor %s does not match last entry %s", page.NextCursor, cursor)
-		}
-		machines = slices.DeleteFunc(machines, func(machine executionstore.AgentMachineObservationRecord) bool {
-			return machinePublicIDForTest(t, machine.MachineID) == cursor
+			pools := make([]executionstore.MachinePoolSourceRecord, counts.pools)
+			for i := range pools {
+				pools[i] = executionstore.MachinePoolSourceRecord{
+					MachinePoolID: uuid.UUID{15: byte(len(pools) - i)}, MachinePoolName: fmt.Sprint(i),
+					Description: strings.Repeat("<é", 500),
+				}
+			}
+			var seenPools, seenMachines []string
+			cursor := ""
+			for range counts.pools + counts.machines + 1 {
+				page := machineListPageForTest(t, machines, pools, cursor)
+				for _, pool := range page.MachinePools {
+					require.Empty(t, seenMachines, "pools must precede machines across pages")
+					seenPools = append(seenPools, pool.MachinePoolID)
+					cursor = pool.MachinePoolID
+				}
+				for _, machine := range page.Machines {
+					seenMachines = append(seenMachines, machine.MachineID)
+					cursor = machine.MachineID
+				}
+				if page.NextCursor == "" {
+					break
+				}
+				require.Equal(t, cursor, page.NextCursor)
+				// A cursor must continue working after its resource disappears.
+				pools = slices.DeleteFunc(pools, func(pool executionstore.MachinePoolSourceRecord) bool {
+					return poolPublicIDForTest(t, pool.MachinePoolID) == cursor
+				})
+				machines = slices.DeleteFunc(machines, func(machine executionstore.AgentMachineObservationRecord) bool {
+					return machinePublicIDForTest(t, machine.MachineID) == cursor
+				})
+			}
+			require.Len(t, seenPools, counts.pools)
+			require.Len(t, seenMachines, counts.machines)
+			for i, id := range seenPools {
+				require.Equal(t, poolPublicIDForTest(t, uuid.UUID{15: byte(i + 1)}), id)
+			}
+			for i, id := range seenMachines {
+				require.Equal(t, machinePublicIDForTest(t, uuid.UUID{15: byte(i + 1)}), id)
+			}
+			page := machineListPageForTest(t, machines, pools, cursor)
+			require.Equal(t, machineListResult{
+				Machines: []machineObservationPayload{}, MachinePools: []machinePoolPayload{},
+			}, page)
 		})
-	}
-	if len(seen) != 150 {
-		t.Fatalf("listed %d machines, want 150", len(seen))
-	}
-	for i, ref := range seen {
-		if want := machinePublicIDForTest(t, uuid.UUID{15: byte(i + 1)}); ref != want {
-			t.Fatalf("machine %d = %s, want %s", i, ref, want)
-		}
-	}
-	for _, input := range [][]executionstore.AgentMachineObservationRecord{nil, machines} {
-		page := machineListPageForTest(t, input, cursor)
-		if page.Machines == nil || len(page.Machines) != 0 || page.NextCursor != "" {
-			t.Fatalf("final page = %+v", page)
-		}
 	}
 }
 
@@ -433,8 +443,9 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 				{MachineID: uuid.UUID{15: 1}}, {MachineID: uuid.UUID{15: 2}},
 			}
 			content, err := structuredToolResultContent(machineListResult{
-				Machines:   []machineObservationPayload{machineObservationForPaginationTest(t, machines[0])},
-				NextCursor: machinePublicIDForTest(t, machines[0].MachineID),
+				MachinePools: []machinePoolPayload{},
+				Machines:     []machineObservationPayload{machineObservationForPaginationTest(t, machines[0])},
+				NextCursor:   machinePublicIDForTest(t, machines[0].MachineID),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -445,12 +456,12 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 			}
 			machines[0].Description = strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts)+delta)
 			if delta <= 0 {
-				page := machineListPageForTest(t, machines, "")
+				page := machineListPageForTest(t, machines, nil, "")
 				if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
 					t.Fatalf("unexpected boundary page: machines=%d cursor=%s", len(page.Machines), page.NextCursor)
 				}
 			} else {
-				result, err := machineListPage(machines, "")
+				result, err := machineListPage(machines, nil, "")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -466,7 +477,7 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 					t.Fatalf("missing bounded recovery instructions: %s, %v", parts, err)
 				}
 			}
-			page := machineListPageForTest(t, machines, machinePublicIDForTest(t, machines[0].MachineID))
+			page := machineListPageForTest(t, machines, nil, machinePublicIDForTest(t, machines[0].MachineID))
 			if len(page.Machines) != 1 || page.Machines[0].MachineID != machinePublicIDForTest(t, machines[1].MachineID) ||
 				page.NextCursor != "" {
 				t.Fatalf("continuation skipped remaining machine: %+v", page)
@@ -476,6 +487,9 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 }
 
 func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
+	pools := []executionstore.MachinePoolSourceRecord{{
+		MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Build", Description: "é<\"\\\n",
+	}}
 	for _, count := range []int{2, 3} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			machines := []executionstore.AgentMachineObservationRecord{
@@ -489,6 +503,10 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 				cursor = machinePublicIDForTest(t, machines[1].MachineID)
 			}
 			content, err := structuredToolResultContent(machineListResult{
+				MachinePools: []machinePoolPayload{{
+					MachinePoolID:   poolPublicIDForTest(t, pools[0].MachinePoolID),
+					MachinePoolName: pools[0].MachinePoolName, Description: pools[0].Description,
+				}},
 				Machines: []machineObservationPayload{
 					machineObservationForPaginationTest(t, machines[0]), machineObservationForPaginationTest(t, machines[1]),
 				},
@@ -502,12 +520,12 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			machines[1].Description += strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts))
-			page := machineListPageForTest(t, machines, "")
+			page := machineListPageForTest(t, machines, pools, "")
 			if len(page.Machines) != 2 || page.NextCursor != cursor {
 				t.Fatalf("exact-size page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
 			}
 			machines[1].Description += "x"
-			page = machineListPageForTest(t, machines, "")
+			page = machineListPageForTest(t, machines, pools, "")
 			if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
 				t.Fatalf("oversized page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
 			}
@@ -518,10 +536,11 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 func machineListPageForTest(
 	t *testing.T,
 	machines []executionstore.AgentMachineObservationRecord,
+	pools []executionstore.MachinePoolSourceRecord,
 	cursor string,
 ) machineListResult {
 	t.Helper()
-	result, err := machineListPage(machines, cursor)
+	result, err := machineListPage(machines, pools, cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,4 +569,70 @@ func machineObservationForPaginationTest(
 		t.Fatal(err)
 	}
 	return observation
+}
+
+func poolPublicIDForTest(t *testing.T, id uuid.UUID) string {
+	t.Helper()
+	value, err := publicid.Encode(publicid.KindMachinePool, id)
+	require.NoError(t, err)
+	return value
+}
+
+func TestMachinePoolSelectionSurvivesNameSwap(t *testing.T) {
+	first := executionstore.MachinePoolSourceRecord{
+		MachinePoolID: uuid.New(), MachinePoolName: "Build", Description: "Build workers",
+	}
+	second := executionstore.MachinePoolSourceRecord{MachinePoolID: uuid.New(), MachinePoolName: "Test"}
+	page := machineListPageForTest(t, nil, []executionstore.MachinePoolSourceRecord{first, second}, "")
+	require.Empty(t, page.Machines)
+	require.Len(t, page.MachinePools, 2)
+	var selectedID string
+	for _, pool := range page.MachinePools {
+		if pool.MachinePoolName == "Build" {
+			selectedID = pool.MachinePoolID
+			require.Equal(t, "Build workers", pool.Description)
+		}
+	}
+	require.Equal(t, poolPublicIDForTest(t, first.MachinePoolID), selectedID)
+	input, err := resolveCreateMachineRequest(json.RawMessage(`{"machine_pool_id":"` + selectedID + `"}`))
+	require.NoError(t, err)
+	first.MachinePoolName, second.MachinePoolName = second.MachinePoolName, first.MachinePoolName
+	selected, err := selectPoolForMachineCreate([]executionstore.MachinePoolSourceRecord{first, second}, input)
+	require.NoError(t, err)
+	require.Equal(t, first, selected)
+}
+
+func TestCreateMachineRequiresPublicPoolID(t *testing.T) {
+	for _, id := range []string{
+		"", "Build", uuid.NewString(), "mpo_invalid", "mpo_aaaaaaaaaaaaaaaaaaaaaaaaaa", "mch_aaaaaaaaaaaaaaaaaaaaaaaaae",
+	} {
+		t.Run(id, func(t *testing.T) {
+			require.Error(t, validateCreateMachineInput(json.RawMessage(`{"machine_pool_id":"`+id+`"}`)))
+		})
+	}
+}
+
+func TestMachinePoolListContinuesPastOversizedDescription(t *testing.T) {
+	pools := []executionstore.MachinePoolSourceRecord{{
+		MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Build",
+		Description: strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes),
+	}, {MachinePoolID: uuid.UUID{15: 2}, MachinePoolName: "Test"}}
+	machines := []executionstore.AgentMachineObservationRecord{{MachineID: uuid.UUID{15: 1}}}
+	result, err := machineListPage(machines, pools, "")
+	require.NoError(t, err)
+	failure, ok := result.(failTransaction)
+	require.True(t, ok)
+	parts, err := failure.content.contentParts()
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(parts), executionstore.ToolResultInlineBudgetBytes)
+	poolID := poolPublicIDForTest(t, pools[0].MachinePoolID)
+	require.Contains(t, string(parts), poolID)
+	require.Contains(t, string(parts), "cursor")
+	page := machineListPageForTest(t, machines, pools, poolID)
+	require.Equal(t, []machinePoolPayload{{
+		MachinePoolID: poolPublicIDForTest(t, pools[1].MachinePoolID), MachinePoolName: "Test",
+	}}, page.MachinePools)
+	require.Len(t, page.Machines, 1)
+	require.Equal(t, machinePublicIDForTest(t, machines[0].MachineID), page.Machines[0].MachineID)
+	require.Empty(t, page.NextCursor)
 }

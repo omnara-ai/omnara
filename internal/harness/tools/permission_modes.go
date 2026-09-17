@@ -275,11 +275,18 @@ func createMachinePermissionChallenge(
 		}
 		return toolpermission.Request{}, newToolCallPreparationError(content, err)
 	}
-	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolID, source.MachinePoolName)
+	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolID)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(call, mode, authorizationInput)
+	poolID, err := publicid.Encode(publicid.KindMachinePool, source.MachinePoolID)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	return permissionChallenge(call, mode, authorizationInput,
+		interactionform.ContextItem{Label: "Machine pool", Value: source.MachinePoolName},
+		interactionform.ContextItem{Label: "Machine pool ID", Value: poolID},
+	)
 }
 
 func listMachinesPermissionChallenge(

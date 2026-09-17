@@ -297,6 +297,7 @@ SELECT binding.machine_id,
        coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
        coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
        machine.lifecycle_reason_message,
+       machine.machine_pool_id,
        coalesce(pool.name, '') AS machine_pool_name,
        (binding.state = 'attached' AND pmgrant.id IS NULL)::boolean AS project_grant_missing,
        coalesce((

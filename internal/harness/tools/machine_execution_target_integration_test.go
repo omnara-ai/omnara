@@ -853,7 +853,7 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 	badCall := model.ToolCall{
 		ID:    "call_create-boundary-invalid-pool",
 		Name:  "create_machine",
-		Input: json.RawMessage(`{"machine_pool_name":"missing"}`),
+		Input: json.RawMessage(`{"machine_pool_id":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae"}`),
 	}
 	toolCalls, lock, admitted, contextRecord := createMachineToolCallsForDirectStoreTest(
 		t,
