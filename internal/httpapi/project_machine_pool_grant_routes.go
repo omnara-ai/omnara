@@ -53,7 +53,7 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	defaultMachineSecretEnvOverlay, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
+	defaultMachineSecretEnvOverlay, err := secretIDsFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	defaultMachineSecretEnvOverlay, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
+	defaultMachineSecretEnvOverlay, err := secretIDsFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +358,7 @@ func projectMachinePoolGrantResponse(
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
 	var defaultMachineSecretEnvOverlay map[string]*string
-	if err := json.Unmarshal(record.DefaultMachineSecretEnvOverlay, &defaultMachineSecretEnvOverlay); err != nil {
+	if err := publicSecretIDs(record.DefaultMachineSecretEnvOverlay, &defaultMachineSecretEnvOverlay); err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
 	defaultMachineProviderOptionsOverlay, err := jsonMapOrFallback(

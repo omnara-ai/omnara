@@ -9,13 +9,14 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-const CompilerVersion = ""
+const CompilerVersion = "1"
 
 const (
 	defaultPoolMaxMachines        = 1
@@ -36,24 +37,20 @@ type Compiled struct {
 	MaxDepth       *int                         `json:"max_depth,omitempty"`
 }
 
-// SkillCompiled pins a skill's identity into the agent contract. Only the
-// public id is captured: name and description belong to the skill's latest
-// revision and are resolved at model-call time, so updated skills reach
-// agents without recompiling their configs.
 type SkillCompiled struct {
-	PublicID string `json:"public_id"`
+	ID uuid.UUID `json:"id"`
 }
 
 // SkillResolution is what a ResolveSkillID callback returns at compile time.
 // Name is used only for compile-time duplicate detection and is not stored
 // in the compiled contract.
 type SkillResolution struct {
-	PublicID string
-	Name     string
+	ID   uuid.UUID
+	Name string
 }
 
 type ModelCompiled struct {
-	ConfiguredModelID      string                  `json:"configured_model_id,omitempty"`
+	ConfiguredModelID      uuid.UUID               `json:"configured_model_id,omitzero"`
 	ContextWindowTokens    *int                    `json:"context_window_tokens,omitempty"`
 	DefaultMaxOutputTokens *int                    `json:"default_max_output_tokens,omitempty"`
 	CacheRetention         string                  `json:"cache_retention,omitempty"`
@@ -85,7 +82,7 @@ func (m ModelCompiled) Overrides() ModelOverrides {
 }
 
 type compiledModelResult struct {
-	configuredModelID    string
+	configuredModelID    uuid.UUID
 	model                ModelCompiled
 	sourceProviderConfig string
 	sourceName           string
@@ -93,8 +90,8 @@ type compiledModelResult struct {
 }
 
 type MachineSourceCompiled struct {
-	MachineID                     string                     `json:"machine_id,omitempty"`
-	MachinePoolID                 string                     `json:"machine_pool_id,omitempty"`
+	MachineID                     uuid.UUID                  `json:"machine_id,omitzero"`
+	MachinePoolID                 uuid.UUID                  `json:"machine_pool_id,omitzero"`
 	MaxMachines                   int                        `json:"max_machines,omitempty"`
 	InitialNumMachines            int                        `json:"initial_num_machines,omitempty"`
 	DeleteAfterIdleMinutes        *int                       `json:"delete_after_idle_minutes,omitempty"`
@@ -102,7 +99,7 @@ type MachineSourceCompiled struct {
 	MachineCPU                    *int                       `json:"machine_cpu,omitempty"`
 	MachineMemoryMB               *int                       `json:"machine_memory_mb,omitempty"`
 	EnvOverlay                    map[string]*string         `json:"env_overlay,omitempty"`
-	SecretEnvOverlay              map[string]*string         `json:"secret_env_overlay,omitempty"`
+	SecretEnvOverlay              map[string]*uuid.UUID      `json:"secret_env_overlay,omitempty"`
 	MachineProviderOptionsOverlay map[string]json.RawMessage `json:"machine_provider_options_overlay,omitempty"`
 	Description                   string                     `json:"description,omitempty"`
 }
@@ -126,10 +123,10 @@ type MCPServerCompiled struct {
 }
 
 type MCPAuthCompiled struct {
-	Type     string `json:"type"`
-	SecretID string `json:"secret_id"`
-	Service  string `json:"service,omitempty"`
-	Region   string `json:"region,omitempty"`
+	Type     string    `json:"type"`
+	SecretID uuid.UUID `json:"secret_id"`
+	Service  string    `json:"service,omitempty"`
+	Region   string    `json:"region,omitempty"`
 }
 
 type MCPToolCompiled struct {
@@ -153,15 +150,15 @@ type Result struct {
 type CompileOptions struct {
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
-	ValidateSecretID          func(secretID string, expectedKind secrets.Kind) error
-	ResolveMachineName        func(machineName string) (string, error)
-	ResolveMachinePoolName    func(machinePoolName string) (string, error)
+	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
+	ResolveMachineName        func(machineName string) (uuid.UUID, error)
+	ResolveMachinePoolName    func(machinePoolName string) (uuid.UUID, error)
 	ResolveSkillID            func(skillID string) (SkillResolution, error)
-	ResolveAgentProfileName   func(profileName string) (string, error)
+	ResolveAgentProfileName   func(profileName string) (uuid.UUID, error)
 }
 
 type ResolvedModelSelection struct {
-	ConfiguredModelID string
+	ConfiguredModelID uuid.UUID
 	SupportsTools     *bool
 }
 
@@ -401,7 +398,7 @@ func compileSkills(skillIDs []string, opts CompileOptions) ([]SkillCompiled, err
 		if err != nil {
 			return nil, issueOr(jsonPointer("skills", i), err)
 		}
-		if rec.PublicID == "" || rec.Name == "" {
+		if rec.ID == uuid.Nil || rec.Name == "" {
 			return nil, issuef(jsonPointer("skills", i), "resolver returned incomplete record")
 		}
 		resolved = append(resolved, rec)
@@ -416,11 +413,11 @@ func compileSkills(skillIDs []string, opts CompileOptions) ([]SkillCompiled, err
 					"skill names must be unique across the agent's attached set",
 				rec.Name,
 				existing,
-				rec.PublicID,
+				skillIDs[i],
 			)
 		}
-		seenNames[rec.Name] = rec.PublicID
-		compiledSkills = append(compiledSkills, SkillCompiled{PublicID: rec.PublicID})
+		seenNames[rec.Name] = skillIDs[i]
+		compiledSkills = append(compiledSkills, SkillCompiled{ID: rec.ID})
 	}
 	return compiledSkills, nil
 }
@@ -506,23 +503,24 @@ func compileMachineSources(sources []AgentConfigMachineSource, opts CompileOptio
 		return nil, nil
 	}
 	machines := make([]MachineSourceCompiled, 0, len(sources))
-	seenSources := map[string]bool{}
+	seenMachines := map[uuid.UUID]bool{}
+	seenPools := map[uuid.UUID]bool{}
 	for index, source := range sources {
 		machine, err := compileMachineSource(source, index, opts)
 		if err != nil {
 			return nil, err
 		}
-		if machine.MachineID != "" {
-			if seenSources[machine.MachineID] {
+		if machine.MachineID != uuid.Nil {
+			if seenMachines[machine.MachineID] {
 				return nil, issuef(jsonPointer("machine_sources", index, "machine_name"), "duplicates a machine id")
 			}
-			seenSources[machine.MachineID] = true
+			seenMachines[machine.MachineID] = true
 		}
-		if machine.MachinePoolID != "" {
-			if seenSources[machine.MachinePoolID] {
+		if machine.MachinePoolID != uuid.Nil {
+			if seenPools[machine.MachinePoolID] {
 				return nil, issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "duplicates a machine pool id")
 			}
-			seenSources[machine.MachinePoolID] = true
+			seenPools[machine.MachinePoolID] = true
 		}
 		machines = append(machines, machine)
 	}
@@ -541,7 +539,8 @@ func compileMachineSource(
 	if strings.ContainsRune(cwd, 0) {
 		return MachineSourceCompiled{}, issuef(jsonPointer("machine_sources", index, "cwd"), "cannot contain NUL")
 	}
-	if err := validateMachineSourceSecrets(source, index, opts); err != nil {
+	secretEnv, err := compileMachineSourceSecrets(source, index, opts)
+	if err != nil {
 		return MachineSourceCompiled{}, err
 	}
 	if machineName != "" {
@@ -577,7 +576,7 @@ func compileMachineSource(
 			MachineID:        machineID,
 			Cwd:              cwd,
 			EnvOverlay:       source.EnvOverlay,
-			SecretEnvOverlay: source.SecretEnvOverlay,
+			SecretEnvOverlay: secretEnv,
 			Description:      description,
 		}, nil
 	}
@@ -598,7 +597,7 @@ func compileMachineSource(
 		MachineCPU:                    source.MachineCPU,
 		MachineMemoryMB:               source.MachineMemoryMB,
 		EnvOverlay:                    source.EnvOverlay,
-		SecretEnvOverlay:              source.SecretEnvOverlay,
+		SecretEnvOverlay:              secretEnv,
 		MachineProviderOptionsOverlay: source.MachineProviderOptionsOverlay,
 		Description:                   description,
 	}, nil
@@ -607,18 +606,17 @@ func compileMachineSource(
 func resolveMachineSourceMachineName(
 	machineName string,
 	index int,
-	resolve func(string) (string, error),
-) (string, error) {
+	resolve func(string) (uuid.UUID, error),
+) (uuid.UUID, error) {
 	if resolve == nil {
-		return "", issuef(jsonPointer("machine_sources", index, "machine_name"), "resolver is required")
+		return uuid.Nil, issuef(jsonPointer("machine_sources", index, "machine_name"), "resolver is required")
 	}
 	resolved, err := resolve(machineName)
 	if err != nil {
-		return "", issueOr(jsonPointer("machine_sources", index, "machine_name"), err)
+		return uuid.Nil, issueOr(jsonPointer("machine_sources", index, "machine_name"), err)
 	}
-	resolved = strings.ToLower(strings.TrimSpace(resolved))
-	if _, err := publicid.Decode(publicid.KindMachine, resolved); err != nil {
-		return "", issuef(jsonPointer("machine_sources", index, "machine_name"), "resolved to invalid public id: %w", err)
+	if resolved == uuid.Nil {
+		return uuid.Nil, issuef(jsonPointer("machine_sources", index, "machine_name"), "resolved to nil machine id")
 	}
 	return resolved, nil
 }
@@ -626,18 +624,17 @@ func resolveMachineSourceMachineName(
 func resolveMachineSourceMachinePoolName(
 	machinePoolName string,
 	index int,
-	resolve func(string) (string, error),
-) (string, error) {
+	resolve func(string) (uuid.UUID, error),
+) (uuid.UUID, error) {
 	if resolve == nil {
-		return "", issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolver is required")
+		return uuid.Nil, issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolver is required")
 	}
 	resolved, err := resolve(machinePoolName)
 	if err != nil {
-		return "", issueOr(jsonPointer("machine_sources", index, "machine_pool_name"), err)
+		return uuid.Nil, issueOr(jsonPointer("machine_sources", index, "machine_pool_name"), err)
 	}
-	resolved = strings.ToLower(strings.TrimSpace(resolved))
-	if _, err := publicid.Decode(publicid.KindMachinePool, resolved); err != nil {
-		return "", issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolved to invalid public id: %w", err)
+	if resolved == uuid.Nil {
+		return uuid.Nil, issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolved to nil machine pool id")
 	}
 	return resolved, nil
 }
@@ -648,19 +645,29 @@ func hasMachineProvisioningFields(source AgentConfigMachineSource) bool {
 		source.MachineProviderOptionsOverlay != nil
 }
 
-func validateMachineSourceSecrets(source AgentConfigMachineSource, index int, opts CompileOptions) error {
-	if opts.ValidateSecretID == nil {
-		return nil
-	}
+func compileMachineSourceSecrets(
+	source AgentConfigMachineSource,
+	index int,
+	opts CompileOptions,
+) (map[string]*uuid.UUID, error) {
+	result := make(map[string]*uuid.UUID, len(source.SecretEnvOverlay))
 	for key, secretID := range source.SecretEnvOverlay {
 		if secretID == nil {
+			result[key] = nil
 			continue
 		}
-		if err := opts.ValidateSecretID(*secretID, secrets.KindGeneric); err != nil {
-			return issueOr(jsonPointer("machine_sources", index, "secret_env_overlay", key), err)
+		id, err := publicid.Decode(publicid.KindSecret, *secretID)
+		if err != nil {
+			return nil, issueOr(jsonPointer("machine_sources", index, "secret_env_overlay", key), err)
 		}
+		if opts.ValidateSecretID != nil {
+			if err := opts.ValidateSecretID(id, secrets.KindGeneric); err != nil {
+				return nil, issueOr(jsonPointer("machine_sources", index, "secret_env_overlay", key), err)
+			}
+		}
+		result[key] = &id
 	}
-	return nil
+	return result, nil
 }
 
 func compilePoolMachineCounts(source AgentConfigMachineSource, index int) (int, int, error) {

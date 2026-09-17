@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"github.com/google/uuid"
 	"strings"
 	"testing"
 
@@ -11,13 +12,13 @@ import (
 func subagentCompileOptions() CompileOptions {
 	return CompileOptions{
 		ResolveModelSelection: func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error) {
-			return ResolvedModelSelection{ConfiguredModelID: "11111111-1111-1111-1111-111111111111"}, nil
+			return ResolvedModelSelection{ConfiguredModelID: uuid.MustParse("11111111-1111-1111-1111-111111111111")}, nil
 		},
-		ResolveAgentProfileName: func(profileName string) (string, error) {
+		ResolveAgentProfileName: func(profileName string) (uuid.UUID, error) {
 			if profileName != "research-agent" {
-				return "", errNotFoundProfile
+				return uuid.Nil, errNotFoundProfile
 			}
-			return "aprf_abcdefghijklmnopqrstuvwxyz", nil
+			return publicidTestID(94), nil
 		},
 	}
 }
@@ -57,7 +58,7 @@ max_subagents: 5
 		t.Fatalf("compile: %v", err)
 	}
 	researcher := result.Compiled.Subagents["researcher"]
-	if researcher.Type != SubagentTypeProfile || researcher.ProfileID != "aprf_abcdefghijklmnopqrstuvwxyz" {
+	if researcher.Type != SubagentTypeProfile || researcher.ProfileID != publicidTestID(94) {
 		t.Fatalf("researcher = %+v", researcher)
 	}
 	if researcher.Model == nil || researcher.Model.Name != "gpt-mini" ||
@@ -69,7 +70,7 @@ max_subagents: 5
 		t.Fatalf("researcher limits = %+v", researcher)
 	}
 	fork := result.Compiled.Subagents["fork"]
-	if fork.Type != SubagentTypeSelf || fork.ProfileID != "" || fork.Model == nil ||
+	if fork.Type != SubagentTypeSelf || fork.ProfileID != uuid.Nil || fork.Model == nil ||
 		fork.Model.Reasoning == nil || fork.Model.Reasoning.Effort != "low" {
 		t.Fatalf("fork = %+v", fork)
 	}
@@ -208,15 +209,15 @@ max_subagents: 2
 		t.Fatalf("compile: %v", err)
 	}
 	base := result.Compiled
-	var resolvedBase string
+	var resolvedBase uuid.UUID
 	var resolvedOverride SubagentModelCompiled
 	child, err := SubagentCompiledFrom(base, base.Subagents["fork"], SubagentDepth{Depth: 1}, func(
-		baseConfiguredModelID string,
+		baseConfiguredModelID uuid.UUID,
 		override SubagentModelCompiled,
 	) (ResolvedModelSelection, error) {
 		resolvedBase = baseConfiguredModelID
 		resolvedOverride = override
-		return ResolvedModelSelection{ConfiguredModelID: "22222222-2222-2222-2222-222222222222"}, nil
+		return ResolvedModelSelection{ConfiguredModelID: uuid.MustParse("22222222-2222-2222-2222-222222222222")}, nil
 	})
 	if err != nil {
 		t.Fatalf("derive self fork: %v", err)
@@ -236,7 +237,7 @@ max_subagents: 2
 	if resolvedBase != base.Model.ConfiguredModelID || resolvedOverride.Name != "gpt-small" {
 		t.Fatalf("model resolution = base %q override %+v", resolvedBase, resolvedOverride)
 	}
-	if child.Model.ConfiguredModelID != "22222222-2222-2222-2222-222222222222" {
+	if child.Model.ConfiguredModelID != uuid.MustParse("22222222-2222-2222-2222-222222222222") {
 		t.Fatalf("child model = %+v", child.Model)
 	}
 	if !strings.HasSuffix(child.Instruction, "\n\nBe brief.") {
@@ -384,10 +385,10 @@ subagents:
 	}
 	supportsTools := false
 	_, err = SubagentCompiledFrom(result.Compiled, result.Compiled.Subagents["fork"], SubagentDepth{Depth: 1}, func(
-		string, SubagentModelCompiled,
+		uuid.UUID, SubagentModelCompiled,
 	) (ResolvedModelSelection, error) {
 		return ResolvedModelSelection{
-			ConfiguredModelID: "22222222-2222-2222-2222-222222222222",
+			ConfiguredModelID: uuid.MustParse("22222222-2222-2222-2222-222222222222"),
 			SupportsTools:     &supportsTools,
 		}, nil
 	})

@@ -22,12 +22,10 @@ func SeedAgentConfig(
 ) executionstore.AgentConfigRecord {
 	t.Helper()
 	compiled := SeedModelAndCompileAgentYAML(t, ctx, models, execution, orgID, projectID, sourceYAML)
-	modelID, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	require.NoError(t, err, "parse compiled configured model ID for project %s", projectID)
 	config, err := execution.CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
 		Source:                  sourceYAML,
-		ConfiguredModelID:       modelID,
+		ConfiguredModelID:       compiled.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
 		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,

@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/processcmd"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
@@ -64,12 +63,12 @@ type MachineProvisioningOverlay struct {
 
 type MachineEnvironment struct {
 	Env       map[string]string
-	SecretEnv map[string]string
+	SecretEnv map[string]uuid.UUID
 }
 
 type MachineEnvironmentOverlay struct {
 	Env       map[string]*string
-	SecretEnv map[string]*string
+	SecretEnv map[string]*uuid.UUID
 }
 
 type MachineBindingConfig struct {
@@ -354,10 +353,10 @@ func resolveMachineEnvironment(
 			return MachineEnvironment{}, err
 		}
 		if overlay.Env != nil {
-			resolved.Env = applyStringMapOverlay(resolved.Env, overlay.Env)
+			resolved.Env = applyMapOverlay(resolved.Env, overlay.Env)
 		}
 		if overlay.SecretEnv != nil {
-			resolved.SecretEnv = applyStringMapOverlay(resolved.SecretEnv, overlay.SecretEnv)
+			resolved.SecretEnv = applyMapOverlay(resolved.SecretEnv, overlay.SecretEnv)
 		}
 	}
 	if err := validateMachineEnvironment(resolved); err != nil {
@@ -383,9 +382,9 @@ func resolveMachineEnvironmentTx(
 	return environment, nil
 }
 
-func applyStringMapOverlay(base map[string]string, overlay map[string]*string) map[string]string {
+func applyMapOverlay[T any](base map[string]T, overlay map[string]*T) map[string]T {
 	if base == nil {
-		base = map[string]string{}
+		base = map[string]T{}
 	}
 	for key, value := range overlay {
 		name := strings.ToUpper(key)
@@ -435,11 +434,8 @@ func validateMachineEnvironment(environment MachineEnvironment) error {
 		if _, ok := envNames[strings.ToUpper(key)]; ok {
 			return fmt.Errorf("env and secret_env cannot both set key %s", key)
 		}
-		if secretID == "" {
+		if secretID == uuid.Nil {
 			return fmt.Errorf("secret_env.%s is required", key)
-		}
-		if _, err := publicid.Decode(publicid.KindSecret, secretID); err != nil {
-			return fmt.Errorf("secret_env.%s: %w", key, err)
 		}
 	}
 	return nil
@@ -537,7 +533,7 @@ func machineEnvironmentToColumns(environment MachineEnvironment) (json.RawMessag
 		return nil, nil, err
 	}
 	if environment.SecretEnv == nil {
-		environment.SecretEnv = map[string]string{}
+		environment.SecretEnv = map[string]uuid.UUID{}
 	}
 	secretEnv, err := marshalJSON(environment.SecretEnv)
 	if err != nil {
@@ -560,7 +556,7 @@ func MachineEnvironmentOverlayToColumns(
 		return nil, nil, err
 	}
 	if overlay.SecretEnv == nil {
-		overlay.SecretEnv = map[string]*string{}
+		overlay.SecretEnv = map[string]*uuid.UUID{}
 	}
 	secretEnvOverlay, err := marshalJSON(overlay.SecretEnv)
 	if err != nil {
@@ -696,11 +692,7 @@ func validateMachineEnvironmentSecretsTx(
 	environment MachineEnvironment,
 ) error {
 	validatedSecretIDs := make(map[uuid.UUID]struct{}, len(environment.SecretEnv))
-	for envName, secretRef := range environment.SecretEnv {
-		secretID, err := publicid.Decode(publicid.KindSecret, secretRef)
-		if err != nil {
-			return fmt.Errorf("secret_env.%s: %w", envName, err)
-		}
+	for envName, secretID := range environment.SecretEnv {
 		if _, ok := validatedSecretIDs[secretID]; ok {
 			continue
 		}
@@ -790,11 +782,7 @@ func (s *Store) resolveEnvironmentSecrets(
 		return nil, fmt.Errorf("%w: resolved environment exceeds size limit", storeerr.ErrPermanentEnvironment)
 	}
 	resolvedSecrets := make(map[uuid.UUID]string, len(secretEnv))
-	for envName, secretRef := range secretEnv {
-		secretID, err := publicid.Decode(publicid.KindSecret, secretRef)
-		if err != nil {
-			return nil, fmt.Errorf("%w: secret_env.%s: %w", storeerr.ErrPermanentEnvironment, envName, err)
-		}
+	for envName, secretID := range secretEnv {
 		value, ok := resolvedSecrets[secretID]
 		if !ok {
 			payload, err := s.readEnvironmentSecretPayload(ctx, orgID, projectID, secretID)

@@ -127,7 +127,7 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if len(resolved) != 0 || len(missing) != 1 || missing[0] != orgSkillPublicID {
 		t.Fatalf("ungranted organization skill resolved=%+v missing=%+v", resolved, missing)
 	}
-	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, orgSkillPublicID); !storeerr.IsNotFound(err) {
+	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, orgSkill.ID); !storeerr.IsNotFound(err) {
 		t.Fatalf("dispatch ungranted organization skill error = %v, want not found", err)
 	}
 	if _, err := store.Skills().CreateSkillGrant(ctx, skillstore.CreateSkillGrantInput{
@@ -205,12 +205,12 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 		}
 	}
 	if dispatched, err := store.Skills().GetSkillForDispatch(
-		ctx, testProjectID, orgSkillPublicID,
+		ctx, testProjectID, orgSkill.ID,
 	); err != nil || dispatched.ID != orgSkill.ID {
 		t.Fatalf("dispatch granted organization skill = %+v, err=%v", dispatched, err)
 	}
 	if dispatched, err := store.Skills().GetSkillForDispatch(
-		ctx, testProjectID, userSkillPublicID,
+		ctx, testProjectID, userSkill.ID,
 	); err != nil || dispatched.ID != userSkill.ID {
 		t.Fatalf("dispatch granted user skill = %+v, err=%v", dispatched, err)
 	}
@@ -297,7 +297,7 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if err != nil || len(resolved) != 0 || len(missing) != 1 {
 		t.Fatalf("revoked user skill resolved=%+v missing=%+v err=%v", resolved, missing, err)
 	}
-	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, userSkillPublicID); !storeerr.IsNotFound(err) {
+	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, userSkill.ID); !storeerr.IsNotFound(err) {
 		t.Fatalf("dispatch revoked user skill error = %v, want not found", err)
 	}
 }
@@ -335,7 +335,7 @@ skills:
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 		ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-			return agentconfig.SkillResolution{PublicID: id, Name: skill.Name}, nil
+			return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: skill.Name}, nil
 		},
 	})
 	if err != nil {

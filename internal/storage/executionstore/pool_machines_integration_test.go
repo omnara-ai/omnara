@@ -511,7 +511,7 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	)
 	cwd := "/mutated"
 	env := json.RawMessage(`{"MUTATED":"true"}`)
-	secretEnv := json.RawMessage(`{"MUTATED_SECRET":"` + secretPublicIDForTest(t, projectSecret.ID) + `"}`)
+	secretEnv := json.RawMessage(`{"MUTATED_SECRET":"` + projectSecret.ID.String() + `"}`)
 	updated, err := store.Execution().UpdateMachine(ctx, executionstore.UpdateMachineInput{
 		OrgID:     testOrgID,
 		MachineID: created.Machine.Machine.ID,

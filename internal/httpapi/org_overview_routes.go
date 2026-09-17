@@ -80,7 +80,7 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	}
 	recentProfiles := make([]openapi.AgentProfile, 0, len(profileRecords))
 	for _, record := range profileRecords {
-		response, err := s.server.agentProfileResponseFromRecord(ctx, record)
+		response, err := s.server.agentProfileResponseFromRecord(ctx, record, false)
 		if err != nil {
 			return nil, err
 		}

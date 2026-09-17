@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -57,7 +58,7 @@ type AgentConfigSubagentInstructionSource struct {
 
 type SubagentCompiled struct {
 	Type                    string                 `json:"type"`
-	ProfileID               string                 `json:"profile_id,omitempty"`
+	ProfileID               uuid.UUID              `json:"profile_id,omitzero"`
 	Description             string                 `json:"description,omitempty"`
 	Model                   *SubagentModelCompiled `json:"model,omitempty"`
 	InstructionAppend       string                 `json:"instruction_append,omitempty"`
@@ -100,7 +101,7 @@ func (override *SubagentModelCompiled) ApplyTo(base AgentConfigModelSource) Agen
 }
 
 type SubagentModelResolver func(
-	baseConfiguredModelID string,
+	baseConfiguredModelID uuid.UUID,
 	override SubagentModelCompiled,
 ) (ResolvedModelSelection, error)
 
@@ -207,7 +208,7 @@ func compileSubagents(
 			if err != nil {
 				return nil, issueOr(jsonPointer("subagents", key, "profile"), err)
 			}
-			if profileID == "" {
+			if profileID == uuid.Nil {
 				return nil, issuef(jsonPointer("subagents", key, "profile"), "resolver returned an empty profile id")
 			}
 			out.ProfileID = profileID

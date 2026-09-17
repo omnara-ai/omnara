@@ -1431,7 +1431,7 @@ func TestDefaultPoolGrantAllowsSecretEnvBeforeProjectSecretGrant(t *testing.T) {
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
 			DefaultMachineMemoryMB:        1024,
-			DefaultMachineSecretEnv:       json.RawMessage(`{"API_TOKEN":"` + secretPublicIDForTest(t, orgSecret.ID) + `"}`),
+			DefaultMachineSecretEnv:       json.RawMessage(`{"API_TOKEN":"` + orgSecret.ID.String() + `"}`),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"default"}`),
 		},
 	))

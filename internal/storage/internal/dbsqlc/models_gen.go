@@ -23,6 +23,20 @@ type Actor struct {
 	UpdatedAt        time.Time
 }
 
+type AgentConfig struct {
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	ConfiguredModelID       uuid.UUID
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
+	CompiledDefinition      json.RawMessage
+	CompilerVersion         string
+	EffectiveDefinitionHash string
+	CreatedAt               time.Time
+}
+
 type AgentEventReadProjection struct {
 	ID                             uuid.UUID
 	OrgID                          uuid.UUID

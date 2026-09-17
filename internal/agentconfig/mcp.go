@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -33,7 +34,7 @@ type RuntimeMCPServer struct {
 
 type RuntimeMCPAuth struct {
 	Type     string
-	SecretID string
+	SecretID uuid.UUID
 	Service  string
 	Region   string
 }
@@ -137,8 +138,8 @@ func compileMCPServers(
 }
 
 func compileMCPAuth(source *AgentConfigMCPAuthSource, opts CompileOptions) (*MCPAuthCompiled, error) {
-	secretID := strings.TrimSpace(source.SecretID)
-	if _, err := publicid.Decode(publicid.KindSecret, secretID); err != nil {
+	secretID, err := publicid.Decode(publicid.KindSecret, strings.TrimSpace(source.SecretID))
+	if err != nil {
 		return nil, issuef(jsonPointer("secret_id"), "must be a secret public id: %w", err)
 	}
 	expectedKind, err := mcpAuthSecretKind(source.Type)

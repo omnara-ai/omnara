@@ -216,8 +216,6 @@ type IntegrationInsertAgentMachineBindingInput struct {
 type IntegrationLaunchMachineSource struct {
 	Index              int
 	Contract           agentconfig.RuntimeMachine
-	MachineID          uuid.UUID
-	MachinePoolID      uuid.UUID
 	GrantID            uuid.UUID
 	PoolGrantForLaunch dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow
 	Provisioning       MachineProvisioningConfig

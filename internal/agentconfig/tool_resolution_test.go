@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"github.com/google/uuid"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -49,7 +50,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)
 			opts.ResolveSkillID = func(id string) (SkillResolution, error) {
-				return SkillResolution{PublicID: id, Name: "test-skill"}, nil
+				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 			}
 			raw := []byte(validAgentSource(source))
 			result, err := Compile(SourceFormatYAML, raw, opts)

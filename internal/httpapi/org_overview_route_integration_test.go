@@ -157,6 +157,13 @@ func TestGetOrgOverview(t *testing.T) {
 	if len(profileRows) != 2 {
 		t.Fatalf("recent_agent_profiles = %+v, want both profiles", profileRows)
 	}
+	for _, raw := range profileRows {
+		profile := testutil.RequireType[map[string]any](t, raw)
+		config := testutil.RequireType[map[string]any](t, profile["current_config"])
+		if _, included := config["compiled_definition"]; included {
+			t.Fatal("org overview should omit compiled_definition")
+		}
+	}
 	if got := testutil.RequireType[map[string]any](t, profileRows[0])["id"]; got != secondProfileID {
 		t.Fatalf("recent profile order[0] = %v, want %s (newest first)", got, secondProfileID)
 	}

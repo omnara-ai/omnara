@@ -564,9 +564,13 @@ type fakeContextStore struct {
 func (s *fakeContextStore) GetSkillForDispatch(
 	_ context.Context,
 	_ uuid.UUID,
-	publicSkillID string,
+	publicSkillID uuid.UUID,
 ) (skillstore.SkillRecord, error) {
-	if record, ok := s.skills[publicSkillID]; ok {
+	encoded, err := publicid.Encode(publicid.KindSkill, publicSkillID)
+	if err != nil {
+		return skillstore.SkillRecord{}, err
+	}
+	if record, ok := s.skills[encoded]; ok {
 		return record, nil
 	}
 	return skillstore.SkillRecord{}, storeerr.ErrNotFound
@@ -841,7 +845,7 @@ skills:
 `),
 				agentconfig.CompileOptions{
 					ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-						return agentconfig.SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+						return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 					},
 				},
 			)
@@ -1012,7 +1016,7 @@ skills:
 `),
 		agentconfig.CompileOptions{
 			ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-				return agentconfig.SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+				return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 			},
 		},
 	)

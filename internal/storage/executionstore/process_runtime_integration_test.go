@@ -434,10 +434,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create process environment secret: %v", err)
 	}
-	secretID, err := publicid.Encode(publicid.KindSecret, secret.ID)
-	if err != nil {
-		t.Fatalf("encode process environment secret: %v", err)
-	}
+	secretID := secret.ID.String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET env_overlay = '{"APP_ENV":"test"}'::jsonb,
@@ -516,10 +513,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create NUL process environment secret: %v", err)
 	}
-	nulSecretID, err := publicid.Encode(publicid.KindSecret, nulSecret.ID)
-	if err != nil {
-		t.Fatalf("encode NUL process environment secret: %v", err)
-	}
+	nulSecretID := nulSecret.ID.String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET secret_env_overlay = jsonb_build_object('API_TOKEN', $1::text)
@@ -556,10 +550,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 		offers[0].PreparationError != "process environment could not be resolved" || offers[0].Env != nil {
 		t.Fatalf("process offers with NUL environment secret = %+v", offers)
 	}
-	missingSecretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-	if err != nil {
-		t.Fatalf("encode missing process environment secret: %v", err)
-	}
+	missingSecretID := uuid.New().String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE processes
 		SET secret_env = jsonb_build_object('API_TOKEN', $1::text)

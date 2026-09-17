@@ -16,7 +16,7 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 	require.NoError(t, err)
 	opts := agentconfig.CompileOptions{
 		ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-			return agentconfig.SkillResolution{PublicID: id, Name: "test-skill"}, nil
+			return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 		},
 	}
 	for _, source := range []struct {
@@ -132,7 +132,7 @@ func TestExplicitDefaultToolsMigrationSubagents(t *testing.T) {
 	require.NoError(t, err)
 	opts := agentconfig.CompileOptions{
 		ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-			return agentconfig.SkillResolution{PublicID: id, Name: "test-skill"}, nil
+			return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 		},
 	}
 	for _, test := range []struct {

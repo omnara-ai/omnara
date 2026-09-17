@@ -296,7 +296,7 @@ func TestListMCPServerToolsReportsUpstreamFailureForNonAuthErrors(t *testing.T) 
 func TestListMCPServerToolsRequiresStoreForSecretAuth(t *testing.T) {
 	var auth openapi.MCPServerAuth
 	if err := auth.FromMCPServerAuthBearer(openapi.MCPServerAuthBearer{
-		Type: "bearer", SecretId: "sec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Type: "bearer", SecretId: "sec_ceirceircfardairceirceirce",
 	}); err != nil {
 		t.Fatalf("build auth: %v", err)
 	}

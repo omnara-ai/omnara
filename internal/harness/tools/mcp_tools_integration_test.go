@@ -20,7 +20,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -185,10 +184,6 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 	`, toolsTestOrgID, initialVersion.ID); err != nil {
 		t.Fatalf("expire MCP OAuth access token: %v", err)
 	}
-	secretPublicID, err := publicid.Encode(publicid.KindSecret, secret.ID)
-	if err != nil {
-		t.Fatalf("encode MCP OAuth secret ID: %v", err)
-	}
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, toolsTestProjectID, fixture.Agent.ID, "docs")
 	if err != nil || !found {
 		t.Fatalf("load MCP connection: found=%t err=%v", found, err)
@@ -198,7 +193,7 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 		URL:       conn.EndpointURL,
 		Auth: &agentconfig.RuntimeMCPAuth{
 			Type:     agentconfig.MCPAuthTypeOAuth,
-			SecretID: secretPublicID,
+			SecretID: secret.ID,
 		},
 	}
 	manager := mcp.Manager{
@@ -374,10 +369,6 @@ func TestSigV4MCPConnectionRechecksSecretGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grant AWS credentials secret: %v", err)
 	}
-	secretPublicID, err := publicid.Encode(publicid.KindSecret, secret.ID)
-	if err != nil {
-		t.Fatalf("encode AWS credentials secret ID: %v", err)
-	}
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, toolsTestProjectID, fixture.Agent.ID, "docs")
 	if err != nil || !found {
 		t.Fatalf("load MCP connection: found=%t err=%v", found, err)
@@ -388,7 +379,7 @@ func TestSigV4MCPConnectionRechecksSecretGrant(t *testing.T) {
 		URL:       conn.EndpointURL,
 		Auth: &agentconfig.RuntimeMCPAuth{
 			Type:     agentconfig.MCPAuthTypeSigV4,
-			SecretID: secretPublicID,
+			SecretID: secret.ID,
 			Service:  "execute-api",
 			Region:   "us-west-2",
 		},
