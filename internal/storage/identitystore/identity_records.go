@@ -312,6 +312,7 @@ type OAuthTokenSetRecord struct {
 	ClientID     string
 	Scope        string
 	Nonce        string
+	Email        string
 	AccessToken  string
 	RefreshToken string
 	ExpiresIn    time.Duration

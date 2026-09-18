@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -155,6 +156,10 @@ func (s *Store) ExchangeOAuthAuthorizationCode(
 	}); err != nil {
 		return OAuthTokenSetRecord{}, fmt.Errorf("create oauth access token: %w", err)
 	}
+	email, err := oauthGrantEmailTx(ctx, qtx, code.UserID, code.Scope)
+	if err != nil {
+		return OAuthTokenSetRecord{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return OAuthTokenSetRecord{}, fmt.Errorf("commit authorization code exchange: %w", err)
 	}
@@ -162,6 +167,7 @@ func (s *Store) ExchangeOAuthAuthorizationCode(
 	tokens.ClientID = code.ClientID
 	tokens.Scope = code.Scope
 	tokens.Nonce = code.Nonce
+	tokens.Email = email
 	tokens.Resource = code.Resource
 	return tokens, nil
 }
@@ -184,18 +190,22 @@ func (s *Store) RefreshOAuthAccessToken(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 	presentedRefreshTokenHash := HashBearerToken(input.RefreshToken)
-	observedUserID, err := qtx.GetOAuthAccessTokenUserByRefreshToken(
+	observed, err := qtx.GetOAuthAccessTokenGrantByRefreshToken(
 		ctx,
-		dbsqlc.GetOAuthAccessTokenUserByRefreshTokenParams{PresentedRefreshTokenHash: presentedRefreshTokenHash},
+		dbsqlc.GetOAuthAccessTokenGrantByRefreshTokenParams{PresentedRefreshTokenHash: presentedRefreshTokenHash},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OAuthTokenSetRecord{}, storeerr.ErrUnauthorized
 	}
 	if err != nil {
-		return OAuthTokenSetRecord{}, fmt.Errorf("load oauth refresh token user: %w", err)
+		return OAuthTokenSetRecord{}, fmt.Errorf("load oauth refresh token grant: %w", err)
 	}
+	observedUserID := observed.UserID
 	if err := lockActiveOAuthUserTx(ctx, qtx, observedUserID); err != nil {
 		return OAuthTokenSetRecord{}, err
+	}
+	if !oauthScopeWithinGrant(input.Scope, observed.Scope) {
+		return OAuthTokenSetRecord{}, storeerr.ErrOAuthScopeExceedsGrant
 	}
 	rotated, err := qtx.RotateOAuthAccessToken(ctx, dbsqlc.RotateOAuthAccessTokenParams{
 		Scope:                     input.Scope,
@@ -227,14 +237,43 @@ func (s *Store) RefreshOAuthAccessToken(
 	if rotated.UserID != observedUserID || (input.Resource != "" && rotated.Resource != input.Resource) {
 		return OAuthTokenSetRecord{}, storeerr.ErrUnauthorized
 	}
+	email, err := oauthGrantEmailTx(ctx, qtx, rotated.UserID, rotated.Scope)
+	if err != nil {
+		return OAuthTokenSetRecord{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return OAuthTokenSetRecord{}, fmt.Errorf("commit oauth token refresh: %w", err)
 	}
 	tokens.UserID = rotated.UserID
 	tokens.ClientID = input.ClientID
 	tokens.Scope = rotated.Scope
+	tokens.Email = email
 	tokens.Resource = rotated.Resource
 	return tokens, nil
+}
+
+func oauthScopeWithinGrant(requested, granted string) bool {
+	grantedScopes := strings.Fields(granted)
+	for _, scope := range strings.Fields(requested) {
+		if !slices.Contains(grantedScopes, scope) {
+			return false
+		}
+	}
+	return true
+}
+
+func oauthGrantEmailTx(ctx context.Context, qtx *dbsqlc.Queries, userID uuid.UUID, scope string) (string, error) {
+	if !slices.Contains(strings.Fields(scope), "email") {
+		return "", nil
+	}
+	rows, err := qtx.ListVerifiedUserEmailsByUser(ctx, dbsqlc.ListVerifiedUserEmailsByUserParams{UserID: userID})
+	if err != nil {
+		return "", fmt.Errorf("list verified user emails for oauth grant: %w", err)
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+	return rows[0].Email, nil
 }
 
 func (s *Store) AuthenticateOAuthAccessToken(

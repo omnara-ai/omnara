@@ -60,20 +60,24 @@ func (h *Handler) oidcJWKSRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{jwk}})
 }
 
-func (h *Handler) oidcIDToken(r *http.Request, tokens identitystore.OAuthTokenSetRecord) (string, error) {
+func (h *Handler) oidcSigner(r *http.Request) (jose.Signer, error) {
 	key, err := h.store.OIDCSigningKey(r.Context())
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	jwk, err := oidcPublicJWK(key)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key},
+	return jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key},
 		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", jwk.KeyID))
-	if err != nil {
-		return "", err
-	}
+}
+
+func (h *Handler) oidcIDToken(
+	r *http.Request,
+	signer jose.Signer,
+	tokens identitystore.OAuthTokenSetRecord,
+) (string, error) {
 	now := time.Now()
 	claims := map[string]any{
 		"iss": h.issuerURL(r), "sub": tokens.UserID.String(), "aud": tokens.ClientID,
@@ -82,15 +86,9 @@ func (h *Handler) oidcIDToken(r *http.Request, tokens identitystore.OAuthTokenSe
 	if tokens.Nonce != "" {
 		claims["nonce"] = tokens.Nonce
 	}
-	if hasOAuthScope(tokens.Scope, "email") {
-		email, found, err := h.store.PrimaryVerifiedEmailForUser(r.Context(), tokens.UserID)
-		if err != nil {
-			return "", err
-		}
-		if found && email.VerifiedAt != nil {
-			claims["email"] = email.Email
-			claims["email_verified"] = true
-		}
+	if tokens.Email != "" {
+		claims["email"] = tokens.Email
+		claims["email_verified"] = true
 	}
 	return jwt.Signed(signer).Claims(claims).Serialize()
 }

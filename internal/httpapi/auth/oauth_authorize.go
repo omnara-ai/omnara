@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
@@ -464,6 +465,11 @@ func (h *Handler) authorizationCodeGrant(w http.ResponseWriter, r *http.Request,
 	if !h.requireOAuthGrantRateLimits(w, r, "oauth_code_exchange", form.Get("code")) {
 		return
 	}
+	signer, err := h.oidcSigner(r)
+	if err != nil {
+		h.writeOAuthServerError(w, r, err)
+		return
+	}
 	tokens, err := h.store.ExchangeOAuthAuthorizationCode(r.Context(), identitystore.ExchangeOAuthAuthorizationCodeInput{
 		Code:         form.Get("code"),
 		ClientID:     clientID,
@@ -471,7 +477,7 @@ func (h *Handler) authorizationCodeGrant(w http.ResponseWriter, r *http.Request,
 		CodeVerifier: form.Get("code_verifier"),
 		Resource:     strings.TrimRight(form.Get("resource"), "/"),
 	})
-	h.writeOAuthTokenSet(w, r, tokens, err)
+	h.writeOAuthTokenSet(w, r, signer, tokens, err)
 }
 
 func (h *Handler) refreshTokenGrant(w http.ResponseWriter, r *http.Request, form url.Values) {
@@ -492,13 +498,18 @@ func (h *Handler) refreshTokenGrant(w http.ResponseWriter, r *http.Request, form
 	if !h.requireOAuthGrantRateLimits(w, r, "oauth_refresh", form.Get("refresh_token")) {
 		return
 	}
+	signer, err := h.oidcSigner(r)
+	if err != nil {
+		h.writeOAuthServerError(w, r, err)
+		return
+	}
 	tokens, err := h.store.RefreshOAuthAccessToken(r.Context(), identitystore.RefreshOAuthAccessTokenInput{
 		RefreshToken: form.Get("refresh_token"),
 		Scope:        strings.Join(strings.Fields(form.Get("scope")), " "),
 		ClientID:     clientID,
 		Resource:     strings.TrimRight(form.Get("resource"), "/"),
 	})
-	h.writeOAuthTokenSet(w, r, tokens, err)
+	h.writeOAuthTokenSet(w, r, signer, tokens, err)
 }
 
 func (h *Handler) requireOAuthGrantRateLimits(w http.ResponseWriter, r *http.Request, action, grant string) bool {
@@ -510,11 +521,17 @@ func (h *Handler) requireOAuthGrantRateLimits(w http.ResponseWriter, r *http.Req
 func (h *Handler) writeOAuthTokenSet(
 	w http.ResponseWriter,
 	r *http.Request,
+	signer jose.Signer,
 	tokens identitystore.OAuthTokenSetRecord,
 	err error,
 ) {
 	if errors.Is(err, storeerr.ErrUnauthorized) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the authorization grant is invalid or expired")
+		return
+	}
+	if errors.Is(err, storeerr.ErrOAuthScopeExceedsGrant) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_scope",
+			"the requested scope exceeds the scope granted by the user")
 		return
 	}
 	if err != nil {
@@ -529,7 +546,7 @@ func (h *Handler) writeOAuthTokenSet(
 		"scope":         tokens.Scope,
 	}
 	if hasOAuthScope(tokens.Scope, "openid") {
-		idToken, err := h.oidcIDToken(r, tokens)
+		idToken, err := h.oidcIDToken(r, signer, tokens)
 		if err != nil {
 			h.writeOAuthServerError(w, r, err)
 			return
