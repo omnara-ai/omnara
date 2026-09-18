@@ -133,7 +133,10 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (string, error) {
 		if currentDigest == digest {
 			return digest, s.files.Sync(ref, input.Path)
 		}
-		if input.ExpectedDigest == nil || *input.ExpectedDigest != currentDigest {
+		if input.ExpectedDigest == nil {
+			return "", fmt.Errorf("expected_digest is required to change an existing file: %w", storeerr.ErrConflict)
+		}
+		if *input.ExpectedDigest != currentDigest {
 			return "", fmt.Errorf("memory changed; download it and retry: %w", storeerr.ErrConflict)
 		}
 	} else {

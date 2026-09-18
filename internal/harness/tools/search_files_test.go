@@ -210,7 +210,9 @@ func TestSearchFilesResourceLimits(t *testing.T) {
 
 func TestMemorySearchGlobs(t *testing.T) {
 	root := t.TempDir()
-	names := []string{"a.md", "é.md", "nested/a.md", "team/a.md", "[x]{y}.md", ".hidden.md", "a:b.md", "trailing ", "two words.md"}
+	names := []string{
+		"a.md", "é.md", "nested/a.md", "team/a.md", "[x]{y}.md", ".hidden.md", "a:b.md", "trailing ", "two words.md",
+	}
 	for _, name := range names {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
