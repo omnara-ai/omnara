@@ -11,7 +11,8 @@ import {
 import { PillTabs } from '@/components/agents/PillTabs'
 import { ChevronRightIcon, PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { CollapseBody } from '@/components/ui/collapse-body'
+import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
@@ -240,69 +241,67 @@ function SubagentFields({
           <Trash2Icon />
         </Button>
       </div>
-      <CollapsibleContent forceMount className="collapsible-animate">
-        <div>
-          <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
-            {nameError && <FieldError>{nameError}</FieldError>}
+      <CollapseBody open={expanded}>
+        <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+          {nameError && <FieldError>{nameError}</FieldError>}
+          <Field>
+            <FieldLabel htmlFor={fieldId('description')}>Description</FieldLabel>
+            <Input
+              id={fieldId('description')}
+              value={subagent.description}
+              placeholder="Researches a topic and reports back a summary."
+              onChange={(event) => {
+                onChange({ description: event.target.value })
+              }}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={fieldId('append')}>Extra instructions</FieldLabel>
+            <Textarea
+              id={fieldId('append')}
+              value={subagent.instructionAppend}
+              placeholder="Appended to the subagent's instruction."
+              className="max-h-48 min-h-16 resize-y"
+              onChange={(event) => {
+                onChange({ instructionAppend: event.target.value })
+              }}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor={fieldId('description')}>Description</FieldLabel>
+              <FieldLabel htmlFor={fieldId('max-instances')}>Max instances</FieldLabel>
               <Input
-                id={fieldId('description')}
-                value={subagent.description}
-                placeholder="Researches a topic and reports back a summary."
+                id={fieldId('max-instances')}
+                inputMode="numeric"
+                value={subagent.maxInstances}
+                placeholder="Unlimited"
                 onChange={(event) => {
-                  onChange({ description: event.target.value })
+                  onChange({ maxInstances: event.target.value.trim() })
                 }}
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor={fieldId('append')}>Extra instructions</FieldLabel>
-              <Textarea
-                id={fieldId('append')}
-                value={subagent.instructionAppend}
-                placeholder="Appended to the subagent's instruction."
-                className="max-h-48 min-h-16 resize-y"
+              <FieldLabel htmlFor={fieldId('archive-idle')}>
+                Archive after idle (minutes)
+              </FieldLabel>
+              <Input
+                id={fieldId('archive-idle')}
+                inputMode="numeric"
+                value={subagent.archiveAfterIdleMinutes}
+                placeholder="Never"
                 onChange={(event) => {
-                  onChange({ instructionAppend: event.target.value })
+                  onChange({ archiveAfterIdleMinutes: event.target.value.trim() })
                 }}
               />
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor={fieldId('max-instances')}>Max instances</FieldLabel>
-                <Input
-                  id={fieldId('max-instances')}
-                  inputMode="numeric"
-                  value={subagent.maxInstances}
-                  placeholder="Unlimited"
-                  onChange={(event) => {
-                    onChange({ maxInstances: event.target.value.trim() })
-                  }}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={fieldId('archive-idle')}>
-                  Archive after idle (minutes)
-                </FieldLabel>
-                <Input
-                  id={fieldId('archive-idle')}
-                  inputMode="numeric"
-                  value={subagent.archiveAfterIdleMinutes}
-                  placeholder="Never"
-                  onChange={(event) => {
-                    onChange({ archiveAfterIdleMinutes: event.target.value.trim() })
-                  }}
-                />
-              </Field>
-            </div>
-            {subagent.modelOverride !== undefined && (
-              <p className="text-muted-foreground text-xs">
-                This subagent overrides the model in YAML; edit that in the YAML view.
-              </p>
-            )}
           </div>
+          {subagent.modelOverride !== undefined && (
+            <p className="text-muted-foreground text-xs">
+              This subagent overrides the model in YAML; edit that in the YAML view.
+            </p>
+          )}
         </div>
-      </CollapsibleContent>
+      </CollapseBody>
     </Collapsible>
   )
 }

@@ -215,7 +215,7 @@ function AgentConfigIncludedTools({
           Tools added automatically based on the agent&apos;s configuration.
         </TooltipContent>
       </Tooltip>
-      <CollapsibleContent>
+      <CollapsibleContent className="collapsible-animate-height">
         {tools.map((tool) => {
           const { name } = tool
           const entry = catalogByName.get(name)

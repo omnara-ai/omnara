@@ -117,9 +117,9 @@ function SendInputGuide({
       <CodeTabsBlock
         label="How to send input to this agent"
         tabs={[
-          { value: 'cli', label: 'CLI', content: commands.cli },
           { value: 'sdk', label: 'TypeScript SDK', content: commands.sdk },
           { value: 'curl', label: 'cURL', content: commands.curl },
+          { value: 'cli', label: 'CLI', content: commands.cli },
         ]}
       />
       <div className="flex items-center justify-between gap-4">

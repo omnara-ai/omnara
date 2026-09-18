@@ -524,11 +524,11 @@ it('seeds the resolved pool only once, using its current name', async () => {
   )
 })
 
-it('seeds an empty pool source when no project pool is available', async () => {
+it('does not invent a source when no project pool is available', async () => {
   await renderAndFlush(<NewAgentDraftHarness />)
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toMatchObject({
-    machine_sources: [{ machine_pool_name: '' }],
-  })
+  expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
+    'machine_sources',
+  )
 })
 
 function ProjectDefaultsHarness() {

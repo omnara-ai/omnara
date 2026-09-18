@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Field, RequiredFieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
@@ -27,11 +28,9 @@ const ModelCombobox = createResourceCombobox<ModelChoice>({
         <span className="truncate">{model.name}</span>
         <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
       </span>
-      {model.pricing && (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          <ModelPricingSummary pricing={model.pricing} /> per 1M tokens
-        </span>
-      )}
+      <span className="text-muted-foreground text-xs tabular-nums">
+        <ModelPricingSummary pricing={model.pricing} /> per 1M tokens
+      </span>
     </span>
   ),
   placeholder: 'Search granted models…',
@@ -73,7 +72,16 @@ function useModelChoices(orgId: string, projectId: string, value: ModelSelection
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
   const unavailable = lookupEnabled && completeSelection.isComplete && selected === null
-  return { search, grantsQuery, selectedQuery, models, selected, displayedModels, unavailable }
+  return {
+    search,
+    grantsQuery,
+    selectedQuery,
+    models,
+    selected,
+    displayedModels,
+    unavailable,
+    pricingPending: pricing.isPending,
+  }
 }
 
 export function AgentConfigModelField({
@@ -92,8 +100,16 @@ export function AgentConfigModelField({
   const { project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const modelTriggerRef = useRef<HTMLButtonElement>(null)
-  const { search, grantsQuery, selectedQuery, models, selected, displayedModels, unavailable } =
-    useModelChoices(orgId, projectId, value)
+  const {
+    search,
+    grantsQuery,
+    selectedQuery,
+    models,
+    selected,
+    displayedModels,
+    unavailable,
+    pricingPending,
+  } = useModelChoices(orgId, projectId, value)
   useEffect(() => {
     onUnavailableChange?.(unavailable)
   }, [onUnavailableChange, unavailable])
@@ -143,11 +159,15 @@ export function AgentConfigModelField({
             )
           }
         />
-        {selected?.pricing && (
-          <p className="text-muted-foreground text-xs">
-            <ModelPricingSummary pricing={selected.pricing} /> per 1M tokens
-          </p>
-        )}
+        <p className="text-muted-foreground flex h-4 items-center text-xs">
+          {selected && pricingPending && !selected.pricing ? (
+            <Skeleton className="h-3 w-36" />
+          ) : selected ? (
+            <>
+              <ModelPricingSummary pricing={selected.pricing} /> per 1M tokens
+            </>
+          ) : null}
+        </p>
         <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider config name" />
         <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
         {unavailable && (

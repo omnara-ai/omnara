@@ -122,7 +122,7 @@ export function CreateAgentFormView({
             </div>
           </div>
 
-          <FieldGroup className="mx-auto w-full max-w-3xl flex-1 gap-8">
+          <FieldGroup className="mx-auto w-full max-w-3xl flex-1 gap-5">
             <div className={cn(showBuilder && 'grid gap-6 sm:grid-cols-2')}>
               <Field>
                 <RequiredFieldLabel htmlFor="agent-config-name">Name</RequiredFieldLabel>
@@ -148,7 +148,7 @@ export function CreateAgentFormView({
                 />
               )}
             </div>
-            <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
+            <div className={cn('flex flex-col gap-5', !showBuilder && 'hidden')}>
               <AgentConfigBasicForm
                 orgId={activeOrg.id}
                 projectId={projectId}

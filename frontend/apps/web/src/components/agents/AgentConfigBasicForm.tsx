@@ -26,7 +26,7 @@ export function AgentConfigBasicForm({
   const toolCatalog = useToolCatalog()
 
   return (
-    <FieldGroup className="gap-8">
+    <FieldGroup className="gap-5">
       <Field>
         <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
           Instructions

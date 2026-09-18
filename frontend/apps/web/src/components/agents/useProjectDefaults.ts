@@ -19,7 +19,7 @@ export function useProjectDefaults(orgId: string, projectId: string): ProjectDef
   const defaultPoolQuery = useQuery({
     queryKey: [...listProjectMachinePoolGrantsQueryKey({ path, client }), 'default'],
     queryFn: async ({ signal }) => {
-      let cluster: MachinePoolSummary | null = null
+      const clusters: MachinePoolSummary[] = []
       let cursor: string | undefined
       do {
         const { data } = await sdk.listProjectMachinePoolGrants({
@@ -30,12 +30,12 @@ export function useProjectDefaults(orgId: string, projectId: string): ProjectDef
         })
         const named = data.data.find(({ machine_pool }) => machine_pool.name === defaultPoolName)
         if (named) return named.machine_pool
-        cluster ??=
-          data.data.find(({ machine_pool }) => machine_pool.management_kind === 'cluster')
-            ?.machine_pool ?? null
+        for (const { machine_pool } of data.data) {
+          if (machine_pool.management_kind === 'cluster') clusters.push(machine_pool)
+        }
         cursor = data.next_cursor ?? undefined
       } while (cursor)
-      return cluster
+      return clusters[0] ?? null
     },
   })
   const modelGrantsQuery = useProjectModelGrants(orgId, projectId, {

@@ -33,7 +33,8 @@ import { registryServerLabel } from '@/components/mcp/mcpRegistry'
 import { McpServerIdentityGroup } from '@/components/mcp/McpServerIdentityGroup'
 import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialog'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { CollapseBody } from '@/components/ui/collapse-body'
+import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldError, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
@@ -340,136 +341,134 @@ function McpServerRow({
           <Trash2Icon />
         </Button>
       </div>
-      <CollapsibleContent forceMount className="collapsible-animate">
-        <div>
-          <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
-            {nameError && <FieldError>{nameError}</FieldError>}
-            {registryServer ? (
-              <p className="text-muted-foreground -mt-3 text-sm">
-                {registryServerLabel(registryServer)}
-                {registryServer.description ? ` — ${registryServer.description}` : ''}
-              </p>
-            ) : (
-              <Skeleton
-                className={cn(
-                  '-mt-3 h-5 w-2/3',
-                  (server.url.trim() === '' || !info.isPending) && 'animate-none',
-                )}
-              />
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel>Authentication</FieldLabel>
-                <Select
-                  value={server.authType}
-                  onValueChange={(authType: McpAuthType) => {
-                    onChange({ authType, secretId: '', service: '', region: '' })
-                  }}
-                >
-                  <SelectTrigger className="w-full" aria-label="MCP auth type">
-                    <SelectValue>
-                      {mcpAuthTypeOptions.find((option) => option.value === server.authType)
-                        ?.label ?? server.authType}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mcpAuthTypeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              {server.authType !== 'none' && (
-                <McpServerSecretField
-                  key={server.authType}
-                  orgId={orgId}
-                  projectId={projectId}
-                  server={server}
-                  onSecretChange={(secretId) => {
-                    onChange({ secretId })
-                  }}
-                  onBeforeOAuthRedirect={onBeforeOAuthRedirect}
-                />
+      <CollapseBody open={expanded}>
+        <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+          {nameError && <FieldError>{nameError}</FieldError>}
+          {registryServer ? (
+            <p className="text-muted-foreground -mt-3 text-sm">
+              {registryServerLabel(registryServer)}
+              {registryServer.description ? ` — ${registryServer.description}` : ''}
+            </p>
+          ) : (
+            <Skeleton
+              className={cn(
+                '-mt-3 h-5 w-2/3',
+                (server.url.trim() === '' || !info.isPending) && 'animate-none',
               )}
-              {server.authType === 'sigv4' &&
-                awsSigningFields.map((field) => (
-                  <Field key={field.key}>
-                    <RequiredFieldLabel htmlFor={`${server.id}-aws-${field.key}`}>
-                      {field.label}
-                    </RequiredFieldLabel>
-                    <Input
-                      id={`${server.id}-aws-${field.key}`}
-                      required
-                      value={server[field.key]}
-                      onChange={(event) => {
-                        onChange({ [field.key]: event.target.value })
-                      }}
-                    />
-                  </Field>
-                ))}
-            </div>
-            <div>
-              <AgentConfigMcpServerTools
+            />
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>Authentication</FieldLabel>
+              <Select
+                value={server.authType}
+                onValueChange={(authType: McpAuthType) => {
+                  onChange({ authType, secretId: '', service: '', region: '' })
+                }}
+              >
+                <SelectTrigger className="w-full" aria-label="MCP auth type">
+                  <SelectValue>
+                    {mcpAuthTypeOptions.find((option) => option.value === server.authType)?.label ??
+                      server.authType}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {mcpAuthTypeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            {server.authType !== 'none' && (
+              <McpServerSecretField
+                key={server.authType}
                 orgId={orgId}
                 projectId={projectId}
                 server={server}
-                permissionProfile={permissionProfile}
-                defaults={
-                  <>
-                    <Field className="w-36 shrink-0 items-center">
-                      <FieldLabel className="justify-center whitespace-nowrap">
-                        Default Permission
-                      </FieldLabel>
-                      <div className="flex justify-center">
-                        <PermissionModeGroup
-                          label="MCP default permission"
-                          className="w-32 [&>button]:flex-1"
-                          options={permissionModeOptions(permissionProfile?.permission_modes)}
-                          value={
-                            server.permission?.mode ??
-                            permissionProfile?.default_permission.mode ??
-                            ''
-                          }
-                          disabled={permissionProfile == null}
-                          onChange={(mode) => {
-                            onChange({ permission: { mode, parameters: {} } })
-                          }}
-                        />
-                      </div>
-                    </Field>
-                    <Field className="w-36 shrink-0 items-center">
-                      <FieldLabel className="justify-center whitespace-nowrap">
-                        Default Visibility
-                      </FieldLabel>
-                      <div className="flex justify-center">
-                        <PermissionModeGroup
-                          label="MCP default visibility"
-                          className="w-32 [&>button]:flex-1"
-                          options={mcpAvailabilityOptions}
-                          value={mcpServerAvailability(server)}
-                          onChange={(value) => {
-                            const availability = parseMcpAvailability(value)
-                            if (availability == null) return
-                            onChange(mcpServerAvailabilityPatch(availability))
-                          }}
-                        />
-                      </div>
-                    </Field>
-                  </>
-                }
-                onToolsChange={(tools) => {
-                  onChange({ tools })
+                onSecretChange={(secretId) => {
+                  onChange({ secretId })
                 }}
-                onAuthTypeChange={(authType) => {
-                  onChange({ authType, secretId: '', service: '', region: '' })
-                }}
+                onBeforeOAuthRedirect={onBeforeOAuthRedirect}
               />
-            </div>
+            )}
+            {server.authType === 'sigv4' &&
+              awsSigningFields.map((field) => (
+                <Field key={field.key}>
+                  <RequiredFieldLabel htmlFor={`${server.id}-aws-${field.key}`}>
+                    {field.label}
+                  </RequiredFieldLabel>
+                  <Input
+                    id={`${server.id}-aws-${field.key}`}
+                    required
+                    value={server[field.key]}
+                    onChange={(event) => {
+                      onChange({ [field.key]: event.target.value })
+                    }}
+                  />
+                </Field>
+              ))}
+          </div>
+          <div>
+            <AgentConfigMcpServerTools
+              orgId={orgId}
+              projectId={projectId}
+              server={server}
+              permissionProfile={permissionProfile}
+              defaults={
+                <>
+                  <Field className="w-36 shrink-0 items-center">
+                    <FieldLabel className="justify-center whitespace-nowrap">
+                      Default Permission
+                    </FieldLabel>
+                    <div className="flex justify-center">
+                      <PermissionModeGroup
+                        label="MCP default permission"
+                        className="w-32 [&>button]:flex-1"
+                        options={permissionModeOptions(permissionProfile?.permission_modes)}
+                        value={
+                          server.permission?.mode ??
+                          permissionProfile?.default_permission.mode ??
+                          ''
+                        }
+                        disabled={permissionProfile == null}
+                        onChange={(mode) => {
+                          onChange({ permission: { mode, parameters: {} } })
+                        }}
+                      />
+                    </div>
+                  </Field>
+                  <Field className="w-36 shrink-0 items-center">
+                    <FieldLabel className="justify-center whitespace-nowrap">
+                      Default Visibility
+                    </FieldLabel>
+                    <div className="flex justify-center">
+                      <PermissionModeGroup
+                        label="MCP default visibility"
+                        className="w-32 [&>button]:flex-1"
+                        options={mcpAvailabilityOptions}
+                        value={mcpServerAvailability(server)}
+                        onChange={(value) => {
+                          const availability = parseMcpAvailability(value)
+                          if (availability == null) return
+                          onChange(mcpServerAvailabilityPatch(availability))
+                        }}
+                      />
+                    </div>
+                  </Field>
+                </>
+              }
+              onToolsChange={(tools) => {
+                onChange({ tools })
+              }}
+              onAuthTypeChange={(authType) => {
+                onChange({ authType, secretId: '', service: '', region: '' })
+              }}
+            />
           </div>
         </div>
-      </CollapsibleContent>
+      </CollapseBody>
     </Collapsible>
   )
 }

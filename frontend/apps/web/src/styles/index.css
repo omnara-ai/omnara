@@ -268,27 +268,48 @@
   color: var(--shiki-dark);
 }
 
-.collapsible-animate {
-  display: grid;
-  grid-template-rows: 0fr;
-  visibility: hidden;
+.collapse-body {
   transition:
-    grid-template-rows 0.2s ease-out,
+    height 0.2s ease-out,
     visibility 0.2s;
 }
 
-.collapsible-animate[data-state='open'] {
-  grid-template-rows: 1fr;
-  visibility: visible;
+@keyframes collapsible-open {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
 }
 
-.collapsible-animate > * {
-  min-height: 0;
+@keyframes collapsible-close {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+.collapsible-animate-height {
   overflow: hidden;
 }
 
+.collapsible-animate-height[data-state='open'] {
+  animation: collapsible-open 0.2s ease-out;
+}
+
+.collapsible-animate-height[data-state='closed'] {
+  animation: collapsible-close 0.2s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .collapsible-animate {
+  .collapse-body {
     transition: none;
+  }
+  .collapsible-animate-height[data-state='open'],
+  .collapsible-animate-height[data-state='closed'] {
+    animation: none;
   }
 }

@@ -303,25 +303,34 @@ export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGran
         formatMemoryGb,
       ),
     ]
+  const half = Math.ceil(rows.length / 2)
+  const columns = [rows.slice(0, half), rows.slice(half)]
   return (
-    <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 text-xs">
-      {rows.map((row) => {
-        const empty = row.value == null || row.value === ''
-        return (
-          <div key={row.label} className="contents">
-            <dt className="text-muted-foreground">{row.label}</dt>
-            <dd
-              className={cn(
-                'text-right tabular-nums',
-                (empty || row.inherited) && 'text-muted-foreground',
-              )}
-            >
-              {empty ? (poolQuery.isPending ? '…' : 'Unset') : row.value}
-            </dd>
-          </div>
-        )
-      })}
-    </dl>
+    <div className="flex flex-col gap-2 text-xs">
+      <p className="font-medium">{pool.name}</p>
+      <div className="flex gap-6">
+        {columns.map((column) => (
+          <dl key={column[0]?.label} className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
+            {column.map((row) => {
+              const empty = row.value == null || row.value === ''
+              return (
+                <div key={row.label} className="contents">
+                  <dt className="text-muted-foreground">{row.label}</dt>
+                  <dd
+                    className={cn(
+                      'text-right tabular-nums',
+                      (empty || row.inherited) && 'text-muted-foreground',
+                    )}
+                  >
+                    {empty ? (poolQuery.isPending ? '…' : 'Unset') : row.value}
+                  </dd>
+                </div>
+              )
+            })}
+          </dl>
+        ))}
+      </div>
+    </div>
   )
 }
 

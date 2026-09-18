@@ -97,15 +97,14 @@ export function defaultAgentTools(catalog?: ToolCatalog): BasicTool[] {
 }
 
 export function defaultAgentMachineSources(pool?: MachinePoolSummary) {
+  if (!pool) return []
   return [
-    pool
-      ? {
-          ...newMachineSource('pool'),
-          name: pool.name,
-          provider: pool.provider,
-          managementKind: pool.management_kind,
-        }
-      : newMachineSource('pool'),
+    {
+      ...newMachineSource('pool'),
+      name: pool.name,
+      provider: pool.provider,
+      managementKind: pool.management_kind,
+    },
   ]
 }
 

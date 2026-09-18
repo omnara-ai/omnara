@@ -121,9 +121,8 @@ export function McpServerIdentityGroup({
       <div
         className={cn(
           'border-input dark:bg-input/30 flex h-9 w-full items-stretch divide-x rounded-md border transition-[color,box-shadow]',
-          'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
-          nameInvalid &&
-            'border-destructive focus-within:border-destructive focus-within:ring-destructive/20 dark:focus-within:ring-destructive/40',
+          'text-field-focus',
+          nameInvalid && 'border-destructive',
         )}
       >
         <div className="flex w-10 shrink-0 items-center justify-center">
@@ -180,81 +179,106 @@ export function McpServerIdentityGroup({
         />
       </div>
       {showList && (
-        <div
-          id={listId}
-          role="listbox"
-          aria-label="MCP registry results"
-          className="bg-popover text-popover-foreground absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-md border p-1 shadow-md"
-        >
-          <div className="text-muted-foreground border-b px-2 py-1.5 text-xs">
-            Searching the MCP registry by name, description, and URL. Select a server to fill in its
-            endpoint.
-          </div>
-          {results.length === 0 ? (
-            <div className="text-muted-foreground px-2 py-2 text-sm">
-              {serversQuery.isError
-                ? 'Could not load registry results.'
-                : serversQuery.isFetching
-                  ? 'Searching…'
-                  : 'No registry servers match.'}
-            </div>
-          ) : (
-            results.map(({ key, server, remote }, index) => {
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  id={`${listId}-${index}`}
-                  role="option"
-                  aria-selected={index === activeIndex}
-                  tabIndex={-1}
-                  className={cn(
-                    'flex w-full cursor-default items-center gap-3 rounded-sm px-2 py-2 text-left text-sm',
-                    index === activeIndex && 'bg-accent text-accent-foreground',
-                  )}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onMouseEnter={() => {
-                    setHighlighted(index)
-                  }}
-                  onClick={() => {
-                    select({ key, server, remote })
-                  }}
-                >
-                  <McpServerIcon server={server} url={remote.url} className="size-6" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="truncate font-medium">{registryServerLabel(server)}</span>
-                      <span className="text-muted-foreground truncate text-xs">{server.name}</span>
-                    </div>
-                    {server.description && (
-                      <div className="text-muted-foreground line-clamp-1 text-xs">
-                        {server.description}
-                      </div>
-                    )}
-                    <div className="text-muted-foreground truncate text-xs">{remote.url}</div>
-                  </div>
-                </button>
-              )
-            })
-          )}
-          {results.length > 0 && serversQuery.hasNextPage && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground w-full px-2 py-2 text-left text-xs disabled:opacity-50"
-              disabled={serversQuery.isFetchingNextPage}
-              onMouseDown={(event) => {
-                event.preventDefault()
-              }}
-              onClick={() => {
-                void serversQuery.fetchNextPage()
-              }}
-            >
-              {serversQuery.isFetchingNextPage ? 'Loading more…' : 'Load more results'}
-            </button>
-          )}
+        <RegistryResultsList
+          listId={listId}
+          results={results}
+          activeIndex={activeIndex}
+          query={serversQuery}
+          onHighlight={setHighlighted}
+          onSelect={select}
+        />
+      )}
+    </div>
+  )
+}
+
+function RegistryResultsList({
+  listId,
+  results,
+  activeIndex,
+  query,
+  onHighlight,
+  onSelect,
+}: {
+  listId: string
+  results: RegistryServerEntry[]
+  activeIndex: number | null
+  query: ReturnType<typeof useServers>
+  onHighlight: (index: number) => void
+  onSelect: (entry: RegistryServerEntry) => void
+}) {
+  return (
+    <div
+      id={listId}
+      role="listbox"
+      aria-label="MCP registry results"
+      className="bg-popover text-popover-foreground absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-md border p-1 shadow-md"
+    >
+      <div className="text-muted-foreground border-b px-2 py-1.5 text-xs">
+        Searching the MCP registry by name, description, and URL. Select a server to fill in its
+        endpoint.
+      </div>
+      {results.length === 0 ? (
+        <div className="text-muted-foreground px-2 py-2 text-sm">
+          {query.isError
+            ? 'Could not load registry results.'
+            : query.isFetching
+              ? 'Searching…'
+              : 'No registry servers match.'}
         </div>
+      ) : (
+        results.map(({ key, server, remote }, index) => (
+          <button
+            key={key}
+            type="button"
+            id={`${listId}-${index}`}
+            role="option"
+            aria-selected={index === activeIndex}
+            tabIndex={-1}
+            className={cn(
+              'flex w-full cursor-default items-center gap-3 rounded-sm px-2 py-2 text-left text-sm',
+              index === activeIndex && 'bg-accent text-accent-foreground',
+            )}
+            onMouseDown={(event) => {
+              event.preventDefault()
+            }}
+            onMouseEnter={() => {
+              onHighlight(index)
+            }}
+            onClick={() => {
+              onSelect({ key, server, remote })
+            }}
+          >
+            <McpServerIcon server={server} url={remote.url} className="size-6" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="truncate font-medium">{registryServerLabel(server)}</span>
+                <span className="text-muted-foreground truncate text-xs">{server.name}</span>
+              </div>
+              {server.description && (
+                <div className="text-muted-foreground line-clamp-1 text-xs">
+                  {server.description}
+                </div>
+              )}
+              <div className="text-muted-foreground truncate text-xs">{remote.url}</div>
+            </div>
+          </button>
+        ))
+      )}
+      {results.length > 0 && query.hasNextPage && (
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground w-full px-2 py-2 text-left text-xs disabled:opacity-50"
+          disabled={query.isFetchingNextPage}
+          onMouseDown={(event) => {
+            event.preventDefault()
+          }}
+          onClick={() => {
+            void query.fetchNextPage()
+          }}
+        >
+          {query.isFetchingNextPage ? 'Loading more…' : 'Load more results'}
+        </button>
       )}
     </div>
   )

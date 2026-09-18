@@ -16,7 +16,8 @@ import {
 import { NewSecretDialog } from '@/components/secrets/NewSecretDialog'
 import { SecretSelect } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { CollapseBody } from '@/components/ui/collapse-body'
+import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
@@ -34,27 +35,23 @@ import { StartupScriptField } from './StartupScriptField'
 export function OverridesCollapsible({
   title = 'Overrides',
   description,
-  keepMounted = false,
   children,
 }: {
   title?: string
   description?: string
-  keepMounted?: boolean
   children: ReactNode
 }) {
+  const [open, setOpen] = useState(false)
   return (
-    <Collapsible>
+    <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="text-muted-foreground group flex items-center gap-2 text-left text-sm">
         <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
         {title}
         {description && <span className="text-muted-foreground font-normal">— {description}</span>}
       </CollapsibleTrigger>
-      <CollapsibleContent
-        forceMount={keepMounted || undefined}
-        className={keepMounted ? 'data-[state=closed]:hidden' : undefined}
-      >
+      <CollapseBody open={open}>
         <div className="pt-4">{children}</div>
-      </CollapsibleContent>
+      </CollapseBody>
     </Collapsible>
   )
 }

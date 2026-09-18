@@ -17,7 +17,8 @@ import { ChevronRightIcon, PlusIcon, Trash2Icon } from '@/components/icons'
 import { CombinedEnvOverlayEditor } from '@/components/machines/MachineOverrideFields'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { CollapseBody } from '@/components/ui/collapse-body'
+import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
@@ -120,7 +121,10 @@ export function AgentConfigMachineSourcesField({
               }}
               className="expanded-surface rounded-xl"
             >
-              <SourceRowTooltip grant={resolvedGrants.get(source.id) ?? null}>
+              <SourceRowTooltip
+                grant={resolvedGrants.get(source.id) ?? null}
+                enabled={!expandedIds.has(source.id)}
+              >
                 <div className="flex items-center gap-2 py-2 pl-1 pr-2">
                   <CollapsibleTrigger asChild>
                     <Button
@@ -139,6 +143,7 @@ export function AgentConfigMachineSourcesField({
                       onValueChange={(kind) => {
                         setExpanded(source.id, true)
                         if (kind === source.kind) return
+                        reportGrant(source.id, null)
                         onSourcesChange(
                           sources.map((candidate) =>
                             candidate.id === source.id
@@ -266,45 +271,43 @@ export function AgentConfigMachineSourcesField({
                   </Button>
                 </div>
               </SourceRowTooltip>
-              <CollapsibleContent forceMount className="collapsible-animate">
-                <div>
-                  <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
-                    <SourceResourceFields
-                      source={source}
-                      onChange={(patch) => {
-                        updateSource(source.id, patch)
+              <CollapseBody open={expandedIds.has(source.id)}>
+                <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+                  <SourceResourceFields
+                    source={source}
+                    onChange={(patch) => {
+                      updateSource(source.id, patch)
+                    }}
+                  />
+                  <Field>
+                    <FieldLabel htmlFor={`${source.id}-cwd`}>Working directory</FieldLabel>
+                    <Input
+                      id={`${source.id}-cwd`}
+                      value={source.defaultCwd}
+                      placeholder="/workspace"
+                      onChange={(event) => {
+                        updateSource(source.id, { defaultCwd: event.target.value })
                       }}
                     />
-                    <Field>
-                      <FieldLabel htmlFor={`${source.id}-cwd`}>Working directory</FieldLabel>
-                      <Input
-                        id={`${source.id}-cwd`}
-                        value={source.defaultCwd}
-                        placeholder="/workspace"
-                        onChange={(event) => {
-                          updateSource(source.id, { defaultCwd: event.target.value })
-                        }}
-                      />
-                    </Field>
-                    <CombinedEnvOverlayEditor
-                      orgId={orgId}
-                      projectId={projectId}
-                      enabled
-                      envRows={source.envRows}
-                      secretEnvRows={source.secretEnvRows}
-                      onChange={(rows) => {
-                        updateSource(source.id, rows)
-                      }}
-                    />
-                    <SourceOverridesSection
-                      source={source}
-                      onChange={(patch) => {
-                        updateSource(source.id, patch)
-                      }}
-                    />
-                  </div>
+                  </Field>
+                  <CombinedEnvOverlayEditor
+                    orgId={orgId}
+                    projectId={projectId}
+                    enabled
+                    envRows={source.envRows}
+                    secretEnvRows={source.secretEnvRows}
+                    onChange={(rows) => {
+                      updateSource(source.id, rows)
+                    }}
+                  />
+                  <SourceOverridesSection
+                    source={source}
+                    onChange={(patch) => {
+                      updateSource(source.id, patch)
+                    }}
+                  />
                 </div>
-              </CollapsibleContent>
+              </CollapseBody>
             </Collapsible>
           ))}
         </div>
@@ -315,16 +318,30 @@ export function AgentConfigMachineSourcesField({
 
 function SourceRowTooltip({
   grant,
+  enabled,
   children,
 }: {
   grant: ResolvedPoolGrant | null
+  enabled: boolean
   children: ReactNode
 }) {
+  const [hovered, setHovered] = useState(false)
   if (grant === null) return children
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="bottom" align="start" className="px-3 py-2">
+    <Tooltip open={hovered && enabled}>
+      <TooltipTrigger asChild>
+        <div
+          onPointerEnter={() => {
+            setHovered(true)
+          }}
+          onPointerLeave={() => {
+            setHovered(false)
+          }}
+        >
+          {children}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="px-3 py-2">
         <PoolGrantSummary {...grant} />
       </TooltipContent>
     </Tooltip>
