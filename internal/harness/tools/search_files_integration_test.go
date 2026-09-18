@@ -28,6 +28,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("memory search confinement requires Linux")
 	}
+	setupFileExec(t)
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-search", toolFixtureOptions{withMemory: true})
 	scope := memorystore.Scope{

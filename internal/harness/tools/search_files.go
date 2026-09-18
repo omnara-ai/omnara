@@ -26,8 +26,6 @@ import (
 const searchLineBytes = 256
 const searchStoreBatchSize = 32
 
-const SearchProcessCommand = "__omnara_search"
-
 var errSearchResultLimit = errors.New("search result limit reached")
 var errSearchOutputLimit = errors.New("search output limit reached")
 
@@ -271,21 +269,15 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 			roots = append(roots, store.root)
 		}
 		args = append(append(args, "--"), operands...)
-		rg, err := exec.LookPath("rg")
+		var err error
+		command, err = newFileExecCommand(commandCtx, "rg", roots, args...)
 		if err != nil {
 			return err
 		}
-		executable, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		command = exec.CommandContext(commandCtx, executable,
-			append([]string{SearchProcessCommand, strconv.Itoa(len(roots)), rg}, args...)...)
-		command.ExtraFiles = roots
 	}
 	command.WaitDelay = time.Second
 	command.Env = []string{"LANG=C.UTF-8"}
-	var stderr searchErrorBuffer
+	var stderr boundedStderrBuffer
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -324,14 +316,6 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 		return fmt.Errorf("ripgrep: %s (%w)", string(stderr.data), waitErr)
 	}
 	return nil
-}
-
-type searchErrorBuffer struct{ data []byte }
-
-func (b *searchErrorBuffer) Write(data []byte) (int, error) {
-	n := len(data)
-	b.data = append(b.data, data[:min(n, 4096-len(b.data))]...)
-	return n, nil
 }
 
 type searchEvent struct {

@@ -1,4 +1,4 @@
-package tools
+package main
 
 import (
 	"fmt"
@@ -11,29 +11,34 @@ import (
 	"testing"
 
 	seccomp "github.com/elastic/go-seccomp-bpf"
+	"golang.org/x/sys/unix"
 )
 
-func TestMemorySearchProcess(t *testing.T) {
+func TestFileExecWithoutLandlock(t *testing.T) {
 	index := slices.Index(os.Args, "--")
 	if index < 0 {
 		return
 	}
-	if os.Getenv("OMNARA_TEST_BLOCK_LANDLOCK") == "1" {
-		runtime.LockOSThread()
-		if err := seccomp.LoadFilter(seccomp.Filter{NoNewPrivs: true, Policy: seccomp.Policy{
-			DefaultAction: seccomp.ActionAllow,
-			Syscalls:      []seccomp.SyscallGroup{{Names: []string{"landlock_create_ruleset"}, Action: seccomp.ActionErrno}},
-		}}); err != nil {
-			t.Fatal(err)
-		}
+	runtime.LockOSThread()
+	if err := seccomp.LoadFilter(seccomp.Filter{NoNewPrivs: true, Policy: seccomp.Policy{
+		DefaultAction: seccomp.ActionAllow,
+		Syscalls:      []seccomp.SyscallGroup{{Names: []string{"landlock_create_ruleset"}, Action: seccomp.ActionErrno}},
+	}}); err != nil {
+		t.Fatal(err)
 	}
-	if err := RunSearchProcess(os.Args[index+1:]); err != nil {
+	args := os.Args[index+1:]
+	if err := unix.Exec(args[0], args, os.Environ()); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func TestMemorySearchConfinement(t *testing.T) {
+func TestFileExecConfinement(t *testing.T) {
+	launcher := filepath.Join(t.TempDir(), "omnara-file-exec")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, ".")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build file launcher: %s, %v", output, err)
+	}
 	rg, err := exec.LookPath("rg")
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +66,16 @@ func TestMemorySearchConfinement(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = second.Close() }()
+	t.Run("no store roots", func(t *testing.T) {
+		command := exec.CommandContext(t.Context(), launcher, "0", rg,
+			"--threads", "1", "-e", "TARGET", filepath.Join(base, "private/secret.md"))
+		command.Env = []string{"LANG=C.UTF-8"}
+		output, err := command.CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "Permission denied") ||
+			strings.Contains(string(output), "TARGET private") {
+			t.Fatalf("rootless process read a private file: %s, %v", output, err)
+		}
+	})
 	for _, test := range []struct {
 		name string
 		args []string
@@ -72,17 +87,19 @@ func TestMemorySearchConfinement(t *testing.T) {
 		{"outward symlink", []string{"--json", "--follow", "-e", "TARGET", "3/escape"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			args := []string{"-test.run=^TestMemorySearchProcess$", "--", "2", rg,
+			args := []string{"2", rg,
 				"--no-config", "--no-mmap", "--threads", "1", "--hidden", "--no-ignore"}
-			command := exec.CommandContext(t.Context(), os.Args[0], append(args, test.args...)...)
+			command := exec.CommandContext(t.Context(), launcher, append(args, test.args...)...)
 			command.ExtraFiles = []*os.File{root, second}
 			command.Env = []string{"LANG=C.UTF-8"}
 			output, err := command.CombinedOutput()
 			if test.deny {
-				if err == nil || !strings.Contains(string(output), "Permission denied") || strings.Contains(string(output), "TARGET private") {
+				if err == nil || !strings.Contains(string(output), "Permission denied") ||
+					strings.Contains(string(output), "TARGET private") {
 					t.Fatalf("access was not denied: %s, %v", output, err)
 				}
-			} else if err != nil || strings.Count(string(output), `"type":"match"`) != 3 {
+			} else if err != nil ||
+				strings.Count(string(output), `"type":"match"`) != 3 {
 				t.Fatalf("whole-store search failed: %s, %v", output, err)
 			}
 		})
@@ -94,37 +111,55 @@ func TestMemorySearchConfinement(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(base, "allowed"), 0700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(base, "allowed", "secret.md"), []byte("TARGET REPLACEMENT\n"), 0600); err != nil {
+		if err := os.WriteFile(
+			filepath.Join(base, "allowed", "secret.md"), []byte("TARGET REPLACEMENT\n"), 0600,
+		); err != nil {
 			t.Fatal(err)
 		}
-		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestMemorySearchProcess$", "--", "2", rg,
+		command := exec.CommandContext(t.Context(), launcher, "2", rg,
 			"--json", "--no-config", "--no-mmap", "--threads", "1", "-e", "TARGET", "3/", "4/")
 		command.ExtraFiles = []*os.File{root, second}
 		command.Env = []string{"LANG=C.UTF-8"}
 		output, err := command.CombinedOutput()
-		if err != nil || strings.Contains(string(output), "REPLACEMENT") || strings.Count(string(output), `"type":"match"`) != 3 {
+		if err != nil || strings.Contains(string(output), "REPLACEMENT") ||
+			strings.Count(string(output), `"type":"match"`) != 3 {
 			t.Fatalf("searched replacement directory: %s, %v", output, err)
 		}
 	})
 	t.Run("confinement required", func(t *testing.T) {
-		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestMemorySearchProcess$", "--", "1", rg, "-e", "TARGET", "3/")
+		command := exec.CommandContext(t.Context(), os.Args[0],
+			"-test.run=^TestFileExecWithoutLandlock$", "--", launcher, "1", rg, "-e", "TARGET", "3/")
 		command.ExtraFiles = []*os.File{root}
-		command.Env = []string{"LANG=C.UTF-8", "OMNARA_TEST_BLOCK_LANDLOCK=1"}
+		command.Env = []string{"LANG=C.UTF-8"}
 		output, err := command.CombinedOutput()
-		if err == nil || !strings.Contains(string(output), "missing kernel Landlock support") || strings.Contains(string(output), "TARGET") {
+		if err == nil || !strings.Contains(string(output), "missing kernel Landlock support") ||
+			strings.Contains(string(output), "TARGET") {
 			t.Fatalf("did not fail closed: %s, %v", output, err)
 		}
 	})
 	t.Run("GC before exec", func(t *testing.T) {
+		sed, err := exec.LookPath("sed")
+		if err != nil {
+			t.Fatal(err)
+		}
 		for i := range 20 {
-			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestMemorySearchProcess$", "--", "2", rg,
+			command := exec.CommandContext(t.Context(), launcher, "2", rg,
 				"--json", "--no-config", "--no-mmap", "--threads", "1", "-e", "TARGET",
 				"-e", strings.Repeat("x", 50*i+1), "--", "3/", "4/")
 			command.ExtraFiles = []*os.File{root, second}
 			command.Env = []string{"LANG=C.UTF-8", "GOGC=1"}
 			output, err := command.CombinedOutput()
-			if err != nil || strings.Count(string(output), `"type":"match"`) != 3 {
+			if err != nil ||
+				strings.Count(string(output), `"type":"match"`) != 3 {
 				t.Fatalf("launch %d with GC pressure: %s, %v", i, output, err)
+			}
+			command = exec.CommandContext(t.Context(), launcher, "0", sed,
+				"--sandbox", "-E", "-e", "s/foo/bar/;#"+strings.Repeat("x", 3000*i), "--", "-")
+			command.Stdin = strings.NewReader("foo\n")
+			command.Env = []string{"LANG=C.UTF-8", "GOGC=1"}
+			output, err = command.CombinedOutput()
+			if err != nil || string(output) != "bar\n" {
+				t.Fatalf("stream launch %d with GC pressure: %s, %v", i, output, err)
 			}
 		}
 	})

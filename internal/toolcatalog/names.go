@@ -24,6 +24,7 @@ const (
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
 	ToolNameReadFile               = "read_file"
+	ToolNameWriteFile              = "write_file"
 	ToolNameSearchFiles            = "search_files"
 	ToolNameUploadFile             = "upload_file"
 	ToolNameDownloadFile           = "download_file"
