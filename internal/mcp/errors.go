@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -187,6 +188,11 @@ func IsRetryableConnectionFailure(cause error) bool {
 	}
 	var netErr net.Error
 	if errors.As(cause, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var opErr *net.OpError
+	var dnsErr *net.DNSError
+	if errors.As(cause, &opErr) || errors.As(cause, &dnsErr) || errors.Is(cause, io.ErrUnexpectedEOF) {
 		return true
 	}
 	if status, ok := HTTPStatus(cause); ok {
