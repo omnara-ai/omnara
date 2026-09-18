@@ -60,13 +60,13 @@ export type Error = {
     /**
      * Stable error code for programmatic handling.
      */
-    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
-export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unauthorized' | 'forbidden' | 'csrf_check_failed' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'pending_work' | 'not_wake_capable' | 'gone' | 'daemon_runtime_unregistered' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited';
+export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unauthorized' | 'forbidden' | 'csrf_check_failed' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'pending_work' | 'not_wake_capable' | 'gone' | 'daemon_runtime_unregistered' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited';
 
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
@@ -1106,14 +1106,6 @@ export type McpServerAuthSigV4 = {
      * AWS signing region, for example `us-east-1`.
      */
     region: string;
-};
-
-export type UpstreamUnavailableError = {
-    /**
-     * Human-readable error message. Do not match on it programmatically.
-     */
-    error: string;
-    code: 'upstream_unavailable';
 };
 
 export type McpServerAuthRequiredError = {
@@ -7088,7 +7080,7 @@ export type StartSecretMcpoAuthErrors = {
     /**
      * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
      */
-    424: UpstreamUnavailableError;
+    424: Error;
     /**
      * An unexpected internal server error occurred.
      */
@@ -8079,7 +8071,7 @@ export type ListMcpServerToolsErrors = {
     /**
      * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
      */
-    424: UpstreamUnavailableError;
+    424: Error;
     /**
      * An unexpected internal server error occurred.
      */

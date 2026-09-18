@@ -17,8 +17,6 @@ type definition struct {
 	message string
 }
 
-const CodeUpstreamUnavailable = openapi.ErrorCode(openapi.UpstreamUnavailable)
-
 var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeInvalidRequest:          {http.StatusBadRequest, "invalid request"},
 	openapi.ErrorCodeUnauthorized:            {http.StatusUnauthorized, "unauthorized"},
@@ -29,7 +27,7 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeRequestTooLarge:         {http.StatusRequestEntityTooLarge, "request too large"},
 	openapi.ErrorCodeUnsupportedMediaType:    {http.StatusUnsupportedMediaType, "unsupported media type"},
 	openapi.ErrorCodeUnprocessable:           {http.StatusUnprocessableEntity, "unprocessable request"},
-	CodeUpstreamUnavailable:                  {http.StatusFailedDependency, "upstream unavailable"},
+	openapi.ErrorCodeUpstreamUnavailable:     {http.StatusFailedDependency, "upstream unavailable"},
 	openapi.ErrorCodeRateLimited:             {http.StatusTooManyRequests, "too many requests"},
 	openapi.ErrorCodeInternalError:           {http.StatusInternalServerError, "internal server error"},
 	openapi.ErrorCodeServiceUnavailable:      {http.StatusServiceUnavailable, "service unavailable"},

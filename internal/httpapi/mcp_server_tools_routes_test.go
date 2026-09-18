@@ -293,7 +293,7 @@ func TestListMCPServerToolsReportsUpstreamUnavailableForTransientErrors(t *testi
 		},
 	)
 	var apiErr apierror.ResponseError
-	if !errors.As(err, &apiErr) || apiErr.Code != apierror.CodeUpstreamUnavailable {
+	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamUnavailable {
 		t.Fatalf("ListMCPServerTools() error = %v, want upstream_unavailable", err)
 	}
 	if apiErr.Status != http.StatusFailedDependency {
@@ -341,7 +341,7 @@ func TestListMCPServerToolsReportsUpstreamUnavailableWhenAuthProbeFailsTransient
 		},
 	)
 	var apiErr apierror.ResponseError
-	if !errors.As(err, &apiErr) || apiErr.Code != apierror.CodeUpstreamUnavailable {
+	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamUnavailable {
 		t.Fatalf("ListMCPServerTools() error = %v, want upstream_unavailable", err)
 	}
 }
@@ -439,7 +439,7 @@ func TestMCPServerToolsFailureMapsErrorOrigins(t *testing.T) {
 				mcp.ErrCredential,
 				&mcp.HTTPError{Status: http.StatusServiceUnavailable},
 			),
-			wantCode:   apierror.CodeUpstreamUnavailable,
+			wantCode:   openapi.ErrorCodeUpstreamUnavailable,
 			wantStatus: http.StatusFailedDependency,
 		},
 	}
