@@ -23,6 +23,12 @@ func ResolveForAgentTx(
 		OrgID: orgID,
 		ID:    configuredModelID,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ConfiguredModelRevisionRecord{}, fmt.Errorf(
+			"configured model is unavailable: %w",
+			storeerr.ErrNotFound,
+		)
+	}
 	if err != nil {
 		return ConfiguredModelRevisionRecord{}, fmt.Errorf("load configured model: %w", err)
 	}
@@ -31,6 +37,12 @@ func ResolveForAgentTx(
 		OrgID: orgID,
 		ID:    configuredModel.ModelProviderConfigID,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ConfiguredModelRevisionRecord{}, fmt.Errorf(
+			"model provider config is unavailable: %w",
+			storeerr.ErrNotFound,
+		)
+	}
 	if err != nil {
 		return ConfiguredModelRevisionRecord{}, fmt.Errorf("load model provider config: %w", err)
 	}
@@ -58,7 +70,7 @@ func ResolveForAgentTx(
 		options,
 	)
 	if err != nil {
-		return ConfiguredModelRevisionRecord{}, err
+		return ConfiguredModelRevisionRecord{}, storeerr.InvalidRequest(err)
 	}
 	return effective, nil
 }
