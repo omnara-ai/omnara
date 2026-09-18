@@ -179,6 +179,7 @@ export interface OAuthAuthorizePending {
   redirectHost: string
   loopback: boolean
   resource: string
+  scope: string
 }
 
 const zOAuthAuthorizePendingResponse = z.object({
@@ -189,6 +190,7 @@ const zOAuthAuthorizePendingResponse = z.object({
   redirect_host: z.string(),
   loopback: z.boolean(),
   resource: z.string(),
+  scope: z.string().optional(),
 })
 
 const zOAuthAuthorizeRedirectResponse = z.object({ redirect_url: z.string().min(1) })
@@ -237,6 +239,7 @@ export async function pendingOAuthAuthorization(query: string): Promise<OAuthAut
     redirectHost: data.redirect_host,
     loopback: data.loopback,
     resource: data.resource,
+    scope: data.scope ?? '',
   }
 }
 
