@@ -108,13 +108,13 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 			}
 		}
 	}
-	digest, err := memories.Write(ctx, memorystore.WriteInput{
+	result, err := memories.Write(ctx, memorystore.WriteInput{
 		Scope: scope, StoreID: store.ID, Path: path, Content: content, ExpectedDigest: input.ExpectedDigest,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return completeFileTool(map[string]any{"path": input.Path, "digest": digest})
+	return completeFileTool(map[string]any{"path": result.Path, "digest": result.Digest})
 }
 
 func editFileText(ctx context.Context, content []byte, script string) ([]byte, error) {

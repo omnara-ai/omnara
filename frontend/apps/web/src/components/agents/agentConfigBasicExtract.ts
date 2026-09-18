@@ -133,6 +133,12 @@ const subagentEntry = z.strictObject({
 })
 export type SubagentEntry = z.infer<typeof subagentEntry>
 
+const memoryStoreEntry = z.strictObject({
+  name: z.string(),
+  access: z.enum(['read_only', 'read_write']),
+})
+export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
+
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: optionalText,
@@ -147,6 +153,7 @@ const basicDocument = z.looseObject({
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
+  memory_stores: z.array(memoryStoreEntry).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
   event_webhook: z
     .strictObject({
@@ -202,6 +209,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     eventWebhookUrl: doc.event_webhook?.url ?? '',
     eventWebhookSigningSecretId: doc.event_webhook?.signing_secret_id ?? '',
     skillIds: doc.skills ?? [],
+    memoryStores: doc.memory_stores ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
     maxSubagents: countDraft(doc.max_subagents),
     maxDepth: countDraft(doc.max_depth),

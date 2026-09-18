@@ -59,8 +59,11 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if first.Path != "/memory/engineering/deployment/checklist.md" {
+		t.Fatalf("write path: %q", first.Path)
+	}
 	var wg sync.WaitGroup
-	results := make(chan string, 2)
+	results := make(chan memorystore.WriteResult, 2)
 	failures := make(chan error, 2)
 	start := make(chan struct{})
 	for i := range 2 {
@@ -69,7 +72,7 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 			defer wg.Done()
 			<-start
 			update := input
-			update.ExpectedDigest = &first
+			update.ExpectedDigest = &first.Digest
 			update.Content = []byte(fmt.Sprint("edit ", i))
 			r, e := store.Memories().Write(ctx, update)
 			if e != nil {
@@ -96,7 +99,7 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 		t.Fatalf("stale retry: %v", err)
 	}
 	current, body, err := store.Memories().Read(ctx, scope, resource.ID, input.Path)
-	if err != nil || current != latest {
+	if err != nil || current != latest.Digest {
 		t.Fatalf("stale retry changed file: %+v %v", current, err)
 	}
 	input.Content = body
@@ -126,9 +129,9 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 	if _, err = store.Memories().Update(ctx, scope, resource.ID, nil, &readOnly); err != nil {
 		t.Fatal(err)
 	}
-	input.Path = "blocked.md"
-	if _, err = store.Memories().Write(ctx, input); !errors.Is(err, storeerr.ErrConflict) {
-		t.Fatalf("read-only write: %v", err)
+	input.Path = "managed.md"
+	if _, err = store.Memories().Write(ctx, input); err != nil {
+		t.Fatalf("manager write to read-only store: %v", err)
 	}
 	if _, _, err = store.Memories().Read(ctx, scope, resource.ID, "empty.md"); err != nil {
 		t.Fatal(err)
@@ -327,11 +330,11 @@ func TestMemoryQuotasAndProjectDeletion(t *testing.T) {
 			input := memorystore.WriteInput{
 				Scope: scope, StoreID: resource.ID, Path: name, Content: []byte("first"),
 			}
-			digest, err := store.Memories().Write(ctx, input)
+			result, err := store.Memories().Write(ctx, input)
 			if err != nil {
 				failures <- err
 			} else {
-				input.ExpectedDigest = &digest
+				input.ExpectedDigest = &result.Digest
 				results <- input
 			}
 		})
@@ -887,6 +890,37 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			writeScope := scope
+			if operation == "read_only" {
+				source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: race\n    access: read_write\n"
+				model := ensureTestConfiguredModelForSource(t, ctx, store, source)
+				compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
+					ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+						return resolvedTestModelSelection(model), nil
+					},
+					ResolveMemoryStoreName: func(string) (string, error) {
+						return publicid.Encode(publicid.KindMemoryStore, resource.ID)
+					},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+					ProjectID: testProjectID, Source: source, SourceFormat: "yaml", ConfiguredModelID: model.ID,
+					CompiledDefinition: json.RawMessage(compiled.CanonicalJSON),
+					CompilerVersion:    agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+					ProjectID: testProjectID, CurrentConfigID: config.ID,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeScope = memorystore.Scope{OrgID: scope.OrgID, ProjectID: scope.ProjectID, AgentID: agent.ID}
+			}
 			lock, err := files.Lock(ctx, memoryFilesystemRef(t, scope, resource))
 			if err != nil {
 				t.Fatal(err)
@@ -895,8 +929,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			written := make(chan error, 1)
 			go func() {
 				_, err := store.Memories().Write(ctx, memorystore.WriteInput{
-					Scope: scope, StoreID: resource.ID, Path: "file",
-					Content: []byte("second"), ExpectedDigest: &first,
+					Scope: writeScope, StoreID: resource.ID, Path: "file",
+					Content: []byte("second"), ExpectedDigest: &first.Digest,
 				})
 				written <- err
 			}()

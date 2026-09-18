@@ -151,6 +151,10 @@ const (
 	operationGetMemoryStore                operationID = "GetMemoryStore"
 	operationUpdateMemoryStore             operationID = "UpdateMemoryStore"
 	operationDeleteMemoryStore             operationID = "DeleteMemoryStore"
+	operationListMemoryFiles               operationID = "ListMemoryFiles"
+	operationDownloadMemoryFile            operationID = "DownloadMemoryFile"
+	operationWriteMemoryFile               operationID = "WriteMemoryFile"
+	operationDeleteMemoryFile              operationID = "DeleteMemoryFile"
 	operationUploadDaemonFile              operationID = "UploadDaemonFile"
 	operationDownloadDaemonFile            operationID = "DownloadDaemonFile"
 	operationListActors                    operationID = "ListActors"
@@ -328,11 +332,15 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListSkillGrants:            accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListProjectAvailableSkills: accountPolicy(projectScope(identitystore.ProjectActionRead)),
 
-	operationCreateMemoryStore: accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationListMemoryStores:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetMemoryStore:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationUpdateMemoryStore: accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteMemoryStore: accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateMemoryStore:  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListMemoryStores:   accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetMemoryStore:     accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationUpdateMemoryStore:  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteMemoryStore:  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListMemoryFiles:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationDownloadMemoryFile: accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationWriteMemoryFile:    accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteMemoryFile:   accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUploadDaemonFile: machineDaemonPolicy(
 		customScope("machine daemon token and active file transfer process"),
 	),

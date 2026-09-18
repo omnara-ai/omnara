@@ -188,12 +188,12 @@ type ListResult struct {
 	Next    listing.Cursor
 }
 
-func (s *Store) List(ctx context.Context, scope Scope, after string, limit int) (ListResult, error) {
+func (s *Store) List(ctx context.Context, scope Scope, options listing.Options, limit int) (ListResult, error) {
 	if err := s.authorize(ctx, scope, false); err != nil {
 		return ListResult{}, fmt.Errorf("list memory stores: %w", err)
 	}
-	if after != "" {
-		if err := skills.ValidateName(after); err != nil {
+	if options.After.Key != "" {
+		if err := skills.ValidateName(options.After.Key); err != nil {
 			return ListResult{}, storeerr.InvalidRequest(err)
 		}
 	}
@@ -201,9 +201,10 @@ func (s *Store) List(ctx context.Context, scope Scope, after string, limit int) 
 		return ListResult{}, storeerr.InvalidRequest(errors.New("invalid limit"))
 	}
 	rows, err := s.q.ListMemoryStores(ctx, dbsqlc.ListMemoryStoresParams{
-		ProjectID: scope.ProjectID,
-		AfterName: after,
-		RowLimit:  int32(limit + 1),
+		ProjectID:   scope.ProjectID,
+		AfterName:   options.After.Key,
+		NamePattern: options.NamePattern,
+		RowLimit:    int32(limit + 1),
 	})
 	if err != nil {
 		return ListResult{}, fmt.Errorf("list memory stores: %w", err)
