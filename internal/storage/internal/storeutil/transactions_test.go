@@ -114,7 +114,7 @@ func TestCommitTxWithNotificationsCommitsBeforePublishing(t *testing.T) {
 	order := []string{}
 	agentID := uuid.New()
 	txNotifications := notifications.NewTxNotifications()
-	txNotifications.AddAgentEvent(agentID)
+	txNotifications.AddAgentEvent(agentID, 1, "agent_input")
 	publisher := &recordingPublisher{order: &order}
 
 	err := storeutil.CommitTxWithNotifications(
@@ -146,7 +146,7 @@ func TestCommitTxWithNotificationsDoesNotPublishAfterCommitFailure(t *testing.T)
 	commitErr := errors.New("commit failed")
 	order := []string{}
 	txNotifications := notifications.NewTxNotifications()
-	txNotifications.AddAgentEvent(uuid.New())
+	txNotifications.AddAgentEvent(uuid.New(), 1, "agent_input")
 	publisher := &recordingPublisher{order: &order}
 
 	err := storeutil.CommitTxWithNotifications(

@@ -28,6 +28,8 @@ import (
 )
 
 const (
+	eventWebhookCleanupBatchSize     int32 = 500
+	eventWebhookCleanupTimeout             = 5 * time.Second
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
@@ -387,6 +389,12 @@ func runCoreMaintenanceTick(
 			executionstore.ProcessToolMachineUnreachableGrace,
 		)
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
+	webhookCleanupCtx, cancelWebhookCleanup := context.WithTimeout(ctx, eventWebhookCleanupTimeout)
+	deletedWebhooks, webhookCleanupErr := store.Execution().DeleteExpiredEventWebhookDeliveries(
+		webhookCleanupCtx, eventWebhookCleanupBatchSize,
+	)
+	cancelWebhookCleanup()
+	webhookCleanupOutcome := completedMaintenanceOutcome(ctx, webhookCleanupErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
@@ -398,7 +406,8 @@ func runCoreMaintenanceTick(
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredProcessTools > 0 ||
-		authCleanupDeleted
+		authCleanupDeleted ||
+		deletedWebhooks > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -409,6 +418,7 @@ func runCoreMaintenanceTick(
 			expireDaemonRuntimesOutcome.err,
 			expireProcessToolsOutcome.err,
 			authCleanupOutcome.err,
+			webhookCleanupOutcome.err,
 		),
 	)
 	if expireDaemonRuntimesOutcome.err != nil {
@@ -420,6 +430,9 @@ func runCoreMaintenanceTick(
 		log.Error("expire process tool calls", "error", expireProcessToolsOutcome.err)
 	} else if !expireProcessToolsOutcome.interrupted && expiredProcessTools > 0 {
 		log.Info("expired process tool calls", "count", expiredProcessTools)
+	}
+	if webhookCleanupOutcome.err != nil {
+		log.Error("cleanup expired event webhooks", "error", webhookCleanupOutcome.err)
 	}
 	if authCleanupOutcome.err != nil {
 		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)

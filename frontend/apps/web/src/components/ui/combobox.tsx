@@ -97,7 +97,7 @@ function ComboboxChip({
     <OverflowTooltip>
       <ComboboxPrimitive.Chip
         className={cn(
-          'bg-secondary text-secondary-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium',
+          'bg-muted text-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm border pl-2 pr-1 text-xs font-medium',
           className,
         )}
         {...props}

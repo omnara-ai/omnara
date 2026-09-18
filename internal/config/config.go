@@ -64,6 +64,7 @@ type Config struct {
 	MigrationsDir                     string
 	MigrationTimeout                  time.Duration
 	AllowInsecureDev                  bool
+	WorkerEventWebhookConcurrency     int
 	WorkerCapacity                    int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
@@ -201,6 +202,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workerEventWebhookConcurrency, err := getenvInt("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY", 128)
+	if err != nil {
+		return Config{}, err
+	}
 	workerCapacity, err := getenvInt("OMNARA_WORKER_CAPACITY", 4)
 	if err != nil {
 		return Config{}, err
@@ -243,6 +248,7 @@ func Load() (Config, error) {
 		DatabaseURL:                       getenv("OMNARA_DATABASE_URL", ""),
 		RedisURL:                          getenv("OMNARA_REDIS_URL", ""),
 		AllowInsecureDev:                  os.Getenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS") == "1",
+		WorkerEventWebhookConcurrency:     workerEventWebhookConcurrency,
 		WorkerCapacity:                    workerCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
@@ -580,6 +586,9 @@ func (cfg Config) SecretKeyWrapper() (secrets.KeyWrapper, error) {
 func (cfg Config) ValidateWorker() error {
 	if err := validatePortWithName("OMNARA_WORKER_METRICS_ADDR", cfg.WorkerMetricsAddr); err != nil {
 		return err
+	}
+	if cfg.WorkerEventWebhookConcurrency <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY must be positive")
 	}
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")

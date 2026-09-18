@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
@@ -2056,4 +2057,46 @@ func changeAgentConfigFromYAMLForTest(
 		t.Fatalf("change agent config %s: %v", key, err)
 	}
 	return result
+}
+
+func TestEventWebhookTargetFollowsCurrentConfig(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "event-webhook@example.com", "Event webhook")
+	source := "instruction: Test event webhook.\nmodel:\n  provider_config: openai-prod\n  name: event-webhook\n"
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "event-webhook", "Event webhook", source)
+	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
+		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "event-webhook-launch",
+	})
+	require.NoError(t, err)
+	target, err := store.Execution().GetAgentEventWebhookTarget(ctx, launch.Agent.ID)
+	require.NoError(t, err)
+	require.Empty(t, target.URL)
+	for _, destination := range []string{"https://example.com/first", "https://example.com/second", ""} {
+		updated := source
+		if destination != "" {
+			updated += "event_webhook:\n  url: " + destination + "\n"
+		}
+		compiled := mustCompileAgentYAMLResolved(t, ctx, store, updated)
+		_, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, Source: updated, SourceFormat: "yaml",
+				ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
+				CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+			},
+			AgentID: launch.Agent.ID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
+		})
+		require.NoError(t, err)
+		target, err := store.Execution().GetAgentEventWebhookTarget(ctx, launch.Agent.ID)
+		require.NoError(t, err)
+		require.Equal(t, testProjectID, target.ProjectID)
+		require.Equal(t, destination, target.URL)
+	}
+	target, err = store.Execution().GetAgentEventWebhookTarget(ctx, uuid.New())
+	require.NoError(t, err)
+	require.Empty(t, target.URL)
 }

@@ -294,6 +294,13 @@ func Compile(
 	if err != nil {
 		return Body{}, err
 	}
+	if webhook := result.Compiled.EventWebhook; webhook != nil && webhook.SigningSecretID != "" {
+		if err := validateEventWebhookSigningSecret(ctx, store, orgID, projectID, webhook.SigningSecretID); err != nil {
+			return Body{}, &agentconfig.ValidationError{Issues: []agentconfig.Issue{{
+				Path: "/event_webhook/signing_secret_id", Message: err.Error(),
+			}}}
+		}
+	}
 	resolvedConfiguredModelID, err := uuid.Parse(result.Compiled.Model.ConfiguredModelID)
 	if err != nil || resolvedConfiguredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf(
@@ -317,4 +324,17 @@ func Compile(
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     result.Hash,
 	}, nil
+}
+
+func validateEventWebhookSigningSecret(
+	ctx context.Context, store *storage.Store, orgID, projectID uuid.UUID, secretID string,
+) error {
+	secret, err := store.Execution().ReadEventWebhookSigningSecret(ctx, executionstore.EventWebhookTarget{
+		OrgID: orgID, ProjectID: projectID, SigningSecretID: secretID,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = agentconfig.DecodeEventWebhookSigningKey(secret)
+	return err
 }
