@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 const apiTarget = process.env.OMNARA_API_PROXY ?? 'http://localhost:8080'
-const proxiedPrefixes = ['/api', '/install', '/.well-known']
+const proxiedPrefixes = ['/api', '/mcp', '/install', '/.well-known']
 const proxy = Object.fromEntries(
   proxiedPrefixes.map((prefix) => [prefix, { target: apiTarget, changeOrigin: false, ws: true }]),
 )

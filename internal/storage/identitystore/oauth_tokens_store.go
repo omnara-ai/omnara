@@ -81,6 +81,8 @@ func (s *Store) CreateOAuthAuthorizationCode(
 		RedirectUri:   input.RedirectURI,
 		CodeChallenge: input.CodeChallenge,
 		Resource:      input.Resource,
+		Scope:         input.Scope,
+		Nonce:         input.Nonce,
 		TtlSeconds:    int64(OAuthAuthorizationCodeTTL / time.Second),
 	}); err != nil {
 		return "", fmt.Errorf("create authorization code: %w", err)
@@ -145,6 +147,7 @@ func (s *Store) ExchangeOAuthAuthorizationCode(
 		ClientID:          code.ClientID,
 		ClientName:        code.ClientName,
 		Resource:          code.Resource,
+		Scope:             code.Scope,
 		TokenHash:         HashBearerToken(tokens.AccessToken),
 		RefreshTokenHash:  HashBearerToken(tokens.RefreshToken),
 		AccessTtlSeconds:  int64(OAuthAccessTokenTTL / time.Second),
@@ -155,6 +158,10 @@ func (s *Store) ExchangeOAuthAuthorizationCode(
 	if err := tx.Commit(ctx); err != nil {
 		return OAuthTokenSetRecord{}, fmt.Errorf("commit authorization code exchange: %w", err)
 	}
+	tokens.UserID = code.UserID
+	tokens.ClientID = code.ClientID
+	tokens.Scope = code.Scope
+	tokens.Nonce = code.Nonce
 	tokens.Resource = code.Resource
 	return tokens, nil
 }
@@ -191,6 +198,7 @@ func (s *Store) RefreshOAuthAccessToken(
 		return OAuthTokenSetRecord{}, err
 	}
 	rotated, err := qtx.RotateOAuthAccessToken(ctx, dbsqlc.RotateOAuthAccessTokenParams{
+		Scope:                     input.Scope,
 		TokenHash:                 HashBearerToken(tokens.AccessToken),
 		RefreshTokenHash:          HashBearerToken(tokens.RefreshToken),
 		AccessTtlSeconds:          int64(OAuthAccessTokenTTL / time.Second),
@@ -222,6 +230,9 @@ func (s *Store) RefreshOAuthAccessToken(
 	if err := tx.Commit(ctx); err != nil {
 		return OAuthTokenSetRecord{}, fmt.Errorf("commit oauth token refresh: %w", err)
 	}
+	tokens.UserID = rotated.UserID
+	tokens.ClientID = input.ClientID
+	tokens.Scope = rotated.Scope
 	tokens.Resource = rotated.Resource
 	return tokens, nil
 }
@@ -249,6 +260,7 @@ func (s *Store) AuthenticateOAuthAccessToken(
 	return OAuthAccessTokenAuthentication{
 		Principal: NewOAuthAccessTokenPrincipal(row.UserID, row.OauthAccessTokenID),
 		Resource:  row.Resource,
+		Scope:     row.Scope,
 	}, nil
 }
 
