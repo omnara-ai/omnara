@@ -8,7 +8,9 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -274,11 +276,11 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
-			mcp.ClientRegistrationHTTPClient(s.mcpOAuthHTTPClient),
+			s.mcpOAuthHTTPClient,
 		)
 		if err != nil {
 			apiErr := mcpUpstreamFailure(
-				err,
+				clientRegistrationFailure(err),
 				"the authorization server did not respond to dynamic client registration: ",
 				"the authorization server rejected dynamic client registration; supply client_id: ",
 			)
@@ -509,6 +511,20 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 		return "", false
 	}
 	return s.absolutePublicURL(mcpOAuthClientMetadataPath), true
+}
+
+var clientRegistrationStatusPattern = regexp.MustCompile(`^registration failed with status (\d{3})[^:]*: (.*)$`)
+
+func clientRegistrationFailure(err error) error {
+	match := clientRegistrationStatusPattern.FindStringSubmatch(err.Error())
+	if match == nil {
+		return err
+	}
+	status, convErr := strconv.Atoi(match[1])
+	if convErr != nil {
+		return err
+	}
+	return &mcp.HTTPError{Status: status, Body: []byte(strings.TrimSpace(match[2]))}
 }
 
 func mcpUpstreamFailure(err error, transientPrefix string, rejectedPrefix string) apierror.ResponseError {
