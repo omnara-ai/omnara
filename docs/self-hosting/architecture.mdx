@@ -18,7 +18,7 @@ flowchart LR
   end
 
   ingress -- "default routes" --> web
-  ingress -- "/api/*, /mcp, /install/*,<br/>/.well-known/*" --> api
+  ingress -- "/api/*, /install/*,<br/>/.well-known/*" --> api
   migrate --> pg[("Postgres")]
   api --> pg
   api --> redis[("Redis")]
