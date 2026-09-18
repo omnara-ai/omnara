@@ -205,7 +205,7 @@ function AgentConfigIncludedTools({
         <CollapsibleTrigger asChild>
           <TooltipTrigger className="text-muted-foreground group flex w-fit items-center gap-2 px-4 py-3 text-left text-sm sm:px-5">
             <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-            Other tools
+            Built-in tools
           </TooltipTrigger>
         </CollapsibleTrigger>
         <TooltipContent

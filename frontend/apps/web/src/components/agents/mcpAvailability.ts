@@ -1,11 +1,6 @@
 import type { BasicMcpServer, BasicMcpTool } from '@/components/agents/agentConfigMcp'
 import type { PermissionModeOption } from '@/components/agents/permissionModeOptions'
-import {
-  CircleIcon,
-  EyeIcon,
-  EyeSlashIcon,
-  MagnifyingGlassCircleIcon,
-} from '@/components/icons'
+import { CircleIcon, EyeIcon, EyeSlashIcon, MagnifyingGlassCircleIcon } from '@/components/icons'
 
 export type McpAvailability = 'enabled' | 'deferred' | 'disabled'
 export type McpToolAvailability = 'inherit' | McpAvailability
@@ -20,7 +15,7 @@ export const mcpAvailabilityOptions: readonly PermissionModeOption[] = [
   {
     value: 'deferred',
     label: 'Deferred',
-    description: 'Hidden from the model until it finds the tool with tool_search.',
+    description: 'Hidden from the model’s context until it finds the tool with tool_search.',
     icon: MagnifyingGlassCircleIcon,
   },
   {

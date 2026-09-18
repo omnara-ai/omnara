@@ -62,14 +62,11 @@ export function AgentConfigMcpServerTools({
     server,
     discovered.map((tool) => tool.name),
   )
-  const toolCountLabel = discovery.isSuccess
-    ? `${discovered.length} ${discovered.length === 1 ? 'tool' : 'tools'}`
-    : null
   const discoveryFailure = visibleDiscoveryFailure(discovery, server.authType)
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-3 sm:flex-nowrap">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:flex-nowrap">
         <Field className="min-w-0 flex-1 basis-full sm:basis-auto">
           <FieldLabel htmlFor={`${server.id}-tool-override`}>Tool overrides</FieldLabel>
           <ToolOverridePicker
@@ -77,7 +74,6 @@ export function AgentConfigMcpServerTools({
             discovered={discovered}
             overriddenNames={overriddenNames}
             discovering={discovery.isPending && request != null}
-            toolCountLabel={toolCountLabel}
             onAdd={(name) => {
               onToolsChange([...server.tools, { name, enabled: null, permission: null }])
             }}
@@ -111,14 +107,12 @@ function ToolOverridePicker({
   discovered,
   overriddenNames,
   discovering,
-  toolCountLabel,
   onAdd,
 }: {
   inputId: string
   discovered: McpServerTool[]
   overriddenNames: Set<string>
   discovering: boolean
-  toolCountLabel: string | null
   onAdd: (name: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -158,11 +152,7 @@ function ToolOverridePicker({
         <ComboboxPrimitive.Input
           id={inputId}
           className="placeholder:text-muted-foreground pointer-coarse:text-base control-focus bg-background h-9 w-full rounded-md border pl-9 pr-3 text-base md:text-sm"
-          placeholder={
-            toolCountLabel == null
-              ? 'Add a tool override'
-              : `Add a tool override — search ${toolCountLabel}`
-          }
+          placeholder="Add a tool override"
           onKeyDown={(event) => {
             if (event.key === 'Enter' && typedNameAddable) {
               event.preventDefault()

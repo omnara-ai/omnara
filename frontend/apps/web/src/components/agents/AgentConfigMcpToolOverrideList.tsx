@@ -48,7 +48,7 @@ export function AgentConfigMcpToolOverrideList({
             <TableRow className="hover:bg-transparent">
               <TableHead className="h-[calc(2.25rem+3px)] px-4 pb-[3px]">Tool</TableHead>
               <TableHead className="h-[calc(2.25rem+3px)] w-36 px-4 pb-[3px]">Visibility</TableHead>
-              <TableHead className="h-[calc(2.25rem+3px)] w-36 px-4 pb-[3px]">Permission</TableHead>
+              <TableHead className="h-[calc(2.25rem+3px)] w-32 px-4 pb-[3px]">Permission</TableHead>
               <TableHead className="h-[calc(2.25rem+3px)] w-14 px-2 pb-[3px]">
                 <span className="sr-only">Remove</span>
               </TableHead>

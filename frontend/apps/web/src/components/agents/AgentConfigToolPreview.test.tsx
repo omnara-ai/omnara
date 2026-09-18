@@ -344,7 +344,7 @@ it.each([
   await vi.waitFor(() => {
     expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
   })
-  clickLabel('Other tools')
+  clickLabel('Built-in tools')
   const trigger = container.querySelector('[data-slot="collapsible-trigger"]')
   const readFile = container.querySelector('[aria-label="read_file permission"]')
   const instruction = container.querySelector('textarea')
@@ -368,7 +368,7 @@ it.each([
   expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
   expect(container.querySelector('textarea')).toBe(instruction)
   expect(toolOrder()).toEqual(originalOrder)
-  expect(container.textContent).not.toContain('Loading other tools')
+  expect(container.textContent).not.toContain('Loading built-in tools')
   expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(label)
   await act(async () => {
     release(toolResponse(['run_command', 'read_file', 'search_files']))
@@ -439,14 +439,14 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
   await vi.waitFor(() => {
     expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
   })
-  clickLabel('Other tools')
+  clickLabel('Built-in tools')
   const trigger = container.querySelector('[data-slot="collapsible-trigger"]')
   const readFile = container.querySelector('[aria-label="read_file permission"]')
   click('[aria-label="Remove web_search"]')
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
   await vi.waitFor(() => {
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Couldn’t load other tools',
+      'Couldn’t load built-in tools',
     )
   })
   expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
@@ -535,11 +535,11 @@ it('displays backend defaults without saving them and preserves user overrides',
       ?.click()
   })
   await vi.waitFor(() => {
-    expect(container.textContent).toContain('Other tools')
+    expect(container.textContent).toContain('Built-in tools')
   })
   act(() => {
     ;[...container.querySelectorAll('button')]
-      .find((button) => button.textContent === 'Other tools')
+      .find((button) => button.textContent === 'Built-in tools')
       ?.click()
   })
   expect(container.querySelector('[aria-label="run_command permission"]')?.textContent).toBe(
@@ -585,7 +585,7 @@ it('shows a preview failure and lets the user retry without editing the draft', 
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Couldn’t load other tools',
+      'Couldn’t load built-in tools',
     )
   })
   click('[role="alert"] button')
@@ -632,7 +632,7 @@ it('displays retrieval defaults without changing source and saves only edited ov
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
-  clickLabel('Other tools')
+  clickLabel('Built-in tools')
   expect(container.querySelector('[aria-label="read_file permission"]')?.textContent).toBe(
     'Always allow',
   )
@@ -686,7 +686,7 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
-  clickLabel('Other tools')
+  clickLabel('Built-in tools')
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="create_machine permission"]')).not.toBeNull()
   })
@@ -734,7 +734,7 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
   await vi.waitFor(() => {
     expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
   })
-  clickLabel('Other tools')
+  clickLabel('Built-in tools')
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="spawn_agent permission"]')?.textContent).toBe(
       'Always allow',

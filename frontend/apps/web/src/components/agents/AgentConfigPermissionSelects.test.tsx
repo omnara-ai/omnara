@@ -612,7 +612,7 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
   )
   expect(container.querySelectorAll('[data-slot="collapsible-trigger"]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="collapsible-trigger"]')?.textContent).toBe(
-    'Other tools',
+    'Built-in tools',
   )
   expect(container.textContent).toContain('web_search')
   for (const name of ['run_command', 'skill', 'send_integration_message']) {

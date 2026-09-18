@@ -25,15 +25,19 @@ const modeIcons = new Map<string, Icon>([
   ['always_deny', XCircleIcon],
 ])
 
+const hiddenMode = 'always_deny'
+
 export function permissionModeOptions(
   modes: readonly ToolPermissionMode[] | undefined,
 ): PermissionModeOption[] {
-  return (modes ?? []).map((mode) => ({
-    value: mode.name,
-    label: mode.label,
-    description: mode.description,
-    icon: modeIcons.get(mode.name) ?? CircleHelp,
-  }))
+  return (modes ?? [])
+    .filter((mode) => mode.name !== hiddenMode)
+    .map((mode) => ({
+      value: mode.name,
+      label: mode.label,
+      description: mode.description,
+      icon: modeIcons.get(mode.name) ?? CircleHelp,
+    }))
 }
 
 export const inheritPermissionOption: PermissionModeOption = {

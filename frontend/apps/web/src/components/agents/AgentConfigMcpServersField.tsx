@@ -418,13 +418,14 @@ function McpServerRow({
                 permissionProfile={permissionProfile}
                 defaults={
                   <>
-                    <Field className="w-auto shrink-0 items-center">
-                      <FieldLabel className="whitespace-nowrap text-center">
-                        Default permission
+                    <Field className="w-36 shrink-0 items-center">
+                      <FieldLabel className="justify-center whitespace-nowrap">
+                        Default Permission
                       </FieldLabel>
                       <div className="flex justify-center">
                         <PermissionModeGroup
                           label="MCP default permission"
+                          className="w-32 [&>button]:flex-1"
                           options={permissionModeOptions(permissionProfile?.permission_modes)}
                           value={
                             server.permission?.mode ??
@@ -438,13 +439,14 @@ function McpServerRow({
                         />
                       </div>
                     </Field>
-                    <Field className="w-auto shrink-0 items-center">
-                      <FieldLabel className="whitespace-nowrap text-center">
-                        Default visibility
+                    <Field className="w-36 shrink-0 items-center">
+                      <FieldLabel className="justify-center whitespace-nowrap">
+                        Default Visibility
                       </FieldLabel>
                       <div className="flex justify-center">
                         <PermissionModeGroup
                           label="MCP default visibility"
+                          className="w-32 [&>button]:flex-1"
                           options={mcpAvailabilityOptions}
                           value={mcpServerAvailability(server)}
                           onChange={(value) => {
