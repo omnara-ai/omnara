@@ -1,4 +1,4 @@
-package httpapi
+package mcp
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
-
-	"github.com/omnara-ai/omnara/internal/mcp"
 )
 
 func registerAgainst(t *testing.T, status int, body string) error {
@@ -43,8 +41,8 @@ func TestClientRegistrationFailureRecoversStatusFromSDKError(t *testing.T) {
 		{name: "forbidden", status: http.StatusForbidden, body: "denied"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := clientRegistrationFailure(registerAgainst(t, tt.status, tt.body))
-			got, ok := mcp.HTTPStatus(err)
+			err := ClientRegistrationFailure(registerAgainst(t, tt.status, tt.body))
+			got, ok := HTTPStatus(err)
 			if !ok || got != tt.status {
 				t.Fatalf(
 					"HTTPStatus = %d, %v for SDK error %q; want %d (the SDK error message format may have changed)",
@@ -56,14 +54,14 @@ func TestClientRegistrationFailureRecoversStatusFromSDKError(t *testing.T) {
 }
 
 func TestClientRegistrationFailureKeepsTypedRejection(t *testing.T) {
-	err := clientRegistrationFailure(
+	err := ClientRegistrationFailure(
 		registerAgainst(t, http.StatusBadRequest, `{"error":"invalid_redirect_uri","error_description":"nope"}`),
 	)
 	var rejected *oauthex.ClientRegistrationError
 	if !errors.As(err, &rejected) || rejected.ErrorCode != "invalid_redirect_uri" {
 		t.Fatalf("err = %v, want the SDK's typed registration error", err)
 	}
-	if _, ok := mcp.HTTPStatus(err); ok {
+	if _, ok := HTTPStatus(err); ok {
 		t.Fatalf("400 rejection should not carry an HTTP status: %v", err)
 	}
 }
