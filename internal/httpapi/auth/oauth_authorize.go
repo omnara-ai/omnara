@@ -52,6 +52,8 @@ type oauthAuthorizeRequest struct {
 	State         string
 	CodeChallenge string
 	Resource      string
+	Scope         string
+	Nonce         string
 }
 
 type oauthAuthorizeError struct {
@@ -99,6 +101,8 @@ func parseOAuthAuthorizeRequest(values url.Values) (oauthAuthorizeRequest, *oaut
 		State:         values.Get("state"),
 		CodeChallenge: values.Get("code_challenge"),
 		Resource:      strings.TrimRight(values.Get("resource"), "/"),
+		Scope:         strings.Join(strings.Fields(values.Get("scope")), " "),
+		Nonce:         values.Get("nonce"),
 	}
 	if err := validateClientIDURL(request.ClientID); err != nil {
 		return oauthAuthorizeRequest{}, clientError("invalid_client", err.Error())
@@ -123,8 +127,8 @@ func (r oauthAuthorizeRequest) validateGrantParams(values url.Values, resources 
 		}) >= 0 {
 		return r.redirectError("invalid_request", "code_challenge is invalid")
 	}
-	if values.Get("scope") != "" {
-		return r.redirectError("invalid_scope", "this authorization server does not define OAuth scopes")
+	if !validOIDCScope(r.Scope) {
+		return r.redirectError("invalid_scope", "supported scopes are openid and email; email requires openid")
 	}
 	if r.Resource == "" {
 		return r.redirectError("invalid_target", "resource is required")
@@ -357,6 +361,7 @@ func (h *Handler) pendingOAuthAuthorizeRoute(w http.ResponseWriter, r *http.Requ
 		"redirect_host": redirect.Host,
 		"loopback":      isLoopbackHost(redirect.Hostname()),
 		"resource":      request.Resource,
+		"scope":         request.Scope,
 	})
 }
 
@@ -405,6 +410,8 @@ func (h *Handler) approveOAuthAuthorizeRoute(w http.ResponseWriter, r *http.Requ
 		RedirectURI:      request.RedirectURI,
 		CodeChallenge:    request.CodeChallenge,
 		Resource:         request.Resource,
+		Scope:            request.Scope,
+		Nonce:            request.Nonce,
 	})
 	if errors.Is(err, storeerr.ErrUnauthorized) {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
@@ -477,11 +484,17 @@ func (h *Handler) refreshTokenGrant(w http.ResponseWriter, r *http.Request, form
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "refresh_token is required")
 		return
 	}
+	if !validOIDCScope(form.Get("scope")) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_scope",
+			"supported scopes are openid and email; email requires openid")
+		return
+	}
 	if !h.requireOAuthGrantRateLimits(w, r, "oauth_refresh", form.Get("refresh_token")) {
 		return
 	}
 	tokens, err := h.store.RefreshOAuthAccessToken(r.Context(), identitystore.RefreshOAuthAccessTokenInput{
 		RefreshToken: form.Get("refresh_token"),
+		Scope:        strings.Join(strings.Fields(form.Get("scope")), " "),
 		ClientID:     clientID,
 		Resource:     strings.TrimRight(form.Get("resource"), "/"),
 	})
@@ -508,10 +521,20 @@ func (h *Handler) writeOAuthTokenSet(
 		h.writeOAuthServerError(w, r, err)
 		return
 	}
-	writeOAuthJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"access_token":  tokens.AccessToken,
 		"token_type":    "Bearer",
 		"expires_in":    int(tokens.ExpiresIn.Seconds()),
 		"refresh_token": tokens.RefreshToken,
-	})
+		"scope":         tokens.Scope,
+	}
+	if hasOAuthScope(tokens.Scope, "openid") {
+		idToken, err := h.oidcIDToken(r, tokens)
+		if err != nil {
+			h.writeOAuthServerError(w, r, err)
+			return
+		}
+		response["id_token"] = idToken
+	}
+	writeOAuthJSON(w, http.StatusOK, response)
 }

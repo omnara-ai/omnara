@@ -369,6 +369,13 @@ func TestMCPServerOAuthAuthorizationCodeFlow(t *testing.T) {
 		t.Fatalf("whoami body = %s", rec.Body.String())
 	}
 
+	userInfoReq := httptest.NewRequest(http.MethodGet, mcpOAuthTestPublicURL+httpauth.OIDCUserInfoPath, nil)
+	userInfoReq.Header.Set("Authorization", "Bearer "+accessToken)
+	rec = performRequest(handler, userInfoReq)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unscoped token accessed UserInfo: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
 	apiReq := httptest.NewRequest(http.MethodGet, mcpOAuthTestPublicURL+"/api/v1/me", nil)
 	apiReq.Header.Set("Authorization", "Bearer "+accessToken)
 	rec = performRequest(handler, apiReq)

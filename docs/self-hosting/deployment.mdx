@@ -73,6 +73,34 @@ cloudflared tunnel --url http://localhost:8000
 
 This prints a random `https://{subdomain}.trycloudflare.com` URL that changes every run. After starting the tunnel you can set `OMNARA_PUBLIC_URL` in the same way described above.
 
+## MCP OAuth and Enterprise identity
+
+Forward `/mcp`, `/api/*`, and `/.well-known/*` to the API. Keep `/oauth/authorize`
+on the web application. The included Compose gateway and Vite development proxy
+handle these routes. A tunnel targeting the Vite server needs the API running
+at `OMNARA_API_PROXY` (default `http://localhost:8080`). Set `OMNARA_PUBLIC_URL`
+to the tunnel's HTTPS origin on the API and restart it; do not point a test
+instance at the production app origin.
+
+Omnara publishes OAuth metadata at `/.well-known/oauth-authorization-server`
+and OIDC discovery at `/.well-known/openid-configuration`. OAuth clients can
+request `openid email` to receive a signed ID token and retrieve the user's
+verified email from `/api/auth/userinfo`. The consent screen describes email
+sharing. UserInfo requires an OAuth access token with `openid`; email is only
+returned with the `email` scope and an existing verified email record. Tokens
+issued before identity scopes were supported require a new authorization.
+
+Run the database migrations before starting this version of the API. The OIDC
+signing key is created on first use, stored encrypted using the configured
+secret key wrapper, and shared by API replicas. Preserve the database and its
+encryption keys across restarts. Public verification keys are published at
+`/.well-known/jwks.json`.
+
+If a client still opens an old production login URL after changing environments,
+reconnect it so it fetches the instance's discovery documents again. The resource
+metadata's `authorization_servers` and the discovery document's `issuer` and
+`authorization_endpoint` should all identify the intended test instance.
+
 ## Next steps
 
 <CardGroup cols={2}>
