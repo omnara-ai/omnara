@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 
 import {
+  type BasicMemoryStore,
   extractBasicConfig,
   type MachineEntry,
   normalizeMultiline,
@@ -89,6 +90,7 @@ export interface BasicConfig {
   eventWebhookUrl: string
   eventWebhookSigningSecretId: string
   skillIds: string[]
+  memoryStores: BasicMemoryStore[]
   subagents: BasicSubagent[]
   maxSubagents: string
   maxDepth: string
@@ -125,6 +127,7 @@ export const emptyBasicConfig: BasicConfig = {
   eventWebhookUrl: '',
   eventWebhookSigningSecretId: '',
   skillIds: [],
+  memoryStores: [],
   subagents: [],
   maxSubagents: '',
   maxDepth: '',
@@ -192,6 +195,7 @@ export function useAgentBuilderForm(
     machineSources: draft.machineSources,
     tools: draft.tools,
     skillIds: draft.skillIds,
+    memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
     eventWebhookEvents: draft.eventWebhookEvents,
     eventWebhookUrl: draft.eventWebhookUrl,
@@ -217,6 +221,9 @@ export function useAgentBuilderForm(
     },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
+    },
+    setMemoryStores: (memoryStores: BasicMemoryStore[]) => {
+      patch({ memoryStores })
     },
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
@@ -330,6 +337,12 @@ function applyToDocument(
     if (doc.deleteIn(path)) edits.count += 1
   }
 
+  const applyList = (key: string, items: WireValue[], baseline: WireValue[] | null) => {
+    if (baseline != null && deepEqual(items, baseline)) return
+    if (items.length === 0) del([key])
+    else set([key], items)
+  }
+
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
   const providerConfig = normalizeResourceName(config.providerConfig)
@@ -353,7 +366,8 @@ function applyToDocument(
     set,
     del,
   )
-  applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
+  applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
+  applyList('skills', config.skillIds, baseline?.skillIds ?? null)
   applyNamedEntries(
     'subagents',
     config.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
@@ -433,15 +447,6 @@ function applyMachineSources(
     return machineSourceWire(row)
   })
   set(['machine_sources'], items)
-}
-
-function applySkills(skillIds: string[], baselineIds: string[] | null, set: Setter, del: Deleter) {
-  if (baselineIds != null && deepEqual(skillIds, baselineIds)) return
-  if (skillIds.length === 0) {
-    del(['skills'])
-    return
-  }
-  set(['skills'], [...skillIds])
 }
 
 function machineSourceComparable(source: BasicMachineSource) {

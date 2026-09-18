@@ -40,6 +40,7 @@ SELECT id, project_id, name, description, read_only, created_at, updated_at, del
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
+  AND (sqlc.arg(name_pattern)::text = '' OR name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (name COLLATE "C") > sqlc.arg(after_name)::text COLLATE "C"
 ORDER BY name COLLATE "C"
 LIMIT sqlc.arg(row_limit);

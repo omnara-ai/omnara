@@ -86,6 +86,7 @@ export function agentTemplateBasicConfig(
     eventWebhookUrl: '',
     eventWebhookSigningSecretId: '',
     skillIds: [],
+    memoryStores: [],
     subagents: [],
     maxSubagents: '',
     maxDepth: '',

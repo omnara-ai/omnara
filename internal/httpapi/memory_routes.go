@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -19,6 +20,18 @@ func memoryScope(ctx context.Context) (memorystore.Scope, error) {
 		return memorystore.Scope{}, *e
 	}
 	return memorystore.Scope{OrgID: scope.org.ID, ProjectID: scope.project.ID, Principal: principal}, nil
+}
+
+func memoryStoreScope(ctx context.Context, publicID string) (memorystore.Scope, uuid.UUID, error) {
+	scope, err := memoryScope(ctx)
+	if err != nil {
+		return scope, uuid.Nil, err
+	}
+	id, ok := parseOpenAPIPublicID(publicid.KindMemoryStore, publicID)
+	if !ok {
+		return scope, uuid.Nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	return scope, id, nil
 }
 
 func memoryStoreResponse(r memorystore.Record) (openapi.MemoryStore, error) {
@@ -61,13 +74,9 @@ func (s strictOpenAPIServer) GetMemoryStore(
 	ctx context.Context,
 	req openapi.GetMemoryStoreRequestObject,
 ) (openapi.GetMemoryStoreResponseObject, error) {
-	scope, err := memoryScope(ctx)
+	scope, id, err := memoryStoreScope(ctx, req.MemoryStoreID)
 	if err != nil {
 		return nil, err
-	}
-	id, ok := parseOpenAPIPublicID(publicid.KindMemoryStore, req.MemoryStoreID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	r, err := s.server.store.Memories().Get(ctx, scope, id)
 	if err != nil {
@@ -81,13 +90,9 @@ func (s strictOpenAPIServer) UpdateMemoryStore(
 	ctx context.Context,
 	req openapi.UpdateMemoryStoreRequestObject,
 ) (openapi.UpdateMemoryStoreResponseObject, error) {
-	scope, err := memoryScope(ctx)
+	scope, id, err := memoryStoreScope(ctx, req.MemoryStoreID)
 	if err != nil {
 		return nil, err
-	}
-	id, ok := parseOpenAPIPublicID(publicid.KindMemoryStore, req.MemoryStoreID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	if req.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "body is required")
@@ -104,13 +109,9 @@ func (s strictOpenAPIServer) DeleteMemoryStore(
 	ctx context.Context,
 	req openapi.DeleteMemoryStoreRequestObject,
 ) (openapi.DeleteMemoryStoreResponseObject, error) {
-	scope, err := memoryScope(ctx)
+	scope, id, err := memoryStoreScope(ctx, req.MemoryStoreID)
 	if err != nil {
 		return nil, err
-	}
-	id, ok := parseOpenAPIPublicID(publicid.KindMemoryStore, req.MemoryStoreID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
 	if err = s.server.store.Memories().Delete(ctx, scope, id); err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -133,13 +134,13 @@ func (s strictOpenAPIServer) ListMemoryStores(
 	sort := "name"
 	listScope := scope.OrgID.String() + "/" + scope.ProjectID.String()
 	list, err := parseResourceListQuery(resourceListQueryInput{
-		Sort: &sort, Cursor: req.Params.Cursor, ListKind: "memory_stores",
+		Name: req.Params.Name, Sort: &sort, Cursor: req.Params.Cursor, ListKind: "memory_stores",
 		Scope: listScope, IDKind: publicid.KindMemoryStore, AllowedSorts: sortSet("name"),
 	})
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Memories().List(ctx, scope, list.After.Key, limit)
+	page, err := s.server.store.Memories().List(ctx, scope, list, limit)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}

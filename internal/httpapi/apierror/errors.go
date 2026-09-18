@@ -23,6 +23,7 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeForbidden:               {http.StatusForbidden, "forbidden"},
 	openapi.ErrorCodeNotFound:                {http.StatusNotFound, "not found"},
 	openapi.ErrorCodeConflict:                {http.StatusConflict, "conflict"},
+	openapi.ErrorCodeFileContentConflict:     {http.StatusConflict, "file content conflict"},
 	openapi.ErrorCodeGone:                    {http.StatusGone, "gone"},
 	openapi.ErrorCodeRequestTooLarge:         {http.StatusRequestEntityTooLarge, "request too large"},
 	openapi.ErrorCodeUnsupportedMediaType:    {http.StatusUnsupportedMediaType, "unsupported media type"},
@@ -89,11 +90,12 @@ var sentinelCodes = []sentinelMapping{
 }
 
 type ResponseError struct {
-	Status  int
-	Code    openapi.ErrorCode
-	Message string
-	Issues  []openapi.AgentConfigErrorIssue
-	cause   error
+	Status        int
+	Code          openapi.ErrorCode
+	Message       string
+	Issues        []openapi.AgentConfigErrorIssue
+	CurrentDigest *string
+	cause         error
 }
 
 func (err ResponseError) Error() string {
@@ -131,7 +133,7 @@ func WithIssues(code openapi.ErrorCode, additionalText string, issues []openapi.
 }
 
 func (err ResponseError) body() openapi.Error {
-	body := openapi.Error{Error: err.Message, Code: err.Code}
+	body := openapi.Error{Error: err.Message, Code: err.Code, CurrentDigest: err.CurrentDigest}
 	if len(err.Issues) > 0 {
 		issues := append([]openapi.AgentConfigErrorIssue(nil), err.Issues...)
 		body.Issues = &issues
@@ -141,7 +143,11 @@ func (err ResponseError) body() openapi.Error {
 
 func FromError(err error) ResponseError {
 	responseErr := FromCode(openapi.ErrorCodeInternalError, "")
-	if errors.Is(err, pgx.ErrNoRows) {
+	var fileConflict *storeerr.FileContentConflict
+	if errors.As(err, &fileConflict) {
+		responseErr = FromCode(openapi.ErrorCodeFileContentConflict, err.Error())
+		responseErr.CurrentDigest = &fileConflict.CurrentDigest
+	} else if errors.Is(err, pgx.ErrNoRows) {
 		responseErr = FromCode(openapi.ErrorCodeNotFound, err.Error())
 	} else {
 		for _, mapping := range sentinelCodes {

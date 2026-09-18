@@ -249,19 +249,26 @@ SELECT id, project_id, name, description, read_only, created_at, updated_at, del
 FROM memory_stores
 WHERE project_id = $1
   AND deleted_at IS NULL
-  AND (name COLLATE "C") > $2::text COLLATE "C"
+  AND ($2::text = '' OR name ILIKE $2::text ESCAPE '\')
+  AND (name COLLATE "C") > $3::text COLLATE "C"
 ORDER BY name COLLATE "C"
-LIMIT $3
+LIMIT $4
 `
 
 type ListMemoryStoresParams struct {
-	ProjectID uuid.UUID
-	AfterName string
-	RowLimit  int32
+	ProjectID   uuid.UUID
+	NamePattern string
+	AfterName   string
+	RowLimit    int32
 }
 
 func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresParams) ([]MemoryStore, error) {
-	rows, err := q.db.Query(ctx, listMemoryStores, arg.ProjectID, arg.AfterName, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listMemoryStores,
+		arg.ProjectID,
+		arg.NamePattern,
+		arg.AfterName,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -13,16 +13,12 @@ export const zErrorResponse = relaxedSchema(
   zError.partial({ code: true }).extend({ error_description: z.string().optional() }),
 )
 
-function issuesFromBody(body: JsonBody | undefined): AgentConfigErrorIssue[] {
-  const parsed = zErrorResponse.safeParse(body)
-  return parsed.success ? (parsed.data.issues ?? []) : []
-}
-
 export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode | undefined
   readonly body: JsonBody | undefined
   readonly issues: AgentConfigErrorIssue[]
+  readonly currentDigest: string | undefined
 
   constructor(status: number, message: string, code?: ApiErrorCode, body?: JsonBody) {
     super(message)
@@ -30,7 +26,9 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
     this.body = body
-    this.issues = issuesFromBody(body)
+    const parsed = zErrorResponse.safeParse(body)
+    this.issues = parsed.data?.issues ?? []
+    this.currentDigest = parsed.data?.current_digest
   }
 
   static async fromResponse(response: Response): Promise<ApiError> {
