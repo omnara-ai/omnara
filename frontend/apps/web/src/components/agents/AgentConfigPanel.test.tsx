@@ -83,7 +83,7 @@ it.each([undefined, 'instruction: Old generated source.'])(
         expect(container.textContent).toContain('This derived configuration is read-only.')
       })
       expect(container.textContent).not.toContain('Old generated source.')
-      expect(container.textContent).toContain('Compiled config (saved)')
+      expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
       expect(JSON.parse(container.querySelector('pre')?.textContent ?? '')).toEqual(
         config.compiled_definition,
       )
@@ -131,6 +131,7 @@ it('keeps the saved compiled view separate from an unsaved form', async () => {
     expect(container.querySelector('pre')).toBeNull()
     const draft = container.querySelector('textarea')
     const trigger = container.querySelector<HTMLButtonElement>('[data-slot="collapsible-trigger"]')
+    expect(trigger?.textContent).toBe('Compiled config (saved)')
     expect(trigger?.getAttribute('aria-expanded')).toBe('false')
     act(() => {
       trigger?.click()
