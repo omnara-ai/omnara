@@ -474,7 +474,7 @@ func TestLaunchSubagentRejectsForeignParentAndDepthLimit(t *testing.T) {
 	}
 }
 
-func TestSubagentArchiveNotifiesParent(t *testing.T) {
+func TestSubagentArchiveDoesNotMessageParent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -506,31 +506,18 @@ func TestSubagentArchiveNotifiesParent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("archive subagent: %v", err)
 	}
-	var metadata json.RawMessage
-	var deliveryMode string
+	var parentInputs int
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT metadata, delivery_mode FROM agent_inputs
+		`SELECT count(*) FROM agent_inputs
 		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message'`,
 		testProjectID,
 		parent.ID,
-	).Scan(&metadata, &deliveryMode); err != nil {
-		t.Fatalf("load parent notification input: %v", err)
+	).Scan(&parentInputs); err != nil {
+		t.Fatalf("count parent subagent messages: %v", err)
 	}
-	if deliveryMode != string(executionstore.DeliveryModeSteering) {
-		t.Fatalf("parent notification delivery mode = %q, want steering", deliveryMode)
-	}
-	var decodedMetadata struct {
-		SubagentMessage struct {
-			Kind    string `json:"kind"`
-			AgentID string `json:"agent_id"`
-		} `json:"subagent_message"`
-	}
-	if err := json.Unmarshal(metadata, &decodedMetadata); err != nil {
-		t.Fatalf("decode parent notification metadata: %v", err)
-	}
-	if decodedMetadata.SubagentMessage.Kind != "archived" || decodedMetadata.SubagentMessage.AgentID == "" {
-		t.Fatalf("parent notification metadata = %s", metadata)
+	if parentInputs != 0 {
+		t.Fatalf("parent subagent messages after archive = %d, want 0", parentInputs)
 	}
 }
 
