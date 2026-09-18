@@ -3,6 +3,7 @@ import { useToolCatalog } from '@omnara/react'
 import { AgentConfigEventWebhookField } from '@/components/agents/AgentConfigEventWebhookField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
+import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
@@ -101,6 +102,12 @@ export function AgentConfigBasicForm({
             builderDraft={form.draft}
             agentName={agentName}
             onBeforeOAuthRedirect={onBeforeOAuthRedirect}
+          />
+          <AgentConfigMemoryField
+            orgId={orgId}
+            projectId={projectId}
+            stores={form.memoryStores}
+            onChange={form.setMemoryStores}
           />
           <Collapsible className="pt-2">
             <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-ring group flex items-center gap-1.5 rounded-sm py-1 text-left text-sm focus-visible:ring-2 focus-visible:ring-offset-2">

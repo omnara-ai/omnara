@@ -22,13 +22,16 @@ describe('selectAgentAttachment', () => {
     }
   })
 
-  it('accepts arbitrary valid UTF-8 files as plain text', async () => {
-    const selected = await selectAgentAttachment(
-      new File(['fn main() {}'], 'main.rs', { type: 'application/octet-stream' }),
-      model({ input_modalities: ['text'] }),
-    )
-    expect(selected).toMatchObject({ kind: 'document', mediaType: 'text/plain' })
-  })
+  it.each(['fn main() {}', '\ufefffn main() {}', '\ufeff'])(
+    'accepts arbitrary valid UTF-8 files as plain text: %j',
+    async (content) => {
+      const selected = await selectAgentAttachment(
+        new File([content], 'main.rs', { type: 'application/octet-stream' }),
+        model({ input_modalities: ['text'] }),
+      )
+      expect(selected).toMatchObject({ kind: 'document', mediaType: 'text/plain' })
+    },
+  )
 
   it('counts the filename limit in Unicode characters', async () => {
     const filename = `${'界'.repeat(100)}.txt`

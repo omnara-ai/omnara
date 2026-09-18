@@ -251,9 +251,9 @@ memory_stores:
 
 Store names are unique within a project and use 1–64 lowercase letters, digits, and single hyphens between groups of letters or digits. Config creation resolves the name to the store's ID.
 
-Each attachment requires `access: read_only` or `access: read_write`. Writes require both `read_write` access and a writable store. New stores default to allowing writes.
+Each attachment requires `access: read_only` or `access: read_write`. Agent writes require both `read_write` access and a writable store. Project managers can edit files in read-only stores. New stores default to allowing writes.
 
-Enable the [file tools](/tools/built-in#files) under `tools:` to let the agent discover, download, and upload files at `/memory/<store-name>/<file-path>`. File paths can include nested directories. Reading or editing file contents requires an attached machine.
+Attached stores are available through the [file tools](/tools/built-in#files) at `/memory/<store-name>/<file-path>`. Paths can include nested directories. Retrieval tools are added automatically; `read_write` attachments also add `write_file`. Explicit tool disables still apply.
 
 ## Create a config
 

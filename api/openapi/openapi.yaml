@@ -1942,6 +1942,7 @@ paths:
         - browserSessionCookie: []
       parameters:
         - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/ResourceNameFilter"
         - name: cursor
           in: query
           schema:
@@ -2091,6 +2092,243 @@ paths:
           $ref: "#/components/responses/ClientError"
         5XX:
           $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: memoryStoreID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MemoryStoreID'
+    get:
+      operationId: listMemoryFiles
+      tags: [Memory Stores]
+      summary: List memory files
+      description: List a directory's immediate children in name order. Omit path to list the store root.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          schema:
+            type: string
+            maxLength: 1024
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryFileList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: memoryStoreID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MemoryStoreID'
+    get:
+      operationId: downloadMemoryFile
+      tags: [Memory Stores]
+      summary: Download memory file
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+      responses:
+        '200':
+          description: Success.
+          headers:
+            ETag:
+              schema:
+                type: string
+            X-Omnara-File-Digest:
+              schema:
+                type: string
+            Content-Disposition:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: writeMemoryFile
+      tags: [Memory Stores]
+      summary: Write memory file
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+        - name: expected_digest
+          description: Digest of the contents being replaced or deleted. Required to change an existing file.
+          in: query
+          schema:
+            type: string
+            pattern: '^sha256:[0-9a-f]{64}$'
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadFileResponse'
+        '413':
+          description: File exceeds the 10 MiB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteMemoryFile
+      tags: [Memory Stores]
+      summary: Delete memory file
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+        - name: expected_digest
+          description: Digest of the contents being replaced or deleted. Required to change an existing file.
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^sha256:[0-9a-f]{64}$'
+      responses:
+        '204':
+          description: Success.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/secrets:
     parameters:
       - name: orgID
@@ -7473,6 +7711,10 @@ components:
         error:
           type: string
           description: Human-readable error message. Do not match on it programmatically.
+        current_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Current file digest for a file_content_conflict. A replacement must be confirmed before retrying with this digest.
         issues:
           type: array
           description: >-
@@ -7489,6 +7731,7 @@ components:
             - forbidden
             - not_found
             - conflict
+            - file_content_conflict
             - gone
             - request_too_large
             - unsupported_media_type
@@ -7517,6 +7760,7 @@ components:
         - csrf_check_failed
         - not_found
         - conflict
+        - file_content_conflict
         - idempotency_key_conflict
         - state_transition_conflict
         - pending_work
@@ -8675,6 +8919,32 @@ components:
           type: boolean
         next_cursor:
           type: string
+    MemoryFile:
+      type: object
+      additionalProperties: false
+      required: [path, type, modified_at]
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, directory]
+        size_bytes:
+          type: integer
+          format: int64
+        modified_at:
+          $ref: '#/components/schemas/Timestamp'
+    MemoryFileList:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryFile'
+        next_cursor:
+          type: [string, "null"]
     UploadFileResponse:
       type: object
       additionalProperties: false

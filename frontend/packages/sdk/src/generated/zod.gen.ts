@@ -48,6 +48,7 @@ export const zAgentConfigErrorIssue = z.object({
 
 export const zError = z.object({
     error: z.string(),
+    current_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
     issues: z.array(zAgentConfigErrorIssue).optional(),
     code: z.enum([
         'invalid_request',
@@ -55,6 +56,7 @@ export const zError = z.object({
         'forbidden',
         'not_found',
         'conflict',
+        'file_content_conflict',
         'gone',
         'request_too_large',
         'unsupported_media_type',
@@ -86,6 +88,7 @@ export const zClientErrorCode = z.enum([
     'csrf_check_failed',
     'not_found',
     'conflict',
+    'file_content_conflict',
     'idempotency_key_conflict',
     'state_transition_conflict',
     'pending_work',
@@ -618,6 +621,18 @@ export const zMemoryStoreList = z.object({
     data: z.array(zMemoryStore),
     has_more: z.boolean(),
     next_cursor: z.string().optional()
+});
+
+export const zMemoryFile = z.object({
+    path: z.string(),
+    type: z.enum(['file', 'directory']),
+    size_bytes: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
+    modified_at: zTimestamp
+});
+
+export const zMemoryFileList = z.object({
+    data: z.array(zMemoryFile),
+    next_cursor: z.string().nullable()
 });
 
 /**
@@ -3570,6 +3585,7 @@ export const zListMemoryStoresPath = z.object({
 
 export const zListMemoryStoresQuery = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50),
+    name: z.string().min(1).max(200).optional(),
     cursor: z.string().optional()
 });
 
@@ -3624,6 +3640,72 @@ export const zUpdateMemoryStorePath = z.object({
  * Success.
  */
 export const zUpdateMemoryStoreResponse = zMemoryStore;
+
+export const zListMemoryFilesPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zListMemoryFilesQuery = z.object({
+    path: z.string().max(1024).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Success.
+ */
+export const zListMemoryFilesResponse = zMemoryFileList;
+
+export const zDeleteMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zDeleteMemoryFileQuery = z.object({
+    path: z.string().max(1024),
+    expected_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
+});
+
+/**
+ * Success.
+ */
+export const zDeleteMemoryFileResponse = z.void();
+
+export const zDownloadMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zDownloadMemoryFileQuery = z.object({
+    path: z.string().max(1024)
+});
+
+/**
+ * Success.
+ */
+export const zDownloadMemoryFileResponse = z.string();
+
+export const zWriteMemoryFileBody = z.string();
+
+export const zWriteMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zWriteMemoryFileQuery = z.object({
+    path: z.string().max(1024),
+    expected_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional()
+});
+
+/**
+ * Success.
+ */
+export const zWriteMemoryFileResponse = zUploadFileResponse;
 
 export const zListSecretsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
