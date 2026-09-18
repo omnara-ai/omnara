@@ -270,11 +270,11 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 		if len(scopes) > 0 {
 			clientMeta.Scope = strings.Join(scopes, " ")
 		}
-		registered, err := mcp.RegisterClient(
+		registered, err := oauthex.RegisterClient(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
-			s.mcpOAuthHTTPClient,
+			mcp.ClientRegistrationHTTPClient(s.mcpOAuthHTTPClient),
 		)
 		if err != nil {
 			apiErr := mcpUpstreamFailure(
