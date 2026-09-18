@@ -930,21 +930,12 @@ func writeToolCallUpdateFrame(w http.ResponseWriter, update notifications.ToolCa
 	if !state.Valid() {
 		return true
 	}
-	toolCallID, err := publicID(publicid.KindToolCall, update.ToolCallID)
+	response, err := publicevents.ToolCallUpdate(update)
 	if err != nil {
 		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
 		return false
 	}
-	agentID, err := publicID(publicid.KindAgent, update.AgentID)
-	if err != nil {
-		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
-		return false
-	}
-	return writeSSEJSONFrame(w, "tool_call_update", "", openapi.ToolCallUpdate{
-		ToolCallId: toolCallID,
-		AgentId:    &agentID,
-		State:      state,
-	})
+	return writeSSEJSONFrame(w, "tool_call_update", "", response)
 }
 
 func writeModelOutputDeltaFrame(

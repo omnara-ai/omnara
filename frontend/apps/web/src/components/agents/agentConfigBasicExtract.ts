@@ -138,6 +138,13 @@ const basicDocument = z.looseObject({
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
+  event_webhook: z
+    .strictObject({
+      url: z.string(),
+      signing_secret_id: z.string().optional(),
+      events: z.array(z.string()).optional(),
+    })
+    .optional(),
   subagents: z.record(z.string(), subagentEntry).optional(),
   max_subagents: positiveCount,
   max_depth: positiveCount,
@@ -180,6 +187,9 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
+    eventWebhookEvents: doc.event_webhook?.events ?? null,
+    eventWebhookUrl: doc.event_webhook?.url ?? '',
+    eventWebhookSigningSecretId: doc.event_webhook?.signing_secret_id ?? '',
     skillIds: doc.skills ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
     maxSubagents: countDraft(doc.max_subagents),

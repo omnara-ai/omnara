@@ -485,7 +485,11 @@ it('does not offer the Slack tool when it is absent from the source', async () =
   await vi.waitFor(() => {
     expect(requests).toHaveLength(1)
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(
+    [...container.querySelectorAll('[data-slot="collapsible-trigger"]')].find(
+      (trigger) => trigger.textContent === 'Other tools',
+    ),
+  ).toBeUndefined()
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
   expect(requests).toEqual([
     {
@@ -598,7 +602,11 @@ it('shows a preview failure and lets the user retry without editing the draft', 
     expect(attempts).toBe(2)
     expect(container.querySelector('[role="alert"]')).toBeNull()
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(
+    [...container.querySelectorAll('[data-slot="collapsible-trigger"]')].find(
+      (trigger) => trigger.textContent === 'Other tools',
+    ),
+  ).toBeUndefined()
 })
 
 function clickLabel(label: string) {
@@ -633,7 +641,11 @@ it('displays retrieval defaults without changing source and saves only edited ov
   Providers = testProviders([previewToolsRoute(() => ['read_file', 'search_files'])])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(
+      [...container.querySelectorAll('[data-slot="collapsible-trigger"]')].find(
+        (trigger) => trigger.textContent === 'Other tools',
+      ),
+    ).not.toBeUndefined()
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
@@ -737,7 +749,11 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(
+      [...container.querySelectorAll('[data-slot="collapsible-trigger"]')].find(
+        (trigger) => trigger.textContent === 'Other tools',
+      ),
+    ).not.toBeUndefined()
   })
   clickLabel('Other tools')
   await vi.waitFor(() => {

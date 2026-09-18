@@ -25,6 +25,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_MAINTENANCE_METRICS_ADDR` | `maintenance` health/metrics listener | `:8083` | No |
 | `OMNARA_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` | `info` | No |
 | `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS` | `1` enables local-development fallbacks | unset | No |
+| `OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY` | Maximum event webhook deliveries in flight per worker process; each organization is limited to one eighth of this, rounded down, with a minimum of one | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
