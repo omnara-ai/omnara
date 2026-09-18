@@ -7069,7 +7069,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/UpstreamUnavailableError'
+            $ref: '#/components/schemas/Error'
     InternalServerError:
       description: An unexpected internal server error occurred.
       content:
@@ -7187,6 +7187,7 @@ components:
             - request_too_large
             - unsupported_media_type
             - unprocessable
+            - upstream_unavailable
             - rate_limited
             - internal_error
             - service_unavailable
@@ -7219,6 +7220,7 @@ components:
         - request_too_large
         - unsupported_media_type
         - unprocessable
+        - upstream_unavailable
         - rate_limited
     ServerErrorCode:
       type: string
@@ -8789,17 +8791,6 @@ components:
           minLength: 1
           maxLength: 64
           description: AWS signing region, for example `us-east-1`.
-    UpstreamUnavailableError:
-      type: object
-      additionalProperties: false
-      required: [error, code]
-      properties:
-        error:
-          type: string
-          description: Human-readable error message. Do not match on it programmatically.
-        code:
-          type: string
-          enum: [upstream_unavailable]
     MCPServerAuthRequiredError:
       type: object
       additionalProperties: false

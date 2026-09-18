@@ -513,7 +513,7 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 
 func mcpUpstreamFailure(err error, transientPrefix string, rejectedPrefix string) apierror.ResponseError {
 	if mcp.IsRetryableConnectionFailure(err) {
-		return apierror.FromCode(apierror.CodeUpstreamUnavailable, transientPrefix+err.Error()).WithCause(err)
+		return apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, transientPrefix+err.Error()).WithCause(err)
 	}
 	return apierror.FromCode(openapi.ErrorCodeUnprocessable, rejectedPrefix+err.Error()).WithCause(err)
 }
