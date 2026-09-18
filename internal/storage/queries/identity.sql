@@ -1394,8 +1394,8 @@ VALUES (
 )
 RETURNING id;
 
--- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT token.user_id
+-- name: GetOAuthAccessTokenGrantByRefreshToken :one
+SELECT token.user_id, token.scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
@@ -1409,7 +1409,6 @@ WITH presented AS (
   WHERE token.client_id = sqlc.arg(client_id)
     AND token.revoked_at IS NULL
     AND token.refresh_expires_at > transaction_timestamp()
-    AND (sqlc.arg(scope)::text = '' OR string_to_array(sqlc.arg(scope)::text, ' ') <@ string_to_array(token.scope, ' '))
     AND (
       token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
       OR EXISTS (

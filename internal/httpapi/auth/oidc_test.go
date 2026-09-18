@@ -167,9 +167,14 @@ func TestOIDCIDTokenVerifiesWithPublishedJWKS(t *testing.T) {
 	if len(keys.Keys) != 1 || !keys.Keys[0].IsPublic() {
 		t.Fatal("JWKS must contain only the public key")
 	}
-	for _, scope := range []string{"openid", "openid email"} {
-		signed, err := handler.oidcIDToken(req, identitystore.OAuthTokenSetRecord{
-			UserID: id, ClientID: "https://client.example/client.json", Scope: scope, Nonce: "nonce-123",
+	signer, err := handler.oidcSigner(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, email := range []string{"", "user@example.com"} {
+		signed, err := handler.oidcIDToken(req, signer, identitystore.OAuthTokenSetRecord{
+			UserID: id, ClientID: "https://client.example/client.json", Scope: "openid email",
+			Nonce: "nonce-123", Email: email,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -192,8 +197,8 @@ func TestOIDCIDTokenVerifiesWithPublishedJWKS(t *testing.T) {
 		if extra["nonce"] != "nonce-123" || parsed.Headers[0].KeyID != keys.Keys[0].KeyID {
 			t.Fatal("nonce or key ID missing")
 		}
-		_, email := extra["email"]
-		if email != hasOAuthScope(scope, "email") {
+		claimed, hasEmail := extra["email"]
+		if hasEmail != (email != "") || (hasEmail && (claimed != email || extra["email_verified"] != true)) {
 			t.Fatalf("unexpected email claims: %v", extra)
 		}
 	}

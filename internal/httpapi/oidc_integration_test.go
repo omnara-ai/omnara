@@ -153,7 +153,7 @@ func TestOIDCAuthorizationAndUserInfo(t *testing.T) {
 	refreshForm.Set("refresh_token", jsonString(t, tokens, "refresh_token"))
 	refreshForm.Set("scope", "openid email")
 	response = performRequest(handler, newOAuthFormRequest(http.MethodPost, tokenEndpoint, refreshForm))
-	if response.Code != 400 {
-		t.Fatalf("refresh escalated scope: %d", response.Code)
+	if response.Code != 400 || decodeJSONBody(t, response)["error"] != "invalid_scope" {
+		t.Fatalf("refresh escalated scope: %d %s", response.Code, response.Body.String())
 	}
 }

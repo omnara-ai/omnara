@@ -2518,8 +2518,8 @@ func (q *Queries) GetInstallationID(ctx context.Context) (uuid.UUID, error) {
 	return id, err
 }
 
-const getOAuthAccessTokenUserByRefreshToken = `-- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT token.user_id
+const getOAuthAccessTokenGrantByRefreshToken = `-- name: GetOAuthAccessTokenGrantByRefreshToken :one
+SELECT token.user_id, token.scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = $1::text
@@ -2527,15 +2527,20 @@ WHERE token.refresh_token_hash = $1::text
 LIMIT 1
 `
 
-type GetOAuthAccessTokenUserByRefreshTokenParams struct {
+type GetOAuthAccessTokenGrantByRefreshTokenParams struct {
 	PresentedRefreshTokenHash string
 }
 
-func (q *Queries) GetOAuthAccessTokenUserByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenUserByRefreshTokenParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getOAuthAccessTokenUserByRefreshToken, arg.PresentedRefreshTokenHash)
-	var user_id uuid.UUID
-	err := row.Scan(&user_id)
-	return user_id, err
+type GetOAuthAccessTokenGrantByRefreshTokenRow struct {
+	UserID uuid.UUID
+	Scope  string
+}
+
+func (q *Queries) GetOAuthAccessTokenGrantByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenGrantByRefreshTokenParams) (GetOAuthAccessTokenGrantByRefreshTokenRow, error) {
+	row := q.db.QueryRow(ctx, getOAuthAccessTokenGrantByRefreshToken, arg.PresentedRefreshTokenHash)
+	var i GetOAuthAccessTokenGrantByRefreshTokenRow
+	err := row.Scan(&i.UserID, &i.Scope)
+	return i, err
 }
 
 const getOIDCSigningKey = `-- name: GetOIDCSigningKey :one
@@ -4640,16 +4645,15 @@ WITH presented AS (
   WHERE token.client_id = $1
     AND token.revoked_at IS NULL
     AND token.refresh_expires_at > transaction_timestamp()
-    AND ($2::text = '' OR string_to_array($2::text, ' ') <@ string_to_array(token.scope, ' '))
     AND (
-      token.refresh_token_hash = $3
+      token.refresh_token_hash = $2
       OR EXISTS (
         SELECT 1
         FROM oauth_retired_refresh_tokens latest
         WHERE latest.oauth_access_token_id = token.id
-          AND latest.refresh_token_hash = $3
+          AND latest.refresh_token_hash = $2
           AND latest.retired_at
-            > transaction_timestamp() - ($4::bigint * interval '1 second')
+            > transaction_timestamp() - ($3::bigint * interval '1 second')
           AND latest.retired_at = (
             SELECT max(retired.retired_at)
             FROM oauth_retired_refresh_tokens retired
@@ -4659,7 +4663,7 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET scope = CASE WHEN $2::text = '' THEN token.scope ELSE $2::text END,
+  SET scope = CASE WHEN $4::text = '' THEN token.scope ELSE $4::text END,
       token_hash = $5,
       refresh_token_hash = $6,
       expires_at = transaction_timestamp() + ($7::bigint * interval '1 second'),
@@ -4680,9 +4684,9 @@ FROM rotated
 
 type RotateOAuthAccessTokenParams struct {
 	ClientID                  string
-	Scope                     string
 	PresentedRefreshTokenHash string
 	ReuseGraceSeconds         int64
+	Scope                     string
 	TokenHash                 string
 	RefreshTokenHash          string
 	AccessTtlSeconds          int64
@@ -4699,9 +4703,9 @@ type RotateOAuthAccessTokenRow struct {
 func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAccessTokenParams) (RotateOAuthAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, rotateOAuthAccessToken,
 		arg.ClientID,
-		arg.Scope,
 		arg.PresentedRefreshTokenHash,
 		arg.ReuseGraceSeconds,
+		arg.Scope,
 		arg.TokenHash,
 		arg.RefreshTokenHash,
 		arg.AccessTtlSeconds,
