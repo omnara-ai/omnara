@@ -6,6 +6,44 @@ mode: "center"
 ---
 
 <Update
+  label="September 18, 2026"
+  rss={{
+    title: "Agents can now delegate to subagents",
+    description: "Subagents, deferred tool loading with tool search, usage and cost pages, large tool results as files, and custom model endpoints in the dashboard."
+  }}
+>
+
+## Agents can now delegate to subagents
+
+Declare subagents in a config and an agent can spin up helpers, hand each one a task, and collect their results in a single conversation. Also new: deferred tool loading, usage and cost pages, large tool results as files, and custom model endpoints in the dashboard.
+
+### Subagents
+
+Add a `subagents` block to an agent's config and it gains tools to spawn helpers, send them messages, read their progress, and stop them. A subagent launches from another profile or from a copy of the parent's own config, starts with a clean context, and shares the parent's machines. Its final answer arrives back in the parent's conversation. You set how many can run at once and how deep they can nest, and they appear in the dashboard and API as agents with a parent. See [Subagents](/agents/configuration#subagents).
+
+### Deferred tools and tool search
+
+Mark any tool `deferred: true` to keep its definition out of the model's context until it's needed. The model calls `tool_search` to load matching tools on demand, which keeps prompts small and the provider's prompt cache intact for agents with large MCP tool sets. See [Deferred tools](/agents/configuration#deferred-tools).
+
+### Usage and cost
+
+New usage pages for your organization, projects, profiles, and agents show model API usage, and the model catalog now lists pricing per million input and output tokens.
+
+### Large results become files
+
+Tool results over 50 KiB are saved as files instead of filling the conversation. The agent gets a preview and can page through or search the full result with the new `read_file` and `search_files` tools, with no machine required. The transfer tools are now `upload_file` and `download_file` and work with paths under `/artifacts`; existing configs were migrated automatically. See [Built-in tools](/tools/built-in).
+
+### Dashboard
+
+Add a model provider with a custom base URL and API format (OpenAI Responses, OpenAI Chat Completions, or Anthropic Messages) from the Add provider dialog, for proxies and self-hosted servers such as LiteLLM, vLLM, or Ollama. Open an agent's raw event log from its conversation, and get a warning before leaving unsaved agent or profile edits.
+
+### Reliability and API notes
+
+Daemon crashes on connected machines now back off instead of restarting in a tight loop, and failure reports capture the crash output. Dependency updates resolved all open high-severity advisories. For API users: machine tools and bindings now use public machine IDs (`mch_...`) and the per-agent `machine_ref` field was removed from responses.
+
+</Update>
+
+<Update
   label="September 14, 2026"
   rss={{
     title: "Omnara is now available over MCP",
