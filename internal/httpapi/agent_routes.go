@@ -62,7 +62,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := s.server.agentConfigResponseFromRecord(ctx, config)
+	response, err := s.server.agentConfigResponseFromRecord(ctx, config, true)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (s strictOpenAPIServer) getAgentConfig(
 	if !found {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	response, err := s.server.agentConfigResponseFromRecord(ctx, config)
+	response, err := s.server.agentConfigResponseFromRecord(ctx, config, true)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (s strictOpenAPIServer) createAgentProfile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+	response, err := s.server.agentProfileResponseFromRecord(ctx, profile, true)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func (s strictOpenAPIServer) updateAgentProfile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+	response, err := s.server.agentProfileResponseFromRecord(ctx, profile, true)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (s strictOpenAPIServer) RenameAgentProfile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+	response, err := s.server.agentProfileResponseFromRecord(ctx, profile, true)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ func (s strictOpenAPIServer) getAgentProfile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+	response, err := s.server.agentProfileResponseFromRecord(ctx, profile, true)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +738,7 @@ func (s strictOpenAPIServer) listAgentProfiles(
 	}
 	data := make([]openapi.AgentProfile, 0, len(page.Profiles))
 	for _, profile := range page.Profiles {
-		response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+		response, err := s.server.agentProfileResponseFromRecord(ctx, profile, false)
 		if err != nil {
 			return nil, err
 		}
@@ -899,7 +899,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		return nil, apierror.ProjectScoped(err)
 	}
 	s.server.startPoolMachineDeletion(ctx, result.DeleteMachines)
-	config, err := s.server.agentConfigResponseFromRecord(ctx, result.AgentConfig)
+	config, err := s.server.agentConfigResponseFromRecord(ctx, result.AgentConfig, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1016,7 +1016,7 @@ func (s *Server) launchAgentResponse(
 	if err != nil {
 		return openapi.LaunchAgentResponse{}, err
 	}
-	config, err := s.agentConfigResponseFromRecord(ctx, result.AgentConfig)
+	config, err := s.agentConfigResponseFromRecord(ctx, result.AgentConfig, true)
 	if err != nil {
 		return openapi.LaunchAgentResponse{}, err
 	}
@@ -1067,7 +1067,7 @@ func publicAgentMachineBindingResponse(
 		return openapi.AgentMachineBinding{}, err
 	}
 	var secretEnvOverlay map[string]*openapi.SecretID
-	if err := json.Unmarshal(record.SecretEnvOverlay, &secretEnvOverlay); err != nil {
+	if err := publicSecretIDs(record.SecretEnvOverlay, &secretEnvOverlay); err != nil {
 		return openapi.AgentMachineBinding{}, err
 	}
 	return openapi.AgentMachineBinding{
@@ -1089,6 +1089,7 @@ func publicAgentMachineBindingResponse(
 func (s *Server) agentProfileResponseFromRecord(
 	ctx context.Context,
 	record executionstore.AgentProfileRecord,
+	includeCompiledDefinition bool,
 ) (openapi.AgentProfile, error) {
 	id, err := publicID(publicid.KindAgentProfile, record.ID)
 	if err != nil {
@@ -1106,7 +1107,7 @@ func (s *Server) agentProfileResponseFromRecord(
 	if err != nil {
 		return openapi.AgentProfile{}, err
 	}
-	currentConfig, err := s.agentConfigResponseFromRecord(ctx, record.CurrentConfig)
+	currentConfig, err := s.agentConfigResponseFromRecord(ctx, record.CurrentConfig, includeCompiledDefinition)
 	if err != nil {
 		return openapi.AgentProfile{}, err
 	}
@@ -1126,6 +1127,7 @@ func (s *Server) agentProfileResponseFromRecord(
 func (s *Server) agentConfigResponseFromRecord(
 	ctx context.Context,
 	record executionstore.AgentConfigRecord,
+	includeCompiledDefinition bool,
 ) (openapi.AgentConfig, error) {
 	id, err := publicID(publicid.KindAgentConfig, record.ID)
 	if err != nil {
@@ -1185,6 +1187,12 @@ func (s *Server) agentConfigResponseFromRecord(
 	configuredModelID, err := publicID(publicid.KindConfiguredModel, record.ConfiguredModelID)
 	if err != nil {
 		return openapi.AgentConfig{}, err
+	}
+	if includeCompiledDefinition {
+		response.CompiledDefinition, err = publicCompiledDefinition(record.CompiledDefinition)
+		if err != nil {
+			return openapi.AgentConfig{}, err
+		}
 	}
 	configuredModelRevisionID, err := publicID(publicid.KindConfiguredModelRevision, revision.ID)
 	if err != nil {

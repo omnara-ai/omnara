@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -44,12 +43,8 @@ func options(
 	base agentconfig.CompileOptions,
 ) agentconfig.CompileOptions {
 	opts := base
-	opts.ValidateSecretID = func(secretID string, expectedKind secrets.Kind) error {
-		decoded, err := publicid.Decode(publicid.KindSecret, secretID)
-		if err != nil {
-			return err
-		}
-		return store.Secrets().ValidateProjectSecretReference(ctx, orgID, projectID, decoded, expectedKind)
+	opts.ValidateSecretID = func(secretID uuid.UUID, expectedKind secrets.Kind) error {
+		return store.Secrets().ValidateProjectSecretReference(ctx, orgID, projectID, secretID, expectedKind)
 	}
 	opts.ResolveModelSelection = func(
 		providerConfigName string,
@@ -67,34 +62,26 @@ func options(
 		}
 		return resolveGrantedModel(ctx, store.Models(), orgID, projectID, providerConfig, configuredModelName)
 	}
-	opts.ResolveMachineName = func(machineName string) (string, error) {
-		machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, projectID, machineName)
-		if err != nil {
-			return "", err
-		}
-		return publicid.Encode(publicid.KindMachine, machineID)
+	opts.ResolveMachineName = func(machineName string) (uuid.UUID, error) {
+		return store.Execution().ResolveAgentConfigMachineName(ctx, projectID, machineName)
 	}
-	opts.ResolveMachinePoolName = func(machinePoolName string) (string, error) {
-		machinePoolID, err := store.Execution().ResolveAgentConfigMachinePoolName(
+	opts.ResolveMachinePoolName = func(machinePoolName string) (uuid.UUID, error) {
+		return store.Execution().ResolveAgentConfigMachinePoolName(
 			ctx,
 			orgID,
 			projectID,
 			machinePoolName,
 		)
-		if err != nil {
-			return "", err
-		}
-		return publicid.Encode(publicid.KindMachinePool, machinePoolID)
 	}
-	opts.ResolveAgentProfileName = func(profileName string) (string, error) {
+	opts.ResolveAgentProfileName = func(profileName string) (uuid.UUID, error) {
 		profileID, err := store.Execution().ResolveAgentConfigProfileName(ctx, projectID, profileName)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return "", fmt.Errorf("agent profile %q was not found: %w", profileName, storeerr.ErrNotFound)
+				return uuid.Nil, fmt.Errorf("agent profile %q was not found: %w", profileName, storeerr.ErrNotFound)
 			}
-			return "", err
+			return uuid.Nil, err
 		}
-		return publicid.Encode(publicid.KindAgentProfile, profileID)
+		return profileID, nil
 	}
 	opts.ResolveSkillID = func(skillID string) (agentconfig.SkillResolution, error) {
 		records, missing, err := store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
@@ -112,13 +99,9 @@ func options(
 			return agentconfig.SkillResolution{}, fmt.Errorf("skill resolver returned %d records for %s", len(records), skillID)
 		}
 		rec := records[0]
-		encoded, err := publicid.Encode(publicid.KindSkill, rec.ID)
-		if err != nil {
-			return agentconfig.SkillResolution{}, fmt.Errorf("encode skill public id: %w", err)
-		}
 		return agentconfig.SkillResolution{
-			PublicID: encoded,
-			Name:     rec.Name,
+			ID:   rec.ID,
+			Name: rec.Name,
 		}, nil
 	}
 	return opts
@@ -195,7 +178,7 @@ func resolveGrantedModel(
 	}
 	supportsTools := effectiveModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}, nil
 }
@@ -210,14 +193,10 @@ func SubagentModelResolver(
 	orgID, projectID uuid.UUID,
 ) agentconfig.SubagentModelResolver {
 	return func(
-		baseConfiguredModelID string,
+		baseConfiguredModelID uuid.UUID,
 		override agentconfig.SubagentModelCompiled,
 	) (agentconfig.ResolvedModelSelection, error) {
-		baseModelID, err := uuid.Parse(baseConfiguredModelID)
-		if err != nil {
-			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("parse base configured model id: %w", err)
-		}
-		baseModel, err := models.GetConfiguredModel(ctx, orgID, baseModelID)
+		baseModel, err := models.GetConfiguredModel(ctx, orgID, baseConfiguredModelID)
 		if err != nil {
 			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base configured model: %w", err)
 		}
@@ -267,12 +246,11 @@ func DeriveSubagentConfig(
 	if err != nil {
 		return Body{}, err
 	}
-	configuredModelID, err := uuid.Parse(child.Model.ConfiguredModelID)
-	if err != nil || configuredModelID == uuid.Nil {
+	if child.Model.ConfiguredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf("subagent model must resolve to a configured project-granted model")
 	}
 	return Body{
-		ConfiguredModelID:  configuredModelID,
+		ConfiguredModelID:  child.Model.ConfiguredModelID,
 		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     encoded.Hash,
@@ -294,8 +272,7 @@ func Compile(
 	if err != nil {
 		return Body{}, err
 	}
-	resolvedConfiguredModelID, err := uuid.Parse(result.Compiled.Model.ConfiguredModelID)
-	if err != nil || resolvedConfiguredModelID == uuid.Nil {
+	if result.Compiled.Model.ConfiguredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf(
 			"model.provider_config and model.name must resolve to a configured project-granted model",
 		)
@@ -312,7 +289,7 @@ func Compile(
 	return Body{
 		Source:             result.Source,
 		SourceFormat:       string(result.SourceFormat),
-		ConfiguredModelID:  resolvedConfiguredModelID,
+		ConfiguredModelID:  result.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition: json.RawMessage(result.CanonicalJSON),
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     result.Hash,

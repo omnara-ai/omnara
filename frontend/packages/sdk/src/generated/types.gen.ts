@@ -1184,6 +1184,12 @@ export type AgentConfig = {
     project_id: ProjectId;
     source?: string;
     source_format?: 'yaml' | 'json';
+    /**
+     * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+     */
+    compiled_definition?: {
+        [key: string]: unknown;
+    };
     compiler_version?: string;
     effective_definition_hash: string;
     model: AgentConfigModel;

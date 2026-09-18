@@ -871,6 +871,7 @@ export const zAgentConfig = z.object({
     project_id: zProjectId,
     source: z.string().optional(),
     source_format: z.enum(['yaml', 'json']).optional(),
+    compiled_definition: z.record(z.string(), z.unknown()).optional(),
     compiler_version: z.string().optional(),
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,

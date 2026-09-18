@@ -8943,6 +8943,12 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
+        compiled_definition:
+          type: object
+          additionalProperties: true
+          description: Read-only saved compiled configuration, including default tools and derived subagent overrides.
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
         compiler_version:
           type: string
         effective_definition_hash:

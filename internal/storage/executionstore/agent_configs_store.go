@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -248,7 +247,7 @@ func insertAgentConfigTx(
 				selectErr,
 			)
 		}
-		record = agentConfigRecordFromSQLC(dbsqlc.GetAgentConfigRow(existing))
+		record = agentConfigRecordFromSQLC(existing)
 		record.Created = false
 	case err != nil:
 		return AgentConfigRecord{}, fmt.Errorf("upsert agent config: %w", err)
@@ -300,14 +299,10 @@ func lockAndValidateAgentConfigModelContractTx(
 	if err != nil {
 		return fmt.Errorf("validate agent config runtime contract: %w", err)
 	}
-	if contract.Model.ConfiguredModelID == "" {
+	if contract.Model.ConfiguredModelID == uuid.Nil {
 		return errors.New("agent config compiled model must include configured_model_id")
 	}
-	compiledModelID, err := uuid.Parse(contract.Model.ConfiguredModelID)
-	if err != nil {
-		return fmt.Errorf("parse compiled configured model id: %w", err)
-	}
-	if compiledModelID != input.ConfiguredModelID {
+	if contract.Model.ConfiguredModelID != input.ConfiguredModelID {
 		return fmt.Errorf("compiled configured model does not match agent config row: %w", storeerr.ErrIdempotencyConflict)
 	}
 	effectiveModel, err := modelstore.ResolveForAgentTx(
@@ -394,14 +389,10 @@ func (s *Store) ValidateAgentConfigMachineSources(
 		if err := validateRuntimeMachineSource(index, source); err != nil {
 			return err
 		}
-		if source.MachineID != "" {
-			machineID, err := publicid.Decode(publicid.KindMachine, source.MachineID)
-			if err != nil {
-				return fmt.Errorf("machine_sources[%d].machine_id: %w", index, err)
-			}
+		if source.MachineID != uuid.Nil {
 			grant, err := s.q.GetActiveProjectMachineGrantForMachine(
 				ctx,
-				dbsqlc.GetActiveProjectMachineGrantForMachineParams{ProjectID: projectID, MachineID: machineID},
+				dbsqlc.GetActiveProjectMachineGrantForMachineParams{ProjectID: projectID, MachineID: source.MachineID},
 			)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -430,18 +421,14 @@ func (s *Store) ValidateAgentConfigMachineSources(
 			}
 			continue
 		}
-		if source.MachinePoolID == "" {
+		if source.MachinePoolID == uuid.Nil {
 			continue
-		}
-		machinePoolID, err := publicid.Decode(publicid.KindMachinePool, source.MachinePoolID)
-		if err != nil {
-			return fmt.Errorf("machine_sources[%d].machine_pool_id: %w", index, err)
 		}
 		poolGrant, err := s.q.GetPoolGrantConfigValidationContext(
 			ctx,
 			dbsqlc.GetPoolGrantConfigValidationContextParams{
 				ProjectID:     projectID,
-				MachinePoolID: machinePoolID,
+				MachinePoolID: source.MachinePoolID,
 			},
 		)
 		if err != nil {

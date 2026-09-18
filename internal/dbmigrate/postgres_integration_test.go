@@ -62,6 +62,57 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
+func TestDropAgentConfigDefinitionMigration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+	_, err := db.ExecContext(ctx, `
+CREATE TABLE agent_configs (
+    id integer PRIMARY KEY, definition jsonb NOT NULL CHECK (jsonb_typeof(definition) = 'object'),
+    source text, source_format text, source_hash text,
+    compiled_definition jsonb NOT NULL CHECK (jsonb_typeof(compiled_definition) = 'object'),
+    effective_definition_hash text NOT NULL, compiler_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now());
+CREATE FUNCTION reject_config_update() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'immutable'; END $$;
+CREATE TRIGGER agent_configs_immutable BEFORE UPDATE OR DELETE ON agent_configs
+FOR EACH ROW EXECUTE FUNCTION reject_config_update();
+CREATE TABLE config_references (config_id integer REFERENCES agent_configs(id));
+INSERT INTO agent_configs
+    (id, definition, source, source_format, source_hash,
+     compiled_definition, effective_definition_hash, compiler_version)
+VALUES
+    (1, '{}', '# preserved YAML', 'yaml', 'yaml-hash', '{"tools":{"skill":{}}}', 'compiled-hash', '1'),
+    (2, '{}', '{"instruction":"preserved JSON"}', 'json', 'json-hash', '{"tools":{}}', 'other-hash', '1'),
+    (3, '{}', NULL, NULL, NULL, '{"tools":{}}', 'other-hash', '1');
+INSERT INTO config_references SELECT id FROM agent_configs;`)
+	require.NoError(t, err)
+	var before, after []byte
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT jsonb_agg(to_jsonb(c) - 'definition' ORDER BY id) FROM agent_configs c`).Scan(&before))
+	const filename = "000041_drop_agent_config_definition.sql"
+	migration, err := os.ReadFile("../../migrations/" + filename)
+	require.NoError(t, err)
+	provider, err := goose.NewProvider(goose.DialectPostgres, db,
+		fstest.MapFS{filename: &fstest.MapFile{Data: migration}}, goose.WithDisableGlobalRegistry(true))
+	require.NoError(t, err)
+	_, err = provider.Up(ctx)
+	require.NoError(t, err)
+	_, err = provider.Up(ctx)
+	require.NoError(t, err)
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM agent_configs c`).Scan(&after))
+	require.Equal(t, before, after)
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `
+SELECT count(*) FROM config_references r JOIN agent_configs c ON r.config_id = c.id`).Scan(&count))
+	require.Equal(t, 3, count)
+	_, err = db.ExecContext(ctx, `UPDATE agent_configs SET source = source WHERE id = 1`)
+	require.ErrorContains(t, err, "immutable")
+}
+
 func TestPostgresDeviceOAuthMigrationPreservesPreviousWriter(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

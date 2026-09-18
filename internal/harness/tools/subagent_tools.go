@@ -336,14 +336,10 @@ func subagentLaunchConfigForSpawn(
 		profileID = parent.AgentProfileID
 		baseConfig = parentConfig
 	case agentconfig.SubagentTypeProfile:
-		configuredProfileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
-		if err != nil {
-			return subagentLaunchConfig{}, fmt.Errorf("decode subagent profile id: %w", err)
-		}
-		profile, err := reader.GetAgentProfile(ctx, configuredProfileID)
+		profile, err := reader.GetAgentProfile(ctx, subagent.ProfileID)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return subagentLaunchConfig{}, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
+				return subagentLaunchConfig{}, errors.New("configured subagent profile no longer exists")
 			}
 			return subagentLaunchConfig{}, err
 		}

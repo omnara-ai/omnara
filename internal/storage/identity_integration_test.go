@@ -21,7 +21,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -535,7 +534,7 @@ func TestCreateOrgForUserRejectsDefaultPoolSecretEnv(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateIdentityUser(t, ctx, store, "default-pool-secret@example.com", "Cluster Pool Secret")
-	missingSecretID := secretPublicIDForTest(t, testID("default-pool-missing-secret"))
+	missingSecretID := testID("default-pool-missing-secret").String()
 	_, err := store.Organizations().CreateOrgForUser(
 		ctx,
 		orglifecycle.CreateOrgForUserInput{
@@ -839,10 +838,6 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("tenant machine pool with cluster credential error = %v, want not found", err)
 	}
-	credentialPublicID, err := publicid.Encode(publicid.KindSecret, credential.ID)
-	if err != nil {
-		t.Fatalf("encode cluster credential id: %v", err)
-	}
 	tenantCredential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     created.Org.ID,
 		OwnerKind: secretstore.SecretOwnerOrg,
@@ -860,7 +855,7 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 			Name:                    "tenant-pool-with-cluster-env-secret",
 			Provider:                "unikraft",
 			ProviderAuthSecretID:    tenantCredential.ID,
-			DefaultMachineSecretEnv: mustTestRawJSON(t, map[string]string{"OPENROUTER_API_KEY": credentialPublicID}),
+			DefaultMachineSecretEnv: mustTestRawJSON(t, map[string]string{"OPENROUTER_API_KEY": credential.ID.String()}),
 			MaxTotalMachines:        1,
 		}),
 	); !errors.Is(err, storeerr.ErrNotFound) {

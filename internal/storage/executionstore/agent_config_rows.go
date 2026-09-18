@@ -6,7 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func agentConfigRecordFromSQLC(row dbsqlc.GetAgentConfigRow) AgentConfigRecord {
+func agentConfigRecordFromSQLC(row dbsqlc.AgentConfig) AgentConfigRecord {
 	return AgentConfigRecord{
 		ID:                      row.ID,
 		OrgID:                   row.OrgID,

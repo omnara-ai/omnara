@@ -52,13 +52,6 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, authored.ID)
 	require.Equal(t, source, authored.Source)
-	for _, config := range []executionstore.AgentConfigRecord{first, authored} {
-		var legacyMatches bool
-		require.NoError(t, pool.QueryRow(ctx,
-			`SELECT definition = compiled_definition FROM agent_configs WHERE id = $1`, config.ID,
-		).Scan(&legacyMatches))
-		require.True(t, legacyMatches)
-	}
 }
 
 func TestCreateAgentConfigRejectsInvalidSource(t *testing.T) {

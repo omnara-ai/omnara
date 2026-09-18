@@ -143,6 +143,11 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	if retargetedConfigID == configID {
 		t.Fatalf("retarget should create a new current config: %+v", retargeted)
 	}
+	currentConfig := testutil.RequireType[map[string]any](t, retargeted["current_config"])
+	compiled := testutil.RequireType[map[string]any](t, currentConfig["compiled_definition"])
+	if compiled["instruction"] != "Updated default." {
+		t.Fatalf("retarget response lost updated compiled instruction: %+v", compiled)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,

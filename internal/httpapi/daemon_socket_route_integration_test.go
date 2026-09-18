@@ -502,7 +502,7 @@ func TestDaemonSocketRouteOfferAcceptReportJourney(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create retryable process secret: %v", err)
 	}
-	secretID := testPublicID(t, publicid.KindSecret, secret.ID)
+	secretID := secret.ID.String()
 	if _, err := pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET secret_env_overlay = jsonb_build_object('API_TOKEN', $1::text)

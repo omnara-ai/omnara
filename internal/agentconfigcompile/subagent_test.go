@@ -14,7 +14,7 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 	maxDepth := 2
 	base := agentconfig.Compiled{
 		Instruction: "Help.",
-		Model:       agentconfig.ModelCompiled{ConfiguredModelID: uuid.NewString()},
+		Model:       agentconfig.ModelCompiled{ConfiguredModelID: uuid.New()},
 		Tools: map[string]agentconfig.ToolCompiled{
 			"spawn_agent": {Enabled: true},
 			"read_agent":  {Enabled: true},

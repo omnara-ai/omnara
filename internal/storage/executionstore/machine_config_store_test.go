@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -219,19 +218,19 @@ func TestResolveMachineEnvironmentBoundsMergedEntryCount(t *testing.T) {
 }
 
 func TestResolveMachineEnvironmentRejectsEnvSecretEnvConflict(t *testing.T) {
-	secretID := secretPublicIDForUnitTest(t, "conflict")
+	secretID := secretIDForUnitTest(t, "conflict")
 	if _, err := resolveMachineEnvironment(
 		MachineEnvironment{Env: map[string]string{"API_TOKEN": "plain"}},
-		MachineEnvironmentOverlay{SecretEnv: map[string]*string{"API_TOKEN": &secretID}},
+		MachineEnvironmentOverlay{SecretEnv: map[string]*uuid.UUID{"API_TOKEN": &secretID}},
 	); err == nil || err.Error() != "env and secret_env cannot both set key API_TOKEN" {
 		t.Fatalf("env/secret_env conflict error = %v", err)
 	}
 }
 
 func TestResolveMachineEnvironmentRejectsSecretEnvEnvConflict(t *testing.T) {
-	secretID := secretPublicIDForUnitTest(t, "reverse-conflict")
+	secretID := secretIDForUnitTest(t, "reverse-conflict")
 	if _, err := resolveMachineEnvironment(
-		MachineEnvironment{SecretEnv: map[string]string{"API_TOKEN": secretID}},
+		MachineEnvironment{SecretEnv: map[string]uuid.UUID{"API_TOKEN": secretID}},
 		MachineEnvironmentOverlay{Env: map[string]*string{"API_TOKEN": new("plain")}},
 	); err == nil || err.Error() != "env and secret_env cannot both set key API_TOKEN" {
 		t.Fatalf("secret_env/env conflict error = %v", err)
@@ -239,10 +238,10 @@ func TestResolveMachineEnvironmentRejectsSecretEnvEnvConflict(t *testing.T) {
 }
 
 func TestResolveMachineEnvironmentRejectsCaseInsensitiveConflicts(t *testing.T) {
-	secretID := secretPublicIDForUnitTest(t, "case-conflict")
+	secretID := secretIDForUnitTest(t, "case-conflict")
 	if _, err := resolveMachineEnvironment(MachineEnvironment{
 		Env:       map[string]string{"Api_Token": "plain"},
-		SecretEnv: map[string]string{"API_TOKEN": secretID},
+		SecretEnv: map[string]uuid.UUID{"API_TOKEN": secretID},
 	}); err == nil || err.Error() != "env and secret_env cannot both set key API_TOKEN" {
 		t.Fatalf("case-insensitive env/secret_env conflict error = %v", err)
 	}
@@ -266,7 +265,7 @@ func TestResolveMachineEnvironmentRejectsCaseInsensitiveDuplicates(t *testing.T)
 }
 
 func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
-	secretID := secretPublicIDForUnitTest(t, "env-name")
+	secretID := secretIDForUnitTest(t, "env-name")
 	tests := map[string]struct {
 		base     MachineEnvironment
 		overlays []MachineEnvironmentOverlay
@@ -275,7 +274,7 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 		"env_equals": {base: MachineEnvironment{Env: map[string]string{"BAD=KEY": "value"}}},
 		"env_nul":    {base: MachineEnvironment{Env: map[string]string{"BAD\x00KEY": "value"}}},
 		"secret_equals": {
-			base: MachineEnvironment{SecretEnv: map[string]string{"BAD=KEY": secretID}},
+			base: MachineEnvironment{SecretEnv: map[string]uuid.UUID{"BAD=KEY": secretID}},
 		},
 		"overlay_equals": {
 			overlays: []MachineEnvironmentOverlay{{
@@ -283,7 +282,7 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 			}},
 		},
 		"overlay_secret": {
-			overlays: []MachineEnvironmentOverlay{{SecretEnv: map[string]*string{"BAD=KEY": &secretID}}},
+			overlays: []MachineEnvironmentOverlay{{SecretEnv: map[string]*uuid.UUID{"BAD=KEY": &secretID}}},
 		},
 		"reserved_case": {
 			base: MachineEnvironment{Env: map[string]string{"omnara_machine_token": "value"}},
@@ -300,7 +299,7 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 	if _, err := resolveMachineEnvironment(
 		MachineEnvironment{
 			Env:       map[string]string{"1.lower-name has space": "value"},
-			SecretEnv: map[string]string{"lower.name": secretID},
+			SecretEnv: map[string]uuid.UUID{"lower.name": secretID},
 		},
 	); err != nil {
 		t.Fatalf("resolve machine environment with raw process env names: %v", err)
@@ -308,19 +307,19 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 }
 
 func TestResolveMachineEnvironmentNullDeleteCanMoveKeyBetweenMaps(t *testing.T) {
-	secretID := secretPublicIDForUnitTest(t, "null-delete")
+	secretID := secretIDForUnitTest(t, "null-delete")
 	resolved, err := resolveMachineEnvironment(
 		MachineEnvironment{
 			Env:       map[string]string{"API_TOKEN": "plain"},
-			SecretEnv: map[string]string{"PASSWORD": secretID},
+			SecretEnv: map[string]uuid.UUID{"PASSWORD": secretID},
 		},
 		MachineEnvironmentOverlay{
 			Env:       map[string]*string{"API_TOKEN": nil},
-			SecretEnv: map[string]*string{"PASSWORD": nil},
+			SecretEnv: map[string]*uuid.UUID{"PASSWORD": nil},
 		},
 		MachineEnvironmentOverlay{
 			Env:       map[string]*string{"PASSWORD": new("plain-password")},
-			SecretEnv: map[string]*string{"API_TOKEN": &secretID},
+			SecretEnv: map[string]*uuid.UUID{"API_TOKEN": &secretID},
 		},
 	)
 	if err != nil {
@@ -521,14 +520,9 @@ func TestCheckLaunchAggregateCap(t *testing.T) {
 	}
 }
 
-func secretPublicIDForUnitTest(t *testing.T, seed string) string {
+func secretIDForUnitTest(t *testing.T, seed string) uuid.UUID {
 	t.Helper()
-	id := uuid.NewSHA1(uuid.NameSpaceOID, []byte("machine-config-secret:"+seed))
-	value, err := publicid.Encode(publicid.KindSecret, id)
-	if err != nil {
-		t.Fatalf("encode secret public id: %v", err)
-	}
-	return value
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(seed))
 }
 
 func TestMachineCwdLengthLimits(t *testing.T) {

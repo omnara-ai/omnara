@@ -1048,19 +1048,17 @@ SELECT EXISTS (
    AND config.id = agent.current_config_id
   WHERE agent.org_id = $1
     AND agent.state = 'active'
-    AND config.compiled_definition->'skills' @> jsonb_build_array(jsonb_build_object('public_id', $2::text))
+    AND config.compiled_definition->'skills' @> jsonb_build_array(jsonb_build_object('id', $2::uuid))
 ) AS has_active_agent_references
 `
 
 type SkillHasActiveAgentReferencesParams struct {
-	OrgID         uuid.UUID
-	SkillPublicID string
+	OrgID   uuid.UUID
+	SkillID uuid.UUID
 }
 
-// Compiled agent configs reference skills by public id, so the caller passes
-// the encoded skill id rather than the raw uuid.
 func (q *Queries) SkillHasActiveAgentReferences(ctx context.Context, arg SkillHasActiveAgentReferencesParams) (bool, error) {
-	row := q.db.QueryRow(ctx, skillHasActiveAgentReferences, arg.OrgID, arg.SkillPublicID)
+	row := q.db.QueryRow(ctx, skillHasActiveAgentReferences, arg.OrgID, arg.SkillID)
 	var has_active_agent_references bool
 	err := row.Scan(&has_active_agent_references)
 	return has_active_agent_references, err

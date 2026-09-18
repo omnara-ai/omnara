@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -226,7 +225,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 	if err != nil {
 		t.Fatalf("create machine secret: %v", err)
 	}
-	machineSecretID := secretPublicIDForManagerTest(t, machineSecret.ID)
+	machineSecretID := machineSecret.ID.String()
 	maxCPU, maxMemoryMB := 100, 1024*1024
 	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
 		t,
@@ -755,7 +754,7 @@ func TestManagerDeletesMachineWhenMachineEnvIsPermanentlyUnresolvable(t *testing
 	if err != nil {
 		t.Fatalf("create machine secret: %v", err)
 	}
-	machineSecretID := secretPublicIDForManagerTest(t, machineSecret.ID)
+	machineSecretID := machineSecret.ID.String()
 	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
 		t,
 		executionstore.CreateMachinePoolInput{
@@ -2071,11 +2070,10 @@ FROM configured_model
 `, configuredModelID, orgID, providerConfigID, configuredModelRevisionID, now)
 
 	exec("insert cleanup agent config", `
-INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
+INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, source, source_format, source_hash,
     compiled_definition, compiler_version, effective_definition_hash, created_at)
 VALUES ($1, $2, $3, $4,
-    '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
-    ::jsonb, 'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash',
+    'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash',
     '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
     ::jsonb, 'test', 'manager-cleanup-effective-hash', $5)
 `, configID, orgID, projectID, configuredModelID, now)
@@ -2106,15 +2104,6 @@ VALUES ($1, $2, $3, $4, $5, 'pool', 'attached', '{}'::jsonb, $6, $6)
 		t.Fatalf("commit seed pool machine cleanup binding: %v", err)
 	}
 	return bindingID, grantID
-}
-
-func secretPublicIDForManagerTest(t *testing.T, id uuid.UUID) string {
-	t.Helper()
-	value, err := publicid.Encode(publicid.KindSecret, id)
-	if err != nil {
-		t.Fatalf("encode secret public id: %v", err)
-	}
-	return value
 }
 
 type machinePoolProviderTestResolvers struct{}

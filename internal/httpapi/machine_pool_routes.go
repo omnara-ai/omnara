@@ -28,7 +28,7 @@ func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (o
 		return openapi.MachinePool{}, err
 	}
 	var defaultMachineSecretEnv map[string]openapi.SecretID
-	if err := json.Unmarshal(record.DefaultMachineSecretEnv, &defaultMachineSecretEnv); err != nil {
+	if err := publicSecretIDs(record.DefaultMachineSecretEnv, &defaultMachineSecretEnv); err != nil {
 		return openapi.MachinePool{}, err
 	}
 	defaultMachineProviderOptions, err := jsonMapOrFallback(record.DefaultMachineProviderOptions, json.RawMessage(`{}`))
@@ -178,7 +178,7 @@ func (s strictOpenAPIServer) createMachinePool(
 	if err != nil {
 		return nil, err
 	}
-	defaultMachineSecretEnv, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnv)
+	defaultMachineSecretEnv, err := secretIDsFromPointer(request.Body.DefaultMachineSecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +299,7 @@ func (s strictOpenAPIServer) updateMachinePool(
 	if err != nil {
 		return nil, err
 	}
-	defaultMachineSecretEnv, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnv)
+	defaultMachineSecretEnv, err := secretIDsFromPointer(request.Body.DefaultMachineSecretEnv)
 	if err != nil {
 		return nil, err
 	}

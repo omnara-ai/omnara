@@ -11,11 +11,10 @@ func TestExpandLaunchMachineBindingRequestsUsesCompiledIDs(t *testing.T) {
 	machineID := uuid.MustParse("019535d9-3df7-79fb-b466-fa907fa17f9e")
 	machinePoolID := uuid.MustParse("019535d9-3df7-79fb-b466-fa907fa17f9f")
 	requests, err := expandLaunchMachineBindingRequests([]launchMachineSource{
-		{Index: 0, Contract: agentconfig.RuntimeMachine{MachineID: "mch_test"}, MachineID: machineID},
+		{Index: 0, Contract: agentconfig.RuntimeMachine{MachineID: machineID}},
 		{
-			Index:         1,
-			Contract:      agentconfig.RuntimeMachine{MachinePoolID: "mpo_test", InitialNumMachines: 2},
-			MachinePoolID: machinePoolID,
+			Index:    1,
+			Contract: agentconfig.RuntimeMachine{MachinePoolID: machinePoolID, InitialNumMachines: 2},
 		},
 	})
 	if err != nil {
@@ -24,10 +23,10 @@ func TestExpandLaunchMachineBindingRequestsUsesCompiledIDs(t *testing.T) {
 	if len(requests) != 3 {
 		t.Fatalf("binding requests = %+v, want 3 requests", requests)
 	}
-	if requests[0].Source.MachineID != machineID || requests[0].PoolSlotIndex != 0 {
+	if requests[0].Source.Contract.MachineID != machineID || requests[0].PoolSlotIndex != 0 {
 		t.Fatalf("unexpected machine request: %+v", requests[0])
 	}
-	if requests[1].Source.MachinePoolID != machinePoolID || requests[1].PoolSlotIndex != 0 ||
+	if requests[1].Source.Contract.MachinePoolID != machinePoolID || requests[1].PoolSlotIndex != 0 ||
 		requests[2].PoolSlotIndex != 1 {
 		t.Fatalf("unexpected pool requests: %+v", requests)
 	}

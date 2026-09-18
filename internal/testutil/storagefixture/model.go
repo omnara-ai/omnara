@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -100,23 +99,15 @@ func SeedModelAndCompileAgentYAML(
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 			supportsTools := configuredModel.SupportsTools
 			return agentconfig.ResolvedModelSelection{
-				ConfiguredModelID: configuredModel.ID.String(),
+				ConfiguredModelID: configuredModel.ID,
 				SupportsTools:     &supportsTools,
 			}, nil
 		},
-		ResolveMachineName: func(machineName string) (string, error) {
-			machineID, err := execution.ResolveAgentConfigMachineName(ctx, projectID, machineName)
-			if err != nil {
-				return "", err
-			}
-			return publicid.Encode(publicid.KindMachine, machineID)
+		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
+			return execution.ResolveAgentConfigMachineName(ctx, projectID, machineName)
 		},
-		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
-			machinePoolID, err := execution.ResolveAgentConfigMachinePoolName(ctx, orgID, projectID, machinePoolName)
-			if err != nil {
-				return "", err
-			}
-			return publicid.Encode(publicid.KindMachinePool, machinePoolID)
+		ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
+			return execution.ResolveAgentConfigMachinePoolName(ctx, orgID, projectID, machinePoolName)
 		},
 	})
 	require.NoError(t, err, "compile resolved agent yaml")
