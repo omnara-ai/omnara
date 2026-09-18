@@ -261,9 +261,16 @@ func (e *serviceE2EEnvironment) startWorker(
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build worker: %v\n%s", err, output)
 	}
+	build = exec.CommandContext(ctx, goBin(e.repoRoot), "build",
+		"-o", filepath.Join(e.root, "omnara-file-exec"), "./cmd/file-exec")
+	build.Dir = e.repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build file launcher: %v\n%s", err, output)
+	}
 	cmd := exec.Command(workerPath)
 	cmd.Dir = e.repoRoot
 	workerEnv := []string{
+		"PATH=" + e.root + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1",
 		"OMNARA_WORKER_METRICS_ADDR=" + e.workerListenAddr,
 		"OMNARA_DATABASE_URL=" + e.databaseURL,

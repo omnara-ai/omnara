@@ -65,7 +65,8 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	readFileToolDescription = "Read a text file stored in Omnara. " +
+	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
+	readFileToolDescription  = "Read a text file stored in Omnara. " +
 		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text in Omnara files. " +
@@ -314,6 +315,9 @@ func buildDefaultCatalog() (Catalog, error) {
 		return Catalog{}, err
 	}
 	if entries[ToolNameReadFile], err = readFileTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameWriteFile], err = writeFileTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSearchFiles], err = searchFilesTool(); err != nil {
@@ -617,6 +621,37 @@ func readFileTool() (Entry, error) {
 				"minimum":     1,
 				"maximum":     ReadFileMaxChars,
 				"description": "Maximum Unicode code points to return. Defaults to 512 in character mode; each response contains at most 4 KiB of text.",
+			},
+		},
+	)
+}
+
+func writeFileTool() (Entry, error) {
+	return toolEntry(
+		ToolNameWriteFile,
+		writeFileToolDescription,
+		[]string{"path"},
+		map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Exact /memory/<store>/<file> destination. Requires write access.",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "UTF-8 text to create or replace the file with, at most 10 MiB, without NUL bytes. Empty text is allowed. Supply exactly one of content or script.",
+			},
+			"script": map[string]any{
+				"type":        "string",
+				"description": "GNU sed script using extended regex, at most 64 KiB, to transform an existing text file. File reads, file writes, and command execution are disabled. Output must be UTF-8 without NUL bytes, at most 10 MiB.",
+			},
+			"append": map[string]any{
+				"type":        "boolean",
+				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
+			},
+			"expected_digest": map[string]any{
+				"type":        "string",
+				"pattern":     `^sha256:[0-9a-f]{64}$`,
+				"description": "Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
 			},
 		},
 	)
