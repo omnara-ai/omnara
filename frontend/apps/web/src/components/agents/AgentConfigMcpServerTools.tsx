@@ -85,6 +85,7 @@ export function AgentConfigMcpServerTools({
         tools={server.tools}
         discovered={discovered}
         permissionProfile={permissionProfile}
+        serverDeferred={server.deferred === true}
         onToolsChange={onToolsChange}
       />
       {unexposableTools.length > 0 && <UnexposableTools tools={unexposableTools} />}

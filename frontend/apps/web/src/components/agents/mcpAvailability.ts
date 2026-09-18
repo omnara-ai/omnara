@@ -64,10 +64,14 @@ export function mcpServerAvailabilityPatch(
   }
 }
 
-export function mcpToolAvailability(tool: BasicMcpTool): McpToolAvailability {
+export function mcpToolAvailability(
+  tool: BasicMcpTool,
+  serverDeferred: boolean,
+): McpToolAvailability {
   if (tool.enabled === false) return 'disabled'
   if (tool.deferred === true) return 'deferred'
-  if (tool.enabled === true || tool.deferred === false) return 'enabled'
+  if (tool.deferred === false) return 'enabled'
+  if (tool.enabled === true) return serverDeferred ? 'deferred' : 'enabled'
   return 'inherit'
 }
 

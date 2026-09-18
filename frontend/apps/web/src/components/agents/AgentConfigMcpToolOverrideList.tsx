@@ -31,11 +31,13 @@ export function AgentConfigMcpToolOverrideList({
   tools,
   discovered,
   permissionProfile,
+  serverDeferred,
   onToolsChange,
 }: {
   tools: BasicMcpTool[]
   discovered: McpServerTool[]
   permissionProfile?: ToolPermissionProfile
+  serverDeferred: boolean
   onToolsChange: (tools: BasicMcpTool[]) => void
 }) {
   const [openDescription, setOpenDescription] = useState<string | null>(null)
@@ -71,6 +73,7 @@ export function AgentConfigMcpToolOverrideList({
                   tool={tool}
                   description={discoveredByName.get(tool.name)?.description}
                   permissionProfile={permissionProfile}
+                  serverDeferred={serverDeferred}
                   descriptionOpen={openDescription === tool.name}
                   onDescriptionOpenChange={(open) => {
                     setOpenDescription(open ? tool.name : null)
@@ -99,6 +102,7 @@ function ToolOverrideRow({
   tool,
   description,
   permissionProfile,
+  serverDeferred,
   descriptionOpen,
   onDescriptionOpenChange,
   onChange,
@@ -107,6 +111,7 @@ function ToolOverrideRow({
   tool: BasicMcpTool
   description: string | undefined
   permissionProfile?: ToolPermissionProfile
+  serverDeferred: boolean
   descriptionOpen: boolean
   onDescriptionOpenChange: (open: boolean) => void
   onChange: (patch: Partial<Omit<BasicMcpTool, 'name'>>) => void
@@ -154,7 +159,7 @@ function ToolOverrideRow({
         <PermissionModeGroup
           label={`${tool.name} visibility`}
           options={mcpToolAvailabilityOptions}
-          value={mcpToolAvailability(tool)}
+          value={mcpToolAvailability(tool, serverDeferred)}
           onChange={(value) => {
             const availability = parseMcpToolAvailability(value)
             if (availability != null) onChange(mcpToolAvailabilityPatch(availability))
@@ -166,7 +171,7 @@ function ToolOverrideRow({
           label={`${tool.name} permission`}
           options={[
             inheritPermissionOption,
-            ...permissionModeOptions(permissionProfile?.permission_modes),
+            ...permissionModeOptions(permissionProfile?.permission_modes, tool.permission?.mode),
           ]}
           value={tool.permission?.mode ?? inheritValue}
           disabled={permissionProfile == null}

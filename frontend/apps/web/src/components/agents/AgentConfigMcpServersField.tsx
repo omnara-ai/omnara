@@ -426,7 +426,10 @@ function McpServerRow({
                       <PermissionModeGroup
                         label="MCP default permission"
                         className="w-32 [&>button]:flex-1"
-                        options={permissionModeOptions(permissionProfile?.permission_modes)}
+                        options={permissionModeOptions(
+                          permissionProfile?.permission_modes,
+                          server.permission?.mode,
+                        )}
                         value={
                           server.permission?.mode ??
                           permissionProfile?.default_permission.mode ??

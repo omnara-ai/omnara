@@ -29,9 +29,10 @@ const hiddenMode = 'always_deny'
 
 export function permissionModeOptions(
   modes: readonly ToolPermissionMode[] | undefined,
+  current?: string,
 ): PermissionModeOption[] {
   return (modes ?? [])
-    .filter((mode) => mode.name !== hiddenMode)
+    .filter((mode) => mode.name !== hiddenMode || mode.name === current)
     .map((mode) => ({
       value: mode.name,
       label: mode.label,

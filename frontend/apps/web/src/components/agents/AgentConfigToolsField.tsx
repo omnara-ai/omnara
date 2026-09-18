@@ -260,7 +260,7 @@ function PermissionModeSelect({
   allowDisable?: boolean
   onChange: (mode: string) => void
 }) {
-  const options = permissionModeOptions(entry?.permission_modes)
+  const options = permissionModeOptions(entry?.permission_modes, value)
   return (
     <PermissionModeGroup
       label={`${toolName} permission`}
