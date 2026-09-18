@@ -315,8 +315,11 @@ function discoveryFailureTitle(
       ? 'The server rejected the selected secret.'
       : 'This server expects a bearer token. Switch authentication to a bearer secret.'
   }
+  if (cause instanceof ApiError && cause.status === 424) {
+    return 'The MCP server is not responding. Try again.'
+  }
   if (cause instanceof ApiError && cause.status === 422) {
-    return 'Could not connect to the MCP server.'
+    return 'The MCP server did not accept the request.'
   }
   if (cause instanceof ApiError && cause.status === 404) {
     return 'The selected secret is not available to this project.'
