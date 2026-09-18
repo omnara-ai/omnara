@@ -1,4 +1,4 @@
-package tools
+package main
 
 import (
 	"errors"
@@ -16,20 +16,31 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func RunSearchProcess(args []string) error {
+const (
+	maxStoreRoots          = 32
+	scriptMemoryLimitBytes = 128 * 1024 * 1024
+	procFDDir              = "/proc/self/fd"
+	allowedSyscalls        = "read close lseek pread64 readv fstat fstatat newfstatat stat lstat statx statfs fstatfs " +
+		"readlink readlinkat getdents64 access faccessat faccessat2 brk mmap mprotect munmap mremap madvise " +
+		"rt_sigaction rt_sigprocmask rt_sigreturn sigaltstack set_tid_address set_robust_list rseq futex arch_prctl " +
+		"getrandom sched_getaffinity clock_gettime gettimeofday getpid gettid getuid geteuid getgid getegid uname " +
+		"exit exit_group execve sched_yield poll ppoll restart_syscall getcwd"
+)
+
+func run(args []string) error {
 	if len(args) < 3 || !filepath.IsAbs(args[1]) {
-		return errors.New("invalid search process arguments")
+		return errors.New("invalid file-exec arguments")
 	}
-	count, err := strconv.Atoi(args[0])
-	if err != nil || count < 1 || count > searchStoreBatchSize {
-		return errors.New("invalid search store count")
+	rootCount, err := strconv.Atoi(args[0])
+	if err != nil || rootCount < 0 || rootCount > maxStoreRoots {
+		return errors.New("invalid file-exec root count")
 	}
 	args = args[1:]
-	roots := make([]string, count)
+	roots := make([]string, rootCount)
 	for i := range roots {
-		roots[i] = "/proc/self/fd/" + strconv.Itoa(i+3)
+		roots[i] = procFDDir + "/" + strconv.Itoa(i+3)
 	}
-	if err := os.Chdir("/proc/self/fd"); err != nil {
+	if err := os.Chdir(procFDDir); err != nil {
 		return err
 	}
 	info, err := arch.GetInfo("")
@@ -37,13 +48,7 @@ func RunSearchProcess(args []string) error {
 		return err
 	}
 	var names []string
-	for _, name := range strings.Fields(
-		"read close lseek pread64 readv fstat fstatat newfstatat stat lstat statx statfs fstatfs " +
-			"readlink readlinkat getdents64 access faccessat faccessat2 brk mmap mprotect munmap mremap madvise " +
-			"rt_sigaction rt_sigprocmask rt_sigreturn sigaltstack set_tid_address set_robust_list rseq futex arch_prctl " +
-			"getrandom sched_getaffinity clock_gettime gettimeofday getpid gettid getuid geteuid getgid getegid uname " +
-			"exit exit_group execve sched_yield poll ppoll restart_syscall getcwd",
-	) {
+	for _, name := range strings.Fields(allowedSyscalls) {
 		if _, ok := info.SyscallNames[name]; ok {
 			names = append(names, name)
 		}
@@ -58,7 +63,7 @@ func RunSearchProcess(args []string) error {
 		}
 	}
 	for _, name := range []string{"write", "writev"} {
-		for _, fd := range []uint64{1, 2} {
+		for _, fd := range []uint64{uint64(unix.Stdout), uint64(unix.Stderr)} {
 			conditions = append(conditions, seccomp.NameWithConditions{Name: name, Conditions: seccomp.ArgumentConditions{{
 				Argument: 0, Operation: seccomp.Equal, Value: fd,
 			}}})
@@ -79,7 +84,11 @@ func RunSearchProcess(args []string) error {
 	case "arm64":
 		triplet, loader = "aarch64-linux-gnu", "ld-linux-aarch64.so.1"
 	default:
-		return errors.New("unsupported memory search architecture")
+		return errors.New("unsupported file-exec architecture")
+	}
+	allowedLibraries := []string{
+		loader, "libc.so.6", "libm.so.6", "libpthread.so.0", "libgcc_s.so.1",
+		"libpcre2-8.so.0", "libacl.so.1", "libselinux.so.1",
 	}
 	rules := []landlock.Rule{
 		landlock.PathAccess(ll.AccessFSReadFile|ll.AccessFSReadDir, roots...),
@@ -87,7 +96,7 @@ func RunSearchProcess(args []string) error {
 		landlock.ROFiles("/etc/ld.so.cache").IgnoreIfMissing(),
 	}
 	for _, dir := range []string{"/lib/" + triplet, "/usr/lib/" + triplet, "/usr/lib"} {
-		for _, name := range []string{loader, "libc.so.6", "libm.so.6", "libpthread.so.0", "libgcc_s.so.1", "libpcre2-8.so.0"} {
+		for _, name := range allowedLibraries {
 			rules = append(rules, landlock.ROFiles(filepath.Join(dir, name)).IgnoreIfMissing())
 		}
 	}
@@ -95,6 +104,13 @@ func RunSearchProcess(args []string) error {
 	runtime.LockOSThread()
 	if err := landlock.V2.Restrict(rules...); err != nil {
 		return err
+	}
+	if rootCount == 0 {
+		if err := unix.Setrlimit(unix.RLIMIT_DATA, &unix.Rlimit{
+			Cur: scriptMemoryLimitBytes, Max: scriptMemoryLimitBytes,
+		}); err != nil {
+			return err
+		}
 	}
 	if err := seccomp.LoadFilter(filter); err != nil {
 		return err

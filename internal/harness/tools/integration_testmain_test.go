@@ -3,20 +3,29 @@
 package tools
 
 import (
-	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == SearchProcessCommand {
-		if err := RunSearchProcess(os.Args[2:]); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+	integrationdb.RunTestMain(m)
+}
+
+func setupFileExec(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
 		return
 	}
-	integrationdb.RunTestMain(m)
+	dir := t.TempDir()
+	build := exec.CommandContext(t.Context(), "go", "build",
+		"-o", filepath.Join(dir, "omnara-file-exec"), "../../../cmd/file-exec")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build file launcher: %s, %v", output, err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

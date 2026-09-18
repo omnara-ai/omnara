@@ -66,7 +66,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
 	test-service-e2e \
-	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
+	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad build-file-exec web-lint web-doctor web-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
@@ -373,6 +373,10 @@ build-omnarad:
 	mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -ldflags "-X github.com/omnara-ai/omnara/internal/omnarad.version=$(OMNARAD_VERSION)" -o bin/omnarad ./cmd/daemon
 
+build-file-exec:
+	mkdir -p bin
+	CGO_ENABLED=0 $(GO) build -o bin/omnara-file-exec ./cmd/file-exec
+
 web-lint:
 	cd frontend && pnpm run lint
 
@@ -413,7 +417,7 @@ define RUN_SERVICE
 	OMNARA_PUBLIC_URL=$${OMNARA_PUBLIC_URL:-http://localhost:5173} \
 	OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=$${OMNARA_MCP_REGISTRY_SNAPSHOT_PATH:-$(MCP_REGISTRY_SNAPSHOT)} \
 	$(AIR) --tmp_dir tmp \
-	  --build.cmd "$(GO) build -o tmp/air-$(1) ./cmd/$(1)" \
+	  --build.cmd "$(2)$(GO) build -o tmp/air-$(1) ./cmd/$(1)" \
 	  --build.bin tmp/air-$(1) \
 	  --build.log air-$(1)-errors.log \
 	  --build.include_dir cmd,internal \
@@ -425,8 +429,9 @@ endef
 run-api:
 	@$(call RUN_SERVICE,api)
 
+run-worker: export PATH := $(REPO_ROOT)/bin:$(PATH)
 run-worker:
-	@$(call RUN_SERVICE,worker)
+	@$(call RUN_SERVICE,worker,$(GO) build -o bin/omnara-file-exec ./cmd/file-exec && )
 
 run-maintenance:
 	@$(call RUN_SERVICE,maintenance)

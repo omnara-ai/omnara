@@ -31,7 +31,8 @@ RUN mkdir -p frontend/apps/web/dist \
 FROM go-base AS worker-build
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-worker ./cmd/worker \
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-file-exec ./cmd/file-exec
 
 FROM go-base AS maintenance-build
 ARG TARGETOS
@@ -61,16 +62,16 @@ COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
 COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json /app/mcp-registry/mcp-registry.json
 ENTRYPOINT ["/usr/local/bin/omnara-api"]
 
-FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS ripgrep
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS file-tools
 RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends ripgrep
+    apt-get update && apt-get install -y --no-install-recommends ripgrep sed
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS worker
 WORKDIR /app
-COPY --from=ripgrep /usr/bin/rg /usr/local/bin/rg
-COPY --from=ripgrep /usr/lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/
+COPY --from=file-tools /usr/bin/rg /usr/bin/sed /usr/local/bin/
+COPY --from=file-tools /usr/lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/*-linux-gnu/libacl.so.1 /usr/lib/*-linux-gnu/libselinux.so.1 /usr/lib/
 COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
-COPY --from=worker-build /out/omnara-worker /usr/local/bin/omnara-worker
+COPY --from=worker-build /out/omnara-worker /out/omnara-file-exec /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/omnara-worker"]
 
 FROM runtime AS maintenance

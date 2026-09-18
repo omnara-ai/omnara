@@ -124,7 +124,8 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 			Name:  toolcatalog.ToolNameReadFile,
 			Input: json.RawMessage(`{"path":"` + path + `"}`),
 		}
-		if _, err := runReadFileAsync(ctx, call); err == nil || !strings.Contains(err.Error(), "UTF-8 text without NUL bytes") {
+		if _, err := runReadFileAsync(ctx, call); err == nil ||
+			!strings.Contains(err.Error(), "UTF-8 text without NUL bytes") {
 			t.Fatalf("non-text read: %v", err)
 		}
 		call.Call = model.ToolCall{
