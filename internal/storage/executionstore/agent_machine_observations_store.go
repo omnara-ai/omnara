@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -18,6 +19,7 @@ type AgentMachineObservationRecord struct {
 	BindingKind            AgentMachineBindingKind  `json:"binding_kind"`
 	BindingState           AgentMachineBindingState `json:"binding_state"`
 	DisplayName            string                   `json:"display_name"`
+	MachinePoolID          uuid.UUID                `json:"machine_pool_id"`
 	MachinePoolName        string                   `json:"machine_pool_name,omitempty"`
 	LifecycleState         MachineLifecycleState    `json:"lifecycle_state"`
 	ConnectionState        MachineConnectionState   `json:"connection_state"`
@@ -122,6 +124,7 @@ func selectAgentMachineObservations(
 			BindingKind:            AgentMachineBindingKind(row.BindingKind),
 			BindingState:           AgentMachineBindingState(row.BindingState),
 			DisplayName:            row.DisplayName,
+			MachinePoolID:          storeutil.IDFromPtr(row.MachinePoolID),
 			MachinePoolName:        row.MachinePoolName,
 			LifecycleState:         MachineLifecycleState(row.LifecycleState),
 			ConnectionState:        MachineConnectionState(row.ConnectionState),

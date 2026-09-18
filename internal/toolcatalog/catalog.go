@@ -45,9 +45,9 @@ const (
 	stopProcessToolDescription    = "Interrupt or terminate a running process."
 	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
-	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
+	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_id values and current availability. Pass next_cursor as cursor to continue listing."
+	listMachinesToolDescription   = "List this agent's machines and available pools for creating new machines."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
@@ -120,9 +120,10 @@ func buildDefaultCatalog() (Catalog, error) {
 		"type":        "string",
 		"description": "Public machine_id (mch_...) of the pool-backed machine to delete. Use list_machines first if you need the ID.",
 	}
-	machinePoolName := map[string]any{
+	machinePoolID := map[string]any{
 		"type":        "string",
-		"description": "Pass machine_pool_name only when there are multiple machine pools; otherwise omit it.",
+		"pattern":     `^mpo_[a-z2-7]{26}$`,
+		"description": "Public machine_pool_id (mpo_...) returned by list_machines. Omit it when only one machine pool is available.",
 	}
 	processID := map[string]any{
 		"type":        "string",
@@ -247,7 +248,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameCreateMachine,
 		createMachineToolDescription,
 		nil,
-		map[string]any{"machine_pool_name": machinePoolName},
+		map[string]any{"machine_pool_id": machinePoolID},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -264,7 +265,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		listMachinesToolDescription,
 		nil,
 		map[string]any{"cursor": map[string]any{
-			"type": "string", "pattern": `^mch_[a-z2-7]{26}$`,
+			"type": "string", "pattern": `^(mch|mpo)_[a-z2-7]{26}$`,
 			"description": "next_cursor from the previous result. Omit it to start listing.",
 		}},
 	); err != nil {

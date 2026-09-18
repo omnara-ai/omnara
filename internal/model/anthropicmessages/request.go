@@ -165,14 +165,6 @@ func validateToolNames(specs []modelcontext.ToolSpec) error {
 
 func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 	blocks := []textBlock{{Type: "text", Text: modelcontext.ProjectedSystemPrompt(bundle)}}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		blocks = append(blocks, textBlock{
-			Type: "text",
-			Text: modelcontext.AvailableMachinePoolsContent(
-				bundle.AvailableMachinePools,
-			),
-		})
-	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		blocks = append(blocks, textBlock{
 			Type: "text",

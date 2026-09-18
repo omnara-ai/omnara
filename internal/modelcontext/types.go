@@ -23,20 +23,19 @@ type BuildInput struct {
 }
 
 type Bundle struct {
-	ProjectID             uuid.UUID                `json:"-"`
-	AgentID               uuid.UUID                `json:"-"`
-	TurnID                uuid.UUID                `json:"-"`
-	OpeningInputIDs       []uuid.UUID              `json:"-"`
-	InputEventSequence    int64                    `json:"-"`
-	SystemPrompt          string                   `json:"system_prompt"`
-	Messages              []Message                `json:"messages"`
-	ToolSpecs             []ToolSpec               `json:"tool_specs"`
-	ToolResults           []ToolResultRef          `json:"tool_results"`
-	AvailableMachinePools []MachinePoolRef         `json:"machine_pools,omitempty"`
-	IntegrationTargets    []IntegrationTargetRef   `json:"integration_targets,omitempty"`
-	ContextCheckpoint     *CheckpointRef           `json:"context_checkpoint,omitempty"`
-	ResolvedMedia         map[string]ResolvedMedia `json:"resolved_media,omitempty"`
-	RenderedMedia         []RenderedMedia          `json:"-"`
+	ProjectID          uuid.UUID                `json:"-"`
+	AgentID            uuid.UUID                `json:"-"`
+	TurnID             uuid.UUID                `json:"-"`
+	OpeningInputIDs    []uuid.UUID              `json:"-"`
+	InputEventSequence int64                    `json:"-"`
+	SystemPrompt       string                   `json:"system_prompt"`
+	Messages           []Message                `json:"messages"`
+	ToolSpecs          []ToolSpec               `json:"tool_specs"`
+	ToolResults        []ToolResultRef          `json:"tool_results"`
+	IntegrationTargets []IntegrationTargetRef   `json:"integration_targets,omitempty"`
+	ContextCheckpoint  *CheckpointRef           `json:"context_checkpoint,omitempty"`
+	ResolvedMedia      map[string]ResolvedMedia `json:"resolved_media,omitempty"`
+	RenderedMedia      []RenderedMedia          `json:"-"`
 }
 
 type MediaProjector interface {
@@ -143,11 +142,6 @@ type IntegrationTargetRef struct {
 	Label           string `json:"label"`
 	InstallState    string `json:"install_state,omitempty"`
 	IsCurrent       bool   `json:"is_current,omitempty"`
-}
-
-type MachinePoolRef struct {
-	MachinePoolName string `json:"machine_pool_name"`
-	Description     string `json:"description,omitempty"`
 }
 
 type CheckpointRef struct {

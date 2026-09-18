@@ -193,9 +193,6 @@ func buildMessages(
 	if bundle.ContextCheckpoint != nil {
 		capacity++
 	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
@@ -229,12 +226,6 @@ func buildMessages(
 		if ok {
 			messages = append(messages, message)
 		}
-	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		messages = append(messages, chatMessage{
-			Role:    chatRoleSystem,
-			Content: modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-		})
 	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		messages = append(messages, chatMessage{
