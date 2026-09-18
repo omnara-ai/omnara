@@ -21,7 +21,8 @@ func TestToolCatalogImplicit(t *testing.T) {
 	for _, names := range [][]string{
 		toolcatalog.MachineToolNames(), toolcatalog.MachinePoolToolNames(), toolcatalog.SubagentToolNames(),
 		{toolcatalog.ToolNameSkill, toolcatalog.ToolNameSendIntegrationMessage,
-			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles, toolcatalog.ToolNameToolSearch},
+			toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+			toolcatalog.ToolNameWriteFile, toolcatalog.ToolNameToolSearch},
 	} {
 		for _, name := range names {
 			require.True(t, byName[name], name)

@@ -82,7 +82,7 @@ func TestDefaultMachineTools(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			wantTools := slices.Clone(test.wantTools)
 			if len(wantTools) > 0 {
-				wantTools = append(wantTools, "read_file", "search_files")
+				wantTools = append(wantTools, "list_files", "read_file", "search_files")
 				slices.Sort(wantTools)
 			}
 			for _, supportsTools := range []bool{true, false} {
@@ -135,12 +135,13 @@ func TestDefaultRetrievalTools(t *testing.T) {
 	}{
 		{"empty", "", nil},
 		{"disabled tool", "tools: {web_fetch: {enabled: false}}\n", nil},
-		{"enabled tool", "tools: {web_fetch: {}}\n", []string{"read_file", "search_files", "web_fetch"}},
+		{"enabled tool", "tools: {web_fetch: {}}\n", []string{"list_files", "read_file", "search_files", "web_fetch"}},
 		{"MCP default disabled", "mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n",
-			[]string{"read_file", "search_files"}},
-		{"retrieval disabled", "tools: {web_fetch: {}, read_file: {enabled: false}, search_files: {enabled: false}}\n",
+			[]string{"list_files", "read_file", "search_files"}},
+		{"retrieval disabled", "tools: {web_fetch: {}, list_files: {enabled: false}, " +
+			"read_file: {enabled: false}, search_files: {enabled: false}}\n",
 			[]string{"web_fetch"}},
-		{"one retrieval tool", "tools: {read_file: {}}\n", []string{"read_file", "search_files"}},
+		{"one retrieval tool", "tools: {read_file: {}}\n", []string{"list_files", "read_file", "search_files"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.source)), CompileOptions{})
@@ -161,6 +162,7 @@ func TestDefaultRetrievalTools(t *testing.T) {
 func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
 	result, err := Compile(SourceFormatYAML, []byte(validAgentSource("tools: {web_fetch: {}}\n")), CompileOptions{})
 	require.NoError(t, err)
+	delete(result.Compiled.Tools, "list_files")
 	delete(result.Compiled.Tools, "read_file")
 	delete(result.Compiled.Tools, "search_files")
 	encoded, err := EncodeCompiled(result.Compiled)
@@ -169,4 +171,60 @@ func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, contract.Tools, 1)
 	require.Equal(t, "web_fetch", contract.Tools[0].Name)
+}
+
+func TestDefaultMemoryTools(t *testing.T) {
+	for _, attachment := range []struct {
+		name     string
+		stores   string
+		writable bool
+	}{
+		{"read only", "[{name: notes, access: read_only}]", false},
+		{"read write", "[{name: notes, access: read_write}]", true},
+		{"mixed", "[{name: reference, access: read_only}, {name: notes, access: read_write}]", true},
+	} {
+		defaults := []string{"list_files", "read_file", "search_files"}
+		if attachment.writable {
+			defaults = append(defaults, "write_file")
+		}
+		for _, test := range []struct {
+			name  string
+			tools string
+			want  []string
+		}{
+			{"defaults", "", defaults},
+			{"write enabled", "tools: {write_file: {}}\n",
+				[]string{"list_files", "read_file", "search_files", "write_file"}},
+			{"write disabled", "tools: {write_file: {enabled: false}}\n", []string{"list_files", "read_file", "search_files"}},
+			{"list disabled", "tools: {list_files: {enabled: false}}\n", defaults[1:]},
+			{"all disabled", "tools: {list_files: {enabled: false}, read_file: {enabled: false}, " +
+				"search_files: {enabled: false}, write_file: {enabled: false}}\n", nil},
+			{"permissions", "tools: {list_files: {permission: {mode: always_ask}}, " +
+				"write_file: {permission: {mode: always_ask}}}\n",
+				[]string{"list_files", "read_file", "search_files", "write_file"}},
+		} {
+			t.Run(attachment.name+"/"+test.name, func(t *testing.T) {
+				source := validAgentSource("memory_stores: " + attachment.stores + "\n" + test.tools)
+				result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
+					ResolveMemoryStoreName: func(name string) (string, error) {
+						return testMachineSourcePublicID(t, publicid.KindMemoryStore, name), nil
+					},
+				})
+				require.NoError(t, err)
+				require.Equal(t, source, result.Source)
+				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+				require.NoError(t, err)
+				var names []string
+				for _, tool := range contract.Tools {
+					names = append(names, tool.Name)
+					wantPermission := toolpermission.ModeAlwaysAllow
+					if test.name == "permissions" && (tool.Name == "list_files" || tool.Name == "write_file") {
+						wantPermission = toolpermission.ModeAlwaysAsk
+					}
+					require.Equal(t, wantPermission, tool.Permission.Mode)
+				}
+				require.Equal(t, test.want, names)
+			})
+		}
+	}
 }
