@@ -182,7 +182,7 @@ Artifact patterns such as `/artifacts/*.pdf` match filenames. Results include th
 
 Results include files and directories, including hidden entries. Memory results reflect the filesystem, including empty directories. Memory files include sizes; obtain their digests with `download_file`. A literal path matches only that entry. If `truncated` is true, narrow the pattern to return fewer results. Listing does not guarantee a snapshot across namespaces.
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `list_files`, `read_file`, and `search_files` entries to the compiled config, leaving the source unchanged. Attaching a memory store also adds these retrieval tools; a `read_write` attachment adds `write_file`. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
 
 ### `upload_file`
 
