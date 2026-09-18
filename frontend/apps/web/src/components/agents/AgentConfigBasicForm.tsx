@@ -26,7 +26,7 @@ export function AgentConfigBasicForm({
   const toolCatalog = useToolCatalog()
 
   return (
-    <FieldGroup className="gap-8">
+    <FieldGroup className="gap-5">
       <Field>
         <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
           Instructions
@@ -62,11 +62,11 @@ export function AgentConfigBasicForm({
             onToolsChange={form.setTools}
           />
           {form.toolsPending && (
-            <p className="text-muted-foreground text-sm">Loading other tools…</p>
+            <p className="text-muted-foreground text-sm">Loading built-in tools…</p>
           )}
           {form.toolsError && (
             <p className="text-destructive text-sm" role="alert">
-              Couldn’t load other tools.{' '}
+              Couldn’t load built-in tools.{' '}
               <button type="button" className="underline" onClick={form.retryTools}>
                 Retry
               </button>
