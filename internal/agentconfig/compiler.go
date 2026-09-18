@@ -350,6 +350,12 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
+	for _, store := range source.MemoryStores {
+		if store.Access == "read_write" {
+			names = append(names, toolcatalog.ToolNameWriteFile)
+			break
+		}
+	}
 	if sourceDefersAnyTool(source) {
 		names = append(names, toolcatalog.ToolNameToolSearch)
 	}
@@ -357,15 +363,17 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		_, configured := source.Tools[name]
 		return configured
 	})
-	hasTools := len(names) > 0 || len(source.MCP) > 0
+	includeFileRetrievalDefaults := len(names) > 0 || len(source.MCP) > 0 || len(source.MemoryStores) > 0
 	for _, tool := range source.Tools {
 		if tool.Enabled == nil || *tool.Enabled {
-			hasTools = true
+			includeFileRetrievalDefaults = true
 			break
 		}
 	}
-	if hasTools {
-		for _, name := range []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles} {
+	if includeFileRetrievalDefaults {
+		for _, name := range []string{
+			toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		} {
 			if _, configured := source.Tools[name]; !configured {
 				names = append(names, name)
 			}

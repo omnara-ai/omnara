@@ -74,11 +74,11 @@ tools:
 	if contract.Model.ConfiguredModelID != "" {
 		t.Fatalf("unexpected model contract: %+v", contract.Model)
 	}
-	if len(contract.Tools) != 3 || contract.Tools[1].Name != "run_command" ||
-		contract.Tools[1].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 4 || contract.Tools[2].Name != "run_command" ||
+		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected tool contract: %+v", contract.Tools)
 	}
-	assertRunCommandInputSchema(t, contract.Tools[1].InputSchema)
+	assertRunCommandInputSchema(t, contract.Tools[2].InputSchema)
 }
 
 func TestCompilePreservesSourceWhileCanonicalizingResourceReferences(t *testing.T) {
@@ -222,7 +222,7 @@ tools:
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 3 || contract.Tools[1].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(contract.Tools) != 4 || contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("runtime tool permission = %+v, want %s", contract.Tools, toolpermission.ModeAlwaysAllow)
 	}
 }
@@ -1336,10 +1336,10 @@ tools:
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 3 {
-		t.Fatalf("runtime tools = %+v, want custom tool and two retrieval tools", contract.Tools)
+	if len(contract.Tools) != 4 {
+		t.Fatalf("runtime tools = %+v, want custom tool and three retrieval tools", contract.Tools)
 	}
-	runtimeTool := contract.Tools[0]
+	runtimeTool := contract.Tools[1]
 	if runtimeTool.Name != "lookup_customer" || runtimeTool.Type != toolcatalog.ToolTypeCustom ||
 		runtimeTool.Description != "Look up a customer by email." {
 		t.Fatalf("unexpected runtime custom tool: %+v", runtimeTool)
@@ -1774,9 +1774,9 @@ tools:
 	if err != nil {
 		t.Fatalf("load explicit skill runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 3 ||
-		contract.Tools[2].Name != "skill" ||
-		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 4 ||
+		contract.Tools[3].Name != "skill" ||
+		contract.Tools[3].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected explicit skill runtime contract: %+v", contract)
 	}
 
@@ -1878,9 +1878,9 @@ skills:
 	if !contract.RequiresModelToolSupport() {
 		t.Fatal("skill-only runtime contract must require model tool support")
 	}
-	if len(contract.Tools) != 3 ||
-		contract.Tools[2].Name != "skill" ||
-		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(contract.Tools) != 4 ||
+		contract.Tools[3].Name != "skill" ||
+		contract.Tools[3].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
