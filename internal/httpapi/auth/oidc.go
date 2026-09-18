@@ -95,8 +95,6 @@ func (h *Handler) oidcIDToken(r *http.Request, tokens identitystore.OAuthTokenSe
 	return jwt.Signed(signer).Claims(claims).Serialize()
 }
 
-// UserInfo authenticates OAuth access tokens directly: browser cookies, PATs,
-// and tokens for a different MCP resource cannot disclose this identity.
 func (h *Handler) oidcUserInfoRoute(w http.ResponseWriter, r *http.Request) {
 	fields := strings.Fields(r.Header.Get("Authorization"))
 	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {

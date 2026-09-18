@@ -15,15 +15,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-// OIDCSigningKey is shared by API replicas and survives restarts. Its private
-// material uses the same envelope encryption as other instance credentials.
 func (s *Store) OIDCSigningKey(ctx context.Context) (*rsa.PrivateKey, error) {
 	row, err := s.q.GetOIDCSigningKey(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := s.createOIDCSigningKey(ctx); err != nil {
 			return nil, err
 		}
-		// A concurrent creator may have won; always load the persisted winner.
 		row, err = s.q.GetOIDCSigningKey(ctx)
 	}
 	if err != nil {

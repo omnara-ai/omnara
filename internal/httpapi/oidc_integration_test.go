@@ -95,7 +95,6 @@ func TestOIDCAuthorizationAndUserInfo(t *testing.T) {
 		claims["aud"] != client.clientID || claims["email_verified"] != true {
 		t.Fatalf("ID claims: %v", claims)
 	}
-	// A fresh server/store must expose the same persisted signing key.
 	restarted := newIntegrationServer(pool, options...)
 	otherJWKS := performRequest(restarted,
 		httptest.NewRequest(http.MethodGet, mcpOAuthTestPublicURL+httpauth.OIDCJWKSPath, nil),
