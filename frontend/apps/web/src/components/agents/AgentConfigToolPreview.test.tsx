@@ -305,18 +305,13 @@ function click(selector: string) {
 }
 
 async function selectIncludedPermission(name: string, label: string) {
-  await act(async () => {
-    container
-      .querySelector(`[aria-label="${name} permission"]`)
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (item) => item.textContent === label,
+  const option = container.querySelector<HTMLButtonElement>(
+    `[aria-label="${name} permission"] [role="radio"][aria-label="${label}"]`,
   )
   if (!option) throw new Error(`Missing ${label} option`)
-  act(() => {
+  await act(async () => {
     option.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 

@@ -9,6 +9,8 @@ interface ProjectDefaults {
   defaultPool?: MachinePoolSummary
 }
 
+const defaultPoolName = 'default-pool'
+
 const preferredModel = { provider_config: 'omnara-openrouter', name: 'openai/gpt-5.6-sol' }
 
 export function useProjectDefaults(orgId: string, projectId: string): ProjectDefaults {
@@ -17,6 +19,7 @@ export function useProjectDefaults(orgId: string, projectId: string): ProjectDef
   const defaultPoolQuery = useQuery({
     queryKey: [...listProjectMachinePoolGrantsQueryKey({ path, client }), 'default'],
     queryFn: async ({ signal }) => {
+      let cluster: MachinePoolSummary | null = null
       let cursor: string | undefined
       do {
         const { data } = await sdk.listProjectMachinePoolGrants({
@@ -25,13 +28,14 @@ export function useProjectDefaults(orgId: string, projectId: string): ProjectDef
           signal,
           query: { sort: 'created_at', limit: 50, cursor },
         })
-        const cluster = data.data.find(
-          ({ machine_pool }) => machine_pool.management_kind === 'cluster',
-        )
-        if (cluster) return cluster.machine_pool
+        const named = data.data.find(({ machine_pool }) => machine_pool.name === defaultPoolName)
+        if (named) return named.machine_pool
+        cluster ??=
+          data.data.find(({ machine_pool }) => machine_pool.management_kind === 'cluster')
+            ?.machine_pool ?? null
         cursor = data.next_cursor ?? undefined
       } while (cursor)
-      return null
+      return cluster
     },
   })
   const modelGrantsQuery = useProjectModelGrants(orgId, projectId, {

@@ -77,8 +77,9 @@ it.each(agentTemplates)(
     for (const pool of [undefined, machinePool({ management_kind: 'cluster' })]) {
       const config = agentTemplateBasicConfig(template, catalog, pool)
       expect(config.tools.map((tool) => tool.name)).toEqual(names)
-      expect(config.machineSources).toHaveLength(pool ? 1 : 0)
-      if (pool) expect(config.machineSources[0]?.name).toBe(pool.name)
+      expect(config.machineSources).toHaveLength(1)
+      expect(config.machineSources[0]?.kind).toBe('pool')
+      expect(config.machineSources[0]?.name).toBe(pool?.name ?? '')
     }
   },
 )

@@ -7,7 +7,7 @@ import {
   schemas,
   type ToolPermissionProfile,
 } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { AgentConfigMcpToolOverrideList } from '@/components/agents/AgentConfigMcpToolOverrideList'
 import { mcpServerToolsRequest } from '@/components/agents/mcpServerToolsRequest'
@@ -37,6 +37,7 @@ export function AgentConfigMcpServerTools({
   projectId,
   server,
   permissionProfile,
+  defaults,
   onToolsChange,
   onAuthTypeChange,
 }: {
@@ -44,6 +45,7 @@ export function AgentConfigMcpServerTools({
   projectId: string
   server: BasicMcpServer
   permissionProfile?: ToolPermissionProfile
+  defaults: ReactNode
   onToolsChange: (tools: BasicMcpTool[]) => void
   onAuthTypeChange: (authType: McpAuthType) => void
 }) {
@@ -66,33 +68,29 @@ export function AgentConfigMcpServerTools({
   const discoveryFailure = visibleDiscoveryFailure(discovery, server.authType)
 
   return (
-    <Field>
-      <FieldLabel htmlFor={`${server.id}-tool-override`}>
-        Tool overrides
-        <span className="text-muted-foreground font-normal">
-          {' '}
-          — per-tool exceptions to the settings above
-        </span>
-      </FieldLabel>
-      <div className="rounded-md border">
-        <ToolOverridePicker
-          inputId={`${server.id}-tool-override`}
-          discovered={discovered}
-          overriddenNames={overriddenNames}
-          discovering={discovery.isPending && request != null}
-          toolCountLabel={toolCountLabel}
-          onAdd={(name) => {
-            onToolsChange([...server.tools, { name, enabled: null, permission: null }])
-          }}
-        />
-        <AgentConfigMcpToolOverrideList
-          tools={server.tools}
-          discovered={discovered}
-          permissionProfile={permissionProfile}
-          toolCountLabel={toolCountLabel}
-          onToolsChange={onToolsChange}
-        />
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3 sm:flex-nowrap">
+        <Field className="min-w-0 flex-1 basis-full sm:basis-auto">
+          <FieldLabel htmlFor={`${server.id}-tool-override`}>Tool overrides</FieldLabel>
+          <ToolOverridePicker
+            inputId={`${server.id}-tool-override`}
+            discovered={discovered}
+            overriddenNames={overriddenNames}
+            discovering={discovery.isPending && request != null}
+            toolCountLabel={toolCountLabel}
+            onAdd={(name) => {
+              onToolsChange([...server.tools, { name, enabled: null, permission: null }])
+            }}
+          />
+        </Field>
+        {defaults}
       </div>
+      <AgentConfigMcpToolOverrideList
+        tools={server.tools}
+        discovered={discovered}
+        permissionProfile={permissionProfile}
+        onToolsChange={onToolsChange}
+      />
       {unexposableTools.length > 0 && <UnexposableTools tools={unexposableTools} />}
       {discoveryFailure && (
         <DiscoveryFailure
@@ -104,7 +102,7 @@ export function AgentConfigMcpServerTools({
           onAuthTypeChange={onAuthTypeChange}
         />
       )}
-    </Field>
+    </div>
   )
 }
 
@@ -155,11 +153,11 @@ function ToolOverridePicker({
       isItemEqualToValue={(tool: McpServerTool, other: McpServerTool) => tool.name === other.name}
       filter={matchesToolSearch}
     >
-      <div className="bg-muted/40 relative border-b">
+      <div className="relative">
         <SearchIcon className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
         <ComboboxPrimitive.Input
           id={inputId}
-          className="placeholder:text-muted-foreground pointer-coarse:text-base h-11 w-full bg-transparent pl-10 pr-3 text-base outline-none md:text-sm"
+          className="placeholder:text-muted-foreground pointer-coarse:text-base control-focus bg-background h-9 w-full rounded-md border pl-9 pr-3 text-base md:text-sm"
           placeholder={
             toolCountLabel == null
               ? 'Add a tool override'

@@ -191,8 +191,51 @@
   }
 }
 
-.code-panel-ring {
+.code-panel-ring,
+.static-panel-ring {
   padding: 1px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.static-panel-ring {
+  --ring-primary: 80%;
+  --ring-primary-soft: 35%;
+  background: conic-gradient(
+    from 200deg,
+    color-mix(in oklch, var(--primary) var(--ring-primary), transparent),
+    color-mix(in oklch, var(--border) 80%, transparent) 30%,
+    color-mix(in oklch, var(--primary) var(--ring-primary-soft), transparent) 55%,
+    color-mix(in oklch, var(--border) 80%, transparent) 75%,
+    color-mix(in oklch, var(--primary) var(--ring-primary), transparent)
+  );
+}
+
+.dark .static-panel-ring {
+  --ring-primary: 55%;
+  --ring-primary-soft: 20%;
+}
+
+.expanded-surface[data-state='open'] {
+  background: color-mix(in oklab, white 70%, var(--card));
+}
+
+.dark .expanded-surface[data-state='open'] {
+  background: color-mix(in oklab, var(--background) 70%, var(--card));
+}
+
+.dark .expanded-surface {
+  --color-border: color-mix(in oklab, var(--border) 60%, transparent);
+  --color-input: color-mix(in oklab, var(--input) 60%, transparent);
+}
+
+.code-panel-ring {
   background: conic-gradient(
     from var(--code-ring-angle),
     color-mix(in oklch, var(--primary) 55%, transparent),
@@ -202,14 +245,6 @@
     color-mix(in oklch, var(--primary) 55%, transparent)
   );
   animation: code-ring-spin 14s linear infinite;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
 }
 
 .code-panel-body {
@@ -231,4 +266,29 @@
 
 .dark .code-highlight span {
   color: var(--shiki-dark);
+}
+
+.collapsible-animate {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.2s ease-out,
+    visibility 0.2s;
+}
+
+.collapsible-animate[data-state='open'] {
+  grid-template-rows: 1fr;
+  visibility: visible;
+}
+
+.collapsible-animate > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsible-animate {
+    transition: none;
+  }
 }
