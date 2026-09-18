@@ -333,9 +333,9 @@ func TestIntegrationSendToolUploadsFilesWithSafeRetries(t *testing.T) {
 						},
 						StoreID: resource.ID, Path: "reports/" + file.filename, Content: file.content,
 					}
-					digest, err := fixture.Store.Memories().Write(ctx, memoryInput)
+					written, err := fixture.Store.Memories().Write(ctx, memoryInput)
 					require.NoError(t, err)
-					memoryDigest = digest
+					memoryDigest = written.Digest
 					if tt.readOnly {
 						_, err = fixture.Store.Memories().Update(ctx, memoryInput.Scope, resource.ID, nil, &tt.readOnly)
 						require.NoError(t, err)

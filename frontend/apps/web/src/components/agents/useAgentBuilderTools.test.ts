@@ -49,6 +49,7 @@ describe('agentBuilderToolsSource', () => {
       },
       machine_sources: [],
       skills: [],
+      memory_stores: [],
       subagents: {},
     })
   })

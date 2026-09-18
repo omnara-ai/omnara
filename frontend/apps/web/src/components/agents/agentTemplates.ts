@@ -79,6 +79,7 @@ export function agentTemplateBasicConfig(
   return {
     mcpServers: [],
     skillIds: [],
+    memoryStores: [],
     subagents: [],
     maxSubagents: '',
     maxDepth: '',

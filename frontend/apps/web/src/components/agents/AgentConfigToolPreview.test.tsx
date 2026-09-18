@@ -495,6 +495,7 @@ it('does not offer the Slack tool when it is absent from the source', async () =
         mcp: {},
         machine_sources: [],
         skills: [],
+        memory_stores: [],
         subagents: {},
       }),
     },

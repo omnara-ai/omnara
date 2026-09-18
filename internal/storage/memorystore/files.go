@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
@@ -28,15 +29,16 @@ type WriteInput struct {
 	ExpectedDigest *string
 }
 
+type WriteResult struct {
+	Path   string
+	Digest string
+}
+
 func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path string) (string, []byte, error) {
 	if err := ValidatePath(path); err != nil {
 		return "", nil, storeerr.InvalidRequest(err)
 	}
-	ref, err := s.authorizeFile(ctx, s.q, scope, storeID, false)
-	if err != nil {
-		return "", nil, err
-	}
-	root, err := s.files.OpenStore(ref)
+	root, err := s.openStoreForRead(ctx, scope, storeID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil, storeerr.ErrNotFound
 	}
@@ -44,9 +46,6 @@ func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path s
 		return "", nil, err
 	}
 	defer func() { _ = root.Close() }()
-	if _, err := s.authorizeFile(ctx, s.q, scope, storeID, false); err != nil {
-		return "", nil, err
-	}
 	body, err := memoryops.Read(root, path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil, storeerr.ErrNotFound
@@ -55,6 +54,22 @@ func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path s
 		return "", nil, err
 	}
 	return blobstore.ContentDigest(body), body, nil
+}
+
+func (s *Store) openStoreForRead(ctx context.Context, scope Scope, storeID uuid.UUID) (*os.Root, error) {
+	ref, err := s.authorizeFile(ctx, s.q, scope, storeID, false)
+	if err != nil {
+		return nil, err
+	}
+	root, err := s.files.OpenStore(ref)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.authorizeFile(ctx, s.q, scope, storeID, false); err != nil {
+		_ = root.Close()
+		return nil, err
+	}
+	return root, nil
 }
 
 func (s *Store) authorizeFile(
@@ -71,84 +86,84 @@ func (s *Store) authorizeFile(
 	if err != nil {
 		return memoryops.StoreRef{}, mapped(err)
 	}
-	if write && store.ReadOnly {
+	if write && scope.AgentID != uuid.Nil && store.ReadOnly {
 		return memoryops.StoreRef{}, fmt.Errorf("memory store is read-only: %w", storeerr.ErrConflict)
 	}
 	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, id, store.Name)
 }
 
-func (s *Store) Write(ctx context.Context, input WriteInput) (string, error) {
+func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error) {
 	if err := ValidatePath(input.Path); err != nil {
-		return "", storeerr.InvalidRequest(err)
+		return WriteResult{}, storeerr.InvalidRequest(err)
 	}
 	if len(input.Content) > daemonprotocol.MaxFileTransferBytes {
-		return "", storeerr.InvalidRequest(errors.New("memory content must be at most 10 MiB"))
+		return WriteResult{}, storeerr.InvalidRequest(errors.New("memory content must be at most 10 MiB"))
 	}
 	if input.ExpectedDigest != nil {
 		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
-			return "", storeerr.InvalidRequest(err)
+			return WriteResult{}, storeerr.InvalidRequest(err)
 		}
 	}
 	ref, err := s.authorizeFile(ctx, s.q, input.Scope, input.StoreID, true)
 	if err != nil {
-		return "", err
+		return WriteResult{}, err
 	}
 	staged, err := s.files.Stage(ref, input.Content)
 	if err != nil {
-		return "", fmt.Errorf("stage memory file: %w", err)
+		return WriteResult{}, fmt.Errorf("stage memory file: %w", err)
 	}
 	defer s.files.Discard(staged)
 	lock, err := s.files.Lock(ctx, ref)
 	if err != nil {
-		return "", err
+		return WriteResult{}, err
 	}
 	defer func() { _ = lock.Close() }()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return "", err
+		return WriteResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.Scope.OrgID, input.Scope.ProjectID); err != nil {
-		return "", err
+		return WriteResult{}, err
 	}
 	q := s.q.WithTx(tx)
 	if _, err := s.authorizeFile(ctx, q, input.Scope, input.StoreID, true); err != nil {
-		return "", err
+		return WriteResult{}, err
 	}
 	root, err := s.files.OpenStore(ref)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+		return WriteResult{}, err
 	}
 	var current []byte
 	if root != nil {
 		defer func() { _ = root.Close() }()
 		current, err = memoryops.Read(root, input.Path)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return "", err
+			return WriteResult{}, err
 		}
 	}
-	digest := blobstore.ContentDigest(input.Content)
+	result := WriteResult{Path: Root + "/" + ref.Name + "/" + input.Path, Digest: blobstore.ContentDigest(input.Content)}
 	if err == nil {
 		currentDigest := blobstore.ContentDigest(current)
-		if currentDigest == digest {
-			return digest, s.files.Sync(ref, input.Path)
+		if currentDigest == result.Digest {
+			return result, s.files.Sync(ref, input.Path)
 		}
 		if input.ExpectedDigest == nil {
-			return "", fmt.Errorf("expected_digest is required to change an existing file: %w", storeerr.ErrConflict)
+			return WriteResult{}, fmt.Errorf("expected_digest is required to change an existing file: %w", &storeerr.FileContentConflict{CurrentDigest: currentDigest})
 		}
 		if *input.ExpectedDigest != currentDigest {
-			return "", fmt.Errorf("memory changed; download it and retry: %w", storeerr.ErrConflict)
+			return WriteResult{}, fmt.Errorf("memory changed; download it and retry: %w", &storeerr.FileContentConflict{CurrentDigest: currentDigest})
 		}
 	} else {
 		if input.ExpectedDigest != nil {
-			return "", fmt.Errorf("memory file does not exist: %w", storeerr.ErrConflict)
+			return WriteResult{}, fmt.Errorf("memory file does not exist: %w", storeerr.ErrConflict)
 		}
 		limits, err := resourceguard.ResolveLimits(ctx, q, input.Scope.OrgID)
 		if err != nil {
-			return "", err
+			return WriteResult{}, err
 		}
 		if limits.MaxMemoriesPerStore <= 0 {
-			return "", fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
+			return WriteResult{}, fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
 		}
 		if root != nil {
 			var count int64
@@ -167,12 +182,60 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (string, error) {
 				}
 				return nil
 			}); err != nil {
-				return "", err
+				return WriteResult{}, err
 			}
 		}
 	}
 	if err := s.files.Publish(ctx, ref, root, input.Path, staged); err != nil {
-		return "", err
+		return WriteResult{}, err
 	}
-	return digest, nil
+	return result, nil
+}
+
+func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, path, expectedDigest string) error {
+	if err := ValidatePath(path); err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	if err := daemonprotocol.ValidateFileDigest(expectedDigest); err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	ref, err := s.authorizeFile(ctx, s.q, scope, storeID, true)
+	if err != nil {
+		return err
+	}
+	lock, err := s.files.Lock(ctx, ref)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, scope.OrgID, scope.ProjectID); err != nil {
+		return err
+	}
+	if _, err := s.authorizeFile(ctx, s.q.WithTx(tx), scope, storeID, true); err != nil {
+		return err
+	}
+	root, err := s.files.OpenStore(ref)
+	if errors.Is(err, fs.ErrNotExist) {
+		return storeerr.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	content, err := memoryops.Read(root, path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return storeerr.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if currentDigest := blobstore.ContentDigest(content); currentDigest != expectedDigest {
+		return fmt.Errorf("memory changed; reload it and retry: %w", &storeerr.FileContentConflict{CurrentDigest: currentDigest})
+	}
+	return s.files.RemoveFile(ref, root, path)
 }

@@ -113,22 +113,18 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 	if err := json.Unmarshal(process.ToolInput, &input); err != nil {
 		return nil, apierror.ProjectScoped(fmt.Errorf("resolve memory transfer: %w", err))
 	}
-	body, err := io.ReadAll(io.LimitReader(req.Body, daemonprotocol.MaxFileTransferBytes+1))
-	var maxBytesError *http.MaxBytesError
-	if errors.As(err, &maxBytesError) || len(body) > daemonprotocol.MaxFileTransferBytes {
-		return nil, apierror.FromCode(openapi.ErrorCodeRequestTooLarge, "memory content exceeds the size limit")
-	}
+	body, err := readMemoryContent(req.Body)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "cannot read memory content")
+		return nil, err
 	}
-	digest, err := s.server.store.Memories().Write(ctx, memorystore.WriteInput{
+	result, err := s.server.store.Memories().Write(ctx, memorystore.WriteInput{
 		Scope: target.Scope, StoreID: target.StoreID, Path: target.Path, Content: body,
 		ExpectedDigest: input.ExpectedDigest,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	return openapi.UploadDaemonFile201JSONResponse{Path: process.Path, Digest: digest}, nil
+	return openapi.UploadDaemonFile201JSONResponse{Path: result.Path, Digest: result.Digest}, nil
 }
 
 func (s strictOpenAPIServer) DownloadDaemonFile(

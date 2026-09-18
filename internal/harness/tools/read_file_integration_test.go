@@ -171,7 +171,7 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 		{content: []byte{'a', 0, 'b'}, invalid: true},
 	} {
 		file := fmt.Sprintf("nested/%d.txt", index)
-		digest, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+		written, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
 			Scope: scope, StoreID: store.ID, Path: file, Content: test.content,
 		})
 		if err != nil {
@@ -215,7 +215,7 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 				}
 			}
 			if value.Path != "/memory/engineering/"+file || value.Content != want ||
-				value.Digest != digest || value.Digest != blobstore.ContentDigest(test.content) ||
+				value.Digest != written.Digest || value.Digest != blobstore.ContentDigest(test.content) ||
 				value.SizeBytes != len(test.content) {
 				t.Fatalf("incorrect memory page: %+v", value)
 			}

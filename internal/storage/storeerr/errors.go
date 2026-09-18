@@ -54,6 +54,14 @@ var (
 	ErrIntegrationOAuthFlowConsumed  = errors.New("integration oauth flow already consumed")
 )
 
+type FileContentConflict struct {
+	CurrentDigest string
+}
+
+func (err *FileContentConflict) Error() string { return ErrConflict.Error() }
+
+func (err *FileContentConflict) Unwrap() error { return ErrConflict }
+
 type taggedError struct {
 	sentinel error
 	err      error

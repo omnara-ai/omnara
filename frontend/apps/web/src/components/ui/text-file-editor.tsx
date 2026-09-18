@@ -11,14 +11,16 @@ const monacoPromise = Promise.all([
   import('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js'),
 ]).then(([module]) => module)
 
-export function SkillMdEditor({
+export function TextFileEditor({
   id,
+  filename,
   value,
   onChange,
   readOnly = false,
   className,
 }: {
   id: string
+  filename: string
   value: string
   onChange: (value: string) => void
   readOnly?: boolean
@@ -35,15 +37,21 @@ export function SkillMdEditor({
   useEffect(() => {
     if (!editorElementRef.current) return
 
-    const modelUri = monaco.Uri.parse(`file:///skill-md-${id}.md`)
+    const modelUri = monaco.Uri.parse(
+      `file:///text-editor-${encodeURIComponent(id)}/${encodeURIComponent(filename)}`,
+    )
     const model =
       monaco.editor.getModel(modelUri) ??
-      monaco.editor.createModel(initialValueRef.current, 'markdown', modelUri)
+      monaco.editor.createModel(
+        initialValueRef.current,
+        filename.toLowerCase().endsWith('.md') ? 'markdown' : 'plaintext',
+        modelUri,
+      )
 
     modelRef.current = model
     editorRef.current = monaco.editor.create(editorElementRef.current, {
       model,
-      ariaLabel: 'SKILL.md',
+      ariaLabel: filename,
       automaticLayout: true,
       ...editorAppearance(monaco, editorElementRef.current),
       minimap: { enabled: false },
@@ -66,7 +74,7 @@ export function SkillMdEditor({
     })
 
     const subscription = model.onDidChangeContent(() => {
-      emitChange(model.getValue())
+      emitChange(model.getValue(undefined, true))
     })
 
     return () => {
@@ -77,11 +85,11 @@ export function SkillMdEditor({
       model.dispose()
       modelRef.current = null
     }
-  }, [id, monaco])
+  }, [id, filename, monaco])
 
   useEffect(() => {
     const model = modelRef.current
-    if (model && value !== model.getValue()) {
+    if (model && value !== model.getValue(undefined, true)) {
       model.setValue(value)
     }
   }, [value])
@@ -92,7 +100,6 @@ export function SkillMdEditor({
 
   return (
     <div
-      id={id}
       ref={editorElementRef}
       className={cn(
         'border-input bg-card type-code rounded-control h-80 overflow-hidden border',

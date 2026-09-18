@@ -38,6 +38,10 @@ const maxAttachmentRequestBodyBytes int64 = 2 * modelcontext.MaxResolvedMediaByt
 const maxSkillUploadRequestBodyBytes int64 = int64(skills.MaxArchiveBytes) + 1024*1024
 
 func requestBodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/memory-stores/") &&
+		strings.HasSuffix(r.URL.Path, "/file") {
+		return daemonprotocol.MaxFileTransferBytes
+	}
 	if r.Method != http.MethodPost {
 		return maxRequestBodyBytes
 	}

@@ -2,6 +2,7 @@ import { useToolCatalog } from '@omnara/react'
 
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
+import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
@@ -98,6 +99,12 @@ export function AgentConfigBasicForm({
             builderDraft={form.draft}
             agentName={agentName}
             onBeforeOAuthRedirect={onBeforeOAuthRedirect}
+          />
+          <AgentConfigMemoryField
+            orgId={orgId}
+            projectId={projectId}
+            stores={form.memoryStores}
+            onChange={form.setMemoryStores}
           />
         </div>
       </div>

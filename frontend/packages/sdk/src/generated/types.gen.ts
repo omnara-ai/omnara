@@ -54,19 +54,23 @@ export type Error = {
      */
     error: string;
     /**
+     * Current file digest for a file_content_conflict. A replacement must be confirmed before retrying with this digest.
+     */
+    current_digest?: string;
+    /**
      * Field-level problems when a submitted document (such as an agent config source) failed validation. Absent for errors that are not about a specific field.
      */
     issues?: Array<AgentConfigErrorIssue>;
     /**
      * Stable error code for programmatic handling.
      */
-    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
-export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unauthorized' | 'forbidden' | 'csrf_check_failed' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'pending_work' | 'not_wake_capable' | 'gone' | 'daemon_runtime_unregistered' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited';
+export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unauthorized' | 'forbidden' | 'csrf_check_failed' | 'not_found' | 'conflict' | 'file_content_conflict' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'pending_work' | 'not_wake_capable' | 'gone' | 'daemon_runtime_unregistered' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited';
 
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
@@ -826,6 +830,18 @@ export type MemoryStoreList = {
     data: Array<MemoryStore>;
     has_more: boolean;
     next_cursor?: string;
+};
+
+export type MemoryFile = {
+    path: string;
+    type: 'file' | 'directory';
+    size_bytes?: number;
+    modified_at: Timestamp;
+};
+
+export type MemoryFileList = {
+    data: Array<MemoryFile>;
+    next_cursor: string | null;
 };
 
 /**
@@ -6544,6 +6560,10 @@ export type ListMemoryStoresData = {
          * Maximum number of items to return in one page.
          */
         limit?: number;
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
         cursor?: string;
     };
     url: '/orgs/{orgID}/projects/{projectID}/memory-stores';
@@ -6901,6 +6921,338 @@ export type UpdateMemoryStoreResponses = {
 };
 
 export type UpdateMemoryStoreResponse = UpdateMemoryStoreResponses[keyof UpdateMemoryStoreResponses];
+
+export type ListMemoryFilesData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files';
+};
+
+export type ListMemoryFilesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMemoryFilesError = ListMemoryFilesErrors[keyof ListMemoryFilesErrors];
+
+export type ListMemoryFilesResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryFileList;
+};
+
+export type ListMemoryFilesResponse = ListMemoryFilesResponses[keyof ListMemoryFilesResponses];
+
+export type DeleteMemoryFileData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path: string;
+        /**
+         * Digest of the contents being replaced or deleted. Required to change an existing file.
+         */
+        expected_digest: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file';
+};
+
+export type DeleteMemoryFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteMemoryFileError = DeleteMemoryFileErrors[keyof DeleteMemoryFileErrors];
+
+export type DeleteMemoryFileResponses = {
+    /**
+     * Success.
+     */
+    204: void;
+};
+
+export type DeleteMemoryFileResponse = DeleteMemoryFileResponses[keyof DeleteMemoryFileResponses];
+
+export type DownloadMemoryFileData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file';
+};
+
+export type DownloadMemoryFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadMemoryFileError = DownloadMemoryFileErrors[keyof DownloadMemoryFileErrors];
+
+export type DownloadMemoryFileResponses = {
+    /**
+     * Success.
+     */
+    200: Blob | File;
+};
+
+export type DownloadMemoryFileResponse = DownloadMemoryFileResponses[keyof DownloadMemoryFileResponses];
+
+export type WriteMemoryFileData = {
+    body?: Blob | File;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        memoryStoreID: MemoryStoreId;
+    };
+    query: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path: string;
+        /**
+         * Digest of the contents being replaced or deleted. Required to change an existing file.
+         */
+        expected_digest?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file';
+};
+
+export type WriteMemoryFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * File exceeds the 10 MiB limit.
+     */
+    413: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type WriteMemoryFileError = WriteMemoryFileErrors[keyof WriteMemoryFileErrors];
+
+export type WriteMemoryFileResponses = {
+    /**
+     * Success.
+     */
+    200: UploadFileResponse;
+};
+
+export type WriteMemoryFileResponse = WriteMemoryFileResponses[keyof WriteMemoryFileResponses];
 
 export type ListSecretsData = {
     body?: never;

@@ -1,4 +1,6 @@
-import { type Cookie, expect, type Page, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+
+import { type Cookie, expect, type Page, type Request, test } from '@playwright/test'
 import { z } from 'zod'
 
 function requiredEnvironmentVariable(name: string): string {
@@ -587,5 +589,200 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await openChat.click()
   await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+/chat$`))
 
+  expect(failures).toEqual([])
+})
+
+test('memory stores support upload, editing, conflict-safe replacement, and deletion', async ({
+  page,
+}) => {
+  const failures = installFailureTracking(page, [
+    /response: (?:403|404|409) .*memory-stores/,
+    /^request: .*memory-stores\/mst_[a-z2-7]+(?:\/file\?[^ ]+)? \(net::ERR_ABORTED\)$/,
+    /^page: Canceled$/,
+  ])
+  const memoryPath = `/projects/${projectID}/memory`
+  const storeName = `memory-browser-${Date.now()}`
+  await signIn(page, adminEmail, memoryPath)
+  await expect(page.getByRole('link', { name: 'Memory guide' })).toHaveAttribute(
+    'href',
+    'https://docs.omnara.com/agents/configuration#memory-stores',
+  )
+  await page.getByRole('button', { name: 'Create store', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Name', { exact: true }).fill(storeName)
+  await dialog.getByLabel('Description').fill('Browser verification notes')
+  await dialog.getByRole('button', { name: 'Create store', exact: true }).click()
+  await page.getByRole('link', { name: storeName, exact: true }).click()
+  await expect(page.getByRole('heading', { name: storeName, exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Add file', exact: true }).click()
+  await dialog.getByLabel('Path', { exact: true }).fill('notes/plan.txt')
+  await dialog.getByLabel('Content', { exact: true }).fill('\ufeffOriginal notes')
+  await dialog.getByRole('button', { name: 'Create file', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'notes/plan.txt', exact: true })
+  await expect(editor).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+  await editor.focus()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.insertText('Edited notes')
+  await expect(page.getByText('Unsaved changes', { exact: false })).toBeVisible()
+  page.once('dialog', (prompt) => prompt.dismiss())
+  await page.getByRole('link', { name: '← All stores' }).click()
+  await expect(editor).toBeVisible()
+  const saveBanner = await page.evaluateHandle(() => {
+    let seen = false
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent.includes('This file changed since you opened it')) seen = true
+    })
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    return {
+      finish: () => {
+        observer.disconnect()
+        return seen
+      },
+    }
+  })
+  const saveRequest = page.waitForRequest(
+    (request) => request.method() === 'PUT' && /\/memory-stores\/[^/]+\/file\?/.test(request.url()),
+  )
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  expect((await saveRequest).postDataBuffer()).toEqual(Buffer.from('\ufeffEdited notes'))
+  await expect(page.getByText('Unsaved changes', { exact: false })).toBeHidden()
+  expect(await saveBanner.evaluate((state) => state.finish())).toBe(false)
+  await saveBanner.dispose()
+  await editor.focus()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.insertText('Unsaved local edits')
+  await expect(page.locator('.view-lines')).toContainText('Unsaved local edits')
+  await page.getByRole('button', { name: 'Add file', exact: true }).click()
+  await dialog.getByRole('tab', { name: 'Upload file', exact: true }).click()
+  await dialog.getByLabel('File', { exact: true }).setInputFiles({
+    name: 'plan.txt',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('Replacement notes'),
+  })
+  const conflictDownloads: string[] = []
+  const trackConflictDownload = (request: Request) => {
+    if (request.method() === 'GET' && /\/memory-stores\/[^/]+\/file\?/.test(request.url()))
+      conflictDownloads.push(request.url())
+  }
+  page.on('request', trackConflictDownload)
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click()
+  await expect(
+    dialog.getByText('A file already exists at this path.', { exact: false }),
+  ).toBeVisible()
+  expect(conflictDownloads).toEqual([])
+  page.off('request', trackConflictDownload)
+  await dialog.getByRole('button', { name: 'Replace file', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  const fileRoute = '**/memory-stores/*/file?*'
+  let releaseSave!: () => void
+  const holdSave = new Promise<void>((resolve) => {
+    releaseSave = resolve
+  })
+  await page.route(
+    fileRoute,
+    async (route) => {
+      await holdSave
+      await route.continue()
+    },
+    { times: 1 },
+  )
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Load latest', exact: true })).toBeHidden()
+  releaseSave()
+  await expect(page.getByRole('alert').filter({ hasText: 'memory changed' })).toBeVisible()
+  await expect(page.locator('.view-lines')).toContainText('Unsaved local edits')
+  await page.route(
+    fileRoute,
+    (route) =>
+      route.fulfill({
+        status: 403,
+        json: { error: 'File refresh denied', code: 'forbidden' },
+      }),
+    { times: 1 },
+  )
+  await page.getByRole('button', { name: 'Check latest', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'File refresh denied' })).toBeVisible()
+  await expect(page.locator('.view-lines')).toContainText('Unsaved local edits')
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByText('File refresh denied', { exact: true })).toBeHidden()
+  page.once('dialog', (prompt) => prompt.accept())
+  await page.getByRole('button', { name: 'Load latest', exact: true }).click()
+  await expect(page.locator('.view-lines')).toContainText('Replacement notes')
+  await page.screenshot({ path: test.info().outputPath('memory-store.png') })
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('plan.txt')
+  const downloadedPath = await download.path()
+  expect(await readFile(downloadedPath, 'utf8')).toBe('Replacement notes')
+  await editor.focus()
+  await page.keyboard.insertText('Unsaved before deletion')
+  await expect(page.getByText('Unsaved changes', { exact: false })).toBeVisible()
+  page.once('dialog', (prompt) => prompt.accept())
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(page.getByText('This folder is empty.')).toBeVisible()
+  await page.getByRole('button', { name: 'Add file', exact: true }).click()
+  await dialog.getByRole('tab', { name: 'Upload file', exact: true }).click()
+  await dialog.getByLabel('File', { exact: true }).setInputFiles({
+    name: 'empty.bin',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.alloc(0),
+  })
+  await page.route(
+    fileRoute,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: { error: 'memory file limit reached', code: 'conflict' },
+      }),
+    { times: 1 },
+  )
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('memory file limit reached')
+  await expect(dialog.getByRole('button', { name: 'Upload', exact: true })).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: 'Replace file', exact: true })).toBeHidden()
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'empty.bin', exact: true })).toBeVisible()
+  let fileDownloads = 0
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && /\/memory-stores\/[^/]+\/file\?/.test(request.url()))
+      fileDownloads++
+  })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await dialog.getByLabel('Read-only for agents', { exact: true }).check()
+  await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByText('Read-only for agents', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add file', exact: true })).toBeEnabled()
+  expect(fileDownloads).toBe(0)
+
+  const storeURL = new URL(page.url()).pathname + new URL(page.url()).search
+  await page.context().clearCookies()
+  await signIn(page, viewerEmail, storeURL)
+  await expect(page.getByRole('heading', { name: 'empty.bin', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Delete store', exact: true })).toBeHidden()
+  await signIn(page, adminEmail, createAgentPath)
+  await page.getByRole('button', { name: 'Attach memory store', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Search memory stores…', exact: true }).click()
+  await page.getByPlaceholder('Search memory stores…').fill(storeName)
+  await page.getByRole('option', { name: new RegExp(storeName) }).click()
+  await expect(page.getByRole('combobox', { name: `Access to ${storeName}` })).toContainText(
+    'Read-only',
+  )
+  await page.getByRole('combobox', { name: `Access to ${storeName}` }).click()
+  await page.getByRole('option', { name: 'Read & write', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: `Access to ${storeName}` })).toContainText(
+    'Read & write',
+  )
+  await expect(page.getByText('This store is read-only for agents', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: `Detach ${storeName}` }).click()
+  await page.goto(storeURL)
+  await expect(page.getByRole('button', { name: 'Delete store', exact: true })).toBeHidden()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  page.once('dialog', (prompt) => prompt.accept())
+  await dialog.getByRole('button', { name: 'Delete store', exact: true }).click()
+  await expect(page).toHaveURL(memoryPath)
   expect(failures).toEqual([])
 })

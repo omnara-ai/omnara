@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ import (
 type Filesystem struct{ root *os.Root }
 
 type StoreRef struct {
+	Name    string
 	path    string
 	staging string
 }
@@ -39,7 +41,7 @@ func NewStoreRef(orgID, projectID, storeID uuid.UUID, name string) (StoreRef, er
 		return StoreRef{}, err
 	}
 	parent := org + "/" + project
-	return StoreRef{path: parent + "/" + name, staging: ".staging/" + parent + "/" + storeID.String()}, nil
+	return StoreRef{Name: name, path: parent + "/" + name, staging: ".staging/" + parent + "/" + storeID.String()}, nil
 }
 
 func OpenFilesystem(dir string) (*Filesystem, error) {
@@ -315,4 +317,21 @@ func (f *Filesystem) remove(paths ...string) error {
 		}
 	}
 	return nil
+}
+
+func (f *Filesystem) RemoveFile(ref StoreRef, root *os.Root, name string) error {
+	if err := root.Remove(name); err != nil {
+		return err
+	}
+	dir := path.Dir(name)
+	for dir != "." {
+		if err := root.Remove(dir); err != nil {
+			if errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
+				break
+			}
+			return err
+		}
+		dir = path.Dir(dir)
+	}
+	return f.syncParents(path.Join(ref.path, dir))
 }
