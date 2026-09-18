@@ -6,26 +6,29 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 
 export function AgentCompiledConfig({
   definition,
-  defaultOpen = false,
+  collapsible = true,
 }: {
   definition: AgentConfig['compiled_definition']
-  defaultOpen?: boolean
+  collapsible?: boolean
 }) {
   if (definition === undefined) return null
   const json = JSON.stringify(definition, null, 2)
+  const content = (
+    <CodeBlock
+      content={{ copy: json, segments: [{ text: json }], language: 'json' }}
+      label="compiled configuration"
+    />
+  )
+
+  if (!collapsible) return content
 
   return (
-    <Collapsible defaultOpen={defaultOpen}>
+    <Collapsible>
       <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium">
         <ChevronDownIcon className="text-muted-foreground size-4 transition-transform group-data-[state=open]:rotate-180" />
         Compiled config (saved)
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-3">
-        <CodeBlock
-          content={{ copy: json, segments: [{ text: json }], language: 'json' }}
-          label="compiled configuration"
-        />
-      </CollapsibleContent>
+      <CollapsibleContent className="pt-3">{content}</CollapsibleContent>
     </Collapsible>
   )
 }

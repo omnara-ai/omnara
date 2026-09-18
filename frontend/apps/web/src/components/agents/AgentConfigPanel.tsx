@@ -42,7 +42,7 @@ export function AgentConfigPanel({
         <>
           <h2 className="type-card-title">Agent configuration</h2>
           <p className="text-muted-foreground text-sm">This derived configuration is read-only.</p>
-          <AgentCompiledConfig definition={snapshot.compiled_definition} defaultOpen />
+          <AgentCompiledConfig definition={snapshot.compiled_definition} collapsible={false} />
           <Button type="button" variant="ghost" onClick={onClose}>
             Close
           </Button>
