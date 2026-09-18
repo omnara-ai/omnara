@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -263,19 +265,22 @@ func TestListMCPServerToolsDoesNotGuessBearerWhenProbeReturnsForbidden(t *testin
 	}))
 	defer upstream.Close()
 
-	_, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+	response, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
 		mcpServerToolsTestContext(),
 		openapi.ListMCPServerToolsRequestObject{
 			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
 		},
 	)
-	var apiErr apierror.ResponseError
-	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamError {
-		t.Fatalf("err = %v, want upstream_error", err)
+	if err != nil {
+		t.Fatalf("ListMCPServerTools() error = %v", err)
+	}
+	unreachable, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || unreachable.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
 	}
 }
 
-func TestListMCPServerToolsReportsUpstreamFailureForNonAuthErrors(t *testing.T) {
+func TestListMCPServerToolsReportsUpstreamUnavailableForTransientErrors(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -288,8 +293,56 @@ func TestListMCPServerToolsReportsUpstreamFailureForNonAuthErrors(t *testing.T) 
 		},
 	)
 	var apiErr apierror.ResponseError
-	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamError {
-		t.Fatalf("err = %v, want upstream_error", err)
+	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamUnavailable {
+		t.Fatalf("ListMCPServerTools() error = %v, want upstream_unavailable", err)
+	}
+	if apiErr.Status != http.StatusFailedDependency {
+		t.Fatalf("status = %d, want 424", apiErr.Status)
+	}
+}
+
+func TestListMCPServerToolsReportsUnprocessableForNonMCPResponses(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html>not mcp</html>"))
+	}))
+	defer upstream.Close()
+
+	response, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+		mcpServerToolsTestContext(),
+		openapi.ListMCPServerToolsRequestObject{
+			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListMCPServerTools() error = %v", err)
+	}
+	unreachable, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || unreachable.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
+	}
+}
+
+func TestListMCPServerToolsReportsUpstreamUnavailableWhenAuthProbeFailsTransiently(t *testing.T) {
+	var probes int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&probes, 1) == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer upstream.Close()
+
+	_, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+		mcpServerToolsTestContext(),
+		openapi.ListMCPServerToolsRequestObject{
+			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
+		},
+	)
+	var apiErr apierror.ResponseError
+	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUpstreamUnavailable {
+		t.Fatalf("ListMCPServerTools() error = %v, want upstream_unavailable", err)
 	}
 }
 
@@ -356,5 +409,67 @@ func TestListMCPServerToolsReportsAuthRequiredFromJSONRPCUnauthorizedBody(t *tes
 	if hint.Auth.Type != openapi.MCPServerAuthHintTypeOauth ||
 		hint.Auth.AuthorizationServer == nil || *hint.Auth.AuthorizationServer != issuer {
 		t.Fatalf("response = %+v, want oauth hint for %s", hint, issuer)
+	}
+}
+
+func TestMCPServerToolsFailureMapsErrorOrigins(t *testing.T) {
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   openapi.ErrorCode
+		wantStatus int
+	}{
+		{
+			name:       "internal failure",
+			err:        fmt.Errorf("%w: store mcp catalog: %w", mcp.ErrInternal, errors.New("connection reset")),
+			wantCode:   openapi.ErrorCodeInternalError,
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "refresh busy",
+			err:        fmt.Errorf("%w: lease is busy", mcp.ErrRefreshBusy),
+			wantCode:   openapi.ErrorCodeConflict,
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "credential refresh transient",
+			err: fmt.Errorf(
+				"%w: refresh mcp oauth token: %w",
+				mcp.ErrCredential,
+				&mcp.HTTPError{Status: http.StatusServiceUnavailable},
+			),
+			wantCode:   openapi.ErrorCodeUpstreamUnavailable,
+			wantStatus: http.StatusFailedDependency,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.mcpServerToolsFailure(mcpServerToolsTestContext(), "https://mcp.example.com/mcp", tt.err)
+			var apiErr apierror.ResponseError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("mcpServerToolsFailure() error = %v, want ResponseError", err)
+			}
+			if apiErr.Code != tt.wantCode || apiErr.Status != tt.wantStatus {
+				t.Fatalf("code=%q status=%d, want %q %d", apiErr.Code, apiErr.Status, tt.wantCode, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestMCPServerToolsFailureRejectedCredentialDoesNotProbeAuth(t *testing.T) {
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	cause := fmt.Errorf(
+		"%w: refresh mcp oauth token: %w",
+		mcp.ErrCredential,
+		&mcp.HTTPError{Status: http.StatusUnauthorized},
+	)
+	response, err := server.mcpServerToolsFailure(mcpServerToolsTestContext(), "https://mcp.example.com/mcp", cause)
+	if err != nil {
+		t.Fatalf("mcpServerToolsFailure() error = %v", err)
+	}
+	rejected, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || rejected.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
 	}
 }

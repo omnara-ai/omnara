@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -29,6 +30,12 @@ var (
 	)
 
 	ErrInputRequired = errors.New("mcp: server requested client input that this client does not support")
+
+	ErrInternal = errors.New("mcp: internal failure")
+
+	ErrCredential = errors.New("mcp: credential failure")
+
+	ErrRefreshBusy = errors.New("mcp: refresh in progress")
 
 	errAuthServerMetadataNotFound = errors.New("mcp auth: authorization server metadata not found")
 )
@@ -79,6 +86,10 @@ func HTTPStatus(err error) (int, bool) {
 	var rpcErr *RPCError
 	if errors.As(err, &rpcErr) && rpcErr.HTTPStatus != 0 {
 		return rpcErr.HTTPStatus, true
+	}
+	var tokenErr *tokenEndpointError
+	if errors.As(err, &tokenErr) && tokenErr.statusCode != 0 {
+		return tokenErr.statusCode, true
 	}
 	return 0, false
 }
@@ -177,6 +188,11 @@ func IsRetryableConnectionFailure(cause error) bool {
 	}
 	var netErr net.Error
 	if errors.As(cause, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var opErr *net.OpError
+	var dnsErr *net.DNSError
+	if errors.As(cause, &opErr) || errors.As(cause, &dnsErr) || errors.Is(cause, io.ErrUnexpectedEOF) {
 		return true
 	}
 	if status, ok := HTTPStatus(cause); ok {

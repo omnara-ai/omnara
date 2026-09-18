@@ -155,10 +155,11 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	defer cancel()
 	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
 	if err != nil {
-		apiErr := apierror.FromCode(
-			openapi.ErrorCodeUpstreamError,
-			"mcp authorization discovery failed: "+err.Error(),
-		).WithCause(err)
+		apiErr := mcpUpstreamFailure(
+			err,
+			"mcp_url or its authorization server did not respond: ",
+			"could not detect an MCP server that requires authorization at mcp_url: ",
+		)
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
 	if !requirement.Required {
@@ -276,10 +277,11 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 			s.mcpOAuthHTTPClient,
 		)
 		if err != nil {
-			apiErr := apierror.FromCode(
-				openapi.ErrorCodeUpstreamError,
-				"mcp client registration failed: "+err.Error(),
-			).WithCause(err)
+			apiErr := mcpUpstreamFailure(
+				mcp.ClientRegistrationFailure(err),
+				"the authorization server did not respond to dynamic client registration: ",
+				"the authorization server rejected dynamic client registration; supply client_id: ",
+			)
 			return "", "", &apiErr
 		}
 		return registered.ClientID, registered.ClientSecret, nil
@@ -507,4 +509,11 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 		return "", false
 	}
 	return s.absolutePublicURL(mcpOAuthClientMetadataPath), true
+}
+
+func mcpUpstreamFailure(err error, transientPrefix string, rejectedPrefix string) apierror.ResponseError {
+	if mcp.IsRetryableConnectionFailure(err) {
+		return apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, transientPrefix+err.Error()).WithCause(err)
+	}
+	return apierror.FromCode(openapi.ErrorCodeUnprocessable, rejectedPrefix+err.Error()).WithCause(err)
 }
