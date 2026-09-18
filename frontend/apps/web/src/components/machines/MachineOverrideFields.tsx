@@ -215,9 +215,9 @@ export function CombinedEnvOverlayEditor({
         </Button>
       </div>
       <div className="overflow-hidden rounded-xl border">
-        <div className="after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:h-[calc(2.25rem+2px)] after:rounded-xl after:border">
-          <Table className="table-fixed">
-            <TableHeader className="bg-transparent [&_tr]:border-0">
+        <div className="after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:hidden after:h-[calc(2.25rem+2px)] after:rounded-xl after:border sm:after:block">
+          <Table className="block sm:table sm:table-fixed">
+            <TableHeader className="hidden bg-transparent sm:table-header-group [&_tr]:border-0">
               <TableRow className="hover:bg-transparent">
                 <TableHead className="h-[calc(2.25rem+3px)] w-40 px-4 pb-[3px]">Type</TableHead>
                 <TableHead className="h-[calc(2.25rem+3px)] px-4 pb-[3px]">Key</TableHead>
@@ -227,12 +227,12 @@ export function CombinedEnvOverlayEditor({
                 </TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <TableBody className="block sm:table-row-group">
               {combinedRows.length === 0 && (
-                <TableRow>
+                <TableRow className="block sm:table-row">
                   <TableCell
                     colSpan={4}
-                    className="text-muted-foreground whitespace-normal px-4 py-3 text-center"
+                    className="text-muted-foreground block whitespace-normal px-4 py-3 text-center sm:table-cell"
                   >
                     No environment variables
                   </TableCell>
@@ -241,8 +241,11 @@ export function CombinedEnvOverlayEditor({
               {combinedRows.map((row) => {
                 const unset = row.kind === 'text' ? row.value === null : row.secretId === null
                 return (
-                  <TableRow key={row.id} className="hover:bg-transparent">
-                    <TableCell className="px-4">
+                  <TableRow
+                    key={row.id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 p-3 hover:bg-transparent sm:table-row sm:p-0"
+                  >
+                    <TableCell className="block p-0 sm:table-cell sm:px-4 sm:py-2">
                       <PillTabs
                         value={row.kind}
                         onValueChange={(kind) => {
@@ -254,7 +257,7 @@ export function CombinedEnvOverlayEditor({
                         ]}
                       />
                     </TableCell>
-                    <TableCell className="px-4">
+                    <TableCell className="col-span-2 block p-0 sm:table-cell sm:px-4 sm:py-2">
                       <Input
                         value={row.key}
                         autoComplete="off"
@@ -270,7 +273,7 @@ export function CombinedEnvOverlayEditor({
                         }}
                       />
                     </TableCell>
-                    <TableCell className="px-4">
+                    <TableCell className="col-span-2 block p-0 sm:table-cell sm:px-4 sm:py-2">
                       {row.kind === 'text' ? (
                         <Input
                           value={row.value ?? ''}
@@ -304,7 +307,7 @@ export function CombinedEnvOverlayEditor({
                         />
                       )}
                     </TableCell>
-                    <TableCell className="px-2">
+                    <TableCell className="col-start-2 row-start-1 block p-0 sm:table-cell sm:px-2 sm:py-2">
                       <Button
                         type="button"
                         size="icon"

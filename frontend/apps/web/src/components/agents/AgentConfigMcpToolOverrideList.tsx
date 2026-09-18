@@ -2,6 +2,7 @@ import type { McpServerTool, ToolPermissionProfile } from '@omnara/sdk'
 import { useState } from 'react'
 
 import {
+  type McpAvailability,
   mcpToolAvailability,
   mcpToolAvailabilityOptions,
   mcpToolAvailabilityPatch,
@@ -31,22 +32,22 @@ export function AgentConfigMcpToolOverrideList({
   tools,
   discovered,
   permissionProfile,
-  serverDeferred,
+  serverAvailability,
   onToolsChange,
 }: {
   tools: BasicMcpTool[]
   discovered: McpServerTool[]
   permissionProfile?: ToolPermissionProfile
-  serverDeferred: boolean
+  serverAvailability: McpAvailability
   onToolsChange: (tools: BasicMcpTool[]) => void
 }) {
   const [openDescription, setOpenDescription] = useState<string | null>(null)
   const discoveredByName = new Map(discovered.map((tool) => [tool.name, tool]))
   return (
     <div className="overflow-hidden rounded-xl border">
-      <div className="after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:h-[calc(2.25rem+2px)] after:rounded-xl after:border">
-        <Table className="table-fixed">
-          <TableHeader className="bg-transparent [&_tr]:border-0">
+      <div className="after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:hidden after:h-[calc(2.25rem+2px)] after:rounded-xl after:border sm:after:block">
+        <Table className="block sm:table sm:table-fixed">
+          <TableHeader className="hidden bg-transparent sm:table-header-group [&_tr]:border-0">
             <TableRow className="hover:bg-transparent">
               <TableHead className="h-[calc(2.25rem+3px)] px-4 pb-[3px]">Tool</TableHead>
               <TableHead className="h-[calc(2.25rem+3px)] w-36 px-4 pb-[3px]">Visibility</TableHead>
@@ -56,12 +57,12 @@ export function AgentConfigMcpToolOverrideList({
               </TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="block sm:table-row-group">
             {tools.length === 0 ? (
-              <TableRow>
+              <TableRow className="block sm:table-row">
                 <TableCell
                   colSpan={4}
-                  className="text-muted-foreground whitespace-normal px-4 py-3 text-center"
+                  className="text-muted-foreground block whitespace-normal px-4 py-3 text-center sm:table-cell"
                 >
                   No tool overrides
                 </TableCell>
@@ -73,7 +74,7 @@ export function AgentConfigMcpToolOverrideList({
                   tool={tool}
                   description={discoveredByName.get(tool.name)?.description}
                   permissionProfile={permissionProfile}
-                  serverDeferred={serverDeferred}
+                  serverAvailability={serverAvailability}
                   descriptionOpen={openDescription === tool.name}
                   onDescriptionOpenChange={(open) => {
                     setOpenDescription(open ? tool.name : null)
@@ -102,7 +103,7 @@ function ToolOverrideRow({
   tool,
   description,
   permissionProfile,
-  serverDeferred,
+  serverAvailability,
   descriptionOpen,
   onDescriptionOpenChange,
   onChange,
@@ -111,16 +112,16 @@ function ToolOverrideRow({
   tool: BasicMcpTool
   description: string | undefined
   permissionProfile?: ToolPermissionProfile
-  serverDeferred: boolean
+  serverAvailability: McpAvailability
   descriptionOpen: boolean
   onDescriptionOpenChange: (open: boolean) => void
   onChange: (patch: Partial<Omit<BasicMcpTool, 'name'>>) => void
   onRemove: () => void
 }) {
   return (
-    <TableRow className="hover:bg-transparent">
+    <TableRow className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 p-3 hover:bg-transparent sm:table-row sm:p-0">
       <TableCell
-        className="px-4"
+        className="col-span-2 block min-w-0 p-0 sm:table-cell sm:px-4 sm:py-2"
         onPointerEnter={() => {
           onDescriptionOpenChange(true)
         }}
@@ -155,18 +156,18 @@ function ToolOverrideRow({
           </span>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell className="block p-0 sm:table-cell sm:p-2">
         <PermissionModeGroup
           label={`${tool.name} visibility`}
           options={mcpToolAvailabilityOptions}
-          value={mcpToolAvailability(tool, serverDeferred)}
+          value={mcpToolAvailability(tool, serverAvailability)}
           onChange={(value) => {
             const availability = parseMcpToolAvailability(value)
             if (availability != null) onChange(mcpToolAvailabilityPatch(availability))
           }}
         />
       </TableCell>
-      <TableCell>
+      <TableCell className="col-span-2 block p-0 sm:table-cell sm:p-2">
         <PermissionModeGroup
           label={`${tool.name} permission`}
           options={[
@@ -180,11 +181,12 @@ function ToolOverrideRow({
           }}
         />
       </TableCell>
-      <TableCell className="px-2">
+      <TableCell className="col-start-3 row-start-1 block p-0 sm:table-cell sm:px-2 sm:py-2">
         <Button
           type="button"
           size="icon"
           variant="ghost"
+          className="size-10 sm:size-8"
           aria-label={`Remove ${tool.name} override`}
           onClick={onRemove}
         >

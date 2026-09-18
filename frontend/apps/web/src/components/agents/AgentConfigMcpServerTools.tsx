@@ -10,6 +10,7 @@ import {
 import { type ReactNode, useState } from 'react'
 
 import { AgentConfigMcpToolOverrideList } from '@/components/agents/AgentConfigMcpToolOverrideList'
+import { mcpServerAvailability } from '@/components/agents/mcpAvailability'
 import { mcpServerToolsRequest } from '@/components/agents/mcpServerToolsRequest'
 import {
   type BasicMcpServer,
@@ -85,7 +86,7 @@ export function AgentConfigMcpServerTools({
         tools={server.tools}
         discovered={discovered}
         permissionProfile={permissionProfile}
-        serverDeferred={server.deferred === true}
+        serverAvailability={mcpServerAvailability(server)}
         onToolsChange={onToolsChange}
       />
       {unexposableTools.length > 0 && <UnexposableTools tools={unexposableTools} />}

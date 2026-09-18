@@ -7,6 +7,7 @@ import {
   type ResolvedPoolGrant,
 } from '@/components/agents/AgentConfigMachineSourceComboboxes'
 import {
+  SourceCapacityFields,
   SourceOverridesSection,
   SourceResourceFields,
 } from '@/components/agents/AgentConfigMachineSourceOverrides'
@@ -274,6 +275,12 @@ export function AgentConfigMachineSourcesField({
               <CollapseBody open={expandedIds.has(source.id)}>
                 <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
                   <SourceResourceFields
+                    source={source}
+                    onChange={(patch) => {
+                      updateSource(source.id, patch)
+                    }}
+                  />
+                  <SourceCapacityFields
                     source={source}
                     onChange={(patch) => {
                       updateSource(source.id, patch)

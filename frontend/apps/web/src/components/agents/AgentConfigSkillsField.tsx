@@ -101,12 +101,17 @@ export function AgentConfigSkillsField({
 
   const selectSkill = (skill: Skill, replacedId?: string) => {
     setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
+    const alreadySelected = selectedIds.includes(skill.id)
     if (replacedId === undefined) {
-      onSelectedIdsChange([...selectedIds, skill.id])
+      if (!alreadySelected) onSelectedIdsChange([...selectedIds, skill.id])
       setDraftOpen(false)
-    } else {
-      onSelectedIdsChange(selectedIds.map((id) => (id === replacedId ? skill.id : id)))
+      return
     }
+    onSelectedIdsChange(
+      alreadySelected
+        ? selectedIds.filter((id) => id !== replacedId)
+        : selectedIds.map((id) => (id === replacedId ? skill.id : id)),
+    )
   }
 
   return (

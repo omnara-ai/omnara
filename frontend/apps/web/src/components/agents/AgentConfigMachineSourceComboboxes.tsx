@@ -313,6 +313,7 @@ export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGran
           <dl key={column[0]?.label} className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
             {column.map((row) => {
               const empty = row.value == null || row.value === ''
+              const unavailable = row.inherited === true && poolQuery.isError
               return (
                 <div key={row.label} className="contents">
                   <dt className="text-muted-foreground">{row.label}</dt>
@@ -322,7 +323,13 @@ export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGran
                       (empty || row.inherited) && 'text-muted-foreground',
                     )}
                   >
-                    {empty ? (poolQuery.isPending ? '…' : 'Unset') : row.value}
+                    {unavailable
+                      ? 'Pool default'
+                      : empty
+                        ? poolQuery.isPending
+                          ? '…'
+                          : 'Unset'
+                        : row.value}
                   </dd>
                 </div>
               )

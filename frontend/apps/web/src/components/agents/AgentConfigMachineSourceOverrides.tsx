@@ -19,36 +19,6 @@ export function SourceOverridesSection({
     source.kind === 'pool' && isMachinePoolProvider(source.provider) ? source.provider : null
   return (
     <FieldGroup>
-      {source.kind === 'pool' && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor={`${source.id}-initial`}>Initial machines</FieldLabel>
-            <Input
-              id={`${source.id}-initial`}
-              type="number"
-              min={0}
-              value={source.initialNumMachines}
-              placeholder="1"
-              onChange={(event) => {
-                onChange({ initialNumMachines: event.target.value })
-              }}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={`${source.id}-max`}>Max machines</FieldLabel>
-            <Input
-              id={`${source.id}-max`}
-              type="number"
-              min={0}
-              value={source.maxMachines}
-              placeholder="1"
-              onChange={(event) => {
-                onChange({ maxMachines: event.target.value })
-              }}
-            />
-          </Field>
-        </div>
-      )}
       {provider && (
         <ProviderOptionsOverrideFields
           idPrefix={source.id}
@@ -77,6 +47,46 @@ export function SourceOverridesSection({
         </Field>
       )}
     </FieldGroup>
+  )
+}
+
+export function SourceCapacityFields({
+  source,
+  onChange,
+}: {
+  source: BasicMachineSource
+  onChange: (patch: Partial<BasicMachineSource>) => void
+}) {
+  if (source.kind !== 'pool') return null
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field>
+        <FieldLabel htmlFor={`${source.id}-initial`}>Initial machines</FieldLabel>
+        <Input
+          id={`${source.id}-initial`}
+          type="number"
+          min={0}
+          value={source.initialNumMachines}
+          placeholder="1"
+          onChange={(event) => {
+            onChange({ initialNumMachines: event.target.value })
+          }}
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={`${source.id}-max`}>Max machines</FieldLabel>
+        <Input
+          id={`${source.id}-max`}
+          type="number"
+          min={0}
+          value={source.maxMachines}
+          placeholder="1"
+          onChange={(event) => {
+            onChange({ maxMachines: event.target.value })
+          }}
+        />
+      </Field>
+    </div>
   )
 }
 

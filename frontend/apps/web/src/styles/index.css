@@ -223,11 +223,7 @@
 }
 
 .expanded-surface[data-state='open'] {
-  background: color-mix(in oklab, white 70%, var(--card));
-}
-
-.dark .expanded-surface[data-state='open'] {
-  background: color-mix(in oklab, var(--background) 70%, var(--card));
+  background: color-mix(in oklab, var(--muted) 35%, var(--card));
 }
 
 .dark .expanded-surface {
