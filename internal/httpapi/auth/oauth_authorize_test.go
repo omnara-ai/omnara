@@ -185,6 +185,37 @@ func TestFetchClientMetadataValidatesDocument(t *testing.T) {
 	}
 
 	for name, tc := range map[string]struct {
+		method  string
+		methods []string
+		wantErr bool
+	}{
+		"public method with private key preference": {
+			method: "private_key_jwt", methods: []string{"none", "private_key_jwt"},
+		},
+		"public method without preference": {methods: []string{"none"}},
+		"private key only overrides public preference": {
+			method: "none", methods: []string{"private_key_jwt"}, wantErr: true,
+		},
+		"empty supported methods":   {methods: []string{}, wantErr: true},
+		"legacy public client":      {method: "none"},
+		"legacy private key client": {method: "private_key_jwt", wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			document = base()
+			if tc.method != "" {
+				document["token_endpoint_auth_method"] = tc.method
+			}
+			if tc.methods != nil {
+				document["token_endpoint_auth_methods_supported"] = tc.methods
+			}
+			_, err := handler.fetchClientMetadata(context.Background(), clientID)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("fetchClientMetadata() error = %v, want error %v", err, tc.wantErr)
+			}
+		})
+	}
+
+	for name, tc := range map[string]struct {
 		status   int
 		document map[string]any
 	}{

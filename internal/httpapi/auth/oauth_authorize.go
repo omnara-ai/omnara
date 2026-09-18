@@ -36,13 +36,14 @@ const (
 )
 
 type oauthClientMetadata struct {
-	ClientID                string   `json:"client_id"`
-	ClientName              string   `json:"client_name"`
-	ClientURI               string   `json:"client_uri"`
-	RedirectURIs            []string `json:"redirect_uris"`
-	GrantTypes              []string `json:"grant_types"`
-	ResponseTypes           []string `json:"response_types"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	ClientID                          string   `json:"client_id"`
+	ClientName                        string   `json:"client_name"`
+	ClientURI                         string   `json:"client_uri"`
+	RedirectURIs                      []string `json:"redirect_uris"`
+	GrantTypes                        []string `json:"grant_types"`
+	ResponseTypes                     []string `json:"response_types"`
+	TokenEndpointAuthMethod           string   `json:"token_endpoint_auth_method"`
+	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 }
 
 type oauthAuthorizeRequest struct {
@@ -230,7 +231,11 @@ func (h *Handler) fetchClientMetadata(ctx context.Context, clientID string) (oau
 	if len(metadata.RedirectURIs) == 0 {
 		return oauthClientMetadata{}, errors.New("client metadata must list redirect_uris")
 	}
-	if metadata.TokenEndpointAuthMethod != "" && metadata.TokenEndpointAuthMethod != "none" {
+	supportsPublicClient := metadata.TokenEndpointAuthMethod == "" || metadata.TokenEndpointAuthMethod == "none"
+	if metadata.TokenEndpointAuthMethodsSupported != nil {
+		supportsPublicClient = slices.Contains(metadata.TokenEndpointAuthMethodsSupported, "none")
+	}
+	if !supportsPublicClient {
 		return oauthClientMetadata{}, errors.New("only public clients (token_endpoint_auth_method none) are supported")
 	}
 	if len(metadata.GrantTypes) > 0 && !slices.Contains(metadata.GrantTypes, OAuthAuthorizationCodeGrant) {
