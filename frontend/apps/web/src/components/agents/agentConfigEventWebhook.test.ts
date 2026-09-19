@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { eventWebhookEventTypes } from './agentConfigEventWebhook'
 import { basicConfigValid, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
 describe('event webhook', () => {
@@ -25,31 +26,35 @@ describe('event webhook', () => {
     ).toBe(valid)
   })
 
-  it.each([null, [], ['model_output', 'tool_call_update']])(
-    'preserves the event filter %j through unrelated edits',
-    (events) => {
-      const source = createBasicConfigSession('').apply({
-        ...emptyBasicConfig,
-        instruction: 'Webhook agent',
-        providerConfig: 'openai',
-        modelName: 'test-model',
-        eventWebhookUrl: 'https://example.com/events',
-        eventWebhookEvents: events,
-      })
-      const session = createBasicConfigSession(source)
-      if (session.initialDraft === null) throw new Error('Expected builder config')
-      expect(session.initialDraft.eventWebhookEvents).toEqual(events)
-      const edited: unknown = parse(
-        session.apply({ ...session.initialDraft, instruction: 'Updated' }),
-      )
-      if (events === null) expect(edited).not.toHaveProperty('event_webhook.events')
-      else expect(edited).toHaveProperty('event_webhook.events', events)
-      const all: unknown = parse(
-        session.apply({ ...session.initialDraft, eventWebhookEvents: null }),
-      )
-      expect(all).not.toHaveProperty('event_webhook.events')
-    },
-  )
+  it.each(
+    [[], ['tool_call_update'], ['model_output', 'tool_call_update']].map((events) => ({ events })),
+  )('preserves the event filter %j through unrelated edits', ({ events }) => {
+    const source = createBasicConfigSession('').apply({
+      ...emptyBasicConfig,
+      instruction: 'Webhook agent',
+      providerConfig: 'openai',
+      modelName: 'test-model',
+      eventWebhookUrl: 'https://example.com/events',
+      eventWebhookEvents: events,
+    })
+    const session = createBasicConfigSession(source)
+    if (session.initialDraft === null) throw new Error('Expected builder config')
+    expect(session.initialDraft.eventWebhookEvents).toEqual(events)
+    const edited: unknown = parse(
+      session.apply({ ...session.initialDraft, instruction: 'Updated' }),
+    )
+    expect(edited).toHaveProperty('event_webhook.events', events)
+    const all: unknown = parse(
+      session.apply({
+        ...session.initialDraft,
+        eventWebhookEvents: eventWebhookEventTypes.map((event) => event.value),
+      }),
+    )
+    expect(all).toHaveProperty(
+      'event_webhook.events',
+      eventWebhookEventTypes.map((event) => event.value),
+    )
+  })
 
   it('requires a nonempty custom selection only when a webhook is configured', () => {
     const config = {
@@ -61,9 +66,24 @@ describe('event webhook', () => {
       eventWebhookEvents: [],
     }
     expect(basicConfigValid(config)).toBe(false)
-    expect(basicConfigValid({ ...config, eventWebhookEvents: null })).toBe(true)
+    expect(
+      basicConfigValid({
+        ...config,
+        eventWebhookEvents: eventWebhookEventTypes.map((event) => event.value),
+      }),
+    ).toBe(true)
     expect(basicConfigValid({ ...config, eventWebhookEvents: ['model_output'] })).toBe(true)
     expect(basicConfigValid({ ...config, eventWebhookUrl: '' })).toBe(true)
+  })
+
+  it('defaults new webhooks to tool-call updates without treating a missing YAML list as all', () => {
+    expect(emptyBasicConfig.eventWebhookEvents).toEqual(['tool_call_update'])
+    const session = createBasicConfigSession(
+      'instruction: Test\nmodel: {provider_config: openai, name: test}\nevent_webhook: {url: https://example.com/events}\n',
+    )
+    expect(session.initialDraft?.eventWebhookEvents).toEqual([])
+    if (session.initialDraft === null) throw new Error('Expected builder config')
+    expect(basicConfigValid(session.initialDraft)).toBe(false)
   })
 
   it('round trips the URL and signing secret through builder edits and supports removal', () => {
@@ -83,11 +103,15 @@ describe('event webhook', () => {
     expect(editedDocument).toHaveProperty('event_webhook', {
       url: 'https://example.com/events',
       signing_secret_id: 'sec_example',
+      events: ['tool_call_update'],
     })
     const unsigned: unknown = parse(
       session.apply({ ...session.initialDraft, eventWebhookSigningSecretId: '' }),
     )
-    expect(unsigned).toHaveProperty('event_webhook', { url: 'https://example.com/events' })
+    expect(unsigned).toHaveProperty('event_webhook', {
+      url: 'https://example.com/events',
+      events: ['tool_call_update'],
+    })
     const removed = session.apply({ ...session.initialDraft, eventWebhookUrl: '' })
     const removedDocument: unknown = parse(removed)
     expect(removedDocument).not.toHaveProperty('event_webhook')

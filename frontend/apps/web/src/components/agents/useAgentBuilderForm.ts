@@ -82,7 +82,7 @@ export interface BasicConfig {
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
   mcpServers: BasicMcpServer[]
-  eventWebhookEvents: string[] | null
+  eventWebhookEvents: string[]
   eventWebhookUrl: string
   eventWebhookSigningSecretId: string
   skillIds: string[]
@@ -117,7 +117,7 @@ export const emptyBasicConfig: BasicConfig = {
   machineSources: [],
   tools: [],
   mcpServers: [],
-  eventWebhookEvents: null,
+  eventWebhookEvents: ['tool_call_update'],
   eventWebhookUrl: '',
   eventWebhookSigningSecretId: '',
   skillIds: [],
@@ -209,7 +209,7 @@ export function useAgentBuilderForm(
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
     },
-    setEventWebhookEvents: (eventWebhookEvents: string[] | null) => {
+    setEventWebhookEvents: (eventWebhookEvents: string[]) => {
       patch({ eventWebhookEvents })
     },
     setEventWebhookUrl: (eventWebhookUrl: string) => {
@@ -246,9 +246,7 @@ export function basicConfigValid(draft: BasicConfig) {
   return (
     draft.instruction.trim() !== '' &&
     eventWebhookUrlError(draft.eventWebhookUrl) === undefined &&
-    (draft.eventWebhookUrl.trim() === '' ||
-      draft.eventWebhookEvents === null ||
-      draft.eventWebhookEvents.length > 0) &&
+    (draft.eventWebhookUrl.trim() === '' || draft.eventWebhookEvents.length > 0) &&
     resourceNameValid(draft.providerConfig) &&
     resourceNameValid(draft.modelName) &&
     draft.machineSources.every(machineSourceValid) &&

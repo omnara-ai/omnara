@@ -4,7 +4,6 @@ package executionstore_test
 
 import (
 	"encoding/json"
-	"slices"
 	"testing"
 	"time"
 
@@ -18,18 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func enableEventWebhook(t *testing.T, fixture processDaemonFixture, events *[]string) {
+func enableEventWebhook(t *testing.T, fixture processDaemonFixture, events []string) {
 	t.Helper()
 	source := "instruction: Webhook test.\nmodel:\n  provider_config: openai-prod\n  name: webhook-test\n" +
 		"event_webhook:\n  url: https://example.com/events\n"
-	if events != nil {
-		encoded, err := json.Marshal(*events)
-		require.NoError(t, err)
-		source += "  events: " + string(encoded) + "\n"
+	if events == nil {
+		events = []string{"agent_input", "model_output", "tool_result", "context_checkpoint", "tool_call_update"}
 	}
+	encoded, err := json.Marshal(events)
+	require.NoError(t, err)
+	source += "  events: " + string(encoded) + "\n"
 	user := mustCreateProjectDeveloperUser(t, t.Context(), fixture.Store, "webhook-config@example.com", "Webhook")
 	compiled := mustCompileAgentYAMLResolved(t, t.Context(), fixture.Store, source)
-	_, err := fixture.Store.Execution().ChangeAgentConfig(t.Context(), executionstore.ChangeAgentConfigInput{
+	_, err = fixture.Store.Execution().ChangeAgentConfig(t.Context(), executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID: testProjectID, Source: source, SourceFormat: "yaml",
 			ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
@@ -71,11 +71,7 @@ func TestEventWebhookFiltersBeforeEnqueue(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := t.Context()
 			fixture := newProcessDaemonFixture(t, ctx, "webhook_filter")
-			var filter *[]string
-			if scenario.events != nil {
-				filter = &scenario.events
-			}
-			enableEventWebhook(t, fixture, filter)
+			enableEventWebhook(t, fixture, scenario.events)
 			_, err := fixture.Store.pool.Exec(ctx, "DELETE FROM event_webhook_deliveries WHERE agent_id = $1", fixture.AgentID)
 			require.NoError(t, err)
 			pending := notifications.NewTxNotifications()
@@ -100,49 +96,6 @@ func TestEventWebhookFiltersBeforeEnqueue(t *testing.T) {
 			require.Equal(t, scenario.toolUpdates, toolUpdates)
 		})
 	}
-}
-
-func TestEventWebhookRetryClassification(t *testing.T) {
-	ctx := t.Context()
-	fixture := newProcessDaemonFixture(t, ctx, "webhook_retry_policy")
-	for _, tool := range []struct {
-		name        string
-		kind        string
-		retryStates []string
-	}{
-		{"external_lookup", toolcatalog.ToolTypeCustom, []string{"awaiting_permission", "ready"}},
-		{"ask_question", toolcatalog.ToolTypeCustom, []string{"awaiting_permission", "ready"}},
-		{toolcatalog.ToolNameAskQuestion, toolcatalog.ToolTypeBuiltIn, []string{"awaiting_permission", "running"}},
-		{"run_command", toolcatalog.ToolTypeBuiltIn, []string{"awaiting_permission"}},
-		{"ask_question", toolcatalog.ToolTypeMCP, []string{"awaiting_permission"}},
-	} {
-		t.Run(tool.kind+"/"+tool.name, func(t *testing.T) {
-			fixture := newProcessDaemonFixture(t, ctx, "webhook_retry_policy")
-			toolID := createTypedToolCallForProcessTest(t, ctx, fixture,
-				"webhook_"+tool.kind+"_"+tool.name, tool.name, tool.kind, false)
-			for _, state := range []string{
-				"awaiting_authorization", "awaiting_permission", "ready", "running", "waiting", "completed",
-			} {
-				t.Run(state, func(t *testing.T) {
-					_, err := fixture.Store.pool.Exec(ctx, `
-						INSERT INTO event_webhook_deliveries (agent_id, tool_call_id, tool_state, org_id)
-						VALUES ($1, $2, $3, $4)`, fixture.AgentID, toolID, state, testOrgID)
-					require.NoError(t, err)
-					delivery, err := fixture.Store.Execution().ClaimEventWebhookDelivery(ctx, nil)
-					require.NoError(t, err)
-					require.Equal(t, slices.Contains(tool.retryStates, state), delivery.Retryable)
-					require.NoError(t, fixture.Store.Execution().CompleteEventWebhookDelivery(ctx, delivery.ID, delivery.ClaimToken))
-				})
-			}
-		})
-	}
-	_, err := fixture.Store.pool.Exec(ctx, `
-		INSERT INTO event_webhook_deliveries (agent_id, event_sequence, org_id)
-		VALUES ($1, 1, $2)`, fixture.AgentID, testOrgID)
-	require.NoError(t, err)
-	delivery, err := fixture.Store.Execution().ClaimEventWebhookDelivery(ctx, nil)
-	require.NoError(t, err)
-	require.False(t, delivery.Retryable)
 }
 
 func TestEventWebhookClaimSkipsExcludedOrganizations(t *testing.T) {

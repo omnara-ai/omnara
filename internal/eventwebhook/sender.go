@@ -122,7 +122,7 @@ func (s *Sender) deliver(ctx context.Context, delivery executionstore.EventWebho
 	if err != nil {
 		s.log.Warn("event webhook delivery failed", "delivery_id", delivery.ID, "agent_id", delivery.AgentID, "error", err)
 	}
-	if err != nil && delivery.Retryable {
+	if err != nil {
 		delay := retryDelay(delivery.AttemptCount)
 		err = s.store.RetryEventWebhookDelivery(updateCtx, delivery.ID, delivery.ClaimToken, delay)
 	} else {

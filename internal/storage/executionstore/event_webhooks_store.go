@@ -16,7 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type EventWebhookTarget struct {
@@ -98,7 +97,7 @@ func enqueueEventWebhooksTx(ctx context.Context, tx pgx.Tx, pending *notificatio
 			continue
 		}
 		for _, event := range events {
-			if len(target.events) > 0 && !slices.Contains(target.events, event.Kind) {
+			if !slices.Contains(target.events, event.Kind) {
 				continue
 			}
 			if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
@@ -110,7 +109,7 @@ func enqueueEventWebhooksTx(ctx context.Context, tx pgx.Tx, pending *notificatio
 	}
 	for _, update := range pending.ToolCallUpdates() {
 		target, enabled := webhookTargets[update.AgentID]
-		if !enabled || (len(target.events) > 0 && !slices.Contains(target.events, "tool_call_update")) {
+		if !enabled || !slices.Contains(target.events, "tool_call_update") {
 			continue
 		}
 		if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
@@ -132,7 +131,6 @@ type EventWebhookDelivery struct {
 	ToolState     *string
 	AttemptCount  int32
 	ClaimToken    uuid.UUID
-	Retryable     bool
 }
 
 func (s *Store) ClaimEventWebhookDelivery(
@@ -149,24 +147,7 @@ func (s *Store) ClaimEventWebhookDelivery(
 		ID: row.ID, AgentID: row.AgentID, OrgID: row.OrgID,
 		EventSequence: row.EventSequence, ToolCallID: row.ToolCallID, ToolState: row.ToolState,
 		AttemptCount: row.AttemptCount, ClaimToken: *row.ClaimToken,
-		Retryable: eventWebhookRetryable(row.ToolState, row.ToolType, row.ToolName),
 	}, nil
-}
-
-func eventWebhookRetryable(state *string, toolType, toolName string) bool {
-	if state == nil {
-		return false
-	}
-	switch ToolCallState(*state) {
-	case ToolCallStateAwaitingPermission:
-		return true
-	case ToolCallStateReady:
-		return toolType == toolcatalog.ToolTypeCustom
-	case ToolCallStateRunning:
-		return toolType == toolcatalog.ToolTypeBuiltIn && toolName == toolcatalog.ToolNameAskQuestion
-	default:
-		return false
-	}
 }
 
 func (s *Store) CompleteEventWebhookDelivery(ctx context.Context, id, claimToken uuid.UUID) error {

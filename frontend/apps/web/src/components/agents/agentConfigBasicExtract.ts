@@ -187,7 +187,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
-    eventWebhookEvents: doc.event_webhook?.events ?? null,
+    eventWebhookEvents: doc.event_webhook ? (doc.event_webhook.events ?? []) : ['tool_call_update'],
     eventWebhookUrl: doc.event_webhook?.url ?? '',
     eventWebhookSigningSecretId: doc.event_webhook?.signing_secret_id ?? '',
     skillIds: doc.skills ?? [],

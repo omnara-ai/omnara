@@ -161,13 +161,14 @@ The full example above defines `create_ticket` as a custom tool. When the agent 
 ```yaml
 event_webhook:
   url: https://example.com/events
+  events: [tool_call_update]
 ```
 
-Set `event_webhook.events` to an event-type allowlist, such as `[tool_call_update, model_output]`. Supported event types are `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, and `tool_call_update`. Omit the list to send all supported event types; an explicit list must contain at least one type. Changes apply to newly queued events.
+`event_webhook.events` is a required, nonempty event-type allowlist. Supported types are `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, and `tool_call_update`. The builder defaults to tool-call updates; “All events” selects the currently supported types explicitly. Changes apply to newly queued events.
 
-Each POST contains `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. Each agent sends its own events. Self-subagents inherit the webhook configuration and send events with their own agent IDs; other subagents use their profile’s configuration.
+Each POST contains `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. See [Webhook payloads](/events/webhooks) for examples and SDK validation. Each agent sends its own events. Self-subagents inherit the webhook configuration and send events with their own agent IDs; other subagents use their profile’s configuration.
 
-Deliveries are queued for up to ten minutes, with a five-second request timeout. Failed `tool_call_update` deliveries are retried within that window for custom tools entering `ready`, any tool entering `awaiting_permission`, and the built-in `ask_question` entering `running`. All other events are best effort, with no scheduled retries after failure. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate custom tool execution by tool-call ID.
+Deliveries are queued for up to ten minutes, with a five-second request timeout. Failed deliveries of every selected event type are retried with exponential backoff and jitter within that window. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
 
 Signing is optional. Set `event_webhook.signing_secret_id` to a project-available [generic secret](/organization/secrets), generated with `openssl rand -base64 32`. Configure the same value on your receiver and verify requests using [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
 

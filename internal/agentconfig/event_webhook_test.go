@@ -17,36 +17,30 @@ func TestEventWebhookConfig(t *testing.T) {
 	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 event_webhook:
   url: " https://example.com/events?source=agent "
+  events: [tool_call_update]
 `)), CompileOptions{})
 	require.NoError(t, err)
-	require.Equal(t, &EventWebhook{URL: "https://example.com/events?source=agent"}, result.Compiled.EventWebhook)
+	require.Equal(t, &EventWebhook{
+		URL: "https://example.com/events?source=agent", Events: []string{"tool_call_update"},
+	}, result.Compiled.EventWebhook)
 	child, err := SubagentCompiledFrom(result.Compiled, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, result.Compiled.EventWebhook, child.EventWebhook)
 }
 
 func TestEventWebhookEventFilters(t *testing.T) {
-	for _, filter := range []string{"", "[tool_call_update, model_output]"} {
-		t.Run(filter, func(t *testing.T) {
-			source := "event_webhook:\n  url: https://example.com/events\n"
-			if filter != "" {
-				source += "  events: " + filter + "\n"
-			}
-			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
-			require.NoError(t, err)
-			var compiled Compiled
-			require.NoError(t, json.Unmarshal(result.CanonicalJSON, &compiled))
-			switch filter {
-			case "":
-				require.Nil(t, compiled.EventWebhook.Events)
-			default:
-				require.Equal(t, []string{"tool_call_update", "model_output"}, compiled.EventWebhook.Events)
-			}
-		})
-	}
-	for _, filter := range []string{"[]", "[unknown]", "[model_output, model_output]", "null"} {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(
+		"event_webhook:\n  url: https://example.com/events\n  events: [tool_call_update, model_output]\n",
+	)), CompileOptions{})
+	require.NoError(t, err)
+	var compiled Compiled
+	require.NoError(t, json.Unmarshal(result.CanonicalJSON, &compiled))
+	require.Equal(t, []string{"tool_call_update", "model_output"}, compiled.EventWebhook.Events)
+	for _, filter := range []string{
+		"", "  events: []\n", "  events: [unknown]\n", "  events: [model_output, model_output]\n", "  events: null\n",
+	} {
 		_, err := Compile(SourceFormatYAML, []byte(validAgentSource(
-			"event_webhook:\n  url: https://example.com/events\n  events: "+filter+"\n",
+			"event_webhook:\n  url: https://example.com/events\n"+filter,
 		)), CompileOptions{})
 		require.Error(t, err)
 	}
@@ -67,7 +61,7 @@ func TestEventWebhookRejectsInvalidURLs(t *testing.T) {
 	}
 	_, err := ParseSource(SourceFormatJSON, []byte(`{
  "instruction":"test", "model":{"provider_config":"test","name":"test"},
- "event_webhook":{"url":"https://example.com","headers":{}}
+ "event_webhook":{"url":"https://example.com","events":["tool_call_update"],"headers":{}}
  }`))
 	require.Error(t, err)
 }
@@ -76,7 +70,7 @@ func TestEventWebhookValidatesSigningSecretReference(t *testing.T) {
 	secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
 	require.NoError(t, err)
 	source := []byte(validAgentSource(
-		"event_webhook:\n  url: https://example.com/events\n  signing_secret_id: " + secretID + "\n",
+		"event_webhook:\n  url: https://example.com/events\n  events: [tool_call_update]\n  signing_secret_id: " + secretID + "\n",
 	))
 	called := false
 	opts := CompileOptions{ValidateSecretID: func(id string, kind secrets.Kind) error {
@@ -93,7 +87,7 @@ func TestEventWebhookValidatesSigningSecretReference(t *testing.T) {
 	_, err = Compile(SourceFormatYAML, source, opts)
 	require.ErrorContains(t, err, "secret unavailable")
 	invalid := []byte(validAgentSource(
-		"event_webhook:\n  url: https://example.com/events\n  signing_secret_id: invalid\n",
+		"event_webhook:\n  url: https://example.com/events\n  events: [tool_call_update]\n  signing_secret_id: invalid\n",
 	))
 	_, err = Compile(SourceFormatYAML, invalid, CompileOptions{})
 	require.Error(t, err)

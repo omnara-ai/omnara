@@ -18,9 +18,7 @@ export function eventWebhookWire(
   if (!url) return null
   const signingSecretId = config.eventWebhookSigningSecretId.trim()
   const webhook = signingSecretId ? { url, signing_secret_id: signingSecretId } : { url }
-  return config.eventWebhookEvents === null
-    ? webhook
-    : { ...webhook, events: config.eventWebhookEvents }
+  return { ...webhook, events: config.eventWebhookEvents }
 }
 
 export function eventWebhookUrlError(value: string): string | undefined {

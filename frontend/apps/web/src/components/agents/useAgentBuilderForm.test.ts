@@ -14,7 +14,7 @@ import {
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
-  eventWebhookEvents: null,
+  eventWebhookEvents: ['tool_call_update'],
   eventWebhookUrl: '',
   eventWebhookSigningSecretId: '',
   instruction: 'You are a research assistant.\n\nCite sources.',
@@ -554,7 +554,7 @@ mcp:
 describe('createBasicConfigSession apply', () => {
   it('keeps an empty source empty for an untouched form', () => {
     const emptyConfig: BasicConfig = {
-      eventWebhookEvents: null,
+      eventWebhookEvents: ['tool_call_update'],
       eventWebhookUrl: '',
       eventWebhookSigningSecretId: '',
       instruction: '',

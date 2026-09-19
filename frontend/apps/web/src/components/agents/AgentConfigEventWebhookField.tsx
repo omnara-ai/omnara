@@ -28,15 +28,15 @@ export function AgentConfigEventWebhookField({
   projectId: string
   url: string
   signingSecretId: string
-  events: string[] | null
-  onEventsChange: (events: string[] | null) => void
+  events: string[]
+  onEventsChange: (events: string[]) => void
   onUrlChange: (url: string) => void
   onSigningSecretIdChange: (secretId: string) => void
 }) {
   const urlError = eventWebhookUrlError(url)
   const selectedEventTypes = new Set(events)
-  const selectedEvents = eventOptions.filter((option) =>
-    events === null ? option.value === 'all' : selectedEventTypes.has(option.value),
+  const selectedEvents = eventWebhookEventTypes.filter((option) =>
+    selectedEventTypes.has(option.value),
   )
   return (
     <>
@@ -73,13 +73,13 @@ export function AgentConfigEventWebhookField({
               onValueChange={(options) => {
                 const values = options.map((option) => option.value)
                 onEventsChange(
-                  events !== null && values.includes('all')
-                    ? null
-                    : values.filter((value) => value !== 'all'),
+                  values.includes('all')
+                    ? eventWebhookEventTypes.map((option) => option.value)
+                    : values,
                 )
               }}
             />
-            {events?.length === 0 && <FieldError>Select at least one event type.</FieldError>}
+            {events.length === 0 && <FieldError>Select at least one event type.</FieldError>}
           </Field>
           <Field>
             <FieldLabel>Signing secret (optional)</FieldLabel>
