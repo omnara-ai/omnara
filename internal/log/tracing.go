@@ -2,8 +2,18 @@ package log
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+)
+
+type cancellationError string
+
+const (
+	ErrSSEShutdown   cancellationError = "sse_shutdown"
+	ErrSocketTimeout cancellationError = "socket_timeout"
+	ErrSocketFailure cancellationError = "socket_failure"
+	ErrSocketClosed  cancellationError = "socket_closed"
 )
 
 type DBQueryTraceRecord struct {
@@ -11,9 +21,13 @@ type DBQueryTraceRecord struct {
 	Start         time.Time
 	Duration      time.Duration
 	Rows          int64
-	Error         string
 	ErrorKind     string
 	ErrorSeverity string
+
+	SQLState        string
+	CancelSource    string
+	RequestCanceled bool
+	Cause           error
 }
 
 func AttachDBQuery(ctx context.Context, record DBQueryTraceRecord) {
@@ -53,6 +67,9 @@ func (e *Event) attachDBQuery(record DBQueryTraceRecord) {
 	if e.done {
 		return
 	}
+	if e.requestCanceled != nil {
+		record.RequestCanceled = e.requestCanceled()
+	}
 	e.dbQueries = append(e.dbQueries, record)
 }
 
@@ -87,27 +104,44 @@ func (e *Event) flushDBQueries() {
 	var durationMsMax int64
 	var rowsSum int64
 	var errorCount int
-	for i, record := range e.dbQueries {
+	for _, record := range e.dbQueries {
 		durationMs := record.Duration.Milliseconds()
 		durationMsSum += durationMs
 		if durationMs > durationMsMax {
 			durationMsMax = durationMs
 		}
 		rowsSum += record.Rows
-		if record.Error != "" {
+		if record.Cause != nil {
 			errorCount++
 		}
-		if i >= emitCount {
+	}
+	successBudget := max(0, emitCount-errorCount)
+	emitted := 0
+	for _, record := range e.dbQueries {
+		if emitted == emitCount || (record.Cause == nil && successBudget == 0) {
 			continue
 		}
-		prefix := fmt.Sprintf("db.queries.%d.", i)
+		if record.Cause == nil {
+			successBudget--
+		}
+		prefix := fmt.Sprintf("db.queries.%d.", emitted)
+		emitted++
 		out[prefix+"name"] = record.Name
 		out[prefix+"start_time_ms"] = relativeMilliseconds(record.Start, e.started)
-		out[prefix+"duration_ms"] = durationMs
+		out[prefix+"duration_ms"] = record.Duration.Milliseconds()
 		out[prefix+"rows"] = record.Rows
-		if record.Error != "" {
-			out[prefix+"error"] = record.Error
+		if record.Cause != nil {
+			out[prefix+"error"] = record.ErrorKind
 			out[prefix+"error_kind"] = record.ErrorKind
+			if record.SQLState != "" {
+				out[prefix+"sqlstate"] = record.SQLState
+			}
+			if e.requestCanceled != nil {
+				out[prefix+"request_canceled"] = record.RequestCanceled
+			}
+			if record.CancelSource != "" {
+				out[prefix+"cancel_source"] = record.CancelSource
+			}
 			if record.ErrorSeverity != "none" {
 				out[prefix+"error_severity"] = record.ErrorSeverity
 			}
@@ -171,4 +205,18 @@ func relativeMilliseconds(t, base time.Time) int64 {
 		return 0
 	}
 	return t.Sub(base).Milliseconds()
+}
+
+func (s cancellationError) Error() string { return string(s) }
+
+func DBCancellationSource(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	var source cancellationError
+	if errors.As(cause, &source) {
+		return string(source)
+	}
+	if errors.Is(cause, context.DeadlineExceeded) {
+		return "context_deadline"
+	}
+	return "unknown"
 }
