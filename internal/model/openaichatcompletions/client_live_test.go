@@ -56,7 +56,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 		},
 		{
 			name:              "mistral",
-			providerModelSlug: "mistralai/mistral-small-2603",
+			providerModelSlug: "mistralai/ministral-3b-2512",
 			apiVariantOptions: json.RawMessage(`{}`),
 		},
 		{

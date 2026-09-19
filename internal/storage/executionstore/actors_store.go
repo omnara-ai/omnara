@@ -61,22 +61,29 @@ func upsertActorIdentityTx(
 	if provider != ActorProviderExternal && providerTenantID == "" {
 		return ActorRecord{}, errors.New("provider tenant id is required for non-external actors")
 	}
-	row, err := qtx.UpsertActorIdentity(ctx, dbsqlc.UpsertActorIdentityParams{
+	displayName := strings.TrimSpace(input.DisplayName)
+	identity := dbsqlc.GetActorByIdentityParams{
 		ProjectID:        input.ProjectID,
 		Provider:         provider,
 		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 		ProviderUserID:   providerUserID,
-		DisplayName:      strings.TrimSpace(input.DisplayName),
+	}
+	row, err := qtx.GetActorByIdentity(ctx, identity)
+	if err == nil && (displayName == "" || stringFromSQLCText(row.DisplayName) == displayName) {
+		return actorRecordFromSQLC(row), nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return ActorRecord{}, fmt.Errorf("upsert actor: %w", err)
+	}
+	row, err = qtx.UpsertActorIdentity(ctx, dbsqlc.UpsertActorIdentityParams{
+		ProjectID:        input.ProjectID,
+		Provider:         provider,
+		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
+		ProviderUserID:   providerUserID,
+		DisplayName:      displayName,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		// The actor exists and nothing changed, so the upsert skipped the
-		// write; read the current row instead.
-		row, err = qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
-			ProjectID:        input.ProjectID,
-			Provider:         provider,
-			ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
-			ProviderUserID:   providerUserID,
-		})
+		row, err = qtx.GetActorByIdentity(ctx, identity)
 	}
 	if err != nil {
 		return ActorRecord{}, fmt.Errorf("upsert actor: %w", err)
