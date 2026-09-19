@@ -2364,8 +2364,7 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^iin_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/IntegrationConnectionID'
     get:
       operationId: getIntegrationConnection
       tags: [Configs and Profiles]

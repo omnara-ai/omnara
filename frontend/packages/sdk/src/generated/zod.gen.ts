@@ -3706,7 +3706,7 @@ export const zCreateIntegrationConnectionResponse = zIntegrationConnection;
 export const zDeleteIntegrationConnectionPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationConnectionID: z.string().regex(/^iin_[a-z2-7]{26}$/)
+    integrationConnectionID: zIntegrationConnectionId
 });
 
 /**
@@ -3717,7 +3717,7 @@ export const zDeleteIntegrationConnectionResponse = z.void();
 export const zGetIntegrationConnectionPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationConnectionID: z.string().regex(/^iin_[a-z2-7]{26}$/)
+    integrationConnectionID: zIntegrationConnectionId
 });
 
 /**
@@ -3730,7 +3730,7 @@ export const zUpdateIntegrationConnectionBody = zSaveIntegrationConnectionReques
 export const zUpdateIntegrationConnectionPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationConnectionID: z.string().regex(/^iin_[a-z2-7]{26}$/)
+    integrationConnectionID: zIntegrationConnectionId
 });
 
 /**

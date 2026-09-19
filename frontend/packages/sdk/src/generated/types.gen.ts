@@ -7661,7 +7661,7 @@ export type DeleteIntegrationConnectionData = {
     path: {
         orgID: string;
         projectID: string;
-        integrationConnectionID: string;
+        integrationConnectionID: IntegrationConnectionId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}';
@@ -7726,7 +7726,7 @@ export type GetIntegrationConnectionData = {
     path: {
         orgID: string;
         projectID: string;
-        integrationConnectionID: string;
+        integrationConnectionID: IntegrationConnectionId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}';
@@ -7795,7 +7795,7 @@ export type UpdateIntegrationConnectionData = {
     path: {
         orgID: string;
         projectID: string;
-        integrationConnectionID: string;
+        integrationConnectionID: IntegrationConnectionId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}';
