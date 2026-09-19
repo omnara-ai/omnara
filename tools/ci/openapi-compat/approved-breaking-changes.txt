@@ -70,3 +70,18 @@ OMN2-376 implicit machine tools remove obsolete warnings: PATCH /orgs/{orgID}/pr
 OMN2-376 implicit machine tools remove obsolete warnings: POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config removed the optional property `current_config/warnings` from the response with the `200` status
 OMN2-376 implicit machine tools remove obsolete warnings: POST /orgs/{orgID}/projects/{projectID}/agents removed the optional property `agent_config/warnings` from the response with the `201` status
 OMN2-376 implicit machine tools remove obsolete warnings: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the optional property `agent_config/warnings` from the response with the `200` status
+Composable apps cutover replaces installs with connections: GET /orgs/{orgID}/projects/{projectID}/integration-installs api path removed without deprecation
+Composable apps cutover replaces installs with connections: DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID} api path removed without deprecation
+Composable apps add provider identities: GET /orgs/{orgID}/projects/{projectID}/actors added the new `discord` enum value to the `data/items/provider` response property for the response status `200`
+Composable apps add provider identities: GET /orgs/{orgID}/projects/{projectID}/actors added the new `github` enum value to the `data/items/provider` response property for the response status `200`
+Composable apps add provider identities: PUT /orgs/{orgID}/projects/{projectID}/actors added the new `discord` enum value to the `provider` response property for the response status `200`
+Composable apps add provider identities: PUT /orgs/{orgID}/projects/{projectID}/actors added the new `github` enum value to the `provider` response property for the response status `200`
+Composable apps add provider identities: GET /orgs/{orgID}/projects/{projectID}/actors/{actorID} added the new `discord` enum value to the `provider` response property for the response status `200`
+Composable apps add provider identities: GET /orgs/{orgID}/projects/{projectID}/actors/{actorID} added the new `github` enum value to the `provider` response property for the response status `200`
+Composable apps add GitHub credentials: GET /orgs/{orgID}/projects/{projectID}/secrets added the new `github_app_credentials` enum value to the `data/items/secret/kind` response property for the response status `200`
+Composable apps add GitHub credentials: GET /orgs/{orgID}/projects/{projectID}/secrets/{secretID} added the new `github_app_credentials` enum value to the `secret/kind` response property for the response status `200`
+Composable apps add GitHub credentials: GET /orgs/{orgID}/secrets added the new `github_app_credentials` enum value to the `data/items/kind` response property for the response status `200`
+Composable apps add GitHub credentials: POST /orgs/{orgID}/secrets added the new `github_app_credentials` enum value to the `kind` response property for the response status `201`
+Composable apps add GitHub credentials: GET /orgs/{orgID}/secrets/{secretID} added the new `github_app_credentials` enum value to the `kind` response property for the response status `200`
+Composable apps add GitHub credentials: PATCH /orgs/{orgID}/secrets/{secretID} added the new `github_app_credentials` enum value to the `kind` response property for the response status `200`
+Composable apps add GitHub credentials: POST /orgs/{orgID}/secrets/{secretID}/versions added the new `github_app_credentials` enum value to the `kind` response property for the response status `200`

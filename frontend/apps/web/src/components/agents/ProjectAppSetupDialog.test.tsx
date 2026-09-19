@@ -35,9 +35,16 @@ afterEach(() => {
   restore()
 })
 
-it.each(['GitHub', 'Discord'] as const)(
-  'retries %s app failure without duplicating credentials or the connection',
-  async (label) => {
+it.each([
+  { label: 'GitHub', failure: 'app' },
+  { label: 'Discord', failure: 'app' },
+  { label: 'GitHub', failure: 'connection' },
+  { label: 'Discord', failure: 'connection' },
+  { label: 'GitHub', failure: 'scope' },
+  { label: 'Discord', failure: 'scope' },
+])(
+  'retries $label $failure failure without duplicating saved credentials or connections',
+  async ({ label, failure }) => {
     const provider = label === 'GitHub' ? 'github' : 'discord'
     const orgId = fakeId('org'),
       projectId = fakeId('proj'),
@@ -60,6 +67,7 @@ it.each(['GitHub', 'Discord'] as const)(
       updated_at: now,
     }
     let appAttempts = 0
+    let connectionAttempts = 0
     let connectionSaved = false
     const api = fakeApi([
       {
@@ -98,6 +106,9 @@ it.each(['GitHub', 'Discord'] as const)(
         method: 'POST',
         path: projectPath + '/integration-connections',
         respond: () => {
+          connectionAttempts++
+          if (failure === 'connection' && connectionAttempts === 1)
+            return jsonResponse({ code: 'conflict', error: 'Connection capacity reached' }, 409)
           connectionSaved = true
           return jsonResponse(connection, 201)
         },
@@ -107,7 +118,7 @@ it.each(['GitHub', 'Discord'] as const)(
         path: projectPath + '/apps',
         respond: ({ body }) => {
           appAttempts++
-          if (appAttempts === 1)
+          if (failure === 'app' && appAttempts === 1)
             return jsonResponse({ code: 'conflict', error: 'Project app capacity reached' }, 409)
           const setup = schemas.zSaveProjectAppRequest.parse(body)
           return jsonResponse(
@@ -146,7 +157,10 @@ it.each(['GitHub', 'Discord'] as const)(
     })
     await enter(label === 'GitHub' ? 'GitHub App ID' : 'Discord Application ID', '111')
     await enter(label === 'GitHub' ? 'GitHub Installation ID' : 'Discord bot User ID', '222')
-    await enter(label === 'GitHub' ? 'Repository ID' : 'Channel ID', '333')
+    await enter(
+      label === 'GitHub' ? 'Repository ID' : 'Channel ID',
+      failure === 'scope' ? 'invalid' : '333',
+    )
     if (label === 'GitHub') {
       await enter('RSA private key (PEM)', 'test-key')
       await enter('Webhook secret', 'private-signature')
@@ -157,18 +171,34 @@ it.each(['GitHub', 'Discord'] as const)(
     }
     await submit()
     await waitForUI(() => {
-      expect(document.body.textContent).toContain('Project app capacity reached')
+      const error =
+        failure === 'connection'
+          ? 'Connection capacity reached'
+          : failure === 'scope'
+            ? 'Enter a positive ID without leading zeros.'
+            : 'Project app capacity reached'
+      expect(document.body.textContent).toContain(error)
     })
     expect(closed).not.toHaveBeenCalled()
-    expect(document.body.textContent).toContain(`Connection saved: ${connection.id}`)
+    expect(document.querySelector<HTMLSelectElement>('#app-connection')?.disabled).toBe(true)
+    if (failure === 'connection') {
+      expect(document.body.textContent).toContain(`Credentials saved as ${fakeId('sec')}`)
+      expect(document.querySelector<HTMLInputElement>('#provider-tenant')?.readOnly).toBe(true)
+      expect(api.requestsTo('POST', projectPath + '/apps')).toHaveLength(0)
+    } else {
+      expect(document.body.textContent).toContain(`Connection saved: ${connection.id}`)
+    }
+    if (failure === 'scope') await enter(label === 'GitHub' ? 'Repository ID' : 'Channel ID', '333')
     await submit()
     await waitForUI(() => {
       expect(closed).toHaveBeenCalledWith(false)
     })
     expect(api.requestsTo('POST', credentialPath)).toHaveLength(1)
-    expect(api.requestsTo('POST', projectPath + '/integration-connections')).toHaveLength(1)
-    expect(api.requestsTo('POST', projectPath + '/apps')).toHaveLength(2)
-    expect(api.requestsTo('POST', projectPath + '/apps')[1]?.body).toMatchObject({
+    expect(api.requestsTo('POST', projectPath + '/integration-connections')).toHaveLength(
+      failure === 'connection' ? 2 : 1,
+    )
+    expect(api.requestsTo('POST', projectPath + '/apps')).toHaveLength(failure === 'app' ? 2 : 1)
+    expect(api.requestsTo('POST', projectPath + '/apps').at(-1)?.body).toMatchObject({
       settings: {
         resource: { definition: `omnara.${provider}`, connection: connection.id },
         launcher: {

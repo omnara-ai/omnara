@@ -23,7 +23,7 @@ export function ProjectAppProfilePicker({
   projectId,
   value,
   onChange,
-  slotCount = value.length,
+  slotCount,
   disabled,
 }: {
   orgId: string
@@ -33,6 +33,7 @@ export function ProjectAppProfilePicker({
   slotCount?: number | null
   disabled?: boolean
 }) {
+  const displayedSlotCount = slotCount === undefined ? value.length : slotCount
   const search = useTypeaheadSearch()
   const query = useAgentProfiles(orgId, projectId, {
     filters: search.filters,
@@ -76,7 +77,8 @@ export function ProjectAppProfilePicker({
       <FieldDescription>
         With one eligible profile, a mention launches it immediately. With multiple eligible
         profiles, a native menu asks the person to choose just one. Later messages stay with that
-        agent. Up to 16 slots per setup{slotCount === null ? '.' : ` (${slotCount}/16 selected).`}
+        agent. Up to 16 slots per setup
+        {displayedSlotCount === null ? '.' : ` (${displayedSlotCount}/16 selected).`}
       </FieldDescription>
       {loadingNames && (
         <p role="status" className="text-muted-foreground text-sm">

@@ -45,6 +45,10 @@ cluster release. Connections describe provider accounts and credentials; their
 old `agent_profile_id`, `agent_id`, `integration_kind` and `connection_mode`
 fields are removed. Configure launch behavior through [project apps](/integrations/apps).
 
+Actor responses can now report `github` and `discord` providers, and secret
+responses can report the `github_app_credentials` kind. Update clients that
+validate these response values as closed enums before enabling the new providers.
+
 The migration rewrites stored configurations, but clients that submit new source
 must use `slack_post_message` and `set_interaction_destination` instead of the
 removed generic tool names. Slack access now requires an explicit app resource;
