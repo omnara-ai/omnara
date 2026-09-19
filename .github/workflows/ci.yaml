@@ -88,6 +88,20 @@ jobs:
 
       - run: make ${{ matrix.target }}
 
+  worker-image:
+    name: Worker Image Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: make test-worker-image
+
   daemon-darwin:
     name: Daemon macOS Tests
     runs-on: macos-latest

@@ -1897,7 +1897,7 @@ paths:
       operationId: createMemoryStore
       tags:
         - Memory Stores
-      summary: createMemoryStore
+      summary: Create memory store
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1937,7 +1937,7 @@ paths:
       operationId: listMemoryStores
       tags:
         - Memory Stores
-      summary: listMemoryStores
+      summary: List memory stores
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1994,7 +1994,7 @@ paths:
       operationId: getMemoryStore
       tags:
         - Memory Stores
-      summary: getMemoryStore
+      summary: Get memory store
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2027,7 +2027,7 @@ paths:
       operationId: updateMemoryStore
       tags:
         - Memory Stores
-      summary: updateMemoryStore
+      summary: Update memory store
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2067,7 +2067,7 @@ paths:
       operationId: deleteMemoryStore
       tags:
         - Memory Stores
-      summary: deleteMemoryStore
+      summary: Delete memory store
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -7276,7 +7276,7 @@ paths:
       x-hidden: true
       tags:
         - Machine Daemon
-      summary: uploadDaemonFile
+      summary: Upload daemon file
       security:
         - machineDaemonAuth: []
       parameters:
@@ -7328,7 +7328,7 @@ paths:
       x-hidden: true
       tags:
         - Machine Daemon
-      summary: downloadDaemonFile
+      summary: Download daemon file
       security:
         - machineDaemonAuth: []
       responses:
