@@ -207,7 +207,7 @@ func appendTypedAgentEventTx(
 	); err != nil {
 		return TypedAgentEventRecord{}, fmt.Errorf("advance event sequence: %w", err)
 	}
-	txNotifications.AddAgentEvent(input.AgentID)
+	txNotifications.AddAgentEvent(input.AgentID, allocation.NextEventSequence, string(input.Kind))
 	return typedAgentEventFromInsertSQLC(row)
 }
 

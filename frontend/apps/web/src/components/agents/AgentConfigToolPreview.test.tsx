@@ -347,10 +347,10 @@ it.each([
   ])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(otherToolsTrigger()).not.toBeNull()
   })
   clickLabel('Other tools')
-  const trigger = container.querySelector('[data-slot="collapsible-trigger"]')
+  const trigger = otherToolsTrigger()
   const readFile = container.querySelector('[aria-label="read_file permission"]')
   const instruction = container.querySelector('textarea')
   const toolOrder = () =>
@@ -367,7 +367,7 @@ it.each([
   await vi.waitFor(() => {
     expect(requests).toBe(2)
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
+  expect(otherToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
   expect(trigger?.getAttribute('data-state')).toBe('open')
   expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
@@ -382,7 +382,7 @@ it.each([
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
+  expect(otherToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
   expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
   expect(submit).not.toHaveBeenCalled()
@@ -403,10 +403,10 @@ it('clears the retained tool preview when switching projects', async () => {
   ])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(otherToolsTrigger()).not.toBeNull()
   })
   await renderAndFlush(<BasicFormHarness projectId="project-other" />)
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(otherToolsTrigger()).toBeNull()
   expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('true')
   await act(async () => {
     release(toolResponse([]))
@@ -415,7 +415,7 @@ it('clears the retained tool preview when switching projects', async () => {
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(otherToolsTrigger()).toBeNull()
 })
 
 it('preserves expanded tools after a failed refresh and updates them on retry', async () => {
@@ -442,10 +442,10 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
   ])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(otherToolsTrigger()).not.toBeNull()
   })
   clickLabel('Other tools')
-  const trigger = container.querySelector('[data-slot="collapsible-trigger"]')
+  const trigger = otherToolsTrigger()
   const readFile = container.querySelector('[aria-label="read_file permission"]')
   click('[aria-label="Remove web_search"]')
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
@@ -454,7 +454,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
       'Couldn’t load other tools',
     )
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBe(trigger)
+  expect(otherToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
   expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
@@ -485,7 +485,7 @@ it('does not offer the Slack tool when it is absent from the source', async () =
   await vi.waitFor(() => {
     expect(requests).toHaveLength(1)
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(otherToolsTrigger()).toBeNull()
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
   expect(requests).toEqual([
     {
@@ -598,7 +598,7 @@ it('shows a preview failure and lets the user retry without editing the draft', 
     expect(attempts).toBe(2)
     expect(container.querySelector('[role="alert"]')).toBeNull()
   })
-  expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+  expect(otherToolsTrigger()).toBeNull()
 })
 
 function clickLabel(label: string) {
@@ -633,7 +633,7 @@ it('displays retrieval defaults without changing source and saves only edited ov
   Providers = testProviders([previewToolsRoute(() => ['read_file', 'search_files'])])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(otherToolsTrigger()).not.toBeNull()
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
@@ -737,7 +737,7 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   await vi.waitFor(() => {
-    expect(container.querySelector('[data-slot="collapsible-trigger"]')).not.toBeNull()
+    expect(otherToolsTrigger()).not.toBeNull()
   })
   clickLabel('Other tools')
   await vi.waitFor(() => {
@@ -832,3 +832,6 @@ ${test.source}
     })
   },
 )
+
+const otherToolsTrigger = () =>
+  [...container.querySelectorAll('button')].find((el) => el.textContent === 'Other tools') ?? null

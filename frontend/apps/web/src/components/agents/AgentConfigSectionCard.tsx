@@ -15,7 +15,7 @@ export function AgentConfigSectionCard({
         <h3 className="type-label">{title}</h3>
         {action}
       </div>
-      {children ? <div className="border-t">{children}</div> : null}
+      {children ? <div className="border-t empty:border-t-0">{children}</div> : null}
     </section>
   )
 }

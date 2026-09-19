@@ -1711,7 +1711,7 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
@@ -1841,6 +1841,46 @@ export type ContextCheckpointEvent = {
     summarized_through_event_sequence: AgentSequence;
     summary: string;
     created_at: Timestamp;
+};
+
+/**
+ * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ */
+export type EventWebhookPayload = ({
+    event: 'agent_input';
+} & EventWebhookAgentInputEvent) | ({
+    event: 'model_output';
+} & EventWebhookModelOutputEvent) | ({
+    event: 'tool_result';
+} & EventWebhookToolResultEvent) | ({
+    event: 'context_checkpoint';
+} & EventWebhookContextCheckpointEvent) | ({
+    event: 'tool_call_update';
+} & EventWebhookToolCallUpdate);
+
+export type EventWebhookAgentInputEvent = {
+    event: 'agent_input';
+    data: AgentInputEvent;
+};
+
+export type EventWebhookModelOutputEvent = {
+    event: 'model_output';
+    data: ModelOutputEvent;
+};
+
+export type EventWebhookToolResultEvent = {
+    event: 'tool_result';
+    data: ToolResultEvent;
+};
+
+export type EventWebhookContextCheckpointEvent = {
+    event: 'context_checkpoint';
+    data: ContextCheckpointEvent;
+};
+
+export type EventWebhookToolCallUpdate = {
+    event: 'tool_call_update';
+    data: ToolCallUpdate;
 };
 
 export type AgentEvent = ({
