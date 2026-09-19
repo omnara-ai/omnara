@@ -34,10 +34,13 @@ func TestFileExecWithoutLandlock(t *testing.T) {
 }
 
 func TestFileExecConfinement(t *testing.T) {
-	launcher := filepath.Join(t.TempDir(), "omnara-file-exec")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, ".")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build file launcher: %s, %v", output, err)
+	launcher := os.Getenv("OMNARA_TEST_FILE_EXEC")
+	if launcher == "" {
+		launcher = filepath.Join(t.TempDir(), "omnara-file-exec")
+		build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, ".")
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build file launcher: %s, %v", output, err)
+		}
 	}
 	rg, err := exec.LookPath("rg")
 	if err != nil {

@@ -1209,7 +1209,7 @@ export const listProjectAvailableSkillsInfiniteOptions = (options: Options<ListP
 export const listMemoryStoresQueryKey = (options: Options<ListMemoryStoresData>) => createQueryKey('listMemoryStores', options);
 
 /**
- * listMemoryStores
+ * List memory stores
  */
 export const listMemoryStoresOptions = (options: Options<ListMemoryStoresData>) => queryOptions<ListMemoryStoresResponse, ListMemoryStoresError, ListMemoryStoresResponse, ReturnType<typeof listMemoryStoresQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1227,7 +1227,7 @@ export const listMemoryStoresOptions = (options: Options<ListMemoryStoresData>) 
 export const listMemoryStoresInfiniteQueryKey = (options: Options<ListMemoryStoresData>): QueryKey<Options<ListMemoryStoresData>> => createQueryKey('listMemoryStores', options, true);
 
 /**
- * listMemoryStores
+ * List memory stores
  */
 export const listMemoryStoresInfiniteOptions = (options: Options<ListMemoryStoresData>) => {
     const opts = infiniteQueryOptions<ListMemoryStoresResponse, ListMemoryStoresError, InfiniteData<ListMemoryStoresResponse>, QueryKey<Options<ListMemoryStoresData>>, string | Pick<QueryKey<Options<ListMemoryStoresData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -1255,7 +1255,7 @@ export const listMemoryStoresInfiniteOptions = (options: Options<ListMemoryStore
 };
 
 /**
- * createMemoryStore
+ * Create memory store
  */
 export const createMemoryStoreMutation = (options?: Partial<Options<CreateMemoryStoreData>>): UseMutationOptions<CreateMemoryStoreResponse, CreateMemoryStoreError, Options<CreateMemoryStoreData>> => {
     const mutationOptions: UseMutationOptions<CreateMemoryStoreResponse, CreateMemoryStoreError, Options<CreateMemoryStoreData>> = {
@@ -1272,7 +1272,7 @@ export const createMemoryStoreMutation = (options?: Partial<Options<CreateMemory
 };
 
 /**
- * deleteMemoryStore
+ * Delete memory store
  */
 export const deleteMemoryStoreMutation = (options?: Partial<Options<DeleteMemoryStoreData>>): UseMutationOptions<DeleteMemoryStoreResponse, DeleteMemoryStoreError, Options<DeleteMemoryStoreData>> => {
     const mutationOptions: UseMutationOptions<DeleteMemoryStoreResponse, DeleteMemoryStoreError, Options<DeleteMemoryStoreData>> = {
@@ -1291,7 +1291,7 @@ export const deleteMemoryStoreMutation = (options?: Partial<Options<DeleteMemory
 export const getMemoryStoreQueryKey = (options: Options<GetMemoryStoreData>) => createQueryKey('getMemoryStore', options);
 
 /**
- * getMemoryStore
+ * Get memory store
  */
 export const getMemoryStoreOptions = (options: Options<GetMemoryStoreData>) => queryOptions<GetMemoryStoreResponse, GetMemoryStoreError, GetMemoryStoreResponse, ReturnType<typeof getMemoryStoreQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1307,7 +1307,7 @@ export const getMemoryStoreOptions = (options: Options<GetMemoryStoreData>) => q
 });
 
 /**
- * updateMemoryStore
+ * Update memory store
  */
 export const updateMemoryStoreMutation = (options?: Partial<Options<UpdateMemoryStoreData>>): UseMutationOptions<UpdateMemoryStoreResponse, UpdateMemoryStoreError, Options<UpdateMemoryStoreData>> => {
     const mutationOptions: UseMutationOptions<UpdateMemoryStoreResponse, UpdateMemoryStoreError, Options<UpdateMemoryStoreData>> = {
@@ -4001,7 +4001,7 @@ export const downloadDaemonArtifactOptions = (options: Options<DownloadDaemonArt
 export const downloadDaemonFileQueryKey = (options: Options<DownloadDaemonFileData>) => createQueryKey('downloadDaemonFile', options);
 
 /**
- * downloadDaemonFile
+ * Download daemon file
  */
 export const downloadDaemonFileOptions = (options: Options<DownloadDaemonFileData>) => queryOptions<DownloadDaemonFileResponse, DownloadDaemonFileError, DownloadDaemonFileResponse, ReturnType<typeof downloadDaemonFileQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -4017,7 +4017,7 @@ export const downloadDaemonFileOptions = (options: Options<DownloadDaemonFileDat
 });
 
 /**
- * uploadDaemonFile
+ * Upload daemon file
  */
 export const uploadDaemonFileMutation = (options?: Partial<Options<UploadDaemonFileData>>): UseMutationOptions<UploadDaemonFileResponse, UploadDaemonFileError, Options<UploadDaemonFileData>> => {
     const mutationOptions: UseMutationOptions<UploadDaemonFileResponse, UploadDaemonFileError, Options<UploadDaemonFileData>> = {
