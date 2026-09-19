@@ -5,9 +5,65 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/stretchr/testify/require"
 )
+
+func TestRequestLogPostgresTimeouts(t *testing.T) {
+	t.Parallel()
+	setupCtx := context.Background()
+	pool := poolWithQueryTracer(t, setupCtx, openIntegrationDB(t, setupCtx),
+		metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB))
+	holder, err := pool.Begin(setupCtx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = holder.Rollback(setupCtx) })
+	_, err = holder.Exec(setupCtx, "SELECT pg_advisory_xact_lock(344)")
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name, setting, query, kind, code, source string
+	}{
+		{"statement", "statement_timeout", "SELECT pg_sleep(1)", "postgres_statement_timeout", "57014", "postgres"},
+		{"lock", "lock_timeout", "SELECT pg_advisory_xact_lock(344)", "postgres_lock_timeout", "55P03", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback(setupCtx) }()
+			_, err = tx.Exec(ctx, "SELECT set_config($1, '25ms', true)", tt.setting)
+			require.NoError(t, err)
+
+			buf, logger := newRequestEventCapture()
+			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, err := tx.Exec(r.Context(), "-- name: TimeoutQuery :exec\n"+tt.query)
+				if err == nil {
+					t.Error("query succeeded instead of timing out")
+					return
+				}
+				openAPIResponseErrorHandler(w, r, err)
+			}))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil))
+			require.Equal(t, http.StatusInternalServerError, response.Code)
+			event := decodeRequestEvent(t, buf)
+			for key, want := range map[string]string{
+				"name": "TimeoutQuery", "error_kind": tt.kind, "sqlstate": tt.code, "cancel_source": tt.source,
+			} {
+				got, _ := event["db.queries.0."+key].(string)
+				require.Equal(t, want, got, key)
+			}
+			require.Equal(t, tt.kind, event["error.message"])
+		})
+	}
+}
 
 func TestErrorResponseCodes(t *testing.T) {
 	t.Parallel()

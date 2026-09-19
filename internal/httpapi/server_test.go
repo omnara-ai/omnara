@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/omnara-ai/omnara/internal/events"
@@ -2164,5 +2167,74 @@ func assertNoJSONField(t *testing.T, value any, field string) {
 	}
 	if _, ok := fields[field]; ok {
 		t.Fatalf("field %q must not be present in %s", field, body)
+	}
+}
+
+func TestRequestLogSanitizesDatabaseErrorsAcrossFields(t *testing.T) {
+	for _, path := range []string{"handler", "auth", "authorization"} {
+		for _, failure := range []struct {
+			name string
+			err  error
+		}{
+			{name: "postgres", err: &pgconn.PgError{Code: "22P02", Message: "customer_content"}},
+			{name: "scan", err: fmt.Errorf("scan column: %w", errors.New("customer_content"))},
+			{name: "joined driver error", err: errors.Join(errors.New("customer_content"), errors.New("customer_content"))},
+		} {
+			t.Run(path+"/"+failure.name, func(t *testing.T) {
+				buf, logger := newRequestEventCapture()
+				recorder := metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB)
+				original := fmt.Errorf("customer_content: %w", errors.Join(failure.err, errors.New("unrelated_failure")))
+				handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					for range 25 {
+						traceCtx := recorder.TraceQueryStart(r.Context(), nil, pgx.TraceQueryStartData{SQL: "-- name: Success :exec"})
+						recorder.TraceQueryEnd(traceCtx, nil, pgx.TraceQueryEndData{})
+					}
+					traceCtx := recorder.TraceQueryStart(r.Context(), nil, pgx.TraceQueryStartData{
+						SQL: "-- name: FailedQuery :one\nSELECT 'customer_content'", Args: []any{"customer_content"},
+					})
+					recorder.TraceQueryEnd(traceCtx, nil, pgx.TraceQueryEndData{Err: failure.err})
+					switch path {
+					case "handler":
+						openAPIResponseErrorHandler(w, r, original)
+					case "auth":
+						logent.AuthFailedError(r.Context(), logent.AuthSchemeCookie, logent.TokenKindBrowserSession,
+							logent.AuthResultUnavailable, original)
+						apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+					case "authorization":
+						logent.AuthorizationCheckFailed(r.Context(), original)
+						apierror.Write(w, openapi.ErrorCodeServiceUnavailable)
+					}
+				}))
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+				wantStatus := http.StatusServiceUnavailable
+				if path == "handler" {
+					wantStatus = http.StatusInternalServerError
+				}
+				if response.Code != wantStatus {
+					t.Fatalf("status = %d, want %d", response.Code, wantStatus)
+				}
+				event := decodeRequestEvent(t, buf)
+				if strings.Contains(buf.String(), "customer_content") {
+					t.Fatalf("customer content leaked: %s", buf.String())
+				}
+				errorMessage, _ := event["error.message"].(string)
+				if !strings.Contains(errorMessage, "unrelated_failure") {
+					t.Fatalf("unrelated error lost: %v", event["error.message"])
+				}
+				if event["level"] != "error" || event["http.status_code"] != float64(wantStatus) {
+					t.Fatalf("status or severity changed: %v", event)
+				}
+				if event["db.queries.24.name"] != "FailedQuery" || event["db.queries.error_count"] != float64(1) {
+					t.Fatalf("failed query missing: %v", event)
+				}
+				if failure.name == "postgres" && event["db.queries.24.sqlstate"] != "22P02" {
+					t.Fatal("SQLSTATE missing")
+				}
+				if !errors.Is(original, failure.err) || !strings.Contains(original.Error(), "customer_content") {
+					t.Fatal("original error was changed")
+				}
+			})
+		}
 	}
 }
