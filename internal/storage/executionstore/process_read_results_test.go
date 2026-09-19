@@ -78,3 +78,28 @@ func TestCanonicalProcessReadResultValidatesSkippedOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeProcessReadObservationReturnsDecodedValue(t *testing.T) {
+	raw := json.RawMessage(`{"process_id":"process-1","output":"hello","cursor":1,"next_cursor":6,"truncated":false}`)
+
+	observed, ok := decodeProcessReadObservation(raw)
+
+	if !ok {
+		t.Fatal("expected valid observation")
+	}
+	if observed.ProcessID != "process-1" {
+		t.Fatalf("process ID = %q, want process-1", observed.ProcessID)
+	}
+	if observed.Output == nil || *observed.Output != "hello" {
+		t.Fatalf("output = %v, want hello", observed.Output)
+	}
+	if observed.Cursor == nil || *observed.Cursor != 1 {
+		t.Fatalf("cursor = %v, want 1", observed.Cursor)
+	}
+	if observed.NextCursor == nil || *observed.NextCursor != 6 {
+		t.Fatalf("next cursor = %v, want 6", observed.NextCursor)
+	}
+	if observed.Truncated == nil || *observed.Truncated {
+		t.Fatalf("truncated = %v, want false", observed.Truncated)
+	}
+}
