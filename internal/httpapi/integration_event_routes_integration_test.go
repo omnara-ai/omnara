@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -33,6 +37,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSlackEventsURLVerification(t *testing.T) {
@@ -59,6 +64,7 @@ func TestSlackEventsURLVerification(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["challenge"] != "challenge-123" {
 		t.Fatalf("challenge response=%v", response)
 	}
@@ -106,10 +112,35 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("event response=%v want accepted", response)
+	var agentCount int
+	require.NoError(
+		t,
+		pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`, fixture.Project.ProjectUUID).
+			Scan(&agentCount),
+	)
+	require.Zero(t, agentCount, "HTTP acknowledgement must not launch")
+	var captured json.RawMessage
+	var state string
+	require.NoError(
+		t,
+		pool.QueryRow(
+			ctx,
+			`SELECT payload,state FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2`,
+			fixture.Project.ProjectUUID,
+			"slack:Ev-app-mention-1",
+		).
+			Scan(
+				&captured,
+				&state,
+			),
+	)
+	require.Equal(t, body, string(captured), "capture must preserve exact signed bytes")
+	require.Equal(t, "pending", state)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("event response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -124,9 +155,9 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:111.222",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -199,15 +230,16 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 		http.StatusOK,
 		unitSlackSignedHeaders(messageCopy, "signing-secret"),
 	)
-	if response["ok"] != "ignored" {
-		t.Fatalf("duplicate message response=%v want ignored", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("duplicate message response=%v want received", response)
 	}
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "Ev-app-mention-1-message-copy",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "Ev-app-mention-1-message-copy",
 		},
 	); err != nil {
 		t.Fatalf("get duplicate input: %v", err)
@@ -225,8 +257,9 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("redelivery response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("redelivery response=%v want received", response)
 	}
 
 	threadBody := `{
@@ -256,15 +289,16 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 		http.StatusOK,
 		unitSlackSignedHeaders(threadBody, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("thread message response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("thread message response=%v want received", response)
 	}
 	threadInput, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:333.444",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:333.444",
 		},
 	)
 	if err != nil {
@@ -306,10 +340,11 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 		http.StatusOK,
 		unitSlackSignedHeaders(unmappedThreadBody, "signing-secret"),
 	)
-	if response["ok"] != "ignored" {
-		t.Fatalf("unmapped thread response=%v want ignored", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("unmapped thread response=%v want received", response)
 	}
-	_, err = fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	_, err = slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -363,10 +398,11 @@ func TestSlackEventsThreadMentionAdmitsUnmentionedReplies(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(mention, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("thread mention response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("thread mention response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -403,15 +439,16 @@ func TestSlackEventsThreadMentionAdmitsUnmentionedReplies(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(reply, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("unmentioned reply response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("unmentioned reply response=%v want received", response)
 	}
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:333.444",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:333.444",
 		},
 	); err != nil {
 		t.Fatalf("get unmentioned reply input: %v", err)
@@ -496,8 +533,9 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(mention, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("mention response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("mention response=%v want received", response)
 	}
 	reply := `{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
 		`"event_id":"Ev-stored-names-reply","authorizations":[{"team_id":"T123",` +
@@ -514,8 +552,9 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(reply, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("reply response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("reply response=%v want received", response)
 	}
 	mu.Lock()
 	got := userLookups["U123"]
@@ -535,7 +574,7 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("conversations.info calls for C123 = %d, want 1", got)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -553,9 +592,9 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:222.333",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:222.333",
 		},
 	)
 	if err != nil {
@@ -568,7 +607,7 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"This message directly mentioned the agent inside a Slack thread that is already attached to this agent.\n\n"+
+		"This message directly mentioned the agent inside an existing Slack thread.\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) follow up",
 		[]bool{true, false},
@@ -603,10 +642,11 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("mention response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("mention response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -618,9 +658,9 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:111.222",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -666,7 +706,7 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 	}
 }
 
-func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
+func TestSlackEventsMentionedMessageAndAppMentionShareInput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -705,7 +745,8 @@ func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(start, "signing-secret"),
 	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -741,20 +782,21 @@ func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(messageCopy, "signing-secret"),
 	)
-	if response["ok"] != "ignored" {
-		t.Fatalf("mentioned message copy response=%v want ignored", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("mentioned message copy response=%v want received", response)
 	}
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:333.444",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:333.444",
 		},
 	); err != nil {
 		t.Fatalf("get message copy input: %v", err)
-	} else if found {
-		t.Fatal("mentioned message copy created an input before app_mention")
+	} else if !found {
+		t.Fatal("first verified message callback did not create input")
 	}
 	appMention := `{
 		"type":"event_callback",
@@ -783,15 +825,16 @@ func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(appMention, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("app mention response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("app mention response=%v want received", response)
 	}
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:333.444",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:333.444",
 		},
 	)
 	if err != nil {
@@ -804,7 +847,7 @@ func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"This message directly mentioned the agent inside a Slack thread that is already attached to this agent.\n\n"+
+		"This message was routed to a Slack thread attached to this agent.\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) important follow up",
 		[]bool{true, false},
@@ -826,7 +869,8 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	reactionAttempts := make(chan struct{}, 2)
-	slackServer := newSlackEventsTestServerWithReactionAttempts(t, reactionAttempts)
+	dismissals := make(chan struct{}, 1)
+	slackServer := newSlackEventsTestServerWithReactionAttempts(t, reactionAttempts, dismissals)
 	defer slackServer.Close()
 	seed := "slack-events-open-" + kind
 	fixture := newSlackEventsIntegrationFixture(
@@ -862,12 +906,13 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	select {
 	case <-reactionAttempts:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for initial slack reaction")
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -890,6 +935,15 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 			Name:  "read_file",
 			Input: json.RawMessage(`{}`),
 		},
+	)
+	require.NoError(
+		t,
+		(integration.InteractionPresenter{Store: fixture.Project.Store, HTTPClient: fixture.Slack.HTTPClient}).Present(
+			ctx,
+			fixture.Project.ProjectUUID,
+			integrationTarget.AgentID,
+			interaction.ID,
+		),
 	)
 	siblingToolCall, found, err := fixture.Project.Store.Execution().GetToolCallByProviderCall(
 		ctx,
@@ -933,15 +987,16 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 		http.StatusOK,
 		unitSlackSignedHeaders(reply, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("open interaction response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("open interaction response=%v want received", response)
 	}
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:COPEN:222.333",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:COPEN:222.333",
 		},
 	)
 	if err != nil {
@@ -1003,6 +1058,11 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 	case <-reactionAttempts:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for steering input slack reaction")
+	}
+	select {
+	case <-dismissals:
+	case <-time.After(time.Second):
+		t.Fatal("consumer did not dismiss confirmed canceled prompt")
 	}
 	var runtimeCanceled bool
 	if err := pool.QueryRow(
@@ -1086,10 +1146,11 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(oauthOnly, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "ignored" {
 		t.Fatalf("oauth token revoked response=%v want ignored", response)
 	}
-	updated, err := fixture.Project.Store.Integrations().GetIntegrationInstall(
+	updated, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1097,7 +1158,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get install: %v", err)
 	}
-	if updated.State != integrationstore.IntegrationInstallStateActive {
+	if updated.State != integrationstore.IntegrationConnectionStateActive {
 		t.Fatalf("oauth-only revoke disabled install: %+v", updated)
 	}
 
@@ -1119,10 +1180,11 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(botRevoked, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "disabled" {
 		t.Fatalf("bot token revoked response=%v want disabled", response)
 	}
-	updated, err = fixture.Project.Store.Integrations().GetIntegrationInstall(
+	updated, err = fixture.Project.Store.Integrations().GetIntegrationConnection(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1130,7 +1192,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get disabled install: %v", err)
 	}
-	if updated.State != integrationstore.IntegrationInstallStateDisabled {
+	if updated.State != integrationstore.IntegrationConnectionStateDisabled {
 		t.Fatalf("install state=%q want disabled", updated.State)
 	}
 
@@ -1160,10 +1222,11 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(mention, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "ignored" {
 		t.Fatalf("disabled event response=%v want ignored", response)
 	}
-	_, err = fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	_, err = slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1208,18 +1271,19 @@ func TestSlackEventsAppUninstalledDisablesInstall(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "disabled" {
 		t.Fatalf("app_uninstalled response=%v want disabled", response)
 	}
-	updated, err := fixture.Project.Store.Integrations().GetIntegrationInstall(
+	updated, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
 	)
 	if err != nil {
-		t.Fatalf("get integration install: %v", err)
+		t.Fatalf("get integration connection: %v", err)
 	}
-	if updated.State != integrationstore.IntegrationInstallStateDisabled {
+	if updated.State != integrationstore.IntegrationConnectionStateDisabled {
 		t.Fatalf("install state=%q want disabled", updated.State)
 	}
 }
@@ -1242,7 +1306,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 		t,
 		ctx,
 		fixture.Project,
-		fixture.Install.AgentProfileID,
+		fixture.ProfileID,
 		"A_SECOND",
 		"T123",
 		"U_SECOND_BOT",
@@ -1274,10 +1338,11 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "second-signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("second app event response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("second app event response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		secondInstall.ID,
@@ -1286,7 +1351,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get second app integration target: %v", err)
 	}
-	_, err = fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	_, err = slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1303,8 +1368,18 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 		integrationTarget.AgentID,
 		"slack-events-multiple-apps",
 	)
+	require.NoError(
+		t,
+		(integration.InteractionPresenter{Store: fixture.Project.Store, HTTPClient: fixture.Slack.HTTPClient}).Present(
+			ctx,
+			fixture.Project.ProjectUUID,
+			integrationTarget.AgentID,
+			interaction.ID,
+		),
+	)
 	actionBody := slackActionFormBody(t, slackActionPayloadInput{
-		Install:             secondInstall,
+		Install:   secondInstall,
+		ChannelID: "CSECOND", MessageTS: "777.888", ThreadTS: "555.111",
 		AgentID:             integrationTarget.AgentID,
 		IntegrationTargetID: integrationTarget.ID,
 		InteractionID:       interaction.ID,
@@ -1354,10 +1429,11 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(uninstall, "second-signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "disabled" {
 		t.Fatalf("second app uninstall response=%v want disabled", response)
 	}
-	first, err := fixture.Project.Store.Integrations().GetIntegrationInstall(
+	first, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1365,7 +1441,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get first install: %v", err)
 	}
-	second, err := fixture.Project.Store.Integrations().GetIntegrationInstall(
+	second, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
 		ctx,
 		fixture.Project.ProjectUUID,
 		secondInstall.ID,
@@ -1373,8 +1449,8 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get second install: %v", err)
 	}
-	if first.State != integrationstore.IntegrationInstallStateActive ||
-		second.State != integrationstore.IntegrationInstallStateDisabled {
+	if first.State != integrationstore.IntegrationConnectionStateActive ||
+		second.State != integrationstore.IntegrationConnectionStateDisabled {
 		t.Fatalf("install statees: first=%q second=%q", first.State, second.State)
 	}
 }
@@ -1438,6 +1514,7 @@ func TestSlackEventsRejectWrongSignedIdentity(t *testing.T) {
 				tt.status,
 				unitSlackSignedHeaders(tt.body, "signing-secret"),
 			)
+			drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 		})
 	}
 }
@@ -1521,6 +1598,7 @@ func TestSlackEventsStableCallbackUsesInstallSigningSecret(t *testing.T) {
 		http.StatusUnauthorized,
 		unitSlackSignedHeaders(body, "signing-secret-a"),
 	)
+	drainSlackJourney(t, ctx, project, slack.OAuthConfig{APIURL: slackServer.URL, HTTPClient: slackServer.Client()})
 	response := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1531,10 +1609,11 @@ func TestSlackEventsStableCallbackUsesInstallSigningSecret(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret-b"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("event response=%v want accepted", response)
+	drainSlackJourney(t, ctx, project, slack.OAuthConfig{APIURL: slackServer.URL, HTTPClient: slackServer.Client()})
+	if response["ok"] != "received" {
+		t.Fatalf("event response=%v want received", response)
 	}
-	if _, err := project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	if _, err := slackJourneyTarget(t, pool, project.Store.Integrations(),
 		ctx,
 		project.ProjectUUID,
 		installB.ID,
@@ -1542,7 +1621,7 @@ func TestSlackEventsStableCallbackUsesInstallSigningSecret(t *testing.T) {
 	); err != nil {
 		t.Fatalf("get install B integration target: %v", err)
 	}
-	_, err := project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	_, err := slackJourneyTarget(t, pool, project.Store.Integrations(),
 		ctx,
 		project.ProjectUUID,
 		installA.ID,
@@ -1582,7 +1661,8 @@ func TestSlackEventsIgnoreRemoteAndBotEvents(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(remote, "signing-secret"),
 	)
-	_, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	_, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1609,7 +1689,8 @@ func TestSlackEventsIgnoreRemoteAndBotEvents(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(bot, "signing-secret"),
 	)
-	_, err = fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	_, err = slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1680,7 +1761,8 @@ func TestSlackEventsDMCreatesInputAndTarget(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1788,7 +1870,7 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 	body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
 		`"event_id":"Ev-dm-file","authorizations":[{"team_id":"T123","user_id":"U_BOT",` +
 		`"is_bot":true}],"event":{"type":"message","subtype":"file_share","user":"U123",` +
-		`"text":"what is this?","channel":"D_FILE","channel_type":"im","ts":"111.222",` +
+		`"text":"what is this?","channel":"DFILE","channel_type":"im","ts":"111.222",` +
 		`"team":"T123","user_profile":{"display_name":"Asher"},"files":[` +
 		`{"id":"F123","name":"stub","file_access":"check_file_info"}` +
 		`]}}`
@@ -1802,14 +1884,15 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("dm file response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("dm file response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
-		"D_FILE",
+		"DFILE",
 	)
 	if err != nil {
 		t.Fatalf("get dm file integration target: %v", err)
@@ -1817,12 +1900,12 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
-					Channel: "D_FILE",
+					Channel: "DFILE",
 					TS:      "111.222",
 					Files:   []slack.File{{ID: "F123"}},
 				},
@@ -1896,7 +1979,7 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 	body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
 		`"event_id":"Ev-skipped-file","authorizations":[{"team_id":"T123","user_id":"U_BOT",` +
 		`"is_bot":true}],"event":{"type":"message","subtype":"file_share","user":"U123",` +
-		`"text":"please inspect","channel":"D_SKIP","channel_type":"im","ts":"111.333",` +
+		`"text":"please inspect","channel":"DSKIP","channel_type":"im","ts":"111.333",` +
 		`"team":"T123","files":[{"id":"F_LARGE","name":"large.png","mimetype":"image/png",` +
 		`"size":` + strconv.Itoa(maxAttachmentBytes+1) + `,` +
 		`"url_private_download":"` + slackServer.URL + `/files/large.png"}]}}`
@@ -1910,14 +1993,15 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("skipped file response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("skipped file response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
-		"D_SKIP",
+		"DSKIP",
 	)
 	if err != nil {
 		t.Fatalf("get skipped file integration target: %v", err)
@@ -1925,12 +2009,12 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
-					Channel: "D_SKIP",
+					Channel: "DSKIP",
 					TS:      "111.333",
 					Files:   []slack.File{{ID: "F_LARGE"}},
 				},
@@ -2049,7 +2133,8 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(mention, "signing-secret"),
 	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2076,14 +2161,15 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(fileShare, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("delayed file response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("delayed file response=%v want received", response)
 	}
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
@@ -2104,10 +2190,10 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `send_integration_message` at all.\n\n"+
+		"This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `slack_post_message` at all.\n\n"+
 			"<@U123> (Ada) in <#CDELAY> (#delayed), thread 222.333:\n"+
 			"Files for the previous Slack message.",
-		[]bool{true, true},
+		[]bool{true},
 	)
 	assertAgentInputArtifactBlock(t, ctx, pool, input)
 	response = requestJSONWithHeaders(
@@ -2120,8 +2206,9 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(fileShare, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("delayed file replay response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("delayed file replay response=%v want received", response)
 	}
 	var inputCount int
 	if err := pool.QueryRow(ctx, `
@@ -2199,10 +2286,11 @@ func TestSlackEventsFileShareBeforeAppMentionSuppressesMentionDuplicate(t *testi
 		http.StatusOK,
 		unitSlackSignedHeaders(fileShare, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("file share response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("file share response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2226,8 +2314,9 @@ func TestSlackEventsFileShareBeforeAppMentionSuppressesMentionDuplicate(t *testi
 		http.StatusOK,
 		unitSlackSignedHeaders(appMention, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("app mention duplicate response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("app mention duplicate response=%v want received", response)
 	}
 	var inputCount int
 	if err := pool.QueryRow(ctx, `
@@ -2304,10 +2393,11 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("mentioned thread file response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("mentioned thread file response=%v want received", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2319,8 +2409,8 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
@@ -2403,10 +2493,11 @@ func TestSlackEventsUnmappedRootFileShareIgnored(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "ignored" {
-		t.Fatalf("unmapped root file response=%v want ignored", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("unmapped root file response=%v want received", response)
 	}
-	if _, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	if _, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2471,15 +2562,16 @@ func TestSlackEventsReactionFailureStillAcceptsInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("event response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("event response=%v want received", response)
 	}
 	select {
 	case <-reactionAttempts:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for slack reaction attempt")
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2491,9 +2583,9 @@ func TestSlackEventsReactionFailureStillAcceptsInput(t *testing.T) {
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:D123:111.222",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:D123:111.222",
 		},
 	); err != nil {
 		t.Fatalf("get integration input: %v", err)
@@ -2580,6 +2672,7 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if historyForm["channel"] != "C123" || historyForm["ts"] != "111.222" ||
 		historyForm["latest"] != "222.333" ||
 		historyForm["inclusive"] != "false" ||
@@ -2596,13 +2689,14 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if historyCalls != 1 {
 		t.Fatalf(
 			"replayed event fetched history %d times, want 1",
 			historyCalls,
 		)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2614,9 +2708,9 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:222.333",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:222.333",
 		},
 	)
 	if err != nil {
@@ -2688,7 +2782,8 @@ func TestSlackEventsHistoryRateLimitContinues(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2700,9 +2795,9 @@ func TestSlackEventsHistoryRateLimitContinues(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:111.222",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -2751,10 +2846,11 @@ func TestSlackEventsLaunchesWithoutExplicitIntegrationSendTool(
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("response=%v want received", response)
 	}
-	_, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	_, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -2779,9 +2875,11 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 					http.StatusOK,
 					slackOAuthTestResponse("xoxb-events-token"),
 				)
-			case "/users.info":
+			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
 				return
+			case "/conversations.history", "/conversations.replies":
+				writeJSON(w, 200, map[string]any{"ok": true, "messages": []any{}})
 			case "/chat.postMessage":
 				var payload map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -2846,7 +2944,7 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 
 	profileID, err := publicid.Encode(
 		publicid.KindAgentProfile,
-		fixture.Install.AgentProfileID,
+		fixture.ProfileID,
 	)
 	if err != nil {
 		t.Fatalf("encode profile id: %v", err)
@@ -2854,7 +2952,7 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 	profile, err := fixture.Project.Store.Execution().GetAgentProfile(
 		ctx,
 		fixture.Project.ProjectUUID,
-		fixture.Install.AgentProfileID,
+		fixture.ProfileID,
 	)
 	if err != nil {
 		t.Fatalf("get agent profile: %v", err)
@@ -2875,7 +2973,7 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 		"    max_machines: 1\n" +
 		"    initial_num_machines: 1\n" +
 		"tools:\n" +
-		"  send_integration_message: {}\n"
+		"  slack_post_message: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		fixture.Handler,
@@ -2891,7 +2989,10 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 		fixture.Handler,
 		http.MethodPost,
 		fixture.Project.ProjectPath+"/agent-profiles/"+profileID+"/config",
-		`{"config":"`+testutil.RequireType[string](t, config["id"])+`","expected_current_config_id":"`+currentConfigID+`"}`,
+		`{"config":"`+testutil.RequireType[string](
+			t,
+			config["id"],
+		)+`","expected_current_config_id":"`+currentConfigID+`"}`,
 		"idem-slack-events-launch-failure-config",
 		http.StatusOK,
 		authHeaders(fixture.Project.AdminToken),
@@ -2914,8 +3015,16 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 			http.StatusOK,
 			unitSlackSignedHeaders(body, "signing-secret"),
 		)
-		if response["ok"] != "launch_failed" {
-			t.Fatalf("response=%v want launch_failed", response)
+		_, consumeErr := slackJourneyWorker(fixture.Project, fixture.Slack).RunOnce(ctx)
+		require.True(
+			t,
+			errors.Is(consumeErr, storeerr.ErrStateTransitionConflict) ||
+				errors.Is(consumeErr, storeerr.ErrManagedWorkAdmissionDenied),
+			"%v",
+			consumeErr,
+		)
+		if response["ok"] != "received" {
+			t.Fatalf("response=%v want received", response)
 		}
 		select {
 		case message := <-postedMessages:
@@ -2930,7 +3039,7 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 			t.Fatal("timed out waiting for Slack launch failure message")
 		}
 		providerRef := "C123:" + threadTS
-		if _, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+		if _, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 			ctx,
 			fixture.Project.ProjectUUID,
 			fixture.Install.ID,
@@ -2939,19 +3048,66 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 			t.Fatalf("launch failure integration target err=%v want not found", err)
 		}
 		var agentCount int
-		idempotencyKey := "integration:" + fixture.Install.Provider + ":" +
-			fixture.Install.ID.String() + ":" + providerRef
 		if err := pool.QueryRow(
 			ctx,
-			`SELECT count(*) FROM agents WHERE project_id = $1 AND idempotency_key = $2`,
+			`SELECT count(*) FROM agents WHERE project_id = $1`,
 			fixture.Project.ProjectUUID,
-			idempotencyKey,
 		).Scan(&agentCount); err != nil {
 			t.Fatalf("count failed launch agents: %v", err)
 		}
 		if agentCount != 0 {
 			t.Fatalf("failed launch agent count=%d want 0", agentCount)
 		}
+		var plan, progress json.RawMessage
+		var state, lastError string
+		require.NoError(
+			t,
+			pool.QueryRow(
+				ctx,
+				`SELECT plan,progress,state,last_error FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2`,
+				fixture.Project.ProjectUUID,
+				"slack:"+eventID,
+			).Scan(
+				&plan,
+				&progress,
+				&state,
+				&lastError,
+			),
+		)
+		require.Equal(t, "pending", state)
+		require.NotEmpty(t, lastError)
+		require.NotEqual(t, "{}", string(plan))
+		require.Contains(t, string(progress), "launch_failure_notice")
+		require.NotContains(t, string(progress), "committed")
+		_, err = pool.Exec(
+			ctx,
+			`UPDATE integration_inbox SET available_at=now() WHERE project_id=$1 AND receipt_key=$2`,
+			fixture.Project.ProjectUUID,
+			"slack:"+eventID,
+		)
+		require.NoError(t, err)
+		worked, retryErr := slackJourneyWorker(fixture.Project, fixture.Slack).RunOnce(ctx)
+		require.True(t, worked)
+		require.Error(t, retryErr)
+		select {
+		case message := <-postedMessages:
+			t.Fatalf("repeated failure notice: %v", message)
+		default:
+		}
+		var retained json.RawMessage
+		require.NoError(
+			t,
+			pool.QueryRow(
+				ctx,
+				`SELECT plan FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2`,
+				fixture.Project.ProjectUUID,
+				"slack:"+eventID,
+			).Scan(
+				&retained,
+			),
+		)
+		require.JSONEq(t, string(plan), string(retained))
+
 	}
 
 	assertLaunchFailure("Ev-launch-capacity-failure", "111.444")
@@ -2978,7 +3134,7 @@ SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
 	assertLaunchFailure("Ev-launch-admission-failure", "111.445")
 }
 
-func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
+func TestSlackEventsLauncherIndependentOfDisabledPostTool(
 	t *testing.T,
 ) {
 	t.Parallel()
@@ -2996,7 +3152,7 @@ func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 
 	profileID, err := publicid.Encode(
 		publicid.KindAgentProfile,
-		fixture.Install.AgentProfileID,
+		fixture.ProfileID,
 	)
 	if err != nil {
 		t.Fatalf("encode profile id: %v", err)
@@ -3004,7 +3160,7 @@ func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 	profile, err := fixture.Project.Store.Execution().GetAgentProfile(
 		ctx,
 		fixture.Project.ProjectUUID,
-		fixture.Install.AgentProfileID,
+		fixture.ProfileID,
 	)
 	if err != nil {
 		t.Fatalf("get agent profile: %v", err)
@@ -3021,7 +3177,7 @@ func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
 		"tools:\n" +
-		"  send_integration_message:\n" +
+		"  slack_post_message:\n" +
 		"    enabled: false\n"
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -3038,7 +3194,10 @@ func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 		fixture.Handler,
 		http.MethodPost,
 		fixture.Project.ProjectPath+"/agent-profiles/"+profileID+"/config",
-		`{"config":"`+testutil.RequireType[string](t, config["id"])+`","expected_current_config_id":"`+currentConfigID+`"}`,
+		`{"config":"`+testutil.RequireType[string](
+			t,
+			config["id"],
+		)+`","expected_current_config_id":"`+currentConfigID+`"}`,
 		"idem-slack-events-disabled-send-tool-config",
 		http.StatusOK,
 		authHeaders(fixture.Project.AdminToken),
@@ -3054,18 +3213,31 @@ func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "ignored" {
-		t.Fatalf("response=%v want ignored", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("response=%v want received", response)
 	}
-	_, err = fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	target, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
 		"C123:111.333",
 	)
-	if !storeerr.IsNotFound(err) {
-		t.Fatalf("disabled send tool event created integration target, err=%v", err)
+	if err != nil {
+		t.Fatalf("disabled post tool must not prevent app launch: %v", err)
 	}
+	agent, err := fixture.Project.Store.Execution().GetAgentInProject(ctx, fixture.Project.ProjectUUID, target.AgentID)
+	require.NoError(t, err)
+	compiledConfig, _, err := fixture.Project.Store.Execution().GetAgentConfig(
+		ctx,
+		fixture.Project.ProjectUUID,
+		agent.CurrentConfigID,
+	)
+	require.NoError(t, err)
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(compiledConfig.CompiledDefinition, &compiled))
+	require.False(t, compiled.Tools[toolcatalog.ToolNameSlackPostMessage].Enabled)
+	require.NotEmpty(t, compiled.AppResources)
 }
 
 func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
@@ -3096,8 +3268,9 @@ func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(mention, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("mention response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("mention response=%v want received", response)
 	}
 	userChange := `{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
 		`"event_id":"Ev-name-update-user","authorizations":[{"team_id":"T123",` +
@@ -3113,6 +3286,7 @@ func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(userChange, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "updated" {
 		t.Fatalf("user_profile_changed response=%v want updated", response)
 	}
@@ -3143,10 +3317,11 @@ func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(rename, "signing-secret"),
 	)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "updated" {
 		t.Fatalf("channel_rename response=%v want updated", response)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -3238,13 +3413,14 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "accepted" {
-		t.Fatalf("slow lookup response=%v want accepted", response)
+	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
+	if response["ok"] != "received" {
+		t.Fatalf("slow lookup response=%v want received", response)
 	}
 	if elapsed := time.Since(started); elapsed > 3*time.Second {
 		t.Fatalf("slow lookups delayed event handling by %s", elapsed)
 	}
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+	integrationTarget, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -3256,9 +3432,9 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: fixture.Install.ID,
-			IntegrationTargetID:  integrationTarget.ID,
-			IdempotencyKey:       "slack:message:T123:C123:111.222",
+			IntegrationConnectionID: fixture.Install.ID,
+			IntegrationTargetID:     integrationTarget.ID,
+			IdempotencyKey:          "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -3276,438 +3452,6 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 			"<@U_BOT> (Omnara) hello",
 		[]bool{true, false},
 	)
-}
-
-func TestSlackActionsResolveQuestionAsSlackActor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	slackServer := newSlackEventsTestServer(t)
-	defer slackServer.Close()
-	fixture := newSlackEventsIntegrationFixture(
-		t,
-		ctx,
-		pool,
-		slackServer,
-		"slack-actions-question",
-	)
-	eventBody := `{
-		"type":"event_callback",
-		"team_id":"T123",
-		"api_app_id":"A123",
-		"event_id":"Ev-actions-source",
-		"authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],
-		"event":{
-			"type":"app_mention",
-			"user":"U123",
-			"text":"<@U_BOT> ask",
-			"channel":"C123",
-			"channel_type":"channel",
-			"ts":"111.444",
-			"team":"T123"
-		}
-	}`
-	requestJSONWithHeaders(
-		t,
-		fixture.Handler,
-		http.MethodPost,
-		integrationEventsPath,
-		eventBody,
-		"",
-		http.StatusOK,
-		unitSlackSignedHeaders(eventBody, "signing-secret"),
-	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
-		ctx,
-		fixture.Project.ProjectUUID,
-		fixture.Install.ID,
-		"C123:111.444",
-	)
-	if err != nil {
-		t.Fatalf("get integration target: %v", err)
-	}
-	interaction := createQuestionInteractionForAgent(
-		t,
-		ctx,
-		fixture.Project.Store,
-		fixture.Project,
-		integrationTarget.AgentID,
-		"slack-actions-question",
-	)
-	if _, err := pool.Exec(ctx, `
-INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
-VALUES ($1, $2, $3, 'U999', 'Grace Hopper', $4, $4)
-ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id)
-DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at
-`,
-		fixture.Project.ProjectUUID,
-		identitystore.ActorProviderSlack,
-		fixture.Install.ProviderTenantID,
-		time.Now().UTC(),
-	); err != nil {
-		t.Fatalf("seed action slack actor: %v", err)
-	}
-	actionValue := slack.PromptActionValue{
-		Type: slack.PromptType,
-		InteractionID: testPublicID(
-			t,
-			publicid.KindAgentInteraction,
-			interaction.ID,
-		),
-		AgentID: testPublicID(
-			t,
-			publicid.KindAgent,
-			integrationTarget.AgentID,
-		),
-		IntegrationTargetID: testPublicID(
-			t,
-			publicid.KindIntegrationTarget,
-			integrationTarget.ID,
-		),
-	}
-	valueBody, err := json.Marshal(actionValue)
-	if err != nil {
-		t.Fatalf("marshal action value: %v", err)
-	}
-	payloadBody, err := json.Marshal(map[string]any{
-		"type":       "block_actions",
-		"api_app_id": "A123",
-		"team":       map[string]string{"id": "T123"},
-		"user": map[string]string{
-			"id":      "U999",
-			"team_id": "T123",
-			"name":    "ada",
-		},
-		"actions": []map[string]string{
-			{"action_id": slack.PromptAction, "value": string(valueBody)},
-		},
-		"state": map[string]any{"values": map[string]any{
-			"omnara_question_0": map[string]any{
-				slack.PromptAnswerAction: map[string]any{
-					"type":            "radio_buttons",
-					"selected_option": map[string]string{"value": "0"},
-				},
-			},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("marshal slack action payload: %v", err)
-	}
-	form := url.Values{"payload": {string(payloadBody)}}.Encode()
-	headers := unitSlackSignedHeaders(form, "signing-secret")
-	headers["Content-Type"] = "application/x-www-form-urlencoded"
-	response := requestJSONWithHeaders(
-		t,
-		fixture.Handler,
-		http.MethodPost,
-		integrationActionsPath,
-		form,
-		"",
-		http.StatusOK,
-		headers,
-	)
-	if response["ok"] != "resolved" {
-		t.Fatalf("action response=%v want resolved", response)
-	}
-	resolved, found, err := fixture.Project.Store.Execution().GetAgentInteraction(
-		ctx,
-		fixture.Project.ProjectUUID,
-		integrationTarget.AgentID,
-		interaction.ID,
-	)
-	if err != nil {
-		t.Fatalf("get resolved interaction: %v", err)
-	}
-	if !found || resolved.State != executionstore.AgentInteractionStateResolved ||
-		resolved.ResolvedByInputID == uuid.Nil {
-		t.Fatalf("resolved interaction found=%v record=%+v", found, resolved)
-	}
-	resolvingActorID, resolvingInputKind := interactionResolvingInput(
-		t,
-		ctx,
-		pool,
-		fixture.Project.ProjectUUID,
-		integrationTarget.AgentID,
-		interaction.ID,
-	)
-	if resolvingInputKind != "interaction_response" {
-		t.Fatalf("resolving input kind = %q, want interaction_response", resolvingInputKind)
-	}
-	resolvingActor, err := fixture.Project.Store.Execution().GetActor(
-		ctx,
-		fixture.Project.ProjectUUID,
-		resolvingActorID,
-	)
-	if err != nil {
-		t.Fatalf("get resolving actor: %v", err)
-	}
-	if resolvingActor.Provider != identitystore.ActorProviderSlack ||
-		resolvingActor.ProviderUserID != "U999" {
-		t.Fatalf("resolving actor = %+v, want slack U999", resolvingActor)
-	}
-	clickerNames, err := fixture.Project.Store.Execution().ListActorDisplayNames(
-		ctx,
-		fixture.Project.ProjectUUID,
-		identitystore.ActorProviderSlack,
-		fixture.Install.ProviderTenantID,
-		[]string{"U999"},
-	)
-	if err != nil {
-		t.Fatalf("list action external user display names: %v", err)
-	}
-	if clickerNames["U999"] != "Grace Hopper" {
-		t.Fatalf(
-			"action user display name = %q, want stored Grace Hopper over payload name",
-			clickerNames["U999"],
-		)
-	}
-}
-
-func TestSlackActionsQuestionSubmissionRequiresAnswer(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	slackServer := newSlackEventsTestServer(t)
-	defer slackServer.Close()
-	fixture := newSlackEventsIntegrationFixture(
-		t,
-		ctx,
-		pool,
-		slackServer,
-		"slack-actions-empty-answer",
-	)
-	eventBody := `{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
-		`"event_id":"Ev-empty-answer-source","authorizations":[{"team_id":"T123",` +
-		`"user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123",` +
-		`"text":"<@U_BOT> ask","channel":"CEMPTY","channel_type":"channel",` +
-		`"ts":"111.444","team":"T123"}}`
-	requestJSONWithHeaders(
-		t,
-		fixture.Handler,
-		http.MethodPost,
-		integrationEventsPath,
-		eventBody,
-		"",
-		http.StatusOK,
-		unitSlackSignedHeaders(eventBody, "signing-secret"),
-	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
-		ctx,
-		fixture.Project.ProjectUUID,
-		fixture.Install.ID,
-		"CEMPTY:111.444",
-	)
-	if err != nil {
-		t.Fatalf("get integration target: %v", err)
-	}
-	interaction := createQuestionInteractionForAgent(
-		t,
-		ctx,
-		fixture.Project.Store,
-		fixture.Project,
-		integrationTarget.AgentID,
-		"slack-actions-empty-answer",
-	)
-	body := slackActionFormBody(t, slackActionPayloadInput{
-		Install:             fixture.Install,
-		AgentID:             integrationTarget.AgentID,
-		IntegrationTargetID: integrationTarget.ID,
-		InteractionID:       interaction.ID,
-		UserID:              "U_ACTION",
-	})
-	response := requestJSONWithHeaders(
-		t,
-		fixture.Handler,
-		http.MethodPost,
-		integrationActionsPath,
-		body,
-		"",
-		http.StatusOK,
-		unitSlackSignedHeaders(body, "signing-secret"),
-	)
-	if response["ok"] != "invalid" ||
-		response["text"] != "question 0 requires an answer" {
-		t.Fatalf("action response=%v want invalid answer response", response)
-	}
-	open, found, err := fixture.Project.Store.Execution().GetAgentInteraction(
-		ctx,
-		fixture.Project.ProjectUUID,
-		integrationTarget.AgentID,
-		interaction.ID,
-	)
-	if err != nil {
-		t.Fatalf("get interaction: %v", err)
-	}
-	if !found || open.State != executionstore.AgentInteractionStateOpen {
-		t.Fatalf("interaction=%+v found=%v", open, found)
-	}
-}
-
-func TestSlackActionsResolvePermissionAsSlackActor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	slackServer := newSlackEventsTestServer(t)
-	defer slackServer.Close()
-	type slackActionMessageUpdate struct {
-		Method string
-		Body   map[string]any
-	}
-	var releaseOnce sync.Once
-	responseReleased := make(chan struct{})
-	releaseResponse := func() {
-		releaseOnce.Do(func() { close(responseReleased) })
-	}
-	defer releaseResponse()
-	messageUpdates := make(chan slackActionMessageUpdate, 1)
-	responseServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		messageUpdates <- slackActionMessageUpdate{Method: r.Method, Body: body}
-		select {
-		case <-responseReleased:
-		case <-r.Context().Done():
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer responseServer.Close()
-	responseURL := "https://hooks.slack.com/actions/T123/123/secret"
-	fixture := newSlackEventsIntegrationFixture(
-		t,
-		ctx,
-		pool,
-		slackServer,
-		"slack-actions-permission",
-		slackActionResponseTestClient(t, responseServer),
-	)
-	eventBody := `{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
-		`"event_id":"Ev-permission-source","authorizations":[{"team_id":"T123",` +
-		`"user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123",` +
-		`"text":"<@U_BOT> ask","channel":"CPERMISSION","channel_type":"channel",` +
-		`"ts":"111.444","team":"T123"}}`
-	requestJSONWithHeaders(
-		t,
-		fixture.Handler,
-		http.MethodPost,
-		integrationEventsPath,
-		eventBody,
-		"",
-		http.StatusOK,
-		unitSlackSignedHeaders(eventBody, "signing-secret"),
-	)
-	integrationTarget, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
-		ctx,
-		fixture.Project.ProjectUUID,
-		fixture.Install.ID,
-		"CPERMISSION:111.444",
-	)
-	if err != nil {
-		t.Fatalf("get integration target: %v", err)
-	}
-	interaction := createPermissionInteractionForAgent(
-		t,
-		ctx,
-		fixture.Project.Store,
-		fixture.Project,
-		integrationTarget.AgentID,
-		"slack-actions-permission",
-	)
-	body := slackActionFormBody(t, slackActionPayloadInput{
-		Install:             fixture.Install,
-		AgentID:             integrationTarget.AgentID,
-		IntegrationTargetID: integrationTarget.ID,
-		InteractionID:       interaction.ID,
-		UserID:              "U_ACTION",
-		OptionValue:         strconv.Itoa(toolpermission.AllowOptionIndex),
-		ResponseURL:         responseURL,
-	})
-	timeoutRelease := time.AfterFunc(1500*time.Millisecond, releaseResponse)
-	defer timeoutRelease.Stop()
-	startedAt := time.Now()
-	response := requestJSONWithHeaders(
-		t,
-		fixture.Handler,
-		http.MethodPost,
-		integrationActionsPath,
-		body,
-		"",
-		http.StatusOK,
-		unitSlackSignedHeaders(body, "signing-secret"),
-	)
-	elapsed := time.Since(startedAt)
-	releaseResponse()
-	if response["ok"] != "resolved" {
-		t.Fatalf("action response=%v want resolved", response)
-	}
-	if elapsed > time.Second {
-		t.Fatalf("action callback took %s waiting for slack response_url update", elapsed)
-	}
-	resolved, found, err := fixture.Project.Store.Execution().GetAgentInteraction(
-		ctx,
-		fixture.Project.ProjectUUID,
-		integrationTarget.AgentID,
-		interaction.ID,
-	)
-	if err != nil {
-		t.Fatalf("get interaction: %v", err)
-	}
-	if !found || resolved.State != executionstore.AgentInteractionStateResolved ||
-		resolved.ResolvedByInputID == uuid.Nil {
-		t.Fatalf("interaction=%+v found=%v", resolved, found)
-	}
-	resolvingActorID, _ := interactionResolvingInput(
-		t,
-		ctx,
-		pool,
-		fixture.Project.ProjectUUID,
-		integrationTarget.AgentID,
-		interaction.ID,
-	)
-	if actor, err := fixture.Project.Store.Execution().GetActor(
-		ctx,
-		fixture.Project.ProjectUUID,
-		resolvingActorID,
-	); err != nil || actor.Provider != identitystore.ActorProviderSlack {
-		t.Fatalf("resolving actor=%+v err=%v, want slack actor", actor, err)
-	}
-	var resolution interactionform.Resolution
-	if err := json.Unmarshal(resolved.Resolution, &resolution); err != nil {
-		t.Fatalf("unmarshal resolution: %v", err)
-	}
-	if len(resolution.Answers) != 1 ||
-		len(resolution.Answers[0].OptionIndices) != 1 ||
-		resolution.Answers[0].OptionIndices[0] != toolpermission.AllowOptionIndex {
-		t.Fatalf("resolution=%+v want allow", resolution)
-	}
-	select {
-	case update := <-messageUpdates:
-		if update.Method != http.MethodPost {
-			t.Fatalf("slack response method=%q want POST", update.Method)
-		}
-		if update.Body["replace_original"] != true ||
-			update.Body["text"] != "Permission allowed for run_command." {
-			t.Fatalf("slack response body=%v", update.Body)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for slack response_url update")
-	}
-	actionNames, err := fixture.Project.Store.Execution().ListActorDisplayNames(
-		ctx,
-		fixture.Project.ProjectUUID,
-		identitystore.ActorProviderSlack,
-		fixture.Install.ProviderTenantID,
-		[]string{"U_ACTION"},
-	)
-	if err != nil {
-		t.Fatalf("list action external user display names: %v", err)
-	}
-	if actionNames["U_ACTION"] != "Action User" {
-		t.Fatalf("action user display name = %q, want Action User", actionNames["U_ACTION"])
-	}
 }
 
 func TestSlackActionsRejectWrongSignedIdentity(t *testing.T) {
@@ -3772,9 +3516,11 @@ func TestSlackActionsIgnoreSignedMalformedActionValue(t *testing.T) {
 }
 
 type slackEventsIntegrationFixture struct {
-	Handler http.Handler
-	Project publicHTTPProject
-	Install integrationstore.IntegrationInstallRecord
+	Slack     slack.OAuthConfig
+	ProfileID uuid.UUID
+	Handler   http.Handler
+	Project   publicHTTPProject
+	Install   integrationstore.IntegrationConnectionRecord
 }
 
 func newSlackEventsIntegrationFixture(
@@ -3786,7 +3532,9 @@ func newSlackEventsIntegrationFixture(
 	clients ...*http.Client,
 ) slackEventsIntegrationFixture {
 	t.Helper()
-	client := slackServer.Client()
+	target, err := url.Parse(slackServer.URL)
+	require.NoError(t, err)
+	client := &http.Client{Transport: capturedTestTransport{base: slackServer.Client().Transport, target: target}}
 	if len(clients) > 0 && clients[0] != nil {
 		client = clients[0]
 	}
@@ -3827,40 +3575,12 @@ func newSlackEventsIntegrationFixture(
 		seed+"-code",
 	)
 	return slackEventsIntegrationFixture{
-		Handler: handler,
-		Project: project,
-		Install: install,
+		Slack:     slack.OAuthConfig{APIURL: slackServer.URL, HTTPClient: client},
+		ProfileID: mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"])),
+		Handler:   handler,
+		Project:   project,
+		Install:   install,
 	}
-}
-
-func slackActionResponseTestClient(t *testing.T, server *httptest.Server) *http.Client {
-	t.Helper()
-	target, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("parse response server URL: %v", err)
-	}
-	base := server.Client()
-	transport := base.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	return &http.Client{
-		Transport: slackActionResponseTestTransport{target: target, base: transport},
-	}
-}
-
-type slackActionResponseTestTransport struct {
-	target *url.URL
-	base   http.RoundTripper
-}
-
-func (t slackActionResponseTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	clone := req.Clone(req.Context())
-	if clone.URL.Scheme == "https" && clone.URL.Hostname() == "hooks.slack.com" {
-		clone.URL.Scheme = t.target.Scheme
-		clone.URL.Host = t.target.Host
-	}
-	return t.base.RoundTrip(clone)
 }
 
 func newSlackEventsTestServer(t *testing.T) *httptest.Server {
@@ -3870,6 +3590,7 @@ func newSlackEventsTestServer(t *testing.T) *httptest.Server {
 func newSlackEventsTestServerWithReactionAttempts(
 	t *testing.T,
 	reactionAttempts chan<- struct{},
+	dismissals ...chan<- struct{},
 ) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(
@@ -3890,6 +3611,19 @@ func newSlackEventsTestServerWithReactionAttempts(
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
 				return
+			case "/api/chat.postMessage":
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					http.Error(w, "invalid body", http.StatusBadRequest)
+					return
+				}
+				writeJSON(w, 200, map[string]any{"ok": true, "channel": body["channel"], "ts": "777.888"})
+			case "/api/chat.update":
+				writeJSON(w, 200, map[string]any{"ok": true})
+				if len(dismissals) > 0 {
+					dismissals[0] <- struct{}{}
+				}
 			case "/reactions.add":
 				if reactionAttempts != nil {
 					reactionAttempts <- struct{}{}
@@ -4046,7 +3780,7 @@ func createSlackHTTPInstall(
 	project publicHTTPProject,
 	profileID uuid.UUID,
 	appID, workspaceID, botUserID, signingSecret string,
-) integrationstore.IntegrationInstallRecord {
+) integrationstore.IntegrationConnectionRecord {
 	t.Helper()
 	credentialPayload, err := slack.CredentialPayload(slack.AppCredentials{
 		BotToken:      "xoxb-" + appID,
@@ -4064,17 +3798,14 @@ func createSlackHTTPInstall(
 		appID+"-credentials",
 		credentialPayload,
 	)
-	install, err := project.Store.Integrations().UpsertIntegrationInstall(
+	install, err := project.Store.Integrations().CreateIntegrationConnection(
 		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
+		integrationstore.SaveIntegrationConnectionInput{
 			OrgID:              project.OrgUUID,
 			ProjectID:          project.ProjectUUID,
-			AgentProfileID:     profileID,
 			InstalledByUserID:  project.AdminUserUUID,
 			Provider:           integrationstore.IntegrationProviderSlack,
-			IntegrationKind:    slack.IntegrationKindAgentProfile,
-			ConnectionMode:     slack.ConnectionModeWebhook,
-			State:              integrationstore.IntegrationInstallStateActive,
+			State:              integrationstore.IntegrationConnectionStateActive,
 			ProviderTenantID:   workspaceID,
 			ProviderAccountRef: appID,
 			CredentialSecretID: credentialSecret,
@@ -4084,6 +3815,40 @@ func createSlackHTTPInstall(
 	)
 	if err != nil {
 		t.Fatalf("create Slack install %s/%s: %v", appID, workspaceID, err)
+	}
+	publicConnection, err := publicid.Encode(publicid.KindIntegrationConnection, install.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = project.Store.Integrations().
+		CreateProjectApp(
+			ctx,
+			integrationstore.SaveProjectAppInput{
+				OrgID:        project.OrgUUID,
+				ProjectID:    project.ProjectUUID,
+				Name:         "slack-" + install.ID.String(),
+				DefinitionID: appdefinition.Slack,
+				Enabled:      true,
+				Settings: integrationstore.ProjectAppSettings{
+					Resource: agentconfig.AgentConfigAppResourceSource{
+						Definition: appdefinition.Slack,
+						Connection: publicConnection,
+						Listener:   &appdefinition.Listener{Events: []string{"message"}},
+						InteractionHandler: &appdefinition.InteractionHandler{
+							Definition: appdefinition.SlackInteractions,
+						},
+					},
+					Launcher: &integrationstore.AppLauncher{
+						Trigger:   "mention",
+						ScopeKind: "workspace",
+						ScopeRef:  workspaceID,
+						Slots:     []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
+					},
+				},
+			},
+		)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return install
 }
@@ -4114,13 +3879,14 @@ func createSlackHTTPInstallSecret(
 }
 
 type slackActionPayloadInput struct {
-	Install             integrationstore.IntegrationInstallRecord
-	AgentID             uuid.UUID
-	IntegrationTargetID uuid.UUID
-	InteractionID       uuid.UUID
-	UserID              string
-	OptionValue         string
-	ResponseURL         string
+	ChannelID, MessageTS, ThreadTS string
+	Install                        integrationstore.IntegrationConnectionRecord
+	AgentID                        uuid.UUID
+	IntegrationTargetID            uuid.UUID
+	InteractionID                  uuid.UUID
+	UserID                         string
+	OptionValue                    string
+	ResponseURL                    string
 }
 
 func slackActionFormBody(t *testing.T, input slackActionPayloadInput) string {
@@ -4157,6 +3923,10 @@ func slackActionFormBody(t *testing.T, input slackActionPayloadInput) string {
 			"value":     valueJSON,
 		}},
 	}
+	if input.ChannelID != "" {
+		payload["channel"] = map[string]string{"id": input.ChannelID}
+		payload["message"] = map[string]string{"ts": input.MessageTS, "thread_ts": input.ThreadTS}
+	}
 	if input.ResponseURL != "" {
 		payload["response_url"] = input.ResponseURL
 	}
@@ -4176,26 +3946,6 @@ func slackActionFormBody(t *testing.T, input slackActionPayloadInput) string {
 func slackCurrentEventKey(envelope slack.EventsEnvelope) string {
 	key, _ := slack.InputIdempotencyKeyPair(envelope)
 	return key
-}
-
-func createQuestionInteractionForAgent(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	project publicHTTPProject,
-	agentID uuid.UUID,
-	seed string,
-) executionstore.AgentInteractionRecord {
-	t.Helper()
-	return createInteractionForAgent(
-		t,
-		ctx,
-		store,
-		project,
-		agentID,
-		seed,
-		"question",
-	)
 }
 
 func createPermissionInteractionForAgent(
@@ -4425,16 +4175,93 @@ func createInteractionForAgent(
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
 	}
-	if err := store.Execution().ReleaseToolCallRuntimeOwnership(
-		ctx,
-		executionstore.ReleaseToolCallRuntimeOwnershipInput{
-			ProjectID:     project.ProjectUUID,
-			AgentID:       agentID,
-			ToolCallID:    primaryRecord.ID,
-			RuntimeLockID: runtime.ID,
-		},
-	); err != nil {
-		t.Fatalf("release question tool call: %v", err)
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatal("question must commit into durable waiting")
 	}
 	return interaction
+}
+
+// slackJourneyTarget asserts this fixture's single expected live target. Product
+// routing may select several agents; it must never use this test-only shortcut.
+func slackJourneyTarget(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	integrations *integrationstore.Store,
+	ctx context.Context,
+	projectID, connectionID uuid.UUID,
+	ref string,
+) (integrationstore.IntegrationTargetRecord, error) {
+	t.Helper()
+	rows, err := pool.Query(
+		ctx,
+		`SELECT id FROM integration_targets WHERE project_id=$1 AND integration_connection_id=$2 AND provider_ref=$3 AND deleted_at IS NULL ORDER BY id`,
+		projectID,
+		connectionID,
+		ref,
+	)
+	if err != nil {
+		return integrationstore.IntegrationTargetRecord{}, err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return integrationstore.IntegrationTargetRecord{}, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return integrationstore.IntegrationTargetRecord{}, err
+	}
+	if len(ids) == 0 {
+		return integrationstore.IntegrationTargetRecord{}, storeerr.ErrNotFound
+	}
+	if len(ids) != 1 {
+		t.Fatalf("fixture expected one live target for %s, got %d; assert explicit app/slot membership", ref, len(ids))
+	}
+	return integrations.GetIntegrationTarget(ctx, projectID, ids[0])
+}
+
+// drainSlackJourney runs the same consumer/worker as production, only after the
+// HTTP acknowledgement has returned. It never hides admission in a handler.
+func slackJourneyWorker(project publicHTTPProject, config slack.OAuthConfig) *integration.AppInboxWorker {
+	router := integration.NewAppRouter(project.Store.Execution(), project.Store.Integrations())
+	provider := integration.NewSlackAppInboxProvider(
+		config,
+		project.Store.Secrets(),
+		project.Store.Integrations(),
+		project.Store.Execution(),
+	)
+	providers := map[string]integration.AppInboxProvider{"slack": provider}
+	chatLauncher := integration.NewChatAppLauncher(project.Store.Integrations(), project.Store.Execution(), providers)
+	launchers := integration.NewAppLaunchWorkflow(router, map[string]integration.AppLauncher{
+		appdefinition.Slack: chatLauncher.Decide,
+	})
+	launchers.OnUnavailable = chatLauncher.NotifyUnavailable
+	consumer := integration.NewAppInboxConsumer(
+		router,
+		project.Store.Integrations(),
+		project.Store.Artifacts(),
+		providers,
+		integration.InteractionPresenter{Store: project.Store, HTTPClient: config.HTTPClient},
+		launchers,
+	)
+	return integration.NewAppInboxWorker(project.Store.Integrations(), consumer, integration.AppInboxWorkerOptions{})
+}
+
+func drainSlackJourney(t *testing.T, ctx context.Context, project publicHTTPProject, config slack.OAuthConfig) {
+	t.Helper()
+	worker := slackJourneyWorker(project, config)
+	for range 100 {
+		worked, err := worker.RunOnce(ctx)
+		if err != nil {
+			t.Fatalf("drain captured Slack receipt: %v", err)
+		}
+		if !worked {
+			return
+		}
+	}
+	t.Fatal("Slack inbox did not drain its bounded test workload")
 }

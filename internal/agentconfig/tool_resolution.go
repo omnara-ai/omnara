@@ -18,6 +18,25 @@ type ResolvedTool struct {
 	Permission toolpermission.Selection
 }
 
+func compileBaseTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
+	if len(source.AppResources) == 0 {
+		return compileTools(source)
+	}
+	catalog, err := toolcatalog.Default()
+	if err != nil {
+		return nil, err
+	}
+	source.Tools = maps.Clone(source.Tools)
+	for name, tool := range source.Tools {
+		if _, known := catalog.Lookup(name); !known && tool.Type == "" && tool.Description == "" && tool.InputSchema == nil {
+			// A global policy-only override can refer to a bundled custom tool.
+			// Expansion must resolve every such name before compilation succeeds.
+			delete(source.Tools, name)
+		}
+	}
+	return compileTools(source)
+}
+
 func compileTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
 	tools := maps.Clone(source.Tools)
 	for _, name := range missingDefaultToolNames(source) {
@@ -54,7 +73,7 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 	schema := agentConfigSourceSchema()
 	schema.Required = nil
 	for name := range *schema.Properties {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
+		if !toolSourceField(name) {
 			delete(*schema.Properties, name)
 		}
 	}
@@ -66,6 +85,12 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 })
 
 func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
+	return ToolsFromSourceWithOptions(format, raw, CompileOptions{})
+}
+
+// ToolsFromSourceWithOptions also resolves selected app bundles for callers that
+// have project-scoped instance and connection resolvers.
+func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
@@ -78,7 +103,7 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 		return nil, fmt.Errorf("agent config source must be an object")
 	}
 	for name := range fields {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
+		if !toolSourceField(name) {
 			delete(fields, name)
 		}
 	}
@@ -101,14 +126,37 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	if err := json.Unmarshal(jsonSource, &source); err != nil {
 		return nil, err
 	}
-	tools, err := compileTools(source)
+	tools, err := compileBaseTools(source)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
 	}
+	compiled := Compiled{Tools: tools}
+	if len(source.AppResources) > 0 {
+		compiled.MCP, err = compileMCPServers(source.MCP, opts)
+		if err == nil {
+			err = compileAppResources(source, opts, &compiled)
+		}
+		if err != nil {
+			return nil, validationErrorFrom(err, root)
+		}
+	}
+	tools = compiled.Tools
 	entries := make([]ResolvedTool, 0, len(tools))
 	for name, tool := range tools {
+		if !toolHasResources(name, compiled.AppResources) {
+			continue
+		}
 		entries = append(entries, ResolvedTool{Name: name, Enabled: tool.Enabled, Permission: tool.Permission})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil
+}
+
+func toolSourceField(name string) bool {
+	switch name {
+	case "tools", "machine_sources", "skills", "subagents", "mcp", "app_resources":
+		return true
+	default:
+		return false
+	}
 }

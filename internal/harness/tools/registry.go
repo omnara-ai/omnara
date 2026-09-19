@@ -165,7 +165,10 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 }
 
 func builtInToolRegistrations() []toolRegistration {
-	return []toolRegistration{
+	registrations := append(githubToolRegistrations(), interactionToolRegistrations()...)
+	registrations = append(registrations, slackToolRegistrations()...)
+	registrations = append(registrations, discordToolRegistrations()...)
+	return append(registrations, []toolRegistration{
 		{
 			name:                   toolcatalog.ToolNameReadFile,
 			semanticInputValidator: validateReadFileInput,
@@ -302,25 +305,8 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameAskQuestion,
 			semanticInputValidator: validateQuestionInput,
-			handler: toolHandler{
-				Transactional: prepareStructuredQuestion,
-				Async:         deliverStructuredQuestionPrompts,
-			},
-			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:                   toolcatalog.ToolNameSendIntegrationMessage,
-			semanticInputValidator: validateIntegrationMessageInput,
-			handler:                toolHandler{Async: runIntegrationMessageAsync},
-			permissionModes:        alwaysAllowPermissionModeHandlers(),
-		},
-		{
-			name:                   toolcatalog.ToolNameSetIntegrationTarget,
-			semanticInputValidator: validateIntegrationTargetInput,
-			handler:                toolHandler{Transactional: setIntegrationTarget},
-			permissionModes: commonPermissionModeHandlers(
-				setIntegrationTargetPermissionChallenge,
-			),
+			handler:                toolHandler{Transactional: prepareStructuredQuestion},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWebSearch,
@@ -340,7 +326,7 @@ func builtInToolRegistrations() []toolRegistration {
 			handler:                toolHandler{Async: runSkillTool},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
-	}
+	}...)
 }
 
 func validateWriteProcessInput(input json.RawMessage) error {

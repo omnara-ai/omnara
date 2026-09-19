@@ -77,6 +77,7 @@ export function agentTemplateBasicConfig(
   defaultModel?: ConfiguredModelSummary,
 ): BasicConfig {
   return {
+    appResources: {},
     mcpServers: [],
     skillIds: [],
     subagents: [],

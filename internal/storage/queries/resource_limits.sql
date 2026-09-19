@@ -23,7 +23,10 @@ SELECT
     max_live_machines_per_org,
     max_active_byo_daemon_tokens_per_machine,
     max_non_terminal_processes_per_agent,
-    max_active_cron_triggers_per_project
+    max_active_cron_triggers_per_project,
+    max_active_integration_connections_per_project,
+    max_active_project_apps_per_project,
+    max_active_app_listeners_per_agent
 FROM effective_resource_limits
 WHERE org_id = sqlc.arg(org_id);
 
@@ -31,6 +34,12 @@ WHERE org_id = sqlc.arg(org_id);
 SELECT count(*)::bigint
 FROM projects
 WHERE org_id = sqlc.arg(org_id)
+  AND deleted_at IS NULL;
+
+-- name: CountActiveIntegrationConnectionsForProject :one
+SELECT count(*)::bigint
+FROM integration_connections
+WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL;
 
 -- name: CountPendingOrgInvitationsForOrg :one

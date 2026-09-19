@@ -63,17 +63,58 @@ func TestReconcilePromptBoundsPagination(t *testing.T) {
 			}))
 			defer server.Close()
 
-			found, result, err := ReconcilePrompt(
+			messageID, result, err := ReconcilePromptReceipt(
 				t.Context(),
 				slackTestClient(server),
 				MessageTarget{Channel: "C123", ThreadTS: test.threadTS, BotToken: "xoxb-test"},
 				"interaction-question",
 			)
-			if err != nil || found || !result.DeliveryUnknown {
-				t.Fatalf("reconcile prompt found=%v result=%+v err=%v", found, result, err)
+			if err != nil || messageID != "" || !result.DeliveryUnknown {
+				t.Fatalf("reconcile prompt messageID=%q result=%+v err=%v", messageID, result, err)
 			}
 			if calls != readbackMaxPages {
 				t.Fatalf("readback calls=%d want %d", calls, readbackMaxPages)
+			}
+		})
+	}
+}
+
+func TestDismissPromptUsesConfirmedReceiptWithoutHistory(t *testing.T) {
+	t.Parallel()
+	for _, providerError := range []string{"", "ratelimited", "message_not_found"} {
+		t.Run(providerError, func(t *testing.T) {
+			t.Parallel()
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/chat.update" || r.Method != http.MethodPost ||
+					r.Header.Get("Authorization") != "Bearer xoxb-test" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				var body struct {
+					Channel string            `json:"channel"`
+					TS      string            `json:"ts"`
+					Blocks  []json.RawMessage `json:"blocks"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("invalid request: %v", err)
+					http.Error(w, "invalid request", http.StatusBadRequest)
+					return
+				}
+				if body.Channel != "C123" || body.TS != "222.333" || body.Blocks == nil || len(body.Blocks) != 0 {
+					t.Errorf("dismiss payload = %+v", body)
+				}
+				writeSlackTestJSON(w, map[string]any{"ok": providerError == "", "error": providerError})
+			}))
+			defer server.Close()
+			result, err := DismissPrompt(t.Context(), slackTestClient(server),
+				MessageTarget{Channel: "C123", BotToken: "xoxb-test"}, "222.333", "Response recorded.")
+			if err != nil || calls != 1 || result.ProviderCode != providerError ||
+				result.RateLimited != (providerError == "ratelimited") ||
+				result.PermanentFailure != (providerError == "message_not_found") {
+				t.Fatalf("dismiss calls=%d result=%+v err=%v", calls, result, err)
 			}
 		})
 	}
@@ -236,185 +277,7 @@ func TestInteractionFormPromptBlocksAllowsOptionsWithOptionalText(t *testing.T) 
 		},
 		PromptActionValue{InteractionID: "interaction-question"},
 	)
-	if len(blocks) != 3 {
+	if len(blocks) != 4 {
 		t.Fatalf("interaction form blocks = %d, want interactive question", len(blocks))
-	}
-}
-
-func TestDismissInteractionPromptsRemovesOnlyCanceledQuestionAndPermissionActions(t *testing.T) {
-	t.Parallel()
-	permissionID := "interaction-permission"
-	questionID := "interaction-question"
-	staleID := "interaction-stale"
-	actionValue := func(interactionID string) string {
-		body, err := json.Marshal(PromptActionValue{
-			Type:                PromptType,
-			InteractionID:       interactionID,
-			AgentID:             "agent-123",
-			IntegrationTargetID: "integration-123",
-		})
-		if err != nil {
-			t.Fatalf("marshal prompt action value: %v", err)
-		}
-		return string(body)
-	}
-	updates := make([]map[string]any, 0, 2)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/conversations.replies":
-			if err := r.ParseForm(); err != nil {
-				t.Errorf("parse history request: %v", err)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			if r.Form.Get("channel") != "C123" || r.Form.Get("ts") != "111.222" ||
-				r.Form.Get("latest") != "333.444" || r.Form.Get("inclusive") != "false" {
-				t.Errorf("history form=%v", r.Form)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			writeSlackTestJSON(w, map[string]any{
-				"ok": true,
-				"messages": []any{
-					map[string]any{
-						"text": "Permission requested",
-						"ts":   "111.333",
-						"blocks": []any{map[string]any{
-							"type": "actions",
-							"elements": []any{
-								map[string]string{
-									"action_id": PromptAction,
-									"value":     actionValue(permissionID),
-								},
-								map[string]string{
-									"action_id": PromptAction,
-									"value":     actionValue(permissionID),
-								},
-							},
-						}},
-					},
-					map[string]any{
-						"text": "What now?",
-						"ts":   "222.333",
-						"blocks": []any{map[string]any{
-							"type": "actions",
-							"elements": []any{map[string]string{
-								"action_id": PromptAction,
-								"value":     actionValue(questionID),
-							}},
-						}},
-					},
-					map[string]any{
-						"text": "Old answered question?",
-						"ts":   "222.444",
-						"blocks": []any{map[string]any{
-							"type": "actions",
-							"elements": []any{map[string]string{
-								"action_id": PromptAction,
-								"value":     actionValue(staleID),
-							}},
-						},
-						},
-					},
-				},
-			})
-		case "/chat.update":
-			var update map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-				t.Errorf("decode chat update: %v", err)
-				http.Error(w, "test handler failed", http.StatusInternalServerError)
-				return
-			}
-			updates = append(updates, update)
-			if len(updates) == 1 {
-				writeSlackTestJSON(w, map[string]any{
-					"ok":    false,
-					"error": "message_not_found",
-				})
-				return
-			}
-			writeSlackTestJSON(w, map[string]any{"ok": true})
-		default:
-			t.Errorf("unexpected path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	result, err := DismissInteractionPrompts(
-		t.Context(),
-		OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()},
-		"xoxb-test",
-		Event{Channel: "C123", TS: "333.444", ThreadTS: "111.222"},
-		[]string{permissionID, questionID},
-	)
-	if err != nil || !result.PermanentFailure || result.ProviderCode != "message_not_found" {
-		t.Fatalf("dismiss prompts result=%+v err=%v", result, err)
-	}
-	if len(updates) != 2 {
-		t.Fatalf("chat updates=%d want 2", len(updates))
-	}
-	for i, wantTS := range []string{"111.333", "222.333"} {
-		blocks, _ := updates[i]["blocks"].([]any)
-		if updates[i]["channel"] != "C123" || updates[i]["ts"] != wantTS ||
-			updates[i]["as_user"] != true || len(blocks) != 2 {
-			t.Fatalf("chat update=%v", updates[i])
-		}
-		first, firstOK := blocks[0].(map[string]any)
-		second, secondOK := blocks[1].(map[string]any)
-		if !firstOK || !secondOK || first["type"] != "section" || second["type"] != "context" {
-			t.Fatalf("chat update=%v", updates[i])
-		}
-	}
-}
-
-func TestDismissInteractionPromptsReturnsEmbeddedRateLimit(t *testing.T) {
-	t.Parallel()
-	_, blocks := InteractionFormPromptBlocks(
-		interactionform.Form{
-			Title: "Permission requested",
-			Questions: []interactionform.Question{{
-				Prompt:  "Allow?",
-				Options: []interactionform.Option{{Label: "Allow"}},
-			}},
-		},
-		PromptActionValue{
-			Type:                PromptType,
-			InteractionID:       "interaction-permission",
-			AgentID:             "agent-123",
-			IntegrationTargetID: "integration-123",
-		},
-	)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/conversations.history":
-			writeSlackTestJSON(w, map[string]any{
-				"ok": true,
-				"messages": []any{map[string]any{
-					"text":   "Permission requested",
-					"ts":     "111.333",
-					"blocks": blocks,
-				}},
-			})
-		case "/chat.update":
-			writeSlackTestJSON(w, map[string]any{"ok": false, "error": "ratelimited"})
-		default:
-			t.Errorf("unexpected path %s", r.URL.Path)
-			http.Error(w, "test handler failed", http.StatusInternalServerError)
-			return
-		}
-	}))
-	defer server.Close()
-
-	result, err := DismissInteractionPrompts(
-		t.Context(),
-		OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()},
-		"xoxb-test",
-		Event{Channel: "C123", TS: "222.333"},
-		[]string{"interaction-permission"},
-	)
-	if err != nil || !result.RateLimited || result.ProviderCode != "ratelimited" {
-		t.Fatalf("dismiss prompts result=%+v err=%v", result, err)
 	}
 }

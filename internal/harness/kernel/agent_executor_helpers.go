@@ -77,9 +77,7 @@ func (e AgentExecutor) configuredToolExecutor() tools.Executor {
 	if executor.SigV4CredentialCache == nil {
 		executor.SigV4CredentialCache = e.SigV4CredentialCache
 	}
-	if executor.Now == nil {
-		executor.Now = e.now
-	}
+
 	if executor.MCPInitializationBackoff == nil {
 		executor.MCPInitializationBackoff = e.MCPInitializationBackoff
 	}
@@ -92,7 +90,6 @@ func (e AgentExecutor) contextBuilder() modelcontext.Builder {
 		builder.Store = modelcontext.NewStore(
 			e.Store.Execution(),
 			e.Store.Artifacts(),
-			e.Store.Integrations(),
 		)
 	}
 	if builder.Skills == nil && e.Store != nil {

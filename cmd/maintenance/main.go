@@ -32,6 +32,8 @@ const (
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
 	idleMachineReconcileInterval           = time.Minute
+	integrationInboxRetention              = 7 * 24 * time.Hour
+	integrationInboxCleanupBatch           = 100
 )
 
 type maintenanceOutcome struct {
@@ -51,6 +53,15 @@ func completedMaintenanceOutcome(ctx context.Context, err error) maintenanceOutc
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runInboxCLI(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
 
 	cfg, err := config.Load()
@@ -389,6 +400,19 @@ func runCoreMaintenanceTick(
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
+	completedInbox, completedInboxErr := store.Integrations().CleanupTerminalIntegrationInbox(
+		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
+	)
+	completedInboxOutcome := completedMaintenanceOutcome(ctx, completedInboxErr)
+	deletedInbox, deletedInboxErr := store.Integrations().CleanupDeletedIntegrationInbox(
+		ctx,
+		integrationInboxCleanupBatch,
+	)
+	deletedInboxOutcome := completedMaintenanceOutcome(ctx, deletedInboxErr)
+	choices, choicesErr := store.Integrations().CleanupAppProfileChoices(
+		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
+	)
+	choicesOutcome := completedMaintenanceOutcome(ctx, choicesErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
@@ -398,7 +422,7 @@ func runCoreMaintenanceTick(
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredProcessTools > 0 ||
-		authCleanupDeleted
+		authCleanupDeleted || completedInbox > 0 || deletedInbox > 0 || choices > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -409,8 +433,26 @@ func runCoreMaintenanceTick(
 			expireDaemonRuntimesOutcome.err,
 			expireProcessToolsOutcome.err,
 			authCleanupOutcome.err,
+			completedInboxOutcome.err,
+			deletedInboxOutcome.err,
+			choicesOutcome.err,
 		),
 	)
+	if choicesOutcome.err != nil {
+		log.Error("cleanup app profile choices", "error", choicesOutcome.err)
+	} else if !choicesOutcome.interrupted && choices > 0 {
+		log.Info("cleaned app profile choices", "count", choices)
+	}
+	if completedInboxOutcome.err != nil {
+		log.Error("cleanup completed integration inbox", "error", completedInboxOutcome.err)
+	} else if !completedInboxOutcome.interrupted && completedInbox > 0 {
+		log.Info("cleaned completed integration inbox", "count", completedInbox, "retention", integrationInboxRetention)
+	}
+	if deletedInboxOutcome.err != nil {
+		log.Error("cleanup deleted integration inbox", "error", deletedInboxOutcome.err)
+	} else if !deletedInboxOutcome.interrupted && deletedInbox > 0 {
+		log.Info("cleaned deleted integration inbox", "count", deletedInbox)
+	}
 	if expireDaemonRuntimesOutcome.err != nil {
 		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)
 	} else if !expireDaemonRuntimesOutcome.interrupted && expiredDaemonRuntimes > 0 {

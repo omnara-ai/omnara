@@ -12,7 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-type InstallBinding struct {
+type AppDestination struct {
 	OrgID          uuid.UUID
 	ProjectID      uuid.UUID
 	AgentProfileID uuid.UUID
@@ -20,8 +20,8 @@ type InstallBinding struct {
 }
 
 type Access interface {
-	ValidateInstallBinding(context.Context, pgx.Tx, InstallBinding) error
-	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
+	ValidateAppDestination(context.Context, pgx.Tx, AppDestination) error
+	ClearConnectionTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
 }
 
 type Store struct {

@@ -1,0 +1,312 @@
+//go:build integration
+
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
+)
+
+type appLaunchHTTPFixture struct {
+	handler                                  http.Handler
+	project                                  publicHTTPProject
+	configID, profileID, connectionID, appID string
+	launchToken                              string
+}
+
+func newAppLaunchHTTPFixture(t *testing.T, seed string) appLaunchHTTPFixture {
+	t.Helper()
+	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
+	project := bootstrapPublicHTTPProject(t, handler, seed)
+	connection := createSlackHTTPConnection(t, t.Context(), project, "A123", "T123", "Support")
+	connectionID := testPublicID(t, publicid.KindIntegrationConnection, connection.ID)
+	app := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
+		projectAppHTTPJSON(t, projectAppHTTPBody("ticket-support", hostedLaunchHTTPResource(connectionID))),
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	config := createPublicHTTPAgentConfig(t, handler, project, seed, "yaml",
+		"instruction: Help with tickets.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	configID := testutil.RequireType[string](t, config["id"])
+	profile := createPublicHTTPAgentProfile(t, handler, project, seed, "Ticket support", configID,
+		project.AdminToken, http.StatusCreated)
+	return appLaunchHTTPFixture{
+		handler: handler, project: project, configID: configID, connectionID: connectionID,
+		profileID: testutil.RequireType[string](t, profile["id"]), appID: testutil.RequireType[string](t, app["id"]),
+		launchToken: customIntegrationHTTPKey(t, handler, project, "launch-manager", "admin"),
+	}
+}
+
+func (f appLaunchHTTPFixture) body() map[string]any {
+	initial := customIntegrationHTTPInput()
+	initial["actor"] = map[string]any{"provider_tenant_id": "customer-directory", "provider_user_id": "requester-7"}
+	return map[string]any{
+		"config": f.configID, "profile": f.profileID,
+		"app_resources": map[string]any{"support": map[string]any{
+			"app_instance": f.appID, "tools": map[string]any{"slack_read": map[string]any{}},
+			"listener":            map[string]any{"events": []string{"message"}},
+			"interaction_handler": map[string]any{"definition": "omnara.slack.interactions"},
+		}},
+		"initial_input": initial,
+	}
+}
+
+func (f appLaunchHTTPFixture) counts(t *testing.T) [6]int {
+	t.Helper()
+	var counts [6]int
+	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(), `SELECT
+		(SELECT count(*) FROM agent_configs WHERE project_id=$1),
+		(SELECT count(*) FROM agents WHERE project_id=$1),
+		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content'),
+		(SELECT count(*) FROM integration_targets WHERE project_id=$1),
+		(SELECT count(*) FROM agent_listeners WHERE project_id=$1),
+		(SELECT count(*) FROM actors WHERE project_id=$1)`, f.project.ProjectUUID).
+		Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5]))
+	return counts
+}
+
+func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "app-launch-atomic")
+	ctx := t.Context()
+	pool := integrationPoolForHandler(t, f.handler)
+	before := f.counts(t)
+	// Fail after derived config activation and listener insertion. All
+	// of them, including actor resolution, must roll back with initial admission.
+	_, err := pool.Exec(ctx, `CREATE FUNCTION reject_launch_initial() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN IF NEW.input_kind='content' THEN RAISE EXCEPTION 'fixture rejects initial input'; END IF;
+		RETURN NEW; END $$;
+		CREATE TRIGGER reject_launch_initial BEFORE INSERT ON agent_inputs
+		FOR EACH ROW EXECUTE FUNCTION reject_launch_initial()`)
+	require.NoError(t, err)
+	body := projectAppHTTPJSON(t, f.body())
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		body, "atomic-launch", http.StatusInternalServerError, authHeaders(f.launchToken))
+	require.Equal(t, before, f.counts(t), "failed input must leave no config, agent, input, target, listener or actor")
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_launch_initial ON agent_inputs; DROP FUNCTION reject_launch_initial()`)
+	require.NoError(t, err)
+	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		body, "atomic-launch", http.StatusCreated, authHeaders(f.launchToken))
+	agent := testutil.RequireType[map[string]any](t, launched["agent"])
+	config := testutil.RequireType[map[string]any](t, launched["agent_config"])
+	input := testutil.RequireType[map[string]any](t, launched["agent_input"])
+	require.NotEqual(t, f.configID, config["id"])
+	require.Equal(t, config["id"], agent["current_config_id"])
+	agentID := mustPublicHTTPID(t, publicid.KindAgent, testutil.RequireType[string](t, agent["id"]))
+	configID := mustPublicHTTPID(t, publicid.KindAgentConfig, testutil.RequireType[string](t, config["id"]))
+	inputID := mustPublicHTTPID(t, publicid.KindAgentInput, testutil.RequireType[string](t, input["id"]))
+	stored, found, err := f.project.Store.Execution().GetAgentConfig(ctx, f.project.ProjectUUID, configID)
+	require.NoError(t, err)
+	require.True(t, found)
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(stored.CompiledDefinition, &compiled))
+	require.Contains(t, compiled.AppResources, "support")
+	require.Contains(t, compiled.Tools, "slack_read")
+	storedConnection := mustPublicHTTPID(t, publicid.KindIntegrationConnection, f.connectionID)
+	var provider, actorTenant, actorUser string
+	var noTarget bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT input.integration_target_id IS NULL,
+  actor.provider, actor.provider_tenant_id, actor.provider_user_id
+  FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id WHERE input.id=$1`, inputID).
+		Scan(&noTarget, &provider, &actorTenant, &actorUser))
+	require.True(t, noTarget, "ordinary initial input has no provider routing origin")
+	require.Equal(t, "external", provider)
+	require.Equal(t, "customer-directory", actorTenant)
+	require.Equal(t, "requester-7", actorUser)
+	selection, err := f.project.Store.Execution().GetInteractionSelection(ctx, f.project.ProjectUUID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, uuid.Nil, selection.IntegrationTargetID)
+	profile := requestJSONWithHeaders(t, f.handler, http.MethodGet,
+		f.project.ProjectPath+"/agent-profiles/"+f.profileID, "", "", http.StatusOK, authHeaders(f.project.AdminToken))
+	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
+	after := f.counts(t)
+	for _, i := range []int{0, 1, 2, 4} {
+		require.Equal(t, before[i]+1, after[i], "one new config, agent, content input and listener")
+	}
+	require.Equal(t, before[3]+1, after[3], "fixed hosted handler creates one attribution target")
+	requestJSONWithHeaders(t, f.handler, http.MethodDelete, f.project.ProjectPath+"/apps/"+f.appID,
+		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
+	_, err = f.project.Store.Integrations().DisableIntegrationConnection(ctx,
+		integrationstore.DisableIntegrationConnectionInput{
+			ProjectID: f.project.ProjectUUID, ID: storedConnection, ExpectedOAuthFlowID: &uuid.Nil,
+		})
+	require.NoError(t, err)
+	replayed := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		body, "atomic-launch", http.StatusOK, authHeaders(f.launchToken))
+	require.Len(t, replayed, 1)
+	require.Equal(t, agent["id"], testutil.RequireType[map[string]any](t, replayed["agent"])["id"])
+	require.Equal(t, after, f.counts(t), "replay must not create or activate anything")
+	changed := f.body()
+	changed["initial_input"] = map[string]any{
+		"content_blocks": []any{map[string]any{"type": "text", "text": "changed\x00"}},
+	}
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, changed), "atomic-launch", http.StatusOK, authHeaders(f.launchToken))
+	require.Equal(t, after, f.counts(t))
+}
+
+func TestPublicAppLaunchAuthorizationAndConnectionBoundary(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "app-launch-auth")
+	before := f.counts(t)
+	operator := customIntegrationHTTPKey(t, f.handler, f.project, "operator", "operator")
+	viewer := customIntegrationHTTPKey(t, f.handler, f.project, "viewer", "viewer")
+	body := projectAppHTTPJSON(t, f.body())
+	for _, token := range []string{operator, viewer} {
+		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+			body, "denied", http.StatusForbidden, authHeaders(token))
+	}
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		body, "denied", http.StatusUnauthorized, nil)
+	other := projectAppHTTPSecondProject(t, f.handler, f.project)
+	otherConnection := createSlackHTTPConnection(t, t.Context(), other, "A999", "T999", "Other support")
+	for _, connection := range []string{
+		testPublicID(t, publicid.KindIntegrationConnection, otherConnection.ID),
+		testPublicID(t, publicid.KindIntegrationConnection, uuid.New()),
+	} {
+		request := f.body()
+		request["app_resources"] = map[string]any{"support": hostedLaunchHTTPResource(connection)}
+		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+			projectAppHTTPJSON(t, request), "denied-connection", http.StatusBadRequest, authHeaders(f.launchToken))
+	}
+	require.Equal(t, before, f.counts(t))
+	// Operating a pinned config does not become a management operation merely
+	// because its first text input carries customer actor attribution.
+	plain := f.body()
+	delete(plain, "app_resources")
+	created := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, plain), "operator-launch", http.StatusCreated, authHeaders(operator))
+	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, created["agent_config"])["id"])
+	require.Equal(t, before[0], f.counts(t)[0])
+	require.Equal(t, before[4], f.counts(t)[4], "ordinary input creates no listener")
+}
+
+func TestPublicAppLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "app-launch-invalid")
+	before := f.counts(t)
+	for _, tc := range []struct {
+		name string
+		edit func(map[string]any)
+		key  string
+	}{
+		{"message-and-input", func(body map[string]any) { body["message"] = "" }, "invalid"},
+		{"origin", func(body map[string]any) {
+			initial := testutil.RequireType[map[string]any](t, body["initial_input"])
+			initial["origin"] = map[string]any{
+				"connection_id": f.connectionID,
+				"address":       map[string]any{"kind": "channel", "ref": "C123"},
+			}
+		}, "invalid"},
+		{"empty-input", func(body map[string]any) {
+			body["initial_input"] = map[string]any{"content_blocks": []any{}}
+		}, "invalid"},
+		{"media", func(body map[string]any) {
+			body["initial_input"] = map[string]any{"content_blocks": []any{map[string]any{
+				"type": "media", "mime_type": "text/plain", "data": "YQ==",
+			}}}
+		}, "invalid"},
+		{"unknown-app", func(body map[string]any) {
+			body["app_resources"] = map[string]any{"support": map[string]any{
+				"app_instance": testPublicID(t, publicid.KindProjectApp, uuid.New()),
+			}}
+		}, "invalid"},
+		{"bad-scope", func(body map[string]any) {
+			resource := hostedLaunchHTTPResource(f.connectionID)
+			resource["scope"] = map[string]any{"slack": map[string]any{"channel_id": ""}}
+			body["app_resources"] = map[string]any{"support": resource}
+		}, "invalid"},
+	} {
+		body := f.body()
+		tc.edit(body)
+		response := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+			projectAppHTTPJSON(t, body), tc.key, http.StatusBadRequest, authHeaders(f.launchToken))
+		require.NotEmpty(t, response["error"], tc.name)
+	}
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, f.body()), "user-actor", http.StatusBadRequest, f.project.adminBrowserAuthHeaders())
+	require.Equal(t, before, f.counts(t))
+}
+
+func TestPublicAppLaunchPreservesPinnedProfileConfigContract(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "app-launch-profile")
+	otherConfig := createPublicHTTPAgentConfig(t, f.handler, f.project, "unrelated-config", "yaml",
+		"instruction: A different base.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		f.project.AdminToken, http.StatusCreated)
+	otherID := testutil.RequireType[string](t, otherConfig["id"])
+	body := f.body()
+	body["config"] = otherID
+	before := f.counts(t)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, body), "foreign-profile-config", http.StatusNotFound, authHeaders(f.launchToken))
+	require.Equal(t, before, f.counts(t), "derivation must not bypass profile membership")
+	requestJSONWithHeaders(t, f.handler, http.MethodPost,
+		f.project.ProjectPath+"/agent-profiles/"+f.profileID+"/config",
+		projectAppHTTPJSON(t, map[string]any{"config": otherID, "expected_current_config_id": f.configID}),
+		"retarget-profile", http.StatusOK, authHeaders(f.project.AdminToken))
+	// A pinned historical version remains a valid base after profile retargeting.
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, f.body()), "historical-profile-config", http.StatusCreated, authHeaders(f.launchToken))
+}
+
+func TestPublicAppLaunchInitialInputReplay(t *testing.T) {
+	t.Parallel()
+	for _, withApp := range []bool{false, true} {
+		name := "without-app"
+		if withApp {
+			name = "with-app"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newAppLaunchHTTPFixture(t, "launch-replay-"+name)
+			body := f.body()
+			if !withApp {
+				delete(body, "app_resources")
+			}
+			before := f.counts(t)
+			encoded := projectAppHTTPJSON(t, body)
+			launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+				encoded, "launch-event", http.StatusCreated, authHeaders(f.launchToken))
+			agent := testutil.RequireType[map[string]any](t, launched["agent"])
+			after := f.counts(t)
+			require.Equal(t, before[2]+1, after[2])
+			if !withApp {
+				require.Equal(t, before[0], after[0], "ordinary initial input does not derive a config")
+				require.Equal(t, before[4], after[4], "ordinary initial input creates no listener")
+			}
+			replay := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+				encoded, "launch-event", http.StatusOK, authHeaders(f.launchToken))
+			require.Equal(t, agent["id"], testutil.RequireType[map[string]any](t, replay["agent"])["id"])
+			require.Equal(t, after, f.counts(t))
+			path := f.project.ProjectPath + "/agents/" + testutil.RequireType[string](t, agent["id"]) + "/inputs"
+			// Launch-scoped idempotency does not deduplicate a later ordinary input,
+			// even when the customer reuses the same event key and content.
+			input := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
+				projectAppHTTPJSON(t, body["initial_input"]), "launch-event", http.StatusCreated, authHeaders(f.launchToken))
+			require.NotEqual(t, testutil.RequireType[map[string]any](t, launched["agent_input"])["id"],
+				testutil.RequireType[map[string]any](t, input["agent_input"])["id"])
+			replay = requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
+				projectAppHTTPJSON(t, body["initial_input"]), "launch-event", http.StatusOK, authHeaders(f.launchToken))
+			require.Equal(t, input["agent_input"], replay["agent_input"])
+			require.Equal(t, after[2]+1, f.counts(t)[2])
+		})
+	}
+}
+
+func hostedLaunchHTTPResource(connectionID string) map[string]any {
+	return map[string]any{
+		"definition": "omnara.slack", "connection": connectionID,
+		"scope":               map[string]any{"slack": map[string]any{"channel_id": "C123", "thread_ts": "123.456"}},
+		"tools":               map[string]any{"slack_read": map[string]any{}},
+		"listener":            map[string]any{"events": []string{"message"}},
+		"interaction_handler": map[string]any{"definition": "omnara.slack.interactions"},
+	}
+}

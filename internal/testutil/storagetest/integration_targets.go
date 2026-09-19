@@ -31,9 +31,9 @@ WHERE project_id = $1
     OR EXISTS (
       SELECT 1
       FROM integration_targets target
-      JOIN integration_installs install
+      JOIN integration_connections install
         ON install.project_id = target.project_id
-       AND install.id = target.integration_install_id
+       AND install.id = target.integration_connection_id
        AND install.state = 'active'
       WHERE target.project_id = agents.project_id
         AND target.agent_id = agents.id

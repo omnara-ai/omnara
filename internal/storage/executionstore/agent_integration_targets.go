@@ -10,16 +10,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type IntegrationInstallAccess struct{}
+type IntegrationConnectionAccess struct{}
 
-func (IntegrationInstallAccess) ValidateInstallBinding(
+func (IntegrationConnectionAccess) ValidateAppDestination(
 	ctx context.Context,
 	tx pgx.Tx,
-	binding integrationstore.InstallBinding,
+	binding integrationstore.AppDestination,
 ) error {
 	qtx := dbsqlc.New(tx)
 	project, err := loadProjectTx(ctx, qtx, binding.ProjectID)
@@ -47,7 +46,7 @@ func (IntegrationInstallAccess) ValidateInstallBinding(
 		return storeerr.ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("validate integration install agent: %w", err)
+		return fmt.Errorf("validate integration connection agent: %w", err)
 	}
 	if AgentState(row.State) != AgentStateActive {
 		return storeerr.ErrStateTransitionConflict
@@ -55,103 +54,20 @@ func (IntegrationInstallAccess) ValidateInstallBinding(
 	return nil
 }
 
-func (IntegrationInstallAccess) ClearInstallTargetsFromAgents(
+func (IntegrationConnectionAccess) ClearConnectionTargetsFromAgents(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, integrationInstallID uuid.UUID,
+	projectID, integrationConnectionID uuid.UUID,
 ) error {
 	err := dbsqlc.New(tx).ClearDeletedIntegrationTargetsFromAgents(
 		ctx,
 		dbsqlc.ClearDeletedIntegrationTargetsFromAgentsParams{
-			ProjectID:            projectID,
-			IntegrationInstallID: integrationInstallID,
+			ProjectID:               projectID,
+			IntegrationConnectionID: integrationConnectionID,
 		},
 	)
 	if err != nil {
 		return fmt.Errorf("clear integration targets from agents: %w", err)
 	}
 	return nil
-}
-
-func (r *ToolCallReader) ListIntegrationTargets(
-	ctx context.Context,
-) ([]integrationstore.IntegrationTargetSummary, error) {
-	t := r.transaction
-	return t.store.integrations.ListIntegrationTargetsTx(
-		ctx,
-		t.tx,
-		t.input.ProjectID,
-		t.input.AgentID,
-	)
-}
-
-func (t *toolCallTransaction) setAgentIntegrationTarget(
-	ctx context.Context,
-	integrationTargetID uuid.UUID,
-) (AgentRecord, error) {
-	if err := t.lockForMutation(ctx); err != nil {
-		return AgentRecord{}, err
-	}
-	return setAgentIntegrationTarget(
-		ctx,
-		t.q,
-		t.input.ProjectID,
-		t.input.AgentID,
-		integrationTargetID,
-	)
-}
-
-func setAgentIntegrationTarget(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentID, integrationTargetID uuid.UUID,
-) (AgentRecord, error) {
-	row, err := q.SetAgentIntegrationTarget(ctx, dbsqlc.SetAgentIntegrationTargetParams{
-		ProjectID:           projectID,
-		AgentID:             agentID,
-		IntegrationTargetID: storeutil.IDFromNil(integrationTargetID),
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			if integrationTargetID != uuid.Nil {
-				if _, agentErr := q.GetAgentInProject(
-					ctx,
-					dbsqlc.GetAgentInProjectParams{
-						ProjectID: projectID,
-						ID:        agentID,
-					},
-				); agentErr == nil {
-					return AgentRecord{}, storeerr.ErrConflict
-				} else if !errors.Is(agentErr, pgx.ErrNoRows) {
-					return AgentRecord{}, fmt.Errorf(
-						"load agent for integration target validation: %w",
-						agentErr,
-					)
-				}
-			}
-			return AgentRecord{}, storeerr.ErrNotFound
-		}
-		return AgentRecord{}, fmt.Errorf("set agent integration target: %w", err)
-	}
-	return agentRecordFromSetIntegrationTargetSQLC(row), nil
-}
-
-func agentRecordFromSetIntegrationTargetSQLC(row dbsqlc.SetAgentIntegrationTargetRow) AgentRecord {
-	return agentRecordFromSQLC(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.State,
-		row.Name,
-		row.AgentProfileID,
-		row.CurrentConfigID,
-		row.IntegrationTargetID,
-		row.IdempotencyKey,
-		row.NextEventSequence,
-		row.CreatedAt,
-		row.UpdatedAt,
-		row.ArchivedAt,
-		row.ParentAgentID,
-		row.SubagentKey,
-	)
 }

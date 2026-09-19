@@ -113,6 +113,14 @@ Actors belong to a project and can be listed, fetched, or created through the AP
 Full schemas and playground: [List project actors](/api-reference/endpoints/actors/list-project-actors) · [Upsert an external actor](/api-reference/endpoints/actors/upsert-an-external-actor) · [Get a project actor](/api-reference/endpoints/actors/get-a-project-actor).
 </Info>
 
+## Inputs from your own app
+
+Your service chooses which agent receives each provider event and submits an
+ordinary input. Pass an `actor` to attribute the message, and use a stable
+`Idempotency-Key` for retries. Your service owns the conversation-to-agent mapping;
+Omnara does not need an app registration. See [Custom integrations](/integrations/custom-integrations)
+for the complete input, custom-tool and interaction flow.
+
 ## Next
 
 <CardGroup cols={2}>

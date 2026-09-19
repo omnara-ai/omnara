@@ -61,12 +61,29 @@ export function AgentConfigBasicForm({
             resolvedTools={form.resolvedTools}
             onToolsChange={form.setTools}
           />
+          {Object.keys(form.appResources).length > 0 && (
+            <div className="rounded-md border p-3 text-sm">
+              <p className="font-medium">App resources</p>
+              <ul>
+                {Object.entries(form.appResources).map(([key, resource]) => (
+                  <li key={key}>
+                    {key} · {resource.app_instance ?? resource.definition} ·{' '}
+                    {Object.keys(resource.tools ?? {}).join(', ') || 'No selected tools'}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground">
+                Edit resource scope and capabilities in YAML. Selected app tools appear in the tool
+                preview.
+              </p>
+            </div>
+          )}
           {form.toolsPending && (
             <p className="text-muted-foreground text-sm">Loading other tools…</p>
           )}
           {form.toolsError && (
             <p className="text-destructive text-sm" role="alert">
-              Couldn’t load other tools.{' '}
+              {form.toolsErrorMessage}{' '}
               <button type="button" className="underline" onClick={form.retryTools}>
                 Retry
               </button>

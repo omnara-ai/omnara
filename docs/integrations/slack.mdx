@@ -1,87 +1,133 @@
 ---
 title: Slack
-description: Put agents in a Slack workspace
+description: Connect a workspace, launch agents from mentions, and choose their Slack capabilities
 icon: "slack"
 ---
 
 import SlackCreateApp from '/snippets/slack-create-app.mdx'
 import SlackExistingApp from '/snippets/slack-existing-app.mdx'
 
-The Slack integration connects an [agent profile](/agents/configuration#profiles) to a bot. Each new Slack conversation launches a separate agent from that profile. The agents start with the profile's current config but keep independent conversations and histories. Later replies return to the agent for that thread or DM.
+Connect your Slack app once, then choose which agents may read, send, receive
+replies or present approvals. These are separate [app capabilities](/integrations/apps).
 
-```mermaid
-graph LR
-    P["Agent profile"] -->|launches| A1["Agent 1"]
-    P -->|launches| A2["Agent 2"]
-    P -->|launches| A3["Agent 3"]
-    A1 <--> T1["Thread A"]
-    A2 <--> T2["Thread B"]
-    A3 <--> DM["DM with bot"]
-```
+## Connect a workspace
 
-For a complete runnable example that ends in a Slack channel — an X (Twitter) listening agent with a daily digest — see [`examples/x-signal-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/x-signal-agent).
+Start with an [agent profile](/agents/configuration#profiles) whose model supports
+tools. The profile must not explicitly disable `slack_post_message`.
 
-## Before you start
+To let Omnara create the Slack app, obtain an app configuration token from
+[Slack's app settings](https://api.slack.com/apps), then run:
 
-Agents handling Slack conversations automatically receive **`send_integration_message`** unless it is explicitly disabled in the profile's config. You do not need to add it yourself.
+<SlackCreateApp />
 
-<Note>
-  **Self-hosting?** Set `OMNARA_PUBLIC_URL` to a public HTTPS origin so Slack can deliver webhooks. Hosted Omnara is already configured.
-</Note>
+Open `oauth_url` before `expires_at`, signed in to Omnara as the user who started
+setup, and approve the workspace installation. The CLI opens the link unless
+you pass `--no-browser`. Each setup creates a new Slack app; run it once per bot.
 
-## Connect Slack
+In the dashboard, open the profile's **Deploy to app** action, choose **Slack**,
+and provide the app name and configuration token.
 
-### Create the Slack App with Omnara
-
-Get a **Slack app configuration token** from [api.slack.com/apps](https://api.slack.com/apps) under **Your App Configuration Tokens**. Omnara uses it to create and configure the Slack app for you.
-
-<Tabs>
-<Tab title="API">
-  The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart). One call creates the app and returns the install link:
-
-  <SlackCreateApp />
-
-  Open `oauth_url` within 10 minutes while signed in to Omnara as the user who started setup. Approve the Slack install, and the browser returns to the dashboard. The CLI opens the link in your browser for you; `--no-browser` prints the authorization URL instead.
-</Tab>
-<Tab title="Dashboard">
-  <Steps>
-    <Step title="Open the deploy dialog">
-      On the **Agent Profiles** page, open the profile's row actions and click **Deploy to app**. Pick **Slack** as the destination.
-    </Step>
-    <Step title="Name the bot and paste the token">
-      Set the **App name** (this becomes the bot's Slack name), paste the app configuration token — the dialog links to Slack's app settings if you still need one — and optionally add an icon. Click **Continue**.
-    </Step>
-    <Step title="Approve in Slack">
-      The dashboard sends you to Slack's OAuth screen; approve the install into your workspace. You land back in the dashboard with the install live under the profile's integrations.
-    </Step>
-  </Steps>
-</Tab>
-</Tabs>
-
-Each setup creates a new Slack app, so run it only once for each bot you want.
-
-### Use an existing Slack app
-
-If you already have a Slack app, provide its credentials instead. This path is not available in the dashboard:
+For an existing Slack app, supply its credentials instead:
 
 <SlackExistingApp />
 
-Your Slack app must already be configured with Omnara's event, action, and redirect URLs — the setup response returns them. Then open `oauth_url` to approve the install; the CLI opens the approval page in your browser and waits until the integration is created.
+Configure that app with the returned `events_url`, `actions_url` and
+`redirect_uri` before completing OAuth. For self-hosting, `OMNARA_PUBLIC_URL`
+must be a public HTTPS origin. Slack's [Events API setup](https://docs.slack.dev/apis/events-api/)
+explains event subscriptions and bot access to conversations.
 
-Both setup paths connect one Slack workspace to the profile.
+Successful setup creates a project connection and a project app. The app has a
+workspace mention launcher for the selected profile, with `slack_read`,
+`slack_post_message`, a `message` listener and the Slack interaction handler.
+The base profile config is unchanged.
 
-<Note>
-  Removing a Slack integration from Omnara keeps its agents and histories, but does not uninstall the app from Slack. Remove it separately in Slack if you are decommissioning the bot.
-</Note>
+List `/integration-connections?oauth_flow_id={flow_id}` under the project API path
+to find the resulting `iin_…` connection. List `/apps` to inspect or edit the
+saved launcher. Connection access and launcher behavior are managed separately.
 
-## How Slack conversations map to agents
+## Configure an existing agent
 
-- The first mention in a channel thread launches an agent from the profile. Later replies return to the same agent without another mention.
-- A DM keeps one persistent agent for the whole conversation.
-- Messages in other threads are ignored until someone mentions the bot.
+Add this fragment to its [config](/agents/configuration), using your connection
+ID and Slack channel ID:
 
-Slack messages are attributed to their sender and appear in the same [timeline](/events/streaming) as dashboard activity. [Questions and approvals](/events/interactions) can be answered in Slack or the dashboard; either response resumes the same agent.
+```yaml
+app_resources:
+  release_channel:
+    definition: omnara.slack
+    connection: iin_aeaqcaibaeaqcaibaeaqcaibae
+    scope:
+      slack: {channel_id: C123}
+    tools:
+      slack_read: {}
+      slack_post_message: {}
+    follow: {replies: true}
+```
 
-<Info>
-Full schema and playground: [Create Slack app and OAuth setup](/api-reference/endpoints/configs-and-profiles/create-slack-app-and-oauth-setup) · [Create integration OAuth setup](/api-reference/endpoints/configs-and-profiles/create-integration-oauth-setup).
-</Info>
+This agent can read and post in the channel, but does not receive all channel
+messages. A successful `slack_post_message` call with `follow_replies: true`
+registers replies to that posted conversation. Posting files into a new followed
+thread requires posting the text first, then attaching files in that thread.
+
+For a fixed thread, add `thread_ts: "111.222333"` to the Slack scope. Add
+`listener: {events: [message]}` to receive messages in the selected scope. Add
+`interaction_handler: {definition: omnara.slack.interactions}` to make it an
+eligible destination for questions and approvals. Each addition is independent.
+
+`slack_read` supports `thread_ts`, `cursor` and `limit`. `slack_post_message`
+accepts `text`, optional `thread_ts`, and up to 20 `artifact_ids`. Both take a
+`resource` selector when needed. Tool arguments cannot escape the configured
+channel or fixed thread. Ordinary model output remains in Omnara.
+
+## Customize a launcher
+
+To launch a profile only from mentions in one channel, submit this body to
+`POST /orgs/{orgID}/projects/{projectID}/apps`. Replace the example IDs. If setup
+already created a launcher for the same bot/profile, update that app with `PUT`
+instead of creating overlapping launchers.
+
+```json
+{
+  "name": "release-assistant",
+  "settings": {
+    "resource": {
+      "definition": "omnara.slack",
+      "connection": "iin_aeaqcaibaeaqcaibaeaqcaibae",
+      "tools": {"slack_read": {}, "slack_post_message": {}},
+      "listener": {"events": ["message"]},
+      "interaction_handler": {"definition": "omnara.slack.interactions"}
+    },
+    "launcher": {
+      "trigger": "mention",
+      "scope_kind": "channel",
+      "scope_ref": "C123",
+      "slots": [{"key": "assistant", "agent_profile_id": "aprf_aeaqcaibaeaqcaibaeaqcaibae"}]
+    }
+  }
+}
+```
+
+With one profile, the first mention launches an agent scoped to its thread.
+With several profile slots, the bot replies with a selection menu in that thread.
+Anyone with access to the conversation can choose; only the selected profile
+launches, retaining the original message and author. Choose a profile before
+sending follow-up messages; earlier follow-ups may be missed.
+Menus expire after one hour. Mention again if the menu expires or its offered
+profile has been removed. Attachments are checked against their original content;
+if Slack can no longer supply that content, the request fails visibly in event recovery.
+
+Open **Edit profiles** on the saved app to add or remove offered profiles without
+creating another Slack app. API clients can update the launcher's `slots` while
+preserving stable keys. The OAuth flow initially offers the selected profile;
+edit the saved app afterward to offer more. Editing the list leaves existing
+conversations with their original agents.
+
+The declared listener handles later replies without another mention. The default OAuth launcher uses
+workspace scope and also handles DMs, keeping one conversation per DM. Human
+Slack messages steer the agent and cancel its open interactions. A question or
+approval can be answered in Slack or the dashboard.
+
+Removing a project app stops its launcher and retains existing agents and the
+connection. Disable or delete the connection to revoke provider access; uninstall
+the bot separately in Slack if needed. Existing deployments must follow the
+[cutover runbook](/self-hosting/composable-apps-cutover): old thread listeners are
+reset, while eligible agents retain scoped sending and their histories.

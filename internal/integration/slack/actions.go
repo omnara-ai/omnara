@@ -1,32 +1,37 @@
 package slack
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 )
 
 const ActionBodyMaxBytes = 1024 * 1024
-const actionResponseTimeout = 2 * time.Second
 
 type ActionsEnvelope struct {
-	Type        string `json:"type"`
-	APIAppID    string `json:"api_app_id"`
-	ResponseURL string `json:"response_url"`
-	Team        struct {
+	Type     string `json:"type"`
+	APIAppID string `json:"api_app_id"`
+	Team     struct {
 		ID string `json:"id"`
 	} `json:"team"`
-	User    ActionsUser    `json:"user"`
+	User    ActionsUser `json:"user"`
+	Channel struct {
+		ID string `json:"id"`
+	} `json:"channel"`
+	Message struct {
+		TS       string `json:"ts"`
+		ThreadTS string `json:"thread_ts"`
+	} `json:"message"`
+	Container struct {
+		ChannelID string `json:"channel_id"`
+		MessageTS string `json:"message_ts"`
+	} `json:"container"`
 	Actions []actionButton `json:"actions"`
 	State   ActionState    `json:"state"`
 }
@@ -39,8 +44,11 @@ type ActionsUser struct {
 }
 
 type actionButton struct {
-	ActionID string `json:"action_id"`
-	Value    string `json:"value"`
+	Type            string              `json:"type"`
+	ActionID        string              `json:"action_id"`
+	Value           string              `json:"value"`
+	SelectedOption  *actionStateOption  `json:"selected_option,omitempty"`
+	SelectedOptions []actionStateOption `json:"selected_options,omitempty"`
 }
 
 type ActionState struct {
@@ -52,6 +60,7 @@ type actionStateOption struct {
 }
 
 type actionStateValue struct {
+	Value           string              `json:"value"`
 	SelectedOption  *actionStateOption  `json:"selected_option"`
 	SelectedOptions []actionStateOption `json:"selected_options"`
 }
@@ -176,6 +185,7 @@ func ResolveInteractionForm(
 		}
 		resolution.Answers = append(resolution.Answers, interactionform.Answer{
 			OptionIndices: optionIndices,
+			Text:          state.Values[questionBlockID(index)+"_text"][PromptAnswerAction].Value,
 		})
 	}
 	normalized, err := interactionform.NormalizeResolution(value, resolution)
@@ -190,80 +200,6 @@ func (user ActionsUser) DisplayName() string {
 		return name
 	}
 	return strings.TrimSpace(user.Username)
-}
-
-func ReplaceOriginalActionMessage(
-	ctx context.Context,
-	client *http.Client,
-	responseURL string,
-	text string,
-) (APIResult, error) {
-	if !ValidActionResponseURL(responseURL) {
-		return APIResult{PermanentFailure: true, Message: "invalid slack action response URL"}, nil
-	}
-	body, err := json.Marshal(map[string]any{
-		"replace_original": true,
-		"text":             text,
-	})
-	if err != nil {
-		return APIResult{}, err
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, actionResponseTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(
-		requestCtx,
-		http.MethodPost,
-		responseURL,
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return APIResult{PermanentFailure: true, Message: err.Error()}, nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	return doActionResponseRequest(client, req)
-}
-
-func ValidActionResponseURL(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return false
-	}
-	if parsed.Scheme != "https" {
-		return false
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host != "hooks.slack.com" && host != "hooks.slack-gov.com" {
-		return false
-	}
-	return strings.HasPrefix(parsed.EscapedPath(), "/actions/")
-}
-
-func doActionResponseRequest(client *http.Client, req *http.Request) (APIResult, error) {
-	resp, err := httpClientWithoutRedirects(client).Do(req)
-	if err != nil {
-		return APIResult{DeliveryUnknown: true, Message: err.Error()}, nil
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := readResponseBody(resp.Body, toolResponseMaxBytes)
-	if err != nil {
-		return APIResult{DeliveryUnknown: true, Message: err.Error()}, nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode >= 500 {
-			return APIResult{
-				Code:             "transient_failure",
-				TransientFailure: true,
-				Message:          slackStatusError("slack action response", resp.StatusCode, body).Error(),
-			}, nil
-		}
-		return APIResult{
-			Code:             "permanent_failure",
-			PermanentFailure: true,
-			Message:          slackStatusError("slack action response", resp.StatusCode, body).Error(),
-		}, nil
-	}
-	return APIResult{}, nil
 }
 
 func rejectTrailingJSON(decoder *json.Decoder) error {

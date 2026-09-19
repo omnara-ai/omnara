@@ -102,7 +102,9 @@ export type AgentProfileId = string;
 
 export type CronTriggerId = string;
 
-export type IntegrationInstallId = string;
+export type IntegrationConnectionId = string;
+
+export type IntegrationTargetId = string;
 
 export type AgentEventId = string;
 
@@ -832,28 +834,55 @@ export type CreateIntegrationOAuthSetupRequest = {
     return_to?: string;
 };
 
+export type IntegrationProvider = 'slack' | 'github' | 'discord';
+
+export type IntegrationConnectionState = 'active' | 'disabled';
+
 /**
- * A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+ * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
  */
-export type IntegrationInstall = {
-    id: IntegrationInstallId;
-    org_id: OrganizationId;
-    project_id: ProjectId;
-    agent_profile_id?: AgentProfileId;
-    agent_id?: AgentId;
-    provider: string;
-    integration_kind: string;
-    connection_mode: string;
-    state: 'active' | 'disabled';
+export type IntegrationConnectionDisplayName = string;
+
+/**
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub connections require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks) and shard_count (optional integer from 1 through 4096, default 1). Saves persist the default shard_count. Shard count is the configured Gateway topology; each shard is leased independently. Increase it explicitly if Discord requires more shards. Credentials and app behavior are not accepted here.
+ */
+export type IntegrationConnectionConfig = {
+    [key: string]: unknown;
+};
+
+/**
+ * Project-owned provider access. GitHub tenant is the numeric App ID and account is the numeric Installation ID; the github_app_credentials secret must have the same App ID. Discord tenant is the Application ID and account is the bot User ID (canonical decimal snowflakes), not a guild ID; its generic secret contains the bot token. Slack connections are created through OAuth setup. Provider account identity cannot change on update. Saving replaces mutable settings; omitted state defaults to active. Omitted configuration becomes an empty object for Slack and GitHub, or {"shard_count":1} for Discord.
+ */
+export type SaveIntegrationConnectionRequest = {
+    provider: IntegrationProvider;
     provider_tenant_id: string;
     provider_account_ref: string;
-    provider_agent_display_name: string;
+    provider_agent_display_name?: IntegrationConnectionDisplayName;
+    credential_secret_id: SecretId;
+    provider_config?: IntegrationConnectionConfig;
+    state?: IntegrationConnectionState;
+};
+
+/**
+ * Project-owned provider account identity, non-secret configuration, and an authorized secret reference. Apps own launch behavior and destinations. Credential payloads are never returned.
+ */
+export type IntegrationConnection = {
+    id: IntegrationConnectionId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    provider: IntegrationProvider;
+    state: IntegrationConnectionState;
+    provider_tenant_id: string;
+    provider_account_ref: string;
+    provider_agent_display_name: IntegrationConnectionDisplayName;
+    credential_secret_id?: SecretId;
+    provider_config: IntegrationConnectionConfig;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
 
-export type ListIntegrationInstallsResponse = {
-    data: Array<IntegrationInstall>;
+export type ListIntegrationConnectionsResponse = {
+    data: Array<IntegrationConnection>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
@@ -1336,7 +1365,28 @@ export type CreateAgentRequest = {
      * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
     name?: AgentName;
+    /**
+     * Optional initial text message. Mutually exclusive with initial_input.
+     */
     message?: string;
+    /**
+     * Agent-local attachments added to the pinned config using the normal project app, connection, and secret resolvers. Existing resource keys cannot be replaced. Resolved resources and contributed tools are frozen in a new immutable config, created atomically with the agent and input. Requires project management permission. Does not update the profile.
+     */
+    app_resources?: {
+        [key: string]: AppResourceSource;
+    };
+    initial_input?: AgentLaunchInitialInput;
+};
+
+/**
+ * Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
+ */
+export type AgentLaunchInitialInput = {
+    content_blocks: Array<TextContentBlock>;
+    /**
+     * Optional external actor for API key authentication. User-authenticated requests must omit this field. Without it, the authenticated user or API key is the actor.
+     */
+    actor?: ExternalActorParams;
 };
 
 export type Agent = {
@@ -1656,6 +1706,14 @@ export type Metadata = {
  */
 export type MachineMetadata = {
     [key: string]: string;
+};
+
+/**
+ * A provider conversation address scoped to one connection. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
+ */
+export type IntegrationConversationAddress = {
+    kind: string;
+    ref: string;
 };
 
 export type CreateAgentInputRequest = {
@@ -2120,6 +2178,24 @@ export type ResolveAgentInteractionRequest = {
     actor?: ExternalActorParams;
 };
 
+/**
+ * Immutable destination captured when this interaction was created, not the agent's current selection. The built-in presenter checks live resource and connection authority before sending. Project-authorized dashboard/API resolution remains available independently.
+ */
+export type AgentInteractionDestination = {
+    handler_definition: string;
+    resource_key: string;
+    integration_target_id: IntegrationTargetId;
+    connection_id: IntegrationConnectionId;
+    address: IntegrationConversationAddress;
+};
+
+/**
+ * Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
+ */
+export type InteractionPresentationReceipt = {
+    [key: string]: unknown;
+};
+
 export type AgentInteraction = {
     id: AgentInteractionId;
     org_id: OrganizationId;
@@ -2143,6 +2219,11 @@ export type AgentInteraction = {
     request: InteractionForm;
     resolution?: InteractionResolution;
     /**
+     * Captured built-in app destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+     */
+    destination?: AgentInteractionDestination;
+    presentation_receipt?: InteractionPresentationReceipt;
+    /**
      * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
      */
     resolved_by_input_id?: AgentInputId;
@@ -2153,7 +2234,7 @@ export type AgentInteraction = {
 /**
  * omnara for project members, an integration provider such as slack, or external for API-managed actors.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'external';
+export type ActorProvider = 'omnara' | 'slack' | 'github' | 'discord' | 'external';
 
 export type Actor = {
     id: ActorId;
@@ -2270,13 +2351,25 @@ export type AwsCredentialsSecretMaterial = {
     external_id?: string;
 };
 
+export type GitHubAppCredentialsSecretMaterial = {
+    kind: 'github_app_credentials';
+    app_id: string;
+    /**
+     * Unencrypted RSA private key in PEM format. Stored encrypted.
+     */
+    private_key: string;
+    webhook_secret: string;
+};
+
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
     kind: 'oauth_token_set';
 } & OAuthTokenSetSecretMaterial) | ({
     kind: 'aws_credentials';
-} & AwsCredentialsSecretMaterial);
+} & AwsCredentialsSecretMaterial) | ({
+    kind: 'github_app_credentials';
+} & GitHubAppCredentialsSecretMaterial);
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
@@ -2298,7 +2391,7 @@ export type SecretGrantCreateRequest = {
     target_project_id: ProjectId;
 };
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials';
+export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials' | 'github_app_credentials';
 
 export type Secret = {
     id: SecretId;
@@ -3275,6 +3368,167 @@ export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
 
+export type ProjectAppId = string;
+
+export type AppLaunchSlot = unknown & {
+    key: string;
+    agent_profile_id?: AgentProfileId;
+    agent_id?: AgentId;
+};
+
+export type AppLauncher = {
+    /**
+     * Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
+     */
+    trigger: string;
+    scope_kind: string;
+    scope_ref: string;
+    /**
+     * App-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
+     */
+    slots: Array<AppLaunchSlot>;
+};
+
+export type ProjectAppSettings = {
+    /**
+     * Inline reusable app resource. Requires definition, forbids app_instance. A launcher may supply its concrete conversation scope later. Credentials remain secret references.
+     */
+    resource: AppResourceSource;
+    launcher?: AppLauncher;
+};
+
+export type SaveProjectAppRequest = {
+    name: ResourceName;
+    settings: ProjectAppSettings;
+    enabled?: boolean;
+};
+
+export type ProjectApp = {
+    id: ProjectAppId;
+    project_id: ProjectId;
+    name: ResourceName;
+    settings: ProjectAppSettings;
+    enabled: boolean;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+export type ListProjectAppsResponse = {
+    data: Array<ProjectApp>;
+    next_cursor: string | null;
+};
+
+export type AppResourceAgentToolInputSchema = {
+    properties?: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    required?: Array<string>;
+    type: 'object';
+};
+
+export type AppResourceAppDiscordScope = {
+    channel_id: string;
+    guild_id?: string;
+    thread_id?: string;
+};
+
+export type AppResourceAppFollow = {
+    replies: boolean;
+};
+
+export type AppResourceAppGitHubScope = {
+    pull_request: number;
+    repository_id: number;
+};
+
+export type AppResourceAppInteractionHandler = {
+    definition: string;
+};
+
+export type AppResourceAppListener = {
+    events: Array<string>;
+};
+
+export type AppResourceAppMcpSource = {
+    auth?: AppResourceMcpAuthSource;
+    default_enabled?: boolean | null;
+    deferred?: boolean;
+    permission?: AppResourceToolPermissionSelection;
+    tools?: {
+        [key: string]: AppResourceMcpToolSource;
+    };
+    url?: string;
+};
+
+export type AppResourceAppScope = ({
+    [key: string]: unknown;
+} | {
+    [key: string]: unknown;
+} | {
+    [key: string]: unknown;
+}) & {
+    discord?: AppResourceAppDiscordScope;
+    github?: AppResourceAppGitHubScope;
+    slack?: AppResourceAppSlackScope;
+};
+
+export type AppResourceAppSlackScope = {
+    channel_id: string;
+    thread_ts?: string;
+};
+
+export type AppResourceAppToolSource = {
+    deferred?: boolean;
+    description?: string;
+    enabled?: boolean | null;
+    input_schema?: AppResourceAgentToolInputSchema;
+    permission?: AppResourceToolPermissionSelection;
+    type?: 'built_in' | 'custom';
+};
+
+export type AppResourceMcpAuthSource = {
+    region?: string;
+    secret_id: string;
+    service?: string;
+    type: 'bearer' | 'oauth' | 'sigv4';
+};
+
+export type AppResourceMcpToolSource = {
+    deferred?: boolean | null;
+    enabled?: boolean | null;
+    permission?: AppResourceToolPermissionSelection;
+};
+
+export type AppResourceSource = ({
+    [key: string]: unknown;
+} | {
+    [key: string]: unknown;
+}) & {
+    app_instance?: string;
+    connection?: string;
+    definition?: string;
+    enabled?: boolean;
+    follow?: AppResourceAppFollow;
+    interaction_handler?: AppResourceAppInteractionHandler;
+    listener?: AppResourceAppListener;
+    mcp?: {
+        [key: string]: AppResourceAppMcpSource;
+    };
+    scope?: AppResourceAppScope;
+    tools?: {
+        [key: string]: AppResourceAppToolSource;
+    };
+};
+
+export type AppResourceToolPermissionSelection = {
+    mode: string;
+    parameters?: {
+        [key: string]: unknown;
+    };
+};
+
 /**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
  */
@@ -3363,14 +3617,9 @@ export type SecretOwnerProjectIdFilter = ProjectId;
 export type SecretMcpoAuthFlowIdFilter = McpoAuthFlowId;
 
 /**
- * Only return integration installs bound to this agent profile.
+ * Only return the integration connection completed by this OAuth setup flow.
  */
-export type IntegrationInstallAgentProfileFilter = AgentProfileId;
-
-/**
- * Only return the integration install completed by this OAuth setup flow.
- */
-export type IntegrationInstallOAuthFlowIdFilter = IntegrationOAuthFlowId;
+export type IntegrationConnectionOAuthFlowIdFilter = IntegrationOAuthFlowId;
 
 /**
  * Filter a project inventory by how the secret became available.
@@ -7257,7 +7506,7 @@ export type DeleteSecretGrantResponses = {
 
 export type DeleteSecretGrantResponse = DeleteSecretGrantResponses[keyof DeleteSecretGrantResponses];
 
-export type ListIntegrationInstallsData = {
+export type ListIntegrationConnectionsData = {
     body?: never;
     path: {
         orgID: string;
@@ -7269,11 +7518,7 @@ export type ListIntegrationInstallsData = {
          */
         name?: string;
         /**
-         * Only return integration installs bound to this agent profile.
-         */
-        agent_profile_id?: AgentProfileId;
-        /**
-         * Only return the integration install completed by this OAuth setup flow.
+         * Only return the integration connection completed by this OAuth setup flow.
          */
         oauth_flow_id?: IntegrationOAuthFlowId;
         sort?: ResourceListSort;
@@ -7286,10 +7531,10 @@ export type ListIntegrationInstallsData = {
          */
         cursor?: string;
     };
-    url: '/orgs/{orgID}/projects/{projectID}/integration-installs';
+    url: '/orgs/{orgID}/projects/{projectID}/integration-connections';
 };
 
-export type ListIntegrationInstallsErrors = {
+export type ListIntegrationConnectionsErrors = {
     /**
      * The request was invalid.
      */
@@ -7332,29 +7577,97 @@ export type ListIntegrationInstallsErrors = {
     };
 };
 
-export type ListIntegrationInstallsError = ListIntegrationInstallsErrors[keyof ListIntegrationInstallsErrors];
+export type ListIntegrationConnectionsError = ListIntegrationConnectionsErrors[keyof ListIntegrationConnectionsErrors];
 
-export type ListIntegrationInstallsResponses = {
+export type ListIntegrationConnectionsResponses = {
     /**
-     * Integration installs in the project, newest first.
+     * Integration connections in the project, newest first.
      */
-    200: ListIntegrationInstallsResponse;
+    200: ListIntegrationConnectionsResponse;
 };
 
-export type ListIntegrationInstallsResponse2 = ListIntegrationInstallsResponses[keyof ListIntegrationInstallsResponses];
+export type ListIntegrationConnectionsResponse2 = ListIntegrationConnectionsResponses[keyof ListIntegrationConnectionsResponses];
 
-export type DeleteIntegrationInstallData = {
+export type CreateIntegrationConnectionData = {
+    body: SaveIntegrationConnectionRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-connections';
+};
+
+export type CreateIntegrationConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateIntegrationConnectionError = CreateIntegrationConnectionErrors[keyof CreateIntegrationConnectionErrors];
+
+export type CreateIntegrationConnectionResponses = {
+    /**
+     * Integration connection.
+     */
+    201: IntegrationConnection;
+};
+
+export type CreateIntegrationConnectionResponse = CreateIntegrationConnectionResponses[keyof CreateIntegrationConnectionResponses];
+
+export type DeleteIntegrationConnectionData = {
     body?: never;
     path: {
         orgID: string;
         projectID: string;
-        integrationInstallID: string;
+        integrationConnectionID: IntegrationConnectionId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}';
+    url: '/orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}';
 };
 
-export type DeleteIntegrationInstallErrors = {
+export type DeleteIntegrationConnectionErrors = {
     /**
      * The request was invalid.
      */
@@ -7397,16 +7710,154 @@ export type DeleteIntegrationInstallErrors = {
     };
 };
 
-export type DeleteIntegrationInstallError = DeleteIntegrationInstallErrors[keyof DeleteIntegrationInstallErrors];
+export type DeleteIntegrationConnectionError = DeleteIntegrationConnectionErrors[keyof DeleteIntegrationConnectionErrors];
 
-export type DeleteIntegrationInstallResponses = {
+export type DeleteIntegrationConnectionResponses = {
     /**
-     * Integration install deleted.
+     * Integration connection deleted.
      */
     204: void;
 };
 
-export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
+export type DeleteIntegrationConnectionResponse = DeleteIntegrationConnectionResponses[keyof DeleteIntegrationConnectionResponses];
+
+export type GetIntegrationConnectionData = {
+    body?: never;
+    path: {
+        orgID: string;
+        projectID: string;
+        integrationConnectionID: IntegrationConnectionId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}';
+};
+
+export type GetIntegrationConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetIntegrationConnectionError = GetIntegrationConnectionErrors[keyof GetIntegrationConnectionErrors];
+
+export type GetIntegrationConnectionResponses = {
+    /**
+     * Integration connection.
+     */
+    200: IntegrationConnection;
+};
+
+export type GetIntegrationConnectionResponse = GetIntegrationConnectionResponses[keyof GetIntegrationConnectionResponses];
+
+export type UpdateIntegrationConnectionData = {
+    body: SaveIntegrationConnectionRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        integrationConnectionID: IntegrationConnectionId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}';
+};
+
+export type UpdateIntegrationConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateIntegrationConnectionError = UpdateIntegrationConnectionErrors[keyof UpdateIntegrationConnectionErrors];
+
+export type UpdateIntegrationConnectionResponses = {
+    /**
+     * Integration connection.
+     */
+    200: IntegrationConnection;
+};
+
+export type UpdateIntegrationConnectionResponse = UpdateIntegrationConnectionResponses[keyof UpdateIntegrationConnectionResponses];
 
 export type ResolveAgentConfigToolsData = {
     body: ResolveAgentConfigToolsRequest;
@@ -14050,3 +14501,335 @@ export type DownloadDaemonArtifactResponses = {
 };
 
 export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
+
+export type ListProjectAppsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/apps';
+};
+
+export type ListProjectAppsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListProjectAppsError = ListProjectAppsErrors[keyof ListProjectAppsErrors];
+
+export type ListProjectAppsResponses = {
+    /**
+     * List project apps.
+     */
+    200: ListProjectAppsResponse;
+};
+
+export type ListProjectAppsResponse2 = ListProjectAppsResponses[keyof ListProjectAppsResponses];
+
+export type CreateProjectAppData = {
+    body: SaveProjectAppRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps';
+};
+
+export type CreateProjectAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateProjectAppError = CreateProjectAppErrors[keyof CreateProjectAppErrors];
+
+export type CreateProjectAppResponses = {
+    /**
+     * Create reusable app setup and optional launcher.
+     */
+    201: ProjectApp;
+};
+
+export type CreateProjectAppResponse = CreateProjectAppResponses[keyof CreateProjectAppResponses];
+
+export type DeleteProjectAppData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        appID: ProjectAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}';
+};
+
+export type DeleteProjectAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteProjectAppError = DeleteProjectAppErrors[keyof DeleteProjectAppErrors];
+
+export type DeleteProjectAppResponses = {
+    /**
+     * Delete app setup without revoking compiled agent resources.
+     */
+    204: void;
+};
+
+export type DeleteProjectAppResponse = DeleteProjectAppResponses[keyof DeleteProjectAppResponses];
+
+export type GetProjectAppData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        appID: ProjectAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}';
+};
+
+export type GetProjectAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectAppError = GetProjectAppErrors[keyof GetProjectAppErrors];
+
+export type GetProjectAppResponses = {
+    /**
+     * Get project app.
+     */
+    200: ProjectApp;
+};
+
+export type GetProjectAppResponse = GetProjectAppResponses[keyof GetProjectAppResponses];
+
+export type UpdateProjectAppData = {
+    body: SaveProjectAppRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        appID: ProjectAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}';
+};
+
+export type UpdateProjectAppErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateProjectAppError = UpdateProjectAppErrors[keyof UpdateProjectAppErrors];
+
+export type UpdateProjectAppResponses = {
+    /**
+     * Replace app setup for future attachments and launches.
+     */
+    200: ProjectApp;
+};
+
+export type UpdateProjectAppResponse = UpdateProjectAppResponses[keyof UpdateProjectAppResponses];

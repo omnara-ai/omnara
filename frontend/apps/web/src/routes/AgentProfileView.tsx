@@ -9,15 +9,15 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { AgentProfileApps } from '@/components/agents/AgentProfileApps'
 import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfigEditor'
-import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
-import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { PillTabs } from '@/components/agents/PillTabs'
+import { ProjectAppSetupDialog } from '@/components/agents/ProjectAppSetupDialog'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
 import { FiltersMenu } from '@/components/data-table/FiltersMenu'
@@ -32,7 +32,7 @@ import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { useWebConfig } from '@/lib/web-config'
 
-type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents' | 'usage'
+type ProfileTab = 'configuration' | 'apps' | 'schedules' | 'agents' | 'usage'
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -106,7 +106,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onValueChange={setTab}
           tabs={[
             { value: 'configuration', label: 'Configuration' },
-            { value: 'integrations', label: 'Integrations' },
+            { value: 'apps', label: 'Apps' },
             { value: 'schedules', label: 'Schedules' },
             { value: 'agents', label: 'Agents' },
             { value: 'usage', label: 'Usage' },
@@ -124,8 +124,8 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onDelete={remove}
         />
       </div>
-      {tab === 'integrations' && (
-        <IntegrationsTab
+      {tab === 'apps' && (
+        <AppsTab
           orgId={activeOrg.id}
           projectId={projectId}
           profileId={profile.id}
@@ -160,7 +160,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
       )}
 
       {canManage && deployOpen && (
-        <DeployAgentProfileDialog
+        <ProjectAppSetupDialog
           open
           onOpenChange={setDeployOpen}
           orgId={activeOrg.id}
@@ -276,17 +276,17 @@ interface ProfileTabProps {
   onAdd: () => void
 }
 
-function IntegrationsTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
+function AppsTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
   return (
     <div className="flex flex-col gap-4">
       {canManage && (
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={onAdd}>
-            Add integration
+            Add app
           </Button>
         </div>
       )}
-      <AgentProfileIntegrations
+      <AgentProfileApps
         orgId={orgId}
         projectId={projectId}
         profileId={profileId}

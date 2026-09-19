@@ -203,18 +203,13 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load managed-retry agent: %v", err)
-	}
-	attachKernelSlackTarget(
+	attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		agentID,
-		agent.AgentProfileID,
 		"managed-retry",
-		"C_MANAGED_RETRY:1.0",
+		"CMANAGEDRETRY:1.0",
 	)
 	work := fixture.admitContentInputTurn(
 		t,
@@ -244,7 +239,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_MANAGED_RETRY","ts":"2.0"}`,
+					`{"ok":true,"channel":"CMANAGEDRETRY","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil

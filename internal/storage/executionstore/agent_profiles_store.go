@@ -321,6 +321,30 @@ func (s *Store) GetAgentProfile(ctx context.Context, projectID, id uuid.UUID) (A
 	return record, nil
 }
 
+// GetAgentProfileDisplayNames returns only live profile labels within a project.
+// App launchers use this before a human chooses; config loading belongs to launch.
+func (s *Store) GetAgentProfileDisplayNames(
+	ctx context.Context, projectID uuid.UUID, ids []uuid.UUID,
+) (map[uuid.UUID]string, error) {
+	if projectID == uuid.Nil || len(ids) > 100 {
+		return nil, errors.New("project and at most 100 profile IDs are required")
+	}
+	names := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return names, nil
+	}
+	rows, err := s.q.GetAgentProfileDisplayNames(ctx, dbsqlc.GetAgentProfileDisplayNamesParams{
+		ProjectID: projectID, ProfileIds: ids,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get agent profile display names: %w", err)
+	}
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
+}
+
 type ListAgentProfilesForProjectInput struct {
 	ProjectID uuid.UUID
 	Filters   AgentProfileListFilters
@@ -430,17 +454,25 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	project, err := loadProjectTx(ctx, qtx, projectID)
+	if err != nil {
+		return err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, projectID); err != nil {
+		return err
+	}
 	if _, err := lockAgentProfileTx(ctx, qtx, projectID, id); err != nil {
 		return err
 	}
-	hasInstall, err := qtx.AgentProfileHasIntegrationInstall(ctx, dbsqlc.AgentProfileHasIntegrationInstallParams{
-		ProjectID: projectID, ProfileID: &id,
-	})
+	hasApp, err := qtx.AgentProfileHasProjectApp(
+		ctx,
+		dbsqlc.AgentProfileHasProjectAppParams{ProjectID: projectID, ProfileID: id},
+	)
 	if err != nil {
-		return fmt.Errorf("check agent profile integration installs: %w", err)
+		return fmt.Errorf("check agent profile apps: %w", err)
 	}
-	if hasInstall {
-		return fmt.Errorf("agent profile is referenced by an integration install: %w", storeerr.ErrConflict)
+	if hasApp {
+		return fmt.Errorf("agent profile is referenced by an app: %w", storeerr.ErrConflict)
 	}
 	rows, err := qtx.DeleteAgentProfile(
 		ctx,

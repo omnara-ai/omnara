@@ -1,4 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
+import { zAppResourceSource } from '@omnara/sdk/zod'
 import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
@@ -136,6 +137,7 @@ const basicDocument = z.looseObject({
   model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
+  app_resources: z.record(z.string(), zAppResourceSource).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
   subagents: z.record(z.string(), subagentEntry).optional(),
@@ -179,6 +181,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     modelName: doc.model?.name ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
+    appResources: doc.app_resources ?? {},
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),

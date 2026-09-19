@@ -380,7 +380,7 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+	if err := s.server.validateSlackAppSetupConfig(ctx, profile.CurrentConfig); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -496,7 +496,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
+	if err := s.server.validateSlackAppSetupConfig(ctx, profile.CurrentConfig); err != nil {
 		return nil, err
 	}
 	appIcon, err := slackSetupAppIcon(*request.Body)
@@ -806,7 +806,7 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
-	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+	input := executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
@@ -814,7 +814,26 @@ func (s strictOpenAPIServer) createAgent(
 		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
-	})
+	}
+	// Completed launches are reads: do not resolve deleted app references or
+	// re-apply a changed retry body. The kernel repeats this lookup under its
+	// launch key lock before admitting any new writes.
+	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
+		ctx, project.ID, idempotencyKey,
+	); err != nil {
+		return nil, apierror.ProjectScoped(err)
+	} else if found {
+		response, err := currentAgentEnvelope(replay)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.CreateAgent200JSONResponse(response), nil
+	}
+	input, err := s.preparePublicAgentLaunch(ctx, project, principal, *request.Body, input)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.server.store.Execution().LaunchAgent(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}

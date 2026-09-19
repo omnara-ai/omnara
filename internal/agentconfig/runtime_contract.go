@@ -22,6 +22,7 @@ type RuntimeContract struct {
 	MachineSources  []RuntimeMachine
 	Tools           []RuntimeTool
 	MCPServers      []RuntimeMCPServer
+	AppResources    map[string]AppResourceCompiled
 	Skills          []SkillCompiled
 	Subagents       map[string]SubagentCompiled
 	MaxSubagents    *int
@@ -42,6 +43,10 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 func (contract RuntimeContract) WithImplicitBuiltInTool(name string) (RuntimeContract, error) {
+	// Provider entries are policy only until an app resource grants scope.
+	if toolcatalog.AppToolProvider(name) != "" {
+		return contract, nil
+	}
 	if _, configured := contract.configuredTools[name]; configured {
 		return contract, nil
 	}
@@ -121,7 +126,10 @@ func RuntimeContractFromCompiled(
 		}
 		return RuntimeContract{}, fmt.Errorf("parse compiled agent config: %w", err)
 	}
-	tools, err := runtimeTools(compiled.Tools)
+	if err := validateCompiledApps(compiled); err != nil {
+		return RuntimeContract{}, fmt.Errorf("compiled app resources: %w", err)
+	}
+	tools, err := runtimeTools(compiled.Tools, compiled.AppResources)
 	if err != nil {
 		return RuntimeContract{}, err
 	}
@@ -139,6 +147,7 @@ func RuntimeContractFromCompiled(
 		MachineSources:  runtimeMachineSources(compiled.MachineSources),
 		Tools:           tools,
 		MCPServers:      mcpServers,
+		AppResources:    compiled.AppResources,
 		Skills:          compiled.Skills,
 		Subagents:       compiled.Subagents,
 		MaxSubagents:    compiled.MaxSubagents,
@@ -173,7 +182,7 @@ func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {
 	return machines
 }
 
-func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
+func runtimeTools(compiled map[string]ToolCompiled, resources map[string]AppResourceCompiled) ([]RuntimeTool, error) {
 	if len(compiled) == 0 {
 		return nil, nil
 	}
@@ -193,8 +202,18 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 		if err := validateRuntimeTool(name, tool, entry, builtInName); err != nil {
 			return nil, err
 		}
-		if !tool.Enabled {
+		if !tool.Enabled || !toolHasResources(name, resources) {
 			continue
+		}
+		if toolcatalog.AppToolProvider(name) != "" {
+			keys := AppToolResources(resources, name)
+			if len(keys) == 0 {
+				continue
+			}
+			entry, err = entry.WithAppResources(keys)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if tool.Type == toolcatalog.ToolTypeCustom {
 			out = append(out, RuntimeTool{

@@ -22,6 +22,8 @@ import (
 const (
 	ActorProviderOmnara   = "omnara"
 	ActorProviderSlack    = "slack"
+	ActorProviderGitHub   = "github"
+	ActorProviderDiscord  = "discord"
 	ActorProviderExternal = "external"
 )
 

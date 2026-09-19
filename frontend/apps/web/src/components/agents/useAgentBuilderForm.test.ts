@@ -16,6 +16,7 @@ import {
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
+  appResources: {},
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',
   modelName: 'claude-sonnet-5',
@@ -552,19 +553,7 @@ mcp:
 
 describe('createBasicConfigSession apply', () => {
   it('keeps an empty source empty for an untouched form', () => {
-    const emptyConfig: BasicConfig = {
-      instruction: '',
-      providerConfig: '',
-      modelName: '',
-      machineSources: [],
-      tools: [],
-      mcpServers: [],
-      skillIds: [],
-      subagents: [],
-      maxSubagents: '',
-      maxDepth: '',
-    }
-    expect(applyToSource('', emptyConfig)).toBe('')
+    expect(applyToSource('', emptyBasicConfig)).toBe('')
   })
 
   it('returns the source verbatim when the draft matches it', () => {

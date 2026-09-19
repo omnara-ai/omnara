@@ -14,42 +14,42 @@ import (
 )
 
 const clearDeletedIntegrationTargetsFromAgents = `-- name: ClearDeletedIntegrationTargetsFromAgents :exec
-UPDATE agents agent SET integration_target_id = NULL, updated_at = statement_timestamp()
+UPDATE agents agent SET integration_target_id = NULL, interaction_resource_key = NULL, updated_at = statement_timestamp()
 WHERE agent.project_id = $1
   AND agent.integration_target_id IN (
     SELECT target.id FROM integration_targets target
     WHERE target.project_id = $1
-      AND target.integration_install_id = $2
+      AND target.integration_connection_id = $2
   )
 `
 
 type ClearDeletedIntegrationTargetsFromAgentsParams struct {
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
+	ProjectID               uuid.UUID
+	IntegrationConnectionID uuid.UUID
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
 // Clears agent references before soft deleting the install's targets.
 func (q *Queries) ClearDeletedIntegrationTargetsFromAgents(ctx context.Context, arg ClearDeletedIntegrationTargetsFromAgentsParams) error {
-	_, err := q.db.Exec(ctx, clearDeletedIntegrationTargetsFromAgents, arg.ProjectID, arg.IntegrationInstallID)
+	_, err := q.db.Exec(ctx, clearDeletedIntegrationTargetsFromAgents, arg.ProjectID, arg.IntegrationConnectionID)
 	return err
 }
 
-const deleteIntegrationInstall = `-- name: DeleteIntegrationInstall :execrows
-UPDATE integration_installs
+const deleteIntegrationConnection = `-- name: DeleteIntegrationConnection :execrows
+UPDATE integration_connections
 SET credential_secret_id = NULL, deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
-type DeleteIntegrationInstallParams struct {
+type DeleteIntegrationConnectionParams struct {
 	ProjectID uuid.UUID
 	ID        uuid.UUID
 }
 
 // Clearing the credential releases the secret for deletion; the install
 // keeps whatever active/disabled state it had as provenance.
-func (q *Queries) DeleteIntegrationInstall(ctx context.Context, arg DeleteIntegrationInstallParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteIntegrationInstall, arg.ProjectID, arg.ID)
+func (q *Queries) DeleteIntegrationConnection(ctx context.Context, arg DeleteIntegrationConnectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteIntegrationConnection, arg.ProjectID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -58,22 +58,22 @@ func (q *Queries) DeleteIntegrationInstall(ctx context.Context, arg DeleteIntegr
 
 const deleteIntegrationTargets = `-- name: DeleteIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = $1 AND integration_install_id = $2
+WHERE project_id = $1 AND integration_connection_id = $2
   AND deleted_at IS NULL
 `
 
 type DeleteIntegrationTargetsParams struct {
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
+	ProjectID               uuid.UUID
+	IntegrationConnectionID uuid.UUID
 }
 
 func (q *Queries) DeleteIntegrationTargets(ctx context.Context, arg DeleteIntegrationTargetsParams) error {
-	_, err := q.db.Exec(ctx, deleteIntegrationTargets, arg.ProjectID, arg.IntegrationInstallID)
+	_, err := q.db.Exec(ctx, deleteIntegrationTargets, arg.ProjectID, arg.IntegrationConnectionID)
 	return err
 }
 
-const disableIntegrationInstall = `-- name: DisableIntegrationInstall :execrows
-UPDATE integration_installs
+const disableIntegrationConnection = `-- name: DisableIntegrationConnection :execrows
+UPDATE integration_connections
 SET state = 'disabled',
     updated_at = statement_timestamp()
 WHERE project_id = $1
@@ -83,50 +83,46 @@ WHERE project_id = $1
   AND last_oauth_flow_id IS NOT DISTINCT FROM $3::uuid
 `
 
-type DisableIntegrationInstallParams struct {
+type DisableIntegrationConnectionParams struct {
 	ProjectID           uuid.UUID
 	ID                  uuid.UUID
 	ExpectedOauthFlowID *uuid.UUID
 }
 
-func (q *Queries) DisableIntegrationInstall(ctx context.Context, arg DisableIntegrationInstallParams) (int64, error) {
-	result, err := q.db.Exec(ctx, disableIntegrationInstall, arg.ProjectID, arg.ID, arg.ExpectedOauthFlowID)
+func (q *Queries) DisableIntegrationConnection(ctx context.Context, arg DisableIntegrationConnectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, disableIntegrationConnection, arg.ProjectID, arg.ID, arg.ExpectedOauthFlowID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const getIntegrationInstall = `-- name: GetIntegrationInstall :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+const getIntegrationConnection = `-- name: GetIntegrationConnection :one
+SELECT id, org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at
-FROM integration_installs
+FROM integration_connections
 WHERE project_id = $1
   AND id = $2
   AND deleted_at IS NULL
 `
 
-type GetIntegrationInstallParams struct {
+type GetIntegrationConnectionParams struct {
 	ProjectID uuid.UUID
 	ID        uuid.UUID
 }
 
-func (q *Queries) GetIntegrationInstall(ctx context.Context, arg GetIntegrationInstallParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, getIntegrationInstall, arg.ProjectID, arg.ID)
-	var i IntegrationInstall
+func (q *Queries) GetIntegrationConnection(ctx context.Context, arg GetIntegrationConnectionParams) (IntegrationConnection, error) {
+	row := q.db.QueryRow(ctx, getIntegrationConnection, arg.ProjectID, arg.ID)
+	var i IntegrationConnection
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -143,33 +139,29 @@ func (q *Queries) GetIntegrationInstall(ctx context.Context, arg GetIntegrationI
 	return i, err
 }
 
-const getIntegrationInstallByID = `-- name: GetIntegrationInstallByID :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+const getIntegrationConnectionByID = `-- name: GetIntegrationConnectionByID :one
+SELECT id, org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at
-FROM integration_installs
+FROM integration_connections
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-type GetIntegrationInstallByIDParams struct {
+type GetIntegrationConnectionByIDParams struct {
 	ID uuid.UUID
 }
 
-func (q *Queries) GetIntegrationInstallByID(ctx context.Context, arg GetIntegrationInstallByIDParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, getIntegrationInstallByID, arg.ID)
-	var i IntegrationInstall
+func (q *Queries) GetIntegrationConnectionByID(ctx context.Context, arg GetIntegrationConnectionByIDParams) (IntegrationConnection, error) {
+	row := q.db.QueryRow(ctx, getIntegrationConnectionByID, arg.ID)
+	var i IntegrationConnection
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -186,38 +178,34 @@ func (q *Queries) GetIntegrationInstallByID(ctx context.Context, arg GetIntegrat
 	return i, err
 }
 
-const getIntegrationInstallByProviderAccount = `-- name: GetIntegrationInstallByProviderAccount :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+const getIntegrationConnectionByProviderAccount = `-- name: GetIntegrationConnectionByProviderAccount :one
+SELECT id, org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at
-FROM integration_installs
+FROM integration_connections
 WHERE provider = $1
-  AND provider_tenant_id IS NOT DISTINCT FROM $2
+  AND provider_tenant_id = $2
   AND provider_account_ref = $3
   AND deleted_at IS NULL
 `
 
-type GetIntegrationInstallByProviderAccountParams struct {
+type GetIntegrationConnectionByProviderAccountParams struct {
 	Provider           string
-	ProviderTenantID   *string
+	ProviderTenantID   string
 	ProviderAccountRef string
 }
 
-func (q *Queries) GetIntegrationInstallByProviderAccount(ctx context.Context, arg GetIntegrationInstallByProviderAccountParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, getIntegrationInstallByProviderAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
-	var i IntegrationInstall
+func (q *Queries) GetIntegrationConnectionByProviderAccount(ctx context.Context, arg GetIntegrationConnectionByProviderAccountParams) (IntegrationConnection, error) {
+	row := q.db.QueryRow(ctx, getIntegrationConnectionByProviderAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
+	var i IntegrationConnection
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -235,7 +223,7 @@ func (q *Queries) GetIntegrationInstallByProviderAccount(ctx context.Context, ar
 }
 
 const getIntegrationTarget = `-- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_install_id, target.target_ref, target.provider_ref,
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_connection_id, target.target_ref, target.provider_ref,
   target.provider_ref_kind, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
@@ -250,19 +238,19 @@ type GetIntegrationTargetParams struct {
 }
 
 type GetIntegrationTargetRow struct {
-	ID                   uuid.UUID
-	OrgID                uuid.UUID
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	ProviderMetadata     json.RawMessage
-	DeletedAt            *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	IntegrationConnectionID uuid.UUID
+	TargetRef               string
+	ProviderRef             string
+	ProviderRefKind         string
+	DisplayName             string
+	ProviderMetadata        json.RawMessage
+	DeletedAt               *time.Time
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTargetParams) (GetIntegrationTargetRow, error) {
@@ -273,7 +261,7 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 		&i.OrgID,
 		&i.ProjectID,
 		&i.AgentID,
-		&i.IntegrationInstallID,
+		&i.IntegrationConnectionID,
 		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
@@ -286,93 +274,34 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 	return i, err
 }
 
-const getIntegrationTargetByProviderRef = `-- name: GetIntegrationTargetByProviderRef :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_install_id, target.target_ref, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
-FROM integration_targets target
-JOIN projects project ON project.id = target.project_id
-WHERE target.project_id = $1
-  AND target.integration_install_id = $2
-  AND target.provider_ref = $3
-  AND target.deleted_at IS NULL
-`
-
-type GetIntegrationTargetByProviderRefParams struct {
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
-	ProviderRef          string
-}
-
-type GetIntegrationTargetByProviderRefRow struct {
-	ID                   uuid.UUID
-	OrgID                uuid.UUID
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	ProviderMetadata     json.RawMessage
-	DeletedAt            *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-}
-
-func (q *Queries) GetIntegrationTargetByProviderRef(ctx context.Context, arg GetIntegrationTargetByProviderRefParams) (GetIntegrationTargetByProviderRefRow, error) {
-	row := q.db.QueryRow(ctx, getIntegrationTargetByProviderRef, arg.ProjectID, arg.IntegrationInstallID, arg.ProviderRef)
-	var i GetIntegrationTargetByProviderRefRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.IntegrationInstallID,
-		&i.TargetRef,
-		&i.ProviderRef,
-		&i.ProviderRefKind,
-		&i.DisplayName,
-		&i.ProviderMetadata,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const insertIntegrationInstall = `-- name: InsertIntegrationInstall :one
-INSERT INTO integration_installs(
-  org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+const insertIntegrationConnection = `-- name: InsertIntegrationConnection :one
+INSERT INTO integration_connections(
+  org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, created_at, updated_at
 )
 VALUES (
-  $1, $2, $3, $4,
-  $5, $6, $7,
-  $8, $9, $10,
-  $11, $12, $13,
-  $14, $15, $16,
-  $17, transaction_timestamp(), transaction_timestamp()
+  $1, $2, $3,
+  $4, $5, $6,
+  $7, $8, $9,
+  $10, $11, $12,
+  $13, transaction_timestamp(), transaction_timestamp()
 )
-ON CONFLICT (provider, provider_tenant_id, provider_account_ref) WHERE deleted_at IS NULL DO NOTHING
-RETURNING id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+ON CONFLICT DO NOTHING
+RETURNING id, org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at
 `
 
-type InsertIntegrationInstallParams struct {
+type InsertIntegrationConnectionParams struct {
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
 	InstalledByUserID        uuid.UUID
 	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
 	State                    string
 	ProviderTenantID         string
 	ProviderAccountRef       string
@@ -384,16 +313,12 @@ type InsertIntegrationInstallParams struct {
 	LastOauthFlowID          *uuid.UUID
 }
 
-func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegrationInstallParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, insertIntegrationInstall,
+func (q *Queries) InsertIntegrationConnection(ctx context.Context, arg InsertIntegrationConnectionParams) (IntegrationConnection, error) {
+	row := q.db.QueryRow(ctx, insertIntegrationConnection,
 		arg.OrgID,
 		arg.ProjectID,
-		arg.AgentProfileID,
-		arg.AgentID,
 		arg.InstalledByUserID,
 		arg.Provider,
-		arg.IntegrationKind,
-		arg.ConnectionMode,
 		arg.State,
 		arg.ProviderTenantID,
 		arg.ProviderAccountRef,
@@ -404,17 +329,13 @@ func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegr
 		arg.ProviderMetadata,
 		arg.LastOauthFlowID,
 	)
-	var i IntegrationInstall
+	var i IntegrationConnection
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -431,68 +352,9 @@ func (q *Queries) InsertIntegrationInstall(ctx context.Context, arg InsertIntegr
 	return i, err
 }
 
-const insertIntegrationTarget = `-- name: InsertIntegrationTarget :one
-INSERT INTO integration_targets(
-  project_id, agent_id, integration_install_id, target_ref, provider_ref,
-  provider_ref_kind, display_name, created_at, updated_at
-)
-SELECT agent.project_id, agent.id, install.id,
-       $1, $2, $3,
-       $4, transaction_timestamp(), transaction_timestamp()
-FROM agents agent
-JOIN integration_installs install
-  ON install.project_id = agent.project_id
- AND install.id = $5
- AND install.state = 'active'
- AND install.deleted_at IS NULL
-WHERE agent.project_id = $6
-  AND agent.id = $7
-ON CONFLICT DO NOTHING
-RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
-  provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at
-`
-
-type InsertIntegrationTargetParams struct {
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	IntegrationInstallID uuid.UUID
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-}
-
-func (q *Queries) InsertIntegrationTarget(ctx context.Context, arg InsertIntegrationTargetParams) (IntegrationTarget, error) {
-	row := q.db.QueryRow(ctx, insertIntegrationTarget,
-		arg.TargetRef,
-		arg.ProviderRef,
-		arg.ProviderRefKind,
-		arg.DisplayName,
-		arg.IntegrationInstallID,
-		arg.ProjectID,
-		arg.AgentID,
-	)
-	var i IntegrationTarget
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.IntegrationInstallID,
-		&i.TargetRef,
-		&i.ProviderRef,
-		&i.ProviderRefKind,
-		&i.DisplayName,
-		&i.ProviderMetadata,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const integrationOAuthFlowConsumed = `-- name: IntegrationOAuthFlowConsumed :one
 SELECT EXISTS (
-  SELECT 1 FROM integration_installs WHERE last_oauth_flow_id = $1 AND deleted_at IS NULL
+  SELECT 1 FROM integration_connections WHERE last_oauth_flow_id = $1 AND deleted_at IS NULL
 ) AS consumed
 `
 
@@ -507,23 +369,23 @@ func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg Integrat
 	return consumed, err
 }
 
-const listIntegrationInstallAgentIDsForLifecycle = `-- name: ListIntegrationInstallAgentIDsForLifecycle :many
+const listIntegrationConnectionAgentIDsForLifecycle = `-- name: ListIntegrationConnectionAgentIDsForLifecycle :many
 SELECT DISTINCT agent_id
 FROM integration_targets
 WHERE project_id = $1
-  AND integration_install_id = $2
+  AND integration_connection_id = $2
 ORDER BY agent_id
 `
 
-type ListIntegrationInstallAgentIDsForLifecycleParams struct {
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
+type ListIntegrationConnectionAgentIDsForLifecycleParams struct {
+	ProjectID               uuid.UUID
+	IntegrationConnectionID uuid.UUID
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
 // Include historical targets whose agents may still hold references to clear.
-func (q *Queries) ListIntegrationInstallAgentIDsForLifecycle(ctx context.Context, arg ListIntegrationInstallAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listIntegrationInstallAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationInstallID)
+func (q *Queries) ListIntegrationConnectionAgentIDsForLifecycle(ctx context.Context, arg ListIntegrationConnectionAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listIntegrationConnectionAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationConnectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -542,28 +404,27 @@ func (q *Queries) ListIntegrationInstallAgentIDsForLifecycle(ctx context.Context
 	return items, nil
 }
 
-const listIntegrationInstallsForProject = `-- name: ListIntegrationInstallsForProject :many
+const listIntegrationConnectionsForProject = `-- name: ListIntegrationConnectionsForProject :many
 WITH listed AS (
-SELECT install.id, install.org_id, install.project_id, install.agent_profile_id, install.agent_id,
-       install.installed_by_user_id, install.provider, install.integration_kind, install.connection_mode,
-       install.state, install.provider_tenant_id, install.provider_account_ref,
-       install.provider_agent_display_name, install.credential_secret_id,
-       install.provider_config, install.provider_identity, install.provider_metadata,
-       install.last_oauth_flow_id, install.created_at, install.updated_at,
+SELECT connection.id, connection.org_id, connection.project_id,
+       connection.installed_by_user_id, connection.provider,
+       connection.state, connection.provider_tenant_id, connection.provider_account_ref,
+       connection.provider_agent_display_name, connection.credential_secret_id,
+       connection.provider_config, connection.provider_identity, connection.provider_metadata,
+       connection.last_oauth_flow_id, connection.created_at, connection.updated_at,
        CASE $6::text
-         WHEN 'name' THEN lower(install.provider_agent_display_name)
-         WHEN 'created_at' THEN to_char(install.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
-         WHEN 'updated_at' THEN to_char(install.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+         WHEN 'name' THEN lower(connection.provider_agent_display_name)
+         WHEN 'created_at' THEN to_char(connection.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
+         WHEN 'updated_at' THEN to_char(connection.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
        END::text AS sort_key
-FROM integration_installs install
-WHERE install.project_id = $7
-  AND install.deleted_at IS NULL
-  AND ($8::text = '' OR install.provider_agent_display_name ILIKE $8::text ESCAPE '\')
-  AND ($9::uuid IS NULL OR install.agent_profile_id = $9::uuid)
-  AND ($10::uuid IS NULL OR install.last_oauth_flow_id = $10::uuid)
+FROM integration_connections connection
+WHERE connection.project_id = $7
+  AND connection.deleted_at IS NULL
+  AND ($8::text = '' OR connection.provider_agent_display_name ILIKE $8::text ESCAPE '\')
+  AND ($9::uuid IS NULL OR connection.last_oauth_flow_id = $9::uuid)
 )
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-       provider, integration_kind, connection_mode, state,
+SELECT id, org_id, project_id, installed_by_user_id,
+       provider, state,
        provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
        provider_config, provider_identity, provider_metadata,
        last_oauth_flow_id, created_at, updated_at, sort_key
@@ -578,29 +439,24 @@ ORDER BY CASE WHEN $2::boolean = false THEN sort_key END ASC,
 LIMIT $5
 `
 
-type ListIntegrationInstallsForProjectParams struct {
-	CursorSet      bool
-	SortDesc       bool
-	CursorKey      string
-	CursorID       uuid.UUID
-	RowLimit       int32
-	SortField      string
-	ProjectID      uuid.UUID
-	NamePattern    string
-	AgentProfileID *uuid.UUID
-	OauthFlowID    *uuid.UUID
+type ListIntegrationConnectionsForProjectParams struct {
+	CursorSet   bool
+	SortDesc    bool
+	CursorKey   string
+	CursorID    uuid.UUID
+	RowLimit    int32
+	SortField   string
+	ProjectID   uuid.UUID
+	NamePattern string
+	OauthFlowID *uuid.UUID
 }
 
-type ListIntegrationInstallsForProjectRow struct {
+type ListIntegrationConnectionsForProjectRow struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
 	InstalledByUserID        uuid.UUID
 	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
 	State                    string
 	ProviderTenantID         string
 	ProviderAccountRef       string
@@ -615,8 +471,8 @@ type ListIntegrationInstallsForProjectRow struct {
 	SortKey                  string
 }
 
-func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg ListIntegrationInstallsForProjectParams) ([]ListIntegrationInstallsForProjectRow, error) {
-	rows, err := q.db.Query(ctx, listIntegrationInstallsForProject,
+func (q *Queries) ListIntegrationConnectionsForProject(ctx context.Context, arg ListIntegrationConnectionsForProjectParams) ([]ListIntegrationConnectionsForProjectRow, error) {
+	rows, err := q.db.Query(ctx, listIntegrationConnectionsForProject,
 		arg.CursorSet,
 		arg.SortDesc,
 		arg.CursorKey,
@@ -625,26 +481,21 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 		arg.SortField,
 		arg.ProjectID,
 		arg.NamePattern,
-		arg.AgentProfileID,
 		arg.OauthFlowID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListIntegrationInstallsForProjectRow{}
+	items := []ListIntegrationConnectionsForProjectRow{}
 	for rows.Next() {
-		var i ListIntegrationInstallsForProjectRow
+		var i ListIntegrationConnectionsForProjectRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
 			&i.ProjectID,
-			&i.AgentProfileID,
-			&i.AgentID,
 			&i.InstalledByUserID,
 			&i.Provider,
-			&i.IntegrationKind,
-			&i.ConnectionMode,
 			&i.State,
 			&i.ProviderTenantID,
 			&i.ProviderAccountRef,
@@ -668,83 +519,33 @@ func (q *Queries) ListIntegrationInstallsForProject(ctx context.Context, arg Lis
 	return items, nil
 }
 
-const listIntegrationTargets = `-- name: ListIntegrationTargets :many
-SELECT target.id,
-  target.integration_install_id,
-  target.target_ref,
-  target.provider_ref,
-  target.provider_ref_kind,
-  target.display_name,
-  install.provider, install.state AS install_state,
-  CASE WHEN agent.integration_target_id = target.id THEN true ELSE false END AS is_current
-FROM integration_targets target
-JOIN agents agent
-  ON agent.project_id = target.project_id
- AND agent.id = target.agent_id
-JOIN integration_installs install
-  ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
- AND install.deleted_at IS NULL
-WHERE target.project_id = $1
-  AND target.agent_id = $2
-  AND target.deleted_at IS NULL
-ORDER BY is_current DESC, target.created_at ASC, target.id ASC
+const lockIntegrationConnectionAccount = `-- name: LockIntegrationConnectionAccount :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+  'integration_connection_account:' || jsonb_build_array($1::text,
+    $2::text, $3::text)::text, 0))
 `
 
-type ListIntegrationTargetsParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
+type LockIntegrationConnectionAccountParams struct {
+	Provider           string
+	ProviderTenantID   string
+	ProviderAccountRef string
 }
 
-type ListIntegrationTargetsRow struct {
-	ID                   uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	Provider             string
-	InstallState         string
-	IsCurrent            bool
+// Serializes connection creation/reconnection before its row identity is known.
+// JSON encoding keeps account components unambiguous; hash collisions only
+// cause harmless extra serialization.
+func (q *Queries) LockIntegrationConnectionAccount(ctx context.Context, arg LockIntegrationConnectionAccountParams) error {
+	_, err := q.db.Exec(ctx, lockIntegrationConnectionAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
+	return err
 }
 
-func (q *Queries) ListIntegrationTargets(ctx context.Context, arg ListIntegrationTargetsParams) ([]ListIntegrationTargetsRow, error) {
-	rows, err := q.db.Query(ctx, listIntegrationTargets, arg.ProjectID, arg.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListIntegrationTargetsRow{}
-	for rows.Next() {
-		var i ListIntegrationTargetsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.IntegrationInstallID,
-			&i.TargetRef,
-			&i.ProviderRef,
-			&i.ProviderRefKind,
-			&i.DisplayName,
-			&i.Provider,
-			&i.InstallState,
-			&i.IsCurrent,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const lockIntegrationInstallByProviderAccount = `-- name: LockIntegrationInstallByProviderAccount :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+const lockIntegrationConnectionByProviderAccount = `-- name: LockIntegrationConnectionByProviderAccount :one
+SELECT id, org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at
-FROM integration_installs
+FROM integration_connections
 WHERE provider = $1
   AND provider_tenant_id = $2
   AND provider_account_ref = $3
@@ -752,25 +553,21 @@ WHERE provider = $1
 FOR UPDATE
 `
 
-type LockIntegrationInstallByProviderAccountParams struct {
+type LockIntegrationConnectionByProviderAccountParams struct {
 	Provider           string
-	ProviderTenantID   *string
+	ProviderTenantID   string
 	ProviderAccountRef string
 }
 
-func (q *Queries) LockIntegrationInstallByProviderAccount(ctx context.Context, arg LockIntegrationInstallByProviderAccountParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, lockIntegrationInstallByProviderAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
-	var i IntegrationInstall
+func (q *Queries) LockIntegrationConnectionByProviderAccount(ctx context.Context, arg LockIntegrationConnectionByProviderAccountParams) (IntegrationConnection, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationConnectionByProviderAccount, arg.Provider, arg.ProviderTenantID, arg.ProviderAccountRef)
+	var i IntegrationConnection
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -787,192 +584,111 @@ func (q *Queries) LockIntegrationInstallByProviderAccount(ctx context.Context, a
 	return i, err
 }
 
-const lockIntegrationInstallForDisable = `-- name: LockIntegrationInstallForDisable :one
+const lockIntegrationConnectionForDisable = `-- name: LockIntegrationConnectionForDisable :one
 SELECT state, last_oauth_flow_id
-FROM integration_installs
+FROM integration_connections
 WHERE project_id = $1
   AND id = $2
   AND deleted_at IS NULL
 FOR UPDATE
 `
 
-type LockIntegrationInstallForDisableParams struct {
+type LockIntegrationConnectionForDisableParams struct {
 	ProjectID uuid.UUID
 	ID        uuid.UUID
 }
 
-type LockIntegrationInstallForDisableRow struct {
+type LockIntegrationConnectionForDisableRow struct {
 	State           string
 	LastOauthFlowID *uuid.UUID
 }
 
-func (q *Queries) LockIntegrationInstallForDisable(ctx context.Context, arg LockIntegrationInstallForDisableParams) (LockIntegrationInstallForDisableRow, error) {
-	row := q.db.QueryRow(ctx, lockIntegrationInstallForDisable, arg.ProjectID, arg.ID)
-	var i LockIntegrationInstallForDisableRow
+func (q *Queries) LockIntegrationConnectionForDisable(ctx context.Context, arg LockIntegrationConnectionForDisableParams) (LockIntegrationConnectionForDisableRow, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationConnectionForDisable, arg.ProjectID, arg.ID)
+	var i LockIntegrationConnectionForDisableRow
 	err := row.Scan(&i.State, &i.LastOauthFlowID)
 	return i, err
 }
 
-const lockIntegrationInstallForMutation = `-- name: LockIntegrationInstallForMutation :one
+const lockIntegrationConnectionForMutation = `-- name: LockIntegrationConnectionForMutation :one
 SELECT id
-FROM integration_installs
+FROM integration_connections
 WHERE project_id = $1
   AND id = $2
   AND deleted_at IS NULL
 FOR UPDATE
 `
 
-type LockIntegrationInstallForMutationParams struct {
+type LockIntegrationConnectionForMutationParams struct {
 	ProjectID uuid.UUID
 	ID        uuid.UUID
 }
 
-func (q *Queries) LockIntegrationInstallForMutation(ctx context.Context, arg LockIntegrationInstallForMutationParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockIntegrationInstallForMutation, arg.ProjectID, arg.ID)
+func (q *Queries) LockIntegrationConnectionForMutation(ctx context.Context, arg LockIntegrationConnectionForMutationParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationConnectionForMutation, arg.ProjectID, arg.ID)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
 }
 
-const lockIntegrationInstallLifecycleExclusive = `-- name: LockIntegrationInstallLifecycleExclusive :exec
+const lockIntegrationConnectionLifecycleExclusive = `-- name: LockIntegrationConnectionLifecycleExclusive :exec
 SELECT pg_advisory_xact_lock(
-  hashtextextended('integration_install_lifecycle:' || $1::uuid::text, 0)
+  hashtextextended('integration_connection_lifecycle:' || $1::uuid::text, 0)
 )
 `
 
-type LockIntegrationInstallLifecycleExclusiveParams struct {
-	InstallID uuid.UUID
+type LockIntegrationConnectionLifecycleExclusiveParams struct {
+	ConnectionID uuid.UUID
 }
 
-func (q *Queries) LockIntegrationInstallLifecycleExclusive(ctx context.Context, arg LockIntegrationInstallLifecycleExclusiveParams) error {
-	_, err := q.db.Exec(ctx, lockIntegrationInstallLifecycleExclusive, arg.InstallID)
+func (q *Queries) LockIntegrationConnectionLifecycleExclusive(ctx context.Context, arg LockIntegrationConnectionLifecycleExclusiveParams) error {
+	_, err := q.db.Exec(ctx, lockIntegrationConnectionLifecycleExclusive, arg.ConnectionID)
 	return err
 }
 
-const lockIntegrationInstallLifecycleShared = `-- name: LockIntegrationInstallLifecycleShared :exec
+const lockIntegrationConnectionLifecycleShared = `-- name: LockIntegrationConnectionLifecycleShared :exec
 SELECT pg_advisory_xact_lock_shared(
-  hashtextextended('integration_install_lifecycle:' || $1::uuid::text, 0)
+  hashtextextended('integration_connection_lifecycle:' || $1::uuid::text, 0)
 )
 `
 
-type LockIntegrationInstallLifecycleSharedParams struct {
-	InstallID uuid.UUID
+type LockIntegrationConnectionLifecycleSharedParams struct {
+	ConnectionID uuid.UUID
 }
 
-func (q *Queries) LockIntegrationInstallLifecycleShared(ctx context.Context, arg LockIntegrationInstallLifecycleSharedParams) error {
-	_, err := q.db.Exec(ctx, lockIntegrationInstallLifecycleShared, arg.InstallID)
+func (q *Queries) LockIntegrationConnectionLifecycleShared(ctx context.Context, arg LockIntegrationConnectionLifecycleSharedParams) error {
+	_, err := q.db.Exec(ctx, lockIntegrationConnectionLifecycleShared, arg.ConnectionID)
 	return err
 }
 
-const setAgentIntegrationTarget = `-- name: SetAgentIntegrationTarget :one
-UPDATE agents
-SET integration_target_id = $1::uuid,
-    updated_at = statement_timestamp()
-WHERE agents.project_id = $2
-  AND agents.id = $3
-  AND (
-    $1::uuid IS NULL
-    OR EXISTS (
-      SELECT 1
-      FROM integration_targets target
-      JOIN integration_installs install
-        ON install.project_id = target.project_id
-       AND install.id = target.integration_install_id
-       AND install.state = 'active'
-       AND install.deleted_at IS NULL
-      WHERE target.project_id = agents.project_id
-        AND target.agent_id = agents.id
-        AND target.id = $1::uuid
-        AND target.deleted_at IS NULL
-    )
-  )
-RETURNING id, org_id, project_id, state, name,
-  agent_profile_id, current_config_id, integration_target_id,
-  coalesce(idempotency_key, '') AS idempotency_key,
-  next_event_sequence, created_at, updated_at, archived_at,
-  parent_agent_id, subagent_key
-`
-
-type SetAgentIntegrationTargetParams struct {
-	IntegrationTargetID *uuid.UUID
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-}
-
-type SetAgentIntegrationTargetRow struct {
-	ID                  uuid.UUID
-	OrgID               uuid.UUID
-	ProjectID           uuid.UUID
-	State               string
-	Name                string
-	AgentProfileID      *uuid.UUID
-	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	IdempotencyKey      string
-	NextEventSequence   int64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	ArchivedAt          *time.Time
-	ParentAgentID       *uuid.UUID
-	SubagentKey         string
-}
-
-func (q *Queries) SetAgentIntegrationTarget(ctx context.Context, arg SetAgentIntegrationTargetParams) (SetAgentIntegrationTargetRow, error) {
-	row := q.db.QueryRow(ctx, setAgentIntegrationTarget, arg.IntegrationTargetID, arg.ProjectID, arg.AgentID)
-	var i SetAgentIntegrationTargetRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.State,
-		&i.Name,
-		&i.AgentProfileID,
-		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
-		&i.IdempotencyKey,
-		&i.NextEventSequence,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ArchivedAt,
-		&i.ParentAgentID,
-		&i.SubagentKey,
-	)
-	return i, err
-}
-
-const updateIntegrationInstall = `-- name: UpdateIntegrationInstall :one
-UPDATE integration_installs
+const updateIntegrationConnection = `-- name: UpdateIntegrationConnection :one
+UPDATE integration_connections
 SET installed_by_user_id = $1,
-    connection_mode = $2,
-    state = $3,
-    provider_agent_display_name = CASE
-      WHEN $4::text = '' THEN provider_agent_display_name
-      ELSE $4::text
-    END,
-    credential_secret_id = $5,
-    provider_config = $6,
-    provider_identity = $7,
-    provider_metadata = $8,
-    last_oauth_flow_id = coalesce($9, last_oauth_flow_id),
+    state = $2,
+    provider_agent_display_name = $3,
+    credential_secret_id = $4,
+    provider_config = $5,
+    provider_identity = $6,
+    provider_metadata = $7,
+    last_oauth_flow_id = coalesce($8, last_oauth_flow_id),
     updated_at = statement_timestamp()
-WHERE project_id = $10
-  AND id = $11
+WHERE project_id = $9
+  AND id = $10
   AND deleted_at IS NULL
   AND (
-    $9::uuid IS NULL
+    $8::uuid IS NULL
     OR last_oauth_flow_id IS NULL
-    OR last_oauth_flow_id < $9::uuid
+    OR last_oauth_flow_id < $8::uuid
   )
-RETURNING id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
-  provider, integration_kind, connection_mode, state,
+RETURNING id, org_id, project_id, installed_by_user_id,
+  provider, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
   last_oauth_flow_id, deleted_at, created_at, updated_at
 `
 
-type UpdateIntegrationInstallParams struct {
+type UpdateIntegrationConnectionParams struct {
 	InstalledByUserID        uuid.UUID
-	ConnectionMode           string
 	State                    string
 	ProviderAgentDisplayName string
 	CredentialSecretID       *uuid.UUID
@@ -984,10 +700,9 @@ type UpdateIntegrationInstallParams struct {
 	ID                       uuid.UUID
 }
 
-func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegrationInstallParams) (IntegrationInstall, error) {
-	row := q.db.QueryRow(ctx, updateIntegrationInstall,
+func (q *Queries) UpdateIntegrationConnection(ctx context.Context, arg UpdateIntegrationConnectionParams) (IntegrationConnection, error) {
+	row := q.db.QueryRow(ctx, updateIntegrationConnection,
 		arg.InstalledByUserID,
-		arg.ConnectionMode,
 		arg.State,
 		arg.ProviderAgentDisplayName,
 		arg.CredentialSecretID,
@@ -998,17 +713,13 @@ func (q *Queries) UpdateIntegrationInstall(ctx context.Context, arg UpdateIntegr
 		arg.ProjectID,
 		arg.ID,
 	)
-	var i IntegrationInstall
+	var i IntegrationConnection
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
 		&i.InstalledByUserID,
 		&i.Provider,
-		&i.IntegrationKind,
-		&i.ConnectionMode,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -1030,24 +741,24 @@ UPDATE integration_targets
 SET display_name = $1,
     updated_at = transaction_timestamp()
 WHERE project_id = $2
-  AND integration_install_id = $3
+  AND integration_connection_id = $3
   AND deleted_at IS NULL
   AND split_part(provider_ref, ':', 1) = $4
   AND display_name IS DISTINCT FROM $1
 `
 
 type UpdateIntegrationTargetDisplayNamesByProviderRefPrefixParams struct {
-	DisplayName          string
-	ProjectID            uuid.UUID
-	IntegrationInstallID uuid.UUID
-	ProviderRefPrefix    string
+	DisplayName             string
+	ProjectID               uuid.UUID
+	IntegrationConnectionID uuid.UUID
+	ProviderRefPrefix       string
 }
 
 func (q *Queries) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(ctx context.Context, arg UpdateIntegrationTargetDisplayNamesByProviderRefPrefixParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateIntegrationTargetDisplayNamesByProviderRefPrefix,
 		arg.DisplayName,
 		arg.ProjectID,
-		arg.IntegrationInstallID,
+		arg.IntegrationConnectionID,
 		arg.ProviderRefPrefix,
 	)
 	if err != nil {

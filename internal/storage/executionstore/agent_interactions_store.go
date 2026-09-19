@@ -55,20 +55,22 @@ type ResolveAgentInteractionInput struct {
 }
 
 type AgentInteractionRecord struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    AgentInteractionKind
-	State              AgentInteractionState
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         time.Time
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     AgentInteractionKind
+	State               AgentInteractionState
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	Destination         json.RawMessage
+	PresentationReceipt json.RawMessage
+	ResolvedByInputID   uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          time.Time
 }
 
 func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
@@ -108,12 +110,17 @@ func (s *Store) CreatePermissionInteraction(
 	); err != nil {
 		return AgentInteractionRecord{}, err
 	}
+	destination, err := captureInteractionDestinationTx(ctx, qtx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	interactionID, err := qtx.InsertAgentInteraction(ctx, dbsqlc.InsertAgentInteractionParams{
 		ProjectID:       input.ProjectID,
 		AgentID:         input.AgentID,
 		ToolCallID:      input.ToolCallID,
 		InteractionKind: string(AgentInteractionKindPermission),
 		Request:         request,
+		Destination:     sqlcRawMessageFromEmpty(destination),
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
@@ -191,12 +198,17 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentInteractionRecord{}, err
 	}
+	destination, err := captureInteractionDestinationTx(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	interactionID, err := t.q.InsertAgentInteraction(ctx, dbsqlc.InsertAgentInteractionParams{
 		ProjectID:       t.input.ProjectID,
 		AgentID:         t.input.AgentID,
 		ToolCallID:      t.input.ToolCallID,
 		InteractionKind: string(AgentInteractionKindQuestion),
 		Request:         request,
+		Destination:     sqlcRawMessageFromEmpty(destination),
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {

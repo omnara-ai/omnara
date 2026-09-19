@@ -40,19 +40,28 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
-		[]string{"list_machines", "inspect_machine", "set_integration_target"},
+		[]string{"list_machines", "inspect_machine",
+			"list_interaction_destinations", "set_interaction_destination"},
 		expectedTopology{transactional: true},
 	)
 	add(
 		[]string{"ask_question"},
-		expectedTopology{transactional: true, async: true},
+		expectedTopology{transactional: true},
 	)
 	add(
 		[]string{"read_agent", "send_agent_message", "list_agents", "tool_search"},
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"send_integration_message", "web_search", "web_fetch", "skill", "read_file", "search_files"},
+		[]string{"web_search", "web_fetch", "skill", "read_file", "search_files"},
+		expectedTopology{async: true},
+	)
+	add(
+		[]string{
+			"slack_read", "slack_post_message",
+			"discord_read", "discord_post_message",
+			"github_read", "github_discussion_comment", "github_inline_comment", "github_reply",
+		},
 		expectedTopology{async: true},
 	)
 
@@ -203,25 +212,25 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 	)
 	require.NoError(t, err)
 	if err := validateRegisteredToolInput(
-		"send_integration_message",
+		"slack_post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":["`+artifactID+`"]}`),
 	); err != nil {
 		t.Fatalf("valid integration message rejected: %v", err)
 	}
 	if err := validateRegisteredToolInput(
-		"send_integration_message",
+		"slack_post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":[]}`),
 	); err != nil {
 		t.Fatalf("empty artifact_ids rejected: %v", err)
 	}
 	if err := validateRegisteredToolInput(
-		"send_integration_message",
+		"slack_post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":null}`),
 	); err == nil {
 		t.Fatal("null artifact_ids accepted")
 	}
 	if err := validateRegisteredToolInput(
-		"send_integration_message",
+		"slack_post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":[""]}`),
 	); err == nil {
 		t.Fatal("empty artifact ID accepted")
@@ -235,7 +244,7 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 		"artifact_ids": tooManyArtifactIDs,
 	})
 	require.NoError(t, err)
-	if err := validateRegisteredToolInput("send_integration_message", tooManyInput); err == nil {
+	if err := validateRegisteredToolInput("slack_post_message", tooManyInput); err == nil {
 		t.Fatal("more than 20 artifact IDs accepted")
 	}
 }

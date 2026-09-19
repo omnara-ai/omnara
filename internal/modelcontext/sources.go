@@ -9,11 +9,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 )
 
 type ExecutionStore interface {
+	ListInteractionDestinations(
+		ctx context.Context,
+		projectID, agentID uuid.UUID,
+	) (executionstore.InteractionDestinations, error)
 	IsOutputLimitBoundary(ctx context.Context, projectID, agentID uuid.UUID, sequence int64) (bool, error)
 	CaptureAgentConfigForModelContext(
 		ctx context.Context,
@@ -59,34 +62,23 @@ type ArtifactStore interface {
 	) ([]byte, artifactstore.ArtifactRecord, error)
 }
 
-type IntegrationStore interface {
-	ListIntegrationTargets(
-		ctx context.Context,
-		projectID, agentID uuid.UUID,
-	) ([]integrationstore.IntegrationTargetSummary, error)
-}
-
 type Store interface {
 	ArtifactStore
-	IntegrationStore
 	ExecutionStore
 }
 
 type composedStore struct {
 	ArtifactStore
-	IntegrationStore
 	ExecutionStore
 }
 
 func NewStore(
 	execution ExecutionStore,
 	artifacts ArtifactStore,
-	integrations IntegrationStore,
 ) Store {
 	return composedStore{
-		ArtifactStore:    artifacts,
-		IntegrationStore: integrations,
-		ExecutionStore:   execution,
+		ArtifactStore:  artifacts,
+		ExecutionStore: execution,
 	}
 }
 

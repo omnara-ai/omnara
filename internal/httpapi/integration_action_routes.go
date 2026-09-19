@@ -1,15 +1,16 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -53,8 +54,11 @@ func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request)
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack action identity")
 		return
 	}
-	if install.State != integrationstore.IntegrationInstallStateActive {
+	if install.State != integrationstore.IntegrationConnectionStateActive {
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
+		return
+	}
+	if s.slackProfileChoiceAction(w, r, install, envelope) {
 		return
 	}
 	result, err := s.resolveIntegrationInteractionAction(r, install, envelope)
@@ -72,7 +76,7 @@ func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) resolveIntegrationInteractionAction(
 	r *http.Request,
-	install integrationstore.IntegrationInstallRecord,
+	install integrationstore.IntegrationConnectionRecord,
 	envelope slack.ActionsEnvelope,
 ) (map[string]any, error) {
 	actionValue, err := slack.PromptActionFromActions(envelope)
@@ -94,17 +98,6 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid integration target id", errInvalidIntegrationAction)
 	}
-	integrationTarget, err := s.store.Integrations().GetIntegrationTarget(
-		r.Context(),
-		install.ProjectID,
-		integrationTargetID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if integrationTarget.IntegrationInstallID != install.ID || integrationTarget.AgentID != agentID {
-		return nil, storeerr.ErrUnauthorized
-	}
 	existing, found, err := s.store.Execution().GetAgentInteraction(
 		r.Context(),
 		install.ProjectID,
@@ -117,11 +110,42 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if !found {
 		return nil, storeerr.ErrNotFound
 	}
+	destination, err := existing.CapturedDestination()
+	if err != nil {
+		return nil, err
+	}
+	if destination == nil || destination.ConnectionID != install.ID ||
+		destination.IntegrationTargetID != integrationTargetID ||
+		destination.HandlerDefinition != appdefinition.SlackInteractions {
+		return nil, storeerr.ErrUnauthorized
+	}
+	var receipt integration.InteractionReceipt
+	if json.Unmarshal(existing.PresentationReceipt, &receipt) != nil || receipt.Provider != appdefinition.ProviderSlack ||
+		receipt.MessageID == "" ||
+		envelope.Channel.ID != receipt.ChannelID ||
+		envelope.Message.TS != receipt.MessageID {
+		return nil, storeerr.ErrUnauthorized
+	}
+	channel, thread, err := slack.Destination(destination.Address.Kind, destination.Address.Ref)
+	messageThread := envelope.Message.ThreadTS
+	// A channel-root prompt gains thread_ts=ts when somebody replies to it.
+	// Its confirmed message identity and captured channel have not changed.
+	if thread == "" && messageThread == receipt.MessageID {
+		messageThread = ""
+	}
+	if err != nil || channel != envelope.Channel.ID || thread != messageThread ||
+		(envelope.Container.ChannelID != "" && envelope.Container.ChannelID != channel) ||
+		(envelope.Container.MessageTS != "" && envelope.Container.MessageTS != receipt.MessageID) {
+		return nil, storeerr.ErrUnauthorized
+	}
+	_, err = s.store.Execution().
+		GetAgentInteractionForPresentation(r.Context(), install.ProjectID, agentID, interactionID)
+	if err != nil {
+		return nil, err
+	}
 	if existing.State != executionstore.AgentInteractionStateOpen {
-		return map[string]any{
-			"ok":   "already_resolved",
-			"text": "This prompt has already been resolved.",
-		}, nil
+		s.dismissInteractionAsync(r.Context(), existing)
+		return map[string]any{"ok": "already_resolved", "text": "This prompt has already been resolved."}, nil
 	}
 	resolutionResult, err := integrationInteractionResolution(existing, envelope)
 	if err != nil {
@@ -144,19 +168,25 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if displayName == "" {
 		displayName = envelope.User.DisplayName()
 	}
-	if _, err := s.store.Execution().ResolveAgentInteraction(r.Context(), executionstore.ResolveAgentInteractionInput{
-		ProjectID:  install.ProjectID,
-		AgentID:    agentID,
-		ID:         interactionID,
-		Resolution: resolution,
-		Actor: &executionstore.ActorParams{
-			Provider:         install.Provider,
-			ProviderTenantID: install.ProviderTenantID,
-			ProviderUserID:   envelope.User.ID,
-			DisplayName:      &displayName,
+	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
+		ConnectionID: install.ID, SourceConnectionUpdatedAt: install.UpdatedAt,
+		HandlerDefinition: appdefinition.SlackInteractions, Address: destination.Address,
+		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
+			ProjectID:  install.ProjectID,
+			AgentID:    agentID,
+			ID:         interactionID,
+			Resolution: resolution,
+			Actor: &executionstore.ActorParams{
+				Provider:         install.Provider,
+				ProviderTenantID: install.ProviderTenantID,
+				ProviderUserID:   envelope.User.ID,
+				DisplayName:      &displayName,
+			},
+			IntegrationTargetID: integrationTargetID,
 		},
-		IntegrationTargetID: integrationTargetID,
-	}); err != nil {
+	}
+	resolved, err := s.store.Execution().ResolveAgentInteractionFromHandler(r.Context(), resolve)
+	if err != nil {
 		if errors.Is(err, storeerr.ErrIdempotencyConflict) {
 			return map[string]any{
 				"ok":   "already_resolved",
@@ -166,29 +196,8 @@ func (s *Server) resolveIntegrationInteractionAction(
 		return nil, err
 	}
 	text := integrationActionResolvedText(existing, resolution)
-	s.replaceSlackActionMessageAsync(r.Context(), envelope.ResponseURL, text)
+	s.dismissInteractionAsync(r.Context(), resolved)
 	return map[string]any{"ok": "resolved", "text": text}, nil
-}
-
-func (s *Server) replaceSlackActionMessageAsync(ctx context.Context, responseURL string, text string) {
-	if strings.TrimSpace(responseURL) == "" {
-		return
-	}
-	go s.replaceSlackActionMessage(context.WithoutCancel(ctx), responseURL, text)
-}
-
-func (s *Server) replaceSlackActionMessage(ctx context.Context, responseURL string, text string) {
-	if strings.TrimSpace(responseURL) == "" {
-		return
-	}
-	result, err := slack.ReplaceOriginalActionMessage(ctx, s.slackOAuth.HTTPClient, responseURL, text)
-	if err != nil {
-		s.log.Warn("slack action message update failed", "error", err)
-		return
-	}
-	if result.RateLimited || result.TransientFailure || result.PermanentFailure || result.DeliveryUnknown {
-		s.log.Warn("slack action message update failed", "message", result.Message)
-	}
 }
 
 func integrationActionResolvedText(

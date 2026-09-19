@@ -123,7 +123,11 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/slack"
+              "integrations/apps",
+              "integrations/slack",
+              "integrations/github",
+              "integrations/discord",
+              "integrations/custom-integrations"
             ]
           },
           {

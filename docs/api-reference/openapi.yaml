@@ -419,7 +419,7 @@ paths:
         Deletion is blocked while the user is the last owner of any organization (add another owner
         or delete the organization first), while a personal skill is referenced by an active
         agent's configuration, or while a personal secret is referenced by a model provider config,
-        machine pool, or integration install. Organization and project resources are unaffected,
+        machine pool, or integration connection. Organization and project resources are unaffected,
         and agents, machines, and other records the user created are kept with their attribution.
       security:
         - bearerAuth: []
@@ -732,7 +732,7 @@ paths:
       tags: [Organizations and Projects]
       summary: Delete project
       description: >-
-        Deletes the project, its memberships, profiles and profile versions, integration installs
+        Deletes the project, its memberships, profiles and profile versions, integration connections
         and targets, project-owned skills and revisions, and grants owned by or targeting the
         project. Project-owned secrets are permanently deleted with their versions and
         grants. The project's agents are archived and their runtimes and queued work are stopped.
@@ -905,7 +905,7 @@ paths:
         organization. The member's personal secrets and skills in the organization are deleted with
         the membership. Removal is blocked when the user is the organization's last owner, while a
         personal skill is referenced by an active agent's configuration, or while a personal secret
-        is referenced by a model provider config, machine pool, or integration install.
+        is referenced by a model provider config, machine pool, or integration connection.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2072,7 +2072,7 @@ paths:
       description: >-
         Deletes the secret and permanently destroys all of its versions and project grants; the
         ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a
-        model provider config, machine pool, or integration install.
+        model provider config, machine pool, or integration connection.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2257,7 +2257,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/integration-installs:
+  /orgs/{orgID}/projects/{projectID}/integration-connections:
     parameters:
       - name: orgID
         in: path
@@ -2272,16 +2272,15 @@ paths:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
     get:
-      operationId: listIntegrationInstalls
+      operationId: listIntegrationConnections
       tags: [Configs and Profiles]
-      summary: List integration installs
+      summary: List integration connections
       description: >-
         Items are ordered by created_at descending, then id descending. The list's logical name is
         provider_agent_display_name.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
-        - $ref: '#/components/parameters/IntegrationInstallAgentProfileFilter'
-        - $ref: '#/components/parameters/IntegrationInstallOAuthFlowIDFilter'
+        - $ref: '#/components/parameters/IntegrationConnectionOAuthFlowIDFilter'
         - name: sort
           in: query
           schema:
@@ -2290,11 +2289,11 @@ paths:
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Integration installs in the project, newest first.
+          description: Integration connections in the project, newest first.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListIntegrationInstallsResponse'
+                $ref: '#/components/schemas/ListIntegrationConnectionsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -2309,7 +2308,45 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
+    post:
+      operationId: createIntegrationConnection
+      tags: [Configs and Profiles]
+      summary: Create integration connection
+      description: Requires a user principal with project management permission. Personal access tokens, OAuth user tokens, and browser sessions are supported.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveIntegrationConnectionRequest'
+      responses:
+        '201':
+          description: Integration connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationConnection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-connections/{integrationConnectionID}:
     parameters:
       - name: orgID
         in: path
@@ -2323,19 +2360,83 @@ paths:
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
-      - name: integrationInstallID
+      - name: integrationConnectionID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^iin_[a-z2-7]{26}$'
-    delete:
-      operationId: deleteIntegrationInstall
+          $ref: '#/components/schemas/IntegrationConnectionID'
+    get:
+      operationId: getIntegrationConnection
       tags: [Configs and Profiles]
-      summary: Delete integration install
+      summary: Read integration connection
+      responses:
+        '200':
+          description: Integration connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationConnection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: updateIntegrationConnection
+      tags: [Configs and Profiles]
+      summary: Update integration connection
+      description: Requires a user principal with project management permission. Personal access tokens, OAuth user tokens, and browser sessions are supported.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveIntegrationConnectionRequest'
+      responses:
+        '200':
+          description: Integration connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationConnection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteIntegrationConnection
+      tags: [Configs and Profiles]
+      summary: Delete integration connection
       description: >-
-        Deletes the install and all of its integration targets and clears those target associations from
-        agents. Agents and profiles are retained. This uninstalls on the Omnara side only: credentials
+        Deletes the connection and its integration targets and clears those target associations from
+        agents. Agents, profiles, and app setup are retained. This disconnects on the Omnara side only: credentials
         already issued by the provider are not revoked and provider-side webhooks are not removed.
       security:
         - bearerAuth: []
@@ -2343,7 +2444,7 @@ paths:
           csrfHeader: []
       responses:
         '204':
-          description: Integration install deleted.
+          description: Integration connection deleted.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -2819,7 +2920,7 @@ paths:
         Deletes the profile, all of its profile versions, and any cron triggers targeting the
         profile. Agents launched from the profile are retained and keep running: each agent holds an
         immutable snapshot of the configuration it was launched with, so its reference to the profile
-        becomes historical provenance only. Deletion is blocked while an active integration install
+        becomes historical provenance only. Deletion is blocked while an active integration connection
         references the profile.
       security:
         - bearerAuth: []
@@ -3310,7 +3411,13 @@ paths:
       operationId: createAgent
       tags: [Agents]
       summary: Create agent
-      description: Reusing an idempotency key returns the current agent even if the retry body differs. The retry body is not applied.
+      description: >-
+        Launch from a pinned config, optionally deriving agent-local app resources
+        and admitting an attributed initial text input in the same transaction.
+        Adding app resources requires project management permission; launching an
+        existing config requires agent operate permission. Reusing an idempotency
+        key returns the current agent even if the retry body differs. The retry
+        body is not applied and app references are not resolved again.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6815,6 +6922,183 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/apps:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    get:
+      operationId: listProjectApps
+      tags: [Integrations]
+      summary: List project apps
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: List project apps.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListProjectAppsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createProjectApp
+      tags: [Integrations]
+      summary: Create reusable app setup and optional launcher
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveProjectAppRequest'
+      responses:
+        '201':
+          description: Create reusable app setup and optional launcher.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectApp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/apps/{appID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: appID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectAppID'
+    get:
+      operationId: getProjectApp
+      tags: [Integrations]
+      summary: Get project app
+      responses:
+        '200':
+          description: Get project app.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectApp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: updateProjectApp
+      tags: [Integrations]
+      summary: Replace app setup for future attachments and launches
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveProjectAppRequest'
+      responses:
+        '200':
+          description: Replace app setup for future attachments and launches.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectApp'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteProjectApp
+      tags: [Integrations]
+      summary: Delete app setup without revoking compiled agent resources
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Delete app setup without revoking compiled agent resources.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -6991,20 +7275,13 @@ components:
       schema:
         $ref: '#/components/schemas/MCPOAuthFlowID'
       description: Filter to secrets that have a version created by this MCP OAuth flow.
-    IntegrationInstallAgentProfileFilter:
-      name: agent_profile_id
-      in: query
-      required: false
-      schema:
-        $ref: '#/components/schemas/AgentProfileID'
-      description: Only return integration installs bound to this agent profile.
-    IntegrationInstallOAuthFlowIDFilter:
+    IntegrationConnectionOAuthFlowIDFilter:
       name: oauth_flow_id
       in: query
       required: false
       schema:
         $ref: '#/components/schemas/IntegrationOAuthFlowID'
-      description: Only return the integration install completed by this OAuth setup flow.
+      description: Only return the integration connection completed by this OAuth setup flow.
     SecretAvailabilitySourceFilter:
       name: availability_source
       in: query
@@ -7264,9 +7541,12 @@ components:
     CronTriggerID:
       type: string
       pattern: '^cron_[a-z2-7]{26}$'
-    IntegrationInstallID:
+    IntegrationConnectionID:
       type: string
       pattern: '^iin_[a-z2-7]{26}$'
+    IntegrationTargetID:
+      type: string
+      pattern: '^itgt_[a-z2-7]{26}$'
     AgentEventID:
       type: string
       pattern: '^evt_[a-z2-7]{26}$'
@@ -8369,45 +8649,97 @@ components:
           minLength: 1
         return_to:
           type: string
-    IntegrationInstall:
+    IntegrationProvider:
+      type: string
+      enum: [slack, github, discord]
+      x-enum-varnames: [IntegrationProviderSlack, IntegrationProviderGitHub, IntegrationProviderDiscord]
+    IntegrationConnectionState:
+      type: string
+      enum: [active, disabled]
+      x-enum-varnames: [IntegrationConnectionStateActive, IntegrationConnectionStateDisabled]
+    IntegrationConnectionDisplayName:
+      type: string
+      maxLength: 512
+      description: >-
+        Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace
+        is trimmed on save. Empty means no label; an omitted or empty value clears the label on
+        account-management updates.
+    IntegrationConnectionConfig:
+      type: object
+      additionalProperties: true
+      description: >-
+        Non-secret provider configuration, validated for the selected provider. Slack and GitHub
+        connections require an empty object. Discord accepts only public_key (optional,
+        a 32-byte hex-encoded Ed25519 verification key for interaction callbacks) and shard_count
+        (optional integer from 1 through 4096, default 1). Saves persist the default shard_count.
+        Shard count is the configured Gateway topology; each shard is leased independently.
+        Increase it explicitly if Discord requires more shards. Credentials and app behavior
+        are not accepted here.
+    SaveIntegrationConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, provider_tenant_id, provider_account_ref, credential_secret_id]
+      description: >-
+        Project-owned provider access. GitHub tenant is the numeric App ID and account is the numeric
+        Installation ID; the github_app_credentials secret must have the same App ID.
+        Discord tenant is the Application ID and account is the bot
+        User ID (canonical decimal snowflakes), not a guild ID; its generic secret contains the bot token. Slack
+        connections are created through OAuth setup.
+        Provider account identity cannot change on update. Saving replaces mutable settings;
+        omitted state defaults to active. Omitted configuration becomes an empty object for Slack and
+        GitHub, or {"shard_count":1} for Discord.
+      properties:
+        provider:
+          $ref: '#/components/schemas/IntegrationProvider'
+        provider_tenant_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_account_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_agent_display_name:
+          $ref: '#/components/schemas/IntegrationConnectionDisplayName'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationConnectionConfig'
+        state:
+          $ref: '#/components/schemas/IntegrationConnectionState'
+    IntegrationConnection:
       type: object
       additionalProperties: false
       description: >-
-        A provider app installation that connects an agent profile or a single agent to an external
-        app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never
-        returned.
-      required: [id, org_id, project_id, provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, created_at, updated_at]
+        Project-owned provider account identity, non-secret configuration, and an authorized secret
+        reference. Apps own launch behavior and destinations. Credential payloads are never returned.
+      required: [id, org_id, project_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, created_at, updated_at]
       properties:
         id:
-          $ref: '#/components/schemas/IntegrationInstallID'
+          $ref: '#/components/schemas/IntegrationConnectionID'
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         project_id:
           $ref: '#/components/schemas/ProjectID'
-        agent_profile_id:
-          $ref: '#/components/schemas/AgentProfileID'
-        agent_id:
-          $ref: '#/components/schemas/AgentID'
         provider:
-          type: string
-        integration_kind:
-          type: string
-        connection_mode:
-          type: string
+          $ref: '#/components/schemas/IntegrationProvider'
         state:
-          type: string
-          enum: [active, disabled]
+          $ref: '#/components/schemas/IntegrationConnectionState'
         provider_tenant_id:
           type: string
         provider_account_ref:
           type: string
         provider_agent_display_name:
-          type: string
+          $ref: '#/components/schemas/IntegrationConnectionDisplayName'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationConnectionConfig'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
-    ListIntegrationInstallsResponse:
+    ListIntegrationConnectionsResponse:
       type: object
       additionalProperties: false
       required: [data, next_cursor]
@@ -8415,7 +8747,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/IntegrationInstall'
+            $ref: '#/components/schemas/IntegrationConnection'
         next_cursor:
           type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
@@ -9191,6 +9523,43 @@ components:
           description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
         message:
           type: string
+          description: Optional initial text message. Mutually exclusive with initial_input.
+        app_resources:
+          type: object
+          minProperties: 1
+          propertyNames:
+            type: string
+            pattern: ^[A-Za-z_][A-Za-z0-9_]{0,63}$
+          additionalProperties:
+            $ref: '#/components/schemas/AppResourceSource'
+          description: >-
+            Agent-local attachments added to the pinned config using the normal
+            project app, connection, and secret resolvers. Existing resource keys
+            cannot be replaced. Resolved resources and contributed tools are frozen
+            in a new immutable config, created atomically with the agent and input.
+            Requires project management permission. Does not update the profile.
+        initial_input:
+          $ref: '#/components/schemas/AgentLaunchInitialInput'
+    AgentLaunchInitialInput:
+      type: object
+      additionalProperties: false
+      required: [content_blocks]
+      description: >-
+        Initial queued text input, committed atomically with the agent and any
+        derived config. Mutually exclusive with message. Initial inline media is
+        not supported; upload it through the agent input endpoint after launch.
+      properties:
+        content_blocks:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TextContentBlock'
+        actor:
+          $ref: '#/components/schemas/ExternalActorParams'
+          description: >-
+            Optional external actor for API key authentication. User-authenticated
+            requests must omit this field. Without it, the authenticated user or
+            API key is the actor.
     Agent:
       type: object
       additionalProperties: false
@@ -9747,6 +10116,20 @@ components:
       additionalProperties:
         type: string
         maxLength: 512
+    IntegrationConversationAddress:
+      type: object
+      additionalProperties: false
+      required: [kind, ref]
+      description: A provider conversation address scoped to one connection. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 2048
     CreateAgentInputRequest:
       type: object
       additionalProperties: false
@@ -10551,6 +10934,33 @@ components:
         actor:
           description: External actor to attribute to the generated interaction_response agent input, upserted by (provider_tenant_id, provider_user_id) atomically with the resolution; a rejected request writes no actor. Only allowed for non-user principals; requests authenticated as a user must omit it and are attributed to the user's omnara actor. When a non-user request omits it, the generated input has no actor attribution.
           $ref: '#/components/schemas/ExternalActorParams'
+    AgentInteractionDestination:
+      type: object
+      additionalProperties: false
+      required: [handler_definition, resource_key, integration_target_id, connection_id, address]
+      description: >-
+        Immutable destination captured when this interaction was created, not
+        the agent's current selection. The built-in presenter checks live resource
+        and connection authority before sending.
+        Project-authorized dashboard/API resolution remains available independently.
+      properties:
+        handler_definition:
+          type: string
+          minLength: 1
+          maxLength: 256
+        resource_key:
+          type: string
+          minLength: 1
+        integration_target_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        connection_id:
+          $ref: '#/components/schemas/IntegrationConnectionID'
+        address:
+          $ref: '#/components/schemas/IntegrationConversationAddress'
+    InteractionPresentationReceipt:
+      type: object
+      additionalProperties: true
+      description: Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
     AgentInteraction:
       type: object
       additionalProperties: false
@@ -10583,6 +10993,11 @@ components:
           $ref: '#/components/schemas/InteractionForm'
         resolution:
           $ref: '#/components/schemas/InteractionResolution'
+        destination:
+          description: Captured built-in app destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+          $ref: '#/components/schemas/AgentInteractionDestination'
+        presentation_receipt:
+          $ref: '#/components/schemas/InteractionPresentationReceipt'
         resolved_by_input_id:
           description: The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
           $ref: '#/components/schemas/AgentInputID'
@@ -10593,10 +11008,12 @@ components:
     ActorProvider:
       type: string
       description: omnara for project members, an integration provider such as slack, or external for API-managed actors.
-      enum: [omnara, slack, external]
+      enum: [omnara, slack, github, discord, external]
       x-enum-varnames:
         - ActorProviderOmnara
         - ActorProviderSlack
+        - ActorProviderGitHub
+        - ActorProviderDiscord
         - ActorProviderExternal
     Actor:
       type: object
@@ -10827,17 +11244,37 @@ components:
           type: string
           minLength: 1
           description: Requires role_arn.
+    GitHubAppCredentialsSecretMaterial:
+      type: object
+      additionalProperties: false
+      required: [kind, app_id, private_key, webhook_secret]
+      properties:
+        kind:
+          type: string
+          enum: [github_app_credentials]
+        app_id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        private_key:
+          type: string
+          minLength: 1
+          description: Unencrypted RSA private key in PEM format. Stored encrypted.
+        webhook_secret:
+          type: string
+          minLength: 1
     SecretMaterial:
       oneOf:
         - $ref: '#/components/schemas/GenericSecretMaterial'
         - $ref: '#/components/schemas/OAuthTokenSetSecretMaterial'
         - $ref: '#/components/schemas/AWSCredentialsSecretMaterial'
+        - $ref: '#/components/schemas/GitHubAppCredentialsSecretMaterial'
       discriminator:
         propertyName: kind
         mapping:
           generic: '#/components/schemas/GenericSecretMaterial'
           oauth_token_set: '#/components/schemas/OAuthTokenSetSecretMaterial'
           aws_credentials: '#/components/schemas/AWSCredentialsSecretMaterial'
+          github_app_credentials: '#/components/schemas/GitHubAppCredentialsSecretMaterial'
     CreateSecretRequest:
       type: object
       additionalProperties: false
@@ -10876,12 +11313,13 @@ components:
           $ref: '#/components/schemas/ProjectID'
     SecretKind:
       type: string
-      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials]
+      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials, github_app_credentials]
       x-enum-varnames:
         - SecretKindGeneric
         - SecretKindOAuthTokenSet
         - SecretKindSlackAppCredentials
         - SecretKindAWSCredentials
+        - SecretKindGitHubAppCredentials
     Secret:
       type: object
       additionalProperties: false
@@ -12805,3 +13243,356 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
+    ProjectAppID:
+      type: string
+      pattern: '^app_[a-z2-7]{26}$'
+    AppLaunchSlot:
+      type: object
+      additionalProperties: false
+      required: [key]
+      description: A stable launcher slot selecting either a profile to launch or an existing agent to continue.
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 64
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+      oneOf:
+        - required: [agent_profile_id]
+        - required: [agent_id]
+    AppLauncher:
+      type: object
+      additionalProperties: false
+      required: [trigger, scope_kind, scope_ref, slots]
+      properties:
+        trigger:
+          type: string
+          description: Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
+        scope_kind:
+          type: string
+          minLength: 1
+        scope_ref:
+          type: string
+          minLength: 1
+        slots:
+          type: array
+          description: App-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
+          minItems: 1
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/AppLaunchSlot'
+    ProjectAppSettings:
+      type: object
+      additionalProperties: false
+      required: [resource]
+      properties:
+        resource:
+          $ref: '#/components/schemas/AppResourceSource'
+          description: Inline reusable app resource. Requires definition, forbids app_instance. A launcher may supply its concrete conversation scope later. Credentials remain secret references.
+        launcher:
+          $ref: '#/components/schemas/AppLauncher'
+    SaveProjectAppRequest:
+      type: object
+      additionalProperties: false
+      required: [name, settings]
+      properties:
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        settings:
+          $ref: '#/components/schemas/ProjectAppSettings'
+        enabled:
+          type: boolean
+          default: true
+    ProjectApp:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, name, settings, enabled, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ProjectAppID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        settings:
+          $ref: '#/components/schemas/ProjectAppSettings'
+        enabled:
+          type: boolean
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ListProjectAppsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectApp'
+        next_cursor:
+          type: [string, 'null']
+    # BEGIN GENERATED APP RESOURCE SCHEMAS
+    AppResourceAgentToolInputSchema:
+      properties:
+        properties:
+          additionalProperties:
+            type: object
+          type: object
+        required:
+          items:
+            minLength: 1
+            type: string
+          type: array
+        type:
+          const: object
+      required:
+        - type
+      type: object
+    AppResourceAppDiscordScope:
+      additionalProperties: false
+      properties:
+        channel_id:
+          minLength: 1
+          pattern: \S
+          type: string
+        guild_id:
+          minLength: 1
+          pattern: \S
+          type: string
+        thread_id:
+          minLength: 1
+          pattern: \S
+          type: string
+      required:
+        - channel_id
+      type: object
+    AppResourceAppFollow:
+      additionalProperties: false
+      properties:
+        replies:
+          type: boolean
+      required:
+        - replies
+      type: object
+    AppResourceAppGitHubScope:
+      additionalProperties: false
+      properties:
+        pull_request:
+          minimum: 1
+          type: integer
+        repository_id:
+          minimum: 1
+          type: integer
+      required:
+        - repository_id
+        - pull_request
+      type: object
+    AppResourceAppInteractionHandler:
+      additionalProperties: false
+      properties:
+        definition:
+          minLength: 1
+          pattern: \S
+          type: string
+      required:
+        - definition
+      type: object
+    AppResourceAppListener:
+      additionalProperties: false
+      properties:
+        events:
+          items:
+            minLength: 1
+            pattern: \S
+            type: string
+          minItems: 1
+          type: array
+          uniqueItems: true
+      required:
+        - events
+      type: object
+    AppResourceAppMCPSource:
+      additionalProperties: false
+      properties:
+        auth:
+          $ref: '#/components/schemas/AppResourceMCPAuthSource'
+        default_enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+        deferred:
+          type: boolean
+        permission:
+          $ref: '#/components/schemas/AppResourceToolPermissionSelection'
+        tools:
+          additionalProperties:
+            $ref: '#/components/schemas/AppResourceMCPToolSource'
+          propertyNames:
+            pattern: ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$
+            type: string
+          type: object
+        url:
+          minLength: 1
+          type: string
+      type: object
+    AppResourceAppScope:
+      additionalProperties: false
+      oneOf:
+        - required:
+            - slack
+          type: object
+        - required:
+            - github
+          type: object
+        - required:
+            - discord
+          type: object
+      properties:
+        discord:
+          $ref: '#/components/schemas/AppResourceAppDiscordScope'
+        github:
+          $ref: '#/components/schemas/AppResourceAppGitHubScope'
+        slack:
+          $ref: '#/components/schemas/AppResourceAppSlackScope'
+      type: object
+    AppResourceAppSlackScope:
+      additionalProperties: false
+      properties:
+        channel_id:
+          minLength: 1
+          pattern: \S
+          type: string
+        thread_ts:
+          minLength: 1
+          pattern: \S
+          type: string
+      required:
+        - channel_id
+      type: object
+    AppResourceAppToolSource:
+      additionalProperties: false
+      properties:
+        deferred:
+          type: boolean
+        description:
+          minLength: 1
+          type: string
+        enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+        input_schema:
+          $ref: '#/components/schemas/AppResourceAgentToolInputSchema'
+        permission:
+          $ref: '#/components/schemas/AppResourceToolPermissionSelection'
+        type:
+          enum:
+            - built_in
+            - custom
+      type: object
+    AppResourceMCPAuthSource:
+      additionalProperties: false
+      properties:
+        region:
+          minLength: 1
+          type: string
+        secret_id:
+          minLength: 1
+          pattern: ^sec_[a-z2-7]{26}$
+          type: string
+        service:
+          minLength: 1
+          type: string
+        type:
+          enum:
+            - bearer
+            - oauth
+            - sigv4
+      required:
+        - type
+        - secret_id
+      type: object
+    AppResourceMCPToolSource:
+      additionalProperties: false
+      properties:
+        deferred:
+          anyOf:
+            - type: boolean
+            - type: "null"
+        enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+        permission:
+          $ref: '#/components/schemas/AppResourceToolPermissionSelection'
+      type: object
+    AppResourceSource:
+      additionalProperties: false
+      oneOf:
+        - required:
+            - definition
+          type: object
+        - required:
+            - app_instance
+          type: object
+      properties:
+        app_instance:
+          pattern: ^app_[a-z2-7]{26}$
+          type: string
+        connection:
+          pattern: ^iin_[a-z2-7]{26}$
+          type: string
+        definition:
+          minLength: 1
+          pattern: \S
+          type: string
+        enabled:
+          type: boolean
+        follow:
+          $ref: '#/components/schemas/AppResourceAppFollow'
+        interaction_handler:
+          $ref: '#/components/schemas/AppResourceAppInteractionHandler'
+        listener:
+          $ref: '#/components/schemas/AppResourceAppListener'
+        mcp:
+          additionalProperties:
+            $ref: '#/components/schemas/AppResourceAppMCPSource'
+          propertyNames:
+            pattern: ^[a-zA-Z][a-zA-Z0-9-]{0,31}$
+            type: string
+          type: object
+        scope:
+          $ref: '#/components/schemas/AppResourceAppScope'
+        tools:
+          additionalProperties:
+            $ref: '#/components/schemas/AppResourceAppToolSource'
+          propertyNames:
+            allOf:
+              - pattern: ^[A-Za-z_][A-Za-z0-9_]{0,63}$
+                type: string
+              - not:
+                  pattern: ^mcp__
+                  type: string
+          type: object
+      type: object
+      x-go-type: agentconfig.AgentConfigAppResourceSource
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/agentconfig
+    AppResourceToolPermissionSelection:
+      additionalProperties: false
+      properties:
+        mode:
+          minLength: 1
+          pattern: \S
+          type: string
+        parameters:
+          type: object
+      required:
+        - mode
+      type: object
+    # END GENERATED APP RESOURCE SCHEMAS

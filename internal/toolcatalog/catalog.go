@@ -51,14 +51,6 @@ const (
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
-	sendIntegrationMessageToolDescription = "Send a user-visible message to the current integration target. " +
-		"When responding to a message received from an integration such as Slack, you must use this tool " +
-		"for every user-visible response, including progress updates, questions, and final answers. " +
-		"Attach artifacts by their artifact_ids only when the response is intentionally sending those files. " +
-		"Normal assistant text is internal and is not delivered to the external user, so use this tool " +
-		"to communicate with them."
-	setIntegrationTargetToolDescription = "Set which integration target future integration messages " +
-		"and prompts use by default."
 	webSearchToolDescription = "Search the public web for up-to-date information beyond your training data. " +
 		"Returns results with URLs, titles, and snippets; use web_fetch to read a result in full. " +
 		"Prefer a few focused queries with varied phrasing over one broad query, and keep it to at most ~5 searches per task."
@@ -281,12 +273,6 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameAskQuestion], err = askQuestionTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameSendIntegrationMessage], err = integrationSendTool(); err != nil {
-		return Catalog{}, err
-	}
-	if entries[ToolNameSetIntegrationTarget], err = integrationSetTargetTool(); err != nil {
-		return Catalog{}, err
-	}
 	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
 		return Catalog{}, err
 	}
@@ -325,6 +311,20 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	if entries[ToolNameToolSearch], err = toolSearchTool(); err != nil {
 		return Catalog{}, err
+	}
+	providerTools, err := appTools()
+	if err != nil {
+		return Catalog{}, err
+	}
+	for _, entry := range providerTools {
+		entries[entry.Name] = entry
+	}
+	interactionTools, err := interactionDestinationTools()
+	if err != nil {
+		return Catalog{}, err
+	}
+	for _, entry := range interactionTools {
+		entries[entry.Name] = entry
 	}
 	for _, entry := range entries {
 		if err := entry.validate(); err != nil {
@@ -407,36 +407,6 @@ func askQuestionTool() (Entry, error) {
 	return entry, nil
 }
 
-func integrationSendTool() (Entry, error) {
-	entry, err := toolEntry(
-		ToolNameSendIntegrationMessage,
-		sendIntegrationMessageToolDescription,
-		[]string{"text"},
-		map[string]any{
-			"text": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "User-visible message text to send to the current integration target.",
-			},
-			"artifact_ids": map[string]any{
-				"type":     "array",
-				"maxItems": 20,
-				"items": map[string]any{
-					"type":      "string",
-					"minLength": 1,
-				},
-				"description": "Use artifact IDs; for an upload_file result, use the final component of its /artifacts/<artifact_id> path. " +
-					"Omit this field or use an empty array for text-only messages.",
-			},
-		},
-	)
-	if err != nil {
-		return Entry{}, err
-	}
-	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
-	return entry, nil
-}
-
 func toolSearchTool() (Entry, error) {
 	entry, err := toolEntry(
 		ToolNameToolSearch,
@@ -461,26 +431,6 @@ func toolSearchTool() (Entry, error) {
 		return Entry{}, err
 	}
 	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
-	return entry, nil
-}
-
-func integrationSetTargetTool() (Entry, error) {
-	entry, err := toolEntry(
-		ToolNameSetIntegrationTarget,
-		setIntegrationTargetToolDescription,
-		[]string{"target_ref"},
-		map[string]any{
-			"target_ref": map[string]any{
-				"type":      "string",
-				"minLength": 1,
-				"description": "Short target_ref of the attached integration target to make current for future " +
-					"integration messages and prompts. Choose one of the integration_targets listed in context.",
-			},
-		},
-	)
-	if err != nil {
-		return Entry{}, err
-	}
 	return entry, nil
 }
 

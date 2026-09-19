@@ -23,20 +23,20 @@ type BuildInput struct {
 }
 
 type Bundle struct {
-	ProjectID             uuid.UUID                `json:"-"`
-	AgentID               uuid.UUID                `json:"-"`
-	TurnID                uuid.UUID                `json:"-"`
-	OpeningInputIDs       []uuid.UUID              `json:"-"`
-	InputEventSequence    int64                    `json:"-"`
-	SystemPrompt          string                   `json:"system_prompt"`
-	Messages              []Message                `json:"messages"`
-	ToolSpecs             []ToolSpec               `json:"tool_specs"`
-	ToolResults           []ToolResultRef          `json:"tool_results"`
-	AvailableMachinePools []MachinePoolRef         `json:"machine_pools,omitempty"`
-	IntegrationTargets    []IntegrationTargetRef   `json:"integration_targets,omitempty"`
-	ContextCheckpoint     *CheckpointRef           `json:"context_checkpoint,omitempty"`
-	ResolvedMedia         map[string]ResolvedMedia `json:"resolved_media,omitempty"`
-	RenderedMedia         []RenderedMedia          `json:"-"`
+	ProjectID             uuid.UUID                  `json:"-"`
+	AgentID               uuid.UUID                  `json:"-"`
+	TurnID                uuid.UUID                  `json:"-"`
+	OpeningInputIDs       []uuid.UUID                `json:"-"`
+	InputEventSequence    int64                      `json:"-"`
+	SystemPrompt          string                     `json:"system_prompt"`
+	Messages              []Message                  `json:"messages"`
+	ToolSpecs             []ToolSpec                 `json:"tool_specs"`
+	ToolResults           []ToolResultRef            `json:"tool_results"`
+	AvailableMachinePools []MachinePoolRef           `json:"machine_pools,omitempty"`
+	InteractionRouting    *InteractionRoutingContext `json:"interaction_routing,omitempty"`
+	ContextCheckpoint     *CheckpointRef             `json:"context_checkpoint,omitempty"`
+	ResolvedMedia         map[string]ResolvedMedia   `json:"resolved_media,omitempty"`
+	RenderedMedia         []RenderedMedia            `json:"-"`
 }
 
 type MediaProjector interface {
@@ -135,14 +135,14 @@ type ToolResultRef struct {
 	ContentParts        json.RawMessage                  `json:"content_parts"`
 }
 
-type IntegrationTargetRef struct {
-	TargetRef       string `json:"target_ref"`
-	DurableID       string `json:"-"`
-	Provider        string `json:"provider"`
-	ProviderRefKind string `json:"provider_ref_kind"`
-	Label           string `json:"label"`
-	InstallState    string `json:"install_state,omitempty"`
-	IsCurrent       bool   `json:"is_current,omitempty"`
+// InteractionRoutingContext is present only for configs with an enabled interaction handler. A nil destination
+// means dashboard-only, not a missing or guessed channel.
+type InteractionRoutingContext struct {
+	Destination *InteractionDestinationRef `json:"destination"`
+}
+type InteractionDestinationRef struct {
+	Resource string `json:"resource"`
+	TargetID string `json:"target_id"`
 }
 
 type MachinePoolRef struct {

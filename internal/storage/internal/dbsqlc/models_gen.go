@@ -60,20 +60,38 @@ type AgentEventReadProjection struct {
 }
 
 type AgentInteractionReadProjection struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    string
-	State              string
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  *uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         *time.Time
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
+}
+
+type AgentListener struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	ConnectionID   uuid.UUID
+	ResourceKey    string
+	ScopeKind      string
+	ScopeRef       string
+	Events         []string
+	SourceConfigID uuid.UUID
+	ToolCallID     *uuid.UUID
+	Active         bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type AgentMcpConnection struct {
@@ -104,6 +122,27 @@ type AgentRuntimeLock struct {
 	RenewedAt         time.Time
 	LeaseExpiresAt    time.Time
 	CancelRequestedAt *time.Time
+}
+
+type AppProfileChoice struct {
+	ID               uuid.UUID
+	ProjectID        uuid.UUID
+	ConnectionID     uuid.UUID
+	AppID            uuid.UUID
+	OwnerReceiptID   uuid.UUID
+	AddressKind      string
+	AddressRef       string
+	SourceKey        string
+	Event            json.RawMessage
+	Payload          []byte
+	Options          json.RawMessage
+	SelectedKey      *string
+	SelectedBy       *string
+	MessageChannelID *string
+	MessageID        *string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type AuthConnector struct {
@@ -201,6 +240,9 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
+	MaxActiveIntegrationConnectionsPerProject int64
+	MaxActiveProjectAppsPerProject            int64
+	MaxActiveAppListenersPerAgent             int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {
@@ -208,16 +250,12 @@ type ExpiredIdlePoolMachineCandidate struct {
 	MachineID uuid.UUID
 }
 
-type IntegrationInstall struct {
+type IntegrationConnection struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
 	InstalledByUserID        uuid.UUID
 	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
 	State                    string
 	ProviderTenantID         string
 	ProviderAccountRef       string
@@ -232,19 +270,24 @@ type IntegrationInstall struct {
 	UpdatedAt                time.Time
 }
 
-type IntegrationTarget struct {
-	ID                   uuid.UUID
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	ProviderMetadata     json.RawMessage
-	DeletedAt            *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+type IntegrationInbox struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	ConnectionID   uuid.UUID
+	ReceiptKey     string
+	Payload        []byte
+	Events         *json.RawMessage
+	Plan           *json.RawMessage
+	Progress       json.RawMessage
+	State          string
+	AttemptCount   int32
+	AvailableAt    time.Time
+	ClaimToken     *uuid.UUID
+	ClaimExpiresAt *time.Time
+	LastError      *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CompletedAt    *time.Time
 }
 
 type MachineDaemonToken struct {
@@ -419,6 +462,21 @@ type ProcessAction struct {
 	UpdatedAt          time.Time
 	StateReasonCode    *string
 	StateReasonMessage string
+}
+
+type ProjectApp struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Name               string
+	DefinitionID       string
+	Settings           json.RawMessage
+	LaunchConnectionID *uuid.UUID
+	LaunchScopeKind    *string
+	LaunchScopeRef     *string
+	Enabled            bool
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type ProjectMembership struct {

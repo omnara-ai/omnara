@@ -12,12 +12,16 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
+	"github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
@@ -182,7 +186,7 @@ func main() {
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts()),
 			Skills: store.Skills(),
 		},
 		ModelResolver: modelprovider.Resolver{
@@ -221,6 +225,12 @@ func main() {
 		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
 		ControlSubscriber: redisBus,
 	})
+	presentationsDone := make(chan struct{})
+	go func() {
+		defer close(presentationsDone)
+		presenter := integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient}
+		presenter.RunPending(ctx, backgroundRunner)
+	}()
 	workerErr := make(chan error, 1)
 	go func() {
 		workerErr <- kernelWorker.Run(ctx)
@@ -230,6 +240,64 @@ func main() {
 	go func() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
+	}()
+	discordRuntime := integration.DiscordRuntime{
+		Integrations: store.Integrations(),
+		Secrets:      store.Secrets(),
+		Redis:        redisClient,
+		HTTPClient:   integrationHTTPClient,
+		Log:          log,
+	}
+	discordDone := make(chan struct{})
+	var discordRunErr error
+	go func() {
+		defer close(discordDone)
+		discordRunErr = discordRuntime.Run(ctx)
+		if discordRunErr != nil {
+			cancel()
+		}
+	}()
+	appRouter := integration.NewAppRouter(store.Execution(), store.Integrations())
+	appProviders := map[string]integration.AppInboxProvider{
+		"slack": integration.NewSlackAppInboxProvider(
+			slack.OAuthConfig{HTTPClient: integrationHTTPClient},
+			store.Secrets(),
+			store.Integrations(),
+			store.Execution(),
+		),
+		"discord": integration.NewDiscordAppInboxProvider(
+			discord.Config{HTTPClient: integrationHTTPClient},
+			store.Secrets(),
+			store.Integrations(),
+		),
+		"github": integration.GitHubAppInboxProvider{},
+	}
+	chatLauncher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), appProviders)
+	appLaunchers := integration.NewAppLaunchWorkflow(appRouter, map[string]integration.AppLauncher{
+		appdefinition.Slack:   chatLauncher.Decide,
+		appdefinition.Discord: chatLauncher.Decide,
+		appdefinition.GitHub:  integration.EverySlotAppLauncher,
+	})
+	appLaunchers.OnUnavailable = chatLauncher.NotifyUnavailable
+	appConsumer := integration.NewAppInboxConsumer(
+		appRouter,
+		store.Integrations(),
+		store.Artifacts(),
+		appProviders,
+		integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient},
+		appLaunchers,
+	)
+	appWorker := integration.NewAppInboxWorker(store.Integrations(), appConsumer, integration.AppInboxWorkerOptions{
+		Log: log, MachinePools: machinePoolManager,
+	})
+	appsDone := make(chan struct{})
+	var appsRunErr error
+	go func() {
+		defer close(appsDone)
+		appsRunErr = appWorker.Run(ctx)
+		if appsRunErr != nil {
+			cancel()
+		}
 	}()
 
 	exitCode := 0
@@ -257,6 +325,17 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
+	<-discordDone
+	if discordRunErr != nil && signalCtx.Err() == nil {
+		log.Error("Discord runtime failed", "error", discordRunErr)
+		exitCode = 1
+	}
+	<-appsDone
+	if appsRunErr != nil && signalCtx.Err() == nil {
+		log.Error("app inbox worker failed", "error", appsRunErr)
+		exitCode = 1
+	}
+	<-presentationsDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)

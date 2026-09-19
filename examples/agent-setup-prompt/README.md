@@ -41,10 +41,12 @@ and retry — don't skip ahead.
      b. "You are a research assistant. Search the web, fetch sources,
         and run code on your machine when analysis helps. Cite your
         sources."
-   - every built-in tool except create_machine and delete_machine —
-     list them from GET /tool-catalog. Include send_integration_message
-     and set_integration_target only if I chose Slack; omit both if I
-     didn't
+   - ordinary built-in tools except create_machine and delete_machine —
+     list them from GET /tool-catalog. Do not add provider app tools or
+     interaction-destination tools without app resources. If I chose Slack,
+     its setup below supplies the scoped read/send tools, listener and
+     interaction handler to agents it launches; the base profile needs
+     no implicit integration tools
    - the granted model and pool
    - if a PAT was collected: create a project-owned secret from the
      temp file without reading or printing its value, delete the

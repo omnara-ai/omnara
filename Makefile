@@ -30,11 +30,14 @@ INTEGRATION_STORAGE_PACKAGES := \
 	./internal/storage \
 	./internal/storage/executionstore \
 	./internal/storage/identitystore \
+	./internal/storage/integrationstore \
 	./internal/testutil/storagetest
 INTEGRATION_HTTPAPI_PACKAGES := \
 	./internal/httpapi \
 	./internal/httpapi/auth
 INTEGRATION_RUNTIME_PACKAGES := \
+	./cmd/maintenance \
+	./internal/integration \
 	./internal/harness/kernel \
 	./internal/harness/tools \
 	./internal/harness/worker \
@@ -143,6 +146,7 @@ race-unit: ## Run internal unit tests with race detection
 	$(GO) test -race -count=1 ./internal/...
 
 openapi-generate:
+	OMNARA_REGEN_APP_OPENAPI=1 $(GO) test ./api/openapi -run TestGeneratedAppResourceSchemasAreCurrent
 	$(OAPI_CODEGEN) -config api/openapi/oapi-codegen.yaml api/openapi/openapi.yaml
 
 openapi-check:

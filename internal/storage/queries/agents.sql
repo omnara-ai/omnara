@@ -191,6 +191,13 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL;
 
+-- Display-only lookup for app menus; never loads or derives an agent config.
+-- name: GetAgentProfileDisplayNames :many
+SELECT id, name
+FROM agent_profiles
+WHERE project_id = sqlc.arg(project_id)
+  AND id = ANY(sqlc.arg(profile_ids)::uuid[]) AND deleted_at IS NULL;
+
 -- name: GetAgentProfileIDByName :one
 SELECT profile.id
 FROM agent_profiles profile
@@ -406,15 +413,6 @@ SET deleted_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND profile_id = sqlc.arg(profile_id)
   AND deleted_at IS NULL;
-
--- name: AgentProfileHasIntegrationInstall :one
-SELECT EXISTS (
-  SELECT 1 FROM integration_installs
-  WHERE project_id = sqlc.arg(project_id)
-    AND agent_profile_id = sqlc.arg(profile_id)
-    AND state = 'active'
-    AND deleted_at IS NULL
-) AS has_integration_install;
 
 -- name: AgentProfileVersionExistsForConfig :one
 -- @sqlc-vet-disable agent-profile-versions-deleted-at

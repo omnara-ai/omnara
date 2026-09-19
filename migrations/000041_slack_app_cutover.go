@@ -1,0 +1,576 @@
+package migrations
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"regexp"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/pressly/goose/v3"
+	"gopkg.in/yaml.v3"
+)
+
+func newSlackAppCutoverMigration() *goose.Migration {
+	return goose.NewGoMigration(41, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
+}
+
+// SQL40 preserves setup before removing connection-owned destinations. This
+// migration runs before any new release writers start. Keep its data encoding
+// local: replay must not depend on a future config compiler or provider client.
+func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE agent_configs, agents IN ACCESS EXCLUSIVE MODE`); err != nil {
+		return err
+	}
+	if err := preflightSlackAppCutover(ctx, tx); err != nil {
+		return err
+	}
+	if err := rewriteSlackAppConfigs(ctx, tx); err != nil {
+		return err
+	}
+	if err := fillSlackAppConnections(ctx, tx); err != nil {
+		return err
+	}
+	return migrateSlackAgentResources(ctx, tx)
+}
+
+type appCutoverConfig struct {
+	id, projectID, hash        string
+	source, format, sourceHash sql.NullString
+	definition, compiled       []byte
+}
+
+var appCutoverToolNames = [][2]string{
+	{"send_integration_message", "slack_post_message"},
+	{"set_integration_target", "set_interaction_destination"},
+}
+
+func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id::text, project_id::text, source, source_format, source_hash,
+		       definition::text, compiled_definition::text, effective_definition_hash
+		FROM agent_configs ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	var updates []appCutoverConfig
+	for rows.Next() {
+		var config appCutoverConfig
+		if err := rows.Scan(&config.id, &config.projectID, &config.source, &config.format,
+			&config.sourceHash, &config.definition, &config.compiled, &config.hash); err != nil {
+			return err
+		}
+		updated, changed, err := rewriteSlackAppConfig(config)
+		if err != nil {
+			return fmt.Errorf("slack app cutover config %s: %w", config.id, err)
+		}
+		if changed {
+			updates = append(updates, updated)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`); err != nil {
+		return err
+	}
+	for _, config := range updates {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_configs SET source=$2, source_hash=$3,
+			definition=$4::jsonb, compiled_definition=$5::jsonb, effective_definition_hash=$6 WHERE id=$1::uuid`,
+			config.id, config.source, config.sourceHash, config.definition, config.compiled, config.hash); err != nil {
+			return fmt.Errorf(
+				"rewrite Slack config %s (resolve duplicate configs before retrying if necessary): %w",
+				config.id,
+				err,
+			)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
+	return err
+}
+
+func rewriteSlackAppConfig(config appCutoverConfig) (appCutoverConfig, bool, error) {
+	definition, definitionChanged, err := renameAppToolsJSON(config.definition)
+	if err != nil {
+		return config, false, err
+	}
+	compiled, compiledChanged, err := renameAppToolsJSON(config.compiled)
+	if err != nil {
+		return config, false, err
+	}
+	var source []byte
+	var sourceChanged bool
+	if config.source.Valid {
+		switch config.format.String {
+		case "json":
+			source, sourceChanged, err = renameAppToolsJSON([]byte(config.source.String))
+		case "yaml":
+			source, sourceChanged, err = renameAppToolsYAML([]byte(config.source.String))
+		default:
+			err = fmt.Errorf("unsupported source format %q", config.format.String)
+		}
+		if err != nil {
+			return config, false, err
+		}
+	}
+	if !definitionChanged && !compiledChanged && !sourceChanged {
+		return config, false, nil
+	}
+	oldHash, err := explicitDefaultToolsConfigHash(config.compiled)
+	if err != nil {
+		return config, false, err
+	}
+	if oldHash != config.hash ||
+		(config.source.Valid && hashBytes([]byte(config.source.String)) != config.sourceHash.String) {
+		return config, false, errors.New("stored config hashes do not match content")
+	}
+	config.definition, config.compiled = definition, compiled
+	config.hash, err = explicitDefaultToolsConfigHash(compiled)
+	if sourceChanged {
+		config.source.String, config.sourceHash.String = string(source), hashBytes(source)
+	}
+	return config, true, err
+}
+
+func renameAppToolsJSON(raw []byte) ([]byte, bool, error) {
+	value, err := decodeAgentConfigNameMigrationJSON(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil, false, errors.New("config must be an object")
+	}
+	changed, err := renameAppToolKeys(root)
+	if err != nil || !changed {
+		return raw, changed, err
+	}
+	encoded, err := json.Marshal(root)
+	return encoded, true, err
+}
+
+func renameAppToolKeys(root map[string]any) (bool, error) {
+	tools, _ := root["tools"].(map[string]any)
+	changed := false
+	for _, names := range appCutoverToolNames {
+		value, exists := tools[names[0]]
+		if !exists {
+			continue
+		}
+		if current, exists := tools[names[1]]; exists && !reflect.DeepEqual(current, value) {
+			return false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
+		}
+		tools[names[1]] = value
+		delete(tools, names[0])
+		changed = true
+	}
+	return changed, nil
+}
+
+func renameAppToolsYAML(raw []byte) ([]byte, bool, error) {
+	value, err := decodeAgentConfigNameMigrationYAML(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	expected, ok := value.(map[string]any)
+	if !ok {
+		return nil, false, errors.New("config must be an object")
+	}
+	changed, err := renameAppToolKeys(expected)
+	if err != nil || !changed {
+		return raw, changed, err
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(raw, &document); err != nil {
+		return nil, false, err
+	}
+	root := document.Content[0]
+	// As in migration37, resolve aliases/merges before editing shared nodes.
+	// Ordinary source retains its comments, key order and scalar formatting.
+	if fileToolYAMLHasReferences(root) {
+		if err := root.Encode(expected); err != nil {
+			return nil, false, err
+		}
+	} else {
+		var tools *yaml.Node
+		for i := 0; i < len(root.Content); i += 2 {
+			if root.Content[i].Value == "tools" {
+				tools = root.Content[i+1]
+			}
+		}
+		if tools == nil || tools.Kind != yaml.MappingNode {
+			return nil, false, errors.New("tools must be a mapping")
+		}
+		for _, names := range appCutoverToolNames {
+			oldIndex, newIndex := -1, -1
+			for i := 0; i < len(tools.Content); i += 2 {
+				if tools.Content[i].Value == names[0] {
+					oldIndex = i
+				}
+				if tools.Content[i].Value == names[1] {
+					newIndex = i
+				}
+			}
+			if oldIndex < 0 {
+				continue
+			}
+			if newIndex >= 0 {
+				tools.Content = append(tools.Content[:oldIndex], tools.Content[oldIndex+2:]...)
+			} else {
+				tools.Content[oldIndex].Value = names[1]
+			}
+		}
+	}
+	var encoded bytes.Buffer
+	encoder := yaml.NewEncoder(&encoded)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&document); err != nil {
+		return nil, false, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, false, err
+	}
+	decoded, err := decodeAgentConfigNameMigrationYAML(encoded.Bytes())
+	if err != nil || !reflect.DeepEqual(expected, decoded) {
+		return nil, false, errors.New("rewriting Slack tool names changed other source values")
+	}
+	return encoded.Bytes(), true, nil
+}
+
+func fillSlackAppConnections(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id::text, launch_connection_id::text FROM project_apps
+		WHERE definition_id='omnara.slack' AND launch_connection_id IS NOT NULL
+		AND NOT (settings->'resource' ? 'connection') ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	type connectionRef struct{ appID, connectionID string }
+	var refs []connectionRef
+	for rows.Next() {
+		var ref connectionRef
+		if err := rows.Scan(&ref.appID, &ref.connectionID); err != nil {
+			return err
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		id, err := uuid.Parse(ref.connectionID)
+		if err != nil {
+			return err
+		}
+		encoded, err := publicid.Encode(publicid.KindIntegrationConnection, id)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE project_apps SET settings=jsonb_set(settings,
+			'{resource,connection}',to_jsonb($2::text)) WHERE id=$1::uuid`, ref.appID, encoded); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type slackCutoverTarget struct {
+	id, connectionID, kind, ref string
+}
+
+// Frozen provider address grammar: migration replay cannot depend on future runtime validation.
+var slackCutoverChannel = regexp.MustCompile(`^[CDG][A-Z0-9]+$`)
+var slackCutoverTimestamp = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+
+// A compiled-only successor preserves the exact model, policy and other resolved
+// resources without re-resolving the shared profile or its external references.
+func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, error) {
+	value, err := decodeAgentConfigNameMigrationJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("compiled config must be an object")
+	}
+	if _, exists := root["app_resources"]; exists {
+		return nil, errors.New("pre-cutover config already contains app resources")
+	}
+	tools, _ := root["tools"].(map[string]any)
+	if tools == nil {
+		tools = map[string]any{}
+		root["tools"] = tools
+	}
+	policy, exists := tools["slack_post_message"]
+	if !exists {
+		policy = map[string]any{
+			"enabled":    true,
+			"permission": map[string]any{"mode": "always_allow", "parameters": map[string]any{}},
+		}
+	}
+	tool, ok := policy.(map[string]any)
+	if !ok {
+		return nil, errors.New("slack sending tool policy must be an object")
+	}
+	resources := map[string]any{}
+	var keys []string
+	for _, target := range targets {
+		id, err := uuid.Parse(target.connectionID)
+		if err != nil {
+			return nil, err
+		}
+		connection, err := publicid.Encode(publicid.KindIntegrationConnection, id)
+		if err != nil {
+			return nil, err
+		}
+		scope := map[string]any{}
+		switch target.kind {
+		case "dm", "channel":
+			if !slackCutoverChannel.MatchString(target.ref) {
+				return nil, fmt.Errorf("invalid Slack target %s address %q", target.id, target.ref)
+			}
+			scope["channel_id"] = target.ref
+		case "thread":
+			channel, timestamp, found := strings.Cut(target.ref, ":")
+			if !found || !slackCutoverChannel.MatchString(channel) || !slackCutoverTimestamp.MatchString(timestamp) {
+				return nil, fmt.Errorf("invalid Slack target %s", target.id)
+			}
+			scope["channel_id"], scope["thread_ts"] = channel, timestamp
+		default:
+			return nil, fmt.Errorf("unsupported Slack target %s kind %q", target.id, target.kind)
+		}
+		key := "slack_" + strings.ReplaceAll(target.id, "-", "")
+		keys = append(keys, key)
+		resources[key] = map[string]any{
+			"definition":    "omnara.slack",
+			"enabled":       true,
+			"connection_id": connection,
+			"scope":         map[string]any{"slack": scope},
+			"tools":         []string{"slack_post_message"},
+		}
+	}
+	tool["app_origin"] = map[string]any{"resource_keys": keys}
+	tools["slack_post_message"], root["app_resources"] = tool, resources
+	return json.Marshal(root)
+}
+
+func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
+	var collisionConfig, collisionTool string
+	collisionErr := tx.QueryRowContext(ctx, `SELECT config.id::text, tool.key
+ FROM agent_configs config
+ CROSS JOIN LATERAL jsonb_each(coalesce(nullif(config.compiled_definition->'tools','null'::jsonb),'{}'::jsonb)) tool
+ WHERE tool.value->>'type'='custom' AND tool.key IN ('slack_read','slack_post_message',
+ 'github_read','github_discussion_comment','github_inline_comment','github_reply',
+ 'discord_read','discord_post_message','list_interaction_destinations','set_interaction_destination') LIMIT 1`,
+	).Scan(&collisionConfig, &collisionTool)
+	if collisionErr == nil {
+		return fmt.Errorf(
+			"config %s custom tool %q conflicts with a new app built-in; historical configs require repair before cutover; remain in maintenance and follow the cutover recovery runbook",
+			collisionConfig,
+			collisionTool,
+		)
+	}
+	if !errors.Is(collisionErr, sql.ErrNoRows) {
+		return collisionErr
+	}
+	var unfinished bool
+	if err := tx.QueryRowContext(ctx, `SELECT
+		EXISTS (SELECT 1 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp())
+		OR EXISTS (SELECT 1 FROM model_call_contexts WHERE state='started')
+		OR EXISTS (SELECT 1 FROM tool_calls WHERE state <> 'completed')
+		OR EXISTS (SELECT 1 FROM agent_interactions WHERE state='open')`).Scan(&unfinished); err != nil {
+		return err
+	}
+	if unfinished {
+		return errors.New(
+			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 40)",
+		)
+	}
+	// A model continuation can exist before its next call is inserted. Match the
+	// kernel frontier rather than mistaking an idle worker for a finished turn.
+	var agentID string
+	err := tx.QueryRowContext(ctx, `SELECT agent.id::text FROM agents agent
+		JOIN LATERAL (SELECT id FROM agent_turns WHERE agent_id=agent.id ORDER BY turn_sequence DESC LIMIT 1) latest ON true
+		WHERE EXISTS (SELECT 1 FROM agent_continuable_model_contexts(agent.project_id,agent.id) context
+		              WHERE context.turn_id=latest.id)
+		   OR agent_has_incomplete_tool_batch(agent.project_id,agent.id)
+		   OR EXISTS (SELECT 1 FROM agent_next_model_work(agent.project_id,agent.id) frontier
+		              WHERE frontier.turn_id=latest.id)
+		LIMIT 1`).Scan(&agentID)
+	if err == nil {
+		return fmt.Errorf(
+			"slack app cutover: agent %s still has continuable work; remain in maintenance and follow the cutover recovery runbook",
+			agentID,
+		)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	return nil
+}
+
+func migrateSlackAgentResources(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT agent.id::text, agent.current_config_id::text, config.compiled_definition::text,
+		       target.id::text, connection.id::text, target.provider_ref_kind, target.provider_ref
+		FROM agents agent
+		JOIN projects project ON project.id=agent.project_id AND project.deleted_at IS NULL
+		JOIN orgs org ON org.id=agent.org_id AND org.deleted_at IS NULL
+		JOIN agent_configs config ON config.project_id=agent.project_id AND config.id=agent.current_config_id
+		JOIN integration_targets target ON target.project_id=agent.project_id AND target.agent_id=agent.id
+		  AND target.deleted_at IS NULL
+		JOIN integration_connections connection ON connection.project_id=target.project_id
+		  AND connection.id=target.integration_connection_id AND connection.provider='slack'
+		  AND connection.deleted_at IS NULL
+		ORDER BY agent.id, target.id`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	type successor struct {
+		agentID, configID string
+		compiled          []byte
+		targets           []slackCutoverTarget
+	}
+	var agents []successor
+	for rows.Next() {
+		var agentID, configID string
+		var compiled []byte
+		var target slackCutoverTarget
+		if err := rows.Scan(
+			&agentID,
+			&configID,
+			&compiled,
+			&target.id,
+			&target.connectionID,
+			&target.kind,
+			&target.ref,
+		); err != nil {
+			return err
+		}
+		if len(agents) == 0 || agents[len(agents)-1].agentID != agentID {
+			agents = append(agents, successor{agentID: agentID, configID: configID, compiled: compiled})
+		}
+		agents[len(agents)-1].targets = append(agents[len(agents)-1].targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, agent := range agents {
+		compiled, err := slackSendingSuccessor(agent.compiled, agent.targets)
+		if err != nil {
+			return fmt.Errorf("slack successor for agent %s: %w", agent.agentID, err)
+		}
+		hash, err := explicitDefaultToolsConfigHash(compiled)
+		if err != nil {
+			return err
+		}
+		var configID string
+		err = tx.QueryRowContext(ctx, `WITH inserted AS (
+			INSERT INTO agent_configs(org_id,project_id,configured_model_id,definition,compiled_definition,
+				compiler_version,effective_definition_hash,created_at)
+			SELECT org_id,project_id,configured_model_id,$2::jsonb,$2::jsonb,compiler_version,$3,statement_timestamp()
+			FROM agent_configs WHERE id=$1::uuid
+			ON CONFLICT (project_id,effective_definition_hash,source_format,source_hash) DO NOTHING RETURNING id
+		)
+		SELECT id::text FROM inserted UNION ALL
+		SELECT config.id::text FROM agent_configs config JOIN agent_configs original ON original.id=$1::uuid
+		WHERE config.project_id=original.project_id AND config.effective_definition_hash=$3
+		  AND config.source_format IS NULL AND config.source_hash IS NULL LIMIT 1`,
+			agent.configID, compiled, hash).Scan(&configID)
+		if err != nil {
+			return fmt.Errorf("insert Slack successor for agent %s: %w", agent.agentID, err)
+		}
+		var withinLimit bool
+		if err := tx.QueryRowContext(ctx, `SELECT
+			(SELECT count(*) FROM agent_configs config WHERE config.project_id=agent.project_id)
+            <= limits.max_agent_configs_per_project
+			FROM agents agent JOIN effective_resource_limits limits ON limits.org_id=agent.org_id
+            WHERE agent.id=$1::uuid`,
+			agent.agentID,
+		).Scan(&withinLimit); err != nil {
+			return err
+		}
+		if !withinLimit {
+			return fmt.Errorf(
+				"slack successor for agent %s exceeds project config limit; raise the existing org override before retrying",
+				agent.agentID,
+			)
+		}
+		if err := activateSlackSuccessor(ctx, tx, agent.agentID, configID); err != nil {
+			return err
+		}
+	}
+	// Previous target pointers were also automatic prompt destinations. Keep the
+	// targets as history, but no new handler/listener authority is inferred from them.
+	_, err = tx.ExecContext(
+		ctx,
+		`UPDATE agents SET integration_target_id=NULL, interaction_resource_key=NULL WHERE integration_target_id IS NOT NULL`,
+	)
+	return err
+}
+
+func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID string) error {
+	var inputID, eventID, turnID string
+	if err := tx.QueryRowContext(ctx, `INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,
+		delivery_mode,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata)
+		SELECT project_id,id,'received','config_change','immediate',$2::uuid,'agent_config_change',
+		'slack_app_cutover',statement_timestamp(),jsonb_build_object('agent_config_id',$2::text,'reason','slack_app_cutover')
+		FROM agents WHERE id=$1::uuid RETURNING id::text`, agentID, configID).Scan(&inputID); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, `WITH allocated AS (
+		UPDATE agents SET next_event_sequence=next_event_sequence+1
+        WHERE id=$1::uuid RETURNING next_event_sequence-1 AS sequence
+	)
+	INSERT INTO agent_events(
+        agent_id,turn_id,sequence,event_kind,idempotency_key,agent_input_id,is_opening_event,created_at
+    )
+	SELECT $1::uuid,uuidv7(),sequence,'agent_input','agent_input:' || $2::text,$2::uuid,true,statement_timestamp()
+	FROM allocated RETURNING id::text,turn_id::text`, agentID, inputID).Scan(&eventID, &turnID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO agent_turns(id,agent_id,turn_sequence,latest_event_id,latest_semantic_event_id)
+		SELECT $2::uuid,$1::uuid,coalesce(max(turn_sequence),0)+1,$3::uuid,$3::uuid FROM agent_turns WHERE agent_id=$1::uuid`,
+		agentID,
+		turnID,
+		eventID,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_inputs SET state='resolved',admitted_event_id=$2::uuid,
+		admitted_at=event.created_at,resolved_at=event.created_at FROM agent_events event
+		WHERE agent_inputs.id=$1::uuid AND event.id=$2::uuid AND event.agent_id=agent_inputs.agent_id`,
+		inputID, eventID,
+	); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(
+		ctx,
+		`UPDATE agents SET current_config_id=$2::uuid,updated_at=statement_timestamp() WHERE id=$1::uuid`,
+		agentID,
+		configID,
+	)
+	return err
+}

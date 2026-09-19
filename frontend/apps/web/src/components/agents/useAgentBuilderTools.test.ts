@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
+import { createBasicConfigSession, emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
 import { agentBuilderToolsSource } from '@/components/agents/useAgentBuilderTools'
 
 describe('agentBuilderToolsSource', () => {
@@ -34,6 +34,7 @@ describe('agentBuilderToolsSource', () => {
       }),
     )
     expect(payload).toEqual({
+      app_resources: {},
       tools: {
         web_search: { type: 'built_in' },
         web_fetch: { type: 'built_in', permission: { mode: 'always_ask' }, deferred: true },
@@ -50,6 +51,26 @@ describe('agentBuilderToolsSource', () => {
       machine_sources: [],
       skills: [],
       subagents: {},
+    })
+  })
+
+  it('preserves scoped app instances and selected tools through builder edits and preview', () => {
+    const resource = {
+      app_instance: `app_${'a'.repeat(26)}`,
+      scope: { slack: { channel_id: 'C123', thread_ts: '123.456' } },
+      tools: { slack_post_message: {} },
+    }
+    const session = createBasicConfigSession(
+      JSON.stringify({ instruction: 'Review', app_resources: { chat: resource } }),
+    )
+    if (session.initialDraft === null) throw new Error('App source must support builder preview')
+    const changed = { ...session.initialDraft, instruction: 'Updated instruction' }
+    expect(JSON.parse(agentBuilderToolsSource(changed))).toHaveProperty(
+      'app_resources.chat',
+      resource,
+    )
+    expect(createBasicConfigSession(session.apply(changed)).initialDraft?.appResources).toEqual({
+      chat: resource,
     })
   })
 })

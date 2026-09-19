@@ -73,15 +73,10 @@ export function AgentConfigToolsField({
     .filter((tool) => catalogByName.get(tool.name)?.implicit)
     .sort((a, b) => a.name.localeCompare(b.name))
   const visibleTools = catalog
-    ? tools.filter(
-        (tool) => !catalogByName.get(tool.name)?.implicit && tool.name !== 'set_integration_target',
-      )
+    ? tools.filter((tool) => !catalogByName.get(tool.name)?.implicit)
     : []
   const availableTools = catalogTools.filter(
-    (entry) =>
-      !entry.implicit &&
-      entry.name !== 'set_integration_target' &&
-      tools.every((tool) => tool.name !== entry.name),
+    (entry) => !entry.implicit && tools.every((tool) => tool.name !== entry.name),
   )
 
   return (

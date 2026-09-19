@@ -32,10 +32,10 @@ rules:
     message: "agent_profile_versions query must filter deleted_at (or annotate @sqlc-vet-disable agent-profile-versions-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+agent_profile_versions\b') && !query.sql.contains('deleted_at')
-  - name: integration-installs-deleted-at
-    message: "integration_installs query must filter deleted_at (or annotate @sqlc-vet-disable integration-installs-deleted-at)"
+  - name: integration-connections-deleted-at
+    message: "integration_connections query must filter deleted_at (or annotate @sqlc-vet-disable integration-connections-deleted-at)"
     rule: >-
-      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_installs\b') && !query.sql.contains('deleted_at')
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_connections\b') && !query.sql.contains('deleted_at')
   - name: integration-targets-deleted-at
     message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
     rule: >-
@@ -72,7 +72,7 @@ sql:
       - configured-models-deleted-at
       - agent-profiles-deleted-at
       - agent-profile-versions-deleted-at
-      - integration-installs-deleted-at
+      - integration-connections-deleted-at
       - integration-targets-deleted-at
       - machine-pools-deleted-at
       - machines-deleted-at

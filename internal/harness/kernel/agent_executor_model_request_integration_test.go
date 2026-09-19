@@ -37,18 +37,13 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load managed-admission agent: %v", err)
-	}
-	attachKernelSlackTarget(
+	attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		agentID,
-		agent.AgentProfileID,
 		"managed-admission",
-		"C_MANAGED_ADMISSION:1.0",
+		"CMANAGEDADMISSION:1.0",
 	)
 	turn := fixture.admitContentInputTurn(
 		t,
@@ -78,7 +73,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_MANAGED_ADMISSION","ts":"2.0"}`,
+					`{"ok":true,"channel":"CMANAGEDADMISSION","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil
@@ -684,7 +679,7 @@ func TestAgentExecutorCarriesDurableProviderReplayIntoNextTurn(t *testing.T) {
 	}
 
 	bundle, err := (modelcontext.Builder{
-		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
+		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts()),
 	}).Build(
 		ctx,
 		modelcontext.BuildInput{
@@ -757,18 +752,13 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	agentID, userID := fixture.createAgent(t, ctx, "openai/serialized-overflow-model", now)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load irreducible-overflow agent: %v", err)
-	}
-	attachKernelSlackTarget(
+	attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		agentID,
-		agent.AgentProfileID,
 		"irreducible-overflow",
-		"C_IRREDUCIBLE_OVERFLOW:1.0",
+		"CIRREDUCIBLEOVERFLOW:1.0",
 	)
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
@@ -798,7 +788,7 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_IRREDUCIBLE_OVERFLOW","ts":"2.0"}`,
+					`{"ok":true,"channel":"CIRREDUCIBLEOVERFLOW","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil

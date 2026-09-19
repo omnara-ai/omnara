@@ -23,16 +23,18 @@ const (
 )
 
 type Compiled struct {
-	Version        string                       `json:"version,omitempty"`
-	Instruction    string                       `json:"instruction"`
-	Model          ModelCompiled                `json:"model,omitempty"`
-	MachineSources []MachineSourceCompiled      `json:"machine_sources,omitempty"`
-	Tools          map[string]ToolCompiled      `json:"tools,omitempty"`
-	MCP            map[string]MCPServerCompiled `json:"mcp,omitempty"`
-	Skills         []SkillCompiled              `json:"skills,omitempty"`
-	Subagents      map[string]SubagentCompiled  `json:"subagents,omitempty"`
-	MaxSubagents   *int                         `json:"max_subagents,omitempty"`
-	MaxDepth       *int                         `json:"max_depth,omitempty"`
+	Version         string                           `json:"version,omitempty"`
+	Instruction     string                           `json:"instruction"`
+	Model           ModelCompiled                    `json:"model,omitempty"`
+	MachineSources  []MachineSourceCompiled          `json:"machine_sources,omitempty"`
+	Tools           map[string]ToolCompiled          `json:"tools,omitempty"`
+	MCP             map[string]MCPServerCompiled     `json:"mcp,omitempty"`
+	AppResources    map[string]AppResourceCompiled   `json:"app_resources,omitempty"`
+	AppToolPolicies map[string]AppToolPolicyCompiled `json:"app_tool_policies,omitempty"`
+	Skills          []SkillCompiled                  `json:"skills,omitempty"`
+	Subagents       map[string]SubagentCompiled      `json:"subagents,omitempty"`
+	MaxSubagents    *int                             `json:"max_subagents,omitempty"`
+	MaxDepth        *int                             `json:"max_depth,omitempty"`
 }
 
 // SkillCompiled pins a skill's identity into the agent contract. Only the
@@ -107,6 +109,7 @@ type MachineSourceCompiled struct {
 }
 
 type ToolCompiled struct {
+	AppOrigin   *AppToolOrigin           `json:"app_origin,omitempty"`
 	Enabled     bool                     `json:"enabled"`
 	Type        string                   `json:"type,omitempty"`
 	Permission  toolpermission.Selection `json:"permission"`
@@ -116,6 +119,7 @@ type ToolCompiled struct {
 }
 
 type MCPServerCompiled struct {
+	AppOrigin      *AppToolOrigin             `json:"app_origin,omitempty"`
 	URL            string                     `json:"url"`
 	Auth           *MCPAuthCompiled           `json:"auth,omitempty"`
 	DefaultEnabled bool                       `json:"default_enabled"`
@@ -150,6 +154,8 @@ type Result struct {
 }
 
 type CompileOptions struct {
+	ResolveAppInstance        func(instanceID string) (AppInstanceResolution, error)
+	ResolveAppConnection      func(connectionID, provider string) (resolvedID string, err error)
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID string, expectedKind secrets.Kind) error
@@ -231,7 +237,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	if len(machines) > 0 {
 		compiled.MachineSources = machines
 	}
-	compiled.Tools, err = compileTools(source)
+	compiled.Tools, err = compileBaseTools(source)
 	if err != nil {
 		return Compiled{}, err
 	}
@@ -241,6 +247,9 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 			return Compiled{}, err
 		}
 		compiled.MCP = mcpServers
+	}
+	if err := compileAppResources(source, opts, &compiled); err != nil {
+		return Compiled{}, err
 	}
 	if len(source.Skills) > 0 {
 		skills, err := compileSkills(source.Skills, opts)
@@ -262,7 +271,11 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	}
 	compiled.MaxDepth = source.MaxDepth
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
-		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", compiledModel.sourceName)
+		return Compiled{}, issuef(
+			jsonPointer("model", "name"),
+			"model %q does not support tools",
+			compiledModel.sourceName,
+		)
 	}
 	return compiled, nil
 }
@@ -300,8 +313,8 @@ func compileModel(source AgentConfigModelSource, opts CompileOptions) (compiledM
 }
 
 func requiresModelToolSupport(compiled Compiled) bool {
-	for _, tool := range compiled.Tools {
-		if tool.Enabled {
+	for name, tool := range compiled.Tools {
+		if tool.Enabled && toolHasResources(name, compiled.AppResources) {
 			return true
 		}
 	}
@@ -333,7 +346,10 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		return configured
 	})
 	hasTools := len(names) > 0 || len(source.MCP) > 0
-	for _, tool := range source.Tools {
+	for name, tool := range source.Tools {
+		if toolcatalog.AppToolProvider(name) != "" && !sourceSelectsAppTool(source, name) {
+			continue
+		}
 		if tool.Enabled == nil || *tool.Enabled {
 			hasTools = true
 			break
@@ -350,7 +366,10 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 }
 
 func sourceDefersAnyTool(source AgentConfigSource) bool {
-	for _, tool := range source.Tools {
+	for name, tool := range source.Tools {
+		if toolcatalog.AppToolProvider(name) != "" && !sourceSelectsAppTool(source, name) {
+			continue
+		}
 		if tool.Deferred && (tool.Enabled == nil || *tool.Enabled) {
 			return true
 		}
@@ -412,6 +431,15 @@ func compileBuiltInTool(
 	enabled bool,
 	catalog toolcatalog.Catalog,
 ) (ToolCompiled, error) {
+	if source.Type != "" && source.Type != toolcatalog.ToolTypeBuiltIn {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "type"), "must be built_in or custom")
+	}
+	if source.Description != "" || source.InputSchema != nil {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name),
+			"built-in tools cannot redefine description or input_schema",
+		)
+	}
 	entry, ok := catalog.Lookup(name)
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "tool %q is not registered", name)
@@ -441,8 +469,14 @@ func compileCustomTool(
 	enabled bool,
 	catalog toolcatalog.Catalog,
 ) (ToolCompiled, error) {
+	if strings.TrimSpace(source.Description) == "" {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "description"), "is required")
+	}
 	if toolcatalog.UsesMCPRuntimeNamespace(name) {
-		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name uses the reserved MCP tool namespace")
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name),
+			"custom tool name uses the reserved MCP tool namespace",
+		)
 	}
 	if _, ok := catalog.Lookup(name); ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name collides with a built-in tool")
@@ -501,7 +535,10 @@ func compileMachineSources(sources []AgentConfigMachineSource, opts CompileOptio
 		}
 		if machine.MachinePoolID != "" {
 			if seenSources[machine.MachinePoolID] {
-				return nil, issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "duplicates a machine pool id")
+				return nil, issuef(
+					jsonPointer("machine_sources", index, "machine_pool_name"),
+					"duplicates a machine pool id",
+				)
 			}
 			seenSources[machine.MachinePoolID] = true
 		}
@@ -599,7 +636,11 @@ func resolveMachineSourceMachineName(
 	}
 	resolved = strings.ToLower(strings.TrimSpace(resolved))
 	if _, err := publicid.Decode(publicid.KindMachine, resolved); err != nil {
-		return "", issuef(jsonPointer("machine_sources", index, "machine_name"), "resolved to invalid public id: %w", err)
+		return "", issuef(
+			jsonPointer("machine_sources", index, "machine_name"),
+			"resolved to invalid public id: %w",
+			err,
+		)
 	}
 	return resolved, nil
 }
@@ -618,7 +659,11 @@ func resolveMachineSourceMachinePoolName(
 	}
 	resolved = strings.ToLower(strings.TrimSpace(resolved))
 	if _, err := publicid.Decode(publicid.KindMachinePool, resolved); err != nil {
-		return "", issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolved to invalid public id: %w", err)
+		return "", issuef(
+			jsonPointer("machine_sources", index, "machine_pool_name"),
+			"resolved to invalid public id: %w",
+			err,
+		)
 	}
 	return resolved, nil
 }
@@ -663,7 +708,10 @@ func compilePoolMachineCounts(source AgentConfigMachineSource, index int) (int, 
 		return 0, 0, issuef(jsonPointer("machine_sources", index, "initial_num_machines"), "cannot be negative")
 	}
 	if maxMachines > math.MaxInt32 {
-		return 0, 0, issuef(jsonPointer("machine_sources", index, "max_machines"), "must fit the machine pool capacity range")
+		return 0, 0, issuef(
+			jsonPointer("machine_sources", index, "max_machines"),
+			"must fit the machine pool capacity range",
+		)
 	}
 	if initialNumMachines > math.MaxInt32 {
 		return 0, 0, issuef(

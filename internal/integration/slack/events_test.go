@@ -97,7 +97,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			wantMessage: "one more thing",
 			wantHidden: "This Slack thread may include multiple participants, and not every " +
 				"message is necessarily directed at you. Use your judgment to decide whether to call " +
-				"`send_integration_message` at all.\n\n" +
+				"`slack_post_message` at all.\n\n" +
 				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{

@@ -24,6 +24,11 @@ func (s *Store) CreateAgentContentInput(
 	if input.AgentID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("agent id is required")
 	}
+	if input.Origin != nil || input.IntegrationTargetID != uuid.Nil {
+		return AgentInputRecord{}, nil, false, storeerr.InvalidRequest(
+			errors.New("integration origin requires verified inbox admission"),
+		)
+	}
 	exists, err := s.q.AgentExistsInProject(
 		ctx,
 		dbsqlc.AgentExistsInProjectParams{
@@ -191,13 +196,27 @@ func createAgentContentInputTx(
 	if agent.State == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
+	// Origin belongs to the project/agent and an active connection independently
+	// of actor attribution. Hosted ingress validates its verified actor before
+	// reaching this shared input kernel.
+	if input.IntegrationTargetID != uuid.Nil {
+		target, err := qtx.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
+			ProjectID: input.ProjectID, AgentID: input.AgentID, TargetID: input.IntegrationTargetID,
+		})
+		if err != nil {
+			return createAgentContentInputTxResult{}, err
+		}
+		if target.ConnectionState != "active" {
+			return createAgentContentInputTxResult{}, storeerr.ErrUnauthorized
+		}
+	}
 	actorID, err := resolveActorTx(
 		ctx,
 		qtx,
 		input.ProjectID,
 		input.AgentID,
 		input.Actor,
-		input.IntegrationTargetID,
+		uuid.Nil,
 	)
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -323,14 +342,17 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
-	ProjectID              uuid.UUID
-	AgentID                uuid.UUID
-	Actor                  *ActorParams
-	IntegrationTargetID    uuid.UUID
-	ContentBlocks          json.RawMessage
-	Metadata               json.RawMessage
-	DeliveryMode           AgentInputDeliveryMode
-	IdempotencyScope       string
-	IdempotencyKey         string
-	CancelOpenInteractions bool
+	ProjectID           uuid.UUID    `json:"project_id,omitempty"`
+	AgentID             uuid.UUID    `json:"agent_id,omitempty"`
+	Actor               *ActorParams `json:"actor,omitempty"`
+	IntegrationTargetID uuid.UUID    `json:"integration_target_id,omitempty"`
+	// Origin belongs to verified inbox admission. Ordinary content input rejects
+	// origin and target fields; its actors and idempotency remain independent.
+	Origin                 *AgentInputOrigin      `json:"origin,omitempty"`
+	ContentBlocks          json.RawMessage        `json:"content_blocks"`
+	Metadata               json.RawMessage        `json:"metadata,omitempty"`
+	DeliveryMode           AgentInputDeliveryMode `json:"delivery_mode,omitempty"`
+	IdempotencyScope       string                 `json:"idempotency_scope,omitempty"`
+	IdempotencyKey         string                 `json:"idempotency_key,omitempty"`
+	CancelOpenInteractions bool                   `json:"cancel_open_interactions,omitempty"`
 }

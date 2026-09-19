@@ -413,14 +413,6 @@ func IntegrationReapExpiredAgentRuntimeLockTx(
 	)
 }
 
-func IntegrationSetAgentIntegrationTarget(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, integrationTargetID uuid.UUID,
-) (AgentRecord, error) {
-	return setAgentIntegrationTarget(ctx, qtx, projectID, agentID, integrationTargetID)
-}
-
 func IntegrationUpsertActorIdentityTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

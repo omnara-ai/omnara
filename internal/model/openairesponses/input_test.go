@@ -27,7 +27,11 @@ func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{Messages: []modelcontext.Message{
 			{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-			{Sequence: 2, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
+			{
+				Sequence: 2,
+				Role:     modelprotocol.RoleAssistant,
+				Content:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
 		}},
 	})
 	if err != nil {
@@ -65,7 +69,13 @@ func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	}
 	for i, want := range wantContentTypes {
 		if len(payload.Input[i].Content) != 1 || payload.Input[i].Content[0].Type != want {
-			t.Fatalf("input %d content = %+v, want one %q part; payload=%s", i, payload.Input[i].Content, want, prepared.Body)
+			t.Fatalf(
+				"input %d content = %+v, want one %q part; payload=%s",
+				i,
+				payload.Input[i].Content,
+				want,
+				prepared.Body,
+			)
 		}
 	}
 	if strings.Contains(string(prepared.Body), "Message from omnara_user") {
@@ -93,7 +103,9 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
 					ContentParts: json.RawMessage(
 						`[{"type":"structured_data","value":{"outcome":"succeeded"}},{"type":"structured_data","value":` +
-							string(canonicalValue) + `}]`,
+							string(
+								canonicalValue,
+							) + `}]`,
 					),
 				},
 			},
@@ -133,9 +145,11 @@ func TestPrepareIncludesAvailableMachinePoolsInProviderInput(t *testing.T) {
 		context.Background(),
 		model.PrepareInput{
 			Context: modelcontext.Bundle{
-				SystemPrompt:          "sys",
-				ToolSpecs:             []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-				AvailableMachinePools: []modelcontext.MachinePoolRef{{MachinePoolName: "Build Pool", Description: "Build workers"}},
+				SystemPrompt: "sys",
+				ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
+				AvailableMachinePools: []modelcontext.MachinePoolRef{
+					{MachinePoolName: "Build Pool", Description: "Build workers"},
+				},
 			},
 		},
 	)
@@ -175,20 +189,15 @@ func TestPrepareExplainsWhenCreateMachineHasNoAvailablePools(t *testing.T) {
 	}
 }
 
-func TestPrepareIncludesIntegrationTargetsAtEndOfProviderInput(t *testing.T) {
+func TestPrepareIncludesInteractionRoutingAtEndOfProviderInput(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
 		SystemPrompt: "sys",
 		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
-		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameSendIntegrationMessage}},
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef:       "slack-abcd",
-			DurableID:       "internal-target-id",
-			Provider:        "slack",
-			ProviderRefKind: "thread",
-			Label:           "slack thread C123:1712345678.000100",
-			IsCurrent:       true,
-		}},
+		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameAskQuestion}},
+		InteractionRouting: &modelcontext.InteractionRoutingContext{
+			Destination: &modelcontext.InteractionDestinationRef{Resource: "slack", TargetID: "slack-abcd"},
+		},
 	}})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -210,9 +219,10 @@ func TestPrepareIncludesIntegrationTargetsAtEndOfProviderInput(t *testing.T) {
 	if err := json.Unmarshal(last.Content, &lastContent); err != nil {
 		t.Fatalf("system content not a string: %s", last.Content)
 	}
-	if last.Role != string(responsesRoleSystem) || !strings.Contains(lastContent, "External integration targets") ||
+	if last.Role != string(responsesRoleSystem) ||
+		!strings.Contains(lastContent, "Default destination for new questions and permission prompts") ||
 		!strings.Contains(lastContent, "slack-abcd") ||
-		!strings.Contains(lastContent, `"is_current":true`) {
+		!strings.Contains(lastContent, `"resource":"slack"`) {
 		t.Fatalf("expected integration targets as final provider input item, got %+v in %s", last, prepared.Body)
 	}
 	if strings.Contains(lastContent, "internal-target-id") {
@@ -220,21 +230,17 @@ func TestPrepareIncludesIntegrationTargetsAtEndOfProviderInput(t *testing.T) {
 	}
 }
 
-func TestPrepareOmitsIntegrationTargetsForAskQuestion(t *testing.T) {
+func TestPrepareOmitsInteractionRoutingForAskQuestion(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
 		SystemPrompt: "sys",
 		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
 		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameAskQuestion}},
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef: "slack-abcd",
-			Provider:  "slack",
-		}},
 	}})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if strings.Contains(string(prepared.Body), "External integration targets") ||
+	if strings.Contains(string(prepared.Body), "Default destination for new questions and permission prompts") ||
 		strings.Contains(string(prepared.Body), "slack-abcd") {
 		t.Fatalf("integration target context leaked into ask_question request: %s", prepared.Body)
 	}
@@ -264,7 +270,11 @@ func TestPreparePassesThroughAssistantMessageRole(t *testing.T) {
 	prepared, err := client.Prepare(
 		context.Background(),
 		model.PrepareInput{Context: modelcontext.Bundle{SystemPrompt: "sys", Messages: []modelcontext.Message{
-			{Sequence: 1, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"agent says hi"}]`)},
+			{
+				Sequence: 1,
+				Role:     modelprotocol.RoleAssistant,
+				Content:  json.RawMessage(`[{"type":"text","text":"agent says hi"}]`),
+			},
 		}}},
 	)
 	if err != nil {

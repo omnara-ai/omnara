@@ -1,0 +1,108 @@
+---
+title: Custom integrations
+description: Connect your own service using agent inputs, custom tools and interactions
+---
+
+Your service can connect any system to Omnara through the public API. It receives
+provider events, chooses which agent should receive them, executes custom tools,
+and displays questions or approvals wherever you choose. No Omnara app or
+integration connection needs to be registered.
+
+Use a project-authorized API key with the operator role for runtime requests.
+Creating configs requires project management permission. The
+[authentication guide](/api/authentication) explains credentials and API paths.
+The examples below use paths relative to `/orgs/{orgID}/projects/{projectID}`.
+
+## Receive events and launch agents
+
+Keep a mapping from your conversation ID to an Omnara agent ID. On the first
+event, [launch an agent](/agents/overview#launch-an-agent) with your config and an
+initial message. To attribute that first message to a customer, use
+[`initial_input` with an `actor`](/agents/overview#attach-apps-and-an-initial-input-atomically).
+Supply an `Idempotency-Key` so a retried launch returns the same agent. Retry the
+first event by retrying the launch; its key does not deduplicate a later input.
+For later events, send `POST /agents/{agentID}/inputs`:
+
+```json
+{
+  "content_blocks": [{"type": "text", "text": "The customer replied on ticket 42: please check again."}],
+  "actor": {"provider_tenant_id": "helpdesk", "provider_user_id": "customer-7"}
+}
+```
+
+`actor` identifies who spoke. API keys may supply it; user-authenticated requests
+use the signed-in user. Conversation IDs and any parent/child relationships belong
+to your application. Include relevant context in the input for the model and
+keep the authoritative routing map in your service.
+
+Use a stable input idempotency key that includes the provider and event identity.
+Input deduplication is scoped to the receiving agent, so events from different
+systems must not share a key accidentally. Keep the request unchanged on retry.
+Choose [queued or steering delivery](/events/sending-input#queued-vs-steering)
+explicitly. Steering can also cancel open interactions with
+`cancel_open_interactions: true`.
+
+Your service owns webhook verification, event persistence and retry policy.
+Sending an input does not grant tools, register a listener or change a built-in
+app's interaction destination.
+
+## Let the model act in your system
+
+Declare ordinary [custom tools](/tools/custom) in the config. For example:
+
+```yaml
+tools:
+  post_ticket_update:
+    type: custom
+    description: Post an update to the support ticket associated with this agent.
+    input_schema:
+      type: object
+      properties:
+        text: {type: string}
+      required: [text]
+      additionalProperties: false
+```
+
+Poll `GET /agents/{agentID}/tool-calls?type=custom&state=ready`, execute the call
+in your service, then submit its result to
+`POST /agents/{agentID}/tool-calls/{toolCallID}/result`. Resolve the ticket from
+your agent mapping and enforce authorization in your service. A model-supplied
+identifier is not authorization.
+
+The result can contain your message IDs, thread IDs or other structured data.
+If posting creates a conversation, save its mapping to the agent before accepting
+replies. Those replies use the same input API; Omnara needs no separate follow
+registration. MCP tools are another option when your service exposes an MCP server.
+
+Use tool-call IDs to reconcile remote side effects. After an uncertain completion
+response, read back the call and recorded result. Repeated completion returns
+`409`; do not repeat a remote post just because its result response was lost.
+
+## Present and resolve interactions
+
+List `GET /agents/{agentID}/interactions`, render each open interaction's `request`
+form wherever your application chooses, and submit answers through
+`POST /agents/{agentID}/interactions/{interactionID}/resolve`.
+[Questions and approvals](/events/interactions) remain available in the dashboard.
+The first accepted answer wins; later conflicting answers are rejected.
+
+Your application decides where to present an interaction and retains its remote
+message IDs. If it handles all presentation, leave built-in app interaction
+handlers unconfigured. When configured, those handlers still deliver to the
+captured Slack or Discord destination; ordinary API input does not override that
+selection. An optional `destination` or `presentation_receipt` describes Omnara's
+built-in presentation, not a delivery request to your service.
+
+Use [event stream](/events/streaming) updates as hints, then refresh the durable
+lists. Reconcile on startup, reconnect and periodically: notifications can be
+missed. Deduplicate presentations by interaction ID and close your copies when
+interactions resolve or cancel. A failed external delivery must not prevent
+someone from answering through the dashboard or API.
+
+## Contribute a built-in app
+
+If you want Omnara itself to host the provider connection and behavior, contribute
+an implementation through a pull request. Slack, Discord and GitHub use the same
+shared app infrastructure. The repository's
+[contribution guide](https://github.com/omnara-ai/omnara/blob/main/CONTRIBUTING.md)
+links the implementation guide and examples.

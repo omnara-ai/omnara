@@ -87,16 +87,7 @@ func (e AgentExecutor) modelContextToolRuntime(
 	contextStore := modelcontext.NewStore(
 		e.Store.Execution(),
 		e.Store.Artifacts(),
-		e.Store.Integrations(),
 	)
-	integrationTargets, err := contextStore.ListIntegrationTargets(ctx, projectID, agentID)
-	if err != nil {
-		return nil, err
-	}
-	contract, err = modelcontext.WithImplicitIntegrationMessageTool(contract, integrationTargets)
-	if err != nil {
-		return nil, err
-	}
 	specs, err := modelcontext.RuntimeContractToolSpecs(
 		ctx,
 		contextStore,

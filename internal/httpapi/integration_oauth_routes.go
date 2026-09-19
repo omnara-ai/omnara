@@ -13,11 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -158,17 +158,14 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		)
 		return
 	}
-	install, err := s.store.Integrations().UpsertIntegrationInstall(
+	install, _, err := s.store.Integrations().CompleteSlackAppSetup(
 		r.Context(),
-		integrationstore.UpsertIntegrationInstallInput{
+		integrationstore.SaveIntegrationConnectionInput{
 			OrgID:                    state.OrgID,
 			ProjectID:                state.ProjectID,
-			AgentProfileID:           state.AgentProfileID,
 			InstalledByUserID:        state.InstalledByUserID,
 			Provider:                 state.Provider,
-			IntegrationKind:          slack.IntegrationKindAgentProfile,
-			ConnectionMode:           slack.ConnectionModeWebhook,
-			State:                    integrationstore.IntegrationInstallStateActive,
+			State:                    integrationstore.IntegrationConnectionStateActive,
 			ProviderTenantID:         providerInstall.ProviderTenantID,
 			ProviderAccountRef:       providerInstall.ProviderAccountRef,
 			ProviderAgentDisplayName: providerInstall.ProviderAgentDisplayName,
@@ -176,6 +173,24 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			ProviderIdentity:         providerInstall.ProviderIdentity,
 			ProviderMetadata:         providerInstall.ProviderMetadata,
 			OAuthFlowID:              state.FlowID,
+		},
+		integrationstore.SaveProjectAppInput{
+			OrgID: state.OrgID, ProjectID: state.ProjectID, DefinitionID: appdefinition.Slack, Enabled: true,
+			Settings: integrationstore.ProjectAppSettings{
+				Resource: agentconfig.AgentConfigAppResourceSource{
+					Definition: appdefinition.Slack,
+					Tools: map[string]agentconfig.AgentConfigToolSource{
+						toolcatalog.ToolNameSlackRead:        {},
+						toolcatalog.ToolNameSlackPostMessage: {},
+					},
+					Listener:           &appdefinition.Listener{Events: []string{"message"}},
+					InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
+				},
+				Launcher: &integrationstore.AppLauncher{
+					Trigger: "mention", ScopeKind: "workspace", ScopeRef: providerInstall.ProviderTenantID,
+					Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &state.AgentProfileID}},
+				},
+			},
 		},
 	)
 	if err != nil {
@@ -189,25 +204,18 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			apierror.Write(w, openapi.ErrorCodeUnauthorized, "integration oauth state already redeemed")
 			return
 		}
-		if errors.Is(err, storeerr.ErrConflict) {
-			s.redirectOAuthOutcome(
-				w,
-				r,
-				state.ReturnTo,
-				url.Values{"integration_oauth_error": []string{"already_connected"}},
-			)
-			return
-		}
-		logpkg.Error(r.Context(), fmt.Errorf("integration oauth install save failed: %w", err))
+		// A conflict can mean app quota, a concurrent setup edit, or connection
+		// ownership. It does not establish that this Slack app is already connected.
+		logpkg.Error(r.Context(), fmt.Errorf("integration oauth setup save failed: %w", err))
 		s.redirectOAuthOutcome(
 			w,
 			r,
 			state.ReturnTo,
-			url.Values{"integration_oauth_error": []string{"install_save_failed"}},
+			url.Values{"integration_oauth_error": []string{"setup_save_failed"}},
 		)
 		return
 	}
-	logent.IntegrationInstall(r.Context(), install)
+	logent.IntegrationConnection(r.Context(), install)
 	s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{
 		"integration_oauth": []string{"success"},
 	})
@@ -252,36 +260,23 @@ func (s *Server) cleanupIntegrationOAuthSecret(
 	}
 }
 
-func agentConfigCanUseIntegrationSendTool(config executionstore.AgentConfigRecord) bool {
-	contract, err := agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition,
-		config.CompilerVersion,
-		config.EffectiveDefinitionHash,
-	)
-	if err != nil {
-		return false
-	}
-	contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
-	if err != nil {
-		return false
-	}
-	for _, tool := range contract.Tools {
-		if tool.Name == toolcatalog.ToolNameSendIntegrationMessage {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) validateIntegrationSendSetupConfig(
+func (s *Server) validateSlackAppSetupConfig(
 	ctx context.Context,
 	config executionstore.AgentConfigRecord,
 ) error {
-	if !agentConfigCanUseIntegrationSendTool(config) {
-		return apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile config does not allow send_integration_message",
-		)
+	if _, err := agentconfig.RuntimeContractFromCompiled(
+		config.CompiledDefinition,
+		config.CompilerVersion,
+		config.EffectiveDefinitionHash,
+	); err != nil {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config is invalid")
+	}
+	var compiled agentconfig.Compiled
+	if err := json.Unmarshal(config.CompiledDefinition, &compiled); err != nil {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config is invalid")
+	}
+	if policy, exists := compiled.Tools[toolcatalog.ToolNameSlackPostMessage]; exists && !policy.Enabled {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config disables slack_post_message")
 	}
 	configuredModel, err := s.store.Models().GetConfiguredModel(ctx, config.OrgID, config.ConfiguredModelID)
 	if err != nil {

@@ -97,7 +97,7 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM integration_installs install
+    SELECT 1 FROM integration_connections install
     WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id
   );
 
@@ -202,9 +202,9 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
--- name: DeleteProjectIntegrationInstalls :exec
+-- name: DeleteProjectIntegrationConnections :exec
 -- Clearing the credential releases the secret for the deletion below.
-UPDATE integration_installs
+UPDATE integration_connections
 SET credential_secret_id = NULL, deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
@@ -274,7 +274,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integration_connections install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -385,7 +385,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integration_connections install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -854,7 +854,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integration_connections install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 

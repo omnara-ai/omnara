@@ -49,6 +49,12 @@ const alwaysAllowProfile: ToolPermissionProfile = {
       description: 'Always ask.',
       parameters_schema: {},
     },
+    {
+      name: 'always_deny',
+      label: 'Always deny',
+      description: 'Always deny.',
+      parameters_schema: {},
+    },
   ],
 }
 
@@ -72,15 +78,12 @@ const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
 
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'send_integration_message'].map((name) => ({
+  built_in_tools: ['run_command', 'skill', 'slack_post_message'].map((name) => ({
     name,
     description: name,
     implicit: true,
     default_permission: alwaysAllowProfile.default_permission,
-    permission_modes:
-      name === 'send_integration_message'
-        ? alwaysAllowProfile.permission_modes.slice(0, 1)
-        : alwaysAllowProfile.permission_modes,
+    permission_modes: alwaysAllowProfile.permission_modes,
   })),
 }
 
@@ -337,7 +340,7 @@ function click(selector: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'send_integration_message'])(
+it.each(['run_command', 'skill', 'slack_post_message'])(
   'displays the catalog default for configured %s without changing its source',
   async (name) => {
     const onToolsChange = vi.fn()
@@ -375,6 +378,26 @@ tools:
 
 const defaultIncludedSource = `${includedSource}  run_command: {}\n`
 
+it.each([
+  ['Always ask', 'always_ask'],
+  ['Always deny', 'always_deny'],
+])('keeps scoped Slack %s permission when disabled', async (label, mode) => {
+  await renderAndFlush(
+    <IncludedToolsHarness source={`${includedSource}  slack_post_message: {}\n`} />,
+  )
+  click('[data-slot="collapsible-trigger"]')
+  await selectIncludedPermission('slack_post_message', label)
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.slack_post_message.permission.mode',
+    mode,
+  )
+  await selectIncludedPermission('slack_post_message', 'Disabled')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'tools.slack_post_message',
+    { type: 'built_in', enabled: false, permission: { mode } },
+  )
+})
+
 function IncludedToolsHarness({ source = defaultIncludedSource }: { source?: string }) {
   const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
     orgId: 'org-test',
@@ -408,7 +431,7 @@ async function selectIncludedPermission(name: string, label: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'send_integration_message'])(
+it.each(['run_command', 'skill', 'slack_post_message'])(
   'disables and re-enables %s without changing other tools',
   async (name) => {
     await renderAndFlush(<IncludedToolsHarness source={`${includedSource}  ${name}: {}\n`} />)
@@ -475,7 +498,7 @@ it('reopens disabled tools and preserves their permission until a new one is cho
 it.each([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['skill', 'skill'],
-  ['send_integration_message', 'send_integration_message'],
+  ['slack_post_message', 'slack_post_message'],
 ])(
   'shows the frontend description or catalog fallback for %s on hover and keyboard focus',
   async (name, description) => {
@@ -611,7 +634,7 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
       tools={[
         { name: 'run_command', permission: null },
         { name: 'skill', permission: null },
-        { name: 'send_integration_message', permission: null },
+        { name: 'slack_post_message', permission: null },
         { name: 'web_search', permission: null },
       ]}
       onToolsChange={onToolsChange}
@@ -622,12 +645,12 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
     'Other tools',
   )
   expect(container.textContent).toContain('web_search')
-  for (const name of ['run_command', 'skill', 'send_integration_message']) {
+  for (const name of ['run_command', 'skill', 'slack_post_message']) {
     expect(container.textContent).not.toContain(name)
     expect(container.querySelector(`[aria-label="Remove ${name}"]`)).toBeNull()
   }
   click('[data-slot="collapsible-trigger"]')
-  for (const name of ['run_command', 'skill', 'send_integration_message']) {
+  for (const name of ['run_command', 'skill', 'slack_post_message']) {
     const control = container.querySelector(`[aria-label="${name} permission"]`)
     expect(control).not.toBeNull()
     expect(control?.closest('[data-slot="collapsible-content"]')).not.toBeNull()

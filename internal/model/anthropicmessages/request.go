@@ -173,11 +173,11 @@ func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 			),
 		})
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
+	if bundle.InteractionRouting != nil {
 		blocks = append(blocks, textBlock{
 			Type: "text",
-			Text: modelcontext.IntegrationTargetsContent(
-				bundle.IntegrationTargets,
+			Text: modelcontext.InteractionRoutingContent(
+				bundle.InteractionRouting,
 			),
 		})
 	}

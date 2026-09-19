@@ -44,6 +44,7 @@ export {
   useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
+  useCreateIntegrationOAuthSetup,
   useCreateSlackSetup,
   useDeleteAgentProfile,
   useRenameAgentProfile,
@@ -71,12 +72,15 @@ export {
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
 export {
-  type IntegrationInstallListFilters,
-  type IntegrationInstallListOptions,
-  type IntegrationInstallListSort,
-  useDeleteIntegrationInstall,
-  useIntegrationInstalls,
-} from './domains/integration-installs'
+  type IntegrationConnectionListFilters,
+  type IntegrationConnectionListOptions,
+  type IntegrationConnectionListSort,
+  useCreateIntegrationConnection,
+  useDeleteIntegrationConnection,
+  useIntegrationConnection,
+  useIntegrationConnections,
+  useUpdateIntegrationConnection,
+} from './domains/integration-connections'
 export {
   useAcceptInvitation,
   useDeclineInvitation,
@@ -180,6 +184,12 @@ export {
   usePersonalAccessTokens,
   useRevokePersonalAccessToken,
 } from './domains/personal-access-tokens'
+export {
+  useCreateProjectApp,
+  useDeleteProjectApp,
+  useProjectApps,
+  useUpdateProjectApp,
+} from './domains/project-apps'
 export {
   type ProjectMachineGrantListFilters,
   type ProjectMachineGrantListOptions,

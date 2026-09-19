@@ -218,8 +218,7 @@ your time today") is a good outcome — never pad it. For each item:
 - link: the post's url field (the reddit.com thread)
 - suggested action: reply, track the author, or ignore
 
-Deliver. When this conversation is driven through an integration such as
-Slack, send the digest with send_integration_message — the external user
+Deliver. When slack_post_message is available through a Slack app resource, send the digest with slack_post_message — the external user
 only sees messages sent that way. Otherwise present the digest directly in
 the conversation. If someone replies asking for a draft, write the reply
 text for a human to post. Never post to Reddit yourself.
@@ -238,8 +237,8 @@ text for a human to post. Never post to Reddit yourself.
   tools: {
     web_search: {},
     web_fetch: {},
-    send_integration_message: { permission: { mode: 'always_allow' } },
-    set_integration_target: {},
+    // Policy only: Slack setup supplies the scoped tool when it launches an agent.
+    slack_post_message: { permission: { mode: 'always_allow' } },
   },
 }
 

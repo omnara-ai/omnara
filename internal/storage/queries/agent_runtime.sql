@@ -3,12 +3,12 @@
 -- Display-only model names must still resolve after the model or provider config is soft deleted.
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
-        sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
+        coalesce(sqlc.narg(id)::uuid, uuidv7()), sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
         sqlc.narg(parent_agent_id), sqlc.arg(subagent_key),
         sqlc.narg(archive_after_idle_minutes),
@@ -148,9 +148,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integration_connections install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_connection_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -222,9 +222,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integration_connections install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_connection_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -280,9 +280,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integration_connections install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_connection_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id

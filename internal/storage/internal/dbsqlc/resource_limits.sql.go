@@ -67,6 +67,24 @@ func (q *Queries) CountActiveConfiguredModelsForProvider(ctx context.Context, ar
 	return column_1, err
 }
 
+const countActiveIntegrationConnectionsForProject = `-- name: CountActiveIntegrationConnectionsForProject :one
+SELECT count(*)::bigint
+FROM integration_connections
+WHERE project_id = $1
+  AND deleted_at IS NULL
+`
+
+type CountActiveIntegrationConnectionsForProjectParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) CountActiveIntegrationConnectionsForProject(ctx context.Context, arg CountActiveIntegrationConnectionsForProjectParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveIntegrationConnectionsForProject, arg.ProjectID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countActiveMachineDaemonTokensForMachine = `-- name: CountActiveMachineDaemonTokensForMachine :one
 SELECT count(*)::bigint
 FROM machine_daemon_tokens
@@ -307,7 +325,10 @@ SELECT
     max_live_machines_per_org,
     max_active_byo_daemon_tokens_per_machine,
     max_non_terminal_processes_per_agent,
-    max_active_cron_triggers_per_project
+    max_active_cron_triggers_per_project,
+    max_active_integration_connections_per_project,
+    max_active_project_apps_per_project,
+    max_active_app_listeners_per_agent
 FROM effective_resource_limits
 WHERE org_id = $1
 `
@@ -336,6 +357,9 @@ func (q *Queries) GetEffectiveResourceLimits(ctx context.Context, arg GetEffecti
 		&i.MaxActiveByoDaemonTokensPerMachine,
 		&i.MaxNonTerminalProcessesPerAgent,
 		&i.MaxActiveCronTriggersPerProject,
+		&i.MaxActiveIntegrationConnectionsPerProject,
+		&i.MaxActiveProjectAppsPerProject,
+		&i.MaxActiveAppListenersPerAgent,
 	)
 	return i, err
 }

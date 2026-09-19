@@ -1,4 +1,5 @@
 import { useAgentConfigTools } from '@omnara/react'
+import { ApiError } from '@omnara/sdk'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
 import { mcpWire } from '@/components/agents/agentConfigMcp'
@@ -11,6 +12,7 @@ import {
 
 export function agentBuilderToolsSource(source: BasicConfig): string {
   return JSON.stringify({
+    app_resources: source.appResources,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
     mcp: Object.fromEntries(
       source.mcpServers
@@ -45,8 +47,14 @@ export function useAgentBuilderTools(
   source: BasicConfig,
   scope: { orgId: string; projectId: string },
 ) {
-  return useAgentConfigTools(scope.orgId, scope.projectId, {
+  const query = useAgentConfigTools(scope.orgId, scope.projectId, {
     source_format: 'json',
     source: agentBuilderToolsSource(source),
   })
+  const error = query.error
+  const detail =
+    error instanceof ApiError
+      ? error.issues.map((issue) => `${issue.path}: ${issue.message}`).join('; ') || error.message
+      : ''
+  return { ...query, errorMessage: `Couldn’t load other tools${detail ? ': ' + detail : '.'}` }
 }

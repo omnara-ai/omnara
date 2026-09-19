@@ -358,53 +358,6 @@ func revokedInstallToken(botUserID string, event Event) bool {
 	return false
 }
 
-func InboundRouting(botUserID string, event Event) (InboundRoute, bool) {
-	if event.Channel == "" || event.TS == "" {
-		return InboundRoute{}, false
-	}
-	switch event.Type {
-	case "app_mention":
-		threadTS := event.ThreadTS
-		if threadTS == "" {
-			threadTS = event.TS
-		}
-		return InboundRoute{ProviderRef: event.Channel + ":" + threadTS, ProviderRefKind: "thread"}, true
-	case "message":
-		if event.Subtype != "" && event.Subtype != "file_share" {
-			return InboundRoute{}, false
-		}
-		switch event.ChannelType {
-		case "im":
-			return InboundRoute{ProviderRef: event.Channel, ProviderRefKind: "dm"}, true
-		case "channel", "group", "mpim":
-			isExistingThreadReply := event.ThreadTS != "" && event.ThreadTS != event.TS
-			targetTS := event.TS
-			if isExistingThreadReply {
-				targetTS = event.ThreadTS
-			}
-			if event.Subtype == "file_share" && len(event.Files) > 0 {
-				return InboundRoute{
-					ProviderRef:     event.Channel + ":" + targetTS,
-					ProviderRefKind: "thread",
-					AppendOnly:      !textMentionsBot(event.Text, botUserID),
-				}, true
-			}
-			if !isExistingThreadReply || textMentionsBot(event.Text, botUserID) {
-				return InboundRoute{}, false
-			}
-			return InboundRoute{
-				ProviderRef:     event.Channel + ":" + targetTS,
-				ProviderRefKind: "thread",
-				AppendOnly:      true,
-			}, true
-		default:
-			return InboundRoute{}, false
-		}
-	default:
-		return InboundRoute{}, false
-	}
-}
-
 func InputIdempotencyKeyPair(envelope EventsEnvelope) (currentEventKey, siblingEventKey string) {
 	team := envelope.TeamID
 	if team == "" {
@@ -417,18 +370,6 @@ func InputIdempotencyKeyPair(envelope EventsEnvelope) (currentEventKey, siblingE
 		return fileMessageKey, plainMessageKey
 	}
 	return plainMessageKey, fileMessageKey
-}
-
-func textMentionsBot(text, botUserID string) bool {
-	if botUserID == "" {
-		return false
-	}
-	for _, userID := range userMentionIDs(text) {
-		if userID == botUserID {
-			return true
-		}
-	}
-	return false
 }
 
 func ModelInputTextParts(
@@ -468,7 +409,7 @@ func routeThreadTS(route InboundRoute) string {
 func modelVisibleContext(event Event, route InboundRoute, newlyMapped bool) string {
 	switch {
 	case route.AppendOnly:
-		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `send_integration_message` at all."
+		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `slack_post_message` at all."
 	case event.Type == "app_mention" && event.ThreadTS != "" && event.ThreadTS != event.TS:
 		if newlyMapped {
 			return "This message directly mentioned the agent inside an existing Slack thread."
