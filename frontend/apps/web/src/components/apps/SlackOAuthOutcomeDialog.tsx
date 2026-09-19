@@ -10,7 +10,7 @@ export function SlackOAuthOutcomeDialog() {
       successOutcome={() => ({
         title: 'Slack app connected',
         description:
-          'Slack authorization is saved. New setups launch this profile on a DM or mention. Reconnecting preserves existing app settings, including disabled launchers.',
+          'Your Slack connection is ready. Manage the apps that use it from Apps in this project. Reconnecting keeps existing apps and their settings.',
       })}
       errorOutcome={(code) => ({
         title: 'Slack app setup failed',

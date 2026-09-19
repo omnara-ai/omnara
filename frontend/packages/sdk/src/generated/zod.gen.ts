@@ -3904,6 +3904,30 @@ export const zUpdateAgentProfilePath = z.object({
  */
 export const zUpdateAgentProfileResponse = zAgentProfile;
 
+export const zCreateProjectIntegrationOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
+
+export const zCreateProjectIntegrationOAuthSetupPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+/**
+ * Integration OAuth setup created.
+ */
+export const zCreateProjectIntegrationOAuthSetupResponse = zIntegrationOAuthSetup;
+
+export const zCreateProjectSlackSetupBody = zCreateSlackSetupRequest;
+
+export const zCreateProjectSlackSetupPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+/**
+ * Slack app created and OAuth setup started.
+ */
+export const zCreateProjectSlackSetupResponse = zSlackSetup;
+
 export const zCreateIntegrationOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
 
 export const zCreateIntegrationOAuthSetupPath = z.object({

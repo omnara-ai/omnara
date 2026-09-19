@@ -5,11 +5,10 @@ import {
   useDeleteAgentProfile,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
-import { AgentProfileApps } from '@/components/agents/AgentProfileApps'
 import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfigEditor'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
@@ -17,8 +16,6 @@ import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { PillTabs } from '@/components/agents/PillTabs'
-import { ProjectAppSetupDialog } from '@/components/agents/ProjectAppSetupDialog'
-import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
 import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
@@ -32,7 +29,7 @@ import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { useWebConfig } from '@/lib/web-config'
 
-type ProfileTab = 'configuration' | 'apps' | 'schedules' | 'agents' | 'usage'
+type ProfileTab = 'configuration' | 'schedules' | 'agents' | 'usage'
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -51,7 +48,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
   const canManage = project?.access.can_manage ?? false
 
   const [tab, setTab] = useState<ProfileTab>('configuration')
-  const [deployOpen, setDeployOpen] = useState(false)
   const [addCronOpen, setAddCronOpen] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
 
@@ -89,6 +85,11 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             />
           </div>
           <div className="flex items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link to="/projects/$projectId/apps" params={{ projectId }}>
+                Project apps
+              </Link>
+            </Button>
             {canOperate && (
               <Button
                 size="sm"
@@ -106,7 +107,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onValueChange={setTab}
           tabs={[
             { value: 'configuration', label: 'Configuration' },
-            { value: 'apps', label: 'Apps' },
             { value: 'schedules', label: 'Schedules' },
             { value: 'agents', label: 'Agents' },
             { value: 'usage', label: 'Usage' },
@@ -124,17 +124,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onDelete={remove}
         />
       </div>
-      {tab === 'apps' && (
-        <AppsTab
-          orgId={activeOrg.id}
-          projectId={projectId}
-          profileId={profile.id}
-          canManage={canManage}
-          onAdd={() => {
-            setDeployOpen(true)
-          }}
-        />
-      )}
       {tab === 'schedules' && (
         <SchedulesTab
           orgId={activeOrg.id}
@@ -159,15 +148,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         <ProfileUsageTab orgId={activeOrg.id} projectId={projectId} profileId={profile.id} />
       )}
 
-      {canManage && deployOpen && (
-        <ProjectAppSetupDialog
-          open
-          onOpenChange={setDeployOpen}
-          orgId={activeOrg.id}
-          projectId={projectId}
-          profile={profile}
-        />
-      )}
       {canManage && addCronOpen && (
         <CreateCronTriggerDialog
           open
@@ -178,7 +158,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           targetLabel={profile.name}
         />
       )}
-      <SlackOAuthOutcomeDialog />
     </div>
   )
 }
@@ -274,26 +253,6 @@ interface ProfileTabProps {
   profileId: string
   canManage: boolean
   onAdd: () => void
-}
-
-function AppsTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
-  return (
-    <div className="flex flex-col gap-4">
-      {canManage && (
-        <div className="flex justify-end">
-          <Button size="sm" variant="outline" onClick={onAdd}>
-            Add app
-          </Button>
-        </div>
-      )}
-      <AgentProfileApps
-        orgId={orgId}
-        projectId={projectId}
-        profileId={profileId}
-        canManage={canManage}
-      />
-    </div>
-  )
 }
 
 function SchedulesTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {

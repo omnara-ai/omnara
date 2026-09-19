@@ -40,33 +40,26 @@ export function profileAppDiscordKeyStatus(input: {
 export function profileAppSetup(input: {
   provider: ProfileAppProvider
   name: string
-  connectionId: string
+  /** May be omitted while validating a new connection; set it before saving a launcher. */
+  connectionId?: string
   profileId?: string
   /** Full offered list for Slack/Discord; when supplied, replaces profileId. */
   profileIds?: readonly string[]
-  scopeRef: string
+  /** Defaults to true for the CLI's profile-first setup. */
+  launcher?: boolean
+  scopeRef?: string
+  scopeKind?: 'workspace' | 'channel' | 'repository'
+  trigger?: 'mention' | 'pull_request_opened'
   tools: readonly string[]
   listen: boolean
   interactions: boolean
 }): SaveProjectAppRequest {
   const { provider } = input
   const name = zResourceName.parse(input.name)
-  const connection = zIntegrationConnectionId.parse(input.connectionId)
-  const profileIds = parseProfileIds(input.profileIds ?? (input.profileId ? [input.profileId] : []))
-  if (profileIds.length === 0) throw new Error('Choose at least one profile.')
-  if (provider === 'github' && profileIds.length !== 1) {
-    throw new Error('The GitHub setup helper requires one profile.')
-  }
-  let scopeRef = input.scopeRef.trim()
-  if (provider === 'slack') {
-    if (!/^T[A-Z0-9]+$/.test(scopeRef)) throw new Error('Enter a Slack workspace ID, such as T123.')
-  } else {
-    if (!/^[1-9][0-9]*$/.test(scopeRef))
-      throw new Error('Enter a positive ID without leading zeros.')
-    const max = provider === 'github' ? 9223372036854775807n : 18446744073709551615n
-    if (BigInt(scopeRef) > max) throw new Error('The scope ID is too large.')
-    scopeRef = BigInt(scopeRef).toString()
-  }
+  const connection =
+    input.connectionId === undefined
+      ? undefined
+      : zIntegrationConnectionId.parse(input.connectionId)
   if (input.tools.some((tool) => !profileAppTools[provider].includes(tool))) {
     throw new Error('A selected tool does not belong to this provider.')
   }
@@ -79,20 +72,66 @@ export function profileAppSetup(input: {
     settings: {
       resource: {
         definition: `omnara.${provider}`,
-        connection,
         tools: Object.fromEntries(input.tools.map((tool) => [tool, {}])),
       },
-      launcher: {
-        trigger: provider === 'github' ? 'pull_request_opened' : 'mention',
-        scope_kind:
-          provider === 'slack' ? 'workspace' : provider === 'github' ? 'repository' : 'channel',
-        scope_ref: scopeRef,
-        slots: profileIds.map((id, index) => ({
-          key: index === 0 ? 'default' : `profile_${index + 1}`,
-          agent_profile_id: id,
-        })),
-      },
     },
+  }
+  if (connection !== undefined) setup.settings.resource.connection = connection
+  if (input.launcher !== false) {
+    const profileIds = parseProfileIds(
+      input.profileIds ?? (input.profileId ? [input.profileId] : []),
+    )
+    if (profileIds.length === 0) throw new Error('Choose at least one profile.')
+    if (provider === 'github' && profileIds.length !== 1) {
+      throw new Error('The GitHub setup helper requires one profile.')
+    }
+    const scopeKind =
+      input.scopeKind ??
+      (provider === 'slack' ? 'workspace' : provider === 'github' ? 'repository' : 'channel')
+    if (
+      !(
+        provider === 'slack'
+          ? ['workspace', 'channel']
+          : provider === 'github'
+            ? ['repository']
+            : ['channel']
+      ).includes(scopeKind)
+    ) {
+      throw new Error('The launcher scope does not belong to this provider.')
+    }
+    const trigger = input.trigger ?? (provider === 'github' ? 'pull_request_opened' : 'mention')
+    if (trigger === 'pull_request_opened' && provider !== 'github') {
+      throw new Error('The launch trigger does not belong to this provider.')
+    }
+    let scopeRef = input.scopeRef?.trim() ?? ''
+    if (provider === 'slack') {
+      if (
+        scopeKind === 'workspace'
+          ? !/^T[A-Z0-9]+$/.test(scopeRef)
+          : !/^[CG][A-Z0-9]+$/.test(scopeRef)
+      ) {
+        throw new Error(
+          scopeKind === 'workspace'
+            ? 'Enter a Slack workspace ID, such as T123.'
+            : 'Enter a Slack channel ID, such as C123.',
+        )
+      }
+    } else {
+      if (!/^[1-9][0-9]*$/.test(scopeRef))
+        throw new Error('Enter a positive ID without leading zeros.')
+      const max = provider === 'github' ? 9223372036854775807n : 18446744073709551615n
+      if (BigInt(scopeRef) > max) throw new Error('The scope ID is too large.')
+      scopeRef = BigInt(scopeRef).toString()
+    }
+    setup.settings.launcher = {
+      trigger,
+      scope_kind: scopeKind,
+      scope_ref: scopeRef,
+      slots: profileIds.map((id, index) => ({
+        key: index === 0 ? 'default' : `profile_${index + 1}`,
+        agent_profile_id: id,
+      })),
+    }
   }
   if (input.listen) {
     setup.settings.resource.listener = {

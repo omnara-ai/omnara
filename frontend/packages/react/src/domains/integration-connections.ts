@@ -22,6 +22,14 @@ import {
 import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
+export function useCreateProjectSlackSetup(orgID: string, projectID: string) {
+  return useScopedMutation(sdk.createProjectSlackSetup, { orgID, projectID })
+}
+
+export function useCreateProjectIntegrationOAuthSetup(orgID: string, projectID: string) {
+  return useScopedMutation(sdk.createProjectIntegrationOAuthSetup, { orgID, projectID })
+}
+
 export function useIntegrationConnection(
   orgID: string,
   projectID: string,

@@ -9,16 +9,10 @@ export type AppIcon =
 
 export const noAppIcon: AppIcon = { kind: 'none' }
 
-export interface DeployFormValues {
-  provider: string
+export interface SlackConnectionFormValues {
   appName: string
   appConfigurationToken: string
   appIcon: AppIcon
-}
-
-export function defaultAppName(profileName: string) {
-  const trimmed = profileName.trim() || 'Omnara Agent'
-  return Array.from(trimmed).slice(0, slackAppNameMaxLength).join('')
 }
 
 export function fileSizeLabel(bytes: number) {
@@ -69,9 +63,8 @@ export function readFileBase64(file: File): Promise<string> {
   })
 }
 
-export function deployFormValid(values: DeployFormValues) {
+export function slackConnectionFormValid(values: SlackConnectionFormValues) {
   return (
-    values.provider === 'slack' &&
     values.appName.trim() !== '' &&
     Array.from(values.appName.trim()).length <= slackAppNameMaxLength &&
     values.appConfigurationToken.trim() !== '' &&

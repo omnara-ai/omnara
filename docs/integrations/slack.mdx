@@ -12,8 +12,15 @@ replies or present approvals. These are separate [app capabilities](/integration
 
 ## Connect a workspace
 
-Start with an [agent profile](/agents/configuration#profiles) whose model supports
-tools. The profile must not explicitly disable `slack_post_message`.
+In the dashboard, open **Apps** under your project, choose **Add app**, then
+**Slack**. Connect an existing Slack app or let Omnara create one. OAuth saves a
+project connection and returns you to setup; it does not create a launcher yet.
+Choose your app name, offered profiles and capabilities, then save the app.
+You can also save capabilities without an automatic launcher or profile.
+
+For CLI setup, first create an [agent profile](/agents/configuration#profiles)
+whose model supports tools. The profile must not explicitly disable
+`slack_post_message`.
 
 To let Omnara create the Slack app, obtain an app configuration token from
 [Slack's app settings](https://api.slack.com/apps), then run:
@@ -24,9 +31,6 @@ Open `oauth_url` before `expires_at`, signed in to Omnara as the user who starte
 setup, and approve the workspace installation. The CLI opens the link unless
 you pass `--no-browser`. Each setup creates a new Slack app; run it once per bot.
 
-In the dashboard, open the profile's **Deploy to app** action, choose **Slack**,
-and provide the app name and configuration token.
-
 For an existing Slack app, supply its credentials instead:
 
 <SlackExistingApp />
@@ -36,7 +40,7 @@ Configure that app with the returned `events_url`, `actions_url` and
 must be a public HTTPS origin. Slack's [Events API setup](https://docs.slack.dev/apis/events-api/)
 explains event subscriptions and bot access to conversations.
 
-Successful setup creates a project connection and a project app. The app has a
+The profile-based CLI setup creates a project connection and a project app. The app has a
 workspace mention launcher for the selected profile, with `slack_read`,
 `slack_post_message`, a `message` listener and the Slack interaction handler.
 The base profile config is unchanged.
@@ -115,9 +119,9 @@ Menus expire after one hour. Mention again if the menu expires or its offered
 profile has been removed. Attachments are checked against their original content;
 if Slack can no longer supply that content, the request fails visibly in event recovery.
 
-Open **Edit profiles** on the saved app to add or remove offered profiles without
+Open **Edit settings** on the saved app to add or remove offered profiles without
 creating another Slack app. API clients can update the launcher's `slots` while
-preserving stable keys. The OAuth flow initially offers the selected profile;
+preserving stable keys. The profile-based CLI flow initially offers the selected profile;
 edit the saved app afterward to offer more. Editing the list leaves existing
 conversations with their original agents.
 

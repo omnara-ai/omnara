@@ -3060,6 +3060,123 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-oauth/setup:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    post:
+      operationId: createProjectIntegrationOAuthSetup
+      tags: [Integrations]
+      summary: Connect a project integration through OAuth
+      description: >-
+        Starts connection-only OAuth setup (currently Slack). No agent profile is required.
+        The callback creates or reauthorizes only the project-owned provider connection; it
+        never creates or changes a project app. On success, the supplied local return_to route
+        receives integration_oauth=success and integration_connection containing the public
+        connection ID. The callback requires a browser session for the initiating user, who
+        must still have project manage access. Replayed or superseded flows are rejected.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationOAuthSetupRequest'
+      responses:
+        '201':
+          description: Integration OAuth setup created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationOAuthSetup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/slack-setup:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    post:
+      operationId: createProjectSlackSetup
+      tags: [Integrations]
+      summary: Create a Slack provider app and connect it to a project
+      description: >-
+        Creates a provider-side Slack app using the supplied name, configuration token and optional
+        icon, then starts connection-only OAuth. No agent profile is required. The callback
+        creates or reauthorizes only the project-owned provider connection; it never creates or
+        changes an Omnara project app. On success, the supplied local return_to route receives
+        integration_oauth=success and integration_connection containing the public connection ID.
+        The callback requires a browser session for the initiating user, who must still have
+        project manage access. Replayed or superseded flows are rejected.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSlackSetupRequest'
+      responses:
+        '201':
+          description: Slack app created and OAuth setup started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlackSetup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
     parameters:
       - name: orgID

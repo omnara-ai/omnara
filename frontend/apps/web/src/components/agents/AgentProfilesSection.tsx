@@ -4,7 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
-import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
+import { SlackOAuthOutcomeDialog } from '@/components/apps/SlackOAuthOutcomeDialog'
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert } from '@/components/icons'

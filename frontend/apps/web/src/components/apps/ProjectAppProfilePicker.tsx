@@ -5,6 +5,7 @@ import { useQueries } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
@@ -18,6 +19,13 @@ const ProfilesCombobox = createResourceMultiCombobox<ProfileOption>({
   emptyMessage: 'No agent profiles found.',
 })
 
+const ProfileCombobox = createResourceCombobox<ProfileOption>({
+  itemKey: (profile) => profile.id,
+  itemLabel: (profile) => profile.name,
+  placeholder: 'Choose an agent profile…',
+  emptyMessage: 'No agent profiles found.',
+})
+
 export function ProjectAppProfilePicker({
   orgId,
   projectId,
@@ -25,6 +33,7 @@ export function ProjectAppProfilePicker({
   onChange,
   slotCount,
   disabled,
+  single = false,
 }: {
   orgId: string
   projectId: string
@@ -32,6 +41,7 @@ export function ProjectAppProfilePicker({
   onChange: (profiles: ProfileOption[]) => void
   slotCount?: number | null
   disabled?: boolean
+  single?: boolean
 }) {
   const displayedSlotCount = slotCount === undefined ? value.length : slotCount
   const search = useTypeaheadSearch()
@@ -65,20 +75,40 @@ export function ProjectAppProfilePicker({
   return (
     <Field>
       <FieldLabel htmlFor="app-profiles">Offered profiles</FieldLabel>
-      <ProfilesCombobox
-        id="app-profiles"
-        items={items}
-        value={selected}
-        onValueChange={onChange}
-        search={search}
-        query={query}
-        disabled={disabled}
-      />
+      {single ? (
+        <ProfileCombobox
+          id="app-profiles"
+          items={items}
+          value={selected[0] ?? null}
+          onValueChange={(profile) => {
+            onChange(profile ? [profile] : [])
+          }}
+          search={search}
+          query={query}
+          disabled={disabled}
+        />
+      ) : (
+        <ProfilesCombobox
+          id="app-profiles"
+          items={items}
+          value={selected}
+          onValueChange={onChange}
+          search={search}
+          query={query}
+          disabled={disabled}
+        />
+      )}
       <FieldDescription>
-        With one eligible profile, a mention launches it immediately. With multiple eligible
-        profiles, a native menu asks the person to choose just one. Later messages stay with that
-        agent. Up to 16 slots per setup
-        {displayedSlotCount === null ? '.' : ` (${displayedSlotCount}/16 selected).`}
+        {single ? (
+          'Choose one profile to launch for matching GitHub events.'
+        ) : (
+          <>
+            With one eligible profile, a mention launches it immediately. With multiple eligible
+            profiles, a native menu asks the person to choose just one. Later messages stay with
+            that agent. Up to 16 slots per setup
+            {displayedSlotCount === null ? '.' : ` (${displayedSlotCount}/16 selected).`}
+          </>
+        )}
       </FieldDescription>
       {loadingNames && (
         <p role="status" className="text-muted-foreground text-sm">

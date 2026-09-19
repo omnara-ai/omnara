@@ -14,6 +14,18 @@ A **connection** holds provider account access. A **project app** saves reusable
 settings and can launch agents from provider events. An agent's `app_resources`
 selects the capabilities and destinations available to that agent.
 
+## Set up an app in the dashboard
+
+Open **Apps** under your project, then choose **Add app**. Select Slack, Discord
+or GitHub, connect your provider account, and configure the app. Profiles are
+launcher settings: choose them when the app should start agents. A reusable app
+without a launcher does not need a profile.
+
+The app's detail page shows its connection, launch behavior and capabilities.
+Use **Edit settings** to change its name, offered profiles, trigger or selected
+capabilities. Enable, disable or remove the app there. Project connections are
+managed on the Apps page and can be reused across app setups.
+
 ## Choose what an agent can do
 
 - **Tools** let the model read or act in a selected scope. Sending a message does
@@ -101,7 +113,7 @@ they post a menu and launch only the selected profile with the original request.
 GitHub launches each configured slot. This policy belongs to the app; another
 contributed app can choose to launch several agents.
 
-Edit a chat app's offered profiles from its **Edit profiles** action or update
+Edit a chat app's offered profiles from its **Edit settings** action or update
 its launcher slots through the API. Changes apply to new requests, leaving
 existing agents and listeners unchanged. Overlapping setups for the same bot and
 conversation are misconfiguration; launch and delivery outcomes are unspecified,

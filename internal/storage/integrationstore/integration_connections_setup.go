@@ -17,6 +17,23 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+// CompleteSlackConnectionSetup atomically redeems OAuth to create or reauthorize
+// a project connection without reading or writing apps or profile destinations.
+// It uses the same account/lifecycle locks, installer and credential checks,
+// resource limits, and monotonic OAuth flow fence as CompleteSlackAppSetup.
+func (s *Store) CompleteSlackConnectionSetup(
+	ctx context.Context,
+	connection SaveIntegrationConnectionInput,
+) (IntegrationConnectionRecord, error) {
+	if connection.Provider != IntegrationProviderSlack || connection.State != IntegrationConnectionStateActive ||
+		connection.OAuthFlowID == uuid.Nil {
+		return IntegrationConnectionRecord{}, storeerr.InvalidRequest(
+			errors.New("slack connection setup requires an active Slack connection and OAuth flow"),
+		)
+	}
+	return s.saveIntegrationConnection(ctx, uuid.Nil, connection, false)
+}
+
 // CompleteSlackAppSetup atomically consumes OAuth and persists usable app setup.
 // The caller supplies provider behavior. Storage binds its connection and supplies
 // a stable default name when empty. Reconnect validates and preserves existing

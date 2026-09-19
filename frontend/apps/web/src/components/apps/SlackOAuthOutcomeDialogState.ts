@@ -9,7 +9,7 @@ export function slackOAuthErrorDescription(code: string) {
     case 'secret_save_failed':
       return 'Omnara could not save the Slack credentials. Check secret permissions and project limits, then try again.'
     case 'setup_save_failed':
-      return 'Omnara could not save the Slack connection and app setup. Check project app limits, profile availability, and connection ownership, then try again.'
+      return 'Omnara could not finish saving Slack setup. Check project limits and connection ownership, then try again.'
     default:
       return 'Slack app setup failed. Please try again.'
   }

@@ -54,6 +54,11 @@ export function ProjectsNav() {
                   label: 'Agents',
                 },
                 {
+                  to: '/projects/$projectId/apps' as const,
+                  paths: [`${projectRoot}/apps`],
+                  label: 'Apps',
+                },
+                {
                   to: '/projects/$projectId/grants' as const,
                   path: `${projectRoot}/grants`,
                   label: 'Grants',

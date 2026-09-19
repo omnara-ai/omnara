@@ -3,10 +3,13 @@ import {
   useIntegrationConnections,
   useOmnaraClient,
 } from '@omnara/react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { errorMessage } from '@/lib/submit-status'
+
+import { ConnectSlackDialog } from './ConnectSlackDialog'
 
 export function ProjectAppConnections({
   orgId,
@@ -20,11 +23,25 @@ export function ProjectAppConnections({
   const query = useIntegrationConnections(orgId, projectId)
   const connections = useInfiniteQueryItems(query)
   const disconnect = useDeleteIntegrationConnection(orgId, projectId)
+  const [slackSetup, setSlackSetup] = useState<'connect' | 'reconnect'>()
   const client = useOmnaraClient()
   const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
   return (
     <section className="flex flex-col gap-2" aria-label="Project connections">
-      <h3 className="font-medium">Project connections</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-medium">Project connections</h2>
+        {canManage && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setSlackSetup('connect')
+            }}
+          >
+            Connect Slack
+          </Button>
+        )}
+      </div>
       <p className="text-muted-foreground text-sm">
         Provider access shared by all apps and agents in this project.
       </p>
@@ -74,6 +91,18 @@ export function ProjectAppConnections({
               {connection.provider} · {connection.provider_tenant_id} /{' '}
               {connection.provider_account_ref} · {connection.id}
             </p>
+            {canManage && connection.provider === 'slack' && (
+              <Button
+                className="self-start"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSlackSetup('reconnect')
+                }}
+              >
+                Reauthorize Slack
+              </Button>
+            )}
             {connection.provider === 'github' && (
               <p className="break-all">
                 GitHub App webhook URL:{' '}
@@ -107,6 +136,17 @@ export function ProjectAppConnections({
         >
           More connections
         </Button>
+      )}
+      {slackSetup && (
+        <ConnectSlackDialog
+          open
+          orgId={orgId}
+          projectId={projectId}
+          reconnect={slackSetup === 'reconnect'}
+          onOpenChange={(open) => {
+            if (!open) setSlackSetup(undefined)
+          }}
+        />
       )}
     </section>
   )

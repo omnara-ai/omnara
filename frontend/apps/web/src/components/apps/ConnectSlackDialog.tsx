@@ -1,5 +1,8 @@
-import { useCreateIntegrationOAuthSetup, useCreateSlackSetup } from '@omnara/react'
-import { type AgentProfile } from '@omnara/sdk'
+import {
+  useCreateProjectIntegrationOAuthSetup,
+  useCreateProjectSlackSetup,
+  useOmnaraClient,
+} from '@omnara/react'
 import { useForm } from '@tanstack/react-form'
 import { useRef, useState } from 'react'
 
@@ -18,45 +21,45 @@ import { Input } from '@/components/ui/input'
 import { errorMessage } from '@/lib/submit-status'
 
 import {
-  defaultAppName,
-  deployFormValid,
   fileSizeLabel,
   noAppIcon,
   readFileBase64,
   slackAppNameMaxLength,
+  slackConnectionFormValid,
   validateAppIcon,
-} from './DeployAgentProfileDialogState'
+} from './ConnectSlackDialogState'
 
-export function DeployAgentProfileDialog({
+export function ConnectSlackDialog({
   open,
   onOpenChange,
   orgId,
   projectId,
-  profile,
+  reconnect = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   projectId: string
-  profile: Pick<AgentProfile, 'id' | 'name'>
+  reconnect?: boolean
 }) {
-  const createSlackSetup = useCreateSlackSetup(orgId, projectId, profile.id)
-  const createOAuthSetup = useCreateIntegrationOAuthSetup(orgId, projectId, profile.id)
-  const [existingApp, setExistingApp] = useState(false)
+  const createSlackSetup = useCreateProjectSlackSetup(orgId, projectId)
+  const createOAuthSetup = useCreateProjectIntegrationOAuthSetup(orgId, projectId)
+  const client = useOmnaraClient()
+  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
+  const [existingApp, setExistingApp] = useState(reconnect)
   const appIconInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
   const form = useForm({
     defaultValues: {
-      provider: 'slack',
       clientId: '',
       clientSecret: '',
       signingSecret: '',
-      appName: defaultAppName(profile.name),
+      appName: 'Omnara',
       appConfigurationToken: '',
       appIcon: noAppIcon,
     },
     onSubmit: async ({ value }) => {
-      if (!(existingApp ? existingCredentialsValid(value) : deployFormValid(value))) return
+      if (!(existingApp ? existingCredentialsValid(value) : slackConnectionFormValid(value))) return
       setError('')
       try {
         const icon =
@@ -97,8 +100,8 @@ export function DeployAgentProfileDialog({
         <DialogHeader>
           <DialogTitle>Connect Slack</DialogTitle>
           <DialogDescription>
-            Create a Slack connection and an app that launches {profile.name} on mentions and direct
-            messages.
+            Connect your Slack bot to this project. After authorization, choose the profiles and
+            behavior for your Omnara app.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -108,22 +111,37 @@ export function DeployAgentProfileDialog({
           }}
         >
           <FieldGroup>
-            <label className="flex gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={existingApp}
-                onChange={(event) => {
-                  setExistingApp(event.target.checked)
-                }}
-              />
-              Use an existing Slack app
-            </label>
+            {!reconnect && (
+              <label className="flex gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={existingApp}
+                  onChange={(event) => {
+                    setExistingApp(event.target.checked)
+                  }}
+                />
+                Use an existing Slack app
+              </label>
+            )}
             {existingApp ? (
               <>
                 <FieldDescription>
-                  Authorize your own Slack app or reconnect it. Reconnecting preserves existing app
-                  settings and launchers.
+                  Authorize your own Slack app or reconnect it. Existing Omnara apps and their
+                  settings are kept. Use the same Slack app and workspace to reconnect; a different
+                  app or workspace creates a separate connection.
                 </FieldDescription>
+                <div className="text-muted-foreground flex flex-col gap-1 break-all text-xs">
+                  <p>Configure these URLs in your Slack app before authorizing:</p>
+                  <p>
+                    OAuth redirect: <code>{apiOrigin}/api/integrations/oauth/callback</code>
+                  </p>
+                  <p>
+                    Events: <code>{apiOrigin}/api/integrations/slack/events</code>
+                  </p>
+                  <p>
+                    Interactivity: <code>{apiOrigin}/api/integrations/slack/actions</code>
+                  </p>
+                </div>
                 {(
                   [
                     ['clientId', 'Client ID'],
@@ -276,7 +294,7 @@ export function DeployAgentProfileDialog({
                   [
                     existingApp
                       ? existingCredentialsValid(state.values)
-                      : deployFormValid(state.values),
+                      : slackConnectionFormValid(state.values),
                     state.isSubmitting,
                   ] as const
                 }

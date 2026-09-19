@@ -8765,6 +8765,142 @@ export type UpdateAgentProfileResponses = {
 
 export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof UpdateAgentProfileResponses];
 
+export type CreateProjectIntegrationOAuthSetupData = {
+    body: CreateIntegrationOAuthSetupRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-oauth/setup';
+};
+
+export type CreateProjectIntegrationOAuthSetupErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateProjectIntegrationOAuthSetupError = CreateProjectIntegrationOAuthSetupErrors[keyof CreateProjectIntegrationOAuthSetupErrors];
+
+export type CreateProjectIntegrationOAuthSetupResponses = {
+    /**
+     * Integration OAuth setup created.
+     */
+    201: IntegrationOAuthSetup;
+};
+
+export type CreateProjectIntegrationOAuthSetupResponse = CreateProjectIntegrationOAuthSetupResponses[keyof CreateProjectIntegrationOAuthSetupResponses];
+
+export type CreateProjectSlackSetupData = {
+    body: CreateSlackSetupRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/slack-setup';
+};
+
+export type CreateProjectSlackSetupErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateProjectSlackSetupError = CreateProjectSlackSetupErrors[keyof CreateProjectSlackSetupErrors];
+
+export type CreateProjectSlackSetupResponses = {
+    /**
+     * Slack app created and OAuth setup started.
+     */
+    201: SlackSetup;
+};
+
+export type CreateProjectSlackSetupResponse = CreateProjectSlackSetupResponses[keyof CreateProjectSlackSetupResponses];
+
 export type CreateIntegrationOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
     path: {

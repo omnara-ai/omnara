@@ -12,9 +12,7 @@ import { agentConfigModel, fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, waitForUI } from '@/test/secret-editor'
 
-import { AgentProfileApps } from './AgentProfileApps'
-import { ProjectAppProfilesDialog } from './ProjectAppProfilesDialog'
-import { ProjectAppSetupDialog } from './ProjectAppSetupDialog'
+import { ProjectAppForm } from './ProjectAppForm'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj'),
@@ -127,115 +125,6 @@ async function chooseProfile(name: string) {
     option.click()
   })
 }
-function selectConnection() {
-  act(() => {
-    const select = document.querySelector<HTMLSelectElement>('#app-connection')
-    if (!select) throw new Error('Missing connection choice')
-    select.value = connectionId
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-}
-
-it.each(['slack', 'discord'] as const)(
-  'creates a multiple-profile %s setup using a reusable bot and paginated profile choices',
-  async (provider) => {
-    const selected = connection(provider, 'ab'.repeat(32))
-    const api = fakeApi([
-      ...profileNameRoutes,
-      {
-        method: 'GET',
-        path: path + '/integration-connections',
-        respond: () => jsonResponse({ data: [selected], next_cursor: null }),
-      },
-      {
-        method: 'GET',
-        path: path + '/secrets',
-        respond: () => jsonResponse({ data: [], next_cursor: null }),
-      },
-      {
-        method: 'GET',
-        path: path + '/agent-profiles',
-        respond: ({ url }) =>
-          Response.json({
-            data: url.searchParams.has('cursor') ? [reviews] : [support],
-            next_cursor: url.searchParams.has('cursor') ? null : 'page-two',
-          }),
-      },
-      {
-        method: 'POST',
-        path: path + '/apps',
-        respond: ({ body }) =>
-          Response.json(
-            {
-              ...schemas.zSaveProjectAppRequest.parse(body),
-              id: fakeId('app'),
-              project_id: projectId,
-              created_at: now,
-              updated_at: now,
-            },
-            { status: 201 },
-          ),
-      },
-    ])
-    const closed = vi.fn()
-    render(
-      api,
-      <ProjectAppSetupDialog
-        open
-        onOpenChange={closed}
-        orgId={orgId}
-        projectId={projectId}
-        profile={support}
-      />,
-    )
-    if (provider === 'discord')
-      act(() => {
-        button('Discord').click()
-      })
-    await waitForUI(() => {
-      expect(document.querySelector('#app-connection')?.textContent).toContain('Shared bot')
-    })
-    selectConnection()
-    if (provider === 'discord') await enter('Channel ID', '333')
-    await openProfiles()
-    await waitForUI(() => {
-      expect(button('Load more results')).toBeDefined()
-    })
-    act(() => {
-      button('Load more results').click()
-    })
-    await chooseProfile('Reviews')
-    expect(document.body.textContent).toContain('choose just one')
-    expect(document.body.textContent).toContain('2/16 selected')
-    if (provider === 'discord') {
-      expect(document.body.textContent).toContain(
-        `/api/integrations/discord/${connectionId}/interactions`,
-      )
-      expect(document.querySelector<HTMLInputElement>('input[name="interactions"]')?.checked).toBe(
-        false,
-      )
-    }
-    await submit()
-    await waitForUI(() => {
-      expect(closed).toHaveBeenCalledWith(false)
-    })
-    const saved = schemas.zSaveProjectAppRequest.parse(
-      api.requestsTo('POST', path + '/apps')[0]?.body,
-    )
-    expect(saved.settings.launcher?.slots).toEqual([
-      { key: 'default', agent_profile_id: support.id },
-      { key: 'profile_2', agent_profile_id: reviews.id },
-    ])
-    expect(saved.settings.resource.connection).toBe(connectionId)
-    expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(1)
-    expect(
-      api
-        .requestsTo('GET', path + '/agent-profiles')
-        .some((request) => request.url.searchParams.get('cursor') === 'page-two'),
-    ).toBe(true)
-  },
-)
-
 const mixedApp: ProjectApp = {
   id: fakeId('app'),
   project_id: projectId,
@@ -266,7 +155,7 @@ const mixedApp: ProjectApp = {
   },
 }
 
-it('edits profiles from the saved app list, keeps off-page and existing-agent slots, and retries a failed save', async () => {
+it('keeps off-page and existing-agent slots and retries a failed profile save', async () => {
   let attempts = 0
   const selected = connection('slack')
   const api = fakeApi([
@@ -306,16 +195,17 @@ it('edits profiles from the saved app list, keeps off-page and existing-agent sl
       },
     },
   ])
+  const closed = vi.fn()
   render(
     api,
-    <AgentProfileApps orgId={orgId} projectId={projectId} profileId={support.id} canManage />,
+    <ProjectAppForm
+      orgId={orgId}
+      projectId={projectId}
+      app={mixedApp}
+      provider="slack"
+      onSaved={closed}
+    />,
   )
-  await waitForUI(() => {
-    expect(button('Edit profiles')).toBeDefined()
-  })
-  act(() => {
-    button('Edit profiles').click()
-  })
   await waitForUI(() => {
     expect(button('Remove Support')).toBeDefined()
     expect(button('Remove Reviews')).toBeDefined()
@@ -334,7 +224,7 @@ it('edits profiles from the saved app list, keeps off-page and existing-agent sl
   })
   await submit()
   await waitForUI(() => {
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: fakeId('app') }))
   })
   const updates = api.requestsTo('PUT', path + '/apps/' + mixedApp.id)
   expect(updates).toHaveLength(2)
@@ -401,18 +291,19 @@ it.each(['retry', 'remove'] as const)(
     const closed = vi.fn()
     render(
       api,
-      <ProjectAppProfilesDialog
+      <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
         app={mixedApp}
-        onOpenChange={closed}
+        provider="slack"
+        onSaved={closed}
       />,
     )
     await waitForUI(() => {
       expect(document.body.textContent).toContain('Some saved profile names could not be loaded.')
       expect(button(`Remove ${reviews.id}`)).toBeDefined()
     })
-    expect(button('Save profiles').disabled).toBe(false)
+    expect(button('Save changes').disabled).toBe(false)
     if (action === 'retry') {
       act(() => {
         button('Retry profile names').click()
@@ -434,7 +325,7 @@ it.each(['retry', 'remove'] as const)(
     }
     await submit()
     await waitForUI(() => {
-      expect(closed).toHaveBeenCalledWith(false)
+      expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: fakeId('app') }))
     })
     const saved = schemas.zSaveProjectAppRequest.parse(
       api.requestsTo('PUT', path + '/apps/' + mixedApp.id)[0]?.body,
@@ -492,33 +383,34 @@ it.each([1, 15])(
     const closed = vi.fn()
     render(
       api,
-      <ProjectAppProfilesDialog
+      <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
         app={app}
-        onOpenChange={closed}
+        provider="discord"
+        onSaved={closed}
       />,
     )
     await waitForUI(() => {
       expect(button('Remove Support')).toBeDefined()
     })
-    expect(button('Save profiles').disabled).toBe(false)
+    expect(button('Save changes').disabled).toBe(false)
     await chooseProfile('Reviews')
     await waitForUI(() => {
       expect(document.body.textContent).toContain(
-        existingCount === 15 ? 'at most 16 slots' : 'public_key must be saved',
+        existingCount === 15 ? 'at most 16 slots' : 'public_key on this Discord connection',
       )
     })
-    expect(button('Save profiles').disabled).toBe(true)
+    expect(button('Save changes').disabled).toBe(true)
     await submit()
     expect(api.requestsTo('PUT', path + '/apps/' + app.id)).toHaveLength(0)
     act(() => {
       button('Remove Reviews').click()
     })
-    expect(button('Save profiles').disabled).toBe(false)
+    expect(button('Save changes').disabled).toBe(false)
     await submit()
     await waitForUI(() => {
-      expect(closed).toHaveBeenCalledWith(false)
+      expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: fakeId('app') }))
     })
     expect(api.requestsTo('PUT', path + '/apps/' + app.id)[0]?.body).toEqual({
       name: app.name,
@@ -529,7 +421,7 @@ it.each([1, 15])(
 )
 
 it.each([false, true])(
-  'requires a Discord key for duplicate profile options or an interaction handler (handler=%s)',
+  'preserves saved Discord settings without requiring a key for an unrelated edit (handler=%s)',
   async (handler) => {
     const app: ProjectApp = {
       ...mixedApp,
@@ -552,6 +444,12 @@ it.each([false, true])(
     if (handler)
       app.settings.resource.interaction_handler = { definition: 'omnara.discord.interactions' }
     const api = fakeApi([
+      {
+        method: 'PUT',
+        path: path + '/apps/' + app.id,
+        respond: ({ body }) =>
+          Response.json({ ...app, ...schemas.zSaveProjectAppRequest.parse(body) }),
+      },
       ...profileNameRoutes,
       {
         method: 'GET',
@@ -567,19 +465,24 @@ it.each([false, true])(
     const closed = vi.fn()
     render(
       api,
-      <ProjectAppProfilesDialog
+      <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
         app={app}
-        onOpenChange={closed}
+        provider="discord"
+        onSaved={closed}
       />,
     )
-    await waitForUI(() => {
-      expect(document.body.textContent).toContain('public_key must be saved')
-    })
-    expect(button('Save profiles').disabled).toBe(true)
+    await enter('App setup name', 'Renamed Discord')
+    expect(button('Save changes').disabled).toBe(false)
     await submit()
-    expect(closed).not.toHaveBeenCalled()
-    expect(api.requestsTo('PUT', path + '/apps/' + app.id)).toHaveLength(0)
+    await waitForUI(() => {
+      expect(closed).toHaveBeenCalled()
+    })
+    expect(api.requestsTo('PUT', path + '/apps/' + app.id)[0]?.body).toEqual({
+      name: 'Renamed Discord',
+      enabled: app.enabled,
+      settings: app.settings,
+    })
   },
 )

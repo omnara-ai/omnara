@@ -1,60 +1,71 @@
 import type { useIntegrationConnections, useProjectAvailableSecrets } from '@omnara/react'
-import { type IntegrationConnection, type ProfileAppProvider, profileAppTools } from '@omnara/sdk'
+import { type IntegrationConnection, type ProfileAppProvider, type ProjectApp } from '@omnara/sdk'
 
 import { Button } from '@/components/ui/button'
-import { DialogFooter } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
-import { AppCredentialFields } from './ProjectAppSetupDialogCredentials'
+import { AppCredentialFields } from './ProjectAppFormCredentials'
+import type { useProjectAppFormConnection } from './useProjectAppFormConnection'
 
 const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
 
-export function AppSetupFooter({
-  busy,
-  error,
-  savedConnection,
-  connectionReady,
-  missingSavedKey,
+export function ProjectAppConnectionPicker({
+  app,
   provider,
-  profileCount,
+  providerLabel,
+  lookup,
+  savedConnection,
+  locked,
+  onConnectSlack,
 }: {
-  busy: boolean
-  error: string
-  savedConnection?: IntegrationConnection
-  connectionReady: boolean
-  missingSavedKey: boolean
+  app?: ProjectApp
   provider: ProfileAppProvider
-  profileCount: number
+  providerLabel: string
+  lookup: ReturnType<typeof useProjectAppFormConnection>
+  savedConnection?: IntegrationConnection
+  locked: boolean
+  onConnectSlack?: () => void
 }) {
+  const { connection, connectionQuery } = lookup
   return (
     <>
-      {savedConnection && (
-        <p className="text-sm">
-          Connection saved: {savedConnection.id}. Retry creates only the app setup. Closing keeps
-          the connection.
+      {app ? (
+        <Field>
+          <FieldLabel>Connection</FieldLabel>
+          <p className="break-all text-sm">
+            {connection?.provider_agent_display_name && (
+              <>{connection.provider_agent_display_name} · </>
+            )}
+            {app.settings.resource.connection ?? 'No configured connection'}
+          </p>
+          <FieldDescription>
+            The configured connection is kept when editing this app.
+          </FieldDescription>
+        </Field>
+      ) : (
+        <AppConnectionField
+          connectionsQuery={lookup.connectionsQuery}
+          connections={lookup.connections}
+          provider={provider}
+          providerLabel={providerLabel}
+          selection={lookup.selection}
+          savedConnection={savedConnection}
+          locked={locked}
+          onSelectionChange={lookup.setSelection}
+          onNewSlack={connection?.state === 'active' ? undefined : onConnectSlack}
+        />
+      )}
+      {connectionQuery.isError && (
+        <p role="alert" className="text-sm">
+          Could not load the selected connection.{' '}
+          <button type="button" onClick={() => void connectionQuery.refetch()}>
+            Retry connection
+          </button>
         </p>
       )}
-      {error && (
-        <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
-          {error}
-        </p>
-      )}
-      <DialogFooter>
-        <Button
-          type="submit"
-          loading={busy}
-          disabled={
-            busy ||
-            missingSavedKey ||
-            !connectionReady ||
-            (provider !== 'github' && (profileCount === 0 || profileCount > 16))
-          }
-        >
-          Save app setup
-        </Button>
-      </DialogFooter>
+      {lookup.providerMismatch && <p role="alert">Choose a {providerLabel} connection.</p>}
     </>
   )
 }
@@ -64,7 +75,6 @@ export function AppConnectionField({
   connections,
   provider,
   providerLabel,
-  profileName,
   selection,
   savedConnection,
   locked,
@@ -75,12 +85,11 @@ export function AppConnectionField({
   connections: IntegrationConnection[]
   provider: ProfileAppProvider
   providerLabel: string
-  profileName: string
   selection: string
   savedConnection?: IntegrationConnection
   locked: boolean
   onSelectionChange: (selection: string) => void
-  onNewSlack: () => void
+  onNewSlack?: () => void
 }) {
   return (
     <Field>
@@ -129,14 +138,13 @@ export function AppConnectionField({
           More connections
         </Button>
       )}
-      {provider === 'slack' && (
+      {provider === 'slack' && onNewSlack && !locked && (
         <>
           <Button type="button" variant="outline" onClick={onNewSlack}>
             Connect a Slack app through OAuth
           </Button>
           <FieldDescription>
-            OAuth starts with {profileName}. After setup, use Edit profiles to add more profiles to
-            the same Slack app.
+            Connect your workspace first, then choose this app’s capabilities and optional launcher.
           </FieldDescription>
         </>
       )}
@@ -150,7 +158,6 @@ export function AppConnectionField({
 export function NewAppConnectionFields({
   provider,
   providerLabel,
-  profileName,
   savedSecret,
   newCredential,
   secretsQuery,
@@ -161,7 +168,6 @@ export function NewAppConnectionFields({
 }: {
   provider: ProfileAppProvider
   providerLabel: string
-  profileName: string
   savedSecret: string
   newCredential: boolean
   secretsQuery: ReturnType<typeof useProjectAvailableSecrets>
@@ -231,7 +237,7 @@ export function NewAppConnectionFields({
                   name="secretName"
                   required
                   maxLength={64}
-                  defaultValue={`${providerLabel} ${profileName.slice(0, 35)} credentials`}
+                  defaultValue={`${providerLabel} credentials`}
                 />
               </Field>
               <AppCredentialFields provider={provider} />
@@ -304,64 +310,6 @@ export function NewAppConnectionFields({
             </FieldDescription>
           </Field>
         </>
-      )}
-    </>
-  )
-}
-
-export function AppCapabilityFields({
-  provider,
-  providerLabel,
-  interactions,
-  onInteractionsChange,
-}: {
-  provider: ProfileAppProvider
-  providerLabel: string
-  interactions: boolean
-  onInteractionsChange: (enabled: boolean) => void
-}) {
-  return (
-    <>
-      {provider !== 'slack' && (
-        <Field>
-          <FieldLabel htmlFor="launcher-scope">
-            {provider === 'github' ? 'Repository ID' : 'Channel ID'}
-          </FieldLabel>
-          <Input id="launcher-scope" name="scope" pattern="[1-9][0-9]*" required />
-          <FieldDescription>
-            {provider === 'github'
-              ? 'Launch on new pull requests in this repository. Use its numeric ID, not owner/repository.'
-              : 'Launch on mentions in this channel. Give the bot access to it.'}
-          </FieldDescription>
-        </Field>
-      )}
-      <Field>
-        <FieldLabel>Agent tools</FieldLabel>
-        {profileAppTools[provider].map((tool) => (
-          <label key={tool} className="flex gap-2 text-sm">
-            <input type="checkbox" name="tools" value={tool} defaultChecked />
-            {tool.replaceAll('_', ' ')}
-          </label>
-        ))}
-        <FieldDescription>The profile’s explicit tool permissions still apply.</FieldDescription>
-      </Field>
-      <label className="flex gap-2 text-sm">
-        <input type="checkbox" name="listen" defaultChecked />
-        Receive later messages{provider === 'github' ? ' and commits' : ''} in the launched
-        conversation
-      </label>
-      {provider !== 'github' && (
-        <label className="flex gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="interactions"
-            checked={interactions}
-            onChange={(event) => {
-              onInteractionsChange(event.target.checked)
-            }}
-          />
-          Show agent questions and approvals in {providerLabel}
-        </label>
       )}
     </>
   )

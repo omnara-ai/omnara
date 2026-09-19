@@ -144,6 +144,37 @@ const projectAgentsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
+const projectAppsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/apps',
+  component: lazyRouteComponent(() => import('@/routes/ProjectAppsPage'), 'ProjectAppsPage'),
+})
+
+const projectAppCatalogRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/apps/new',
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateProjectAppPage'),
+    'CreateProjectAppPage',
+  ),
+})
+
+const createProjectAppRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/apps/new/$provider',
+  validateSearch: z.object({ integration_connection: z.string().optional().catch(undefined) }),
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateProjectAppPage'),
+    'CreateProjectAppPage',
+  ),
+})
+
+const projectAppDetailRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/apps/$appId',
+  component: lazyRouteComponent(() => import('@/routes/ProjectAppPage'), 'ProjectAppPage'),
+})
+
 const projectGrantsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/grants',
@@ -297,6 +328,10 @@ const routeTree = rootRoute.addChildren([
       apiTokensRoute,
       projectRoute,
       projectAgentsRoute,
+      projectAppsRoute,
+      projectAppCatalogRoute,
+      createProjectAppRoute,
+      projectAppDetailRoute,
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,

@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -41,6 +42,9 @@ const (
 var errIntegrationOAuthStateTooLarge = errors.New("integration oauth state exceeds maximum size")
 
 type integrationOAuthState struct {
+	// Missing/false keeps the legacy profile-and-app setup contract. Only the
+	// project endpoints seal connection-only state, which cannot carry a profile.
+	ConnectionOnly    bool      `json:"connection_only,omitempty"`
 	FlowID            uuid.UUID `json:"flow_id"`
 	OrgID             uuid.UUID `json:"org_id"`
 	ProjectID         uuid.UUID `json:"project_id"`
@@ -158,41 +162,45 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		)
 		return
 	}
-	install, _, err := s.store.Integrations().CompleteSlackAppSetup(
-		r.Context(),
-		integrationstore.SaveIntegrationConnectionInput{
-			OrgID:                    state.OrgID,
-			ProjectID:                state.ProjectID,
-			InstalledByUserID:        state.InstalledByUserID,
-			Provider:                 state.Provider,
-			State:                    integrationstore.IntegrationConnectionStateActive,
-			ProviderTenantID:         providerInstall.ProviderTenantID,
-			ProviderAccountRef:       providerInstall.ProviderAccountRef,
-			ProviderAgentDisplayName: providerInstall.ProviderAgentDisplayName,
-			CredentialSecretID:       credentialSecret.ID,
-			ProviderIdentity:         providerInstall.ProviderIdentity,
-			ProviderMetadata:         providerInstall.ProviderMetadata,
-			OAuthFlowID:              state.FlowID,
-		},
-		integrationstore.SaveProjectAppInput{
-			OrgID: state.OrgID, ProjectID: state.ProjectID, DefinitionID: appdefinition.Slack, Enabled: true,
-			Settings: integrationstore.ProjectAppSettings{
-				Resource: agentconfig.AgentConfigAppResourceSource{
-					Definition: appdefinition.Slack,
-					Tools: map[string]agentconfig.AgentConfigToolSource{
-						toolcatalog.ToolNameSlackRead:        {},
-						toolcatalog.ToolNameSlackPostMessage: {},
+	connection := integrationstore.SaveIntegrationConnectionInput{
+		OrgID:                    state.OrgID,
+		ProjectID:                state.ProjectID,
+		InstalledByUserID:        state.InstalledByUserID,
+		Provider:                 state.Provider,
+		State:                    integrationstore.IntegrationConnectionStateActive,
+		ProviderTenantID:         providerInstall.ProviderTenantID,
+		ProviderAccountRef:       providerInstall.ProviderAccountRef,
+		ProviderAgentDisplayName: providerInstall.ProviderAgentDisplayName,
+		CredentialSecretID:       credentialSecret.ID,
+		ProviderIdentity:         providerInstall.ProviderIdentity,
+		ProviderMetadata:         providerInstall.ProviderMetadata,
+		OAuthFlowID:              state.FlowID,
+	}
+	var install integrationstore.IntegrationConnectionRecord
+	if state.ConnectionOnly {
+		install, err = s.store.Integrations().CompleteSlackConnectionSetup(r.Context(), connection)
+	} else {
+		install, _, err = s.store.Integrations().CompleteSlackAppSetup(r.Context(), connection,
+			integrationstore.SaveProjectAppInput{
+				OrgID: state.OrgID, ProjectID: state.ProjectID, DefinitionID: appdefinition.Slack, Enabled: true,
+				Settings: integrationstore.ProjectAppSettings{
+					Resource: agentconfig.AgentConfigAppResourceSource{
+						Definition: appdefinition.Slack,
+						Tools: map[string]agentconfig.AgentConfigToolSource{
+							toolcatalog.ToolNameSlackRead:        {},
+							toolcatalog.ToolNameSlackPostMessage: {},
+						},
+						Listener:           &appdefinition.Listener{Events: []string{"message"}},
+						InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
 					},
-					Listener:           &appdefinition.Listener{Events: []string{"message"}},
-					InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
-				},
-				Launcher: &integrationstore.AppLauncher{
-					Trigger: "mention", ScopeKind: "workspace", ScopeRef: providerInstall.ProviderTenantID,
-					Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &state.AgentProfileID}},
+					Launcher: &integrationstore.AppLauncher{
+						Trigger: "mention", ScopeKind: "workspace", ScopeRef: providerInstall.ProviderTenantID,
+						Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &state.AgentProfileID}},
+					},
 				},
 			},
-		},
-	)
+		)
+	}
 	if err != nil {
 		s.cleanupIntegrationOAuthSecret(
 			r.Context(),
@@ -216,9 +224,17 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		return
 	}
 	logent.IntegrationConnection(r.Context(), install)
-	s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{
-		"integration_oauth": []string{"success"},
-	})
+	outcome := url.Values{"integration_oauth": {"success"}}
+	if state.ConnectionOnly {
+		connectionID, err := publicID(publicid.KindIntegrationConnection, install.ID)
+		if err != nil {
+			logpkg.Error(r.Context(), err)
+			apierror.Write(w, openapi.ErrorCodeInternalError)
+			return
+		}
+		outcome.Set("integration_connection", connectionID)
+	}
+	s.redirectOAuthOutcome(w, r, state.ReturnTo, outcome)
 }
 
 func (s *Server) createSlackIntegrationCredentialSecret(
@@ -301,6 +317,11 @@ func (s *Server) validateSlackAppSetupConfig(
 }
 
 func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) error {
+	// A missing profile alone never changes an old flow into connection-only
+	// setup, and project flows cannot accidentally create an app from a profile.
+	if state.ConnectionOnly != (state.AgentProfileID == uuid.Nil) {
+		return errors.New("invalid oauth state scope")
+	}
 	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" || state.ClientSecret == "" ||
 		state.SigningSecret == "" ||
 		state.ExpiresAt.IsZero() ||
@@ -308,7 +329,6 @@ func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) e
 		return errors.New("invalid oauth state")
 	}
 	if state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
-		state.AgentProfileID == uuid.Nil ||
 		state.InstalledByUserID == uuid.Nil {
 		return errors.New("invalid oauth state")
 	}

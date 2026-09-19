@@ -314,3 +314,94 @@ describe('profile list editing', () => {
     ).toThrow(/Slack or Discord/)
   })
 })
+
+describe('project-first setup options', () => {
+  it.each(['slack', 'github', 'discord'] as const)(
+    'allows reusable %s defaults without profiles or scope',
+    (provider) => {
+      const app = profileAppSetup({
+        ...base,
+        provider,
+        launcher: false,
+        profileId: undefined,
+        tools: [],
+        listen: false,
+      })
+      expect(app.settings).toEqual({
+        resource: { definition: `omnara.${provider}`, connection: base.connectionId, tools: {} },
+      })
+    },
+  )
+  it('supports GitHub mentions without changing the CLI PR-open default', () => {
+    const input = { ...base, provider: 'github' as const, scopeRef: '123', tools: [] }
+    expect(profileAppSetup(input).settings.launcher?.trigger).toBe('pull_request_opened')
+    expect(profileAppSetup({ ...input, trigger: 'mention' }).settings.launcher?.trigger).toBe(
+      'mention',
+    )
+  })
+  it.each(['C123', 'G123'])(
+    'supports Slack channel %s while retaining workspace defaults',
+    (scopeRef) => {
+      expect(
+        profileAppSetup({ ...base, provider: 'slack', tools: [], scopeRef, scopeKind: 'channel' })
+          .settings.launcher,
+      ).toMatchObject({ trigger: 'mention', scope_kind: 'channel', scope_ref: scopeRef })
+      expect(
+        profileAppSetup({ ...base, provider: 'slack', tools: [], scopeRef: 'T123' }).settings
+          .launcher?.scope_kind,
+      ).toBe('workspace')
+    },
+  )
+  it('rejects provider-mismatched scopes and triggers', () => {
+    expect(() =>
+      profileAppSetup({
+        ...base,
+        provider: 'discord',
+        tools: [],
+        scopeRef: '123',
+        trigger: 'pull_request_opened',
+      }),
+    ).toThrow(/trigger/)
+    expect(() =>
+      profileAppSetup({
+        ...base,
+        provider: 'github',
+        tools: [],
+        scopeRef: '123',
+        scopeKind: 'channel',
+      }),
+    ).toThrow(/scope/)
+    expect(() =>
+      profileAppSetup({
+        ...base,
+        provider: 'slack',
+        tools: [],
+        scopeRef: 'T123',
+        scopeKind: 'channel',
+      }),
+    ).toThrow(/channel ID/)
+  })
+})
+
+it('validates setup before credentials exist without inventing a connection ID', () => {
+  const request = profileAppSetup({
+    ...base,
+    provider: 'github',
+    connectionId: undefined,
+    tools: ['github_read'],
+    scopeRef: '123',
+  })
+  expect(request.settings.resource.connection).toBeUndefined()
+  expect(request.settings.launcher?.slots).toEqual([
+    { key: 'default', agent_profile_id: base.profileId },
+  ])
+  expect(() =>
+    profileAppSetup({
+      ...base,
+      provider: 'github',
+      connectionId: undefined,
+      tools: [],
+      scopeRef: '9223372036854775808',
+    }),
+  ).toThrow(/scope ID/)
+})

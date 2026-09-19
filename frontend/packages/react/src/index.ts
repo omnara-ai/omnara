@@ -76,6 +76,8 @@ export {
   type IntegrationConnectionListOptions,
   type IntegrationConnectionListSort,
   useCreateIntegrationConnection,
+  useCreateProjectIntegrationOAuthSetup,
+  useCreateProjectSlackSetup,
   useDeleteIntegrationConnection,
   useIntegrationConnection,
   useIntegrationConnections,
@@ -187,6 +189,7 @@ export {
 export {
   useCreateProjectApp,
   useDeleteProjectApp,
+  useProjectApp,
   useProjectApps,
   useUpdateProjectApp,
 } from './domains/project-apps'

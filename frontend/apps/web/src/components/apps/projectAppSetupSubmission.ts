@@ -1,9 +1,7 @@
 import {
   type CreateSecretRequest,
   type IntegrationConnection,
-  profileAppDiscordKeyStatus,
   type ProfileAppProvider,
-  profileAppSetup,
   type ProjectApp,
   type SaveIntegrationConnectionRequest,
   type SaveProjectAppRequest,
@@ -11,15 +9,20 @@ import {
 } from '@omnara/sdk'
 import * as z from 'zod'
 
+import {
+  projectAppFormDiscordKeyStatus,
+  projectAppFormRequest,
+  type ProjectAppFormValues,
+} from './projectAppFormState'
+
 /** Save each completed step before proceeding so retries reuse its secret and connection. */
 export async function submitProjectAppSetup(
   input: {
     form: FormData
     projectId: string
     provider: ProfileAppProvider
-    profileId: string
-    profileIds: string[]
-    interactions: boolean
+    values: ProjectAppFormValues
+    app?: ProjectApp
     connection?: IntegrationConnection
     creating: boolean
     savedSecret: string
@@ -29,35 +32,44 @@ export async function submitProjectAppSetup(
     createSecret: (body: CreateSecretRequest) => Promise<Secret>
     createConnection: (body: SaveIntegrationConnectionRequest) => Promise<IntegrationConnection>
     createApp: (body: SaveProjectAppRequest) => Promise<ProjectApp>
+    updateApp: (body: SaveProjectAppRequest & { appID: string }) => Promise<ProjectApp>
     onSecretSaved: (id: string) => void
     onConnectionSaved: (connection: IntegrationConnection) => void
   },
 ) {
-  const { form, provider, profileIds, interactions } = input
+  const { form, provider, values, app } = input
   const value = (key: string) =>
     z
       .string()
       .parse(form.get(key) ?? '')
       .trim()
-  if (provider !== 'github' && (profileIds.length === 0 || profileIds.length > 16)) {
-    throw new Error('Choose between 1 and 16 profiles.')
+  if (app && input.creating) throw new Error('The configured connection cannot be changed here.')
+  let selected = input.connection
+  const request = projectAppFormRequest(
+    provider,
+    values,
+    app?.settings.resource.connection ?? selected?.id,
+    app,
+    selected?.provider_tenant_id,
+  )
+  const providerConfig: Record<string, string | number> = {}
+  if (input.creating && provider === 'discord') {
+    providerConfig.shard_count = z.coerce.number().int().min(1).max(4096).parse(value('shards'))
+    if (value('publicKey')) providerConfig.public_key = value('publicKey')
   }
-  const keyConfig = input.creating
-    ? { public_key: value('publicKey') }
-    : input.connection?.provider_config
   if (
-    profileAppDiscordKeyStatus({
-      definition: `omnara.${provider}`,
-      slots: profileIds.map((id) => ({ agent_profile_id: id })),
-      interactions,
-      providerConfig: keyConfig,
-    }).missing
+    projectAppFormDiscordKeyStatus(
+      request,
+      app,
+      input.creating ? providerConfig : selected?.provider_config,
+    ).missing
   ) {
     throw new Error(
       'Save a valid public_key on the Discord connection to enable multiple choices or agent questions.',
     )
   }
-  let selected = input.connection
+  if (!app && !input.creating && (selected?.state !== 'active' || selected.provider !== provider))
+    throw new Error('Choose an active connection for this provider.')
   if (input.creating) {
     let secretId = input.savedSecret || value('secret')
     if (!secretId && input.newCredential) {
@@ -77,33 +89,18 @@ export async function submitProjectAppSetup(
       secretId = secret.id
       actions.onSecretSaved(secret.id)
     }
-    const providerConfig: Record<string, string | number> = {}
-    if (provider === 'discord') {
-      providerConfig.shard_count = Number(value('shards'))
-      if (value('publicKey')) providerConfig.public_key = value('publicKey')
-    }
     selected = await actions.createConnection({
       provider,
       provider_tenant_id: value('tenant'),
       provider_account_ref: value('account'),
-      provider_agent_display_name: value('name'),
+      provider_agent_display_name: values.name.trim(),
       credential_secret_id: secretId,
       provider_config: providerConfig,
     })
     actions.onConnectionSaved(selected)
   }
-  if (selected?.state !== 'active') throw new Error('Choose an active connection.')
-  await actions.createApp(
-    profileAppSetup({
-      provider,
-      name: value('name'),
-      connectionId: selected.id,
-      profileId: input.profileId,
-      profileIds: provider === 'github' ? undefined : profileIds,
-      scopeRef: provider === 'slack' ? selected.provider_tenant_id : value('scope'),
-      tools: z.array(z.string()).parse(form.getAll('tools')),
-      listen: form.has('listen'),
-      interactions,
-    }),
-  )
+  if (!app && (selected?.state !== 'active' || selected.provider !== provider))
+    throw new Error('Choose an active connection for this provider.')
+  if (!app && selected) request.settings.resource.connection = selected.id
+  return app ? actions.updateApp({ appID: app.id, ...request }) : actions.createApp(request)
 }

@@ -61,6 +61,11 @@ func customScope(note string) operationScope {
 type operationID string
 
 const (
+	operationCreateProjectIntegrationOAuthSetup operationID = "CreateProjectIntegrationOAuthSetup"
+	operationCreateProjectSlackSetup            operationID = "CreateProjectSlackSetup"
+)
+
+const (
 	operationAcceptInvitation              operationID = "AcceptInvitation"
 	operationBootstrapDaemon               operationID = "BootstrapDaemon"
 	operationCancelAgent                   operationID = "CancelAgent"
@@ -247,6 +252,9 @@ func (a operationAuthorizer) policy(operation operationID) (operationPolicy, boo
 }
 
 var openAPIOperationPolicies = map[operationID]operationPolicy{
+	operationCreateProjectIntegrationOAuthSetup: userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateProjectSlackSetup:            userPolicy(projectScope(identitystore.ProjectActionManage)),
+
 	operationGetCurrentUser:    userPolicy(noScope()),
 	operationDeleteCurrentUser: userPolicy(noScope()),
 	operationGetDaemonSkillArchive: machineDaemonPolicy(
