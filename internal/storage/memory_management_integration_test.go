@@ -48,7 +48,10 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 	denied.Scope = viewerScope
 	_, err = store.Memories().Write(ctx, denied)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	require.ErrorIs(t, store.Memories().DeleteFile(ctx, viewerScope, memory.ID, input.Path, result.Digest), storeerr.ErrNotFound)
+	require.ErrorIs(t,
+		store.Memories().DeleteFile(ctx, viewerScope, memory.ID, input.Path, result.Digest),
+		storeerr.ErrNotFound,
+	)
 
 	root := filepath.Join(dir, mustPublicID(t, publicid.KindOrganization, scope.OrgID),
 		mustPublicID(t, publicid.KindProject, scope.ProjectID), memory.Name)
