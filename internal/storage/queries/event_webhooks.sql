@@ -2,7 +2,7 @@
 SELECT agent.project_id, project.org_id,
        coalesce(config.compiled_definition->'event_webhook'->>'url', '')::text AS url,
        coalesce(config.compiled_definition->'event_webhook'->>'signing_secret_id', '')::text AS signing_secret_id,
-       coalesce(config.compiled_definition->'event_webhook'->'events', 'null'::jsonb)::jsonb AS events
+       coalesce(config.compiled_definition->'event_webhook'->'events', '[]'::jsonb)::jsonb AS events
 FROM agents agent
 JOIN agent_configs config ON config.id = agent.current_config_id AND config.project_id = agent.project_id
 JOIN projects project ON project.id = agent.project_id
@@ -28,23 +28,15 @@ WITH candidate AS (
     ORDER BY delivery.next_attempt_at, delivery.id
     LIMIT 1
     FOR UPDATE OF delivery SKIP LOCKED
-),
-claimed AS (
-    UPDATE event_webhook_deliveries delivery
-    SET attempt_count = attempt_count + 1,
-        claim_token = uuidv7(),
-        claim_expires_at = statement_timestamp() + interval '30 seconds'
-    FROM candidate
-    WHERE delivery.id = candidate.id
-    RETURNING delivery.id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-        delivery.tool_state, delivery.attempt_count, delivery.claim_token
 )
-SELECT claimed.id, claimed.agent_id, claimed.org_id, claimed.event_sequence, claimed.tool_call_id, claimed.tool_state,
-       claimed.attempt_count, claimed.claim_token,
-       coalesce(call.type, '')::text AS tool_type,
-       coalesce(call.name, '')::text AS tool_name
-FROM claimed
-LEFT JOIN tool_calls call ON call.agent_id = claimed.agent_id AND call.id = claimed.tool_call_id;
+UPDATE event_webhook_deliveries delivery
+SET attempt_count = attempt_count + 1,
+    claim_token = uuidv7(),
+    claim_expires_at = statement_timestamp() + interval '30 seconds'
+FROM candidate
+WHERE delivery.id = candidate.id
+RETURNING delivery.id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
+    delivery.tool_state, delivery.attempt_count, delivery.claim_token;
 
 -- name: CompleteEventWebhookDelivery :exec
 DELETE FROM event_webhook_deliveries WHERE id = $1 AND claim_token = $2;

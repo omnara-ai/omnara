@@ -96,7 +96,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 	toolID, state := uuid.New(), "ready"
 	delivery := executionstore.EventWebhookDelivery{
 		ID: uuid.New(), AgentID: uuid.New(), OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
-		ClaimToken: uuid.New(), AttemptCount: 1, Retryable: true,
+		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
 	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8), store, delivery
 }
@@ -165,22 +165,6 @@ func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, 2, calls)
 	require.Equal(t, int64(1), store.completed.Load())
-}
-
-func TestSenderCompletesBestEffortFailures(t *testing.T) {
-	for _, networkError := range []bool{false, true} {
-		sender, store, delivery := testSender()
-		delivery.Retryable = false
-		sender.client = &http.Client{Transport: testTransport(func(*http.Request) (*http.Response, error) {
-			if networkError {
-				return nil, errors.New("connection reset")
-			}
-			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, nil
-		})}
-		sender.deliver(t.Context(), delivery)
-		require.Equal(t, int64(1), store.completed.Load())
-		require.Zero(t, store.retried.Load())
-	}
 }
 
 func TestSenderUsesExistingTimelinePayload(t *testing.T) {

@@ -27,7 +27,7 @@ const (
 )
 
 type EventWebhook struct {
-	Events          []string `json:"events,omitempty"`
+	Events          []string `json:"events"`
 	SigningSecretID string   `json:"signing_secret_id,omitempty"`
 	URL             string   `json:"url"`
 }
@@ -389,7 +389,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				)),
 				kjsonschema.Prop("signing_secret_id", kjsonschema.String(kjsonschema.MinLength(1))),
 				kjsonschema.Prop("url", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Required("url"), kjsonschema.AdditionalProps(false),
+				kjsonschema.Required("url", "events"), kjsonschema.AdditionalProps(false),
 			),
 			"AgentConfigSubagentSource": func() *kjsonschema.Schema {
 				def := kjsonschema.Object(

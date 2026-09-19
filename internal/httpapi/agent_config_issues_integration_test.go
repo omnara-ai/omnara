@@ -104,7 +104,7 @@ func TestCreateAgentConfigValidatesWebhookSigningSecretValue(t *testing.T) {
 		require.NoError(t, err)
 		id := testPublicID(t, publicid.KindSecret, secret.ID)
 		source := "instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n" +
-			"event_webhook:\n  url: https://example.com/events\n  signing_secret_id: " + id + "\n"
+			"event_webhook:\n  url: https://example.com/events\n  events: [tool_call_update]\n  signing_secret_id: " + id + "\n"
 		status := http.StatusCreated
 		if i == 0 {
 			status = http.StatusBadRequest

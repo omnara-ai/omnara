@@ -1372,7 +1372,7 @@ export const zToolCall = z.object({
 });
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export const zToolCallUpdate = z.object({
     tool_call_id: zToolCallId,
@@ -1457,6 +1457,26 @@ export const zContextCheckpointEvent = z.object({
     created_at: zTimestamp
 });
 
+export const zEventWebhookAgentInputEvent = z.object({
+    event: z.enum(['agent_input']),
+    data: zAgentInputEvent
+});
+
+export const zEventWebhookToolResultEvent = z.object({
+    event: z.enum(['tool_result']),
+    data: zToolResultEvent
+});
+
+export const zEventWebhookContextCheckpointEvent = z.object({
+    event: z.enum(['context_checkpoint']),
+    data: zContextCheckpointEvent
+});
+
+export const zEventWebhookToolCallUpdate = z.object({
+    event: z.enum(['tool_call_update']),
+    data: zToolCallUpdate
+});
+
 export const zModelOutputTextStreamBlock = z.object({
     kind: z.enum(['text'])
 });
@@ -1535,6 +1555,22 @@ export const zModelOutputEvent = z.object({
     provider_metadata: z.record(z.string(), z.unknown()).optional(),
     created_at: zTimestamp
 });
+
+export const zEventWebhookModelOutputEvent = z.object({
+    event: z.enum(['model_output']),
+    data: zModelOutputEvent
+});
+
+/**
+ * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ */
+export const zEventWebhookPayload = z.discriminatedUnion('event', [
+    zEventWebhookAgentInputEvent.extend({ event: z.literal('agent_input') }),
+    zEventWebhookModelOutputEvent.extend({ event: z.literal('model_output') }),
+    zEventWebhookToolResultEvent.extend({ event: z.literal('tool_result') }),
+    zEventWebhookContextCheckpointEvent.extend({ event: z.literal('context_checkpoint') }),
+    zEventWebhookToolCallUpdate.extend({ event: z.literal('tool_call_update') })
+]);
 
 export const zAgentEvent = z.discriminatedUnion('event_kind', [
     zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),

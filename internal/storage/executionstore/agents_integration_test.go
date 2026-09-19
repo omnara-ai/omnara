@@ -2079,7 +2079,7 @@ func TestEventWebhookTargetFollowsCurrentConfig(t *testing.T) {
 	for _, destination := range []string{"https://example.com/first", "https://example.com/second", ""} {
 		updated := source
 		if destination != "" {
-			updated += "event_webhook:\n  url: " + destination + "\n"
+			updated += "event_webhook:\n  url: " + destination + "\n  events: [tool_call_update]\n"
 		}
 		compiled := mustCompileAgentYAMLResolved(t, ctx, store, updated)
 		_, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{

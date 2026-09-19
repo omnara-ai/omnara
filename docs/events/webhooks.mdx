@@ -1,0 +1,155 @@
+---
+title: "Webhook payloads"
+description: "Event webhook bodies and generated SDK schemas"
+---
+
+Configure an [event webhook](/agents/configuration#event-webhook) to receive JSON POST requests with `event` and `data`. The event name determines the data schema. These are the same data objects used by the [event stream](/events/streaming).
+
+Every request includes `Webhook-Id` (stable across retries) and `Webhook-Timestamp` (Unix seconds for that attempt). Signed requests also include `Webhook-Signature`. Verify the signature against the raw request body before parsing it, using [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
+
+## Parse with the SDK
+
+`EventWebhookPayload` and `zEventWebhookPayload` are generated from the [OpenAPI specification](/api-reference/openapi.yaml). The schema checks that `event` matches the shape of `data`.
+
+```typescript
+import { zEventWebhookPayload } from '@omnara/sdk/zod'
+
+const payload = zEventWebhookPayload.parse(JSON.parse(rawBody))
+if (payload.event === 'tool_call_update') {
+  const { agent_id, tool_call_id, state } = payload.data
+}
+```
+
+## Payload examples
+
+Timeline events include event, agent, project, organization, and turn identifiers, an event sequence, and a creation timestamp. The examples below include all required fields; the OpenAPI schemas describe optional fields and content-block variants.
+
+<AccordionGroup>
+<Accordion title="Agent input (`agent_input`)">
+
+```json
+{
+  "event": "agent_input",
+  "data": {
+    "id": "evt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_sequence": 1,
+    "is_opening_event": true,
+    "sequence": 1,
+    "event_kind": "agent_input",
+    "agent_input_id": "ain_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "input_kind": "content",
+    "content_blocks": [
+      {
+        "type": "text",
+        "text": "Summarize the report."
+      }
+    ],
+    "created_at": "2026-09-18T12:00:00Z"
+  }
+}
+```
+
+</Accordion>
+<Accordion title="Model output (`model_output`)">
+
+```json
+{
+  "event": "model_output",
+  "data": {
+    "id": "evt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_sequence": 1,
+    "is_opening_event": false,
+    "sequence": 3,
+    "event_kind": "model_output",
+    "model_call_context_id": "mcc_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "stop_reason": "end_turn",
+    "content_blocks": [
+      {
+        "type": "text",
+        "text": "The report shows steady growth."
+      }
+    ],
+    "created_at": "2026-09-18T12:00:00Z"
+  }
+}
+```
+
+</Accordion>
+<Accordion title="Tool result (`tool_result`)">
+
+```json
+{
+  "event": "tool_result",
+  "data": {
+    "id": "evt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_sequence": 1,
+    "is_opening_event": false,
+    "sequence": 3,
+    "event_kind": "tool_result",
+    "tool_call_id": "tcl_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "outcome": "succeeded",
+    "content_blocks": [
+      {
+        "type": "text",
+        "text": "Ticket created."
+      }
+    ],
+    "created_at": "2026-09-18T12:00:00Z"
+  }
+}
+```
+
+</Accordion>
+<Accordion title="Context checkpoint (`context_checkpoint`)">
+
+```json
+{
+  "event": "context_checkpoint",
+  "data": {
+    "id": "evt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "turn_sequence": 1,
+    "is_opening_event": false,
+    "sequence": 3,
+    "event_kind": "context_checkpoint",
+    "context_checkpoint_id": "ccp_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "summarized_through_event_sequence": 2,
+    "summary": "The user requested a report summary.",
+    "created_at": "2026-09-18T12:00:00Z"
+  }
+}
+```
+
+</Accordion>
+<Accordion title="Tool-call update (`tool_call_update`)">
+
+```json
+{
+  "event": "tool_call_update",
+  "data": {
+    "tool_call_id": "tcl_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "state": "ready"
+  }
+}
+```
+
+</Accordion>
+</AccordionGroup>
+
+`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not the tool arguments or a timeline sequence. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Self-subagents send their own agent IDs; profile subagents use their own webhook configuration.
