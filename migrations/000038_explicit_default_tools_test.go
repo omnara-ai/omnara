@@ -60,9 +60,9 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 			contract, err := agentconfig.RuntimeContractFromCompiled(after.compiledDefinition,
 				agentconfig.CompilerVersion, after.effectiveDefinitionHash)
 			require.NoError(t, err)
-			require.Len(t, contract.Tools, 4)
-			require.Equal(t, "skill", contract.Tools[2].Name)
-			require.Equal(t, "always_allow", contract.Tools[2].Permission.Mode)
+			require.Len(t, contract.Tools, 5)
+			require.Equal(t, "skill", contract.Tools[3].Name)
+			require.Equal(t, "always_allow", contract.Tools[3].Permission.Mode)
 			again, changed, err := migrateExplicitDefaultTools(after)
 			require.NoError(t, err)
 			require.False(t, changed)

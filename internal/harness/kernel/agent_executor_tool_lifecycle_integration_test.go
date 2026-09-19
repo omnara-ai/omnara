@@ -103,8 +103,8 @@ skills:
 		t.Fatalf("execute skill-enabled model work: %v", err)
 	}
 	if modelClient.preparedCount() != 1 ||
-		len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.ToolNameSkill {
+		len(modelClient.prepared[0].ToolSpecs) != 4 ||
+		modelClient.prepared[0].ToolSpecs[3].Name != toolcatalog.ToolNameSkill {
 		t.Fatalf("skill-enabled prompt tools = %+v, want skill", modelClient.prepared)
 	}
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)

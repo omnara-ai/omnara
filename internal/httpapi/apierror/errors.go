@@ -143,7 +143,7 @@ func (err ResponseError) body() openapi.Error {
 
 func FromError(err error) ResponseError {
 	responseErr := FromCode(openapi.ErrorCodeInternalError, "")
-	var fileConflict *storeerr.FileContentConflict
+	var fileConflict *storeerr.FileContentConflictError
 	if errors.As(err, &fileConflict) {
 		responseErr = FromCode(openapi.ErrorCodeFileContentConflict, err.Error())
 		responseErr.CurrentDigest = &fileConflict.CurrentDigest

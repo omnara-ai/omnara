@@ -785,8 +785,8 @@ mcp:
 	if modelClient.preparedCount() != 3 {
 		t.Fatalf("prepared %d requests, want tool call and two continuation attempts", modelClient.preparedCount())
 	}
-	if len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
+	if len(modelClient.prepared[0].ToolSpecs) != 4 ||
+		modelClient.prepared[0].ToolSpecs[3].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
 		t.Fatalf("first request should include mcp tool, got %+v", modelClient.prepared[0].ToolSpecs)
 	}
 	if !onlyFileRetrievalTools(modelClient.prepared[1].ToolSpecs) {
@@ -921,8 +921,8 @@ mcp:
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("expected model generation to continue, got %d prepares", modelClient.preparedCount())
 	}
-	if len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("good", "greet") {
+	if len(modelClient.prepared[0].ToolSpecs) != 4 ||
+		modelClient.prepared[0].ToolSpecs[3].Name != toolcatalog.MCPRuntimeToolName("good", "greet") {
 		t.Fatalf("model should only receive ready mcp tools, got %+v", modelClient.prepared[0].ToolSpecs)
 	}
 	if mcpClient.initializeCount != 2 {
@@ -1109,9 +1109,9 @@ mcp:
 			mcpClient.discoverCount, mcpClient.listToolsCount,
 		)
 	}
-	if secondModel.preparedCount() != 1 || len(secondModel.prepared[0].ToolSpecs) != 3 ||
-		!onlyFileRetrievalTools(secondModel.prepared[0].ToolSpecs[:2]) ||
-		secondModel.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
+	if secondModel.preparedCount() != 1 || len(secondModel.prepared[0].ToolSpecs) != 4 ||
+		!onlyFileRetrievalTools(secondModel.prepared[0].ToolSpecs[:3]) ||
+		secondModel.prepared[0].ToolSpecs[3].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
 		t.Fatalf("second agent did not expose the cached mcp tool: %+v", secondModel.prepared)
 	}
 	secondConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, second.Agent.ID, "docs")
@@ -1191,9 +1191,9 @@ mcp:
 		if err := executor.ExecuteModelWork(ctx, input); err != nil {
 			t.Fatalf("execute %s: %v", name, err)
 		}
-		if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 3 ||
-			!onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs[:2]) ||
-			modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
+		if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 4 ||
+			!onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs[:3]) ||
+			modelClient.prepared[0].ToolSpecs[3].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
 			t.Fatalf("%s did not expose the mcp tool: %+v", name, modelClient.prepared)
 		}
 		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
@@ -1586,6 +1586,6 @@ mcp:
 }
 
 func onlyFileRetrievalTools(specs []modelcontext.ToolSpec) bool {
-	return len(specs) == 2 && specs[0].Name == toolcatalog.ToolNameReadFile &&
-		specs[1].Name == toolcatalog.ToolNameSearchFiles
+	return len(specs) == 3 && specs[0].Name == toolcatalog.ToolNameListFiles &&
+		specs[1].Name == toolcatalog.ToolNameReadFile && specs[2].Name == toolcatalog.ToolNameSearchFiles
 }
