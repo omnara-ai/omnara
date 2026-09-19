@@ -997,7 +997,7 @@ export const listProjectAvailableSkills = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * listMemoryStores
+ * List memory stores
  */
 export const listMemoryStores = <ThrowOnError extends boolean = true>(options: Options<ListMemoryStoresData, ThrowOnError>): RequestResult<ListMemoryStoresResponses, ListMemoryStoresErrors, ThrowOnError> => (options.client ?? client).get<ListMemoryStoresResponses, ListMemoryStoresErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListMemoryStoresResponse),
@@ -1015,7 +1015,7 @@ export const listMemoryStores = <ThrowOnError extends boolean = true>(options: O
 });
 
 /**
- * createMemoryStore
+ * Create memory store
  */
 export const createMemoryStore = <ThrowOnError extends boolean = true>(options: Options<CreateMemoryStoreData, ThrowOnError>): RequestResult<CreateMemoryStoreResponses, CreateMemoryStoreErrors, ThrowOnError> => (options.client ?? client).post<CreateMemoryStoreResponses, CreateMemoryStoreErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateMemoryStoreResponse),
@@ -1041,7 +1041,7 @@ export const createMemoryStore = <ThrowOnError extends boolean = true>(options: 
 });
 
 /**
- * deleteMemoryStore
+ * Delete memory store
  */
 export const deleteMemoryStore = <ThrowOnError extends boolean = true>(options: Options<DeleteMemoryStoreData, ThrowOnError>): RequestResult<DeleteMemoryStoreResponses, DeleteMemoryStoreErrors, ThrowOnError> => (options.client ?? client).delete<DeleteMemoryStoreResponses, DeleteMemoryStoreErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteMemoryStoreResponse),
@@ -1063,7 +1063,7 @@ export const deleteMemoryStore = <ThrowOnError extends boolean = true>(options: 
 });
 
 /**
- * getMemoryStore
+ * Get memory store
  */
 export const getMemoryStore = <ThrowOnError extends boolean = true>(options: Options<GetMemoryStoreData, ThrowOnError>): RequestResult<GetMemoryStoreResponses, GetMemoryStoreErrors, ThrowOnError> => (options.client ?? client).get<GetMemoryStoreResponses, GetMemoryStoreErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetMemoryStoreResponse),
@@ -1081,7 +1081,7 @@ export const getMemoryStore = <ThrowOnError extends boolean = true>(options: Opt
 });
 
 /**
- * updateMemoryStore
+ * Update memory store
  */
 export const updateMemoryStore = <ThrowOnError extends boolean = true>(options: Options<UpdateMemoryStoreData, ThrowOnError>): RequestResult<UpdateMemoryStoreResponses, UpdateMemoryStoreErrors, ThrowOnError> => (options.client ?? client).patch<UpdateMemoryStoreResponses, UpdateMemoryStoreErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateMemoryStoreResponse),
@@ -3526,7 +3526,7 @@ export const downloadDaemonArtifact = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * downloadDaemonFile
+ * Download daemon file
  */
 export const downloadDaemonFile = <ThrowOnError extends boolean = true>(options: Options<DownloadDaemonFileData, ThrowOnError>): RequestResult<DownloadDaemonFileResponses, DownloadDaemonFileErrors, ThrowOnError> => (options.client ?? client).get<DownloadDaemonFileResponses, DownloadDaemonFileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDownloadDaemonFileResponse),
@@ -3540,7 +3540,7 @@ export const downloadDaemonFile = <ThrowOnError extends boolean = true>(options:
 });
 
 /**
- * uploadDaemonFile
+ * Upload daemon file
  */
 export const uploadDaemonFile = <ThrowOnError extends boolean = true>(options: Options<UploadDaemonFileData, ThrowOnError>): RequestResult<UploadDaemonFileResponses, UploadDaemonFileErrors, ThrowOnError> => (options.client ?? client).post<UploadDaemonFileResponses, UploadDaemonFileErrors, ThrowOnError>({
     bodySerializer: null,
