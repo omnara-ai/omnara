@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -552,6 +553,34 @@ func TestMCPInitializationFailureWarns(t *testing.T) {
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
+		}
+	}
+}
+
+func TestWorkerErrorFieldsSanitizeDatabaseErrors(t *testing.T) {
+	for field, attach := range map[string]func(context.Context, error){
+		"worker.loop.recoverable_error": WorkerLoopRecoverableTurnRace,
+		"runtime_lock.renewal.error":    RuntimeRenewalFailed,
+	} {
+		for _, databaseError := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/database=%t", field, databaseError), func(t *testing.T) {
+				var buf bytes.Buffer
+				ctx := log.WithLogger(t.Context(), testLogger(&buf))
+				ctx, event := WorkerLoop(ctx, testID(12))
+				dbErr := errors.New("customer_content")
+				log.AttachDBQuery(ctx, log.DBQueryTraceRecord{Cause: dbErr, ErrorKind: "postgres"})
+				err := errors.New("unrelated failure")
+				want := err.Error()
+				if databaseError {
+					err = fmt.Errorf("renew runtime: %w", dbErr)
+					want = "postgres"
+				}
+				attach(ctx, err)
+				event.Done(ctx)
+				record := oneRecord(t, &buf)
+				require.Equal(t, want, record[field])
+				require.NotContains(t, buf.String(), "customer_content")
+			})
 		}
 	}
 }

@@ -3,8 +3,14 @@ package log
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
+	"os"
+	"slices"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +32,8 @@ type Event struct {
 	beforeDone []func(Finalizer)
 	dbQueries  []DBQueryTraceRecord
 	httpReqs   []HTTPRequestTraceRecord
+
+	requestCanceled func() bool
 }
 
 // Finalizer is the handle that beforeDone callbacks receive. It exposes
@@ -182,9 +190,16 @@ func (e *Event) Done(ctx context.Context) {
 	attrs := append([]slog.Attr(nil), e.attrs...)
 	attrs = append(attrs, slog.Duration("event.duration", time.Since(e.started)))
 	if e.err != nil {
-		attrs = append(attrs, slog.String("error.message", e.err.Error()))
+		attrs = append(attrs, slog.Any("error.message", e.err))
 	}
 	attrs = dedupAttrs(attrs)
+	for i, attr := range attrs {
+		if err, ok := attr.Value.Any().(error); ok {
+			if text, ok := e.databaseErrorText(err); ok {
+				attrs[i].Value = slog.StringValue(text)
+			}
+		}
+	}
 	e.log.LogAttrs(ctx, level, e.name, attrs...)
 }
 
@@ -225,4 +240,35 @@ func normalizeFieldValue(v any) any {
 		return nil
 	}
 	return v
+}
+
+func (e *Event) databaseErrorText(err error) (string, bool) {
+	if err == nil || slices.Contains([]error{
+		context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe,
+		os.ErrDeadlineExceeded, net.ErrClosed, syscall.ECONNRESET,
+	}, err) {
+		return "", false
+	}
+	for _, record := range e.dbQueries {
+		if record.Cause != nil && errors.Is(record.Cause, err) {
+			return record.ErrorKind, true
+		}
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		var parts []string
+		sanitized := false
+		for _, child := range joined.Unwrap() {
+			if child == nil {
+				continue
+			}
+			text, safe := e.databaseErrorText(child)
+			if !safe {
+				text = child.Error()
+			}
+			sanitized = sanitized || safe
+			parts = append(parts, text)
+		}
+		return strings.Join(parts, "\n"), sanitized
+	}
+	return e.databaseErrorText(errors.Unwrap(err))
 }
