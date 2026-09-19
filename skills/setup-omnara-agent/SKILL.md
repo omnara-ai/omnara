@@ -8,7 +8,8 @@ documentation pages as you need them.
 
 Before setting up the agent, check authentication with `npx omnara whoami`. If not
 logged in, run `npx omnara login` in an interactive terminal session without piping
-output; add `--no-browser` on headless or remote machines. Whenever login starts,
+output; add `--no-browser` on headless or remote machines. By default, login opens a
+browser for the user to sign in and approve access. Whenever login starts,
 immediately share the approval link and code and keep the command running while the
 user approves. Do not continue setup until login completes and `npx omnara whoami`
 succeeds.
