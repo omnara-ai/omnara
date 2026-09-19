@@ -12,9 +12,9 @@ func (s *Store) IntegrationSetTargetRefGenerator(generator func(string) (string,
 	s.targetRefGenerator = generator
 }
 
-func (s *Store) DeleteIntegrationInstallOnceForIntegration(
+func (s *Store) DeleteIntegrationConnectionOnceForIntegration(
 	ctx context.Context,
-	projectID, installID uuid.UUID,
+	projectID, connectionID uuid.UUID,
 ) error {
-	return s.deleteIntegrationInstallOnce(ctx, projectID, installID)
+	return s.deleteIntegrationConnectionOnce(ctx, projectID, connectionID)
 }

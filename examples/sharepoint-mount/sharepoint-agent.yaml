@@ -23,8 +23,8 @@ instruction: |
     with the docx module.
   Reading files this way is always safe; only writing needs user confirmation.
 
-  When this conversation is driven through an integration such as Slack, the
-  external user only sees messages you send with send_integration_message —
+  When slack_post_message is available through a Slack app resource, the
+  external user only sees messages you send with slack_post_message —
   use it for every answer or update they should see.
 model:
   provider_config: oai
@@ -43,9 +43,8 @@ tools:
   list_machines: {}
   inspect_machine: {}
   ask_question: {}
-  # Integration targets (e.g. a Slack channel bound at launch): the send tool
-  # delivers user-visible replies; the target tool switches conversations.
-  send_integration_message:
+  # Policy only: Slack app setup supplies the scoped tool for launched agents.
+  # Agents launched directly need an explicit app_resources attachment to send.
+  slack_post_message:
     permission:
       mode: always_allow
-  set_integration_target: {}

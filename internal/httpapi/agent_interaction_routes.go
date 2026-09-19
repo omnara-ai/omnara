@@ -150,6 +150,7 @@ func (s strictOpenAPIServer) resolveAgentInteraction(
 	if err != nil {
 		return nil, err
 	}
+	s.server.dismissInteractionAsync(ctx, record)
 	return openapi.ResolveAgentInteraction200JSONResponse(response), nil
 }
 
@@ -175,14 +176,6 @@ func publicInteractionResolution(
 		return interactionform.Resolution{}, err
 	}
 	return normalized, nil
-}
-
-func marshalJSON(value any) (json.RawMessage, error) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
 }
 
 func agentInteractionResponseFromRecord(
@@ -224,6 +217,36 @@ func agentInteractionResponseFromRecord(
 		Request:         openAPIInteractionForm(request),
 		CreatedAt:       record.CreatedAt,
 		ResolvedAt:      timePtrFromZero(record.ResolvedAt),
+	}
+	destination, err := record.CapturedDestination()
+	if err != nil {
+		return openapi.AgentInteraction{}, err
+	}
+	if destination != nil {
+		connectionID, err := publicID(publicid.KindIntegrationConnection, destination.ConnectionID)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		targetID, err := publicID(publicid.KindIntegrationTarget, destination.IntegrationTargetID)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		response.Destination = &openapi.AgentInteractionDestination{
+			HandlerDefinition:   destination.HandlerDefinition,
+			ResourceKey:         destination.ResourceKey,
+			ConnectionId:        connectionID,
+			IntegrationTargetId: targetID,
+			Address: openapi.IntegrationConversationAddress{
+				Kind: destination.Address.Kind, Ref: destination.Address.Ref,
+			},
+		}
+	}
+	if len(record.PresentationReceipt) != 0 {
+		var receipt openapi.InteractionPresentationReceipt
+		if err := json.Unmarshal(record.PresentationReceipt, &receipt); err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		response.PresentationReceipt = &receipt
 	}
 	if record.InteractionKind == executionstore.AgentInteractionKindPermission {
 		permissionRequest, err := toolpermission.ParseRequest(record.Request)

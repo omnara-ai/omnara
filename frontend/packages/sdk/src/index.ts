@@ -27,3 +27,10 @@ export * as sdk from './generated/sdk.gen'
 export type * from './generated/types.gen'
 export * as schemas from './generated/zod.gen'
 export { type JsonBody, zJsonText } from './json-body'
+export {
+  profileAppDiscordKeyStatus,
+  profileAppProfileUpdate,
+  type ProfileAppProvider,
+  profileAppSetup,
+  profileAppTools,
+} from './profile-app'

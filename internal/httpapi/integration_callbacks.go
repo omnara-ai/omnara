@@ -34,16 +34,16 @@ func (s *Server) verifySignedSlackCallback(
 	r *http.Request,
 	raw []byte,
 	appID, workspaceID string,
-) (integrationstore.IntegrationInstallRecord, bool) {
+) (integrationstore.IntegrationConnectionRecord, bool) {
 	if s.store == nil {
 		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "store unavailable")
-		return integrationstore.IntegrationInstallRecord{}, false
+		return integrationstore.IntegrationConnectionRecord{}, false
 	}
 	if appID == "" || workspaceID == "" {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack callback identity")
-		return integrationstore.IntegrationInstallRecord{}, false
+		return integrationstore.IntegrationConnectionRecord{}, false
 	}
-	install, err := s.store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := s.store.Integrations().GetIntegrationConnectionByProviderAccount(
 		r.Context(),
 		integrationstore.IntegrationProviderSlack,
 		workspaceID,
@@ -52,19 +52,19 @@ func (s *Server) verifySignedSlackCallback(
 	if err != nil {
 		if storeerr.IsNotFound(err) {
 			apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid signature")
-			return integrationstore.IntegrationInstallRecord{}, false
+			return integrationstore.IntegrationConnectionRecord{}, false
 		}
 		writeIntegrationProviderError(w, err)
-		return integrationstore.IntegrationInstallRecord{}, false
+		return integrationstore.IntegrationConnectionRecord{}, false
 	}
 	credentials, err := s.integrationSlackCredentials(r.Context(), install)
 	if err != nil {
 		writeIntegrationProviderError(w, err)
-		return integrationstore.IntegrationInstallRecord{}, false
+		return integrationstore.IntegrationConnectionRecord{}, false
 	}
 	if !slack.ValidSignature(r.Header, raw, credentials.SigningSecret, time.Now().UTC()) {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid signature")
-		return integrationstore.IntegrationInstallRecord{}, false
+		return integrationstore.IntegrationConnectionRecord{}, false
 	}
 	return install, true
 }

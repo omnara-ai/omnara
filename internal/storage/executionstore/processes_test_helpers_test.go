@@ -58,18 +58,8 @@ func createQuestionInteractionForTest(
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
 	}
-	if execution.Disposition == executionstore.ToolCallDispositionRunning {
-		if err := fixture.Store.Execution().ReleaseToolCallRuntimeOwnership(
-			ctx,
-			executionstore.ReleaseToolCallRuntimeOwnershipInput{
-				ProjectID:     testProjectID,
-				AgentID:       fixture.AgentID,
-				ToolCallID:    toolCallID,
-				RuntimeLockID: fixture.Lock.ID,
-			},
-		); err != nil {
-			t.Fatalf("release question tool call: %v", err)
-		}
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatal("question must commit into durable waiting")
 	}
 	return interaction
 }
@@ -1505,7 +1495,12 @@ func completedToolCallForTest(
 	toolCallID uuid.UUID,
 ) executionstore.ToolCallRecord {
 	t.Helper()
-	completed, err := store.Execution().ListCompletedToolCallsForTurn(context.Background(), testProjectID, agentID, turnID)
+	completed, err := store.Execution().ListCompletedToolCallsForTurn(
+		context.Background(),
+		testProjectID,
+		agentID,
+		turnID,
+	)
 	if err != nil {
 		t.Fatalf("list completed tool calls for turn: %v", err)
 	}

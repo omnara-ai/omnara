@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -26,10 +27,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
-func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
+func TestSlackOAuthSetupAndCallbackCreatesConnectionAndProjectApp(
 	t *testing.T,
 ) {
 	t.Parallel()
@@ -196,16 +200,15 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if len(location.Query()) != 1 {
 		t.Fatalf("unexpected callback redirect params: %s", location.String())
 	}
-	install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := project.Store.Integrations().GetIntegrationConnectionByProviderAccount(
 		ctx,
 		integrationstore.IntegrationProviderSlack,
 		"T123",
 		"A123",
 	)
 	if err != nil {
-		t.Fatalf("get integration install: %v", err)
+		t.Fatalf("get integration connection: %v", err)
 	}
-	profileUUID := mustPublicHTTPID(t, publicid.KindAgentProfile, profileID)
 	identity, err := slack.ParseInstallIdentity(install.ProviderIdentity)
 	if err != nil {
 		t.Fatalf("parse install identity: %v", err)
@@ -214,11 +217,8 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if err := json.Unmarshal(install.ProviderMetadata, &metadata); err != nil {
 		t.Fatalf("parse install metadata: %v", err)
 	}
-	if install.AgentProfileID != profileUUID ||
-		install.Provider != integrationstore.IntegrationProviderSlack ||
-		install.State != integrationstore.IntegrationInstallStateActive ||
-		install.IntegrationKind != slack.IntegrationKindAgentProfile ||
-		install.ConnectionMode != slack.ConnectionModeWebhook ||
+	if install.Provider != integrationstore.IntegrationProviderSlack ||
+		install.State != integrationstore.IntegrationConnectionStateActive ||
 		install.ProviderAccountRef != "A123" ||
 		identity.BotUserID != "U_BOT" ||
 		metadata.TeamName != "Acme" ||
@@ -243,6 +243,7 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 		credentials.ClientSecret != "client-secret" || credentials.SigningSecret != "signing-secret" {
 		t.Fatalf("unexpected integration credentials: %+v", credentials)
 	}
+	app := assertSlackOAuthDefaultProjectApp(t, handler, project, install, profileID, 1)
 
 	replay := httptest.NewRequest(
 		http.MethodGet,
@@ -265,6 +266,7 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if countSlackOAuthCredentialSecrets(t, ctx, project.Store, project) != 1 {
 		t.Fatalf("replayed callback should not create another bot secret")
 	}
+	require.Equal(t, app, assertSlackOAuthDefaultProjectApp(t, handler, project, install, profileID, 1))
 }
 
 func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
@@ -314,6 +316,10 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 						"T123",
 					),
 				)
+			case "reconnect-code":
+				writeJSON(w, http.StatusOK, slackOAuthTestResponseForProviderIdentity(
+					"xoxb-reconnected-token", "A_FIRST", "U_FIRST_BOT", "T123",
+				))
 			default:
 				t.Errorf("unexpected oauth code %q", r.PostForm.Get("code"))
 				http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -353,15 +359,17 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 		"slack-multiple-apps-csrf",
 	)
 
-	complete := func(code, appID string) integrationstore.IntegrationInstallRecord {
+	complete := func(code, appID string) integrationstore.IntegrationConnectionRecord {
 		t.Helper()
 		setup := requestJSONWithHeaders(
 			t,
 			handler,
 			http.MethodPost,
 			project.ProjectPath+"/agent-profiles/"+profileID+"/integration-oauth/setup",
-			`{"provider":"slack","client_id":"client-123","client_secret":"client-secret",`+
-				`"signing_secret":"signing-secret","return_to":"/settings/integrations"}`,
+			projectAppHTTPJSON(t, map[string]any{
+				"provider": "slack", "client_id": "client-" + appID, "client_secret": "client-secret-" + appID,
+				"signing_secret": "signing-secret-" + appID, "return_to": "/settings/integrations",
+			}),
 			"",
 			http.StatusCreated,
 			authHeaders(project.AdminToken),
@@ -399,14 +407,14 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 		if location.Query().Get("integration_oauth") != "success" {
 			t.Fatalf("callback redirect = %s, want success", location.String())
 		}
-		install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+		install, err := project.Store.Integrations().GetIntegrationConnectionByProviderAccount(
 			ctx,
 			integrationstore.IntegrationProviderSlack,
 			"T123",
 			appID,
 		)
 		if err != nil {
-			t.Fatalf("get integration install %s: %v", appID, err)
+			t.Fatalf("get integration connection %s: %v", appID, err)
 		}
 		return install
 	}
@@ -414,12 +422,257 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 	first := complete("first-code", "A_FIRST")
 	second := complete("second-code", "A_SECOND")
 	if first.ID == second.ID ||
-		first.AgentProfileID != second.AgentProfileID ||
 		first.ProviderTenantID != second.ProviderTenantID ||
-		first.State != integrationstore.IntegrationInstallStateActive ||
-		second.State != integrationstore.IntegrationInstallStateActive {
+		first.State != integrationstore.IntegrationConnectionStateActive ||
+		second.State != integrationstore.IntegrationConnectionStateActive {
 		t.Fatalf("unexpected installs: first=%+v second=%+v", first, second)
 	}
+	firstApp := assertSlackOAuthDefaultProjectApp(t, handler, project, first, profileID, 2)
+	secondApp := assertSlackOAuthDefaultProjectApp(t, handler, project, second, profileID, 2)
+	require.NotEqual(t, firstApp["id"], secondApp["id"])
+	require.NotEqual(t, first.CredentialSecretID, second.CredentialSecretID)
+
+	// Both credentials are accessible in this project, but only OAuth may bind
+	// one to an account. Ordinary PUT must not pair A's identity with B's token.
+	path := project.ProjectPath + "/integration-connections/" +
+		testPublicID(t, publicid.KindIntegrationConnection, first.ID)
+	body := connectionHTTPBody("slack", first.ProviderTenantID, first.ProviderAccountRef)
+	body["credential_secret_id"] = testPublicID(t, publicid.KindSecret, second.CredentialSecretID)
+	body["provider_agent_display_name"] = "Edited Slack label"
+	for _, state := range []string{"active", "disabled"} {
+		body["state"] = state
+		response := requestJSONWithHeaders(t, handler, http.MethodPut, path, projectAppHTTPJSON(t, body),
+			"", http.StatusBadRequest, authHeaders(project.AdminToken))
+		require.Contains(t, response["error"], "OAuth")
+		current, err := project.Store.Integrations().GetIntegrationConnection(ctx, project.ProjectUUID, first.ID)
+		require.NoError(t, err)
+		require.Equal(t, first, current, "rejected rebinding must not change any connection facts")
+	}
+	// The existing binding still allows ordinary state and display-name edits.
+	body["credential_secret_id"] = testPublicID(t, publicid.KindSecret, first.CredentialSecretID)
+	for _, state := range []string{"disabled", "active"} {
+		body["state"] = state
+		response := requestJSONWithHeaders(t, handler, http.MethodPut, path, projectAppHTTPJSON(t, body),
+			"", http.StatusOK, authHeaders(project.AdminToken))
+		require.Equal(t, state, response["state"])
+		require.Equal(t, "Edited Slack label", response["provider_agent_display_name"])
+		current, err := project.Store.Integrations().GetIntegrationConnection(ctx, project.ProjectUUID, first.ID)
+		require.NoError(t, err)
+		require.Equal(t, first.CredentialSecretID, current.CredentialSecretID)
+		require.Equal(t, first.LastOAuthFlowID, current.LastOAuthFlowID)
+		require.JSONEq(t, string(first.ProviderIdentity), string(current.ProviderIdentity))
+	}
+	// Reauthorization still replaces the credential through its verified path.
+	reconnected := complete("reconnect-code", "A_FIRST")
+	require.Equal(t, first.ID, reconnected.ID)
+	require.NotEqual(t, first.CredentialSecretID, reconnected.CredentialSecretID)
+	require.NotEqual(t, second.CredentialSecretID, reconnected.CredentialSecretID)
+	require.NotEqual(t, first.LastOAuthFlowID, reconnected.LastOAuthFlowID)
+	payload, err := project.Store.Secrets().GetProjectOwnedSecretPayload(
+		ctx, project.OrgUUID, project.ProjectUUID, reconnected.CredentialSecretID,
+	)
+	require.NoError(t, err)
+	credentials, err := slack.AppCredentialsFromPayload(payload)
+	require.NoError(t, err)
+	require.Equal(t, "xoxb-reconnected-token", credentials.BotToken)
+	require.Equal(t, "signing-secret-A_FIRST", credentials.SigningSecret)
+	currentSecond, err := project.Store.Integrations().GetIntegrationConnection(ctx, project.ProjectUUID, second.ID)
+	require.NoError(t, err)
+	require.Equal(t, second, currentSecond, "another App's connection must remain unchanged")
+}
+
+func TestSlackOAuthCallbackRollsBackFailedAppSetup(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth.v2.access":
+			writeJSON(w, http.StatusOK, slackOAuthTestResponse("xoxb-atomic-setup"))
+		case "/users.info":
+			writeSlackLookupTestResponse(t, w, r)
+		default:
+			t.Errorf("unexpected Slack path %s", r.URL.Path)
+			http.Error(w, "unexpected Slack call", http.StatusInternalServerError)
+		}
+	}))
+	defer slackServer.Close()
+	handler := newIntegrationServer(pool, WithPublicURL("https://omnara.test"), WithSlackOAuth(SlackOAuthConfig{
+		AuthorizeURL: "http://slack.test/oauth/v2/authorize", AccessURL: slackServer.URL + "/oauth.v2.access",
+		APIURL: slackServer.URL, HTTPClient: slackServer.Client(),
+	}))
+	project := bootstrapPublicHTTPProject(t, handler, "slack-atomic-setup")
+	profile := createSlackReadyHTTPProfile(t, handler, project, "slack-atomic-setup", project.AdminToken)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	createBrowserSessionForHTTPTest(t, ctx, project.Store, project.AdminUserUUID, "atomic-session", "atomic-csrf")
+	setup := requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/agent-profiles/"+profileID+"/integration-oauth/setup",
+		`{"provider":"slack","client_id":"client-123","client_secret":"client-secret","signing_secret":"signing-secret","return_to":"/settings/integrations"}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	oauthURL, err := url.Parse(testutil.RequireType[string](t, setup["oauth_url"]))
+	require.NoError(t, err)
+	stateToken := oauthURL.Query().Get("state")
+	decoder := &Server{secretKeyWrapper: integrationKeyWrapper()}
+	state, err := decoder.decodeIntegrationOAuthState(ctx, stateToken)
+	require.NoError(t, err)
+
+	// Quota is checked after writing both candidate rows, exercising rollback of
+	// the connection, app, and consumed flow plus HTTP cleanup of the new secret.
+	_, err = pool.Exec(
+		ctx,
+		`INSERT INTO org_resource_limit_overrides(org_id,max_active_project_apps_per_project) VALUES($1,0)`,
+		project.OrgUUID,
+	)
+	require.NoError(t, err)
+	callback := func(code string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "https://omnara.test"+integrationOAuthCallbackPath+
+			"?code="+url.QueryEscape(code)+"&state="+url.QueryEscape(stateToken), nil)
+		req.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionHostCookieName, Value: "atomic-session"})
+		rec := performRequest(handler, req)
+		require.Equal(t, status, rec.Code, "callback body: %s", rec.Body.String())
+		return rec
+	}
+	failed := callback("failed-code", http.StatusFound)
+	location, err := url.Parse(failed.Header().Get("Location"))
+	require.NoError(t, err)
+	require.Equal(t, "https", location.Scheme)
+	require.Equal(t, "omnara.test", location.Host)
+	require.Equal(t, "/settings/integrations", location.Path)
+	require.Len(t, location.Query(), 1)
+	require.Equal(t, "setup_save_failed", location.Query().Get("integration_oauth_error"))
+	require.Empty(t, location.Query().Get("integration_oauth"))
+	_, err = project.Store.Integrations().GetIntegrationConnectionByProviderAccount(
+		ctx,
+		integrationstore.IntegrationProviderSlack,
+		"T123",
+		"A123",
+	)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	page, err := project.Store.Integrations().ListProjectApps(
+		ctx,
+		integrationstore.ListProjectAppsInput{ProjectID: project.ProjectUUID, Limit: 100},
+	)
+	require.NoError(t, err)
+	require.Empty(t, page.Apps)
+	require.False(t, page.HasMore)
+	require.Zero(t, countSlackOAuthCredentialSecrets(t, ctx, project.Store, project))
+	consumed, err := project.Store.Integrations().IntegrationOAuthFlowConsumed(ctx, state.FlowID)
+	require.NoError(t, err)
+	require.False(t, consumed)
+
+	// Restoring capacity allows the same state to finish with a fresh provider
+	// code; the failed attempt must not strand setup as already redeemed.
+	_, err = pool.Exec(
+		ctx,
+		`UPDATE org_resource_limit_overrides SET max_active_project_apps_per_project=1 WHERE org_id=$1`,
+		project.OrgUUID,
+	)
+	require.NoError(t, err)
+	success := callback("retry-code", http.StatusFound)
+	location, err = url.Parse(success.Header().Get("Location"))
+	require.NoError(t, err)
+	require.Equal(t, url.Values{"integration_oauth": {"success"}}, location.Query())
+	connection, err := project.Store.Integrations().GetIntegrationConnectionByProviderAccount(
+		ctx,
+		integrationstore.IntegrationProviderSlack,
+		"T123",
+		"A123",
+	)
+	require.NoError(t, err)
+	require.Equal(t, state.FlowID, connection.LastOAuthFlowID)
+	assertSlackOAuthDefaultProjectApp(t, handler, project, connection, profileID, 1)
+	require.Equal(t, 1, countSlackOAuthCredentialSecrets(t, ctx, project.Store, project))
+	consumed, err = project.Store.Integrations().IntegrationOAuthFlowConsumed(ctx, state.FlowID)
+	require.NoError(t, err)
+	require.True(t, consumed)
+	callback("replay-code", http.StatusUnauthorized)
+	require.Equal(t, 1, countSlackOAuthCredentialSecrets(t, ctx, project.Store, project))
+}
+
+func TestSlackOAuthReconnectPreservesConfiguredProjectApp(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth.v2.access":
+			if err := r.ParseForm(); err != nil {
+				t.Errorf("parse Slack exchange: %v", err)
+				http.Error(w, "invalid form", http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, http.StatusOK, slackOAuthTestResponse("xoxb-"+r.PostForm.Get("code")))
+		case "/users.info":
+			writeSlackLookupTestResponse(t, w, r)
+		default:
+			t.Errorf("unexpected Slack path %s", r.URL.Path)
+			http.Error(w, "unexpected Slack call", http.StatusInternalServerError)
+		}
+	}))
+	defer slackServer.Close()
+	handler := newIntegrationServer(pool, WithPublicURL("https://omnara.test"), WithSlackOAuth(SlackOAuthConfig{
+		AuthorizeURL: "http://slack.test/oauth/v2/authorize", AccessURL: slackServer.URL + "/oauth.v2.access",
+		APIURL: slackServer.URL, HTTPClient: slackServer.Client(),
+	}))
+	project := bootstrapPublicHTTPProject(t, handler, "slack-reconnect-app")
+	profile := createSlackReadyHTTPProfile(t, handler, project, "slack-reconnect-app", project.AdminToken)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	createBrowserSessionForHTTPTest(t, ctx, project.Store, project.AdminUserUUID, "reconnect-session", "reconnect-csrf")
+	first := completeSlackOAuthInstall(t, handler, project, profileID, "reconnect-session", "first-code")
+	app := assertSlackOAuthDefaultProjectApp(t, handler, project, first, profileID, 1)
+	appID := testutil.RequireType[string](t, app["id"])
+
+	// An operator disables the app, removes automatic launch, and narrows its
+	// selected tools. Reauthorization must rotate credentials without resetting it.
+	settings := testutil.RequireType[map[string]any](t, app["settings"])
+	delete(settings, "launcher")
+	resource := testutil.RequireType[map[string]any](t, settings["resource"])
+	resource["tools"] = map[string]any{toolcatalog.ToolNameSlackRead: map[string]any{}}
+	body, err := json.Marshal(map[string]any{"name": "Customized Slack setup", "settings": settings, "enabled": false})
+	require.NoError(t, err)
+	updated := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		project.ProjectPath+"/apps/"+appID,
+		string(body),
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+
+	second := completeSlackOAuthInstall(t, handler, project, profileID, "reconnect-session", "second-code")
+	require.Equal(t, first.ID, second.ID)
+	require.NotEqual(t, first.CredentialSecretID, second.CredentialSecretID)
+	require.NotEqual(t, first.LastOAuthFlowID, second.LastOAuthFlowID)
+	payload, err := project.Store.Secrets().GetProjectOwnedSecretPayload(
+		ctx,
+		project.OrgUUID,
+		project.ProjectUUID,
+		second.CredentialSecretID,
+	)
+	require.NoError(t, err)
+	credentials, err := slack.AppCredentialsFromPayload(payload)
+	require.NoError(t, err)
+	require.Equal(t, "xoxb-second-code", credentials.BotToken)
+	page := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/apps",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	require.Equal(
+		t,
+		[]any{updated},
+		page["data"],
+		"reconnect must retain the app and its revision without creating defaults",
+	)
+	require.Nil(t, page["next_cursor"])
 }
 
 func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
@@ -619,7 +872,7 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 	if len(location.Query()) != 1 {
 		t.Fatalf("unexpected callback redirect params: %s", location.String())
 	}
-	install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := project.Store.Integrations().GetIntegrationConnectionByProviderAccount(
 		ctx,
 		integrationstore.IntegrationProviderSlack,
 		"T123",
@@ -638,6 +891,26 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 		t.Fatalf("unexpected manifest-created install: %+v", install)
 	}
 	assertSlackSetupSecretName(t, ctx, project.Store, project, install.CredentialSecretID, "slack-credentials-")
+	assertSlackOAuthDefaultProjectApp(t, handler, project, install, testutil.RequireType[string](t, profile["id"]), 1)
+	payload, err := project.Store.Secrets().GetProjectOwnedSecretPayload(
+		ctx,
+		project.OrgUUID,
+		project.ProjectUUID,
+		install.CredentialSecretID,
+	)
+	require.NoError(t, err)
+	credentials, err := slack.AppCredentialsFromPayload(payload)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		slack.AppCredentials{
+			BotToken:      "xoxb-manifest-token",
+			ClientID:      "manifest-client",
+			ClientSecret:  "manifest-secret",
+			SigningSecret: "manifest-signing",
+		},
+		credentials,
+	)
 }
 
 func TestSlackSetupUploadsCustomAppIcon(t *testing.T) {
@@ -865,7 +1138,7 @@ func TestIntegrationOAuthSetupRejectsNonPublicSlackPublicURL(t *testing.T) {
 	}
 }
 
-func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *testing.T) {
+func TestSlackSetupRejectsProfileWithExplicitlyDisabledSlackPostMessage(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -904,7 +1177,7 @@ func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *te
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
 		"tools:\n" +
-		"  send_integration_message:\n" +
+		"  slack_post_message:\n" +
 		"    enabled: false\n"
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -921,24 +1194,25 @@ func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *te
 		handler,
 		project,
 		"slack-manifest-disabled-tool",
-		"Disabled Integration Send",
+		"Disabled Slack Post Message",
 		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	requestJSONWithHeaders(
+	response := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
-		"agent profile config does not allow send_integration_message",
+		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
+	require.Equal(t, "invalid request: agent profile config disables slack_post_message", response["error"])
 	if manifestCalled {
 		t.Fatal(
-			"slack manifest creation was called for profile with explicitly disabled send_integration_message",
+			"slack manifest creation was called for profile with explicitly disabled slack_post_message",
 		)
 	}
 }
@@ -1068,16 +1342,18 @@ func TestSlackSetupRejectsAppNameOverSlackLimit(t *testing.T) {
 		project.AdminToken,
 	)
 	body := `{"app_name":"Omnara Local Runtime Error Test Tunnel","app_configuration_token":"xoxe-config-token"}`
-	requestJSONWithHeaders(
+	response := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		body,
-		"app_name must be 35 characters or fewer",
+		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
+	require.Contains(t, response["error"], "/app_name")
+	require.Contains(t, response["error"], "maximum string length is 35")
 	if manifestCalled {
 		t.Fatal(
 			"slack manifest creation was called for app name over Slack limit",
@@ -1128,21 +1404,78 @@ func TestSlackSetupRejectsReservedAppName(t *testing.T) {
 		project.AdminToken,
 	)
 	body := `{"app_name":"slackbot","app_configuration_token":"xoxe-config-token"}`
-	requestJSONWithHeaders(
+	response := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		body,
-		"Slack reserves this app name. Choose a different name.",
+		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
+	require.Contains(t, response["error"], "Slack reserves this app name. Choose a different name.")
 	if manifestCalled {
 		t.Fatal(
 			"slack manifest creation was called for reserved app name",
 		)
 	}
+}
+
+func assertSlackOAuthDefaultProjectApp(
+	t *testing.T,
+	handler http.Handler,
+	project publicHTTPProject,
+	connection integrationstore.IntegrationConnectionRecord,
+	profileID string,
+	wantCount int,
+) map[string]any {
+	t.Helper()
+	page := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/apps",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	apps := testutil.RequireType[[]any](t, page["data"])
+	require.Len(t, apps, wantCount)
+	require.Nil(t, page["next_cursor"])
+	connectionID := testPublicID(t, publicid.KindIntegrationConnection, connection.ID)
+	var found map[string]any
+	for _, item := range apps {
+		app := testutil.RequireType[map[string]any](t, item)
+		settings := testutil.RequireType[map[string]any](t, app["settings"])
+		resource := testutil.RequireType[map[string]any](t, settings["resource"])
+		if resource["connection"] != connectionID {
+			continue
+		}
+		require.Nil(t, found, "duplicate default app for connection %s", connectionID)
+		found = app
+		mustPublicHTTPID(t, publicid.KindProjectApp, testutil.RequireType[string](t, app["id"]))
+		require.Equal(t, project.ProjectID, app["project_id"])
+		require.Equal(t, "slack-"+connection.ID.String(), app["name"])
+		require.Equal(t, true, app["enabled"])
+		require.Equal(t, appdefinition.Slack, resource["definition"])
+		require.Nil(t, resource["scope"], "concrete scope is supplied by each launcher event")
+		tools := testutil.RequireType[map[string]any](t, resource["tools"])
+		require.Len(t, tools, 2)
+		for _, name := range []string{toolcatalog.ToolNameSlackRead, toolcatalog.ToolNameSlackPostMessage} {
+			policy := testutil.RequireType[map[string]any](t, tools[name])
+			require.NotEqual(t, false, policy["enabled"], "%s must be enabled", name)
+		}
+		require.Equal(t, map[string]any{"events": []any{"message"}}, resource["listener"])
+		require.Equal(t, map[string]any{"definition": appdefinition.SlackInteractions}, resource["interaction_handler"])
+		require.Equal(t, map[string]any{
+			"trigger": "mention", "scope_kind": "workspace", "scope_ref": connection.ProviderTenantID,
+			"slots": []any{map[string]any{"key": "default", "agent_profile_id": profileID}},
+		}, settings["launcher"])
+	}
+	require.NotNil(t, found, "default project app missing for connection %s", connectionID)
+	return found
 }
 
 func createSlackReadyHTTPProfile(
@@ -1199,7 +1532,7 @@ func completeSlackOAuthInstall(
 	handler http.Handler,
 	project publicHTTPProject,
 	profileID, browserSessionToken, code string,
-) integrationstore.IntegrationInstallRecord {
+) integrationstore.IntegrationConnectionRecord {
 	t.Helper()
 	setup := requestJSONWithHeaders(
 		t,
@@ -1247,14 +1580,14 @@ func completeSlackOAuthInstall(
 	if len(location.Query()) != 1 {
 		t.Fatalf("unexpected callback redirect params: %s", location.String())
 	}
-	install, err := project.Store.Integrations().GetIntegrationInstallByProviderAccount(
+	install, err := project.Store.Integrations().GetIntegrationConnectionByProviderAccount(
 		context.Background(),
 		integrationstore.IntegrationProviderSlack,
 		"T123",
 		"A123",
 	)
 	if err != nil {
-		t.Fatalf("get integration install: %v", err)
+		t.Fatalf("get integration connection: %v", err)
 	}
 	return install
 }

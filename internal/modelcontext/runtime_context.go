@@ -10,24 +10,15 @@ func MachinePoolContextEnabled(specs []ToolSpec) bool {
 	return HasTool(specs, toolcatalog.ToolNameCreateMachine)
 }
 
-func IntegrationTargetContextEnabled(specs []ToolSpec) bool {
-	return HasAnyTool(
-		specs,
-		toolcatalog.ToolNameSendIntegrationMessage,
-		toolcatalog.ToolNameSetIntegrationTarget,
-	)
-}
-
-func IntegrationTargetsContent(targets []IntegrationTargetRef) string {
-	if len(targets) == 0 {
-		return "No external integration targets are currently available for this agent."
+func InteractionRoutingContent(routing *InteractionRoutingContext) string {
+	if routing == nil || routing.Destination == nil {
+		return "New questions and permission prompts will appear in the Omnara dashboard only. Use list_interaction_destinations to discover available destinations and set_interaction_destination to change this."
 	}
-	body, err := json.Marshal(targets)
+	body, err := json.Marshal(routing.Destination)
 	if err != nil {
-		return "External integration targets are present but could not be serialized."
+		return "The current interaction destination could not be serialized; use list_interaction_destinations."
 	}
-	return "External integration targets available for this agent. The current target is used by default " +
-		"for outbound integration messages and interaction prompts: " + string(body)
+	return "Default destination for new questions and permission prompts: " + string(body) + ". They also remain available in the Omnara dashboard. Ordinary provider messages do not change this choice. A newly accepted input with an origin may change it; set_interaction_destination can change it explicitly."
 }
 
 func AvailableMachinePoolsContent(pools []MachinePoolRef) string {

@@ -5,6 +5,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestListAgents(t *testing.T) {
@@ -154,7 +156,7 @@ func TestListAgents(t *testing.T) {
 					"C0BAK8REEGY:1783382417.000100",
 					"thread",
 					"agent-testing",
-					"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=T-list-agents-target",
+					"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
 				)
 			}
 			seen[id] = true
@@ -179,7 +181,14 @@ func TestListAgents(t *testing.T) {
 	}
 	for i := range wantOrder {
 		if got[i] != wantOrder[i] {
-			t.Fatalf("order mismatch at %d: got %s want %s (full got=%v want=%v)", i, got[i], wantOrder[i], got, wantOrder)
+			t.Fatalf(
+				"order mismatch at %d: got %s want %s (full got=%v want=%v)",
+				i,
+				got[i],
+				wantOrder[i],
+				got,
+				wantOrder,
+			)
 		}
 	}
 
@@ -481,21 +490,43 @@ func seedListAgentsSlackTarget(
 		ctx,
 		project,
 		profileID,
-		"app-list-agents-target",
-		"T-list-agents-target",
-		"U-list-agents-bot",
+		"ALISTAGENTS",
+		"TLISTAGENTS",
+		"ULISTAGENTSBOT",
 		"signing-secret-list-agents",
 	)
-	target, err := store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
-		ProjectID:            project.ProjectUUID,
-		AgentID:              agent.ID,
-		IntegrationInstallID: install.ID,
-		ProviderRef:          "C0BAK8REEGY:1783382417.000100",
-		ProviderRefKind:      "thread",
+	// A verified inbox input creates the attribution target through real admission.
+	_, _, err := store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: project.ProjectUUID, ConnectionID: install.ID,
+		ReceiptKey: "list-origin", Payload: []byte(`{"verified":true}`),
 	})
-	if err != nil {
-		t.Fatalf("seed Slack integration target: %v", err)
-	}
+	require.NoError(t, err)
+	receipt, found, err := store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: project.ProjectUUID, ConnectionID: install.ID, LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	plan, err := json.Marshal(map[string]executionstore.InboxInputSlot{"recipient": {
+		AgentID: agent.ID, Input: executionstore.CreateAgentContentInputInput{
+			Origin: &executionstore.AgentInputOrigin{
+				ConnectionID: install.ID,
+				Address: integrationstore.ConversationAddress{
+					Kind: "thread",
+					Ref:  "C0BAK8REEGY:1783382417.000100",
+				},
+			},
+			Actor: &executionstore.ActorParams{
+				Provider: "slack", ProviderTenantID: install.ProviderTenantID, ProviderUserID: "ULISTINPUT",
+			},
+			ContentBlocks: json.RawMessage(`[{"type":"text","text":"list origin"}]`), IdempotencyKey: "list-origin",
+		},
+	}})
+	require.NoError(t, err)
+	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
+		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
+	admitted, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	require.NoError(t, err)
+	target := admitted.IntegrationTarget
 	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 		ctx,
 		project.ProjectUUID,

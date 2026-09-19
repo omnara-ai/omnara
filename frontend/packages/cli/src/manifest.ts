@@ -5,6 +5,13 @@ import * as z from 'zod'
 import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
 import { formatAgentEventList } from './agent-rendering.ts'
 import {
+  appCommandGroups,
+  runDiscordAppSetup,
+  runGitHubAppSetup,
+  zDiscordAppBody,
+  zGitHubAppBody,
+} from './app-setup.ts'
+import {
   currentProfileConfigId,
   renderConfigSource,
   resolveConfigId,
@@ -20,6 +27,7 @@ import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
 import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
 
 export const commandGroups: CommandGroup[] = [
+  ...appCommandGroups,
   {
     name: 'agents',
     aliases: ['agent'],
@@ -779,6 +787,28 @@ export const commandGroups: CommandGroup[] = [
         }),
         body: zSlackBody,
         run: runSlackIntegration,
+      }),
+      flowOp({
+        verb: 'github',
+        summary: 'Launch this profile on pull requests using an existing GitHub connection',
+        path: z.object({
+          orgID: schemas.zOrganizationId,
+          projectID: schemas.zProjectId,
+          agentProfileID: schemas.zAgentProfileId,
+        }),
+        body: zGitHubAppBody,
+        run: runGitHubAppSetup,
+      }),
+      flowOp({
+        verb: 'discord',
+        summary: 'Launch this profile on mentions using an existing Discord connection',
+        path: z.object({
+          orgID: schemas.zOrganizationId,
+          projectID: schemas.zProjectId,
+          agentProfileID: schemas.zAgentProfileId,
+        }),
+        body: zDiscordAppBody,
+        run: runDiscordAppSetup,
       }),
     ],
   },

@@ -196,7 +196,7 @@ func buildMessages(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
+	if bundle.InteractionRouting != nil {
 		capacity++
 	}
 	messages := make([]chatMessage, 0, capacity)
@@ -236,10 +236,10 @@ func buildMessages(
 			Content: modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
 		})
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
+	if bundle.InteractionRouting != nil {
 		messages = append(messages, chatMessage{
 			Role:    chatRoleSystem,
-			Content: modelcontext.IntegrationTargetsContent(bundle.IntegrationTargets),
+			Content: modelcontext.InteractionRoutingContent(bundle.InteractionRouting),
 		})
 	}
 	if len(messages) == 0 {

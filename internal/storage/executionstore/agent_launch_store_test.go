@@ -5,6 +5,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExpandLaunchMachineBindingRequestsUsesCompiledIDs(t *testing.T) {
@@ -30,5 +33,43 @@ func TestExpandLaunchMachineBindingRequestsUsesCompiledIDs(t *testing.T) {
 	if requests[1].Source.MachinePoolID != machinePoolID || requests[1].PoolSlotIndex != 0 ||
 		requests[2].PoolSlotIndex != 1 {
 		t.Fatalf("unexpected pool requests: %+v", requests)
+	}
+}
+
+func TestDerivedLaunchRequiresProfileBase(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name                            string
+		profile, base, subagent, reject bool
+	}{
+		{name: "missing profile base", profile: true, reject: true},
+		{name: "pinned profile base", profile: true, base: true},
+		{name: "unprofiled derived config"},
+		{name: "subagent profile attribution", profile: true, subagent: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			input := LaunchAgentInput{
+				ProjectID:     uuid.New(),
+				LaunchedBy:    identitystore.NewUserPrincipal(uuid.New()),
+				DerivedConfig: &CreateAgentConfigInput{},
+			}
+			if test.profile {
+				input.ProfileID = uuid.New()
+			}
+			if test.base {
+				input.DerivedBaseConfigID = uuid.New()
+			}
+			if test.subagent {
+				input.Subagent = &SubagentLaunch{}
+			}
+			_, err := validateLaunchAgentInput(input)
+			if test.reject {
+				require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+				require.ErrorContains(t, err, "requires a base config")
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }

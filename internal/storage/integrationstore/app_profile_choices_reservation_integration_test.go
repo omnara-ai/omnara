@@ -1,0 +1,498 @@
+//go:build integration
+
+package integrationstore_test
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
+)
+
+func (f profileChoiceFixture) selectionPlan(t *testing.T, appID uuid.UUID, slot string) json.RawMessage {
+	t.Helper()
+	plan, err := json.Marshal(map[string]any{"chosen": map[string]any{
+		"selection": integrationstore.InboxAppSelection{
+			AppID: appID, ConnectionID: f.connection, Address: f.input.Address, Slot: slot,
+		},
+	}})
+	require.NoError(t, err)
+	return plan
+}
+
+func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"pending", "processing"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceFixture(t)
+			choice := f.menu(t)
+			late := f.receipt(t, "raw-follow-up", f.input.Payload)
+			_, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, choice, "support"))
+			require.NoError(t, err)
+			decided := f.decidedReceipt(t, choice.ID)
+			if state == "processing" {
+				decided = f.claim(t)
+			}
+			// Menu expiry cannot release an already accepted request in this gap.
+			f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '1 second' WHERE id=$1`, choice.ID)
+			nextInput := f.input
+			nextInput.SourceKey = "new-mention"
+			reused, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), nextInput)
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, choice.ID, reused.ID)
+			require.Equal(t, "support", reused.SelectedKey)
+			var reservation *integrationstore.AppSelectionReservationError
+			err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
+				func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					if err := work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address); err != nil {
+						return err
+					}
+					return work.FreezePlan(f.ctx, json.RawMessage(`{}`))
+				})
+			require.ErrorAs(t, err, &reservation)
+			require.Equal(t, decided.ID, reservation.ReceiptID)
+			require.Equal(t, integrationstore.IntegrationInboxState(state), reservation.State)
+			require.Nil(t, f.read(t, late.ID).Plan, "raw follow-up must retry instead of freezing an empty plan")
+
+			// Reducing a setup to one profile must not bypass the accepted choice.
+			setup := integrationstore.SaveProjectAppInput{
+				OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+				Enabled: true, Settings: f.app.Settings,
+			}
+			setup.Settings.Launcher.Slots = setup.Settings.Launcher.Slots[1:]
+			_, err = f.store.UpdateProjectApp(f.ctx, f.app.ID, setup)
+			require.NoError(t, err)
+			plan := f.selectionPlan(t, f.app.ID, "review")
+			err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
+				func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) })
+			require.ErrorAs(t, err, &reservation)
+			require.Equal(t, decided.ID, reservation.ReceiptID)
+
+			// Accepted misconfiguration remains independent across distinct apps.
+			setup.Name = "Another setup"
+			otherApp, err := f.store.CreateProjectApp(f.ctx, setup)
+			require.NoError(t, err)
+			otherMenu := nextInput
+			otherMenu.AppID = otherApp.ID
+			otherMenu.Options = otherMenu.Options[1:]
+			independent, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), otherMenu)
+			require.NoError(t, err)
+			require.True(t, created, "a distinct app still owns its independent menu")
+			require.Equal(t, otherApp.ID, independent.AppID)
+			otherPlan := f.selectionPlan(t, otherApp.ID, "review")
+			f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+				return work.FreezePlan(f.ctx, otherPlan)
+			})
+		})
+	}
+}
+
+func TestAppProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	late := f.receipt(t, "raw-follow-up", f.input.Payload)
+	_, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, choice, "support"))
+	require.NoError(t, err)
+	decided := f.claim(t)
+	plan := f.selectionPlan(t, f.app.ID, "support")
+	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		// The selected receipt must never reserve against itself.
+		if err := work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address); err != nil {
+			return err
+		}
+		return work.FreezePlan(f.ctx, plan)
+	})
+	newMention := f.input
+	newMention.SourceKey = "while-plan-is-processing"
+	retained, made, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), newMention)
+	require.NoError(t, err)
+	require.False(t, made, "a frozen processing plan still owns this app's menu")
+	require.Equal(t, choice.ID, retained.ID)
+	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		return work.Retry(f.ctx, time.Second, "retry media preparation")
+	})
+	retained, made, err = f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), newMention)
+	require.NoError(t, err)
+	require.False(t, made, "a frozen pending plan also owns this app's menu")
+	require.Equal(t, choice.ID, retained.ID)
+	f.exec(t, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, decided.ID)
+	decided = f.claim(t)
+	err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
+		func(work *integrationstore.IntegrationInboxLeaseTx) error {
+			return work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address)
+		})
+	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
+	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		return work.Fail(f.ctx, "frozen plan needs recovery")
+	})
+	newInput := f.input
+	newInput.SourceKey = "later-mention"
+	reused, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), newInput)
+	require.NoError(t, err)
+	require.False(t, created, "failed frozen work must not create a second menu")
+	require.Equal(t, choice.ID, reused.ID)
+	// Failed frozen work retains its original policy: ordinary follow-ups need
+	// not wait, but a replacement launch must not replace the reservation.
+	f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		return work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address)
+	})
+	err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
+		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) })
+	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
+	var reservation *integrationstore.AppSelectionReservationError
+	require.ErrorAs(t, err, &reservation)
+	require.Equal(t, decided.ID, reservation.ReceiptID)
+	require.Equal(t, integrationstore.IntegrationInboxFailed, reservation.State)
+}
+
+func TestAppProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	late := f.receipt(t, "new-mention", f.input.Payload)
+	_, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, choice, "support"))
+	require.NoError(t, err)
+	decided := f.claim(t)
+	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		return work.Fail(f.ctx, "expected profile unavailable before planning")
+	})
+	require.Nil(t, f.read(t, decided.ID).Plan)
+	f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		return work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address)
+	})
+	newInput := f.input
+	newInput.SourceKey = "replacement-message"
+	fresh, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), newInput)
+	require.NoError(t, err)
+	require.True(t, created, "failed unplanned receipt must not trap users behind a stale menu")
+	require.NotEqual(t, choice.ID, fresh.ID)
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, fresh.ID, "C123", "new-menu"))
+	fresh = f.readChoice(t, fresh.ID)
+	_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
+	require.NoError(t, err)
+	newDecided := f.claim(t)
+	newPlan := f.selectionPlan(t, f.app.ID, "review")
+	f.mutate(t, newDecided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		return work.FreezePlan(f.ctx, newPlan)
+	})
+	// Explicit retry competes with the newer frozen request through the normal
+	// same-app reservation; it cannot overwrite the newer accepted selection.
+	require.NoError(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, decided.ID))
+	retried := f.claim(t)
+	require.Equal(t, decided.ID, retried.ID)
+	err = f.store.WithIntegrationInboxLease(f.ctx, retried.Lease(),
+		func(work *integrationstore.IntegrationInboxLeaseTx) error {
+			return work.FreezePlan(f.ctx, f.selectionPlan(t, f.app.ID, "support"))
+		})
+	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
+	retained, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.connection, f.app.ID, choice.SourceKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "support", retained.SelectedKey)
+}
+
+func TestAppProfileChoiceRetriedUnplannedReceiptsCompeteToFreeze(t *testing.T) {
+	t.Parallel()
+	for _, winner := range []string{"retried", "newer"} {
+		t.Run(winner, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceFixture(t)
+			choice := f.menu(t)
+			late := f.receipt(t, "new-mention", f.input.Payload)
+			_, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, choice, "support"))
+			require.NoError(t, err)
+			old := f.claim(t)
+			f.mutate(t, old, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+				return work.Fail(f.ctx, "expected profile unavailable before planning")
+			})
+			input := f.input
+			input.SourceKey = "new-mention"
+			fresh, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), input)
+			require.NoError(t, err)
+			require.True(t, created)
+			require.NoError(t, f.store.RecordAppProfileChoiceMessage(
+				f.ctx, f.project, f.connection, fresh.ID, "C123", "new-menu"))
+			fresh = f.readChoice(t, fresh.ID)
+			_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
+			require.NoError(t, err)
+			newer := f.claim(t)
+			// Retry A while B is accepted but has not frozen: neither may permanently
+			// reserve against the other before either can acquire the frozen plan.
+			require.NoError(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, old.ID))
+			retried := f.claim(t)
+			require.Equal(t, old.ID, retried.ID)
+			first, second := retried, newer
+			firstSlot, secondSlot := "support", "review"
+			if winner == "newer" {
+				first, second = newer, retried
+				firstSlot, secondSlot = secondSlot, firstSlot
+			}
+			plan := f.selectionPlan(t, f.app.ID, firstSlot)
+			f.mutate(t, first, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+				return work.FreezePlan(f.ctx, plan)
+			})
+			err = f.store.WithIntegrationInboxLease(f.ctx, second.Lease(),
+				func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					return work.FreezePlan(f.ctx, f.selectionPlan(t, f.app.ID, secondSlot))
+				})
+			var reservation *integrationstore.AppSelectionReservationError
+			require.ErrorAs(t, err, &reservation)
+			require.Equal(t, first.ID, reservation.ReceiptID)
+			require.JSONEq(t, string(plan), string(f.read(t, first.ID).Plan))
+			require.Nil(t, f.read(t, second.ID).Plan)
+		})
+	}
+}
+
+func TestAppProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name                          string
+		pending, retired, unpublished bool
+	}{
+		{name: "active"},
+		{name: "retired", retired: true},
+		{name: "pending-menu", pending: true},
+		{name: "unpublished-menu", pending: true, unpublished: true},
+		{name: "retired-pending-menu", pending: true, retired: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceFixture(t)
+			var original integrationstore.AppProfileChoiceRecord
+			if tc.unpublished {
+				var err error
+				original, _, err = f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
+				require.NoError(t, err)
+			} else if tc.pending {
+				original = f.menu(t)
+			}
+			var snapshot integrationstore.AppRoutingCandidates
+			f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+				var err error
+				snapshot, err = f.store.AppRoutingCandidatesForInbox(f.ctx, work, f.input.Address,
+					[]integrationstore.ConversationAddress{f.input.Address}, "message")
+				return err
+			})
+			require.Empty(t, snapshot.Selections)
+			// Another admission commits after the launcher reads its routing snapshot.
+			execution := executionstore.New(f.pool, executionstore.Config{})
+			profile, err := execution.GetAgentProfile(f.ctx, f.project, f.input.Options[0].ProfileID)
+			require.NoError(t, err)
+			launch, err := execution.LaunchAgent(f.ctx,
+				executionstore.LaunchAgentInput{
+					ProjectID: f.project, AgentConfigID: profile.CurrentConfig.ID,
+					LaunchedBy: identitystore.NewUserPrincipal(f.user),
+				})
+			require.NoError(t, err)
+			tx, err := f.pool.Begin(f.ctx)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback(f.ctx) }()
+			require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
+			require.NoError(t, integrationstore.LockAppConnectionsTx(f.ctx, tx, f.project, nil, f.connection))
+			require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, f.connection, f.input.Address))
+			require.NoError(t, lifecyclelock.Agents(f.ctx, tx,
+				[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: launch.Agent.ID}}))
+			target, err := f.store.EnsureConversationTargetTx(f.ctx, tx, integrationstore.EnsureConversationTargetInput{
+				ProjectID: f.project, AgentID: launch.Agent.ID, ConnectionID: f.connection,
+				Address: f.input.Address, Role: integrationstore.TargetSelected, AppID: f.app.ID, SelectionSlot: "support",
+			})
+			require.NoError(t, err)
+			if tc.retired {
+				_, err = tx.Exec(f.ctx, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, target.ID)
+				require.NoError(t, err)
+			}
+			require.NoError(t, tx.Commit(f.ctx))
+			input := f.input
+			input.SourceKey = "stale-new-mention"
+			choice, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), input)
+			require.ErrorIs(t, err, integrationstore.ErrAppSelectionSettled)
+			require.False(t, created)
+			require.Zero(t, choice)
+			_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.connection, f.app.ID, input.SourceKey)
+			require.NoError(t, err)
+			require.False(t, found, "a stale snapshot must not create a menu after admission")
+			if tc.pending {
+				replayed, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
+				if tc.unpublished {
+					require.ErrorIs(t, err, integrationstore.ErrAppSelectionSettled,
+						"an old publisher cannot recreate its menu after another request launched")
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, original, replayed, "published source bookkeeping remains intact")
+				}
+				require.False(t, created)
+				require.Equal(t, original, f.readChoice(t, original.ID))
+			}
+		})
+	}
+}
+
+func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	click := f.chooseInput(t, choice, "support")
+	setup := integrationstore.SaveProjectAppInput{
+		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+		Enabled: true, Settings: f.app.Settings,
+	}
+	setup.Settings.Launcher.Slots[0].AgentProfileID = &f.input.Options[1].ProfileID
+	_, err := f.store.UpdateProjectApp(f.ctx, f.app.ID, setup)
+	require.NoError(t, err)
+	// Authentication and source revision failures cannot expire this menu, nor
+	// can a forged unoffered key, even though the setup has changed meanwhile.
+	wrongMenu := click
+	wrongMenu.MessageID = "forged"
+	_, err = f.store.ChooseAppProfile(f.ctx, wrongMenu)
+	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+	unknown := click
+	unknown.Key = "never-offered"
+	unchanged, err := f.store.ChooseAppProfile(f.ctx, unknown)
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.Equal(t, choice, unchanged, "unknown key does not authorize menu dismissal")
+	require.Equal(t, choice, f.readChoice(t, choice.ID))
+	staleRevision := click
+	staleRevision.SourceChoiceUpdatedAt = choice.CreatedAt
+	_, err = f.store.ChooseAppProfile(f.ctx, staleRevision)
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.Equal(t, choice, f.readChoice(t, choice.ID))
+	retired, err := f.store.ChooseAppProfile(f.ctx, click)
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	expired := f.readChoice(t, choice.ID)
+	require.Equal(t, expired, retired, "caller can distinguish retired menus from invalid selections")
+	require.True(t, expired.ExpiresAt.Before(choice.ExpiresAt))
+	require.True(t, expired.UpdatedAt.After(choice.UpdatedAt))
+	require.Empty(t, expired.SelectedKey)
+
+	// This is a committed rejection, not a rolled-back update. Same-source
+	// replay remains expired, while an unrelated new source gets the new setup.
+	replay, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, expired, replay)
+	newInput := f.input
+	newInput.SourceKey = "new-after-edit"
+	newInput.Options = append([]integrationstore.AppProfileChoiceOption(nil), f.input.Options...)
+	newInput.Options[0].ProfileID = f.input.Options[1].ProfileID
+	fresh, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), newInput)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.NotEqual(t, choice.ID, fresh.ID)
+	require.Equal(t, newInput.Options, fresh.Options)
+	var count int
+	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox WHERE project_id=$1`,
+		f.project).Scan(&count))
+	require.Equal(t, 1, count, "a stale click must not hand off any launch")
+}
+
+func TestAppProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"pending", "processing", "failed", "completed", "discarded", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceFixture(t)
+			choice, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
+			require.NoError(t, err)
+			require.True(t, created)
+			require.Empty(t, choice.MessageID)
+			late := f.receipt(t, "later-message", f.input.Payload)
+			switch state {
+			case "pending":
+				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					return work.Retry(f.ctx, time.Hour, "retry menu publication")
+				})
+			case "failed", "discarded":
+				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					return work.Fail(f.ctx, "menu publication exhausted")
+				})
+				if state == "discarded" {
+					require.NoError(t, f.store.DiscardFailedIntegrationInbox(f.ctx, f.project, f.source.ID))
+				}
+			case "completed", "deleted":
+				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+						return err
+					}
+					return work.Complete(f.ctx)
+				})
+				if state == "deleted" {
+					f.exec(t, `DELETE FROM integration_inbox WHERE id=$1`, f.source.ID)
+				}
+			}
+			input := f.input
+			input.SourceKey = "later-message"
+			fresh, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), input)
+			require.NoError(t, err)
+			canPublish := state == "pending" || state == "processing"
+			require.Equal(t, !canPublish, created, "only recoverable unpublished menus hold new sources")
+			if canPublish {
+				require.Equal(t, choice, fresh)
+			} else {
+				require.NotEqual(t, choice.ID, fresh.ID)
+				require.Equal(t, late.ID, fresh.OwnerReceiptID)
+			}
+			// The old source cannot create another menu, even after its owner is deleted.
+			replayed, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), f.input)
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, choice, replayed)
+		})
+	}
+}
+
+func TestAppProfileChoicePublishedMenuSurvivesOwnerCompletion(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+			return err
+		}
+		return work.Complete(f.ctx)
+	})
+	late := f.receipt(t, "later-message", f.input.Payload)
+	input := f.input
+	input.SourceKey = "later-message"
+	retained, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), input)
+	require.NoError(t, err)
+	require.False(t, created, "a published menu remains available after its owner completes")
+	require.Equal(t, choice, retained)
+}
+
+func TestAppProfileChoiceExplicitExpiryPreservesAcceptedWork(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	require.ErrorIs(t, f.store.ExpireAppProfileChoice(f.ctx, uuid.New(), f.connection, choice.ID), storeerr.ErrNotFound)
+	require.ErrorIs(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, uuid.New(), choice.ID), storeerr.ErrNotFound)
+	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.connection, choice.ID))
+	expired := f.readChoice(t, choice.ID)
+	require.True(t, expired.ExpiresAt.Before(choice.ExpiresAt))
+	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.connection, choice.ID))
+	require.Equal(t, expired, f.readChoice(t, choice.ID), "repeated expiry does not change the revision")
+	input := f.input
+	input.SourceKey = "another-source"
+	fresh, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), input)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(
+		f.ctx, f.project, f.connection, fresh.ID, "C123", "fresh-menu"))
+	fresh = f.readChoice(t, fresh.ID)
+	selected, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
+	require.NoError(t, err)
+	receipt := f.decidedReceipt(t, selected.ID)
+	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.connection, selected.ID))
+	require.Equal(t, selected, f.readChoice(t, selected.ID))
+	require.Equal(t, receipt, f.decidedReceipt(t, selected.ID), "expiration cannot change accepted work")
+}

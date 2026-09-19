@@ -1,7 +1,7 @@
 import {
   type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
-  type IntegrationInstall,
+  type IntegrationConnection,
   type IntegrationOAuthSetup,
   sdk,
   type SlackSetup,
@@ -118,18 +118,18 @@ export async function runSlackIntegration(
   }
   openAuthorizationUrl(
     report,
-    'Approve the Slack integration in your browser',
+    'Authorize the Slack app in your browser',
     start.oauth_url,
     body.browser,
   )
-  report.start('Waiting for the Slack integration to be created')
-  let integration: IntegrationInstall
+  report.start('Waiting for the Slack connection and app setup to be saved')
+  let integration: IntegrationConnection
   try {
     integration = await pollUntilDeadline({
       expiresAt: start.expires_at,
-      expiredMessage: 'Slack authorization expired before the integration was created',
+      expiredMessage: 'Slack authorization expired before connection and app setup were saved',
       async fetchOnce() {
-        const { data } = await sdk.listIntegrationInstalls({
+        const { data } = await sdk.listIntegrationConnections({
           client,
           path: { orgID: path.orgID, projectID: path.projectID },
           query: { oauth_flow_id: start.flow_id, limit: 1 },
@@ -140,11 +140,30 @@ export async function runSlackIntegration(
   } catch (error) {
     report.fail('Slack authorization failed')
     if (slackAppId !== undefined) {
-      report.warn(`Slack app ${slackAppId} was created, but the integration was not completed`)
+      report.warn(`Slack app ${slackAppId} was created, but Omnara setup was not completed`)
     }
     throw error
   }
-  report.stop('Slack integration created')
-  report.info(`Integration ID: ${integration.id}`)
+  report.stop('Slack connection and app setup saved')
+  report.info(`Connection ID: ${integration.id}`)
+  // Reconnect can preserve an existing disabled app with no launcher. List by
+  // connection rather than pretending the connection has a profile destination.
+  let cursor: string | undefined
+  do {
+    const { data } = await sdk.listProjectApps({
+      client,
+      path: { orgID: path.orgID, projectID: path.projectID },
+      query: { cursor, limit: 100 },
+    })
+    for (const app of data.data) {
+      if (app.settings.resource.connection === integration.id) {
+        report.info(`App ID: ${app.id} (${app.name}; ${app.enabled ? 'enabled' : 'disabled'})`)
+      }
+    }
+    cursor = data.next_cursor ?? undefined
+  } while (cursor)
+  report.info(
+    'Reconnect preserves existing app settings. Use apps get/update to inspect or change the launcher.',
+  )
   report.done()
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -76,6 +77,10 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
+	observedConfigID, err := lockConfigChangeAppResourcesTx(ctx, tx, qtx, input)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
 	if err := qtx.LockAgentMachineSources(
 		ctx,
 		dbsqlc.LockAgentMachineSourcesParams{AgentID: input.AgentID},
@@ -92,23 +97,15 @@ func (s *Store) changeAgentConfigOnce(
 	if agent.ParentAgentID != nil {
 		return ChangeAgentConfigResult{}, storeerr.InvalidRequest(errors.New("subagent configurations are read-only"))
 	}
-	idempotentReplay := false
-	if input.IdempotencyKey != "" {
-		_, replayErr := qtx.GetAgentInputByIdempotency(
-			ctx,
-			dbsqlc.GetAgentInputByIdempotencyParams{
-				ProjectID:           input.ProjectID,
-				AgentID:             input.AgentID,
-				IdempotencyScope:    "agent_config_change",
-				InputIdempotencyKey: input.IdempotencyKey,
-			},
+	idempotentReplay, err := configChangeReplayExistsTx(ctx, qtx, input)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	if !idempotentReplay && observedConfigID != agent.CurrentConfigID {
+		return ChangeAgentConfigResult{}, fmt.Errorf(
+			"agent config changed while acquiring app connection gates: %w",
+			storeutil.ErrRetryTransaction,
 		)
-		switch {
-		case replayErr == nil:
-			idempotentReplay = true
-		case !errors.Is(replayErr, pgx.ErrNoRows):
-			return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", replayErr)
-		}
 	}
 	if !idempotentReplay && AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
@@ -130,7 +127,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if input.ExpectedCurrentConfigID != uuid.Nil &&
+	if !idempotentReplay && input.ExpectedCurrentConfigID != uuid.Nil &&
 		agent.CurrentConfigID != input.ExpectedCurrentConfigID &&
 		agent.CurrentConfigID != config.ID {
 		return ChangeAgentConfigResult{}, fmt.Errorf(
@@ -220,6 +217,21 @@ func (s *Store) changeAgentConfigOnce(
 			return ChangeAgentConfigResult{}, fmt.Errorf("reload agent after config change: %w", err)
 		}
 		if currentAgent.CurrentConfigID == config.ID {
+			if err := integrationstore.ReconcileAgentListenersTx(ctx, tx, integrationstore.ReconcileAgentListenersInput{
+				OrgID: project.OrgID, ProjectID: input.ProjectID, AgentID: input.AgentID, ConfigID: config.ID,
+				Previous: currentContract.AppResources, Next: nextContract.AppResources,
+			}); err != nil {
+				return ChangeAgentConfigResult{}, err
+			}
+			if err := s.activateHandlerTargetsTx(
+				ctx,
+				tx,
+				input.ProjectID,
+				input.AgentID,
+				nextContract.AppResources,
+			); err != nil {
+				return ChangeAgentConfigResult{}, err
+			}
 			deleteMachines, err = s.reconcileAgentMachineSourcesTx(
 				ctx,
 				txNotifications,

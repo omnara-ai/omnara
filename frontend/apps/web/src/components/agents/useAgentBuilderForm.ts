@@ -1,3 +1,4 @@
+import { type AppResourceSource } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 
@@ -67,6 +68,7 @@ export interface BasicConfig {
   modelName: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
+  appResources: Record<string, AppResourceSource>
   mcpServers: BasicMcpServer[]
   skillIds: string[]
   subagents: BasicSubagent[]
@@ -99,6 +101,7 @@ export const emptyBasicConfig: BasicConfig = {
   modelName: '',
   machineSources: [],
   tools: [],
+  appResources: {},
   mcpServers: [],
   skillIds: [],
   subagents: [],
@@ -155,6 +158,7 @@ export function useAgentBuilderForm(
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
+    toolsErrorMessage: tools.errorMessage,
     retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
       setDraft(config ?? emptyBasicConfig)
@@ -163,6 +167,7 @@ export function useAgentBuilderForm(
     model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
     machineSources: draft.machineSources,
     tools: draft.tools,
+    appResources: draft.appResources,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,
     subagents: draft.subagents,

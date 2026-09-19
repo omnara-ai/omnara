@@ -42,7 +42,10 @@ func promptCacheRoutes() []promptCacheRoute {
 			EndpointPath:      "/chat/completions",
 			ProviderModelSlug: "gpt-test",
 		}},
-		{name: "openai responses", client: openairesponses.Client{EndpointPath: "/responses", ProviderModelSlug: "gpt-test"}},
+		{
+			name:   "openai responses",
+			client: openairesponses.Client{EndpointPath: "/responses", ProviderModelSlug: "gpt-test"},
+		},
 	}
 }
 
@@ -58,16 +61,11 @@ func conversationStates(systemPrompt string) []modelcontext.Bundle {
 				Name:        toolcatalog.ToolNameRunCommand,
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}}}`),
 			},
-			{Name: toolcatalog.ToolNameSendIntegrationMessage},
+			{Name: toolcatalog.ToolNameAskQuestion},
 		},
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef:       "slack-abcd",
-			DurableID:       "internal-target-id",
-			Provider:        "slack",
-			ProviderRefKind: "thread",
-			Label:           "slack thread C123",
-			IsCurrent:       true,
-		}},
+		InteractionRouting: &modelcontext.InteractionRoutingContext{
+			Destination: &modelcontext.InteractionDestinationRef{Resource: "slack", TargetID: "slack-abcd"},
+		},
 	}
 	user1 := modelcontext.Message{Role: modelprotocol.RoleUser, Sequence: 10, Content: text("list the files")}
 	toolCall := modelcontext.Message{
@@ -130,7 +128,11 @@ func TestPrefixCheckerDetectsVolatileSystemPrompt(t *testing.T) {
 		t.Run(route.name, func(t *testing.T) {
 			states := conversationStates("You are a careful assistant. Now: 12:00")
 			previous := modeltest.PreparePrefix(t, route.client, states[0])
-			next := modeltest.PreparePrefix(t, route.client, conversationStates("You are a careful assistant. Now: 12:01")[1])
+			next := modeltest.PreparePrefix(
+				t,
+				route.client,
+				conversationStates("You are a careful assistant. Now: 12:01")[1],
+			)
 			if modeltest.PrefixViolation(previous, next) == "" {
 				t.Fatal("a system prompt that changes between turns must be reported as a broken prefix")
 			}

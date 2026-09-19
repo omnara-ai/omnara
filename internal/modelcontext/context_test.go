@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -46,7 +45,10 @@ func contextTextEvent(t testing.TB, id uuid.UUID, sequence int64, text string) e
 func TestBuildKeepsAllMessagesAndCrossTurnToolResultsThroughWatermark(t *testing.T) {
 	store := &fakeContextStore{watermark: 760}
 	for i := 1; i <= 150; i++ {
-		store.messages = append(store.messages, contextTextEvent(t, testIDN(i), int64(i), fmt.Sprintf("message %03d", i)))
+		store.messages = append(
+			store.messages,
+			contextTextEvent(t, testIDN(i), int64(i), fmt.Sprintf("message %03d", i)),
+		)
 	}
 	turnID := testIDN(300)
 	store.toolCalls = []executionstore.ToolCallRecord{
@@ -377,176 +379,11 @@ func TestBuildPreservesStructuredProcessResultValues(t *testing.T) {
 	}
 }
 
-func TestBuildProjectsIntegrationTargets(t *testing.T) {
-	targetID := testIDN(940)
-	store := &fakeContextStore{
-		watermark: 15,
-		hasConfig: true,
-		config:    testAgentConfigRecord(),
-		integrationTargets: []integrationstore.IntegrationTargetSummary{{
-			ID:              targetID,
-			TargetRef:       "slack-abcd",
-			Provider:        integrationstore.IntegrationProviderSlack,
-			InstallState:    integrationstore.IntegrationInstallStateDisabled,
-			ProviderRef:     "C123:1712345678.000100",
-			ProviderRefKind: "thread",
-			DisplayName:     "general",
-		}},
-	}
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if len(bundle.ToolSpecs) != 1 ||
-		bundle.ToolSpecs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
-		bundle.ToolSpecs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("expected implicit integration send tool, got %+v", bundle.ToolSpecs)
-	}
-	if len(bundle.IntegrationTargets) != 1 ||
-		bundle.IntegrationTargets[0].TargetRef != "slack-abcd" ||
-		bundle.IntegrationTargets[0].IsCurrent {
-		t.Fatalf("expected integration target projection, got %+v", bundle.IntegrationTargets)
-	}
-	if serialized := string(contextFixtureJSON(t, bundle)); strings.Contains(serialized, targetID.String()) {
-		t.Fatalf("integration target projection must not expose raw target id: %s", serialized)
-	}
-	if bundle.IntegrationTargets[0].DurableID != targetID.String() {
-		t.Fatalf("integration target missing durable target id: %+v", bundle.IntegrationTargets)
-	}
-	if bundle.IntegrationTargets[0].Label != "slack thread 1712345678.000100 in C123 (#general)" {
-		t.Fatalf("integration target label = %q", bundle.IntegrationTargets[0].Label)
-	}
-}
-
-func TestBuildExplicitlyDisabledIntegrationSendToolOverridesImplicitTarget(t *testing.T) {
-	result, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
-instruction: Help the user make progress.
-model:
-  provider_config: deterministic-test
-  name: deterministic-owned-kernel-test
-tools:
-  ask_question: {}
-  send_integration_message:
-    enabled: false
-`), agentconfig.CompileOptions{})
-	if err != nil {
-		t.Fatalf("compile disabled integration send config: %v", err)
-	}
-	store := &fakeContextStore{
-		watermark: 15,
-		hasConfig: true,
-		config: executionstore.AgentConfigRecord{
-			ID:                      testIDN(941),
-			CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
-			EffectiveDefinitionHash: result.Hash,
-		},
-		integrationTargets: []integrationstore.IntegrationTargetSummary{{
-			ID:        testIDN(942),
-			TargetRef: "slack-disabled",
-			Provider:  integrationstore.IntegrationProviderSlack,
-		}},
-	}
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSendIntegrationMessage) {
-		t.Fatalf("explicitly disabled integration send tool was exposed: %+v", bundle.ToolSpecs)
-	}
-	if !HasTool(bundle.ToolSpecs, toolcatalog.ToolNameAskQuestion) {
-		t.Fatalf("explicitly enabled ask question tool was not exposed: %+v", bundle.ToolSpecs)
-	}
-	if len(bundle.IntegrationTargets) != 0 {
-		t.Fatalf("integration targets leaked without an integration tool: %+v", bundle.IntegrationTargets)
-	}
-}
-
-func TestIntegrationTargetLabel(t *testing.T) {
-	tests := []struct {
-		name   string
-		target integrationstore.IntegrationTargetSummary
-		want   string
-	}{
-		{
-			name: "slack thread with channel name",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "thread",
-				ProviderRef:     "C123:1712345678.000100",
-				DisplayName:     "general",
-			},
-			want: "slack thread 1712345678.000100 in C123 (#general)",
-		},
-		{
-			name: "slack thread without channel name",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "thread",
-				ProviderRef:     "C123:1712345678.000100",
-			},
-			want: "slack thread 1712345678.000100 in C123",
-		},
-		{
-			name: "slack thread with malformed ref",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "thread",
-				ProviderRef:     "C123",
-			},
-			want: "slack thread C123",
-		},
-		{
-			name: "slack dm",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "dm",
-				ProviderRef:     "D456",
-			},
-			want: "slack dm D456",
-		},
-		{
-			name: "unknown ref kind",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "channel",
-				ProviderRef:     "C123",
-			},
-			want: "slack channel C123",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := integrationTargetLabel(test.target); got != test.want {
-				t.Fatalf("integrationTargetLabel = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
 type fakeContextStore struct {
 	messages                   []executionstore.ContextEventRecord
 	toolCalls                  []executionstore.ToolCallRecord
 	completedToolCallWatermark int64
-	integrationTargets         []integrationstore.IntegrationTargetSummary
+	interactionDestinations    executionstore.InteractionDestinations
 	machinePools               []executionstore.MachinePoolSourceRecord
 	watermark                  int64
 	checkpoints                []executionstore.ContextCheckpointRecord
@@ -666,14 +503,11 @@ func (s *fakeContextStore) ListCompletedToolCallsAtWatermark(
 	return out, nil
 }
 
-func (s *fakeContextStore) ListIntegrationTargets(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-) ([]integrationstore.IntegrationTargetSummary, error) {
-	_ = ctx
-	_ = projectID
-	_ = agentID
-	return s.integrationTargets, nil
+func (s *fakeContextStore) ListInteractionDestinations(
+	_ context.Context,
+	_, _ uuid.UUID,
+) (executionstore.InteractionDestinations, error) {
+	return s.interactionDestinations, nil
 }
 
 func (s *fakeContextStore) ListMachinePoolSources(

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -287,13 +288,10 @@ func TestPostIntegrationMessageTransportFailureIsStructured(t *testing.T) {
 func TestIntegrationInteractionPromptPayloadUsesPlainTextAndSharedAction(t *testing.T) {
 	interactionID := integrationToolTestID("prompt-interaction")
 	agentID := integrationToolTestID("prompt-agent")
-	payload, err := integrationInteractionPromptPayload(
-		integrationToolTarget{
-			Provider:        integrationstore.IntegrationProviderSlack,
-			PublicID:        "itgt_testtarget",
-			TargetRef:       "slack-abcd",
-			ProviderRefKind: "thread",
-			ProviderRef:     "C123:111.222",
+	payload, err := integration.SlackInteractionPromptPayload(
+		executionstore.InteractionDestination{
+			IntegrationTargetID: integrationToolTestID("prompt-target"),
+			Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 		},
 		agentID,
 		executionstore.AgentInteractionRecord{
@@ -332,32 +330,29 @@ func TestIntegrationInteractionPromptPayloadUsesPlainTextAndSharedAction(t *test
 	if decoded.Channel != "C123" || decoded.ThreadTS != "111.222" {
 		t.Fatalf("unexpected destination: %+v", decoded)
 	}
-	if len(decoded.Blocks) != 3 || decoded.Blocks[0].Text.Type != "plain_text" ||
+	if len(decoded.Blocks) != 4 || decoded.Blocks[0].Text.Type != "plain_text" ||
 		!strings.Contains(decoded.Blocks[0].Text.Text, "echo <@U123>") {
 		t.Fatalf("unexpected prompt text block: %+v", decoded.Blocks)
 	}
-	if len(decoded.Blocks[2].Elements) != 1 ||
-		decoded.Blocks[2].Elements[0].ActionID != slack.PromptAction {
-		t.Fatalf("unexpected prompt actions: %+v", decoded.Blocks[2].Elements)
+	if len(decoded.Blocks[3].Elements) != 1 ||
+		decoded.Blocks[3].Elements[0].ActionID != slack.PromptAction {
+		t.Fatalf("unexpected prompt actions: %+v", decoded.Blocks[3].Elements)
 	}
 	var value slack.PromptActionValue
-	if err := json.Unmarshal([]byte(decoded.Blocks[2].Elements[0].Value), &value); err != nil {
+	if err := json.Unmarshal([]byte(decoded.Blocks[3].Elements[0].Value), &value); err != nil {
 		t.Fatalf("decode prompt action value: %v", err)
 	}
 	if value.InteractionID == "" || value.AgentID == "" ||
-		value.IntegrationTargetID != "itgt_testtarget" {
+		value.IntegrationTargetID == "" {
 		t.Fatalf("unexpected prompt action value: %+v", value)
 	}
 }
 
 func TestIntegrationPermissionPromptIncludesInputSummary(t *testing.T) {
-	payload, err := integrationInteractionPromptPayload(
-		integrationToolTarget{
-			Provider:        integrationstore.IntegrationProviderSlack,
-			PublicID:        "itgt_testtarget",
-			TargetRef:       "slack-abcd",
-			ProviderRefKind: "dm",
-			ProviderRef:     "D123",
+	payload, err := integration.SlackInteractionPromptPayload(
+		executionstore.InteractionDestination{
+			IntegrationTargetID: integrationToolTestID("prompt-target"),
+			Address:             integrationstore.ConversationAddress{Kind: "dm", Ref: "D123"},
 		},
 		integrationToolTestID("prompt-web-agent"),
 		executionstore.AgentInteractionRecord{
@@ -394,13 +389,10 @@ func TestIntegrationPermissionPromptIncludesInputSummary(t *testing.T) {
 func TestIntegrationQuestionPromptPayloadIncludesQuestionText(t *testing.T) {
 	interactionID := integrationToolTestID("prompt-question")
 	agentID := integrationToolTestID("prompt-question-agent")
-	payload, err := integrationInteractionPromptPayload(
-		integrationToolTarget{
-			Provider:        integrationstore.IntegrationProviderSlack,
-			PublicID:        "itgt_testtarget",
-			TargetRef:       "slack-abcd",
-			ProviderRefKind: "thread",
-			ProviderRef:     "C123:111.222",
+	payload, err := integration.SlackInteractionPromptPayload(
+		executionstore.InteractionDestination{
+			IntegrationTargetID: integrationToolTestID("prompt-target"),
+			Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 		},
 		agentID,
 		executionstore.AgentInteractionRecord{

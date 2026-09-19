@@ -15,6 +15,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/creack/pty v1.1.24
+	github.com/discord-go/discord.go v0.13.1-static
 	github.com/getkin/kin-openapi v0.147.0
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
@@ -69,6 +70,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/disgoorg/godave v0.3.0 // indirect
 	github.com/djherbis/buffer v1.2.0 // indirect
 	github.com/djherbis/nio/v3 v3.0.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -99,6 +101,8 @@ require (
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sethvargo/go-retry v0.4.0 // indirect
+	github.com/thomas-vilte/dave-go v0.5.1 // indirect
+	github.com/thomas-vilte/mls-go v1.6.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

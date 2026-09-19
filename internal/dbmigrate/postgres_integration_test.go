@@ -192,7 +192,7 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
-		"configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens," +
+		"configured_models,daemon_runtimes,integration_connections,machine_daemon_tokens," +
 		"machine_online_intervals,machine_pools,machines,mcp_server_catalogs,model_call_contexts," +
 		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
 		"org_memberships,org_resource_limit_overrides,process_actions,processes," +
@@ -221,9 +221,10 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
-		"agent_profiles,agents,cron_triggers,integration_installs,integration_targets," +
-		"model_call_contexts,process_actions,processes,project_machine_grants," +
+	const expected = "actors,agent_configs,agent_inputs,agent_listeners,agent_machine_bindings,agent_profile_versions," +
+		"agent_profiles,agents,app_profile_choices,cron_triggers,integration_connection_runtime,integration_connections," +
+		"integration_inbox,integration_targets," +
+		"model_call_contexts,process_actions,processes,project_apps,project_machine_grants," +
 		"project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
 	require.NoError(t, db.QueryRowContext(ctx, `

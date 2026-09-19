@@ -20,7 +20,8 @@ func TestToolCatalogImplicit(t *testing.T) {
 	}
 	for _, names := range [][]string{
 		toolcatalog.MachineToolNames(), toolcatalog.MachinePoolToolNames(), toolcatalog.SubagentToolNames(),
-		{toolcatalog.ToolNameSkill, toolcatalog.ToolNameSendIntegrationMessage,
+		{toolcatalog.ToolNameSkill, toolcatalog.ToolNameSlackPostMessage,
+			toolcatalog.ToolNameListInteractionDestinations, toolcatalog.ToolNameSetInteractionDestination,
 			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles, toolcatalog.ToolNameToolSearch},
 	} {
 		for _, name := range names {
@@ -29,7 +30,7 @@ func TestToolCatalogImplicit(t *testing.T) {
 	}
 	for _, name := range []string{
 		toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch,
-		toolcatalog.ToolNameAskQuestion, toolcatalog.ToolNameSetIntegrationTarget,
+		toolcatalog.ToolNameAskQuestion,
 	} {
 		require.Contains(t, byName, name)
 		require.False(t, byName[name], name)

@@ -76,6 +76,9 @@ const (
 	operationListToolCalls                 operationID = "ListToolCalls"
 	operationSubmitToolCallResult          operationID = "SubmitToolCallResult"
 	operationCreateIntegrationOAuthSetup   operationID = "CreateIntegrationOAuthSetup"
+	operationCreateIntegrationConnection   operationID = "CreateIntegrationConnection"
+	operationGetIntegrationConnection      operationID = "GetIntegrationConnection"
+	operationUpdateIntegrationConnection   operationID = "UpdateIntegrationConnection"
 	operationCreateMachine                 operationID = "CreateMachine"
 	operationCreateMachinePool             operationID = "CreateMachinePool"
 	operationCreateModelProviderConfig     operationID = "CreateModelProviderConfig"
@@ -104,6 +107,11 @@ const (
 	operationCreateProjectModelGrant       operationID = "CreateProjectModelGrant"
 	operationCreateSlackSetup              operationID = "CreateSlackSetup"
 	operationCreateCronTrigger             operationID = "CreateCronTrigger"
+	operationCreateProjectApp              operationID = "CreateProjectApp"
+	operationUpdateProjectApp              operationID = "UpdateProjectApp"
+	operationDeleteProjectApp              operationID = "DeleteProjectApp"
+	operationGetProjectApp                 operationID = "GetProjectApp"
+	operationListProjectApps               operationID = "ListProjectApps"
 	operationListCronTriggers              operationID = "ListCronTriggers"
 	operationGetCronTrigger                operationID = "GetCronTrigger"
 	operationUpdateCronTrigger             operationID = "UpdateCronTrigger"
@@ -112,7 +120,7 @@ const (
 	operationArchiveAgent                  operationID = "ArchiveAgent"
 	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
 	operationDeleteCurrentUser             operationID = "DeleteCurrentUser"
-	operationDeleteIntegrationInstall      operationID = "DeleteIntegrationInstall"
+	operationDeleteIntegrationConnection   operationID = "DeleteIntegrationConnection"
 	operationDeleteOrganization            operationID = "DeleteOrganization"
 	operationDeleteProject                 operationID = "DeleteProject"
 	operationDeleteConfiguredModel         operationID = "DeleteConfiguredModel"
@@ -155,7 +163,7 @@ const (
 	operationListBYOMachineDaemonTokens    operationID = "ListBYOMachineDaemonTokens"
 	operationListConfiguredModels          operationID = "ListConfiguredModels"
 	operationListEvents                    operationID = "ListEvents"
-	operationListIntegrationInstalls       operationID = "ListIntegrationInstalls"
+	operationListIntegrationConnections    operationID = "ListIntegrationConnections"
 	operationListMachinePools              operationID = "ListMachinePools"
 	operationListModelProviderConfigs      operationID = "ListModelProviderConfigs"
 	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
@@ -323,14 +331,22 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 
 	operationCreateAgentConfig:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationResolveAgentConfigTools:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationDeleteIntegrationInstall:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegrationConnection:   accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUpdateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateIntegrationOAuthSetup:   userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationConnection:   userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetIntegrationConnection:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationUpdateIntegrationConnection:   userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateSlackSetup:              userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateProjectApp:              accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateProjectApp:              accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteProjectApp:              accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetProjectApp:                 accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListProjectApps:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationUpdateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
@@ -341,7 +357,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListAgentProfiles:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListIntegrationInstalls:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrationConnections:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListVisibleProjectMachines:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListAgents:                    accountPolicy(projectScope(identitystore.AgentActionRead)),
 	operationListActors:                    accountPolicy(projectScope(identitystore.ProjectActionRead)),

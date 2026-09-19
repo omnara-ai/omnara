@@ -82,9 +82,9 @@ SELECT EXISTS (
    AND target.agent_id = sqlc.arg(agent_id)
    AND target.id = sqlc.arg(integration_target_id)
    AND target.deleted_at IS NULL
-  JOIN integration_installs install
+  JOIN integration_connections install
     ON install.project_id = target.project_id
-   AND install.id = target.integration_install_id
+   AND install.id = target.integration_connection_id
    AND install.state = 'active'
    AND install.deleted_at IS NULL
   WHERE actor.id = sqlc.arg(actor_id)

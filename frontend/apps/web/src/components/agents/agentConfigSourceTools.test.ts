@@ -60,7 +60,7 @@ machine_sources:
     expect(parse(applyToSource(source, config))).not.toHaveProperty('tools')
   })
 
-  it.each(['run_command', 'skill', 'spawn_agent', 'send_integration_message', 'web_search'])(
+  it.each(['run_command', 'skill', 'spawn_agent', 'slack_post_message', 'web_search'])(
     'round-trips explicitly disabled %s',
     (name) => {
       const source = `${minimalYaml}tools:

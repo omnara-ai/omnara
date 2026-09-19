@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -29,6 +28,8 @@ func validateQuestionInput(input json.RawMessage) error {
 	return err
 }
 
+// Presentation is discovered by the worker after this transaction commits;
+// dispatch must not depend on presentation queue capacity or provider I/O.
 func prepareStructuredQuestion(
 	ctx context.Context,
 	call transactionalToolContext,
@@ -45,31 +46,6 @@ func prepareStructuredQuestion(
 		),
 		nil,
 	), nil
-}
-
-func deliverStructuredQuestionPrompts(
-	ctx context.Context,
-	call asyncToolContext,
-) (asyncPhaseResult, error) {
-	interaction, found, err := call.Executor.Store.Execution().GetAgentInteractionByToolCallKind(
-		ctx,
-		call.Turn.ProjectID,
-		call.Turn.AgentID,
-		call.ToolCallID,
-		executionstore.AgentInteractionKindQuestion,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("load question interaction for prompt delivery: %w", err)
-	}
-	if !found {
-		return nil, errors.New("question interaction not found")
-	}
-	if interaction.State == executionstore.AgentInteractionStateOpen {
-		if err := call.Executor.postIntegrationPrompt(ctx, call.Turn, interaction); err != nil {
-			return nil, fmt.Errorf("deliver question interaction: %w", err)
-		}
-	}
-	return awaitDurableAsynchronously(), nil
 }
 
 func askQuestionForm(raw json.RawMessage) (interactionform.Form, error) {

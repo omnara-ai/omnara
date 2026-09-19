@@ -25,6 +25,7 @@ const (
 )
 
 type insertAgentInput struct {
+	ID                      uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	AgentProfileID          uuid.UUID
@@ -83,6 +84,7 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
+		ID:                      storeutil.IDFromNil(input.ID),
 		OrgID:                   input.OrgID,
 		ProjectID:               input.ProjectID,
 		AgentProfileID:          storeutil.IDFromNil(input.AgentProfileID),

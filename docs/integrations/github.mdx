@@ -1,0 +1,161 @@
+---
+title: GitHub
+description: Give agents scoped pull-request tools and configure PR event routing
+icon: "github"
+---
+
+Use your own GitHub App to let an agent read a pull request or post comments.
+Choose its tools independently from incoming events. Questions and approvals
+stay in the dashboard unless you attach a [Slack](/integrations/slack)
+or [Discord](/integrations/discord) interaction handler; GitHub has no interaction handler.
+
+## Connect your GitHub App
+
+1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
+   you control. Give it repository **Pull requests: Read-only**, or **Read & write**
+   if agents will comment. Install it on the repositories you want to use.
+2. Record its numeric **App ID**, numeric **Installation ID**, RSA private key
+   and webhook secret. App ID and Installation ID are different values.
+3. [Create a secret](/organization/secrets#create-a-secret) available to the
+   Omnara project, with this `material` shape:
+
+```json
+{
+  "kind": "github_app_credentials",
+  "app_id": "12345",
+  "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----",
+  "webhook_secret": "your-webhook-secret"
+}
+```
+
+Then create the connection using
+`POST /orgs/{orgID}/projects/{projectID}/integration-connections`:
+
+```json
+{
+  "provider": "github",
+  "provider_tenant_id": "12345",
+  "provider_account_ref": "67890",
+  "credential_secret_id": "sec_aeaqcaibaeaqcaibaeaqcaibae"
+}
+```
+
+Use the returned `iin_…` ID in configs. The credential's App ID must match
+`provider_tenant_id`. A connection belongs to one project and one installation.
+Creating the connection verifies the App, installation and bot account with
+GitHub and saves the bot identity used for mentions and self-event filtering.
+Every save of an active connection repeats verification with GitHub. After
+renaming the GitHub App, save the connection to refresh the bot login used for
+mentions. The numeric App, installation and bot identities stay fixed. Disabling
+an existing connection without replacing its credential reference, or deleting
+the connection, does not require GitHub availability.
+Use GitHub's numeric repository ID in scopes; a repository's owner/name is not
+its identity.
+
+GitHub sets a webhook URL on the App registration, rather than separately on
+each installation. The App-scoped callback path is
+`/api/integrations/github/{app_id}/events`, using the numeric App ID. It selects a
+project from the signed installation identity, so one App can serve connections
+for different installations in different projects. Do not substitute an `iin_…`
+connection ID in that URL. The server registers this route on the public Omnara
+host. Configure at least one connection before testing GitHub's webhook ping;
+a successful ping verifies the callback.
+
+## Select tools for one PR
+
+Add this fragment to an ordinary [agent config](/agents/configuration), replacing
+the example connection, repository ID and PR number:
+
+```yaml
+app_resources:
+  review:
+    definition: omnara.github
+    connection: iin_aeaqcaibaeaqcaibaeaqcaibae
+    scope:
+      github: {repository_id: 123456, pull_request: 42}
+    tools:
+      github_read: {}
+      github_discussion_comment:
+        permission: {mode: always_ask}
+      github_inline_comment:
+        permission: {mode: always_ask}
+      github_reply:
+        permission: {mode: always_ask}
+```
+
+`github_read` reads PR details by default. Its `section` can select `diff`,
+`files`, `discussion_comments` or `review_comments`; list sections support
+`page` and `limit`. Large or binary diffs may be incomplete.
+
+`github_discussion_comment` posts a PR conversation comment using `body`.
+`github_inline_comment` posts on a diff using `body`, `commit_id`, `path`, `line`
+and `side` (`LEFT` or `RIGHT`); supply `start_line` and `start_side` together for
+a multiline comment. `github_reply` uses `comment_id` and `body` to reply to an
+existing review comment. These tools post individual comments, not a pending
+review that is published when the agent stops.
+
+Calls use `resource: "review"` when selecting this attachment. They cannot choose
+another repository or PR. Comment publication can have an uncertain result after
+a network failure; inspect GitHub before repeating the action.
+
+## Configure incoming PR work
+
+A PR listener selects `discussion_comment`, `review_comment` and/or `commit`.
+Here `discussion_comment` means a comment in the PR conversation, not a GitHub
+Discussions post. Submitted reviews arrive as `review_comment`; commits come
+from PR synchronization events, not arbitrary repository pushes.
+
+For PR-open launches, this is the project app body for
+`POST /orgs/{orgID}/projects/{projectID}/apps`:
+
+```json
+{
+  "name": "pr-reviewer",
+  "settings": {
+    "resource": {
+      "definition": "omnara.github",
+      "connection": "iin_aeaqcaibaeaqcaibaeaqcaibae",
+      "tools": {"github_read": {}, "github_discussion_comment": {}},
+      "listener": {"events": ["discussion_comment", "review_comment", "commit"]}
+    },
+    "launcher": {
+      "trigger": "pull_request_opened",
+      "scope_kind": "repository",
+      "scope_ref": "123456",
+      "slots": [{"key": "reviewer", "agent_profile_id": "aprf_aeaqcaibaeaqcaibaeaqcaibae"}]
+    }
+  }
+}
+```
+
+The launcher supplies the concrete PR scope to a profile-derived agent. Use
+`trigger: "mention"` instead for explicit mentions in new human PR comments.
+Human discussion/review input steers the agent and cancels open interactions;
+PR opens and synchronization events queue. Bot comments, edits and unrelated
+issue comments do not become agent input.
+
+The provider events needed for these routes are `pull_request`, `issue_comment`,
+`pull_request_review` and `pull_request_review_comment`. See GitHub's
+[webhook event reference](https://docs.github.com/en/webhooks/webhook-events-and-payloads).
+
+GitHub does not automatically retry failed webhook deliveries. If Omnara cannot
+persist an event and returns a non-2xx response, explicitly
+[redeliver it from GitHub](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)
+after recovery, manually or through GitHub's API. Once a receipt is accepted,
+Omnara retries processing failures through its internal inbox.
+
+For an active configured installation, Omnara commits the signed raw callback
+before returning HTTP 204. A persistence failure returns 503; it does not schedule
+a GitHub retry. Manual redelivery with the same delivery ID is accepted once and
+deduplicated while that receipt remains stored. Signed pings and callbacks for
+unmanaged or disabled installations can receive 204 without creating agent work.
+Omnara does not run an automatic GitHub redelivery scheduler.
+
+Completed raw receipts are eligible for cleanup seven days after completion.
+Their transport deduplication window ends when they are deleted; agent
+conversation history is preserved. Failed receipts remain available while their
+project and connection still exist.
+
+See [Composable apps](/integrations/apps) for mixing these tools with another
+provider's listener or approval destination, and [Custom integrations](/integrations/custom-integrations)
+for a service that routes its own events through the public API.

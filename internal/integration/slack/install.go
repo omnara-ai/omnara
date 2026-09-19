@@ -8,11 +8,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 )
 
-const (
-	IntegrationKindAgentProfile = "agent_profile"
-	ConnectionModeWebhook       = "webhook"
-)
-
 type InstallIdentity struct {
 	BotUserID string `json:"bot_user_id"`
 }

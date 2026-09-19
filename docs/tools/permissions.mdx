@@ -47,7 +47,10 @@ mcp:
 A permission mode applies to every call. Changing it requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
 
 <Note>
-`send_integration_message` supports only `always_allow`, so agents can deliver replies to integrations such as Slack without opening another approval prompt.
+Provider tools such as `slack_post_message` use the ordinary permission modes.
+They also need a scoped [app resource](/integrations/apps); permission alone does
+not grant a destination. The interaction handler can present an approval without
+granted access to the send tool being approved.
 </Note>
 
 ## What an `always_ask` call looks like

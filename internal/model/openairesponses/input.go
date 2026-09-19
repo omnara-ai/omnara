@@ -38,7 +38,7 @@ func buildInput(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
+	if bundle.InteractionRouting != nil {
 		capacity++
 	}
 	items := make([]any, 0, capacity)
@@ -108,12 +108,12 @@ func buildInput(
 			},
 		)
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
+	if bundle.InteractionRouting != nil {
 		items = append(
 			items,
 			map[string]any{
 				"role":    responsesRoleSystem,
-				"content": modelcontext.IntegrationTargetsContent(bundle.IntegrationTargets),
+				"content": modelcontext.InteractionRoutingContent(bundle.InteractionRouting),
 			},
 		)
 	}

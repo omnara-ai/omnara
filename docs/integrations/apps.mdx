@@ -1,0 +1,161 @@
+---
+title: Composable apps
+description: Give an agent exactly the tools, incoming events and conversation surfaces it needs
+icon: "puzzle-piece"
+---
+
+Apps connect agents to [Slack](/integrations/slack), [GitHub](/integrations/github),
+and [Discord](/integrations/discord).
+For a service you host yourself, use the [public API](/integrations/custom-integrations).
+You choose each capability separately. An agent can read a pull request, receive
+Slack replies, and ask for approval in a different conversation.
+
+A **connection** holds provider account access. A **project app** saves reusable
+settings and can launch agents from provider events. An agent's `app_resources`
+selects the capabilities and destinations available to that agent.
+
+## Choose what an agent can do
+
+- **Tools** let the model read or act in a selected scope. Sending a message does
+  not subscribe the agent to incoming messages.
+- A **listener** delivers selected incoming events to the agent. Listening does
+  not grant a send tool.
+- **Follow replies** permits following the conversation a tool posts into.
+  Slack and Discord send tools request `follow_replies: true`.
+- An **interaction handler** presents questions and approvals externally. It
+  needs neither an ordinary message listener nor a send tool. The dashboard
+  remains another way to answer the same interaction.
+
+For example, this agent can read one GitHub PR and present approvals in one
+Slack thread. It has no ordinary incoming-message listener. Replace the example
+connection IDs, scope IDs and model names with your own:
+
+```yaml
+instruction: Review this pull request. Select the Slack approval destination before asking questions.
+model:
+  provider_config: my-provider
+  name: my-model
+tools:
+  ask_question: {}
+app_resources:
+  pull_request:
+    definition: omnara.github
+    connection: iin_aeaqcaibaeaqcaibaeaqcaibae
+    scope:
+      github: {repository_id: 123456, pull_request: 42}
+    tools:
+      github_read: {}
+  approvals:
+    definition: omnara.slack
+    connection: iin_aibaeaqcaibaeaqcaibaeaqcai
+    scope:
+      slack: {channel_id: C123, thread_ts: "111.222333"}
+    interaction_handler:
+      definition: omnara.slack.interactions
+```
+
+Create this through the ordinary [agent config API](/agents/configuration), then
+[launch an agent](/agents/overview#launch-an-agent) with that config. Model and
+machine setup stay in the config; app credentials stay in connections and secrets.
+
+Provider tools accept a `resource` argument naming the config entry, such as
+`pull_request`. It is required when several resources expose the same action.
+Scopes constrain the action even if the model asks for a different destination.
+Custom tools keep their author-defined arguments.
+
+Tool permissions still apply. For example, place
+`permission: {mode: always_ask}` under `github_discussion_comment` to require
+approval before posting. A top-level `tools` policy can override an app tool's
+policy, but listing a provider tool there alone grants no destination.
+For a shared tool name, bundle policies are compared after applying that global
+override. Different permission defaults can therefore share an explicit global
+policy; different tool definitions still fail compilation.
+
+## Receive events or launch new agents
+
+A listener belongs to an existing agent's config. A launcher belongs to a
+project app. Use the provider guides for setup and a complete launcher request:
+
+- [Slack](/integrations/slack): mentions and DMs, with thread-scoped agents.
+- [GitHub](/integrations/github): PR tools and event-routing configuration.
+- [Discord](/integrations/discord): bot tools and guild-thread configuration.
+
+Manage reusable apps at `GET/POST /orgs/{orgID}/projects/{projectID}/apps` and
+`GET/PUT/DELETE .../apps/{appID}`. Setup and config authoring require project
+management permission. The [API authentication guide](/api/authentication)
+explains the API base URL and credentials.
+Connection creation and updates require a user session or personal access token
+(PAT), making one-time setup scriptable; use organization API keys for runtime
+work after setup.
+
+A launcher's `agent_profile_id` slot starts an agent with that profile's config
+plus the app capabilities scoped to the triggering conversation. The profile is
+unchanged. A slot with `agent_id` sends input to that existing agent without
+granting it new tools or listeners. Each slot supplies exactly one of those IDs.
+Keep slot keys stable when editing a launcher.
+
+An existing exact listener takes continuation for its conversation; a broad
+channel listener does not suppress launches in unrelated threads. Slack and
+Discord launch immediately when one profile is offered. With several profiles,
+they post a menu and launch only the selected profile with the original request.
+GitHub launches each configured slot. This policy belongs to the app; another
+contributed app can choose to launch several agents.
+
+Edit a chat app's offered profiles from its **Edit profiles** action or update
+its launcher slots through the API. Changes apply to new requests, leaving
+existing agents and listeners unchanged. Overlapping setups for the same bot and
+conversation are misconfiguration; launch and delivery outcomes are unspecified,
+including possible duplicate menus, agents and replies.
+
+Ordinary model output stays in Omnara; posting externally requires a send/comment tool.
+
+## Reuse project setup
+
+An agent config can reference a saved project's `app_…` ID instead of repeating
+its connection and tool definitions. Select the capabilities explicitly:
+
+```yaml
+app_resources:
+  notifications:
+    app_instance: app_aeaqcaibaeaqcaibaeaqcaibae
+    scope:
+      slack: {channel_id: C123}
+    tools:
+      slack_post_message: {}
+```
+
+This fragment assumes the saved app exports `slack_post_message`. It selects
+only that tool, even if the app also offers a listener or interaction handler.
+An explicit scope replaces the saved default scope as a whole.
+
+Config creation captures the resolved settings. Editing or deleting a reusable
+app changes future use of it, including its launcher; it does not rewrite
+existing agents. Disable the connection to revoke provider access. To change an
+existing agent's capabilities, give it a new config through the ordinary
+[config-change flow](/events/sending-input#change-the-config-mid-conversation).
+App attachments are not automatically inherited by spawned subagents.
+
+Custom and MCP tools bundled in an app follow the ordinary config-change rule:
+already proposed calls keep the config captured when they were proposed; changes
+apply at the next model call. App membership adds no separate execution check.
+Scoped provider tools also check live scope and connection authority. To stop
+current work immediately, cancel the agent's work or revoke the relevant secrets.
+
+## Choose where questions go
+
+Declaring a handler makes `list_interaction_destinations` and
+`set_interaction_destination` available, subject to explicit tool policy.
+The model can choose an eligible destination or choose dashboard-only with
+`{"destination": null}`. Sending an ordinary message does not make that choice.
+
+A newly accepted provider input selects the sole matching handler for
+future prompts. No match, or several matches, selects dashboard-only. Each open
+interaction retains the destination captured when it was created; later inputs
+or destination changes do not move it. See [interactions](/events/interactions).
+
+Upgrading an existing Slack deployment? Follow the coordinated
+[composable-apps cutover](/self-hosting/composable-apps-cutover), including the
+reset of old thread listeners and interaction destinations.
+
+For failed incoming events, self-hosted operators can inspect, retry or discard
+stored receipts using the [app event recovery commands](/self-hosting/composable-apps-cutover#recover-failed-app-events).

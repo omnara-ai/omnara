@@ -26,16 +26,17 @@ const (
 )
 
 type AgentConfigSource struct {
-	Version        string                               `json:"version,omitempty"`
-	Instruction    string                               `json:"instruction"`
-	Model          AgentConfigModelSource               `json:"model"`
-	MachineSources []AgentConfigMachineSource           `json:"machine_sources,omitempty"`
-	Tools          map[string]AgentConfigToolSource     `json:"tools,omitempty"`
-	MCP            map[string]AgentConfigMCPSource      `json:"mcp,omitempty"`
-	Skills         []string                             `json:"skills,omitempty"`
-	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
-	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
-	MaxDepth       *int                                 `json:"max_depth,omitempty"`
+	Version        string                                  `json:"version,omitempty"`
+	Instruction    string                                  `json:"instruction"`
+	Model          AgentConfigModelSource                  `json:"model"`
+	MachineSources []AgentConfigMachineSource              `json:"machine_sources,omitempty"`
+	Tools          map[string]AgentConfigToolSource        `json:"tools,omitempty"`
+	MCP            map[string]AgentConfigMCPSource         `json:"mcp,omitempty"`
+	AppResources   map[string]AgentConfigAppResourceSource `json:"app_resources,omitempty"`
+	Skills         []string                                `json:"skills,omitempty"`
+	Subagents      map[string]AgentConfigSubagentSource    `json:"subagents,omitempty"`
+	MaxSubagents   *int                                    `json:"max_subagents,omitempty"`
+	MaxDepth       *int                                    `json:"max_depth,omitempty"`
 }
 
 type AgentConfigModelSource struct {
@@ -76,7 +77,7 @@ type AgentConfigToolSource struct {
 }
 
 type AgentConfigMCPSource struct {
-	URL            string                              `json:"url"`
+	URL            string                              `json:"url,omitempty"`
 	Auth           *AgentConfigMCPAuthSource           `json:"auth,omitempty"`
 	DefaultEnabled *bool                               `json:"default_enabled,omitempty"`
 	Permission     *toolpermission.Selection           `json:"permission,omitempty"`
@@ -554,6 +555,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			),
 		}),
 	)
+	addAppSourceSchema(schema)
 	return schema
 }
 

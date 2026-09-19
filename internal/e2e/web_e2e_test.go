@@ -4,6 +4,11 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,9 +18,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 )
@@ -34,8 +41,17 @@ func TestWebE2E(t *testing.T) {
 	defer cancel()
 
 	env := newServiceE2EEnvironment(t, ctx, "web")
-	env.publicURL = env.apiURL
-	env.publicURLHost = strings.TrimPrefix(env.apiURL, "http://")
+	apiURL, err := url.Parse(env.apiURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep callback URL validation and secure browser cookies enabled. Chromium
+	// resolves this test-only hostname to the local TLS proxy; no public server
+	// or provider traffic is involved.
+	proxy := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(apiURL))
+	t.Cleanup(proxy.Close)
+	env.publicURL = strings.Replace(proxy.URL, "127.0.0.1", "app.omnara.test", 1)
+	env.publicURLHost = strings.TrimPrefix(env.publicURL, "https://")
 	env.startEmbeddedWebAPI(t, ctx)
 
 	project := env.bootstrapProjectViaAPI(
@@ -83,6 +99,7 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleAdmin,
 		authz.ProjectRoleAdmin,
 	)
+	providerFixture := webE2EVerifiedConnectionFixture(t, store, orgID, projectID, adminUserID)
 	createWebE2EUser(
 		t,
 		ctx,
@@ -184,7 +201,7 @@ func TestWebE2E(t *testing.T) {
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = filepath.Join(env.repoRoot, "frontend")
 	cmd.Env = serviceProcessEnv(
-		"OMNARA_WEB_E2E_BASE_URL="+env.apiURL,
+		"OMNARA_WEB_E2E_BASE_URL="+env.publicURL,
 		"OMNARA_WEB_E2E_PROJECT_ID="+project.projectID,
 		"OMNARA_WEB_E2E_ORG_NAME="+webE2EOrgName,
 		"OMNARA_WEB_E2E_SWITCH_ORG_NAME="+webE2ESwitchOrgName,
@@ -196,12 +213,86 @@ func TestWebE2E(t *testing.T) {
 		"OMNARA_WEB_E2E_PROVIDER_CONFIG="+webE2EProviderConfig,
 		"OMNARA_WEB_E2E_MODEL_NAME="+webE2EModelName,
 		"OMNARA_WEB_E2E_UNGRANTED_MODEL="+webE2EUngrantedModel,
+		"OMNARA_WEB_E2E_PROVIDER_FIXTURE="+providerFixture,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run Playwright: %v\n%s", err, output)
 	}
 	t.Logf("Playwright output:\n%s", output)
+}
+
+// The real API binary has no provider-client test switch. Playwright replaces
+// only GitHub/Discord connection creation with this loopback fixture: it seeds verified
+// identity using the secret just saved through the real public API. Discovery
+// itself is covered by HTTP integration tests with local provider servers.
+func webE2EVerifiedConnectionFixture(
+	t *testing.T,
+	store *storage.Store,
+	orgID, projectID, userID uuid.UUID,
+) string {
+	t.Helper()
+	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body openapi.SaveIntegrationConnectionRequest
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&body) != nil ||
+			(body.Provider != "github" && body.Provider != "discord") ||
+			body.ProviderTenantId != "111" || body.ProviderAccountRef != "222" {
+			http.Error(w, "invalid provider browser fixture request", http.StatusBadRequest)
+			return
+		}
+		secretID, err := publicid.Decode(publicid.KindSecret, body.CredentialSecretId)
+		if err != nil {
+			http.Error(w, "invalid credential id", http.StatusBadRequest)
+			return
+		}
+		secret, err := store.Secrets().GetSecret(r.Context(), orgID, secretID)
+		if err != nil {
+			http.Error(w, "browser credential was not persisted", http.StatusBadRequest)
+			return
+		}
+		input := integrationstore.SaveIntegrationConnectionInput{
+			OrgID: orgID, ProjectID: projectID, InstalledByUserID: userID,
+			Provider: string(body.Provider), ProviderTenantID: "111", ProviderAccountRef: "222",
+			State:              integrationstore.IntegrationConnectionStateActive,
+			CredentialSecretID: secretID, CredentialVersionID: secret.CurrentVersionID,
+		}
+		if body.Provider == "github" {
+			input.CredentialAppID = 111
+			input.ProviderIdentity = json.RawMessage(`{
+				"app_id":111,"installation_id":222,"app_slug":"web-fixture","bot_user_id":444,"bot_login":"web-fixture[bot]"
+			}`)
+		} else {
+			input.ProviderIdentity = json.RawMessage(`{"application_id":"111","bot_user_id":"222"}`)
+		}
+		if body.ProviderConfig != nil {
+			input.ProviderConfig, err = json.Marshal(body.ProviderConfig)
+			if err != nil {
+				http.Error(w, "invalid fixture provider config", http.StatusBadRequest)
+				return
+			}
+		}
+		if body.ProviderAgentDisplayName != nil {
+			input.ProviderAgentDisplayName = *body.ProviderAgentDisplayName
+		}
+		connection, err := store.Integrations().CreateIntegrationConnection(r.Context(), input)
+		if err != nil {
+			t.Errorf("seed verified provider browser connection: %v", err)
+			http.Error(w, "could not seed verified connection", http.StatusInternalServerError)
+			return
+		}
+		id, err := publicid.Encode(publicid.KindIntegrationConnection, connection.ID)
+		if err != nil {
+			t.Errorf("encode provider fixture connection: %v", err)
+			http.Error(w, "could not encode connection", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]string{"id": id}); err != nil {
+			t.Errorf("write provider fixture response: %v", err)
+		}
+	}))
+	t.Cleanup(fixture.Close)
+	return fixture.URL
 }
 
 func createWebE2EUser(

@@ -73,7 +73,7 @@ type readbackMessage struct {
 
 func Destination(kind, ref string) (channel, threadTS string, err error) {
 	switch kind {
-	case "dm":
+	case "channel", "dm":
 		if ref == "" {
 			return "", "", errors.New("slack dm target is missing channel")
 		}
@@ -289,6 +289,10 @@ func callFormAt(
 func doRequest(client *http.Client, req *http.Request, out any) (APIResult, error) {
 	resp, err := httpClientWithoutRedirects(client).Do(req)
 	if err != nil {
+		var rejected *requestCheckError
+		if errors.As(err, &rejected) {
+			return APIResult{}, rejected.cause
+		}
 		return APIResult{DeliveryUnknown: true, Message: err.Error()}, nil
 	}
 	defer func() { _ = resp.Body.Close() }()

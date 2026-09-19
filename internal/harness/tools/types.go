@@ -57,17 +57,17 @@ type ToolSpec struct {
 }
 
 type Executor struct {
-	Store                    *storage.Store
-	Skills                   SkillStore
-	MCP                      mcp.Client
-	IntegrationHTTPClient    *http.Client
-	MCPAuthHTTPClient        *http.Client
-	SigV4CredentialCache     *sigv4.CredentialCache
-	WebSearch                webaccess.SearchProvider
-	WebFetcher               *webaccess.Fetcher
-	MachinePoolManager       machinePoolManager
-	BackgroundRunner         BackgroundRunner
-	Now                      func() time.Time
+	Store                 *storage.Store
+	Skills                SkillStore
+	MCP                   mcp.Client
+	IntegrationHTTPClient *http.Client
+	MCPAuthHTTPClient     *http.Client
+	SigV4CredentialCache  *sigv4.CredentialCache
+	WebSearch             webaccess.SearchProvider
+	WebFetcher            *webaccess.Fetcher
+	MachinePoolManager    machinePoolManager
+	BackgroundRunner      BackgroundRunner
+
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
 	AgentConfigOptions       agentconfig.CompileOptions

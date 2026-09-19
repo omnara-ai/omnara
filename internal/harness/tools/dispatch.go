@@ -377,6 +377,8 @@ func retryableAsyncToolPersistenceError(ctx context.Context, err error) bool {
 		!errors.Is(err, storeerr.ErrStateTransitionConflict) &&
 		!errors.Is(err, storeerr.ErrIdempotencyConflict) &&
 		!errors.Is(err, storeerr.ErrInvalidToolCallDisposition) &&
+		!errors.Is(err, storeerr.ErrUnauthorized) &&
+		!errors.Is(err, storeerr.ErrConflict) &&
 		!errors.Is(err, storeerr.ErrNotFound) &&
 		!errors.Is(err, storeerr.ErrInvalidRequest)
 }
@@ -465,6 +467,9 @@ func (e Executor) executeAsyncTool(
 	defer cancelCompletion()
 	switch result := result.(type) {
 	case completeAsync:
+		if result.follow != nil {
+			return e.completeAsyncAppPost(completionCtx, call, result.content, *result.follow)
+		}
 		if err := e.completeAsyncToolResult(
 			completionCtx,
 			call.Turn,
@@ -472,32 +477,6 @@ func (e Executor) executeAsyncTool(
 			result.content,
 			executionstore.ToolResultOutcomeSucceeded,
 		); err != nil {
-			return err
-		}
-	case awaitDurableAsync:
-		if err := retryAsyncToolPersistence(
-			completionCtx,
-			func(ctx context.Context) error {
-				return e.Store.Execution().ReleaseToolCallRuntimeOwnership(
-					ctx,
-					executionstore.ReleaseToolCallRuntimeOwnershipInput{
-						ProjectID:     call.Turn.ProjectID,
-						AgentID:       call.Turn.AgentID,
-						ToolCallID:    call.ToolCallID,
-						RuntimeLockID: call.Turn.RuntimeLockID,
-					},
-				)
-			},
-		); err != nil {
-			if errors.Is(err, storeerr.ErrInvalidToolCallDisposition) {
-				return e.completeAsyncToolFailure(
-					completionCtx,
-					call.Turn,
-					call.ToolCallID,
-					toolResultContent{},
-					err,
-				)
-			}
 			return err
 		}
 	case failAsync:
@@ -647,18 +626,16 @@ type asyncPhaseResult interface {
 
 type completeAsync struct {
 	content toolResultContent
+	follow  *executionstore.ConfirmedAppFollow
 }
-
-type awaitDurableAsync struct{}
 
 type failAsync struct {
 	content toolResultContent
 	cause   error
 }
 
-func (completeAsync) asyncPhaseResult()     {}
-func (awaitDurableAsync) asyncPhaseResult() {}
-func (failAsync) asyncPhaseResult()         {}
+func (completeAsync) asyncPhaseResult() {}
+func (failAsync) asyncPhaseResult()     {}
 
 func completeAsynchronously(content toolResultContent) asyncPhaseResult {
 	if !content.isSet {
@@ -667,10 +644,6 @@ func completeAsynchronously(content toolResultContent) asyncPhaseResult {
 		}
 	}
 	return completeAsync{content: content}
-}
-
-func awaitDurableAsynchronously() asyncPhaseResult {
-	return awaitDurableAsync{}
 }
 
 func failAsynchronously(content toolResultContent, cause error) asyncPhaseResult {

@@ -3,71 +3,175 @@ package executionstore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func insertLaunchInitialContentInputTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	agent AgentRecord,
-	launchedBy identitystore.PrincipalRecord,
-	messageActor *ActorParams,
-	message string,
-	launchIdempotencyKey string,
-) (AgentInputRecord, json.RawMessage, error) {
-	contentBlocks := []CreateContentBlockInput{{
-		Ordinal:     0,
-		BlockKind:   ContentBlockKindText,
-		TextContent: message,
-	}}
-	canonicalContentBlocks, err := marshalAgentInputContentBlocks(contentBlocks)
-	if err != nil {
-		return AgentInputRecord{}, nil, fmt.Errorf("marshal launch initial input content: %w", err)
+// LaunchInitialInput uses the ordinary input contract. Origin is available to
+// trusted hosted callers; the public API does not expose it. Provider ingress
+// must verify its actor and origin before calling storage.
+type LaunchInitialInput struct {
+	ContentBlocks          json.RawMessage        `json:"content_blocks"`
+	Metadata               json.RawMessage        `json:"metadata,omitempty"`
+	Actor                  *ActorParams           `json:"actor,omitempty"`
+	Origin                 *LaunchInputOrigin     `json:"origin,omitempty"`
+	DeliveryMode           AgentInputDeliveryMode `json:"delivery_mode,omitempty"`
+	CancelOpenInteractions bool                   `json:"cancel_open_interactions,omitempty"`
+	SemanticEventKey       string                 `json:"semantic_event_key,omitempty"`
+}
+
+type LaunchInputOrigin struct {
+	ConnectionID uuid.UUID                            `json:"connection_id"`
+	Address      integrationstore.ConversationAddress `json:"address"`
+	DisplayName  string                               `json:"display_name,omitempty"`
+}
+
+// Only fenced inbox admission supplies planned identities and prepared media.
+// Ordinary launch callers cannot choose an agent ID or claim blob preparation.
+type launchAdmission struct {
+	AgentID       uuid.UUID
+	AppID         uuid.UUID
+	SelectionSlot string
+	Artifacts     []artifactstore.PreparedArtifact
+}
+
+func prepareLaunchInitialInput(input LaunchAgentInput) (*LaunchInitialInput, []CreateContentBlockInput, error) {
+	initial := input.InitialInput
+	if initial != nil && (input.Message != "" || input.MessageActor != nil) {
+		return nil, nil, storeerr.InvalidRequest(
+			errors.New("initial_input is mutually exclusive with message and message_actor"),
+		)
 	}
-	launchActor := messageActor
-	if launchActor == nil {
-		launchActor, err = OmnaraActorParams(agent.OrgID, launchedBy)
-		if err != nil {
-			return AgentInputRecord{}, nil, err
+	if initial == nil {
+		if input.Message == "" {
+			return nil, nil, nil
 		}
+		content, err := marshalAgentInputContentBlocks(
+			[]CreateContentBlockInput{{BlockKind: ContentBlockKindText, TextContent: input.Message}},
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		initial = &LaunchInitialInput{ContentBlocks: content, Actor: input.MessageActor}
 	}
-	launchActorID, err := resolveActorTx(
-		ctx,
-		dbsqlc.New(tx),
-		agent.ProjectID,
-		agent.ID,
-		launchActor,
-		uuid.Nil,
-	)
+	snapshot := *initial
+	blocks, err := parseAgentInputContentBlocks(snapshot.ContentBlocks)
 	if err != nil {
-		return AgentInputRecord{}, nil, err
+		return nil, nil, err
 	}
-	agentInput, err := insertAgentInputTx(ctx, tx, insertAgentInputInput{
-		ProjectID:           agent.ProjectID,
-		AgentID:             agent.ID,
-		DeliveryMode:        DeliveryModeQueued,
-		ActorID:             launchActorID,
-		IdempotencyScope:    "content_input",
-		InputIdempotencyKey: launchChildIdempotencyKey(launchIdempotencyKey, "content-input"),
-		Metadata:            json.RawMessage(`{}`),
+	snapshot.ContentBlocks, err = marshalAgentInputContentBlocks(blocks)
+	if err != nil {
+		return nil, nil, err
+	}
+	prepared, err := prepareCreateAgentContentInput(CreateAgentContentInputInput{
+		DeliveryMode: snapshot.DeliveryMode, CancelOpenInteractions: snapshot.CancelOpenInteractions,
 	})
 	if err != nil {
-		return AgentInputRecord{}, nil, err
+		return nil, nil, err
 	}
-	if err := createAgentInputContentBlocksTx(
-		ctx,
-		tx,
-		agentInput,
-		contentBlocks,
-	); err != nil {
-		return AgentInputRecord{}, nil, err
+	snapshot.DeliveryMode = prepared.DeliveryMode
+	if origin := snapshot.Origin; origin != nil {
+		if origin.ConnectionID == uuid.Nil || snapshot.SemanticEventKey == "" {
+			return nil, nil, storeerr.InvalidRequest(
+				errors.New("initial origin requires a connection and semantic event key"),
+			)
+		}
+		if err := origin.Address.Validate(); err != nil {
+			return nil, nil, err
+		}
 	}
-	return agentInput, canonicalContentBlocks, nil
+	return &snapshot, blocks, nil
+}
+
+func (s *Store) insertLaunchInitialContentInputTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	txNotifications *notifications.TxNotifications,
+	agent AgentRecord,
+	launch LaunchAgentInput,
+	initial LaunchInitialInput,
+	blocks []CreateContentBlockInput,
+	admission *launchAdmission,
+	result *LaunchAgentResult,
+) error {
+	q := dbsqlc.New(tx)
+	actor := initial.Actor
+	var err error
+	if actor == nil {
+		actor, err = OmnaraActorParams(agent.OrgID, launch.LaunchedBy)
+		if err != nil {
+			return err
+		}
+	}
+	content := CreateAgentContentInputInput{
+		ProjectID: agent.ProjectID, AgentID: agent.ID, Actor: actor,
+		ContentBlocks: initial.ContentBlocks, Metadata: initial.Metadata,
+		DeliveryMode: initial.DeliveryMode, CancelOpenInteractions: initial.CancelOpenInteractions,
+		IdempotencyScope: "content_input", IdempotencyKey: initial.SemanticEventKey,
+	}
+	if content.IdempotencyKey == "" {
+		content.IdempotencyKey = launchChildIdempotencyKey(launch.IdempotencyKey, "content-input")
+	}
+	if origin := initial.Origin; origin != nil {
+		targetInput := integrationstore.EnsureConversationTargetInput{
+			ProjectID: agent.ProjectID, AgentID: agent.ID, ConnectionID: origin.ConnectionID,
+			Address: origin.Address, DisplayName: origin.DisplayName, Role: integrationstore.TargetAttribution,
+		}
+		if admission != nil {
+			targetInput.Role = integrationstore.TargetSelected
+			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
+		}
+		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
+		if err != nil {
+			return err
+		}
+		connection, err := s.integrations.GetIntegrationConnectionByIDTx(ctx, tx, origin.ConnectionID)
+		if err != nil {
+			return err
+		}
+		if err := validateVerifiedProviderInputActor(connection, actor); err != nil {
+			return err
+		}
+		content.IntegrationTargetID = result.IntegrationTarget.ID
+		content.IdempotencyScope = integrationstore.IdempotencyScope(connection)
+	}
+	if admission != nil {
+		result.Artifacts, err = artifactstore.InsertPreparedArtifactsTx(
+			ctx,
+			tx,
+			agent.ProjectID,
+			agent.ID,
+			admission.Artifacts,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	created, err := createAgentContentInputTx(ctx, txNotifications, tx, q, agent, content, blocks)
+	if err != nil {
+		return err
+	}
+	if created.created && content.IntegrationTargetID != uuid.Nil {
+		if _, err := s.SelectInteractionDestinationForOriginTx(
+			ctx,
+			tx,
+			agent.ProjectID,
+			agent.ID,
+			content.IntegrationTargetID,
+		); err != nil {
+			return err
+		}
+	}
+	result.AgentInput, result.InputContentBlocks = created.agentInput, created.contentBlocks
+	return nil
 }
 
 func launchChildIdempotencyKey(parent, child string) string {

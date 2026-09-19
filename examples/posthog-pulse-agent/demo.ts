@@ -160,8 +160,7 @@ Report. A short pulse, not a data dump:
   going silent, a spike concentrated in one event). If nothing moved, say
   "steady day" — never invent a story, and never pad the report.
 
-Deliver. When this conversation is driven through an integration such as
-Slack, send the pulse with send_integration_message — the external user
+Deliver. When slack_post_message is available through a Slack app resource, send the pulse with slack_post_message — the external user
 only sees messages sent that way. Otherwise present it directly in the
 conversation. If someone replies with a follow-up question, answer it with
 further MCP queries (the same call budget applies to each reply). You are
@@ -187,8 +186,8 @@ settings. Query and read tools only.
     },
   },
   tools: {
-    send_integration_message: { permission: { mode: 'always_allow' } },
-    set_integration_target: {},
+    // Policy only: Slack setup supplies the scoped tool when it launches an agent.
+    slack_post_message: { permission: { mode: 'always_allow' } },
   },
 }
 

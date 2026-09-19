@@ -13,28 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const agentProfileHasIntegrationInstall = `-- name: AgentProfileHasIntegrationInstall :one
-SELECT EXISTS (
-  SELECT 1 FROM integration_installs
-  WHERE project_id = $1
-    AND agent_profile_id = $2
-    AND state = 'active'
-    AND deleted_at IS NULL
-) AS has_integration_install
-`
-
-type AgentProfileHasIntegrationInstallParams struct {
-	ProjectID uuid.UUID
-	ProfileID *uuid.UUID
-}
-
-func (q *Queries) AgentProfileHasIntegrationInstall(ctx context.Context, arg AgentProfileHasIntegrationInstallParams) (bool, error) {
-	row := q.db.QueryRow(ctx, agentProfileHasIntegrationInstall, arg.ProjectID, arg.ProfileID)
-	var has_integration_install bool
-	err := row.Scan(&has_integration_install)
-	return has_integration_install, err
-}
-
 const agentProfileVersionExistsForConfig = `-- name: AgentProfileVersionExistsForConfig :one
 SELECT EXISTS (
   SELECT 1
@@ -458,6 +436,44 @@ func (q *Queries) GetAgentProfileByIdempotencyKey(ctx context.Context, arg GetAg
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getAgentProfileDisplayNames = `-- name: GetAgentProfileDisplayNames :many
+SELECT id, name
+FROM agent_profiles
+WHERE project_id = $1
+  AND id = ANY($2::uuid[]) AND deleted_at IS NULL
+`
+
+type GetAgentProfileDisplayNamesParams struct {
+	ProjectID  uuid.UUID
+	ProfileIds []uuid.UUID
+}
+
+type GetAgentProfileDisplayNamesRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// Display-only lookup for app menus; never loads or derives an agent config.
+func (q *Queries) GetAgentProfileDisplayNames(ctx context.Context, arg GetAgentProfileDisplayNamesParams) ([]GetAgentProfileDisplayNamesRow, error) {
+	rows, err := q.db.Query(ctx, getAgentProfileDisplayNames, arg.ProjectID, arg.ProfileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAgentProfileDisplayNamesRow{}
+	for rows.Next() {
+		var i GetAgentProfileDisplayNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAgentProfileIDByName = `-- name: GetAgentProfileIDByName :one
