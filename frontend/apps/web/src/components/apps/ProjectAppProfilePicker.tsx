@@ -34,6 +34,8 @@ export function ProjectAppProfilePicker({
   slotCount,
   disabled,
   single = false,
+  label = 'Offered profiles',
+  description,
 }: {
   orgId: string
   projectId: string
@@ -42,6 +44,8 @@ export function ProjectAppProfilePicker({
   slotCount?: number | null
   disabled?: boolean
   single?: boolean
+  label?: string
+  description?: string
 }) {
   const displayedSlotCount = slotCount === undefined ? value.length : slotCount
   const search = useTypeaheadSearch()
@@ -74,7 +78,7 @@ export function ProjectAppProfilePicker({
   )
   return (
     <Field>
-      <FieldLabel htmlFor="app-profiles">Offered profiles</FieldLabel>
+      <FieldLabel htmlFor="app-profiles">{label}</FieldLabel>
       {single ? (
         <ProfileCombobox
           id="app-profiles"
@@ -99,16 +103,17 @@ export function ProjectAppProfilePicker({
         />
       )}
       <FieldDescription>
-        {single ? (
-          'Choose one profile to launch for matching GitHub events.'
-        ) : (
-          <>
-            With one eligible profile, a mention launches it immediately. With multiple eligible
-            profiles, a native menu asks the person to choose just one. Later messages stay with
-            that agent. Up to 16 slots per setup
-            {displayedSlotCount === null ? '.' : ` (${displayedSlotCount}/16 selected).`}
-          </>
-        )}
+        {description ??
+          (single ? (
+            'Choose one profile to launch for matching GitHub events.'
+          ) : (
+            <>
+              With one eligible profile, a mention launches it immediately. With multiple eligible
+              profiles, a native menu asks the person to choose just one. Later messages stay with
+              that agent. Up to 16 slots per setup
+              {displayedSlotCount === null ? '.' : ` (${displayedSlotCount}/16 selected).`}
+            </>
+          ))}
       </FieldDescription>
       {loadingNames && (
         <p role="status" className="text-muted-foreground text-sm">

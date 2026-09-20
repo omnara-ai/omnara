@@ -43,7 +43,9 @@ export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
       <FieldDescription>
         {values.launcher
           ? 'Choose when to launch and which profiles to use. Changes apply to future launches.'
-          : 'No agents launch automatically. Profiles are only required when you enable a launcher.'}
+          : provider === 'github'
+            ? 'This event launcher is off.'
+            : 'Mention launches are off. Schedules are managed separately.'}
         {app?.settings.launcher &&
           !values.launcher &&
           ' Saving removes this launcher and all of its launch slots.'}

@@ -105,6 +105,9 @@ func (c *AppInboxConsumer) Consume(
 		appSetup.State != integrationstore.ProjectAppStateActive {
 		return nil, storeerr.ErrUnauthorized
 	}
+	if receipt.Source == integrationstore.IntegrationInboxSourceScheduledLaunch {
+		return c.consumeScheduled(ctx, lease, receipt, appSetup)
+	}
 	adapter := c.providers[appSetup.Provider]
 	var expansion AppInboxExpansion
 	if len(receipt.Plan) == 0 {

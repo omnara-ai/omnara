@@ -1231,11 +1231,30 @@ export type AgentProfileCronTriggerTarget = {
     agent_profile_id: AgentProfileId;
 };
 
+export type AppLaunchCronTriggerTarget = {
+    type: 'app_launch';
+    app_id: ProjectAppId;
+    agent_profile_id: AgentProfileId;
+    /**
+     * Parent destination for a new thread on a built-in Slack or Discord app. Slack requires a C/G channel ID; direct messages and existing threads are not supported. Discord requires a text or announcement channel; guild_id is optional.
+     */
+    destination: {
+        channel_id: string;
+        guild_id?: string;
+    };
+    /**
+     * Go text/template for the parent heading, using the same trigger values as message_template. Both the source and rendered heading must contain at most 2000 Unicode codepoints. The heading is published before agent launch; the agent's report is a reply in its new thread.
+     */
+    opening_message_template: string;
+};
+
 export type CronTriggerTarget = ({
     type: 'agent';
 } & AgentCronTriggerTarget) | ({
     type: 'profile';
-} & AgentProfileCronTriggerTarget);
+} & AgentProfileCronTriggerTarget) | ({
+    type: 'app_launch';
+} & AppLaunchCronTriggerTarget);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -1248,7 +1267,7 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. For app launches this is the agent task, snapshotted at durable handoff. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
 
@@ -1280,7 +1299,7 @@ export type CreateCronTriggerRequest = {
 
 export type UpdateCronTriggerRequest = {
     /**
-     * Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+     * Updates target options. The target type, app, and profile identities cannot change. App destination and opening heading can change for future handoffs. Omitted delivery_mode preserves the current mode.
      */
     target?: CronTriggerTarget;
     name?: ResourceName;
@@ -1288,6 +1307,21 @@ export type UpdateCronTriggerRequest = {
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
     enabled?: boolean;
+};
+
+/**
+ * State of the latest accepted scheduled app launch: queued while waiting to start, preparing while creating its thread and agent, launched once the agent has started, failed if the launch could not complete, or discarded if an operator discarded the failed work. Launched does not indicate task completion or report delivery.
+ */
+export type CronTriggerLastRunState = 'queued' | 'preparing' | 'launched' | 'failed' | 'discarded';
+
+export type CronTriggerLastRun = {
+    state: CronTriggerLastRunState;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    /**
+     * Coarse launch failure description; no raw provider errors.
+     */
+    failure_message: string | null;
 };
 
 export type CronTrigger = {
@@ -1301,7 +1335,7 @@ export type CronTrigger = {
     message_template: CronMessageTemplate;
     enabled: boolean;
     /**
-     * When the trigger last fired, or null if it has never fired.
+     * When the trigger last fired, or null if it has never fired. For app launches this means durable inbox handoff.
      */
     last_fired_at: Timestamp | null;
     /**
@@ -1312,6 +1346,10 @@ export type CronTrigger = {
      * Most recent failed firing, or null if no firing has failed since the last successful firing.
      */
     failure_report: CronTriggerFailureReport | null;
+    /**
+     * Status of the latest accepted scheduled app launch, scoped to this project and app. Null for ordinary cron, before any launch is accepted, or when retained details have expired. Never falls back to an older launch. Schedule firing failures remain separate in failure_report. Deleting or disabling a schedule does not cancel launch work already accepted by the app.
+     */
+    last_run: CronTriggerLastRun | null;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -8539,6 +8577,10 @@ export type ListCronTriggersData = {
          * Only return triggers targeting this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Only return scheduled launches for this app.
+         */
+        app_id?: ProjectAppId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

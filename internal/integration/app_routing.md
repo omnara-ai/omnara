@@ -254,3 +254,45 @@ operator workflow.
 Worker logs identify receipt, app, project, attempt and durable retry/failure
 outcome, including old receipt age. They never include provider payloads or
 credentials.
+
+## Scheduled thread launches
+
+Cron is the only schedule owner. An app-launch firing locks project/app, profile
+and cron in that order, rechecks its claim/lease, enabled state and due time, then
+atomically snapshots the profile config and rendered task/opening into the app
+inbox, records last_app_receipt_id and completes the firing. A stale occurrence
+releases only its own claim and preserves a concurrent edit's next fire time.
+Scheduled jobs are explicitly source=scheduled_launch; verified provider intake
+cannot populate that discriminator. Mention settings authorize no part of this
+handoff. The diagnostic last_app_receipt_id is an expiring reference, not authority;
+reads must check project, app and source, and never choose an older retained run.
+
+The worker marks publication attempted under the receipt lease before provider
+I/O. A definite rejection can clear that marker; a timeout, HTTP 5xx or missing
+acknowledgement cannot. Slack recovery checks the occurrence marker, retrying
+readback within the inbox budget. Discord uses enforced nonces only for the
+client's bounded send retries; later history fetches do not preserve the nonce.
+An unresolved Discord publication fails the run without another post. A saved
+root still resumes thread creation and launch. Operator retry preserves all
+publication evidence; it cannot turn an uncertain send into a fresh send.
+
+A confirmed root is saved with FreezeScheduledLaunch in one transaction whenever
+planning succeeds. If planning fails, save the root alone when the lease permits.
+The frozen selection reserves the conversation before Discord EnsureThread runs.
+Admission then uses the existing config/agent/listener/initial-input transaction.
+Its Omnara cron actor is authorized from the locked scheduled receipt, not a flag
+in provider JSON or plan JSON. The thread origin selects its interaction handler.
+Retries of committed admission do not repeat provider preparation.
+
+Slack has a residual publication-before-commit window: a reply can arrive before
+the conversation reservation exists and be treated as unrouted. A crash can widen
+that interval. The existing bounded retry/reservation design protects the period
+after freeze; it does not promise atomicity between Slack and PostgreSQL. No
+channel-wide hold or second outbound queue is introduced for that rare gap.
+
+App disconnect/delete and profile deletion fence remaining work. Disabling or
+deleting the schedule affects future firings; accepted receipts keep their
+snapshot. A completed receipt means the agent was launched, not that its eventual
+report was delivered. Scheduled failures are surfaced by the cron's exact retained
+last_run, separately from handoff failure_report. No new table or per-agent mutable
+app configuration is involved.

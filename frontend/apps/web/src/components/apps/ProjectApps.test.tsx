@@ -190,7 +190,7 @@ it.each([true, false])(
     act(() => {
       button('Remove app').click()
     })
-    expect(confirm).toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('This deletes its schedules'))
     expect(api.requestsTo('DELETE', `${projectPath}/apps/${app.id}`)).toHaveLength(0)
   },
 )
@@ -206,6 +206,11 @@ it.each([true, false])(
           path: `${projectPath}/apps/${app.id}`,
           respond: () => jsonResponse(z.json().parse(app)),
         },
+        {
+          method: 'GET',
+          path: `${projectPath}/cron-triggers`,
+          respond: () => Response.json({ data: [], next_cursor: null }),
+        },
       ]),
       <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage={canManage} />,
     )
@@ -215,6 +220,9 @@ it.each([true, false])(
           ? 'Finish setup: connect an account'
           : 'Ask a project administrator to connect this app.',
       )
+    })
+    await waitForUI(() => {
+      expect(container.textContent).toContain('No schedules yet.')
     })
     if (canManage) expect(button('Connect account')).toBeDefined()
     else expect(container.querySelectorAll('button')).toHaveLength(0)

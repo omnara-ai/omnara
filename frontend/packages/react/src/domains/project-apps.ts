@@ -10,6 +10,7 @@ import {
   getProjectAppQueryKey,
   listAgentsQueryKey,
   listAppDefinitionsOptions,
+  listCronTriggersQueryKey,
   listProjectAppsInfiniteOptions,
   listProjectAppsQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -104,6 +105,9 @@ export function useDeleteProjectApp(orgID: string, projectID: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listCronTriggersQueryKey({ path: { orgID, projectID }, client }),
         }),
       ])
     },

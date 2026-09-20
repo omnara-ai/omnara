@@ -33,6 +33,24 @@ function nextFireLabel(value: string) {
   return ` · next ${nextFireFormatter.format(date)}`
 }
 
+function appRunLabel(trigger: CronTrigger) {
+  if (!trigger.last_run) {
+    return trigger.last_fired_at ? 'Last run: details not retained' : 'Not run yet'
+  }
+  switch (trigger.last_run.state) {
+    case 'queued':
+      return 'Last run: queued'
+    case 'preparing':
+      return 'Last run: preparing thread'
+    case 'launched':
+      return 'Agent launched'
+    case 'failed':
+      return `Last run: ${trigger.last_run.failure_message ?? 'failed'}`
+    case 'discarded':
+      return 'Last run: discarded'
+  }
+}
+
 export function CronTriggersList({
   orgId,
   projectId,
@@ -94,6 +112,19 @@ export function CronTriggersList({
                     ` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}
                   {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
+                {trigger.target.type === 'app_launch' && (
+                  <p className="text-muted-foreground break-words text-xs">
+                    Channel {trigger.target.destination.channel_id} · {appRunLabel(trigger)}
+                    {trigger.last_run && (
+                      <>
+                        {' · '}
+                        <time dateTime={trigger.last_run.updated_at}>
+                          {formatDateTime(trigger.last_run.updated_at)}
+                        </time>
+                      </>
+                    )}
+                  </p>
+                )}
                 {trigger.failure_report && (
                   <p className="text-destructive break-words text-xs">
                     Failed {formatDateTime(trigger.failure_report.failed_at)}:{' '}

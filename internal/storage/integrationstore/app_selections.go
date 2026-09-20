@@ -113,7 +113,34 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	if err != nil {
 		return fmt.Errorf("load selected app: %w", err)
 	}
-	if app.State != ProjectAppStateActive || app.Settings.Launcher == nil {
+	if app.State != ProjectAppStateActive {
+		return storeerr.ErrUnauthorized
+	}
+	if w.record.Source == IntegrationInboxSourceScheduledLaunch {
+		launch, err := w.record.ScheduledLaunch()
+		if err != nil {
+			return err
+		}
+		preparation, err := w.record.ScheduledPreparation()
+		if err != nil {
+			return err
+		}
+		if preparation.Root == nil || len(identities) != 1 {
+			return storeerr.ErrUnauthorized
+		}
+		if err := validateScheduledRoot(app.Provider, launch.Destination, *preparation.Root); err != nil {
+			return err
+		}
+		kind, ref, err := preparation.Root.Conversation()
+		if err != nil {
+			return err
+		}
+		for identity := range identities {
+			if identity.Address != (ConversationAddress{Kind: kind, Ref: ref}) {
+				return storeerr.ErrUnauthorized
+			}
+		}
+	} else if app.Settings.Launcher == nil {
 		return storeerr.ErrUnauthorized
 	}
 	// Lookup in separate statements after acquiring the gate, so a waiter sees

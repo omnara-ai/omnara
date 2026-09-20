@@ -3777,6 +3777,8 @@ export const createProjectAppMutation = (options?: Partial<Options<CreateProject
 
 /**
  * Delete app setup and revoke its capabilities
+ *
+ * Deletes the app setup and its cron schedules, revokes its capabilities, and releases its credential reference. Existing agents, agent history, and provider messages are preserved.
  */
 export const deleteProjectAppMutation = (options?: Partial<Options<DeleteProjectAppData>>): UseMutationOptions<DeleteProjectAppResponse, DeleteProjectAppError, Options<DeleteProjectAppData>> => {
     const mutationOptions: UseMutationOptions<DeleteProjectAppResponse, DeleteProjectAppError, Options<DeleteProjectAppData>> = {

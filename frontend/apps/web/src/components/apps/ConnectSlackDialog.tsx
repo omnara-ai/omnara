@@ -4,13 +4,17 @@ import {
   useOmnaraClient,
   useProjectAppOAuthCompletion,
 } from '@omnara/react'
-import { ApiError, type IntegrationOAuthSetup, type ProjectApp } from '@omnara/sdk'
+import {
+  ApiError,
+  type GetProjectAppError,
+  type IntegrationOAuthSetup,
+  type ProjectApp,
+} from '@omnara/sdk'
 import { listProjectAppsQueryKey } from '@omnara/sdk/tanstack'
 import { useForm } from '@tanstack/react-form'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { Upload, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -25,13 +29,12 @@ import { Input } from '@/components/ui/input'
 import { errorMessage } from '@/lib/submit-status'
 
 import {
-  fileSizeLabel,
   noAppIcon,
-  readFileBase64,
+  slackAppIconPayload,
   slackAppNameMaxLength,
   slackConnectionFormValid,
-  validateAppIcon,
 } from './ConnectSlackDialogState'
+import { SlackAppIconField } from './SlackAppIconField'
 import { slackOAuthErrorDescription } from './SlackOAuthOutcomeDialogState'
 
 export function ConnectSlackDialog({
@@ -65,14 +68,7 @@ export function ConnectSlackDialog({
   )
   const completed =
     completion.data?.state === 'active' && completion.data.last_oauth_flow_id === pending?.flow_id
-  const failure =
-    !pending || completed
-      ? ''
-      : completion.error instanceof ApiError && completion.error.status === 404
-        ? slackOAuthErrorDescription('app_deleted')
-        : completion.data && completion.data.setup_revision > pending.setup_revision
-          ? slackOAuthErrorDescription('app_setup_changed')
-          : ''
+  const failure = slackSetupFailure(pending, completed, completion.data, completion.error)
   const cache = useQueryClient()
   useEffect(() => {
     if (!open || !pending) return
@@ -97,7 +93,6 @@ export function ConnectSlackDialog({
     }
     return undefined
   }, [open, pending, completed, cache, client, orgId, projectId, onConnected, onOpenChange])
-  const appIconInputRef = useRef<HTMLInputElement>(null)
   const form = useForm({
     defaultValues: {
       clientId: '',
@@ -111,38 +106,33 @@ export function ConnectSlackDialog({
       if (!(existingApp ? existingCredentialsValid(value) : slackConnectionFormValid(value))) return
       setError('')
       try {
-        const icon =
-          value.appIcon.kind === 'file'
-            ? {
-                filename: value.appIcon.file.name,
-                data_base64: await readFileBase64(value.appIcon.file),
-              }
-            : undefined
-        const setup = existingApp
-          ? await createOAuthSetup.mutateAsync({
-              client_id: value.clientId.trim(),
-              client_secret: value.clientSecret.trim(),
-              signing_secret: value.signingSecret.trim(),
-              return_to: window.location.pathname,
-            })
-          : await createSlackSetup.mutateAsync({
-              app_name: value.appName.trim(),
-              app_configuration_token: value.appConfigurationToken.trim(),
-              icon,
-              return_to: window.location.pathname,
-            })
-        if (setup.app_id !== app.id)
-          throw new Error('Authorization returned a different app. Please try again.')
-        setPending(setup)
+        let setup: IntegrationOAuthSetup
+        if (existingApp) {
+          setup = await createOAuthSetup.mutateAsync({
+            client_id: value.clientId.trim(),
+            client_secret: value.clientSecret.trim(),
+            signing_secret: value.signingSecret.trim(),
+            return_to: window.location.pathname,
+          })
+        } else {
+          const icon = await slackAppIconPayload(value.appIcon)
+          setup = await createSlackSetup.mutateAsync({
+            app_name: value.appName.trim(),
+            app_configuration_token: value.appConfigurationToken.trim(),
+            icon,
+            return_to: window.location.pathname,
+          })
+        }
+        if (setup.app_id !== app.id) {
+          setError('Authorization returned a different app. Please try again.')
+        } else {
+          setPending(setup)
+        }
       } catch (err) {
         setError(errorMessage(err, 'Could not start integration setup'))
       }
     },
   })
-
-  function resetIconInput() {
-    if (appIconInputRef.current) appIconInputRef.current.value = ''
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,36 +145,14 @@ export function ConnectSlackDialog({
           </DialogDescription>
         </DialogHeader>
         {pending && !failure ? (
-          <div className="flex flex-col gap-4 text-sm">
-            <p>
-              Authorize this app in Slack, then return here. This page updates when authorization
-              completes.
-            </p>
-            <Button asChild>
-              <a href={pending.oauth_url} target="_blank" rel="noopener noreferrer">
-                Authorize in Slack
-              </a>
-            </Button>
-            {completion.isError && (
-              <p role="alert">
-                Could not check authorization.{' '}
-                <Button variant="link" onClick={() => void completion.refetch()}>
-                  Check again
-                </Button>
-              </p>
-            )}
-            <p className="text-muted-foreground">
-              Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
-            </p>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setPending(undefined)
-              }}
-            >
-              Start again
-            </Button>
-          </div>
+          <SlackAuthorizationPending
+            pending={pending}
+            isError={completion.isError}
+            onRetry={() => void completion.refetch()}
+            onRestart={() => {
+              setPending(undefined)
+            }}
+          />
         ) : (
           <form
             onSubmit={(event) => {
@@ -304,67 +272,7 @@ export function ConnectSlackDialog({
                   </form.Field>
                   <form.Field name="appIcon">
                     {(field) => (
-                      <Field className="gap-2.5">
-                        <FieldLabel htmlFor="slack-app-icon">Slack app icon (optional)</FieldLabel>
-                        <Input
-                          id="slack-app-icon"
-                          ref={appIconInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg"
-                          className="hidden"
-                          onChange={(event) => {
-                            const next = validateAppIcon(event.target.files?.[0] ?? null)
-                            field.handleChange(next)
-                            if (next.kind !== 'file') resetIconInput()
-                          }}
-                        />
-                        <div className="border-input bg-muted/20 flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-3">
-                          <div className="min-w-0 text-sm">
-                            {field.state.value.kind === 'file' ? (
-                              <span className="flex min-w-0 items-center gap-2">
-                                <span className="text-foreground truncate">
-                                  {field.state.value.file.name}
-                                </span>
-                                <span className="text-muted-foreground shrink-0">
-                                  {fileSizeLabel(field.state.value.file.size)}
-                                </span>
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">No icon selected</span>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {field.state.value.kind === 'file' && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  field.handleChange(noAppIcon)
-                                  resetIconInput()
-                                }}
-                              >
-                                <X />
-                                Remove
-                              </Button>
-                            )}
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => appIconInputRef.current?.click()}
-                            >
-                              <Upload />
-                              Choose icon
-                            </Button>
-                          </div>
-                        </div>
-                        {field.state.value.kind === 'error' && (
-                          <FieldDescription className="text-destructive">
-                            {field.state.value.message}
-                          </FieldDescription>
-                        )}
-                      </Field>
+                      <SlackAppIconField value={field.state.value} onChange={field.handleChange} />
                     )}
                   </form.Field>
                 </>
@@ -410,4 +318,58 @@ function existingCredentialsValid(value: {
     value.clientSecret.trim() !== '' &&
     value.signingSecret.trim() !== ''
   )
+}
+
+function SlackAuthorizationPending({
+  pending,
+  isError,
+  onRetry,
+  onRestart,
+}: {
+  pending: IntegrationOAuthSetup
+  isError: boolean
+  onRetry: () => void
+  onRestart: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-4 text-sm">
+      <p>
+        Authorize this app in Slack, then return here. This page updates when authorization
+        completes.
+      </p>
+      <Button asChild>
+        <a href={pending.oauth_url} target="_blank" rel="noopener noreferrer">
+          Authorize in Slack
+        </a>
+      </Button>
+      {isError && (
+        <p role="alert">
+          Could not check authorization.{' '}
+          <Button variant="link" onClick={onRetry}>
+            Check again
+          </Button>
+        </p>
+      )}
+      <p className="text-muted-foreground">
+        Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
+      </p>
+      <Button variant="outline" onClick={onRestart}>
+        Start again
+      </Button>
+    </div>
+  )
+}
+
+function slackSetupFailure(
+  pending: IntegrationOAuthSetup | undefined,
+  completed: boolean,
+  app: ProjectApp | undefined,
+  error: GetProjectAppError | null,
+) {
+  if (!pending || completed) return ''
+  if (error instanceof ApiError && error.status === 404)
+    return slackOAuthErrorDescription('app_deleted')
+  if (app && app.setup_revision > pending.setup_revision)
+    return slackOAuthErrorDescription('app_setup_changed')
+  return ''
 }

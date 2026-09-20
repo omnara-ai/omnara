@@ -60,7 +60,7 @@ export function ProjectAppActions({
           onClick={() => {
             if (
               !window.confirm(
-                `Remove app ${app.name}? This revokes its tools, listeners and launcher. Existing agents and history are kept.`,
+                `Remove app ${app.name}? This deletes its schedules and revokes its tools, listeners and launcher. Existing agents and history are kept.`,
               )
             )
               return

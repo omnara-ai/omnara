@@ -3056,6 +3056,11 @@ paths:
           description: Only return triggers targeting this agent profile.
           schema:
             $ref: '#/components/schemas/AgentProfileID'
+        - name: app_id
+          in: query
+          description: Only return scheduled launches for this app.
+          schema:
+            $ref: '#/components/schemas/ProjectAppID'
         - name: sort
           in: query
           schema:
@@ -6878,6 +6883,9 @@ paths:
       operationId: deleteProjectApp
       tags: [Integrations]
       summary: Delete app setup and revoke its capabilities
+      description: >-
+        Deletes the app setup and its cron schedules, revokes its capabilities, and releases
+        its credential reference. Existing agents, agent history, and provider messages are preserved.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -9232,15 +9240,54 @@ components:
           enum: [profile]
         agent_profile_id:
           $ref: '#/components/schemas/AgentProfileID'
+    AppLaunchCronTriggerTarget:
+      type: object
+      additionalProperties: false
+      required: [type, app_id, agent_profile_id, destination, opening_message_template]
+      properties:
+        type:
+          type: string
+          enum: [app_launch]
+          x-enum-varnames: [AppLaunchCronTriggerTargetTypeAppLaunch]
+        app_id:
+          $ref: '#/components/schemas/ProjectAppID'
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+        destination:
+          type: object
+          additionalProperties: false
+          required: [channel_id]
+          description: >-
+            Parent destination for a new thread on a built-in Slack or Discord app.
+            Slack requires a C/G channel ID; direct messages and existing threads are not supported.
+            Discord requires a text or announcement channel; guild_id is optional.
+          properties:
+            channel_id:
+              type: string
+              minLength: 1
+            guild_id:
+              type: string
+              minLength: 1
+        opening_message_template:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          x-omnara-max-length-unit: codepoints
+          description: >-
+            Go text/template for the parent heading, using the same trigger values as message_template.
+            Both the source and rendered heading must contain at most 2000 Unicode codepoints.
+            The heading is published before agent launch; the agent's report is a reply in its new thread.
     CronTriggerTarget:
       oneOf:
         - $ref: '#/components/schemas/AgentCronTriggerTarget'
         - $ref: '#/components/schemas/AgentProfileCronTriggerTarget'
+        - $ref: '#/components/schemas/AppLaunchCronTriggerTarget'
       discriminator:
         propertyName: type
         mapping:
           agent: '#/components/schemas/AgentCronTriggerTarget'
           profile: '#/components/schemas/AgentProfileCronTriggerTarget'
+          app_launch: '#/components/schemas/AppLaunchCronTriggerTarget'
     CronExpression:
       type: string
       description: >-
@@ -9257,7 +9304,9 @@ components:
       type: string
       description: >-
         Go text/template rendered on each firing to produce the message sent to the target. The
-        template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+        template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields.
+        Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone.
+        For app launches this is the agent task, snapshotted at durable handoff.
         Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf`
         width and precision specifiers are capped at 1024; a firing whose template fails to
         render is recorded in `failure_report` without sending a message.
@@ -9305,7 +9354,7 @@ components:
       properties:
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
-          description: Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+          description: Updates target options. The target type, app, and profile identities cannot change. App destination and opening heading can change for future handoffs. Omitted delivery_mode preserves the current mode.
         name:
           $ref: '#/components/schemas/ResourceName'
         cron:
@@ -9316,10 +9365,33 @@ components:
           $ref: '#/components/schemas/CronMessageTemplate'
         enabled:
           type: boolean
+    CronTriggerLastRunState:
+      type: string
+      enum: [queued, preparing, launched, failed, discarded]
+      x-enum-varnames: [CronTriggerLastRunStateQueued, CronTriggerLastRunStatePreparing, CronTriggerLastRunStateLaunched, CronTriggerLastRunStateFailed, CronTriggerLastRunStateDiscarded]
+      description: >-
+        State of the latest accepted scheduled app launch: queued while waiting to start,
+        preparing while creating its thread and agent, launched once the agent has started,
+        failed if the launch could not complete, or discarded if an operator discarded the failed work.
+        Launched does not indicate task completion or report delivery.
+    CronTriggerLastRun:
+      type: object
+      additionalProperties: false
+      required: [state, created_at, updated_at, failure_message]
+      properties:
+        state:
+          $ref: '#/components/schemas/CronTriggerLastRunState'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        failure_message:
+          type: [string, "null"]
+          description: Coarse launch failure description; no raw provider errors.
     CronTrigger:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, created_at, updated_at]
+      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, last_run, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/CronTriggerID'
@@ -9343,7 +9415,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
-          description: When the trigger last fired, or null if it has never fired.
+          description: When the trigger last fired, or null if it has never fired. For app launches this means durable inbox handoff.
         next_fire_at:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -9356,6 +9428,15 @@ components:
           description: >-
             Most recent failed firing, or null if no firing has failed since the last
             successful firing.
+        last_run:
+          oneOf:
+            - $ref: '#/components/schemas/CronTriggerLastRun'
+            - type: "null"
+          description: >-
+            Status of the latest accepted scheduled app launch, scoped to this project and app.
+            Null for ordinary cron, before any launch is accepted, or when retained details have expired.
+            Never falls back to an older launch. Schedule firing failures remain separate in failure_report.
+            Deleting or disabling a schedule does not cancel launch work already accepted by the app.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:

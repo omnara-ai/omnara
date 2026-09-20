@@ -9,6 +9,7 @@ import (
 	"text/template"
 	"text/template/parse"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -163,6 +164,10 @@ func (l *limitedWriter) Write(p []byte) (int, error) {
 }
 
 func MessageData(name string, firedAt time.Time, lastFiredAt *time.Time) map[string]any {
+	return messageData(name, firedAt, lastFiredAt, firedAt.UTC().Format("2006-01-02"))
+}
+
+func messageData(name string, firedAt time.Time, lastFiredAt *time.Time, localDate string) map[string]any {
 	lastFired := ""
 	if lastFiredAt != nil {
 		lastFired = lastFiredAt.UTC().Format(time.RFC3339)
@@ -172,8 +177,42 @@ func MessageData(name string, firedAt time.Time, lastFiredAt *time.Time) map[str
 			"name":          name,
 			"fired_at":      firedAt.UTC().Format(time.RFC3339),
 			"last_fired_at": lastFired,
+			"local_date":    localDate,
 		},
 	}
+}
+
+// OccurrenceMessageData preserves UTC timestamp meanings while deriving local_date
+// from the scheduled due time, even when a worker processes the occurrence late.
+func OccurrenceMessageData(
+	name string,
+	firedAt time.Time,
+	lastFiredAt *time.Time,
+	dueAt time.Time,
+	timezone string,
+) (map[string]any, error) {
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, err
+	}
+	return messageData(name, firedAt, lastFiredAt, dueAt.In(location).Format("2006-01-02")), nil
+}
+
+const MaxOpeningMessageCodepoints = 2000
+
+// RenderOpeningMessage uses the same bounded renderer as the task template.
+func RenderOpeningMessage(source string, data map[string]any) (string, error) {
+	if strings.TrimSpace(source) == "" || utf8.RuneCountInString(source) > MaxOpeningMessageCodepoints {
+		return "", fmt.Errorf("opening message template must contain 1 to %d codepoints", MaxOpeningMessageCodepoints)
+	}
+	rendered, err := RenderMessage(source, data)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(rendered) == "" || utf8.RuneCountInString(rendered) > MaxOpeningMessageCodepoints {
+		return "", fmt.Errorf("rendered opening message must contain 1 to %d codepoints", MaxOpeningMessageCodepoints)
+	}
+	return rendered, nil
 }
 
 func ValidateMessageTemplate(messageTemplate string) error {

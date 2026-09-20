@@ -74,6 +74,14 @@ For API setup, add this `settings.launcher` to the app's create/update body:
 Use `scope_kind: "workspace"` and the Slack workspace ID for workspace-wide
 mentions. Keep slot keys stable when editing.
 
+## Scheduled threads
+
+Use **Add schedule** on the app page to post a template opening message and launch
+one profile in its new thread. The tools, reply listener and interaction handler
+are ready when the agent starts. Schedules can coexist with mention launches.
+See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
+for setup, template variables and recovery behavior.
+
 ## Use tools without a launcher
 
 ```yaml

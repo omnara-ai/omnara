@@ -1,17 +1,17 @@
 import { useProjectApp } from '@omnara/react'
-import { ApiError } from '@omnara/sdk'
+import { ApiError, type ProjectApp } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { appDefinitionLabel, appProvider } from '@/components/apps/appDefinitions'
+import { appProvider } from '@/components/apps/appDefinitions'
 import { ConnectSlackDialog } from '@/components/apps/ConnectSlackDialog'
-import { ProjectAppActions } from '@/components/apps/ProjectAppActions'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
+import { ProjectAppHeader } from '@/components/apps/ProjectAppHeader'
+import { ProjectAppSchedules } from '@/components/apps/ProjectAppSchedules'
 import { ProjectAppSetup } from '@/components/apps/ProjectAppSetup'
 import { ProjectAppSummary } from '@/components/apps/ProjectAppSummary'
 import { SlackOAuthOutcomeDialog } from '@/components/apps/SlackOAuthOutcomeDialog'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -44,9 +44,6 @@ export function ProjectAppDetail({
   canManage: boolean
 }) {
   const query = useProjectApp(orgId, projectId, appId)
-  const [editing, setEditing] = useState(false)
-  const [connecting, setConnecting] = useState(false)
-  const navigate = useNavigate()
   if (query.isPending) return <Spinner className="size-4" />
   const unavailable =
     query.error instanceof ApiError && [401, 403, 404].includes(query.error.status)
@@ -62,65 +59,57 @@ export function ProjectAppDetail({
         </Link>
       </div>
     )
-  const app = query.data
+  return (
+    <ProjectAppSettings
+      orgId={orgId}
+      projectId={projectId}
+      app={query.data}
+      canManage={canManage}
+      refreshFailed={query.isError}
+      onRefresh={() => void query.refetch()}
+    />
+  )
+}
+
+function ProjectAppSettings({
+  orgId,
+  projectId,
+  app,
+  canManage,
+  refreshFailed,
+  onRefresh,
+}: {
+  orgId: string
+  projectId: string
+  app: ProjectApp
+  canManage: boolean
+  refreshFailed: boolean
+  onRefresh: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const navigate = useNavigate()
   const provider = appProvider(app.definition_id)
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <header className="flex flex-col gap-3">
-        <Link
-          className="text-muted-foreground text-sm hover:underline"
-          to="/projects/$projectId/apps"
-          params={{ projectId }}
-        >
-          Back to apps
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="type-title">{app.name}</h1>
-          <Badge variant="outline">{appDefinitionLabel(app.definition_id)}</Badge>
-          <Badge variant={app.state === 'active' ? 'outline' : 'secondary'}>
-            {app.state === 'active' ? 'Connected' : 'Disconnected'}
-          </Badge>
-        </div>
-        {app.state === 'disconnected' && !app.provider_tenant_id && !connecting && !editing && (
-          <p className="text-muted-foreground text-sm">
-            {canManage
-              ? 'Finish setup: connect an account to use this app’s capabilities, then choose optional launch settings.'
-              : 'Setup is unfinished. Ask a project administrator to connect this app.'}
-          </p>
-        )}
-        {canManage && !editing && !connecting && provider && (
-          <Button
-            className="self-start"
-            variant={app.state === 'active' ? 'outline' : 'default'}
-            onClick={() => {
-              setConnecting(true)
-            }}
-          >
-            {app.provider_tenant_id ? 'Reconnect account' : 'Connect account'}
-          </Button>
-        )}
-        {canManage && !editing && !connecting && (
-          <ProjectAppActions
-            orgId={orgId}
-            projectId={projectId}
-            app={app}
-            onEdit={
-              provider
-                ? () => {
-                    setEditing(true)
-                  }
-                : undefined
-            }
-            onRemoved={() =>
-              void navigate({ to: '/projects/$projectId/apps', params: { projectId } })
-            }
-          />
-        )}
-      </header>
-      {query.isError && (
+      <ProjectAppHeader
+        orgId={orgId}
+        projectId={projectId}
+        app={app}
+        canManage={canManage}
+        viewing={!editing && !connecting}
+        onConnect={() => {
+          setConnecting(true)
+        }}
+        onEdit={() => {
+          setEditing(true)
+        }}
+        onRemoved={() => void navigate({ to: '/projects/$projectId/apps', params: { projectId } })}
+      />
+      {refreshFailed && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
           Could not refresh this app. Your current edits are kept.
-          <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
+          <Button size="sm" variant="outline" onClick={onRefresh}>
             Retry refresh
           </Button>
         </div>
@@ -174,6 +163,9 @@ export function ProjectAppDetail({
         </>
       ) : (
         !connecting && <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />
+      )}
+      {!editing && !connecting && (provider === 'slack' || provider === 'discord') && (
+        <ProjectAppSchedules orgId={orgId} projectId={projectId} app={app} canManage={canManage} />
       )}
       <SlackOAuthOutcomeDialog />
     </div>

@@ -3,10 +3,12 @@ import {
   OmnaraClientProvider,
   useAppDefinitions,
   useConfigureProjectApp,
+  useCronTriggers,
+  useDeleteProjectApp,
   useDisconnectProjectApp,
   useProjectApp,
 } from '@omnara/react'
-import { createOmnaraClient } from '@omnara/sdk'
+import { createOmnaraClient, type CronTrigger } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -136,4 +138,132 @@ it('uses app setup and disconnect responses to refresh the same detail cache', a
     expect(container.querySelector('output')?.textContent).toBe('disconnected/3')
   })
   expect(api.requestsTo('GET', path + '/apps/' + app.id)).toHaveLength(1)
+})
+
+const otherProjectID = `proj_${'b'.repeat(26)}`
+function AppScheduleLists() {
+  const profileSchedules = useCronTriggers(orgID, projectID, {
+    filters: { agent_profile_id: fakeId('aprf') },
+  })
+  const appSchedules = useCronTriggers(orgID, projectID, { filters: { app_id: app.id } })
+  const otherSchedules = useCronTriggers(orgID, otherProjectID)
+  const remove = useDeleteProjectApp(orgID, projectID)
+  return (
+    <>
+      {[
+        { label: 'Profile schedules', query: profileSchedules },
+        { label: 'App schedules', query: appSchedules },
+        { label: 'Other project schedules', query: otherSchedules },
+      ].map(({ label, query }) => (
+        <output key={label} aria-label={label}>
+          {query.data?.pages
+            .flatMap((page) => page.data.map((schedule) => schedule.name))
+            .join(',')}
+        </output>
+      ))}
+      <button
+        onClick={() => {
+          remove.mutate(app.id)
+        }}
+        disabled={remove.isPending}
+      >
+        Delete app
+      </button>
+      {remove.isSuccess && <p>App deleted</p>}
+    </>
+  )
+}
+
+it('refreshes app and profile cron lists after app deletion without invalidating another project', async () => {
+  const scheduled: CronTrigger = {
+    id: fakeId('cron'),
+    org_id: orgID,
+    project_id: projectID,
+    name: 'app-schedule',
+    target: {
+      type: 'app_launch',
+      app_id: app.id,
+      agent_profile_id: fakeId('aprf'),
+      destination: { channel_id: 'C123' },
+      opening_message_template: 'Daily update',
+    },
+    cron: '0 9 * * *',
+    timezone: 'UTC',
+    message_template: 'Write a report.',
+    enabled: true,
+    last_fired_at: null,
+    next_fire_at: null,
+    failure_report: null,
+    last_run: null,
+    created_at: app.created_at,
+    updated_at: app.updated_at,
+  }
+  const ordinary: CronTrigger = {
+    ...scheduled,
+    id: `cron_${'b'.repeat(26)}`,
+    name: 'ordinary-schedule',
+    target: { type: 'profile', agent_profile_id: fakeId('aprf') },
+  }
+  const otherPath = `/api/v1/orgs/${orgID}/projects/${otherProjectID}/cron-triggers`
+  let deleted = false
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: path + '/cron-triggers',
+      respond: ({ url }) =>
+        Response.json({
+          data: url.searchParams.has('app_id')
+            ? deleted
+              ? []
+              : [scheduled]
+            : deleted
+              ? [ordinary]
+              : [scheduled, ordinary],
+          next_cursor: null,
+        }),
+    },
+    {
+      method: 'GET',
+      path: otherPath,
+      respond: () =>
+        Response.json({
+          data: [{ ...ordinary, project_id: otherProjectID, name: 'other-project-schedule' }],
+          next_cursor: null,
+        }),
+    },
+    {
+      method: 'DELETE',
+      path: path + '/apps/' + app.id,
+      respond: () => {
+        deleted = true
+        return new Response(null, { status: 204 })
+      },
+    },
+  ])
+  render(api, <AppScheduleLists />)
+  const names = (label: string) =>
+    container.querySelector(`output[aria-label="${label}"]`)?.textContent
+  await waitForUI(() => {
+    expect(names('Profile schedules')).toBe('app-schedule,ordinary-schedule')
+    expect(names('App schedules')).toBe('app-schedule')
+    expect(names('Other project schedules')).toBe('other-project-schedule')
+  })
+  act(() => {
+    button('Delete app').click()
+  })
+  await waitForUI(() => {
+    expect(container.textContent).toContain('App deleted')
+    expect(names('Profile schedules')).toBe('ordinary-schedule')
+    expect(names('App schedules')).toBe('')
+  })
+  expect(api.requestsTo('DELETE', path + '/apps/' + app.id)).toHaveLength(1)
+  const reads = api.requestsTo('GET', path + '/cron-triggers')
+  expect(
+    reads.filter((request) => request.url.searchParams.get('agent_profile_id') === fakeId('aprf')),
+  ).toHaveLength(2)
+  expect(reads.filter((request) => request.url.searchParams.get('app_id') === app.id)).toHaveLength(
+    2,
+  )
+  expect(api.requestsTo('GET', otherPath)).toHaveLength(1)
+  expect(names('Other project schedules')).toBe('other-project-schedule')
 })

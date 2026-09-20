@@ -573,7 +573,7 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			} else {
 				require.Empty(t, compiled.InteractionHandlers)
 			}
-			content, err := appInputContext(app, test.scope, json.RawMessage(`[{"type":"text","text":"hello"}]`))
+			content, err := appdefinition.AppendInputContext(app.Name, test.scope, json.RawMessage(`[{"type":"text","text":"hello"}]`))
 			require.NoError(t, err)
 			var blocks []struct {
 				Text     string

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/google/uuid"
@@ -105,7 +106,17 @@ func (s strictOpenAPIServer) listCronTriggers(
 		}
 		filters.AgentID = agentID
 	}
-	extra := struct{ AgentProfileID, AgentID string }{}
+	if params.AppId != nil {
+		appID, ok := parseOpenAPIPublicID(publicid.KindProjectApp, *params.AppId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid app_id")
+		}
+		filters.AppID = appID
+	}
+	extra := struct{ AgentProfileID, AgentID, AppID string }{}
+	if filters.AppID != uuid.Nil {
+		extra.AppID = filters.AppID.String()
+	}
 	if filters.AgentProfileID != uuid.Nil {
 		extra.AgentProfileID = filters.AgentProfileID.String()
 	}
@@ -273,6 +284,39 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 		)
 	}
 	switch kind {
+	case string(executionstore.CronTriggerTargetAppLaunch):
+		target, err := input.AsAppLaunchCronTriggerTarget()
+		if err != nil {
+			return executionstore.CronTriggerTarget{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"invalid app launch target",
+			)
+		}
+		appID, ok := parseOpenAPIPublicID(publicid.KindProjectApp, target.AppId)
+		if !ok {
+			return executionstore.CronTriggerTarget{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"invalid target app_id",
+			)
+		}
+		profileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, target.AgentProfileId)
+		if !ok {
+			return executionstore.CronTriggerTarget{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"invalid target agent_profile_id",
+			)
+		}
+		destination, err := json.Marshal(target.Destination)
+		if err != nil {
+			return executionstore.CronTriggerTarget{}, err
+		}
+		return executionstore.CronTriggerTarget{
+			Kind: executionstore.CronTriggerTargetAppLaunch,
+			ID:   appID,
+			AppLaunch: &executionstore.CronAppLaunchTarget{
+				ProfileID: profileID, Destination: destination, OpeningMessageTemplate: target.OpeningMessageTemplate,
+			},
+		}, nil
 	case string(executionstore.CronTriggerTargetAgent):
 		target, err := input.AsAgentCronTriggerTarget()
 		if err != nil {
@@ -327,6 +371,25 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi.CronTriggerTarget, error) {
 	var response openapi.CronTriggerTarget
 	switch target.Kind {
+	case executionstore.CronTriggerTargetAppLaunch:
+		appID, err := publicID(publicid.KindProjectApp, target.ID)
+		if err != nil {
+			return response, err
+		}
+		profileID, err := publicID(publicid.KindAgentProfile, target.AppLaunch.ProfileID)
+		if err != nil {
+			return response, err
+		}
+		appTarget := openapi.AppLaunchCronTriggerTarget{
+			Type: openapi.AppLaunchCronTriggerTargetTypeAppLaunch, AppId: appID, AgentProfileId: profileID,
+			OpeningMessageTemplate: target.AppLaunch.OpeningMessageTemplate,
+		}
+		if err := json.Unmarshal(target.AppLaunch.Destination, &appTarget.Destination); err != nil {
+			return response, err
+		}
+		if err := response.FromAppLaunchCronTriggerTarget(appTarget); err != nil {
+			return response, err
+		}
 	case executionstore.CronTriggerTargetAgent:
 		agentID, err := publicID(publicid.KindAgent, target.ID)
 		if err != nil {
@@ -392,6 +455,7 @@ func cronTriggerResponseFromRecord(
 		LastFiredAt:     nullableFromPtr(record.LastFiredAt),
 		NextFireAt:      nullableFromPtr(record.NextFireAfter),
 		FailureReport:   nullableFromPtr(cronTriggerFailureReportResponse(record.FailureReport)),
+		LastRun:         nullableFromPtr(cronTriggerLastRunResponse(record.LastRun)),
 		CreatedAt:       record.CreatedAt,
 		UpdatedAt:       record.UpdatedAt,
 	}, nil
@@ -407,5 +471,17 @@ func cronTriggerFailureReportResponse(
 		Message:   report.Message,
 		WillRetry: report.WillRetry,
 		FailedAt:  report.FailedAt,
+	}
+}
+
+func cronTriggerLastRunResponse(run *executionstore.CronTriggerLastRun) *openapi.CronTriggerLastRun {
+	if run == nil {
+		return nil
+	}
+	return &openapi.CronTriggerLastRun{
+		State:          openapi.CronTriggerLastRunState(run.State),
+		CreatedAt:      run.CreatedAt,
+		UpdatedAt:      run.UpdatedAt,
+		FailureMessage: nullableFromPtr(run.FailureMessage),
 	}
 }

@@ -378,6 +378,7 @@ func runCronTriggerFireLoop(
 				"fired due cron triggers",
 				"claimed", stats.Claimed,
 				"launched", stats.Launched,
+				"queued", stats.Queued,
 				"inputs", stats.Inputs,
 				"disabled", stats.Disabled,
 				"failures", stats.Failures,

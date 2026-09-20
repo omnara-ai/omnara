@@ -145,7 +145,7 @@ function AppLauncherSummary({
         </>
       ) : (
         <p className="text-muted-foreground">
-          No automatic launches. Select this app’s capabilities in an agent configuration.
+          No event launcher configured. Select this app’s capabilities in an agent configuration.
         </p>
       )}
     </section>

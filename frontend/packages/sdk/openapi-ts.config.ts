@@ -14,7 +14,8 @@ export default defineConfig({
       definitions: true,
       $resolvers: {
         string: (ctx) => {
-          if (ctx.schema['x-omnara-unicode-normalization'] !== 'NFC') return
+          const resourceName = ctx.schema['x-omnara-unicode-normalization'] === 'NFC'
+          if (!resourceName && ctx.schema['x-omnara-max-length-unit'] !== 'codepoints') return
 
           ctx.chain.current = ctx.nodes.base(ctx)
           const minLength = ctx.nodes.minLength(ctx)
@@ -41,10 +42,12 @@ export default defineConfig({
                 '<=',
                 ctx.$.literal(ctx.schema.maxLength),
               ),
-              `Resource name cannot exceed ${ctx.schema.maxLength} Unicode characters`,
+              `${resourceName ? 'Resource name' : 'String'} cannot exceed ${ctx.schema.maxLength} Unicode characters`,
             )
           }
           enforceMaxCodePoints()
+          // Length-only annotations preserve template text without the resource-name policy.
+          if (!resourceName) return ctx.chain.current
           ctx.chain.current = ctx.chain.current.attr('transform').call(
             ctx.$.func()
               .param('value')

@@ -76,15 +76,14 @@ function ProjectAppFormEditor({
     setError('')
     try {
       const request = projectAppFormRequest(provider, values, app)
-      const saved = await (app
-        ? update.mutateAsync({ appID: app.id, ...request })
-        : create.mutateAsync(request))
+      let saved: ProjectApp
+      if (app) saved = await update.mutateAsync({ appID: app.id, ...request })
+      else saved = await create.mutateAsync(request)
       if (mounted.current) onSaved(saved)
     } catch (cause) {
       setError(errorMessage(cause, 'Could not save app.'))
-    } finally {
-      submitting.current = false
     }
+    submitting.current = false
   }
   return (
     <form onSubmit={(event) => void submit(event)}>

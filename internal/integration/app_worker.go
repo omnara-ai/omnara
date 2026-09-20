@@ -258,7 +258,8 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 		return nil // Consumer completed the receipt atomically after all slot commits.
 	}
 	outcome := "lease_lost"
-	unavailableChoice := len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable)
+	terminal := (len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable)) ||
+		errors.Is(err, ErrScheduledLaunchFailed)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
 		// Shutdown must release still-owned work, too. This short transaction has
 		// no provider I/O; an expired/stolen lease cannot overwrite its successor.
@@ -268,14 +269,14 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 			retryCtx,
 			receipt.Lease(),
 			func(work *integrationstore.IntegrationInboxLeaseTx) error {
-				if unavailableChoice {
+				if terminal {
 					return work.Fail(retryCtx, err.Error())
 				}
 				return work.Retry(retryCtx, appInboxRetryDelay(receipt.AttemptCount), err.Error())
 			},
 		)
 		outcome = "retry_scheduled"
-		if receipt.AttemptCount >= integrationstore.IntegrationInboxMaxAttempts || unavailableChoice {
+		if receipt.AttemptCount >= integrationstore.IntegrationInboxMaxAttempts || terminal {
 			outcome = "failed"
 		}
 		if retryErr != nil {

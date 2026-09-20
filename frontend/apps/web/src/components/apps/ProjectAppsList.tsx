@@ -43,7 +43,7 @@ export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId
                       ? app.settings.launcher.trigger === 'pull_request_opened'
                         ? 'Starts agents when a pull request opens'
                         : 'Starts agents when the bot is mentioned'
-                      : 'No automatic launches'}
+                      : 'No event launcher'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">

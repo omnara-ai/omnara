@@ -115,6 +115,10 @@ verify that exact app's signature, receipt, destination and live setup revision.
 Unauthenticated owner lookup is routing metadata only.
 
 Register `AppInboxProvider` and `AppLaunchWorkflow` implementations in `cmd/worker`.
+Slack/Discord also implement the narrow scheduled conversation provider in
+`app_scheduled.go`: publish/reconcile a root, then ensure its thread after freezing.
+The existing cron app-launch target and inbox own scheduling and recovery; do not
+add another scheduler or mutate tool configs after launch.
 Slack/Discord's `ChatAppLauncher` directly selects a sole profile or presents a
 choice; GitHub's `EverySlotAppLauncher` explicitly selects its configured slots.
 The router freezes those decisions and pinned configs, then executionstore admits

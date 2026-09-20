@@ -145,7 +145,18 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	); err != nil {
 		return LaunchAgentResult{}, err
 	}
+	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduledLaunch
+	if scheduled {
+		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, locked.AppID)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		if err := validateScheduledInboxLaunch(locked, app, slot); err != nil {
+			return LaunchAgentResult{}, err
+		}
+	}
 	slot.Launch.admission = &launchAdmission{
+		Scheduled:     scheduled,
 		AgentID:       slot.AgentID,
 		AppID:         selection.AppID,
 		SelectionSlot: selection.Slot,

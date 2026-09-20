@@ -4,6 +4,7 @@ import { schemas } from '@omnara/sdk'
 import { type Cookie, expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
+import { exerciseDiscordAppSchedule } from './app-schedules'
 import {
   createAppDraft,
   expectInteractionToolMenu,
@@ -597,6 +598,9 @@ for (const provider of ['github', 'discord'] as const) {
       /^page: Canceled$/,
       /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
       /request: .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+      // Chromium can abort the empty 204 DELETE stream through the TLS proxy.
+      // The schedule journey asserts the 204 response and removal from the list.
+      /request: .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
       /request: .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
       // Navigation and successful writes cancel obsolete reads; writes are checked below.
       // Full-document navigation also cancels intent-preloaded route chunks.
@@ -606,8 +610,8 @@ for (const provider of ['github', 'discord'] as const) {
     const appName = `${provider}-browser-${test.info().retry}`
     const profileName = uniqueName(`${provider} App Profile`)
     await createProfile(page, profileName, 'Answer in the selected conversation.')
-    const profilePath = new URL(page.url()).pathname
-    const profileId = profilePath.split('/').at(-1)
+    const profilePath = new URL(page.url()).pathname,
+      profileId = schemas.zAgentProfileId.parse(profilePath.split('/').at(-1))
     const { app: draft, apiProjectPath } = await createAppDraft(page, projectID, provider, appName)
 
     // Only provider verification is replaced. The draft, secret, metadata and
@@ -649,7 +653,7 @@ for (const provider of ['github', 'discord'] as const) {
       provider === 'github' ? 'PRIVATE KEY' : 'local-discord-token',
     )
     if (provider === 'discord')
-      expect(app.provider_config).toEqual({ public_key: 'ab'.repeat(32), shard_count: 4 })
+      await exerciseDiscordAppSchedule(page, app, profileId, profileName, apiProjectPath)
     await expect(page.getByLabel('App name', { exact: true })).toHaveAttribute('readonly', '')
     const launcher = page.getByRole('checkbox', {
       name:
@@ -673,7 +677,9 @@ for (const provider of ['github', 'discord'] as const) {
       await expect(
         page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
       ).toBeVisible()
-    await page.keyboard.press('Escape')
+    // Escape clears a combobox selection once its popup has closed. Move focus
+    // to the launcher toggle so closing the chooser preserves the selection.
+    await launcher.focus()
     await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
     const savedLauncher = page.waitForResponse(
       (response) =>

@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -324,7 +325,7 @@ model:
 	postedPath := ""
 	postedAuthorization := ""
 	var postedDecodeErr error
-	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "unavailable-grant",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			postedPath = req.URL.Path
@@ -339,7 +340,7 @@ model:
 				Request: req,
 			}, nil
 		},
-	)}
+	)
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
@@ -411,6 +412,32 @@ type kernelSlackRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f kernelSlackRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+// Match attachKernelSlackHandler's saved identity before recording message sends.
+func kernelSlackRuntimeHTTPClient(
+	t *testing.T,
+	identifier string,
+	postMessage kernelSlackRoundTripFunc,
+) *http.Client {
+	t.Helper()
+	identity, err := json.Marshal(map[string]any{
+		"ok": true, "team_id": "T_" + identifier,
+		"user_id": "B_KERNEL_TEST", "bot_id": "BOT_KERNEL_TEST",
+	})
+	require.NoError(t, err)
+	return &http.Client{Transport: kernelSlackRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		assert.Equal(t, "Bearer xoxb-"+identifier, req.Header.Get("Authorization"))
+		if req.URL.Path != "/api/auth.test" {
+			return postMessage(req)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(string(identity))),
+			Request:    req,
+		}, nil
+	})}
 }
 
 func attachKernelSlackHandler(

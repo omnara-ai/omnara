@@ -3334,6 +3334,8 @@ export const createProjectApp = <ThrowOnError extends boolean = true>(options: O
 
 /**
  * Delete app setup and revoke its capabilities
+ *
+ * Deletes the app setup and its cron schedules, revokes its capabilities, and releases its credential reference. Existing agents, agent history, and provider messages are preserved.
  */
 export const deleteProjectApp = <ThrowOnError extends boolean = true>(options: Options<DeleteProjectAppData, ThrowOnError>): RequestResult<DeleteProjectAppResponses, DeleteProjectAppErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProjectAppResponses, DeleteProjectAppErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteProjectAppResponse),

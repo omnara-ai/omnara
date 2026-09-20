@@ -894,7 +894,7 @@ export const zCronExpression = z.string().min(9).max(256);
 export const zCronTimezone = z.string().max(64).default('UTC');
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. For app launches this is the agent task, snapshotted at durable handoff. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export const zCronMessageTemplate = z.string().max(65536);
 
@@ -909,55 +909,28 @@ export const zAgentCronTriggerTarget = z.object({
     delivery_mode: zCronTriggerDeliveryMode.optional()
 });
 
-export const zCronTriggerTarget = z.discriminatedUnion('type', [
-    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
-    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
-]);
-
 export const zCronTriggerFailureReport = z.object({
     message: z.string(),
     will_retry: z.boolean(),
     failed_at: zTimestamp
 });
 
-export const zCreateCronTriggerRequest = z.object({
-    name: zResourceName,
-    target: zCronTriggerTarget,
-    cron: zCronExpression,
-    timezone: zCronTimezone.optional(),
-    message_template: zCronMessageTemplate,
-    enabled: z.boolean().optional().default(true)
-});
+/**
+ * State of the latest accepted scheduled app launch: queued while waiting to start, preparing while creating its thread and agent, launched once the agent has started, failed if the launch could not complete, or discarded if an operator discarded the failed work. Launched does not indicate task completion or report delivery.
+ */
+export const zCronTriggerLastRunState = z.enum([
+    'queued',
+    'preparing',
+    'launched',
+    'failed',
+    'discarded'
+]);
 
-export const zUpdateCronTriggerRequest = z.object({
-    target: zCronTriggerTarget.optional(),
-    name: zResourceName.optional(),
-    cron: zCronExpression.optional(),
-    timezone: zCronTimezone.optional(),
-    message_template: zCronMessageTemplate.optional(),
-    enabled: z.boolean().optional()
-});
-
-export const zCronTrigger = z.object({
-    id: zCronTriggerId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    target: zCronTriggerTarget,
-    cron: zCronExpression,
-    timezone: zCronTimezone,
-    message_template: zCronMessageTemplate,
-    enabled: z.boolean(),
-    last_fired_at: zTimestamp.nullable(),
-    next_fire_at: zTimestamp.nullable(),
-    failure_report: zCronTriggerFailureReport.nullable(),
+export const zCronTriggerLastRun = z.object({
+    state: zCronTriggerLastRunState,
     created_at: zTimestamp,
-    updated_at: zTimestamp
-});
-
-export const zListCronTriggersResponse = z.object({
-    data: z.array(zCronTrigger),
-    next_cursor: z.string().nullable()
+    updated_at: zTimestamp,
+    failure_message: z.string().nullable()
 });
 
 export const zAgentActivity = z.object({
@@ -2697,6 +2670,64 @@ export const zSlackSetup = z.object({
     expires_at: zTimestamp
 });
 
+export const zAppLaunchCronTriggerTarget = z.object({
+    type: z.enum(['app_launch']),
+    app_id: zProjectAppId,
+    agent_profile_id: zAgentProfileId,
+    destination: z.object({
+        channel_id: z.string().min(1),
+        guild_id: z.string().min(1).optional()
+    }),
+    opening_message_template: z.string().min(1).refine(value => Array.from(value).length <= 2000, { message: 'String cannot exceed 2000 Unicode characters' })
+});
+
+export const zCronTriggerTarget = z.discriminatedUnion('type', [
+    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
+    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') }),
+    zAppLaunchCronTriggerTarget.extend({ type: z.literal('app_launch') })
+]);
+
+export const zCreateCronTriggerRequest = z.object({
+    name: zResourceName,
+    target: zCronTriggerTarget,
+    cron: zCronExpression,
+    timezone: zCronTimezone.optional(),
+    message_template: zCronMessageTemplate,
+    enabled: z.boolean().optional().default(true)
+});
+
+export const zUpdateCronTriggerRequest = z.object({
+    target: zCronTriggerTarget.optional(),
+    name: zResourceName.optional(),
+    cron: zCronExpression.optional(),
+    timezone: zCronTimezone.optional(),
+    message_template: zCronMessageTemplate.optional(),
+    enabled: z.boolean().optional()
+});
+
+export const zCronTrigger = z.object({
+    id: zCronTriggerId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    target: zCronTriggerTarget,
+    cron: zCronExpression,
+    timezone: zCronTimezone,
+    message_template: zCronMessageTemplate,
+    enabled: z.boolean(),
+    last_fired_at: zTimestamp.nullable(),
+    next_fire_at: zTimestamp.nullable(),
+    failure_report: zCronTriggerFailureReport.nullable(),
+    last_run: zCronTriggerLastRun.nullable(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zListCronTriggersResponse = z.object({
+    data: z.array(zCronTrigger),
+    next_cursor: z.string().nullable()
+});
+
 /**
  * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
  */
@@ -3814,6 +3845,7 @@ export const zListCronTriggersQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     agent_id: zAgentId.optional(),
     agent_profile_id: zAgentProfileId.optional(),
+    app_id: zProjectAppId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()

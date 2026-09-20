@@ -61,6 +61,8 @@ in-flight setup through the new app page after cutover.
 
 Actor responses add `github` and `discord`; secrets add `github_app_credentials`.
 Update clients that validate those response enums before enabling new providers.
+Cron trigger responses can now include an `app_launch` target. Update clients
+that validate or switch on cron target types before creating app schedules.
 
 ## Prepare and rehearse
 

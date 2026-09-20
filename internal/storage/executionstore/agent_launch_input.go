@@ -37,6 +37,8 @@ type LaunchInputOrigin struct {
 // Only fenced inbox admission supplies planned identities and prepared media.
 // Ordinary launch callers cannot choose an agent ID or claim blob preparation.
 type launchAdmission struct {
+	// Only locked scheduled receipt validation sets this actor alternative.
+	Scheduled     bool
 	AgentID       uuid.UUID
 	AppID         uuid.UUID
 	SelectionSlot string
@@ -158,8 +160,10 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		if err != nil {
 			return err
 		}
-		if err := validateVerifiedProviderInputActor(app, actor); err != nil {
-			return err
+		if admission == nil || !admission.Scheduled {
+			if err := validateVerifiedProviderInputActor(app, actor); err != nil {
+				return err
+			}
 		}
 		content.IntegrationTargetID = result.IntegrationTarget.ID
 		content.IdempotencyScope = integrationstore.IdempotencyScope(app)

@@ -71,3 +71,8 @@ export function slackConnectionFormValid(values: SlackConnectionFormValues) {
     values.appIcon.kind !== 'error'
   )
 }
+
+export async function slackAppIconPayload(icon: AppIcon) {
+  if (icon.kind !== 'file') return undefined
+  return { filename: icon.file.name, data_base64: await readFileBase64(icon.file) }
+}

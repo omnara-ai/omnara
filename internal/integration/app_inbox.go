@@ -72,6 +72,7 @@ type AppInboxSlot struct {
 type AppInboxPlan map[string]AppInboxSlot
 
 type AppExecutionStore interface {
+	GetAgentConfig(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentConfigRecord, bool, error)
 	GetAgentInProject(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentRecord, error)
 	CheckInboxConversationAuthority(
 		context.Context,

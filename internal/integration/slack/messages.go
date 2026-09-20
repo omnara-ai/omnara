@@ -33,6 +33,8 @@ type MessageTarget struct {
 }
 
 type APIResult struct {
+	// StatusCode is set only for HTTP errors; a successful APIResult stays zero.
+	StatusCode       int
 	MessageID        string
 	Code             string
 	ProviderCode     string
@@ -66,6 +68,7 @@ type readbackResponse struct {
 }
 
 type readbackMessage struct {
+	User     string           `json:"user"`
 	Channel  string           `json:"channel"`
 	TS       string           `json:"ts"`
 	Metadata *messageMetadata `json:"metadata"`
@@ -180,6 +183,19 @@ func ReconcileMessage(
 	agentPublicID, providerCallID string,
 	since time.Time,
 ) (string, bool, APIResult, error) {
+	return reconcileMessageAt(ctx, client, defaultAPIURL, target, since, func(message readbackMessage) bool {
+		return messageHasMarker(message, agentPublicID, providerCallID, target.TargetRef)
+	})
+}
+
+func reconcileMessageAt(
+	ctx context.Context,
+	client *http.Client,
+	apiURL string,
+	target MessageTarget,
+	since time.Time,
+	matches func(readbackMessage) bool,
+) (string, bool, APIResult, error) {
 	values := url.Values{
 		"channel":              {target.Channel},
 		"include_all_metadata": {"true"},
@@ -194,7 +210,7 @@ func ReconcileMessage(
 	}
 	for range readbackMaxPages {
 		var out readbackResponse
-		result, err := callFormAt(ctx, client, defaultAPIURL, target.BotToken, method, values, &out)
+		result, err := callFormAt(ctx, client, apiURL, target.BotToken, method, values, &out)
 		if err != nil {
 			return "", false, APIResult{}, err
 		}
@@ -205,7 +221,7 @@ func ReconcileMessage(
 			return "", false, ErrorResult(out.Error), nil
 		}
 		for _, message := range out.Messages {
-			if messageHasMarker(message, agentPublicID, providerCallID, target.TargetRef) {
+			if matches(message) {
 				channel := message.Channel
 				if channel == "" {
 					channel = target.Channel
@@ -286,7 +302,7 @@ func callFormAt(
 	return doRequest(client, req, out)
 }
 
-func doRequest(client *http.Client, req *http.Request, out any) (APIResult, error) {
+func doRequest(client *http.Client, req *http.Request, out any) (result APIResult, requestErr error) {
 	resp, err := httpClientWithoutRedirects(client).Do(req)
 	if err != nil {
 		var rejected *requestCheckError
@@ -295,7 +311,12 @@ func doRequest(client *http.Client, req *http.Request, out any) (APIResult, erro
 		}
 		return APIResult{DeliveryUnknown: true, Message: err.Error()}, nil
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			result.StatusCode = resp.StatusCode
+		}
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter := retryAfter(resp.Header.Get("Retry-After"))
 		return APIResult{RateLimited: true, RetryAfter: retryAfter, Message: "slack rate limited the request"}, nil

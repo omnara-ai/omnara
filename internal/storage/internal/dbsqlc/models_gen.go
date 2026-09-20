@@ -255,6 +255,8 @@ type IntegrationInbox struct {
 	AppID          uuid.UUID
 	ReceiptKey     string
 	Payload        []byte
+	Source         string
+	Preparation    *json.RawMessage
 	Events         *json.RawMessage
 	Plan           *json.RawMessage
 	Progress       json.RawMessage

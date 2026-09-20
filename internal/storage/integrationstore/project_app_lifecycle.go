@@ -114,6 +114,11 @@ func (s *Store) deleteProjectAppOnce(ctx context.Context, orgID, projectID, id u
 	); err != nil {
 		return err
 	}
+	if _, err := q.DeleteCronTriggersForApp(ctx, dbsqlc.DeleteCronTriggersForAppParams{
+		ProjectID: projectID, AppID: &id,
+	}); err != nil {
+		return fmt.Errorf("delete app cron triggers: %w", err)
+	}
 	rows, err := q.DeleteProjectApp(ctx, dbsqlc.DeleteProjectAppParams{ProjectID: projectID, ID: id})
 	if err != nil {
 		return fmt.Errorf("delete app: %w", err)

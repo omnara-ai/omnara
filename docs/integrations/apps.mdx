@@ -26,9 +26,9 @@ menus, agents or replies are possible.
 
 The detail page shows setup state, launch settings and available capabilities.
 Changing offered profiles affects future launches. Disconnecting stops provider
-access; deleting also releases the app's credential reference. Neither action
-removes agents, their history, or messages already posted in the provider. Agents
-remain usable through the dashboard and API.
+access. Deleting an app removes its schedules and releases its credential
+reference. Neither action removes agents, their history, or messages already
+posted in the provider. Agents remain usable through the dashboard and API.
 
 ## Select capabilities independently
 
@@ -91,8 +91,9 @@ it leaves those subscriptions intact.
 
 An empty listener config creates no initial subscriptions, but permits runtime
 following. A Slack or Discord post with `follow_replies: true` registers the
-confirmed conversation under the matching configured listener. This supports a
-scheduled agent that posts an update and then receives replies in its new thread.
+confirmed conversation under the matching configured listener. Use this for
+profiles that deliberately choose their own destinations. For a fresh scheduled
+agent confined to one thread, configure an app schedule instead.
 Removing the listener stops both initial and runtime subscriptions. Re-adding it
 does not resurrect old follows, and a sending tool cannot recreate a missing listener.
 
@@ -117,6 +118,58 @@ user session or personal access token; organization API keys can perform ordinar
 runtime work. App capabilities and runtime subscriptions are not inherited by subagents.
 
 Ordinary model output stays in Omnara. Posting externally requires an app tool.
+
+## Start a new thread on a schedule
+
+Open a Slack or Discord app from the project's **Apps** page and choose **Add
+schedule**. Select one profile, the parent channel, the schedule and timezone,
+an opening-message template, and the task to give the agent. Mention launches
+and schedules are independent; the same app can use either or both.
+
+For each occurrence, the app posts the opening message and then launches a fresh
+agent in its thread. The agent receives thread tools, a reply listener, and an
+interaction handler before its first step. The profile's existing explicit
+entries still win. Ask the agent to post its report using the app tool; normal
+model output remains in Omnara. Replies in Monday's thread continue Monday's
+agent, while Tuesday's run creates a new thread and agent.
+
+Both templates support the existing cron variables. `{{.trigger.local_date}}`
+is the occurrence's scheduled date in its timezone, formatted `YYYY-MM-DD`.
+The opening message is limited to 2,000 characters. Slack schedules require a
+channel the bot has already joined, not a DM; Discord schedules require a server
+text or announcement channel.
+
+Schedules use the ordinary cron API with an app-launch target:
+
+```json
+{
+  "name": "Daily engineering update",
+  "cron": "0 9 * * 1-5",
+  "timezone": "America/Los_Angeles",
+  "message_template": "Review today's activity and post a summary in this thread.",
+  "target": {
+    "type": "app_launch",
+    "app_id": "YOUR_APP_ID",
+    "agent_profile_id": "YOUR_PROFILE_ID",
+    "destination": {"channel_id": "C123"},
+    "opening_message_template": "Engineering update — {{.trigger.local_date}}"
+  }
+}
+```
+
+The schedule shows whether the latest run is queued, preparing, launched, failed,
+or discarded, alongside its last update time. **Agent launched** means the agent
+started, not that it finished its task or posted a report. Run details expire with
+inbox retention. A disconnected app skips an occurrence with a visible failure;
+later scheduled occurrences can run after reconnection. Disabling or deleting a
+schedule stops future firings; it does not cancel work already accepted by the
+app. App/profile identities on a schedule are fixed; create another schedule to
+change them.
+
+An opening message can remain if the later agent launch fails. Retries reuse a
+confirmed message. If publication cannot be confirmed, Omnara fails that run
+instead of blindly posting a replacement. Questions and approvals remain
+available in the dashboard if provider delivery fails.
 
 ## Route questions and approvals
 
