@@ -13,10 +13,10 @@ import (
 )
 
 func (p *DiscordAppInboxProvider) PresentProfileChoice(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, check func(context.Context) error,
 ) (string, string, error) {
-	if DiscordInteractionPublicKey(connection.ProviderConfig) == "" {
+	if DiscordInteractionPublicKey(appSetup.ProviderConfig) == "" {
 		return "", "", fmt.Errorf("configure Discord's public key and interactions endpoint before offering multiple profiles: %w", ErrAppLaunchUnavailable)
 	}
 	var source AppEvent
@@ -28,7 +28,7 @@ func (p *DiscordAppInboxProvider) PresentProfileChoice(
 		return "", "", err
 	}
 	scope := source.Event.Scope.Discord
-	client, _, err := p.requestAccess(ctx, connection, check)
+	client, _, err := p.requestAccess(ctx, appSetup, check)
 	if err != nil {
 		return "", "", err
 	}
@@ -37,7 +37,7 @@ func (p *DiscordAppInboxProvider) PresentProfileChoice(
 		// The thread and its menu belong to this app workflow. No agent or config
 		// exists until someone chooses; a later launch reuses this exact thread.
 		_, err := client.EnsureThread(ctx, discord.Scope{GuildID: scope.GuildID, ChannelID: scope.ChannelID},
-			metadata.MessageID, discordConversationName(connection))
+			metadata.MessageID, discordConversationName(appSetup))
 		if err != nil {
 			return "", "", err
 		}
@@ -66,14 +66,14 @@ func (p *DiscordAppInboxProvider) PresentProfileChoice(
 }
 
 func (p *DiscordAppInboxProvider) DismissProfileChoice(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, text string,
 ) error {
 	var source AppEvent
 	if json.Unmarshal(choice.Event, &source) != nil || source.Event.Scope.Discord == nil {
 		return fmt.Errorf("invalid Discord profile choice source")
 	}
-	client, _, err := p.requestAccess(ctx, connection, nil)
+	client, _, err := p.requestAccess(ctx, appSetup, nil)
 	if err != nil {
 		return err
 	}

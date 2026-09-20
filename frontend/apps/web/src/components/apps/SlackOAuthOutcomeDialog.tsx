@@ -6,11 +6,12 @@ export function SlackOAuthOutcomeDialog() {
   return (
     <OAuthOutcomeDialog
       successParam="integration_oauth"
+      extraParams={['app_id']}
       errorParam="integration_oauth_error"
       successOutcome={() => ({
         title: 'Slack app connected',
         description:
-          'Your Slack connection is ready. Manage the apps that use it from Apps in this project. Reconnecting keeps existing apps and their settings.',
+          'Your app is connected. Choose its launch profiles and settings on the app page. Reconnecting keeps this app and its settings.',
       })}
       errorOutcome={(code) => ({
         title: 'Slack app setup failed',

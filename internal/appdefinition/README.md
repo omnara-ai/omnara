@@ -1,40 +1,49 @@
 # Built-in app contributions
 
 Apps are reviewed code contributions shipped with Omnara. `Lookup` in
-[`definition.go`](definition.go) is the closed catalog: Slack, GitHub and Discord.
-Project app instances configure these definitions; they cannot register a new
-provider, scope type, event vocabulary or interaction transport.
+[`definition.go`](definition.go) describes Slack, GitHub and Discord. Saved project
+apps own setup and credentials and reference one immutable definition. This
+package contains pure metadata, typed config validation and provider addresses;
+it performs no storage reads or provider I/O.
 
-See [Contributing an Omnara app](../integration/CONTRIBUTING.md) for the full
-provider workflow and examples that reuse an existing provider.
+A definition exports operation names, named `ListenerDefinition` entries and at
+most one `InteractionHandlerDefinition`. GitHub has no interaction handler.
+Capability selection is independent; enabling a tool grants no listener or
+handler. Launchers are configured separately in project setup.
 
-Keep this package pure metadata and validation. A contribution belongs in the
-existing owners:
+Provider destination fields use `SlackConfig`, `GitHubConfig` and `DiscordConfig`.
+All are optional hidden settings: omitted required destination fields remain
+model arguments. `CanonicalDestinationConfig`, `DestinationArguments` and
+`ResolveDestination` enforce the provider's closed typed contract. Fixed values
+cannot be supplied again as model arguments. `DestinationDescription` formats
+only validated provider IDs for model/UI/approval use. A fixed Slack `thread_ts`
+or Discord `thread_id` requires a fixed `channel_id`; a fixed GitHub
+`pull_request` requires `repository_id`. Parent-only configs remain valid.
+Discord `guild_id` is optional even for a fixed channel/thread, and a guild-only
+config leaves the channel and thread as arguments.
 
-- Define provider metadata and a typed `Scope` here. Specify validation,
-  canonical conversation addresses and containment with provider examples in
-  tests. Parent routing and launcher matching live in `events.go` and
-  `launcher.go`.
-- Declare ordinary provider tools in `internal/toolcatalog`; implement provider
-  transport in `internal/integration` and tool execution in `internal/harness`.
-  Storage owns authorization, locking, receipt admission and recovery.
-- Extend the config scope schema in `internal/agentconfig/apps_schema.go` and
-  its schema-to-Go correspondence test. Coordinate public API schema generation
-  and durable provider constraints with their owners.
+Listeners have provider-typed `conversations` and bounded `events` vocabularies.
+`ListenerDefinition.Prepare` returns canonical config, initial `[]Scope` addresses
+and current allowed events. Empty conversations mean no initial subscriptions;
+omitted events select the listener's supported events. Storage separately owns
+initial subscription activation, runtime follows, reconciliation and revocation.
+`Scope.Conversation` provides canonical routing kind/key, not a generic ACL.
+Verified event routing and launcher matching remain in `events.go` and `launcher.go`.
 
-Tools, listeners, reply following and interaction presentation are independently
-selected. Export only implemented capabilities: GitHub currently has no
-interaction handler. Do not inject a universal send tool, grant one capability
-because another is selected, or add a runtime registration DSL.
+Interaction handlers prepare a safe description and effective destination schema.
+`ResolveArgs` validates selection; `ArgsForDestination` derives arguments from
+verified input origin, rejecting mismatches with fixed config. Storage/runtime
+own persistent selection, prompt capture and authenticated callbacks.
 
-Hosted resources may bundle ordinary custom tools and MCP servers. Preserve their
-global permissions and contribution provenance; subagents strip app authority
-while retaining independent tools and servers. The detailed source, resolver and
-compiled contracts are in [`../agentconfig/apps.md`](../agentconfig/apps.md).
+Operation schemas and implementations of the pure tool preparation contract live
+in `internal/toolcatalog`. Transports belong to `internal/integration`; provider
+execution belongs to `internal/harness`. Keep standalone custom tools and MCP
+independent. The compiler/caller contract is in
+[`../agentconfig/apps.md`](../agentconfig/apps.md).
 
 Run the focused checks after a contribution:
 
 ```sh
 OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 go test ./internal/agentconfig -run TestGeneratedAgentConfigSourceSchemaIsCurrent
-go test -race ./internal/appdefinition ./internal/agentconfig
+go test -race ./internal/appdefinition ./internal/toolcatalog ./internal/agentconfig
 ```

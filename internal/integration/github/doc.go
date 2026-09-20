@@ -4,8 +4,8 @@
 // credential revision. No credentials or tokens are persisted here.
 //
 // GetPullRequest, GetDiff, ListFiles, ListDiscussionComments and ListReviewComments
-// support github_read. Each list reads one page (at most 100 items); callers must
-// bound any aggregation and keep the original tool context across operations.
+// support app__<name>__read. Each list reads one page (at most 100 items); callers
+// must bound any aggregation and keep the original tool context across operations.
 // CreateDiscussionComment, CreateInlineComment and Reply implement the three
 // ordinary comment tools. There is no pending-review or stop-time mutation API.
 //

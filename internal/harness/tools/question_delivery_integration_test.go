@@ -142,6 +142,9 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 	prepareInteractionPromptFixture(t, ctx, f)
 	var posts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected question presentation request %s", r.URL.Path)
 			http.Error(w, "unexpected request", http.StatusInternalServerError)

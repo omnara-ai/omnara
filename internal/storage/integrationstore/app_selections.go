@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -39,22 +38,20 @@ func (e *AppSelectionReservationError) Unwrap() error { return ErrAppSelectionRe
 // The rest of the slot remains owned and validated by its admission workflow.
 // Reservation queries omit Slot: one plan freezes all slots for this app/address.
 type InboxAppSelection struct {
-	AppID        uuid.UUID           `json:"app_id"`
-	ConnectionID uuid.UUID           `json:"connection_id"`
-	Address      ConversationAddress `json:"address"`
-	Slot         string              `json:"slot"`
+	AppID   uuid.UUID           `json:"app_id"`
+	Address ConversationAddress `json:"address"`
+	Slot    string              `json:"slot"`
 }
 
 type appSelectionIdentity struct {
-	AppID        uuid.UUID           `json:"app_id"`
-	ConnectionID uuid.UUID           `json:"connection_id"`
-	Address      ConversationAddress `json:"address"`
+	AppID   uuid.UUID           `json:"app_id"`
+	Address ConversationAddress `json:"address"`
 }
 
 // CheckNoUnsettledAppSelection protects a zero-recipient event from being
 // discarded while another receipt is still preparing the conversation's first
-// agent. The containment probe deliberately omits app_id: ordinary follow-ups
-// need not trigger any app. Failed reservations do not delay plain follow-ups;
+// agent. Launches and ordinary follow-ups use the receipt's owning app.
+// Failed reservations do not delay plain follow-ups;
 // they still block replacement launches until explicit operator recovery.
 // A chosen chat menu has accepted work before its plan exists. This app-storage
 // bridge also checks that handoff so post-selection replies cannot freeze empty;
@@ -64,25 +61,22 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledAppSelection(ctx context.Conte
 	if err := w.checkLease(ctx); err != nil {
 		return err
 	}
-	if err := LockConversationTx(ctx, w.tx, w.record.ProjectID, w.record.ConnectionID, address); err != nil {
+	if err := LockConversationTx(ctx, w.tx, w.record.ProjectID, w.record.AppID, address); err != nil {
 		return err
 	}
 	if err := w.checkLease(ctx); err != nil {
 		return err
 	}
-	if err := w.checkUnplannedAppProfileChoice(ctx, address, uuid.Nil); err != nil {
+	if err := w.checkUnplannedAppProfileChoice(ctx, address); err != nil {
 		return err
 	}
-	selection, err := json.Marshal(struct {
-		ConnectionID uuid.UUID           `json:"connection_id"`
-		Address      ConversationAddress `json:"address"`
-	}{w.record.ConnectionID, address})
+	selection, err := json.Marshal(appSelectionIdentity{AppID: w.record.AppID, Address: address})
 	if err != nil {
 		return err
 	}
 	owners, err := w.q.FindInboxSelectionReservations(ctx, dbsqlc.FindInboxSelectionReservationsParams{
 		ProjectID:     w.record.ProjectID,
-		ConnectionID:  w.record.ConnectionID,
+		AppID:         w.record.AppID,
 		ReceiptID:     w.record.ID,
 		Selection:     selection,
 		IncludeFailed: false,
@@ -97,7 +91,7 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledAppSelection(ctx context.Conte
 }
 
 func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan json.RawMessage) error {
-	identities, err := inboxSelectionIdentities(plan, w.record.ConnectionID)
+	identities, err := inboxSelectionIdentities(plan, w.record.AppID)
 	if err != nil {
 		return err
 	}
@@ -105,29 +99,31 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 		ctx,
 		w.tx,
 		w.record.ProjectID,
-		w.record.ConnectionID,
+		w.record.AppID,
 		identities,
 	); err != nil {
 		return err
 	}
+	if len(identities) == 0 {
+		return nil
+	}
+	// Every selection belongs to this receipt's app. Read its authority once,
+	// after the conversation gates, before checking individual reservations.
+	app, err := getProjectApp(ctx, w.q, w.record.ProjectID, w.record.AppID)
+	if err != nil {
+		return fmt.Errorf("load selected app: %w", err)
+	}
+	if app.State != ProjectAppStateActive || app.Settings.Launcher == nil {
+		return storeerr.ErrUnauthorized
+	}
 	// Lookup in separate statements after acquiring the gate, so a waiter sees
 	// the previous planner's committed reservation at READ COMMITTED.
 	for identity := range identities {
-		app, err := w.q.GetProjectApp(
-			ctx,
-			dbsqlc.GetProjectAppParams{ProjectID: w.record.ProjectID, ID: identity.AppID},
-		)
-		if err != nil {
-			return fmt.Errorf("load selected app: %w", err)
-		}
-		if !app.Enabled || app.LaunchConnectionID == nil || *app.LaunchConnectionID != identity.ConnectionID {
-			return storeerr.ErrUnauthorized
-		}
 		// Undecided ingress waits for accepted choices. Decided receipts instead
 		// compete for the frozen plan below, so an operator retry cannot make two
 		// accepted, unplanned choices reserve against each other indefinitely.
 		if len(w.record.Events) == 0 {
-			if err := w.checkUnplannedAppProfileChoice(ctx, identity.Address, identity.AppID); err != nil {
+			if err := w.checkUnplannedAppProfileChoice(ctx, identity.Address); err != nil {
 				return err
 			}
 		}
@@ -137,7 +133,7 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 		}
 		owners, err := w.q.FindInboxSelectionReservations(ctx, dbsqlc.FindInboxSelectionReservationsParams{
 			ProjectID:     w.record.ProjectID,
-			ConnectionID:  identity.ConnectionID,
+			AppID:         identity.AppID,
 			ReceiptID:     w.record.ID,
 			Selection:     selection,
 			IncludeFailed: true,
@@ -149,18 +145,16 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 			return &AppSelectionReservationError{ReceiptID: owners[0].ID, State: IntegrationInboxState(owners[0].State)}
 		}
 		targets, err := w.q.ListConversationSelections(ctx, dbsqlc.ListConversationSelectionsParams{
-			ProjectID:    w.record.ProjectID,
-			ConnectionID: identity.ConnectionID,
-			Kind:         identity.Address.Kind,
-			Ref:          identity.Address.Ref,
+			ProjectID: w.record.ProjectID,
+			AppID:     identity.AppID,
+			Kind:      identity.Address.Kind,
+			Ref:       identity.Address.Ref,
 		})
 		if err != nil {
 			return err
 		}
-		for _, target := range targets {
-			if target.AppID != nil && *target.AppID == identity.AppID {
-				return ErrAppSelectionSettled
-			}
+		if len(targets) != 0 {
+			return ErrAppSelectionSettled
 		}
 	}
 	return nil
@@ -169,12 +163,12 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 // Choice commit precedes inbox planning. Bridge only that gap; once a plan is
 // frozen, the existing plan reservation and retained target own continuation.
 func (w *IntegrationInboxLeaseTx) checkUnplannedAppProfileChoice(
-	ctx context.Context, address ConversationAddress, appID uuid.UUID,
+	ctx context.Context, address ConversationAddress,
 ) error {
 	owner, err := w.q.FindUnplannedAppProfileChoiceReservation(ctx,
 		dbsqlc.FindUnplannedAppProfileChoiceReservationParams{
-			ProjectID: w.record.ProjectID, ConnectionID: w.record.ConnectionID,
-			AddressKind: address.Kind, AddressRef: address.Ref, AppID: storeutil.IDFromNil(appID),
+			ProjectID: w.record.ProjectID, AppID: w.record.AppID,
+			AddressKind: address.Kind, AddressRef: address.Ref,
 			ReceiptID: w.record.ID,
 		})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -189,7 +183,7 @@ func (w *IntegrationInboxLeaseTx) checkUnplannedAppProfileChoice(
 // Parse only the common selection envelope; admission owns all other slot fields.
 func inboxSelectionIdentities(
 	plan json.RawMessage,
-	connectionID uuid.UUID,
+	appID uuid.UUID,
 ) (map[appSelectionIdentity]map[string]bool, error) {
 	if len(plan) == 0 {
 		return map[appSelectionIdentity]map[string]bool{}, nil
@@ -222,14 +216,14 @@ func inboxSelectionIdentities(
 		if !jsoncanonical.Equal(canonical, envelope.Selection) {
 			return nil, inboxInvalid("selection identities must use their canonical encoding")
 		}
-		if selection.AppID == uuid.Nil || selection.ConnectionID != connectionID ||
+		if selection.AppID == uuid.Nil || selection.AppID != appID ||
 			selection.Slot == "" || len(selection.Slot) > 64 || strings.TrimSpace(selection.Slot) != selection.Slot {
-			return nil, inboxInvalid("selection requires an app, stable slot and the receipt connection")
+			return nil, inboxInvalid("selection requires an app, stable slot and the receipt app")
 		}
 		if err := selection.Address.Validate(); err != nil {
 			return nil, err
 		}
-		identity := appSelectionIdentity{selection.AppID, selection.ConnectionID, selection.Address}
+		identity := appSelectionIdentity{AppID: selection.AppID, Address: selection.Address}
 		if identities[identity] == nil {
 			identities[identity] = map[string]bool{}
 		}
@@ -241,7 +235,7 @@ func inboxSelectionIdentities(
 	return identities, nil
 }
 
-func lockInboxSelectionConversations(ctx context.Context, tx pgx.Tx, projectID, connectionID uuid.UUID,
+func lockInboxSelectionConversations(ctx context.Context, tx pgx.Tx, projectID, appID uuid.UUID,
 	identities map[appSelectionIdentity]map[string]bool) error {
 	addresses := map[ConversationAddress]bool{}
 	for identity := range identities {
@@ -258,7 +252,7 @@ func lockInboxSelectionConversations(ctx context.Context, tx pgx.Tx, projectID, 
 		return strings.Compare(a.Ref, b.Ref)
 	})
 	for _, address := range ordered {
-		if err := LockConversationTx(ctx, tx, projectID, connectionID, address); err != nil {
+		if err := LockConversationTx(ctx, tx, projectID, appID, address); err != nil {
 			return err
 		}
 	}

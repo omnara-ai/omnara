@@ -73,7 +73,7 @@ func TestInboxRetentionUsesCompletionAgeAndSkipsLockedReceipts(t *testing.T) {
 	require.Equal(t, pending, f.read(t, pending.ID))
 	recent = f.read(t, recent.ID)
 	replayed, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: "recent", Payload: recent.Payload,
+		ProjectID: f.project, AppID: f.appID, ReceiptKey: "recent", Payload: recent.Payload,
 	})
 	require.NoError(t, err)
 	require.False(t, created)

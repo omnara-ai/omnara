@@ -13,9 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -33,7 +31,7 @@ type profileChoiceFixture struct {
 func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 	t.Helper()
 	base := newInboxFixture(t)
-	base.store = integrationstore.New(base.pool, executionstore.IntegrationConnectionAccess{})
+	base.store = integrationstore.New(base.pool, executionstore.AppAccess{})
 	var profileID, configID uuid.UUID
 	require.NoError(t, base.pool.QueryRow(base.ctx,
 		`SELECT id FROM agent_profiles WHERE project_id=$1`, base.project).Scan(&profileID))
@@ -44,12 +42,9 @@ func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 			OrgID: base.org, ProjectID: base.project, Name: "Reviewer", CurrentConfigID: configID,
 		})
 	require.NoError(t, err)
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, base.connection)
-	require.NoError(t, err)
-	app, err := base.store.CreateProjectApp(base.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: base.org, ProjectID: base.project, Name: "Support", DefinitionID: appdefinition.Slack, Enabled: true,
+	app, err := base.store.UpdateProjectApp(base.ctx, base.appID, integrationstore.SaveProjectAppInput{
+		OrgID: base.org, ProjectID: base.project, Name: "inbox-app", DefinitionID: appdefinition.Slack,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{Connection: connection},
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{
 					{Key: "support", AgentProfileID: &profileID}, {Key: "review", AgentProfileID: &second.ID},
@@ -76,13 +71,13 @@ func (f profileChoiceFixture) receipt(
 ) integrationstore.IntegrationInboxRecord {
 	t.Helper()
 	accepted, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: key, Payload: payload,
+		ProjectID: f.project, AppID: f.appID, ReceiptKey: key, Payload: payload,
 	})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Nil(t, accepted.Events, "ordinary ingress cannot populate trusted app events")
 	claimed, found, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: integrationstore.IntegrationInboxMaxLease,
+		ProjectID: f.project, AppID: f.appID, LeaseDuration: integrationstore.IntegrationInboxMaxLease,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
@@ -95,13 +90,13 @@ func (f profileChoiceFixture) menu(t *testing.T) integrationstore.AppProfileChoi
 	record, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.NoError(t, err)
 	require.True(t, created)
-	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, record.ID, "C123", "menu-1"))
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, record.ID, "C123", "menu-1"))
 	return f.readChoice(t, record.ID)
 }
 
 func (f profileChoiceFixture) readChoice(t *testing.T, id uuid.UUID) integrationstore.AppProfileChoiceRecord {
 	t.Helper()
-	record, err := f.store.GetAppProfileChoice(f.ctx, f.project, f.connection, id)
+	record, err := f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, id)
 	require.NoError(t, err)
 	return record
 }
@@ -110,7 +105,7 @@ func (f profileChoiceFixture) chooseInput(
 	t *testing.T, record integrationstore.AppProfileChoiceRecord, key string,
 ) integrationstore.ChooseAppProfileInput {
 	t.Helper()
-	connection, err := f.store.GetIntegrationConnection(f.ctx, f.project, f.connection)
+	app, err := f.store.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
 	var event map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(record.Event, &event))
@@ -127,9 +122,9 @@ func (f profileChoiceFixture) chooseInput(
 	events, err := json.Marshal([]map[string]json.RawMessage{event})
 	require.NoError(t, err)
 	return integrationstore.ChooseAppProfileInput{
-		ProjectID: f.project, ConnectionID: f.connection, ID: record.ID, Key: key, ActorID: "U456",
+		ProjectID: f.project, AppID: f.appID, ID: record.ID, Key: key, ActorID: "U456",
 		MessageChannelID: record.MessageChannelID, MessageID: record.MessageID,
-		SourceChoiceUpdatedAt: record.UpdatedAt, SourceConnectionUpdatedAt: connection.UpdatedAt, Events: events,
+		SourceChoiceUpdatedAt: record.UpdatedAt, SourceSetupRevision: app.SetupRevision, Events: events,
 	}
 }
 
@@ -137,8 +132,8 @@ func (f profileChoiceFixture) decidedReceipt(t *testing.T, id uuid.UUID) integra
 	t.Helper()
 	var receiptID uuid.UUID
 	require.NoError(t, f.pool.QueryRow(f.ctx,
-		`SELECT id FROM integration_inbox WHERE project_id=$1 AND connection_id=$2 AND receipt_key=$3`,
-		f.project, f.connection, "choice:"+id.String()).Scan(&receiptID))
+		`SELECT id FROM integration_inbox WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
+		f.project, f.appID, "choice:"+id.String()).Scan(&receiptID))
 	return f.read(t, receiptID)
 }
 
@@ -193,7 +188,7 @@ func TestAppProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 	require.Zero(t, inputs)
 	require.Equal(t, f.input.Payload, pending.Payload)
 	require.Equal(t, f.input.Options, pending.Options)
-	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, id, "C123", "menu-1"))
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, id, "C123", "menu-1"))
 	pending = f.readChoice(t, id)
 	first := f.chooseInput(t, pending, "support")
 	second := f.chooseInput(t, pending, "review")
@@ -242,13 +237,14 @@ func TestAppProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 		require.JSONEq(t, string(receipt.Events), string(work.Receipt().Events))
 		return work.FreezePlan(f.ctx, json.RawMessage(`{}`))
 	})
-	// Deleting setup does not revoke an already committed decision or its receipt.
+	// Deletion revokes callbacks while retaining the committed decision and receipt.
 	require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, f.app.ID))
-	replay, err := f.store.ChooseAppProfile(f.ctx, first)
-	require.NoError(t, err)
-	require.Equal(t, selected, replay)
+	_, err := f.store.ChooseAppProfile(f.ctx, first)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	require.Equal(t, selected, f.readChoice(t, id))
+	require.Equal(t, receipt.Events, f.read(t, receipt.ID).Events)
 	bySource, found, err := f.store.GetAppProfileChoiceBySource(
-		f.ctx, f.project, f.connection, f.app.ID, f.input.SourceKey)
+		f.ctx, f.project, f.app.ID, f.input.SourceKey)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, selected, bySource)
@@ -269,7 +265,7 @@ func TestAppProfileChoiceSiblingSourceAndRevision(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, original, reused, "a new mention cannot replace the original request or options")
-	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.connection, f.app.ID, unrelated.SourceKey)
+	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.app.ID, unrelated.SourceKey)
 	require.NoError(t, err)
 	require.False(t, found)
 
@@ -310,6 +306,24 @@ func TestAppProfileChoiceSiblingSourceAndRevision(t *testing.T) {
 	require.Equal(t, chosen, later, "selected source and payload are immutable")
 }
 
+func TestAppProfileChoiceSettingsEditPreservesAuthenticatedSetup(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	input := f.chooseInput(t, choice, "support")
+	settings := f.app.Settings
+	settings.Launcher.Slots = settings.Launcher.Slots[:1]
+	updated, err := f.store.UpdateProjectApp(f.ctx, f.app.ID, integrationstore.SaveProjectAppInput{
+		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+		Settings: settings,
+	})
+	require.NoError(t, err)
+	require.Equal(t, input.SourceSetupRevision, updated.SetupRevision)
+	selected, err := f.store.ChooseAppProfile(f.ctx, input)
+	require.NoError(t, err, "an unrelated slot edit must not invalidate callback setup authentication")
+	require.Equal(t, "support", selected.SelectedKey)
+}
+
 func TestAppProfileChoiceSourceChooseRace(t *testing.T) {
 	t.Parallel()
 	f := newProfileChoiceFixture(t)
@@ -345,8 +359,8 @@ func TestAppProfileChoiceSourceChooseRace(t *testing.T) {
 
 func TestAppProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"project", "connection", "message", "channel", "unoffered", "expired",
-		"disabled-app", "deleted-app", "remapped-slot", "removed-profile", "disabled-connection", "rotated-connection"} {
+	for _, scenario := range []string{"project", "wrong-app", "message", "channel", "unoffered", "expired",
+		"disconnected-app", "deleted-app", "remapped-slot", "removed-profile", "disconnect", "rotated-setup"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -357,8 +371,8 @@ func TestAppProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			case "project":
 				input.ProjectID = uuid.New()
 				want = storeerr.ErrNotFound
-			case "connection":
-				input.ConnectionID = uuid.New()
+			case "wrong-app":
+				input.AppID = uuid.New()
 				want = storeerr.ErrNotFound
 			case "message":
 				input.MessageID = "unrelated-message"
@@ -370,25 +384,31 @@ func TestAppProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 				input.Key = "never-offered"
 			case "expired":
 				f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '1 second' WHERE id=$1`, record.ID)
-			case "disabled-app":
-				f.exec(t, `UPDATE project_apps SET enabled=false WHERE id=$1`, f.app.ID)
+			case "disconnected-app":
+				f.exec(t, `UPDATE project_apps SET state='disconnected',setup_revision=setup_revision+1 WHERE id=$1`, f.app.ID)
+				want = storeerr.ErrUnauthorized
 			case "deleted-app":
 				require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, f.app.ID))
+				want = storeerr.ErrNotFound
 			case "remapped-slot":
 				f.exec(t, `UPDATE project_apps SET settings=jsonb_set(settings,
                     '{launcher,slots,0,agent_profile_id}',to_jsonb($2::uuid::text)) WHERE id=$1`,
 					f.app.ID, f.input.Options[1].ProfileID)
 			case "removed-profile":
 				f.exec(t, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, f.input.Options[0].ProfileID)
-			case "disabled-connection":
-				_, err := f.store.DisableIntegrationConnection(f.ctx,
-					integrationstore.DisableIntegrationConnectionInput{
-						ProjectID: f.project, ID: f.connection, ExpectedOAuthFlowID: &uuid.Nil,
+			case "disconnect":
+				_, err := f.store.DisconnectProjectApp(f.ctx,
+					integrationstore.DisconnectProjectAppInput{
+						ProjectID: f.project, AppID: f.appID,
 					})
 				require.NoError(t, err)
 				want = storeerr.ErrUnauthorized
-			case "rotated-connection":
-				f.exec(t, `UPDATE integration_connections SET updated_at=clock_timestamp() WHERE id=$1`, f.connection)
+			case "rotated-setup":
+				f.exec(
+					t,
+					`UPDATE project_apps SET setup_revision=setup_revision+1,updated_at=clock_timestamp() WHERE id=$1`,
+					f.appID,
+				)
 				want = storeerr.ErrUnauthorized
 			}
 			returned, err := f.store.ChooseAppProfile(f.ctx, input)
@@ -396,13 +416,13 @@ func TestAppProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			stored := f.readChoice(t, record.ID)
 			require.Empty(t, stored.SelectedKey)
 			switch scenario {
-			case "disabled-app", "deleted-app", "remapped-slot", "removed-profile":
+			case "remapped-slot", "removed-profile":
 				require.True(t, stored.ExpiresAt.Before(record.ExpiresAt), "stale setup retires the unusable menu")
 				require.False(t, stored.ExpiresAt.After(stored.UpdatedAt))
 				require.Equal(t, stored, returned, "caller receives the committed expiry for safe dismissal")
 			case "unoffered":
 				require.Equal(t, record, returned, "unknown keys cannot retire a valid menu")
-			case "project", "connection", "message", "channel", "disabled-connection", "rotated-connection":
+			case "project", "wrong-app", "message", "channel", "disconnect", "rotated-setup", "disconnected-app", "deleted-app":
 				require.Equal(t, integrationstore.AppProfileChoiceRecord{}, returned)
 			}
 			var count int
@@ -430,7 +450,7 @@ func TestAppProfileChoiceExpiryAndCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NotEqual(t, expired.ID, fresh.ID)
-	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, fresh.ID, "C123", "menu-2"))
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, fresh.ID, "C123", "menu-2"))
 	fresh = f.readChoice(t, fresh.ID)
 	_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "support"))
 	require.NoError(t, err)
@@ -458,7 +478,7 @@ func TestAppProfileChoiceExpiryAndCleanup(t *testing.T) {
 	count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.connection, f.app.ID, fresh.SourceKey)
+	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.app.ID, fresh.SourceKey)
 	require.NoError(t, err)
 	require.False(t, found)
 }
@@ -475,7 +495,7 @@ func TestAppProfileChoiceMessageFirstWinsAndLeaseFencing(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 8 {
 		wg.Go(func() {
-			err := f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, record.ID, "C123",
+			err := f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, record.ID, "C123",
 				fmt.Sprintf("menu-%d", i))
 			if err != nil && !errors.Is(err, storeerr.ErrConflict) {
 				t.Errorf("record choice message: %v", err)
@@ -485,12 +505,12 @@ func TestAppProfileChoiceMessageFirstWinsAndLeaseFencing(t *testing.T) {
 	wg.Wait()
 	bound := f.readChoice(t, record.ID)
 	require.NotEmpty(t, bound.MessageID)
-	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, record.ID,
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, record.ID,
 		bound.MessageChannelID, bound.MessageID))
 	require.Equal(t, bound.UpdatedAt, f.readChoice(t, record.ID).UpdatedAt)
-	_, err = f.store.GetAppProfileChoice(f.ctx, uuid.New(), f.connection, record.ID)
+	_, err = f.store.GetAppProfileChoice(f.ctx, uuid.New(), f.appID, record.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, uuid.New(), f.app.ID, f.input.SourceKey)
+	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, uuid.New(), f.input.SourceKey)
 	require.NoError(t, err)
 	require.False(t, found)
 	f.exec(t, `UPDATE integration_inbox SET claim_expires_at=now()-interval '1 second' WHERE id=$1`, f.source.ID)
@@ -536,7 +556,7 @@ func TestAppProfileChoiceBoundsAndInboxEventsConstraint(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 		_, err = dbsqlc.New(f.pool).InsertAppProfileChoiceInboxReceipt(f.ctx,
 			dbsqlc.InsertAppProfileChoiceInboxReceiptParams{
-				ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: uuid.NewString(),
+				ProjectID: f.project, AppID: f.appID, ReceiptKey: uuid.NewString(),
 				Payload: []byte(`{}`), Events: &invalid,
 			})
 		if invalid != nil {
@@ -562,7 +582,7 @@ func TestAppProfileChoiceDoesNotInvertProfileSetupLockOrder(t *testing.T) {
 	selected, err := f.store.ChooseAppProfile(ctx, input)
 	require.NoError(t, err)
 	require.Equal(t, "support", selected.SelectedKey)
-	_, err = tx.Exec(ctx, `UPDATE project_apps SET name='Edited setup' WHERE id=$1`, f.app.ID)
+	_, err = tx.Exec(ctx, `UPDATE project_apps SET settings='{}',updated_at=statement_timestamp() WHERE id=$1`, f.app.ID)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))
 }
@@ -602,7 +622,7 @@ func TestAppProfileChoiceCleanupSkipsLocksAndBoundsBatch(t *testing.T) {
 	count, err = f.store.CleanupAppProfileChoices(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.connection, first)
+	_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, first)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 }
 
@@ -639,12 +659,12 @@ func TestAppProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) {
 	require.NotEqual(t, f.source.ClaimToken, recovered.ClaimToken)
 	_, _, err = f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
-	restarted := integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
+	restarted := integrationstore.New(f.pool, executionstore.AppAccess{})
 	resumed, created, err := restarted.EnsureAppProfileChoice(f.ctx, recovered.Lease(), f.input)
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, merged, resumed, "creator retry retains merged source and publication authority")
-	require.NoError(t, restarted.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, pending.ID,
+	require.NoError(t, restarted.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, pending.ID,
 		"C123", "recovered-menu"))
 	f.mutate(t, recovered, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {

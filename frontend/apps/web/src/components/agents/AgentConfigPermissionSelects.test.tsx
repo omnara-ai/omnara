@@ -78,7 +78,7 @@ const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
 
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'slack_post_message'].map((name) => ({
+  built_in_tools: ['run_command', 'skill', 'set_interaction_handler'].map((name) => ({
     name,
     description: name,
     implicit: true,
@@ -340,7 +340,7 @@ function click(selector: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'slack_post_message'])(
+it.each(['run_command', 'skill', 'set_interaction_handler'])(
   'displays the catalog default for configured %s without changing its source',
   async (name) => {
     const onToolsChange = vi.fn()
@@ -381,35 +381,60 @@ const defaultIncludedSource = `${includedSource}  run_command: {}\n`
 it.each([
   ['Always ask', 'always_ask'],
   ['Always deny', 'always_deny'],
-])('keeps scoped Slack %s permission when disabled', async (label, mode) => {
-  await renderAndFlush(
-    <IncludedToolsHarness source={`${includedSource}  slack_post_message: {}\n`} />,
-  )
-  click('[data-slot="collapsible-trigger"]')
-  await selectIncludedPermission('slack_post_message', label)
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.slack_post_message.permission.mode',
-    mode,
-  )
-  await selectIncludedPermission('slack_post_message', 'Disabled')
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.slack_post_message',
-    { type: 'built_in', enabled: false, permission: { mode } },
-  )
-})
+])(
+  'preserves a fixed app destination and %s permission through disable and re-enable',
+  async (label, mode) => {
+    const name = 'app__engineering__post_message'
+    const config = { channel_id: 'C123', thread_ts: '123.456' }
+    const appCatalog = {
+      ...includedCatalog,
+      built_in_tools: [
+        ...includedCatalog.built_in_tools,
+        {
+          name,
+          description: 'Post to the selected Slack thread.',
+          implicit: true,
+          ...alwaysAllowProfile,
+        },
+      ],
+    }
+    await renderAndFlush(
+      <IncludedToolsHarness
+        catalog={appCatalog}
+        source={`${includedSource}  ${name}:
+    config: {channel_id: C123, thread_ts: '123.456'}
+`}
+      />,
+    )
+    click('[data-slot="collapsible-trigger"]')
+    await selectIncludedPermission(name, label)
+    await selectIncludedPermission(name, 'Disabled')
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+      ['tools', name],
+      { config, enabled: false, permission: { mode } },
+    )
+    await selectIncludedPermission(name, label)
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
+      web_search: { permission: { mode: 'always_ask' } },
+      [name]: { config, permission: { mode } },
+    })
+  },
+)
 
-function IncludedToolsHarness({ source = defaultIncludedSource }: { source?: string }) {
+function IncludedToolsHarness({
+  source = defaultIncludedSource,
+  catalog = includedCatalog,
+}: {
+  source?: string
+  catalog?: ToolCatalog
+}) {
   const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
     orgId: 'org-test',
     projectId: 'project-test',
   })
   return (
     <>
-      <AgentConfigToolsField
-        catalog={includedCatalog}
-        tools={form.tools}
-        onToolsChange={form.setTools}
-      />
+      <AgentConfigToolsField catalog={catalog} tools={form.tools} onToolsChange={form.setTools} />
       <output>{form.yaml}</output>
     </>
   )
@@ -431,7 +456,7 @@ async function selectIncludedPermission(name: string, label: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'slack_post_message'])(
+it.each(['run_command', 'skill', 'set_interaction_handler'])(
   'disables and re-enables %s without changing other tools',
   async (name) => {
     await renderAndFlush(<IncludedToolsHarness source={`${includedSource}  ${name}: {}\n`} />)
@@ -498,7 +523,7 @@ it('reopens disabled tools and preserves their permission until a new one is cho
 it.each([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['skill', 'skill'],
-  ['slack_post_message', 'slack_post_message'],
+  ['set_interaction_handler', 'set_interaction_handler'],
 ])(
   'shows the frontend description or catalog fallback for %s on hover and keyboard focus',
   async (name, description) => {
@@ -626,7 +651,7 @@ it.each(['cluster', 'tenant', 'error'])(
   },
 )
 
-it('groups configured machine, skill, and integration tools in one dropdown inside Tools', async () => {
+it('groups configured machine, skill, and interaction tools in one dropdown inside Tools', async () => {
   const onToolsChange = vi.fn()
   await renderAndFlush(
     <AgentConfigToolsField
@@ -634,7 +659,7 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
       tools={[
         { name: 'run_command', permission: null },
         { name: 'skill', permission: null },
-        { name: 'slack_post_message', permission: null },
+        { name: 'set_interaction_handler', permission: null },
         { name: 'web_search', permission: null },
       ]}
       onToolsChange={onToolsChange}
@@ -645,12 +670,12 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
     'Other tools',
   )
   expect(container.textContent).toContain('web_search')
-  for (const name of ['run_command', 'skill', 'slack_post_message']) {
+  for (const name of ['run_command', 'skill', 'set_interaction_handler']) {
     expect(container.textContent).not.toContain(name)
     expect(container.querySelector(`[aria-label="Remove ${name}"]`)).toBeNull()
   }
   click('[data-slot="collapsible-trigger"]')
-  for (const name of ['run_command', 'skill', 'slack_post_message']) {
+  for (const name of ['run_command', 'skill', 'set_interaction_handler']) {
     const control = container.querySelector(`[aria-label="${name} permission"]`)
     expect(control).not.toBeNull()
     expect(control?.closest('[data-slot="collapsible-content"]')).not.toBeNull()

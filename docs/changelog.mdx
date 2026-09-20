@@ -5,6 +5,31 @@ icon: "list"
 mode: "center"
 ---
 
+<Update label="Upcoming">
+
+## Project apps for Slack, Discord and GitHub
+
+Create an app from your project's Apps page and configure its provider setup and
+launch behavior. Slack and Discord can start a thread agent from a mention and
+offer a profile menu. GitHub can launch from a PR mention or opening a PR, then
+read and write discussion and inline comments. Tools, listeners and interaction
+handlers can also be selected independently in agent configs.
+
+This release replaces native Slack setup with project-owned apps. Tool names now
+include the app name, such as `app__engineering__post_message`; listener and
+interaction-handler configs refer to that app as well. Existing Slack data and
+configs are migrated during a coordinated maintenance window. Open Slack prompts
+are canceled, while agents, conversation history and provider messages remain.
+Self-hosted operators must follow the [cutover playbook](/self-hosting/composable-apps-cutover),
+including draining work and stopping cluster writers before migration.
+
+The public setup API now creates an app before verifying its credentials. Update
+clients using the old integration setup or destination APIs together with the
+cluster release. Customer-hosted integrations continue to use ordinary agent
+inputs, custom tools and interaction APIs. See [Apps](/integrations/apps).
+
+</Update>
+
 <Update
   label="September 18, 2026"
   rss={{

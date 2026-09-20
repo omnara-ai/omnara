@@ -17,20 +17,32 @@ func TestProjectionNormalizerValidatesInteractionRouting(t *testing.T) {
 		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 1,
 	}
-	for _, destination := range []*InteractionDestinationRef{
-		nil,
-		{Resource: "slack", TargetID: "slack-abcd"},
-		{Resource: "slack"},
-		{TargetID: "slack-abcd"},
+	for _, test := range []struct {
+		name        string
+		destination *InteractionDestinationRef
+		valid       bool
+	}{
+		{name: "dashboard only", valid: true},
+		{name: "flexible handler", destination: &InteractionDestinationRef{
+			Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`),
+		}, valid: true},
+		{name: "fixed handler", destination: &InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{}`)}, valid: true},
+		{name: "missing arguments", destination: &InteractionDestinationRef{Handler: "slack"}},
+		{name: "missing handler", destination: &InteractionDestinationRef{Args: json.RawMessage(`{}`)}},
+		{name: "malformed arguments", destination: &InteractionDestinationRef{
+			Handler: "slack", Args: json.RawMessage(`{"channel_id":`),
+		}},
 	} {
-		bundle := base
-		bundle.InteractionRouting = &InteractionRoutingContext{Destination: destination}
-		err := (ProjectionNormalizer{}).Normalize(bundle)
-		valid := destination == nil || destination.Resource != "" && destination.TargetID != ""
-		if valid != (err == nil) {
-			t.Fatalf("destination %+v validation: %v", destination, err)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			bundle := base
+			bundle.InteractionRouting = &InteractionRoutingContext{Destination: test.destination}
+			err := (ProjectionNormalizer{}).Normalize(bundle)
+			if test.valid != (err == nil) {
+				t.Fatalf("destination %+v validation: %v", test.destination, err)
+			}
+		})
 	}
+
 }
 
 func TestProjectionNormalizerAcceptsAssistantMessageRole(t *testing.T) {

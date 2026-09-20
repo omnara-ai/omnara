@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -16,65 +15,56 @@ import (
 )
 
 type slackReadInput struct {
-	Resource string `json:"resource,omitempty"`
-	ThreadTS string `json:"thread_ts,omitempty"`
-	Cursor   string `json:"cursor,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 type slackPostInput struct {
-	Resource      string   `json:"resource,omitempty"`
-	ThreadTS      string   `json:"thread_ts,omitempty"`
 	Text          string   `json:"text,omitempty"`
 	ArtifactIDs   []string `json:"artifact_ids,omitempty"`
 	FollowReplies bool     `json:"follow_replies,omitempty"`
 }
 
-func runSlackTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	record, err := call.Executor.Store.Execution().
-		GetToolCall(ctx, call.Turn.ProjectID, call.Turn.AgentID, call.ToolCallID)
-	if err != nil {
-		return nil, err
+func runSlackTool(
+	ctx context.Context,
+	call asyncToolContext,
+	record executionstore.ToolCallRecord,
+	access appToolAccess,
+) (asyncPhaseResult, error) {
+	scope := access.Arguments.Destination
+	if scope.Slack == nil {
+		return appToolFailure(errors.New("app tool destination does not match Slack"))
 	}
-	var selector struct {
-		Resource string `json:"resource"`
-		ThreadTS string `json:"thread_ts"`
-	}
-	if err := json.Unmarshal(call.Call.Input, &selector); err != nil {
-		return appToolFailure(err)
-	}
-	access, err := call.Executor.resolveAppToolAccess(ctx, call.Turn, record, selector.Resource)
-	if err != nil {
-		return appToolFailure(err)
-	}
-	if access.Authority.Original.Scope == nil || access.Authority.Original.Scope.Slack == nil {
-		return appToolFailure(errors.New("slack resource requires a conversation scope"))
-	}
-	address := *access.Authority.Original.Scope.Slack
-	if selector.ThreadTS != "" {
-		address.ThreadTS = selector.ThreadTS
-	}
-	scope := appdefinition.Scope{Slack: &address}
-	if err := scope.Validate(appdefinition.ProviderSlack); err != nil || !access.Authority.AllowsScope(scope) {
-		return appToolFailure(errors.New("requested Slack conversation is outside the resource scope"))
-	}
+	address := *scope.Slack
+	scope.Slack = &address
 	e := call.Executor
 	e.IntegrationHTTPClient = slack.WithRequestCheck(e.IntegrationHTTPClient, func(ctx context.Context) error {
-		return call.Executor.recheckAppToolAccess(ctx, call.Turn, record, access, scope)
+		return call.Executor.recheckAppToolAccess(ctx, call.Turn, record, access)
 	})
+	identity, err := slack.ParseInstallIdentity(access.App.ProviderIdentity)
+	if err != nil {
+		return appToolFailure(err)
+	}
+	if err := slack.CheckIdentity(ctx, slack.OAuthConfig{HTTPClient: e.IntegrationHTTPClient},
+		access.Credential[secrets.KeyAccessToken], slack.Identity{
+			WorkspaceID: access.App.ProviderTenantID, BotUserID: identity.BotUserID,
+		}); err != nil {
+		return appToolFailure(err)
+	}
 	target := slack.MessageTarget{
-		TargetRef: access.Authority.ResourceKey,
+		TargetRef: access.App.Name,
 		Channel:   address.ChannelID,
 		ThreadTS:  address.ThreadTS,
 		BotToken:  access.Credential[secrets.KeyAccessToken],
 	}
-	if record.Name == toolcatalog.ToolNameSlackRead {
+	if access.Authority.Definition.Operation == toolcatalog.AppOperationRead {
 		var input slackReadInput
-		if err := decodeSingleStrictJSON(call.Call.Input, &input, "Slack read"); err != nil {
+		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "Slack read"); err != nil {
 			return appToolFailure(err)
 		}
 		var page slack.MessagePage
 		var result slack.APIResult
+		var err error
 		var slept time.Duration
 		for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
 			page, result, err = slack.ReadMessages(ctx, e.IntegrationHTTPClient, target, input.Cursor, input.Limit)
@@ -101,11 +91,8 @@ func runSlackTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 		return slackAppFailure(target.TargetRef, result)
 	}
 	var input slackPostInput
-	if err := decodeSingleStrictJSON(call.Call.Input, &input, "Slack post"); err != nil {
+	if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "Slack post"); err != nil {
 		return appToolFailure(err)
-	}
-	if input.FollowReplies && !access.Authority.AllowsFollowingReplies() {
-		return appToolFailure(errors.New("resource does not permit following replies"))
 	}
 	followScope := scope
 	if strings.HasPrefix(address.ChannelID, "D") {
@@ -113,9 +100,6 @@ func runSlackTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 		// specific outgoing message is threaded. Never subscribe to a thread
 		// address that the incoming provider never produces.
 		followScope = appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: address.ChannelID}}
-	}
-	if input.FollowReplies && !access.Authority.AllowsScope(followScope) {
-		return appToolFailure(errors.New("resource does not permit following this direct conversation"))
 	}
 	if input.FollowReplies && len(input.ArtifactIDs) > 0 && address.ThreadTS == "" &&
 		!strings.HasPrefix(address.ChannelID, "D") {
@@ -189,7 +173,7 @@ func runSlackTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 	}
 	content, err := structuredToolResultContent(
 		map[string]any{
-			"resource":       access.Authority.ResourceKey,
+			"app":            access.App.Name,
 			"channel_id":     channel,
 			"message_ts":     timestamp,
 			"thread_ts":      address.ThreadTS,
@@ -214,9 +198,9 @@ func completedAppPost(
 	return completeAsync{
 		content: content,
 		follow: &executionstore.ConfirmedAppFollow{
-			ResourceKey:  access.Authority.ResourceKey,
-			ConnectionID: access.Connection.ID,
-			Scope:        scope,
+			ListenerKey: access.FollowListenerKey,
+			AppID:       access.App.ID,
+			Scope:       scope,
 		},
 	}
 }
@@ -239,7 +223,7 @@ func slackAppFailureContent(resource string, result slack.APIResult) (toolResult
 	}
 	content, err := structuredToolResultContent(
 		map[string]any{
-			"resource":            resource,
+			"app":                 resource,
 			"code":                code,
 			"message":             result.Message,
 			"retry_after_seconds": result.RetryAfter.Seconds(),
@@ -253,19 +237,4 @@ func slackAppFailureContent(resource string, result slack.APIResult) (toolResult
 		message = code
 	}
 	return content, errors.New(message)
-}
-
-func slackToolRegistrations() []toolRegistration {
-	return []toolRegistration{
-		{
-			name:            toolcatalog.ToolNameSlackRead,
-			handler:         toolHandler{Async: runSlackTool},
-			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:            toolcatalog.ToolNameSlackPostMessage,
-			handler:         toolHandler{Async: runSlackTool},
-			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-	}
 }

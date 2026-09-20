@@ -19,9 +19,9 @@ type AppProfileNames interface {
 // AppProfileChoiceProvider presents app-owned launch choices. These are not
 // agent interactions: there is no agent, config derivation or permission tool.
 type AppProfileChoiceProvider interface {
-	PresentProfileChoice(context.Context, integrationstore.IntegrationConnectionRecord,
+	PresentProfileChoice(context.Context, integrationstore.ProjectAppRecord,
 		integrationstore.AppProfileChoiceRecord, func(context.Context) error) (string, string, error)
-	DismissProfileChoice(context.Context, integrationstore.IntegrationConnectionRecord,
+	DismissProfileChoice(context.Context, integrationstore.ProjectAppRecord,
 		integrationstore.AppProfileChoiceRecord, string) error
 }
 
@@ -73,8 +73,8 @@ func (l *ChatAppLauncher) decideProfiles(
 	ctx context.Context, input AppLaunchContext, profiles []AppLaunchIntent,
 ) ([]AppLaunchIntent, error) {
 	sourceKey := appChoiceSourceKey(input.Event)
-	choice, exists, err := l.store.GetAppProfileChoiceBySource(ctx, input.Connection.ProjectID,
-		input.Connection.ID, input.App.ID, sourceKey)
+	choice, exists, err := l.store.GetAppProfileChoiceBySource(ctx, input.App.ProjectID,
+		input.App.ID, sourceKey)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (l *ChatAppLauncher) decideProfiles(
 		for _, intent := range profiles {
 			ids = append(ids, intent.ProfileID)
 		}
-		names, err := l.profiles.GetAgentProfileDisplayNames(ctx, input.Connection.ProjectID, ids)
+		names, err := l.profiles.GetAgentProfileDisplayNames(ctx, input.App.ProjectID, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -139,9 +139,9 @@ func (l *ChatAppLauncher) decideProfiles(
 	if choice.OwnerReceiptID != input.Receipt.ID || !time.Now().Before(choice.ExpiresAt) || choice.MessageID != "" {
 		return nil, nil
 	}
-	provider, ok := l.providers[input.Connection.Provider].(AppProfileChoiceProvider)
+	provider, ok := l.providers[input.App.Provider].(AppProfileChoiceProvider)
 	if !ok {
-		return nil, fmt.Errorf("profile menus unavailable for provider %s", input.Connection.Provider)
+		return nil, fmt.Errorf("profile menus unavailable for provider %s", input.App.Provider)
 	}
 	check := func(ctx context.Context) error {
 		if err := l.store.WithIntegrationInboxLease(ctx, input.Receipt.Lease(),
@@ -152,23 +152,23 @@ func (l *ChatAppLauncher) decideProfiles(
 		if err != nil {
 			return err
 		}
-		if !app.Enabled {
+		if app.State != integrationstore.ProjectAppStateActive {
 			return ErrAppLaunchUnavailable
 		}
 		return nil
 	}
-	channel, message, err := provider.PresentProfileChoice(ctx, input.Connection, choice, check)
+	channel, message, err := provider.PresentProfileChoice(ctx, input.App, choice, check)
 	if err != nil {
 		if errors.Is(err, ErrAppLaunchUnavailable) {
 			if expireErr := l.store.ExpireAppProfileChoice(
-				ctx, choice.ProjectID, choice.ConnectionID, choice.ID); expireErr != nil {
+				ctx, choice.ProjectID, choice.AppID, choice.ID); expireErr != nil {
 				return nil, fmt.Errorf("retire unavailable profile menu: %w", expireErr)
 			}
 		}
 		return nil, err
 	}
 	if err := l.store.RecordAppProfileChoiceMessage(ctx,
-		choice.ProjectID, choice.ConnectionID, choice.ID, channel, message); err != nil {
+		choice.ProjectID, choice.AppID, choice.ID, channel, message); err != nil {
 		return nil, err
 	}
 	return nil, nil
@@ -184,23 +184,23 @@ func choiceIntent(choice integrationstore.AppProfileChoiceRecord) []AppLaunchInt
 }
 
 func (l *ChatAppLauncher) NotifyUnavailable(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, events []AppEvent,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, events []AppEvent,
 ) error {
-	provider, ok := l.providers[connection.Provider].(AppProfileChoiceProvider)
+	provider, ok := l.providers[appSetup.Provider].(AppProfileChoiceProvider)
 	if !ok {
 		return nil
 	}
 	var failures []error
 	for _, event := range events {
 		for _, intent := range event.Launches {
-			choice, found, err := l.store.GetAppProfileChoiceBySource(ctx, connection.ProjectID,
-				connection.ID, intent.AppID, appChoiceSourceKey(event))
+			choice, found, err := l.store.GetAppProfileChoiceBySource(ctx, appSetup.ProjectID,
+				intent.AppID, appChoiceSourceKey(event))
 			if err != nil {
 				failures = append(failures, err)
 				continue
 			}
 			if found && choice.MessageID != "" {
-				failures = append(failures, provider.DismissProfileChoice(ctx, connection, choice,
+				failures = append(failures, provider.DismissProfileChoice(ctx, appSetup, choice,
 					"The app setup changed before this request could start. Mention the bot again to choose a profile."))
 			}
 		}
@@ -211,11 +211,11 @@ func (l *ChatAppLauncher) NotifyUnavailable(
 // SelectChatAppProfile performs no provider I/O or agent launch. A successful
 // choice durably hands the original request to the existing worker before ACK.
 func SelectChatAppProfile(
-	ctx context.Context, store *integrationstore.Store, connection integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, store *integrationstore.Store, appSetup integrationstore.ProjectAppRecord,
 	id uuid.UUID, key, actorID, channelID, messageID string,
 ) (integrationstore.AppProfileChoiceRecord, error) {
 	for range 3 {
-		choice, err := store.GetAppProfileChoice(ctx, connection.ProjectID, connection.ID, id)
+		choice, err := store.GetAppProfileChoice(ctx, appSetup.ProjectID, appSetup.ID, id)
 		if err != nil {
 			return choice, err
 		}
@@ -234,9 +234,9 @@ func SelectChatAppProfile(
 			return choice, err
 		}
 		result, err := store.ChooseAppProfile(ctx, integrationstore.ChooseAppProfileInput{
-			ProjectID: connection.ProjectID, ConnectionID: connection.ID, ID: id,
+			ProjectID: appSetup.ProjectID, AppID: appSetup.ID, ID: id,
 			Key: key, ActorID: actorID, MessageChannelID: channelID, MessageID: messageID,
-			SourceChoiceUpdatedAt: choice.UpdatedAt, SourceConnectionUpdatedAt: connection.UpdatedAt, Events: events,
+			SourceChoiceUpdatedAt: choice.UpdatedAt, SourceSetupRevision: appSetup.SetupRevision, Events: events,
 		})
 		if !errors.Is(err, storeerr.ErrConflict) {
 			return result, err

@@ -74,10 +74,10 @@ func IsSubagentToolName(name string) bool {
 }
 
 func implicit(name string) bool {
-	if IsInteractionDestinationTool(name) {
+	if IsInteractionHandlerTool(name) {
 		return true
 	}
-	return AppToolProvider(name) != "" || slices.Contains(MachineToolNames(), name) ||
+	return UsesAppToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
 		slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill ||
 		name == ToolNameReadFile || name == ToolNameSearchFiles ||

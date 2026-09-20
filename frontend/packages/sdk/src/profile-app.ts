@@ -1,34 +1,27 @@
 import * as z from 'zod'
 
 import type {
+  AppLauncher,
   AppLaunchSlot,
-  IntegrationConnection,
+  AppProviderConfig,
   SaveProjectAppRequest,
 } from './generated/types.gen'
-import { zAgentProfileId, zIntegrationConnectionId, zResourceName } from './generated/zod.gen'
+import { zAgentProfileId, zProjectAppName } from './generated/zod.gen'
 
 export type ProfileAppProvider = 'slack' | 'github' | 'discord'
-
-export const profileAppTools: Record<ProfileAppProvider, readonly string[]> = {
-  slack: ['slack_read', 'slack_post_message'],
-  github: ['github_read', 'github_discussion_comment', 'github_inline_comment', 'github_reply'],
-  discord: ['discord_read', 'discord_post_message'],
-}
 
 const discordPublicKeyPattern = '[a-fA-F0-9]{64}'
 const discordPublicKey = z.string().regex(new RegExp(`^${discordPublicKeyPattern}$`))
 
-/** Chooser options count profile slots, including duplicates; fixed-agent slots need no menu. */
+/** Discord launchers include an interaction handler, even with one profile. */
 export function profileAppDiscordKeyStatus(input: {
   definition?: string
   slots: readonly Pick<AppLaunchSlot, 'agent_profile_id' | 'agent_id'>[]
   interactions: boolean
-  providerConfig?: IntegrationConnection['provider_config']
+  providerConfig?: AppProviderConfig
 }) {
-  const profileCount = input.slots.filter(
-    (slot) => !slot.agent_id && Boolean(slot.agent_profile_id),
-  ).length
-  const required = input.definition === 'omnara.discord' && (profileCount > 1 || input.interactions)
+  const required =
+    input.definition === 'omnara.discord' && (input.slots.length > 0 || input.interactions)
   return {
     required,
     missing: required && !discordPublicKey.safeParse(input.providerConfig?.public_key).success,
@@ -36,47 +29,26 @@ export function profileAppDiscordKeyStatus(input: {
   }
 }
 
-/** Explicit setup defaults shared by the console and CLI; the server validates authority. */
+/** Guided launcher defaults; the server validates identity and authority. */
 export function profileAppSetup(input: {
   provider: ProfileAppProvider
   name: string
-  /** May be omitted while validating a new connection; set it before saving a launcher. */
-  connectionId?: string
   profileId?: string
   /** Full offered list for Slack/Discord; when supplied, replaces profileId. */
   profileIds?: readonly string[]
-  /** Defaults to true for the CLI's profile-first setup. */
+  /** Defaults to true; use false to create a metadata-only draft. */
   launcher?: boolean
   scopeRef?: string
   scopeKind?: 'workspace' | 'channel' | 'repository'
   trigger?: 'mention' | 'pull_request_opened'
-  tools: readonly string[]
-  listen: boolean
-  interactions: boolean
 }): SaveProjectAppRequest {
   const { provider } = input
-  const name = zResourceName.parse(input.name)
-  const connection =
-    input.connectionId === undefined
-      ? undefined
-      : zIntegrationConnectionId.parse(input.connectionId)
-  if (input.tools.some((tool) => !profileAppTools[provider].includes(tool))) {
-    throw new Error('A selected tool does not belong to this provider.')
-  }
-  if (provider === 'github' && input.interactions) {
-    throw new Error('GitHub apps do not support interaction handlers.')
-  }
+  const name = zProjectAppName.parse(input.name)
   const setup: SaveProjectAppRequest = {
     name,
-    enabled: true,
-    settings: {
-      resource: {
-        definition: `omnara.${provider}`,
-        tools: Object.fromEntries(input.tools.map((tool) => [tool, {}])),
-      },
-    },
+    definition_id: `omnara.${provider}`,
+    settings: {},
   }
-  if (connection !== undefined) setup.settings.resource.connection = connection
   if (input.launcher !== false) {
     const profileIds = parseProfileIds(
       input.profileIds ?? (input.profileId ? [input.profileId] : []),
@@ -85,64 +57,68 @@ export function profileAppSetup(input: {
     if (provider === 'github' && profileIds.length !== 1) {
       throw new Error('The GitHub setup helper requires one profile.')
     }
-    const scopeKind =
-      input.scopeKind ??
-      (provider === 'slack' ? 'workspace' : provider === 'github' ? 'repository' : 'channel')
-    if (
-      !(
-        provider === 'slack'
-          ? ['workspace', 'channel']
-          : provider === 'github'
-            ? ['repository']
-            : ['channel']
-      ).includes(scopeKind)
-    ) {
-      throw new Error('The launcher scope does not belong to this provider.')
-    }
-    const trigger = input.trigger ?? (provider === 'github' ? 'pull_request_opened' : 'mention')
-    if (trigger === 'pull_request_opened' && provider !== 'github') {
-      throw new Error('The launch trigger does not belong to this provider.')
-    }
-    let scopeRef = input.scopeRef?.trim() ?? ''
-    if (provider === 'slack') {
-      if (
-        scopeKind === 'workspace'
-          ? !/^T[A-Z0-9]+$/.test(scopeRef)
-          : !/^[CG][A-Z0-9]+$/.test(scopeRef)
-      ) {
-        throw new Error(
-          scopeKind === 'workspace'
-            ? 'Enter a Slack workspace ID, such as T123.'
-            : 'Enter a Slack channel ID, such as C123.',
-        )
-      }
-    } else {
-      if (!/^[1-9][0-9]*$/.test(scopeRef))
-        throw new Error('Enter a positive ID without leading zeros.')
-      const max = provider === 'github' ? 9223372036854775807n : 18446744073709551615n
-      if (BigInt(scopeRef) > max) throw new Error('The scope ID is too large.')
-      scopeRef = BigInt(scopeRef).toString()
-    }
     setup.settings.launcher = {
-      trigger,
-      scope_kind: scopeKind,
-      scope_ref: scopeRef,
+      ...profileAppLauncherScope(input),
       slots: profileIds.map((id, index) => ({
         key: index === 0 ? 'default' : `profile_${index + 1}`,
         agent_profile_id: id,
       })),
     }
   }
-  if (input.listen) {
-    setup.settings.resource.listener = {
-      events:
-        provider === 'github' ? ['discussion_comment', 'review_comment', 'commit'] : ['message'],
-    }
-  }
-  if (input.interactions) {
-    setup.settings.resource.interaction_handler = { definition: `omnara.${provider}.interactions` }
-  }
   return setup
+}
+
+/**
+ * Validate scopes offered by guided setup. The catalog describes capability configs,
+ * not launcher scopes; the server remains authoritative for identity and routing.
+ * Saved advanced scopes should be preserved unless the user edits them.
+ */
+export function profileAppLauncherScope(input: {
+  provider: ProfileAppProvider
+  scopeKind?: string
+  scopeRef?: string
+  trigger?: string
+}): Pick<AppLauncher, 'scope_kind' | 'scope_ref' | 'trigger'> {
+  const { provider } = input
+  const scopeKind =
+    input.scopeKind ??
+    (provider === 'slack' ? 'workspace' : provider === 'github' ? 'repository' : 'channel')
+  if (
+    !(
+      provider === 'slack'
+        ? ['workspace', 'channel']
+        : provider === 'github'
+          ? ['repository']
+          : ['channel']
+    ).includes(scopeKind)
+  ) {
+    throw new Error('The launcher scope does not belong to this provider.')
+  }
+  const trigger = input.trigger ?? (provider === 'github' ? 'pull_request_opened' : 'mention')
+  if (
+    !(provider === 'github' ? ['mention', 'pull_request_opened'] : ['mention']).includes(trigger)
+  ) {
+    throw new Error('The launch trigger does not belong to this provider.')
+  }
+  let scopeRef = input.scopeRef?.trim() ?? ''
+  if (provider === 'slack') {
+    if (
+      scopeKind === 'workspace' ? !/^T[A-Z0-9]+$/.test(scopeRef) : !/^[CG][A-Z0-9]+$/.test(scopeRef)
+    ) {
+      throw new Error(
+        scopeKind === 'workspace'
+          ? 'Enter a Slack workspace ID, such as T123.'
+          : 'Enter a Slack channel ID, such as C123.',
+      )
+    }
+  } else {
+    if (!/^[1-9][0-9]*$/.test(scopeRef))
+      throw new Error('Enter a positive ID without leading zeros.')
+    const max = provider === 'github' ? 9223372036854775807n : 18446744073709551615n
+    if (BigInt(scopeRef) > max) throw new Error('The scope ID is too large.')
+    scopeRef = BigInt(scopeRef).toString()
+  }
+  return { trigger, scope_kind: scopeKind, scope_ref: scopeRef }
 }
 
 /** Edit only offered chat profiles. Existing-agent slots and all other settings survive unchanged. */
@@ -150,8 +126,8 @@ export function profileAppProfileUpdate(
   app: SaveProjectAppRequest,
   profileIds: readonly string[],
 ): SaveProjectAppRequest {
-  const { launcher, resource } = app.settings
-  if (!launcher || !['omnara.slack', 'omnara.discord'].includes(resource.definition ?? '')) {
+  const { launcher } = app.settings
+  if (!launcher || !['omnara.slack', 'omnara.discord'].includes(app.definition_id)) {
     throw new Error('Profile editing requires a Slack or Discord launcher.')
   }
   const ids = parseProfileIds(profileIds)
@@ -174,7 +150,7 @@ export function profileAppProfileUpdate(
     throw new Error('An app setup supports at most 16 slots, including existing agents.')
   return {
     name: app.name,
-    enabled: app.enabled,
+    definition_id: app.definition_id,
     settings: { ...app.settings, launcher: { ...launcher, slots } },
   }
 }

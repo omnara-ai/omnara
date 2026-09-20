@@ -116,6 +116,10 @@ mcp:
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("expected one model prepare after mcp init, got %d", modelClient.preparedCount())
 	}
+	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
+		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil {
 		t.Fatalf("load mcp connection: %v", err)
@@ -184,9 +188,9 @@ mcp:
 	if err := executor.ExecuteModelWork(ctx, next); err != nil {
 		t.Fatalf("execute mcp config removal work: %v", err)
 	}
-	if modelClient.preparedCount() != 2 || len(modelClient.prepared[1].ToolSpecs) != 0 {
-		t.Fatalf("expected second model prepare without mcp tools, got %+v", modelClient.prepared)
-	}
+	require.Equal(t, 2, modelClient.preparedCount())
+	requireKernelToolNames(t, modelClient.prepared[1].ToolSpecs,
+		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
 	if mcpClient.initializeCount != 3 {
 		t.Fatalf("initialize count after mcp removal = %d, want 3", mcpClient.initializeCount)
 	}
@@ -305,14 +309,11 @@ mcp:
 			mcpClient.listToolsCount,
 		)
 	}
-	if modelClient.preparedCount() != 2 || !onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs) ||
-		!onlyFileRetrievalTools(modelClient.prepared[1].ToolSpecs) {
-		t.Fatalf(
-			"model retry should continue without mcp tools, prepared=%d first=%+v retry=%+v",
-			modelClient.preparedCount(),
-			modelClient.prepared[0].ToolSpecs,
-			modelClient.prepared[1].ToolSpecs,
-		)
+	require.Equal(t, 2, modelClient.preparedCount())
+	for _, prepared := range modelClient.prepared {
+		requireKernelToolNames(t, prepared.ToolSpecs,
+			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
 	}
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
@@ -408,13 +409,10 @@ mcp:
 			mcpClient.listToolsCount,
 		)
 	}
-	if modelClient.preparedCount() != 1 || !onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs) {
-		t.Fatalf(
-			"model should continue without mcp tools, prepared=%d tools=%+v",
-			modelClient.preparedCount(),
-			modelClient.prepared[0].ToolSpecs,
-		)
-	}
+	require.Equal(t, 1, modelClient.preparedCount())
+	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
 		t.Fatalf("load mcp connection: found=%t err=%v", found, err)
@@ -785,15 +783,14 @@ mcp:
 	if modelClient.preparedCount() != 3 {
 		t.Fatalf("prepared %d requests, want tool call and two continuation attempts", modelClient.preparedCount())
 	}
-	if len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
-		t.Fatalf("first request should include mcp tool, got %+v", modelClient.prepared[0].ToolSpecs)
-	}
-	if !onlyFileRetrievalTools(modelClient.prepared[1].ToolSpecs) {
-		t.Fatalf("first continuation attempt should remove failed mcp tools, got %+v", modelClient.prepared[1].ToolSpecs)
-	}
-	if !onlyFileRetrievalTools(modelClient.prepared[2].ToolSpecs) {
-		t.Fatalf("retried continuation should keep failed mcp tools removed, got %+v", modelClient.prepared[2].ToolSpecs)
+	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
+		toolcatalog.MCPRuntimeToolName("docs", "greet"))
+	for _, prepared := range modelClient.prepared[1:] {
+		requireKernelToolNames(t, prepared.ToolSpecs,
+			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
 	}
 	if mcpClient.initializeCount != 2 {
 		t.Fatalf(
@@ -921,10 +918,10 @@ mcp:
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("expected model generation to continue, got %d prepares", modelClient.preparedCount())
 	}
-	if len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("good", "greet") {
-		t.Fatalf("model should only receive ready mcp tools, got %+v", modelClient.prepared[0].ToolSpecs)
-	}
+	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
+		toolcatalog.MCPRuntimeToolName("good", "greet"))
 	if mcpClient.initializeCount != 2 {
 		t.Fatalf(
 			"non-retryable auth failure should only be attempted once per server, got initialize=%d",
@@ -1109,11 +1106,11 @@ mcp:
 			mcpClient.discoverCount, mcpClient.listToolsCount,
 		)
 	}
-	if secondModel.preparedCount() != 1 || len(secondModel.prepared[0].ToolSpecs) != 3 ||
-		!onlyFileRetrievalTools(secondModel.prepared[0].ToolSpecs[:2]) ||
-		secondModel.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
-		t.Fatalf("second agent did not expose the cached mcp tool: %+v", secondModel.prepared)
-	}
+	require.Equal(t, 1, secondModel.preparedCount())
+	requireKernelToolNames(t, secondModel.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
+		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	secondConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, second.Agent.ID, "docs")
 	if err != nil || !found {
 		t.Fatalf("load second connection: found=%t err=%v", found, err)
@@ -1191,11 +1188,11 @@ mcp:
 		if err := executor.ExecuteModelWork(ctx, input); err != nil {
 			t.Fatalf("execute %s: %v", name, err)
 		}
-		if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 3 ||
-			!onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs[:2]) ||
-			modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
-			t.Fatalf("%s did not expose the mcp tool: %+v", name, modelClient.prepared)
-		}
+		require.Equal(t, 1, modelClient.preparedCount(), name)
+		requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
+			toolcatalog.MCPRuntimeToolName("docs", "greet"))
 		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 		if err != nil || !found {
 			t.Fatalf("load %s connection: found=%t err=%v", name, found, err)
@@ -1585,7 +1582,11 @@ mcp:
 	})
 }
 
-func onlyFileRetrievalTools(specs []modelcontext.ToolSpec) bool {
-	return len(specs) == 2 && specs[0].Name == toolcatalog.ToolNameReadFile &&
-		specs[1].Name == toolcatalog.ToolNameSearchFiles
+func requireKernelToolNames(t *testing.T, specs []modelcontext.ToolSpec, want ...string) {
+	t.Helper()
+	names := make([]string, len(specs))
+	for i, spec := range specs {
+		names[i] = spec.Name
+	}
+	require.ElementsMatch(t, want, names)
 }

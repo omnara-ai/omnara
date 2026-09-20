@@ -32,10 +32,10 @@ import (
 func TestMain(m *testing.M) { integrationdb.RunTestMain(m) }
 
 type inboxFixture struct {
-	ctx                            context.Context //nolint:containedctx // Fixture shares test cancellation.
-	pool                           *pgxpool.Pool
-	store                          *integrationstore.Store
-	org, project, connection, user uuid.UUID
+	ctx                       context.Context //nolint:containedctx // Fixture shares test cancellation.
+	pool                      *pgxpool.Pool
+	store                     *integrationstore.Store
+	org, project, appID, user uuid.UUID
 }
 
 func newInboxFixture(t *testing.T) inboxFixture {
@@ -50,38 +50,59 @@ func newInboxFixture(t *testing.T) inboxFixture {
 	execution := executionstore.New(pool, executionstore.Config{})
 	config := storagefixture.SeedAgentConfig(t, ctx, modelstore.New(pool), execution, ids.OrgID, ids.ProjectID,
 		"instruction: inbox test\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	// Shared app/selection journeys use a profile independently of the provider
-	// connection. The connection itself owns no destination.
+	// Profiles remain independent of the app that launches them.
 	_, err := execution.CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "inbox-profile", CurrentConfigID: config.ID,
 	})
 	require.NoError(t, err)
-	connection := uuid.New()
-	_, err = pool.Exec(ctx, `INSERT INTO integration_connections
+	appID := uuid.New()
+	_, err = pool.Exec(ctx, `INSERT INTO project_apps
  (id,org_id,project_id,installed_by_user_id,provider,state,
-  provider_tenant_id,provider_account_ref,created_at,updated_at)
- VALUES($1,$2,$3,$4,'slack','active','T123','inbox-app',now(),now())`,
-		connection, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID)
+  provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at)
+ VALUES($1,$2,$3,$4,'slack','active','T123','inbox-app','inbox-app','omnara.slack',$5,now(),now())`,
+		appID, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID, ids.ProviderSecretID)
 	require.NoError(t, err)
 	return inboxFixture{
-		ctx: ctx, pool: pool, store: integrationstore.New(pool, nil), org: ids.OrgID,
-		project: ids.ProjectID, connection: connection, user: ids.ProviderAdminUserID,
+		ctx: ctx, pool: pool, store: integrationstore.New(pool, executionstore.AppAccess{}), org: ids.OrgID,
+		project: ids.ProjectID, appID: appID, user: ids.ProviderAdminUserID,
 	}
 }
 
 func (f inboxFixture) accept(t *testing.T, key string) integrationstore.IntegrationInboxRecord {
 	t.Helper()
 	r, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: key, Payload: []byte("  {\"verified\": true}\n"),
+		ProjectID: f.project, AppID: f.appID, ReceiptKey: key, Payload: []byte("  {\"verified\": true}\n"),
 	})
 	require.NoError(t, err)
 	require.True(t, created)
 	return r
 }
+
+// A second saved app may use the same physical bot and credential while owning
+// its own receipts, choices and reservations.
+func (f inboxFixture) addApp(
+	t *testing.T,
+	name string,
+	settings integrationstore.ProjectAppSettings,
+) integrationstore.ProjectAppRecord {
+	t.Helper()
+	raw, err := json.Marshal(settings)
+	require.NoError(t, err)
+	id := uuid.New()
+	f.exec(t, `INSERT INTO project_apps
+ (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,
+  credential_secret_id,name,definition_id,settings,created_at,updated_at)
+ SELECT $1,org_id,project_id,installed_by_user_id,provider,'active',provider_tenant_id,provider_account_ref,
+        credential_secret_id,$2,definition_id,$3,now(),now() FROM project_apps WHERE id=$4`,
+		id, name, raw, f.appID)
+	app, err := f.store.GetProjectApp(f.ctx, f.project, id)
+	require.NoError(t, err)
+	return app
+}
 func (f inboxFixture) claim(t *testing.T) integrationstore.IntegrationInboxRecord {
 	t.Helper()
 	r, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+		ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -113,7 +134,7 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 	for range 12 {
 		wg.Go(func() {
 			r, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-				ProjectID: f.project, ConnectionID: f.connection,
+				ProjectID: f.project, AppID: f.appID,
 				ReceiptKey: "same-event", Payload: []byte(`{"changed":"retry metadata"}`),
 			})
 			if err != nil || created || r.ID != first.ID || string(r.Payload) != string(first.Payload) {
@@ -126,7 +147,7 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 	// Opaque verified envelopes need not be JSON or valid UTF-8.
 	payload := bytes.Repeat([]byte{0, 255}, integrationstore.IntegrationInboxMaxPayloadBytes/2)
 	binary, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: "binary", Payload: payload,
+		ProjectID: f.project, AppID: f.appID, ReceiptKey: "binary", Payload: payload,
 	})
 	require.NoError(t, err)
 	require.True(t, created)
@@ -135,7 +156,7 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 	_, err = f.store.GetIntegrationInbox(f.ctx, uuid.New(), first.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, _, err = f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: uuid.New(), ConnectionID: f.connection, ReceiptKey: "cross-project", Payload: []byte{1},
+		ProjectID: uuid.New(), AppID: f.appID, ReceiptKey: "cross-project", Payload: []byte{1},
 	})
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	// Database guards protect every writer, independently of Go validation.
@@ -170,7 +191,7 @@ func TestInboxClaimSkipsLockedAndHasSingleOwner(t *testing.T) {
 	require.Equal(t, first.ID, next.ID)
 	require.NotEqual(t, claimed.ClaimToken, next.ClaimToken)
 	_, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+		ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.False(t, ok)
@@ -183,7 +204,7 @@ func TestInboxClaimSkipsLockedAndHasSingleOwner(t *testing.T) {
 	for range 12 {
 		wg.Go(func() {
 			r, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-				ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+				ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 			})
 			if err != nil || !ok {
 				t.Errorf("claim failed: %v", err)
@@ -235,7 +256,7 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	require.JSONEq(t, string(original.Plan), string(final.Plan))
 	require.JSONEq(t, string(original.Progress), string(final.Progress))
 	_, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+		ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.False(t, ok)
@@ -372,11 +393,11 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 	read := f.read(t, r.ID)
 	require.Equal(t, integrationstore.IntegrationInboxPending, read.State)
 	require.LessOrEqual(t, len(read.LastError), 4096)
-	ready, err := f.store.ListReadyIntegrationInboxConnections(f.ctx, 100)
+	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
 	require.NoError(t, err)
 	require.Empty(t, ready)
 	_, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+		ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.False(t, ok)
@@ -433,17 +454,17 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
 	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
-	require.NoError(t, dbsqlc.New(tx).LockIntegrationConnectionLifecycleExclusive(f.ctx,
-		dbsqlc.LockIntegrationConnectionLifecycleExclusiveParams{ConnectionID: f.connection}))
+	require.NoError(t, dbsqlc.New(tx).LockProjectAppLifecycleExclusive(f.ctx,
+		dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.appID}))
 	done := make(chan error, 1)
 	go func() {
 		_, _, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-			ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: "late", Payload: []byte{1},
+			ProjectID: f.project, AppID: f.appID, ReceiptKey: "late", Payload: []byte{1},
 		})
 		done <- err
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationConnectionLifecycleShared", 1)
-	_, err = tx.Exec(f.ctx, `UPDATE integration_connections SET state='disabled' WHERE id=$1`, f.connection)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectAppLifecycleShared", 1)
+	_, err = tx.Exec(f.ctx, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, f.appID)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(f.ctx))
 	require.ErrorIs(t, <-done, storeerr.ErrUnauthorized)
@@ -451,7 +472,7 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 		return w.FreezePlan(f.ctx, json.RawMessage(`{}`))
 	})
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
-	ready, err := f.store.ListReadyIntegrationInboxConnections(f.ctx, 100)
+	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
 	require.NoError(t, err)
 	require.Empty(t, ready)
 	n, err := f.store.RecoverIntegrationInbox(f.ctx, 1)
@@ -473,7 +494,7 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.Zero(t, n)
-	f.exec(t, `UPDATE integration_connections SET deleted_at=now() WHERE id=$1`, f.connection)
+	f.exec(t, `UPDATE project_apps SET deleted_at=now() WHERE id=$1`, f.appID)
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
@@ -495,11 +516,11 @@ func TestInboxRejectsDeletedProjectAndOrganization(t *testing.T) {
 				f.exec(t, `UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.org)
 			}
 			_, _, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-				ProjectID: f.project, ConnectionID: f.connection, ReceiptKey: "late", Payload: []byte{1},
+				ProjectID: f.project, AppID: f.appID, ReceiptKey: "late", Payload: []byte{1},
 			})
 			require.ErrorIs(t, err, storeerr.ErrNotFound)
 			_, _, err = f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-				ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+				ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 			})
 			require.ErrorIs(t, err, storeerr.ErrNotFound)
 			n, err := f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
@@ -550,13 +571,12 @@ func TestInboxDisableWaitsForAtomicAdmission(t *testing.T) {
 	require.NoError(t, err)
 	done := make(chan error, 1)
 	go func() {
-		zero := uuid.Nil
-		_, err := f.store.DisableIntegrationConnection(f.ctx, integrationstore.DisableIntegrationConnectionInput{
-			ProjectID: f.project, ID: f.connection, ExpectedOAuthFlowID: &zero,
+		_, err := f.store.DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{
+			ProjectID: f.project, AppID: f.appID,
 		})
 		done <- err
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationConnectionLifecycleExclusive", 1)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectAppLifecycleExclusive", 1)
 	require.NoError(t, w.FreezePlan(f.ctx, json.RawMessage(`{}`)))
 	require.NoError(t, w.Complete(f.ctx))
 	require.NoError(t, tx.Commit(f.ctx))
@@ -593,17 +613,17 @@ func TestInboxJSONBNormalizedSizeBoundaryIsExplicitAndAtomic(t *testing.T) {
 	require.JSONEq(t, `{}`, string(f.read(t, r.ID).Progress))
 }
 
-func TestInboxStateChangingUpdateWaitsForAtomicAdmission(t *testing.T) {
+func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	f.store = integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
+	f.store = integrationstore.New(f.pool, executionstore.AppAccess{})
 	f.exec(t, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`, f.org, f.user)
 	wrapper, err := secrets.NewLocalKeyWrapper("inbox-test", map[string][]byte{
 		"inbox-test": []byte("0123456789abcdef0123456789abcdef"),
 	})
 	require.NoError(t, err)
 	secretStore := secretstore.New(f.pool, wrapper, identitystore.New(f.pool, wrapper, nil))
-	credential, _, err := secretStore.CreateSecret(f.ctx, secretstore.CreateSecretInput{
+	credential, version, err := secretStore.CreateSecret(f.ctx, secretstore.CreateSecretInput{
 		OrgID: f.org, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: f.project,
 		Name: "inbox-update", Actor: identitystore.NewUserPrincipal(f.user),
 		Material: secrets.SlackAppCredentialsMaterial{
@@ -613,15 +633,15 @@ func TestInboxStateChangingUpdateWaitsForAtomicAdmission(t *testing.T) {
 	})
 	require.NoError(t, err)
 	// Seed the fixture's established OAuth credential; the raced settings update
-	// changes state only and must not rebind a Slack credential.
-	f.exec(t, `UPDATE integration_connections SET credential_secret_id=$2 WHERE id=$1`, f.connection, credential.ID)
-	connection, err := f.store.GetIntegrationConnection(f.ctx, f.project, f.connection)
+	// re-verifies the same identity and must acquire the app gate before secrets.
+	f.exec(t, `UPDATE project_apps SET credential_secret_id=$2 WHERE id=$1`, f.appID, credential.ID)
+	app, err := f.store.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
-	input := integrationstore.SaveIntegrationConnectionInput{
-		OrgID: f.org, ProjectID: f.project, InstalledByUserID: f.user,
-		Provider: connection.Provider, ProviderTenantID: connection.ProviderTenantID,
-		ProviderAccountRef: connection.ProviderAccountRef,
-		CredentialSecretID: credential.ID, State: integrationstore.IntegrationConnectionStateDisabled,
+	input := integrationstore.ConfigureProjectAppInput{
+		OrgID: f.org, ProjectID: f.project, AppID: f.appID, InstalledByUserID: f.user,
+		Provider: app.Provider, ProviderTenantID: app.ProviderTenantID, ProviderAccountRef: app.ProviderAccountRef,
+		CredentialSecretID: credential.ID, CredentialVersionID: version.ID,
+		ExpectedSetupRevision: app.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
 	}
 	f.accept(t, "update-race")
 	receipt := f.claim(t)
@@ -630,25 +650,26 @@ func TestInboxStateChangingUpdateWaitsForAtomicAdmission(t *testing.T) {
 	defer func() { _ = tx.Rollback(f.ctx) }()
 	work, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, receipt.Lease())
 	require.NoError(t, err)
-	// Admission can touch a destination or secret after its connection gate. An
-	// update must wait at the earlier connection gate, never hold this secret while
+	// Admission can touch a destination or secret after its app gate. An
+	// update must wait at the earlier app gate, never hold this secret while
 	// waiting for admission to release that gate.
 	_, err = tx.Exec(f.ctx, `SELECT id FROM secrets WHERE id=$1 FOR UPDATE`, credential.ID)
 	require.NoError(t, err)
 	done := make(chan error, 1)
-	go func() { _, err := f.store.UpdateIntegrationConnection(f.ctx, f.connection, input); done <- err }()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationConnectionLifecycleExclusive", 1)
-	during, err := f.store.GetIntegrationConnection(f.ctx, f.project, f.connection)
+	go func() { _, err := f.store.ConfigureProjectApp(f.ctx, input); done <- err }()
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectAppLifecycleExclusive", 1)
+	during, err := f.store.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.IntegrationConnectionStateActive, during.State)
+	require.Equal(t, integrationstore.ProjectAppStateActive, during.State)
 	require.NoError(t, work.FreezePlan(f.ctx, json.RawMessage(`{}`)))
 	require.NoError(t, work.Complete(f.ctx))
 	require.NoError(t, tx.Commit(f.ctx))
 	require.NoError(t, <-done)
-	after, err := f.store.GetIntegrationConnection(f.ctx, f.project, f.connection)
+	after, err := f.store.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
-	require.Equal(t, f.connection, after.ID)
-	require.Equal(t, integrationstore.IntegrationConnectionStateDisabled, after.State)
+	require.Equal(t, f.appID, after.ID)
+	require.Equal(t, integrationstore.ProjectAppStateActive, after.State)
+	require.Equal(t, app.SetupRevision+1, after.SetupRevision)
 	require.Equal(t, credential.ID, after.CredentialSecretID)
 	require.Equal(t, integrationstore.IntegrationInboxCompleted, f.read(t, receipt.ID).State)
 }

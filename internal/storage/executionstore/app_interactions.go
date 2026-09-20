@@ -5,16 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
-	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -24,44 +21,36 @@ const (
 	InteractionReceiptMaxBytes     = 16 * 1024
 )
 
-var interactionResourceKeyPattern = regexp.MustCompile(toolcatalog.ToolNamePattern)
-
-// InteractionSelection is the agent's mutable choice for future interactions.
-// The zero value means dashboard only. It is not authority to use a connection.
+// InteractionSelection is mutable routing for future prompts, never authority.
+// The zero value selects dashboard only. Args are validated handler arguments;
+// the target is canonical attribution for their resolved concrete address.
 type InteractionSelection struct {
-	IntegrationTargetID uuid.UUID `json:"integration_target_id"`
-	ResourceKey         string    `json:"resource_key"`
+	IntegrationTargetID uuid.UUID       `json:"integration_target_id"`
+	HandlerKey          string          `json:"handler_key"`
+	Args                json.RawMessage `json:"args"`
 }
 
-// InteractionDestination is captured once, when the interaction is created.
-// It retains identity only: current config and connection authority must still
-// be checked before presentation or accepting a hosted provider response.
+// InteractionDestination is immutable per prompt. Current handler config and
+// live app state must still authorize presentation and provider responses.
 type InteractionDestination struct {
 	HandlerDefinition   string                               `json:"handler_definition"`
-	ResourceKey         string                               `json:"resource_key"`
+	HandlerKey          string                               `json:"handler_key"`
+	AppID               uuid.UUID                            `json:"app_id"`
+	Config              json.RawMessage                      `json:"config"`
+	Args                json.RawMessage                      `json:"args"`
 	IntegrationTargetID uuid.UUID                            `json:"integration_target_id"`
-	ConnectionID        uuid.UUID                            `json:"connection_id"`
 	Address             integrationstore.ConversationAddress `json:"address"`
 }
 
-type InteractionDestinationOption struct {
-	Destination InteractionDestination
-	TargetRef   string
-	DisplayName string
-}
-
-type InteractionDestinations struct {
-	Current      InteractionSelection
-	Destinations []InteractionDestinationOption
-}
-
-// CapturedDestination never reconstructs a missing snapshot from today's agent
-// selection. Older/dashboard-only interactions have no external destination.
+// CapturedDestination never reconstructs a missing snapshot from today's selection.
 func (record AgentInteractionRecord) CapturedDestination() (*InteractionDestination, error) {
 	if len(record.Destination) == 0 {
-		return nil, nil //nolint:nilnil // A missing snapshot explicitly means dashboard-only presentation.
+		return nil, nil //nolint:nilnil // Dashboard-only prompts have no external snapshot.
 	}
-	if err := validateInteractionObject(record.Destination, InteractionDestinationMaxBytes); err != nil {
+	if err := validateInteractionObject(
+		record.Destination,
+		InteractionDestinationMaxBytes,
+	); err != nil {
 		return nil, fmt.Errorf("interaction destination: %w", err)
 	}
 	var destination InteractionDestination
@@ -77,86 +66,86 @@ func (record AgentInteractionRecord) CapturedDestination() (*InteractionDestinat
 }
 
 func (d InteractionDestination) validate() error {
-	if d.IntegrationTargetID == uuid.Nil || d.ConnectionID == uuid.Nil ||
-		!interactionResourceKeyPattern.MatchString(d.ResourceKey) {
-		return errors.New("interaction destination requires target, connection and resource key")
+	if d.IntegrationTargetID == uuid.Nil || d.AppID == uuid.Nil ||
+		toolcatalog.ValidateAppName(d.HandlerKey) != nil {
+		return errors.New("interaction destination requires target, app and handler key")
 	}
-	if d.HandlerDefinition == "" || len(d.HandlerDefinition) > 256 || dbsafe.Text(d.HandlerDefinition) != nil {
-		return errors.New("interaction destination requires a handler definition")
+	definition, ok := appdefinition.Lookup(d.HandlerDefinition)
+	if !ok || definition.InteractionHandler == nil {
+		return errors.New("interaction destination requires an app handler definition")
+	}
+	if err := validateInteractionObject(d.Config, InteractionDestinationMaxBytes); err != nil {
+		return err
+	}
+	if err := validateInteractionObject(d.Args, InteractionDestinationMaxBytes); err != nil {
+		return err
+	}
+	scope, err := definition.InteractionHandler.ResolveArgs(d.Config, d.Args)
+	if err != nil {
+		return err
+	}
+	kind, ref, err := scope.Conversation()
+	if err != nil {
+		return err
+	}
+	if d.Address != (integrationstore.ConversationAddress{Kind: kind, Ref: ref}) {
+		return errors.New("interaction destination does not match handler config and args")
 	}
 	return d.Address.Validate()
 }
 
+func sameInteractionDestination(a, b InteractionDestination) bool {
+	return a.HandlerDefinition == b.HandlerDefinition && a.HandlerKey == b.HandlerKey &&
+		a.AppID == b.AppID && a.IntegrationTargetID == b.IntegrationTargetID && a.Address == b.Address &&
+		jsoncanonical.Equal(a.Config, b.Config) && jsoncanonical.Equal(a.Args, b.Args)
+}
+
 func validateInteractionObject(raw json.RawMessage, limit int) error {
-	if len(raw) == 0 || len(raw) > limit || !utf8.Valid(raw) || !json.Valid(raw) || bytes.TrimSpace(raw)[0] != '{' {
+	if len(raw) == 0 || len(raw) > limit || !utf8.Valid(raw) || !json.Valid(raw) ||
+		bytes.TrimSpace(raw)[0] != '{' {
 		return fmt.Errorf("must be a JSON object of at most %d bytes", limit)
 	}
 	return dbsafe.JSONStrings(raw)
 }
 
-// Matching needs no send tool, listener, app instance or approver ACL. Canonical
-// channel IDs identify the provider conversation; a broad channel may also
-// authorize one of its concrete threads.
-func interactionScopeContains(scope *appdefinition.Scope, address integrationstore.ConversationAddress) bool {
-	if scope == nil {
-		return false
+// Adapt the verified storage address to the registry's typed destination. The
+// handler owns fixed-field matching and derives its remaining arguments.
+func interactionArgsForOrigin(
+	handler appdefinition.InteractionHandlerDefinition,
+	config json.RawMessage,
+	address integrationstore.ConversationAddress,
+) (json.RawMessage, bool) {
+	channel, thread := address.Ref, ""
+	switch address.Kind {
+	case "thread":
+		var found bool
+		channel, thread, found = strings.Cut(address.Ref, ":")
+		if !found {
+			return nil, false
+		}
+	case "channel", "dm":
+	default:
+		return nil, false
+	}
+	var scope appdefinition.Scope
+	switch handler.Provider {
+	case appdefinition.ProviderSlack:
+		scope.Slack = &appdefinition.SlackScope{ChannelID: channel, ThreadTS: thread}
+	case appdefinition.ProviderDiscord:
+		// Guild is configured context, absent from the canonical channel/thread
+		// address. Preserve it when adapting to the handler's typed destination.
+		var fixed appdefinition.DiscordConfig
+		if err := json.Unmarshal(config, &fixed); err != nil {
+			return nil, false
+		}
+		scope.Discord = &appdefinition.DiscordScope{GuildID: fixed.GuildID, ChannelID: channel, ThreadID: thread}
+	default:
+		return nil, false
+	}
+	args, err := handler.ArgsForDestination(config, scope)
+	if err != nil {
+		return nil, false
 	}
 	kind, ref, err := scope.Conversation()
-	if err != nil {
-		return false
-	}
-	if address.Kind == kind && address.Ref == ref {
-		return true
-	}
-	if address.Kind != "thread" {
-		return false
-	}
-	channel, thread, found := strings.Cut(address.Ref, ":")
-	if !found {
-		return false
-	}
-	var child appdefinition.Scope
-	switch {
-	case scope.Slack != nil:
-		child.Slack = &appdefinition.SlackScope{ChannelID: channel, ThreadTS: thread}
-	case scope.Discord != nil:
-		child.Discord = &appdefinition.DiscordScope{
-			GuildID:   scope.Discord.GuildID,
-			ChannelID: channel,
-			ThreadID:  thread,
-		}
-	default:
-		return false
-	}
-	return scope.Contains(child)
-}
-
-func matchingInteractionDestinations(
-	resources map[string]agentconfig.AppResourceCompiled,
-	targetID, connectionID uuid.UUID,
-	provider string,
-	address integrationstore.ConversationAddress,
-) []InteractionDestination {
-	var matches []InteractionDestination
-	for key, resource := range resources {
-		if !resource.Enabled || resource.InteractionHandler == nil || resource.Validate() != nil {
-			continue
-		}
-		definition, found := appdefinition.Lookup(resource.Definition)
-		if !found || definition.Provider != provider || !interactionScopeContains(resource.Scope, address) {
-			continue
-		}
-		id, err := publicid.Decode(publicid.KindIntegrationConnection, resource.ConnectionID)
-		if err != nil || id != connectionID {
-			continue
-		}
-		matches = append(matches, InteractionDestination{
-			HandlerDefinition: resource.InteractionHandler.Definition, ResourceKey: key,
-			IntegrationTargetID: targetID, ConnectionID: connectionID, Address: address,
-		})
-	}
-	slices.SortFunc(matches, func(a, b InteractionDestination) int {
-		return strings.Compare(a.ResourceKey, b.ResourceKey)
-	})
-	return matches
+	return args, err == nil && kind == address.Kind && ref == address.Ref
 }

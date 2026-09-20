@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -155,9 +156,9 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:111.222",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -237,9 +238,9 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "Ev-app-mention-1-message-copy",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "Ev-app-mention-1-message-copy",
 		},
 	); err != nil {
 		t.Fatalf("get duplicate input: %v", err)
@@ -296,9 +297,9 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 	threadInput, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:333.444",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:333.444",
 		},
 	)
 	if err != nil {
@@ -446,9 +447,9 @@ func TestSlackEventsThreadMentionAdmitsUnmentionedReplies(t *testing.T) {
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:333.444",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:333.444",
 		},
 	); err != nil {
 		t.Fatalf("get unmentioned reply input: %v", err)
@@ -467,6 +468,10 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -592,9 +597,9 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:222.333",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:222.333",
 		},
 	)
 	if err != nil {
@@ -658,9 +663,9 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:111.222",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -789,9 +794,9 @@ func TestSlackEventsMentionedMessageAndAppMentionShareInput(t *testing.T) {
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:333.444",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:333.444",
 		},
 	); err != nil {
 		t.Fatalf("get message copy input: %v", err)
@@ -832,9 +837,9 @@ func TestSlackEventsMentionedMessageAndAppMentionShareInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:333.444",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:333.444",
 		},
 	)
 	if err != nil {
@@ -994,9 +999,9 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:COPEN:222.333",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:COPEN:222.333",
 		},
 	)
 	if err != nil {
@@ -1150,7 +1155,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if response["ok"] != "ignored" {
 		t.Fatalf("oauth token revoked response=%v want ignored", response)
 	}
-	updated, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
+	updated, err := fixture.Project.Store.Integrations().GetProjectApp(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1158,7 +1163,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get install: %v", err)
 	}
-	if updated.State != integrationstore.IntegrationConnectionStateActive {
+	if updated.State != integrationstore.ProjectAppStateActive {
 		t.Fatalf("oauth-only revoke disabled install: %+v", updated)
 	}
 
@@ -1184,7 +1189,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if response["ok"] != "disabled" {
 		t.Fatalf("bot token revoked response=%v want disabled", response)
 	}
-	updated, err = fixture.Project.Store.Integrations().GetIntegrationConnection(
+	updated, err = fixture.Project.Store.Integrations().GetProjectApp(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1192,7 +1197,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get disabled install: %v", err)
 	}
-	if updated.State != integrationstore.IntegrationConnectionStateDisabled {
+	if updated.State != integrationstore.ProjectAppStateDisconnected {
 		t.Fatalf("install state=%q want disabled", updated.State)
 	}
 
@@ -1222,10 +1227,8 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 		http.StatusOK,
 		unitSlackSignedHeaders(mention, "signing-secret"),
 	)
+	require.Equal(t, "ignored", response["ok"])
 	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
-	if response["ok"] != "ignored" {
-		t.Fatalf("disabled event response=%v want ignored", response)
-	}
 	_, err = slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
 		ctx,
 		fixture.Project.ProjectUUID,
@@ -1275,15 +1278,15 @@ func TestSlackEventsAppUninstalledDisablesInstall(t *testing.T) {
 	if response["ok"] != "disabled" {
 		t.Fatalf("app_uninstalled response=%v want disabled", response)
 	}
-	updated, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
+	updated, err := fixture.Project.Store.Integrations().GetProjectApp(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
 	)
 	if err != nil {
-		t.Fatalf("get integration connection: %v", err)
+		t.Fatalf("get project app: %v", err)
 	}
-	if updated.State != integrationstore.IntegrationConnectionStateDisabled {
+	if updated.State != integrationstore.ProjectAppStateDisconnected {
 		t.Fatalf("install state=%q want disabled", updated.State)
 	}
 }
@@ -1433,7 +1436,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if response["ok"] != "disabled" {
 		t.Fatalf("second app uninstall response=%v want disabled", response)
 	}
-	first, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
+	first, err := fixture.Project.Store.Integrations().GetProjectApp(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1441,7 +1444,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get first install: %v", err)
 	}
-	second, err := fixture.Project.Store.Integrations().GetIntegrationConnection(
+	second, err := fixture.Project.Store.Integrations().GetProjectApp(
 		ctx,
 		fixture.Project.ProjectUUID,
 		secondInstall.ID,
@@ -1449,8 +1452,8 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get second install: %v", err)
 	}
-	if first.State != integrationstore.IntegrationConnectionStateActive ||
-		second.State != integrationstore.IntegrationConnectionStateDisabled {
+	if first.State != integrationstore.ProjectAppStateActive ||
+		second.State != integrationstore.ProjectAppStateDisconnected {
 		t.Fatalf("install statees: first=%q second=%q", first.State, second.State)
 	}
 }
@@ -1709,6 +1712,10 @@ func TestSlackEventsDMCreatesInputAndTarget(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -1811,6 +1818,10 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 	slackServer = httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -1900,8 +1911,8 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
@@ -1950,6 +1961,10 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2009,8 +2024,8 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
@@ -2082,6 +2097,10 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2168,8 +2187,8 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
@@ -2190,7 +2209,7 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `slack_post_message` at all.\n\n"+
+		"This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to use your Slack messaging tool at all.\n\n"+
 			"<@U123> (Ada) in <#CDELAY> (#delayed), thread 222.333:\n"+
 			"Files for the previous Slack message.",
 		[]bool{true},
@@ -2232,6 +2251,10 @@ func TestSlackEventsFileShareBeforeAppMentionSuppressesMentionDuplicate(t *testi
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2340,6 +2363,10 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2409,8 +2436,8 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
 			IdempotencyKey: slackCurrentEventKey(slack.EventsEnvelope{
 				TeamID: "T123",
 				Event: slack.Event{
@@ -2454,6 +2481,10 @@ func TestSlackEventsUnmappedRootFileShareIgnored(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2515,6 +2546,10 @@ func TestSlackEventsReactionFailureStillAcceptsInput(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2583,9 +2618,9 @@ func TestSlackEventsReactionFailureStillAcceptsInput(t *testing.T) {
 	if _, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:D123:111.222",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:D123:111.222",
 		},
 	); err != nil {
 		t.Fatalf("get integration input: %v", err)
@@ -2603,6 +2638,10 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2708,9 +2747,9 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:222.333",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:222.333",
 		},
 	)
 	if err != nil {
@@ -2739,6 +2778,10 @@ func TestSlackEventsHistoryRateLimitContinues(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2795,9 +2838,9 @@ func TestSlackEventsHistoryRateLimitContinues(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:111.222",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -2869,6 +2912,10 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -2973,7 +3020,7 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 		"    max_machines: 1\n" +
 		"    initial_num_machines: 1\n" +
 		"tools:\n" +
-		"  slack_post_message: {}\n"
+		"  " + toolcatalog.AppToolName(fixture.Install.Name, toolcatalog.AppOperationPostMessage) + ": {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		fixture.Handler,
@@ -3177,7 +3224,7 @@ func TestSlackEventsLauncherIndependentOfDisabledPostTool(
 		"  provider_config: openai-prod\n" +
 		"  name: gpt-test\n" +
 		"tools:\n" +
-		"  slack_post_message:\n" +
+		"  " + toolcatalog.AppToolName(fixture.Install.Name, toolcatalog.AppOperationPostMessage) + ":\n" +
 		"    enabled: false\n"
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -3236,8 +3283,9 @@ func TestSlackEventsLauncherIndependentOfDisabledPostTool(
 	require.NoError(t, err)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(compiledConfig.CompiledDefinition, &compiled))
-	require.False(t, compiled.Tools[toolcatalog.ToolNameSlackPostMessage].Enabled)
-	require.NotEmpty(t, compiled.AppResources)
+	require.False(t,
+		compiled.Tools[toolcatalog.AppToolName(fixture.Install.Name, toolcatalog.AppOperationPostMessage)].Enabled)
+	require.NotEmpty(t, compiled.Listeners)
 }
 
 func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
@@ -3352,6 +3400,10 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -3432,9 +3484,9 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
 		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationConnectionID: fixture.Install.ID,
-			IntegrationTargetID:     integrationTarget.ID,
-			IdempotencyKey:          "slack:message:T123:C123:111.222",
+			AppID:               fixture.Install.ID,
+			IntegrationTargetID: integrationTarget.ID,
+			IdempotencyKey:      "slack:message:T123:C123:111.222",
 		},
 	)
 	if err != nil {
@@ -3454,7 +3506,7 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 	)
 }
 
-func TestSlackActionsRejectWrongSignedIdentity(t *testing.T) {
+func TestSlackActionsRejectUnknownOwnerWithWrongIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -3478,12 +3530,12 @@ func TestSlackActionsRejectWrongSignedIdentity(t *testing.T) {
 		integrationActionsPath,
 		body,
 		"",
-		http.StatusUnauthorized,
+		http.StatusNotFound,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
 }
 
-func TestSlackActionsIgnoreSignedMalformedActionValue(t *testing.T) {
+func TestSlackActionsRejectMalformedOwnerReference(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -3500,19 +3552,16 @@ func TestSlackActionsIgnoreSignedMalformedActionValue(t *testing.T) {
 	body := `payload={"type":"block_actions","api_app_id":"A123","team":{"id":"T123"},` +
 		`"user":{"id":"U_ACTION","team_id":"T123"},` +
 		`"actions":[{"action_id":"omnara_interaction","value":"{}"}]}`
-	response := requestJSONWithHeaders(
+	requestJSONWithHeaders(
 		t,
 		fixture.Handler,
 		http.MethodPost,
 		integrationActionsPath,
 		body,
 		"",
-		http.StatusOK,
+		http.StatusNotFound,
 		unitSlackSignedHeaders(body, "signing-secret"),
 	)
-	if response["ok"] != "ignored" {
-		t.Fatalf("action response=%v want ignored", response)
-	}
 }
 
 type slackEventsIntegrationFixture struct {
@@ -3520,7 +3569,7 @@ type slackEventsIntegrationFixture struct {
 	ProfileID uuid.UUID
 	Handler   http.Handler
 	Project   publicHTTPProject
-	Install   integrationstore.IntegrationConnectionRecord
+	Install   integrationstore.ProjectAppRecord
 }
 
 func newSlackEventsIntegrationFixture(
@@ -3596,6 +3645,19 @@ func newSlackEventsTestServerWithReactionAttempts(
 	return httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/auth.test", "/api/auth.test":
+				team, botUser := "T123", "U_BOT"
+				switch r.Header.Get("Authorization") {
+				case "Bearer xoxb-A_SECOND":
+					botUser = "U_SECOND_BOT"
+				case "Bearer xoxb-A111":
+					team, botUser = "T111", "U_BOT_A"
+				case "Bearer xoxb-A222":
+					team, botUser = "T222", "U_BOT_B"
+				}
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "team_id": team, "user_id": botUser, "bot_id": "B123",
+				})
 			case "/oauth.v2.access":
 				writeJSON(
 					w,
@@ -3718,10 +3780,10 @@ func assertAgentInputText(
 	wantHidden []bool,
 ) {
 	t.Helper()
-	var got string
+	var texts []string
 	var hidden []bool
 	if err := pool.QueryRow(ctx, `
-		SELECT coalesce(string_agg(text_content, '' ORDER BY ordinal), ''),
+		SELECT array_agg(text_content ORDER BY ordinal),
 		       array_agg(coalesce(block.metadata->>'omnara_hidden' = 'true', false) ORDER BY ordinal)
 			FROM content_blocks block
 			JOIN agent_inputs owner
@@ -3731,12 +3793,35 @@ func assertAgentInputText(
 			  AND block.agent_id = $2
 			  AND block.owner_agent_input_id = $3
 			  AND block.block_kind = 'text'
-	`, input.ProjectID, input.AgentID, input.ID).Scan(&got, &hidden); err != nil {
+	`, input.ProjectID, input.AgentID, input.ID).Scan(&texts, &hidden); err != nil {
 		t.Fatalf("load agent input text content: %v", err)
 	}
 	if len(hidden) == 0 {
 		t.Fatal("agent input has no text blocks")
 	}
+	// App input context is a separate hidden block. Validate its immutable app
+	// owner and actual provider address independently of the human message text.
+	last := len(texts) - 1
+	if raw, ok := strings.CutPrefix(texts[last], "Incoming app conversation: "); ok {
+		require.True(t, hidden[last])
+		var captured struct {
+			App     string              `json:"app"`
+			Address appdefinition.Scope `json:"reply_address"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(raw), &captured))
+		var appName, kind, ref string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT app.name, target.provider_ref_kind, target.provider_ref
+			FROM integration_targets target JOIN project_apps app ON app.id=target.app_id
+			WHERE target.project_id=$1 AND target.id=$2`, input.ProjectID, input.IntegrationTargetID).
+			Scan(&appName, &kind, &ref))
+		require.Equal(t, appName, captured.App)
+		actualKind, actualRef, err := captured.Address.Conversation()
+		require.NoError(t, err)
+		require.Equal(t, kind, actualKind)
+		require.Equal(t, ref, actualRef)
+		texts, hidden = texts[:last], hidden[:last]
+	}
+	got := strings.Join(texts, "")
 	if got != want {
 		t.Fatalf("agent input text =\n%s\nwant\n%s", got, want)
 	}
@@ -3780,7 +3865,7 @@ func createSlackHTTPInstall(
 	project publicHTTPProject,
 	profileID uuid.UUID,
 	appID, workspaceID, botUserID, signingSecret string,
-) integrationstore.IntegrationConnectionRecord {
+) integrationstore.ProjectAppRecord {
 	t.Helper()
 	credentialPayload, err := slack.CredentialPayload(slack.AppCredentials{
 		BotToken:      "xoxb-" + appID,
@@ -3795,61 +3880,28 @@ func createSlackHTTPInstall(
 		t,
 		ctx,
 		project,
-		appID+"-credentials",
+		appID+"-credentials-"+uuid.NewString()[:8],
 		credentialPayload,
 	)
-	install, err := project.Store.Integrations().CreateIntegrationConnection(
-		ctx,
-		integrationstore.SaveIntegrationConnectionInput{
-			OrgID:              project.OrgUUID,
-			ProjectID:          project.ProjectUUID,
-			InstalledByUserID:  project.AdminUserUUID,
-			Provider:           integrationstore.IntegrationProviderSlack,
-			State:              integrationstore.IntegrationConnectionStateActive,
-			ProviderTenantID:   workspaceID,
-			ProviderAccountRef: appID,
-			CredentialSecretID: credentialSecret,
-			ProviderIdentity:   json.RawMessage(fmt.Sprintf(`{"bot_user_id":%q}`, botUserID)),
-			ProviderMetadata:   json.RawMessage(`{}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create Slack install %s/%s: %v", appID, workspaceID, err)
-	}
-	publicConnection, err := publicid.Encode(publicid.KindIntegrationConnection, install.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = project.Store.Integrations().
-		CreateProjectApp(
-			ctx,
-			integrationstore.SaveProjectAppInput{
-				OrgID:        project.OrgUUID,
-				ProjectID:    project.ProjectUUID,
-				Name:         "slack-" + install.ID.String(),
-				DefinitionID: appdefinition.Slack,
-				Enabled:      true,
-				Settings: integrationstore.ProjectAppSettings{
-					Resource: agentconfig.AgentConfigAppResourceSource{
-						Definition: appdefinition.Slack,
-						Connection: publicConnection,
-						Listener:   &appdefinition.Listener{Events: []string{"message"}},
-						InteractionHandler: &appdefinition.InteractionHandler{
-							Definition: appdefinition.SlackInteractions,
-						},
-					},
-					Launcher: &integrationstore.AppLauncher{
-						Trigger:   "mention",
-						ScopeKind: "workspace",
-						ScopeRef:  workspaceID,
-						Slots:     []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
-					},
-				},
-			},
-		)
-	if err != nil {
-		t.Fatal(err)
-	}
+	app, err := project.Store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID,
+		Name: "slack-" + uuid.NewString()[:8], DefinitionID: appdefinition.Slack,
+		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
+			Trigger: "mention", ScopeKind: "workspace", ScopeRef: workspaceID,
+			Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
+		}},
+	})
+	require.NoError(t, err)
+	credential, err := project.Store.Secrets().GetSecret(ctx, project.OrgUUID, credentialSecret)
+	require.NoError(t, err)
+	install, err := project.Store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
+		InstalledByUserID: project.AdminUserUUID, Provider: integrationstore.IntegrationProviderSlack,
+		ProviderTenantID: workspaceID, ProviderAccountRef: appID, CredentialSecretID: credentialSecret,
+		CredentialVersionID: credential.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
+		ProviderIdentity: json.RawMessage(fmt.Sprintf(`{"bot_user_id":%q}`, botUserID)),
+	})
+	require.NoError(t, err)
 	return install
 }
 
@@ -3880,7 +3932,7 @@ func createSlackHTTPInstallSecret(
 
 type slackActionPayloadInput struct {
 	ChannelID, MessageTS, ThreadTS string
-	Install                        integrationstore.IntegrationConnectionRecord
+	Install                        integrationstore.ProjectAppRecord
 	AgentID                        uuid.UUID
 	IntegrationTargetID            uuid.UUID
 	InteractionID                  uuid.UUID
@@ -4188,15 +4240,15 @@ func slackJourneyTarget(
 	pool *pgxpool.Pool,
 	integrations *integrationstore.Store,
 	ctx context.Context,
-	projectID, connectionID uuid.UUID,
+	projectID, appID uuid.UUID,
 	ref string,
 ) (integrationstore.IntegrationTargetRecord, error) {
 	t.Helper()
 	rows, err := pool.Query(
 		ctx,
-		`SELECT id FROM integration_targets WHERE project_id=$1 AND integration_connection_id=$2 AND provider_ref=$3 AND deleted_at IS NULL ORDER BY id`,
+		`SELECT id FROM integration_targets WHERE project_id=$1 AND app_id=$2 AND provider_ref=$3 AND deleted_at IS NULL ORDER BY id`,
 		projectID,
-		connectionID,
+		appID,
 		ref,
 	)
 	if err != nil {
@@ -4264,4 +4316,73 @@ func drainSlackJourney(t *testing.T, ctx context.Context, project publicHTTPProj
 		}
 	}
 	t.Fatal("Slack inbox did not drain its bounded test workload")
+}
+
+func TestSlackSharedWebhookPersistsEachAppAndRetriesPartialFailure(t *testing.T) {
+	t.Parallel()
+	for _, failure := range []string{"receipt", "unwrap"} {
+		t.Run(failure, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			pool := openIntegrationDB(t, ctx)
+			provider := newSlackEventsTestServer(t)
+			t.Cleanup(provider.Close)
+			f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "slack-app-fanout")
+			second := projectAppHTTPSecondProject(t, f.Handler, f.Project)
+			profile := createSlackReadyHTTPProfile(t, f.Handler, second, "second-profile", second.AdminToken)
+			profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
+			other := createSlackHTTPInstall(t, ctx, second, profileID, "A123", "T123", "U_BOT", "signing-secret")
+			bad := createSlackHTTPInstall(t, ctx, second, profileID, "A123", "T123", "U_BOT", "different-signing-secret")
+			body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"Ev-fanout",
+"authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],
+"event":{"type":"app_mention","user":"U123","text":"<@U_BOT> help","channel":"C123","ts":"111.222","team":"T123"}}`
+			var restore func()
+			if failure == "receipt" {
+				_, err := pool.Exec(ctx, fmt.Sprintf(
+					`ALTER TABLE integration_inbox ADD CONSTRAINT test_app_receipt_failure CHECK (app_id <> '%s')`, other.ID))
+				require.NoError(t, err)
+				restore = func() {
+					_, err := pool.Exec(ctx, `ALTER TABLE integration_inbox DROP CONSTRAINT test_app_receipt_failure`)
+					require.NoError(t, err)
+				}
+			} else {
+				var version uuid.UUID
+				var wrapped []byte
+				require.NoError(t, pool.QueryRow(ctx, `SELECT version.id, version.encrypted_dek FROM secret_versions version
+			JOIN secrets secret ON secret.current_version_id=version.id WHERE secret.id=$1`, other.CredentialSecretID).
+					Scan(&version, &wrapped))
+				require.NotEmpty(t, wrapped)
+				corrupt := append([]byte(nil), wrapped...)
+				corrupt[0] ^= 1
+				_, err := pool.Exec(ctx, `UPDATE secret_versions SET encrypted_dek=$2 WHERE id=$1`, version, corrupt)
+				require.NoError(t, err)
+				restore = func() {
+					_, err := pool.Exec(ctx, `UPDATE secret_versions SET encrypted_dek=$2 WHERE id=$1`, version, wrapped)
+					require.NoError(t, err)
+				}
+			}
+			requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", http.StatusServiceUnavailable,
+				unitSlackSignedHeaders(body, "signing-secret"))
+			var count int
+			require.NoError(t, pool.QueryRow(ctx,
+				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.Install.ID).Scan(&count))
+			require.Equal(t, 1, count, "a failing sibling must not suppress healthy app admission")
+			restore()
+			for range 2 {
+				requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", http.StatusOK,
+					unitSlackSignedHeaders(body, "signing-secret"))
+			}
+			for _, app := range []integrationstore.ProjectAppRecord{f.Install, other} {
+				var payload []byte
+				require.NoError(t, pool.QueryRow(ctx,
+					`SELECT count(*) FROM integration_inbox WHERE project_id=$1 AND app_id=$2`, app.ProjectID, app.ID).Scan(&count))
+				require.Equal(t, 1, count, "redelivery deduplicates independently for each app")
+				require.NoError(t, pool.QueryRow(ctx,
+					`SELECT payload FROM integration_inbox WHERE app_id=$1`, app.ID).Scan(&payload))
+				require.Equal(t, body, string(payload))
+			}
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox WHERE app_id=$1`, bad.ID).Scan(&count))
+			require.Zero(t, count, "a saved app cannot borrow its sibling's signing secret")
+		})
+	}
 }

@@ -373,6 +373,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
+		"ProjectApp.name":                              "#/components/schemas/ProjectAppName",
+		"SaveProjectAppRequest.name":                   "#/components/schemas/ProjectAppName",
 		"Agent.name":                                   "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                  "#/components/schemas/AgentName",
 		"CreateAgentRequest.name":                      "#/components/schemas/AgentName",
@@ -385,26 +387,26 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"DiscoveredProviderModel.display_name":         "",
 		"ExternalActorParams.display_name":             "",
 		// Provider labels may be empty and use a separate length policy.
-		"IntegrationConnection.provider_agent_display_name":            "#/components/schemas/IntegrationConnectionDisplayName",
-		"SaveIntegrationConnectionRequest.provider_agent_display_name": "#/components/schemas/IntegrationConnectionDisplayName",
+		"ProjectApp.provider_agent_display_name":                 "#/components/schemas/AppProviderDisplayName",
+		"ConfigureProjectAppRequest.provider_agent_display_name": "#/components/schemas/AppProviderDisplayName",
 		// Connection provider_config is a configuration object. Model config
 		// references elsewhere retain the ResourceName contract.
-		"IntegrationConnection.provider_config":            "#/components/schemas/IntegrationConnectionConfig",
-		"SaveIntegrationConnectionRequest.provider_config": "#/components/schemas/IntegrationConnectionConfig",
-		"IntegrationTarget.display_name":                   "",
-		"MachinePool.provider_config":                      "",
-		"MCPRegistryHeader.name":                           "",
-		"MCPRegistryServer.name":                           "",
-		"MCPServerInfo.name":                               "",
-		"MCPServerTool.name":                               "",
-		"ModelOutputToolUseStreamBlock.tool_name":          "",
-		"ModelToolCallContentBlock.name":                   "",
-		"OrgMember.display_name":                           "",
-		"ToolCall.name":                                    "",
-		"ToolCatalogEntry.name":                            "",
-		"ResolvedAgentConfigTool.name":                     "",
-		"ToolPermissionMode.name":                          "",
-		"UpdateMachinePoolRequest.provider_config":         "",
+		"ProjectApp.provider_config":                 "#/components/schemas/AppProviderConfig",
+		"ConfigureProjectAppRequest.provider_config": "#/components/schemas/AppProviderConfig",
+		"IntegrationTarget.display_name":             "",
+		"MachinePool.provider_config":                "",
+		"MCPRegistryHeader.name":                     "",
+		"MCPRegistryServer.name":                     "",
+		"MCPServerInfo.name":                         "",
+		"MCPServerTool.name":                         "",
+		"ModelOutputToolUseStreamBlock.tool_name":    "",
+		"ModelToolCallContentBlock.name":             "",
+		"OrgMember.display_name":                     "",
+		"ToolCall.name":                              "",
+		"ToolCatalogEntry.name":                      "",
+		"ResolvedAgentConfigTool.name":               "",
+		"ToolPermissionMode.name":                    "",
+		"UpdateMachinePoolRequest.provider_config":   "",
 	}
 
 	var failures []string

@@ -8,87 +8,91 @@ mounts the handler and classifies it as provider-signed in
 `serverManualRouteContracts`. The existing auth and OpenAPI middleware bypass
 this non-`/api/v1` provider path; the mounted-route test exercises that stack.
 
-The URL serves every installation of that physical App. The bounded body's
-installation ID is initially only a lookup hint for the existing globally unique
-`(github, appID, installationID)` connection. That connection selects a
-project-available `github_app_credentials` secret, including granted org secrets.
-Credential App ID must equal both the URL and immutable connection
-`ProviderTenantID`; verified `installation.id` must equal `ProviderAccountRef`.
-When present, signed `installation.app_id` must also match. Hook-target headers are not
-authorization evidence: GitHub's HMAC covers the raw body, not headers.
+The URL serves every installation of that physical GitHub App. The bounded body's
+installation ID is initially a lookup hint for
+`ListProjectAppsByProviderIdentity(ctx, "github", appID, installationID, after, limit)`.
+The handler walks UUID-keyset pages of 100 active saved apps, including independent
+apps for the same installation in different projects. Each reads its own
+project-available `github_app_credentials`, including granted org secrets, and
+verifies the exact raw body. There is no credential deduplication on ordinary
+fanout: every receiving project's grant and saved setup must authorize its receipt.
 
-Raw UTF-8 JSON is capped at the inbox's 1 MiB limit. The exact verified bytes are
-passed to `AcceptIntegrationReceipt`, with receipt key
-`github:<X-GitHub-Event>:<X-GitHub-Delivery>`. Both header values are bounded tokens.
-Known active installation events return 204 only after the store accepts an
-insert or duplicate; failed commits return 503. Database calls inherit a five-second request context;
-the HTTP server remains responsible for socket/read deadlines. No provider I/O
-or agent admission occurs in the HTTP handler.
+Credential App ID must equal the URL and the saved app's `ProviderTenantID`;
+verified `installation.id` must equal `ProviderAccountRef`. Signed
+`installation.app_id`, when present, must also match. Hook-target headers are not
+authorization evidence: GitHub's HMAC covers the body, not headers.
 
-Pings have no installation. The server wires
-`ListGitHubWebhookCredentialConnections(ctx, appID, limit)` directly from
-integrationstore. Its bound SQL query in `storage/queries/github_webhooks.sql`
-selects at most 16 distinct live credential references from existing connections,
-with a representative whose undeleted project has direct or granted secret access.
-The store validates canonical positive App IDs and a limit of 1–16. It includes
-disabled connections when their credentials remain accessible:
-installation intake state is independent of the App's signature-verification
-credential. The handler still reads each credential through the representative
-project's current availability/grant check, verifies its App ID and HMAC, and
-does not expose candidate details. It never scans the whole connection table or
-decrypts an unbounded list. This is a required composition dependency, not a
-fallback to a particular installation. No App table or registration is created.
+Raw UTF-8 JSON is capped at 1 MiB. Exact verified bytes go to
+`AcceptIntegrationReceipt` with the receiving project/app ID and receipt key
+`github:<X-GitHub-Event>:<X-GitHub-Delivery>`. Both headers are bounded tokens.
+Success requires every eligible verifying app's insert or duplicate to be durable.
+Permanent ineligibility, revoked credentials and invalid keys skip only that app;
+transient credential/database failures return 503 while healthy siblings can
+commit. Unknown decrypt/KMS errors also remain retryable. Failure logs name the
+saved app/project, setup revision, verification/intake stage and error type,
+without logging error text, credentials or payloads. Reconnect a persistently
+corrupt setup using valid credentials for the same identity, or disconnect that
+app to let independent healthy apps continue. Repair then explicitly redeliver
+failed GitHub deliveries; accepted siblings dedupe. Replays reuse each app's receipt key. Reads and persistence share a
+five-second request budget, including a bounded body read. The handler performs
+no provider I/O or agent admission.
 
-A verified ping returns 204 without a project inbox receipt: it is an App health
-probe, not a project input. Unknown-installation callbacks use the same App
-signature resolver and return 204 only after verification, without creating a
-connection or admitting the event under another installation. Known disabled
-installations verify through their own credential and acknowledge without input.
-Known active installation lifecycle callbacks are durably captured but produce
-no agent input in this normalizer. Disabling/deleting one connection does not
-change the URL or the exact lookup for any other installation. Configure at least
-one credential-bearing connection before testing the App ping; the helper cannot
-discover an App ID inside encrypted secrets that have no connection reference.
+Only physical-App pings and callbacks without a matching active installation app
+use `ListGitHubWebhookCredentialApps(ctx, appID, limit)`. Its indexed query in
+`storage/queries/github_webhooks.sql` returns at most 16 distinct live credential
+references from saved apps, choosing representatives with project secret access.
+Disconnected apps may supply a verification credential but cannot receive input.
+Every candidate still goes through its project's current secret/grant check.
+This bound does not cap ordinary fanout, and a known active installation cannot
+borrow the fallback's unrelated credentials when its own verification fails.
+
+A verified App ping returns 204 without an inbox receipt. Unknown or entirely
+disconnected installations use the bounded fallback and acknowledge only after
+verification, without creating an app or admitting input through another saved
+app. Known active installation lifecycle callbacks are durably captured and
+normalize to no agent input. Ping requires its signed health-probe shape; merely
+relabeling an event header cannot turn ordinary input into a ping. Deleting or
+disconnecting one saved app does not change the URL or revoke independent apps.
+At least one credential-bearing saved app must exist for fallback verification;
+the resolver cannot discover App IDs inside unreferenced encrypted secrets.
 
 `cmd/worker` registers `integration.GitHubAppInboxProvider{}` under `"github"` in
 the consumer's provider map. It implements the existing `Expand`/`DownloadFile` interface, with
-no planned file downloads. `NormalizeGitHubAppEvent(connection, raw)` is pure and
+no planned file downloads. `NormalizeGitHubAppEvent(app, raw)` is pure and
 accepts only trusted, previously verified inbox payloads. It derives event kinds
 from signed object shapes and actions, so changing unsigned event/delivery
 headers on a replay cannot change routing or semantic event identity. It never
 re-verifies old receipts with a rotated current webhook secret.
 
-Connection creation persists verified bot account facts in `ProviderIdentity`:
+Verified setup persists bot account facts in the saved app's `ProviderIdentity`:
 
 ```json
 {"bot_user_id":1234567,"bot_login":"customer-app[bot]"}
 ```
 
-The public connection create handler calls `github.Client.CheckAppIdentity`.
-Every active PUT repeats verification, including when credentials are unchanged:
-an ordinary save is the explicit refresh for a renamed App's mutable bot login.
-Disabling an existing connection with the same credential reference skips provider
-I/O, preserving the stored observations; deletion also remains provider-independent.
-Re-enabling the connection refreshes its identity before saving.
-Authenticated `GET /app` with the App JWT verifies the configured App ID and
-returns its slug; `GET /app/installations/{id}` verifies installation ownership.
-A temporary metadata-read installation token authenticates the
-`GET /users/{slug}%5Bbot%5D` lookup, including for Enterprise Managed Users.
-The client validates the returned bot ID, login and type. Storage persists these
-observations against the same validated credential revision. Updates with fresh
-observations also check the connection revision and reject a changed bot user ID.
-Other updates preserve the observed identity. Callers cannot supply bot facts.
-The App response's `owner.id` is not its bot ID.
+Create app metadata with an immutable name and definition first. Explicit
+`POST /apps/{app_id}/setup` calls `github.Client.CheckAppIdentity`, including
+reconnect with unchanged credentials. Ordinary metadata/launcher edits perform
+no provider discovery and do not advance `SetupRevision`. Disconnect and delete
+remain provider-independent. Reconnect may refresh the mutable bot login but
+cannot replace the app's installation or verified bot identity.
 
-Private metadata stores `verified_credential_version_id` for the checked secret
-revision. Verified PUT updates carry `SourceVerifiedIdentityRevision`, observed before discovery and
-checked under the connection lifecycle gate, plus the existing secret-version
-and grant checks. Concurrent edits, deletion, rotation or lost grants reject the
-stale observation. Disabling with the same credential reference preserves the
-latest facts under that same gate; active settings saves require GitHub availability.
+Authenticated `GET /app` with the App JWT checks the configured App ID and returns
+its slug; `GET /app/installations/{id}` checks installation ownership. A temporary
+metadata-read installation token authenticates `GET /users/{slug}%5Bbot%5D`,
+including for Enterprise Managed Users. The client checks bot ID, login and type;
+callers cannot supply trusted bot facts. The App response's `owner.id` is not its
+bot ID.
 
-The metadata-only setup token is installation-wide because connection creation
-precedes repository selection. It is never cached or reused by PR tools, whose
+`ConfigureProjectApp` writes observations only for its explicit `AppID`, checking
+`ExpectedSetupRevision`, the discovered credential version and current project
+secret access under lifecycle gates. Private metadata records
+`verified_credential_version_id`. Concurrent reconnect, deletion, rotation or
+lost grants reject stale observations. Setup does not rediscover a saved app by
+credentials or reserve a globally unique physical identity.
+
+The metadata-only setup token is installation-wide because app setup
+precedes agent tool configuration. It is never cached or reused by PR tools, whose
 tokens remain `repository_ids` restricted. Once setup receives a usable token,
 it attempts [`DELETE /installation/token`](https://docs.github.com/en/rest/apps/installations#revoke-an-installation-access-token)
 on every exit, authenticated with that token. Cleanup uses the same operation
@@ -96,7 +100,7 @@ deadline and request hook, makes one attempt, emits no raw logs and preserves th
 original discovery result. Revocation is best effort: expired/canceled contexts,
 authority-hook failures or provider errors can leave the token valid until expiry.
 No background retry or detached request is scheduled. The HTTP journey creates
-credentials, connections, configs, profiles and launchers through public APIs, with local fake
+credentials, apps, configs, profiles and launchers through public APIs, with local fake
 GitHub endpoints for identity discovery and no provider-observation store bypass.
 Evidence checked September 18, 2026:
 [authenticated App endpoint](https://docs.github.com/en/rest/apps/apps#get-the-authenticated-app),
@@ -121,8 +125,8 @@ bots may queue, allowing dependency-update PRs.
 | `pull_request/opened` | `pull_request_opened` | Queued | PR-open selection only |
 | `pull_request/synchronize` | `commit` | Queued | None |
 
-Scope is always `RepositoryID` plus PR number. Where a PR object exists, its
-`base.repo.id` must equal the signed envelope's repository ID. Issue comments
+The concrete event address is always `RepositoryID` plus PR number. Where a PR
+object exists, its `base.repo.id` must equal the signed envelope's repository ID. Issue comments
 instead use the signed repository envelope, issue number and PR marker, because
 GitHub does not include the full PR object in that event. Display owner/name,
 HTML URLs and diff paths never determine authority; no URL is fetched.
@@ -143,17 +147,15 @@ provider state on stop.
 
 ## Remaining boundaries
 
-- **Credential lookup:** `GitHubEventsHandler` uses the bounded
-  `ListGitHubWebhookCredentialConnections` query over existing connections,
-  secrets and grants for App-level verification. Normal deliveries use
-  `GetIntegrationConnectionByProviderAccount`; no new identity table,
-  per-project App registration or credential-owning installation is needed.
-- **Credential rotation:** `AcceptIntegrationReceipt` fences active project and
-  connection state, but currently has no expected credential version or connection
-  revision argument. A rotation between verification and commit may admit a
-  receipt signed by the just-replaced secret. Closing that race requires storage
-  to atomically check the verified revision with the insert; an extra preflight
-  read cannot provide that guarantee. No such atomic fence is claimed here.
+- **Credential lookup:** ordinary deliveries page all active apps for the exact
+  physical App/installation identity and verify each separately. Only ping or
+  unknown/inactive-installation verification uses the 16-candidate
+  `ListGitHubWebhookCredentialApps` fallback.
+- **Credential rotation:** `AcceptIntegrationReceipt` fences active project/app
+  state and project secret availability, but has no expected credential version
+  or setup revision argument. Rotation between signature verification and commit
+  may admit a receipt signed by the just-replaced secret. No atomic verified-key
+  revision fence is claimed; an extra preflight read would not provide one.
 - **Delivery recovery:** GitHub does not automatically redeliver failed webhooks.
   A 503 does not schedule a provider retry. Operators inspect GitHub's delivery
   history and manually redeliver after correcting the failure; Omnara has no
@@ -181,9 +183,11 @@ unsigned metadata replay, self/bot suppression, mention and PR-open selection,
 steering/cancellation, queued commit transitions, malformed and cross-account
 payloads. `httpapi/github_event_routes_test.go` covers signed raw capture, commit
 ordering/failure, App ping verification, multi-installation/multi-project routing,
-independent disablement, bounded credential resolution, credential and installation mismatches,
-header/body limits, secret-read scope and sanitized errors. Tests use in-memory
-capability fakes and local requests; no provider production calls.
+independent disconnection, bounded fallback resolution, credential/installation
+mismatches, header/body limits, per-app secret access and sanitized errors. It also covers
+205 same-installation apps across pages, partial transient failure with healthy
+sibling commits, permanent bad-app isolation and no fallback borrowing. Tests use
+in-memory capability fakes and local requests; no provider production calls.
 The database journey also forces initial receipt persistence to fail with 503,
 then manually redelivers twice with the same delivery ID: exactly one receipt is
 accepted and consumed. This checks recovery without assuming GitHub auto-retries.

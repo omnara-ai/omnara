@@ -12,9 +12,9 @@ per tick, including the first tick after startup:
   deletes at most 100, oldest completion first. The store accepts a retention
   duration of at least one second, and SQL computes the cutoff from
   `statement_timestamp()`. Host clock skew cannot shorten durable retention.
-- Receipts whose connection, project, or organization is soft-deleted are removed
+- Receipts whose app, project, or organization is soft-deleted are removed
   in a separate batch of at most 100. This includes failed receipts under deleted
-  scopes. Disabled connections are not deleted scopes.
+  scopes. Disconnected apps are not deleted scopes.
 
 Both queries use `FOR UPDATE SKIP LOCKED`; busy rows are deferred to a later tick.
 There is no unbounded drain loop. A backlog or held lock can extend retention.
@@ -22,7 +22,7 @@ Cleanup failures are logged and included in the existing maintenance outcome;
 the next maintenance tick retries them.
 
 Terminal cleanup never removes pending, processing, or failed receipts. Failed
-receipts on live or disabled connections retain their exact payload, frozen plan,
+receipts on active or disconnected apps retain their exact payload, frozen plan,
 preparation, and committed-slot progress for explicit operator recovery. Neither
 cleanup operation deletes agent history or causes provider mutations.
 
@@ -49,7 +49,7 @@ JSON on stdout, with errors/help and cleanup warnings on stderr.
 
 ```
 maintenance inbox list --project proj_... --state failed --limit 50
-maintenance inbox list --project proj_... --connection iin_... --after <next-cursor>
+maintenance inbox list --project proj_... --app app_... --after <next-cursor>
 maintenance inbox show --project proj_... --receipt <receipt-UUID>
 maintenance inbox retry --project proj_... --receipt <receipt-UUID>
 maintenance inbox discard --project proj_... --receipt <receipt-UUID> --reason "operator explanation"
@@ -65,20 +65,21 @@ are those already redacted by the producing workflow before persistence.
 Retry transitions only `failed` to `pending` and resets the bounded attempt budget.
 It preserves the receipt, frozen plan, planned UUIDs, preparation, committed-slot
 results and last failure. It never recompiles source or reselects app membership.
-The receipt connection must be active; admission independently checks the current
-profile, model/config, agent and all resource connections when work resumes.
+The receipt app must be active; admission independently checks the current
+profile, model/config, agent and referenced app ownership when work resumes.
+Only the receipt app and apps authorizing concrete actions must be active.
 
 Discard transitions only `failed` to `discarded`. It rejects any committed launch slot
 and any retained selection target for a reserved app/conversation, including a
 retired target. Partial launch admission therefore remains retry-only. Committed
 existing-agent input slots do not block discard: their original progress and
 semantic input deduplication remain intact while failed launch reservations are
-released. Discard works on disabled live connections without reactivating them.
+released. Discard works on disconnected live apps without reactivating them.
 The required operator reason
 is emitted with the successful action's project/receipt IDs for operator audit;
 it does not replace the preserved last failure or create a new audit ledger.
 
-Both operations lock project/connection, receipt, then sorted frozen conversations.
+Both operations lock project/app, receipt, then sorted frozen conversations.
 They serialize with selection and empty-plan decisions. Before explicit retry,
 failed reservations do not delay plain follow-ups with no recipient; after retry,
 those follow-ups wait for pending/processing initial admission. Failed reservations

@@ -196,7 +196,7 @@ func createAgentContentInputTx(
 	if agent.State == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
-	// Origin belongs to the project/agent and an active connection independently
+	// Origin belongs to the project/agent and an active app independently
 	// of actor attribution. Hosted ingress validates its verified actor before
 	// reaching this shared input kernel.
 	if input.IntegrationTargetID != uuid.Nil {
@@ -206,7 +206,7 @@ func createAgentContentInputTx(
 		if err != nil {
 			return createAgentContentInputTxResult{}, err
 		}
-		if target.ConnectionState != "active" {
+		if target.AppState != "active" {
 			return createAgentContentInputTxResult{}, storeerr.ErrUnauthorized
 		}
 	}

@@ -409,7 +409,7 @@ func routeThreadTS(route InboundRoute) string {
 func modelVisibleContext(event Event, route InboundRoute, newlyMapped bool) string {
 	switch {
 	case route.AppendOnly:
-		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `slack_post_message` at all."
+		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to use your Slack messaging tool at all."
 	case event.Type == "app_mention" && event.ThreadTS != "" && event.ThreadTS != event.TS:
 		if newlyMapped {
 			return "This message directly mentioned the agent inside an existing Slack thread."

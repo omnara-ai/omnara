@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -33,24 +32,13 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	store := integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
+	store := integrationstore.New(f.pool, executionstore.AppAccess{})
 	createApp := func(name string) uuid.UUID {
 		t.Helper()
-		app, err := store.CreateProjectApp(
-			f.ctx,
-			integrationstore.SaveProjectAppInput{
-				OrgID:        f.org,
-				ProjectID:    f.project,
-				Name:         name,
-				DefinitionID: appdefinition.Slack,
-				Enabled:      true,
-			},
-		)
-		require.NoError(t, err)
-		return app.ID
+		return f.addApp(t, name, integrationstore.ProjectAppSettings{}).ID
 	}
 	input := integrationstore.EnsureConversationTargetInput{
-		ProjectID: f.project, AgentID: launch.Agent.ID, ConnectionID: f.connection,
+		ProjectID: f.project, AgentID: launch.Agent.ID,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 		Role:    integrationstore.TargetSelected, AppID: createApp("first"), SelectionSlot: "agent",
 	}
@@ -62,8 +50,8 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(f.ctx) }()
 		require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
-		require.NoError(t, integrationstore.LockAppConnectionsTx(f.ctx, tx, f.project, nil, f.connection))
-		require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, f.connection, input.Address))
+		require.NoError(t, integrationstore.LockAppsTx(f.ctx, tx, f.project, nil, input.AppID))
+		require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, input.AppID, input.Address))
 		require.NoError(
 			t,
 			lifecyclelock.Agents(f.ctx, tx, []lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: input.AgentID}}),
@@ -82,11 +70,16 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replay.ID)
 	require.False(t, replay.Created)
-	// Profile slots create distinct agents. Triggers addressing an existing
-	// agent reuse attribution and never assign it another launch selection.
-	input.AppID = createApp("second")
+	// One app cannot assign two launch slots to the same agent/conversation.
+	input.SelectionSlot = "another-slot"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
+	input.SelectionSlot = "agent"
+	// Independent apps may address the same bot/conversation and agent.
+	input.AppID = createApp("second")
+	sharedAgent, err := ensure(input)
+	require.NoError(t, err)
+	require.NotEqual(t, first.ID, sharedAgent.ID)
 	secondLaunch, err := execution.LaunchAgent(
 		f.ctx,
 		executionstore.LaunchAgentInput{
@@ -97,6 +90,9 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 	)
 	require.NoError(t, err)
 	input.AgentID = secondLaunch.Agent.ID
+	_, err = ensure(input)
+	require.ErrorIs(t, err, storeerr.ErrConflict, "an app slot cannot select another agent")
+	input.SelectionSlot = "reviewer"
 	second, err := ensure(input)
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, second.ID)
@@ -112,7 +108,7 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 		),
 	)
 	require.Zero(t, listeners)
-	input.Role, input.AppID, input.SelectionSlot = integrationstore.TargetAttribution, uuid.Nil, ""
+	input.Role, input.SelectionSlot = integrationstore.TargetAttribution, ""
 	attribution, err := ensure(input)
 	require.NoError(t, err)
 	require.Equal(t, second.ID, attribution.ID)
@@ -143,17 +139,20 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 	// Retiring a selected association retains the selection tombstone. A later
 	// mention may not silently launch a replacement for that app/slot.
 	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, second.ID)
-	input.Role, input.AppID, input.SelectionSlot = integrationstore.TargetSelected, second.AppID, "agent"
+	input.Role, input.AppID, input.SelectionSlot = integrationstore.TargetSelected, second.AppID, "reviewer"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
+	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
+	require.NoError(t, integrationstore.LockAppsTx(f.ctx, tx, f.project, nil, first.AppID, second.AppID))
+	require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, input.AppID, input.Address))
 	candidates, err := store.AppRoutingCandidatesTx(
 		f.ctx,
 		tx,
 		f.project,
-		f.connection,
+		input.AppID,
 		input.Address,
 		[]integrationstore.ConversationAddress{input.Address},
 		"message",
@@ -161,4 +160,15 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, candidates.Selections, 2) // A follow without a live listener does not suppress launch.
 	require.Empty(t, candidates.Listeners)
+	require.ElementsMatch(
+		t,
+		[]uuid.UUID{sharedAgent.ID, second.ID},
+		[]uuid.UUID{candidates.Selections[0].ID, candidates.Selections[1].ID},
+	)
+	require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, first.AppID, input.Address))
+	other, err := store.AppRoutingCandidatesTx(f.ctx, tx, f.project, first.AppID, input.Address,
+		[]integrationstore.ConversationAddress{input.Address}, "message")
+	require.NoError(t, err)
+	require.Len(t, other.Selections, 1)
+	require.Equal(t, first.ID, other.Selections[0].ID)
 }

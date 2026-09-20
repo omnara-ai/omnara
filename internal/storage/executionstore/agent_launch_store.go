@@ -143,7 +143,7 @@ func (s *Store) launchAgentTx(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// A completed launch is independent of the connection's current state. The
+	// A completed launch is independent of the app's current state. The
 	// second lookup below serializes concurrent first attempts on the launch key.
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
 		return result, err
@@ -152,32 +152,32 @@ func (s *Store) launchAgentTx(
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
-	var originConnections []uuid.UUID
+	var originApps []uuid.UUID
 	if initial != nil && initial.Origin != nil {
-		originConnections = append(originConnections, initial.Origin.ConnectionID)
+		originApps = append(originApps, initial.Origin.AppID)
 	}
-	resources, err := launchAppResourcesTx(ctx, qtx, input)
+	resources, err := launchAppIDsTx(ctx, qtx, input)
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
-	// Order: project -> all connections -> receipt (if any) -> conversation ->
+	// Order: project -> all apps -> receipt (if any) -> conversation ->
 	// launch idempotency -> profile -> machine sources/model -> agent. Inbox
-	// admission locks the receipt's connection and every connection used by the
+	// admission locks the receipt's app and every app used by the
 	// slot admitted in its transaction before the receipt. Re-entry uses held gates;
-	// a nested launch must never discover another earlier connection lock class.
-	if err := integrationstore.LockAppConnectionsTx(
+	// a nested launch must never discover another earlier app lock class.
+	if err := integrationstore.LockAppsTx(
 		ctx,
 		tx,
 		input.ProjectID,
 		resources,
-		originConnections...); err != nil {
+		originApps...); err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
 	var origins []AgentInputOrigin
 	if initial != nil && initial.Origin != nil {
 		origins = append(origins, AgentInputOrigin(*initial.Origin))
 	}
-	if err := lockAppConversationsTx(ctx, tx, input.ProjectID, resources, origins...); err != nil {
+	if err := lockAppConversationsTx(ctx, tx, input.ProjectID, origins...); err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
 	if input.IdempotencyKey != "" {
@@ -327,7 +327,7 @@ func (s *Store) launchAgentTx(
 	result.ConfigChange = configChange
 	if err := integrationstore.ReconcileAgentListenersTx(ctx, tx, integrationstore.ReconcileAgentListenersInput{
 		OrgID: project.OrgID, ProjectID: input.ProjectID, AgentID: agent.ID, ConfigID: config.ID,
-		Next: contract.AppResources,
+		Next: contract.Listeners,
 	}); err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -410,15 +410,12 @@ func (s *Store) launchAgentTx(
 			return LaunchAgentResult{}, err
 		}
 	}
-	if err := s.activateHandlerTargetsTx(ctx, tx, input.ProjectID, agent.ID, contract.AppResources); err != nil {
-		return LaunchAgentResult{}, err
-	}
 	return result, nil
 }
 
 // Failed preparation still serializes with a concurrent same-key launch. This
 // terminal path may only replay or return the original failure: it cannot resume
-// admission and acquire connection/conversation gates below the idempotency lock.
+// admission and acquire app/conversation gates below the idempotency lock.
 func launchReplayAfterFailureTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

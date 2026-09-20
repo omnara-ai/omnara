@@ -13,9 +13,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type IntegrationConnectionAccess struct{}
+type AppAccess struct{}
 
-func (IntegrationConnectionAccess) ValidateAppDestination(
+func (AppAccess) ValidateAppDestination(
 	ctx context.Context,
 	tx pgx.Tx,
 	binding integrationstore.AppDestination,
@@ -46,7 +46,7 @@ func (IntegrationConnectionAccess) ValidateAppDestination(
 		return storeerr.ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("validate integration connection agent: %w", err)
+		return fmt.Errorf("validate app agent: %w", err)
 	}
 	if AgentState(row.State) != AgentStateActive {
 		return storeerr.ErrStateTransitionConflict
@@ -54,16 +54,16 @@ func (IntegrationConnectionAccess) ValidateAppDestination(
 	return nil
 }
 
-func (IntegrationConnectionAccess) ClearConnectionTargetsFromAgents(
+func (AppAccess) ClearAppTargetsFromAgents(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, integrationConnectionID uuid.UUID,
+	projectID, appID uuid.UUID,
 ) error {
 	err := dbsqlc.New(tx).ClearDeletedIntegrationTargetsFromAgents(
 		ctx,
 		dbsqlc.ClearDeletedIntegrationTargetsFromAgentsParams{
-			ProjectID:               projectID,
-			IntegrationConnectionID: integrationConnectionID,
+			ProjectID: projectID,
+			AppID:     appID,
 		},
 	)
 	if err != nil {

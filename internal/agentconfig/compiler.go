@@ -23,18 +23,18 @@ const (
 )
 
 type Compiled struct {
-	Version         string                           `json:"version,omitempty"`
-	Instruction     string                           `json:"instruction"`
-	Model           ModelCompiled                    `json:"model,omitempty"`
-	MachineSources  []MachineSourceCompiled          `json:"machine_sources,omitempty"`
-	Tools           map[string]ToolCompiled          `json:"tools,omitempty"`
-	MCP             map[string]MCPServerCompiled     `json:"mcp,omitempty"`
-	AppResources    map[string]AppResourceCompiled   `json:"app_resources,omitempty"`
-	AppToolPolicies map[string]AppToolPolicyCompiled `json:"app_tool_policies,omitempty"`
-	Skills          []SkillCompiled                  `json:"skills,omitempty"`
-	Subagents       map[string]SubagentCompiled      `json:"subagents,omitempty"`
-	MaxSubagents    *int                             `json:"max_subagents,omitempty"`
-	MaxDepth        *int                             `json:"max_depth,omitempty"`
+	Version             string                           `json:"version,omitempty"`
+	Instruction         string                           `json:"instruction"`
+	Model               ModelCompiled                    `json:"model,omitempty"`
+	MachineSources      []MachineSourceCompiled          `json:"machine_sources,omitempty"`
+	Tools               map[string]ToolCompiled          `json:"tools,omitempty"`
+	MCP                 map[string]MCPServerCompiled     `json:"mcp,omitempty"`
+	Listeners           map[string]AppCapabilityCompiled `json:"listeners,omitempty"`
+	InteractionHandlers map[string]AppCapabilityCompiled `json:"interaction_handlers,omitempty"`
+	Skills              []SkillCompiled                  `json:"skills,omitempty"`
+	Subagents           map[string]SubagentCompiled      `json:"subagents,omitempty"`
+	MaxSubagents        *int                             `json:"max_subagents,omitempty"`
+	MaxDepth            *int                             `json:"max_depth,omitempty"`
 }
 
 // SkillCompiled pins a skill's identity into the agent contract. Only the
@@ -109,7 +109,8 @@ type MachineSourceCompiled struct {
 }
 
 type ToolCompiled struct {
-	AppOrigin   *AppToolOrigin           `json:"app_origin,omitempty"`
+	AppID       string                   `json:"app_id,omitempty"`
+	Config      json.RawMessage          `json:"config,omitempty"`
 	Enabled     bool                     `json:"enabled"`
 	Type        string                   `json:"type,omitempty"`
 	Permission  toolpermission.Selection `json:"permission"`
@@ -119,7 +120,6 @@ type ToolCompiled struct {
 }
 
 type MCPServerCompiled struct {
-	AppOrigin      *AppToolOrigin             `json:"app_origin,omitempty"`
 	URL            string                     `json:"url"`
 	Auth           *MCPAuthCompiled           `json:"auth,omitempty"`
 	DefaultEnabled bool                       `json:"default_enabled"`
@@ -154,8 +154,7 @@ type Result struct {
 }
 
 type CompileOptions struct {
-	ResolveAppInstance        func(instanceID string) (AppInstanceResolution, error)
-	ResolveAppConnection      func(connectionID, provider string) (resolvedID string, err error)
+	ResolveAppName            func(name string) (AppResolution, error)
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID string, expectedKind secrets.Kind) error
@@ -237,7 +236,8 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	if len(machines) > 0 {
 		compiled.MachineSources = machines
 	}
-	compiled.Tools, err = compileBaseTools(source)
+	opts = cacheAppResolver(opts)
+	compiled.Tools, err = compileTools(source, opts, compiledModel.supportsTools == nil || *compiledModel.supportsTools)
 	if err != nil {
 		return Compiled{}, err
 	}
@@ -248,7 +248,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		}
 		compiled.MCP = mcpServers
 	}
-	if err := compileAppResources(source, opts, &compiled); err != nil {
+	if err := compileAppCapabilities(source, opts, &compiled); err != nil {
 		return Compiled{}, err
 	}
 	if len(source.Skills) > 0 {
@@ -313,8 +313,8 @@ func compileModel(source AgentConfigModelSource, opts CompileOptions) (compiledM
 }
 
 func requiresModelToolSupport(compiled Compiled) bool {
-	for name, tool := range compiled.Tools {
-		if tool.Enabled && toolHasResources(name, compiled.AppResources) {
+	for _, tool := range compiled.Tools {
+		if tool.Enabled {
 			return true
 		}
 	}
@@ -346,10 +346,7 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		return configured
 	})
 	hasTools := len(names) > 0 || len(source.MCP) > 0
-	for name, tool := range source.Tools {
-		if toolcatalog.AppToolProvider(name) != "" && !sourceSelectsAppTool(source, name) {
-			continue
-		}
+	for _, tool := range source.Tools {
 		if tool.Enabled == nil || *tool.Enabled {
 			hasTools = true
 			break
@@ -366,10 +363,7 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 }
 
 func sourceDefersAnyTool(source AgentConfigSource) bool {
-	for name, tool := range source.Tools {
-		if toolcatalog.AppToolProvider(name) != "" && !sourceSelectsAppTool(source, name) {
-			continue
-		}
+	for _, tool := range source.Tools {
 		if tool.Deferred && (tool.Enabled == nil || *tool.Enabled) {
 			return true
 		}
@@ -472,10 +466,10 @@ func compileCustomTool(
 	if strings.TrimSpace(source.Description) == "" {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name, "description"), "is required")
 	}
-	if toolcatalog.UsesMCPRuntimeNamespace(name) {
+	if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesAppToolNamespace(name) {
 		return ToolCompiled{}, issuef(
 			jsonPointer("tools", name),
-			"custom tool name uses the reserved MCP tool namespace",
+			"custom tool name uses a reserved app or MCP tool namespace",
 		)
 	}
 	if _, ok := catalog.Lookup(name); ok {

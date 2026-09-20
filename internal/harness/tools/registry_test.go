@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -41,7 +42,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	)
 	add(
 		[]string{"list_machines", "inspect_machine",
-			"list_interaction_destinations", "set_interaction_destination"},
+			"list_interaction_handlers", "set_interaction_handler"},
 		expectedTopology{transactional: true},
 	)
 	add(
@@ -54,14 +55,6 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	)
 	add(
 		[]string{"web_search", "web_fetch", "skill", "read_file", "search_files"},
-		expectedTopology{async: true},
-	)
-	add(
-		[]string{
-			"slack_read", "slack_post_message",
-			"discord_read", "discord_post_message",
-			"github_read", "github_discussion_comment", "github_inline_comment", "github_reply",
-		},
 		expectedTopology{async: true},
 	)
 
@@ -205,32 +198,41 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	}
 }
 
-func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
+func TestAppMessageEffectiveValidatorBinding(t *testing.T) {
+	definition, ok := toolcatalog.LookupAppTool(appdefinition.Slack, toolcatalog.AppOperationPostMessage)
+	require.True(t, ok)
+	validate := func(_ string, input json.RawMessage) error {
+		_, err := definition.ResolveArgs(json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`), input)
+		return err
+	}
+	implementation, ok := appToolImplementation("app__chat__post_message")
+	require.True(t, ok)
+	require.NotNil(t, implementation.handler.Async)
 	artifactID, err := publicid.Encode(
 		publicid.KindArtifact,
 		integrationToolTestID("integration-message-validator"),
 	)
 	require.NoError(t, err)
-	if err := validateRegisteredToolInput(
-		"slack_post_message",
+	if err := validate(
+		"app__chat__post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":["`+artifactID+`"]}`),
 	); err != nil {
 		t.Fatalf("valid integration message rejected: %v", err)
 	}
-	if err := validateRegisteredToolInput(
-		"slack_post_message",
+	if err := validate(
+		"app__chat__post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":[]}`),
 	); err != nil {
 		t.Fatalf("empty artifact_ids rejected: %v", err)
 	}
-	if err := validateRegisteredToolInput(
-		"slack_post_message",
+	if err := validate(
+		"app__chat__post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":null}`),
 	); err == nil {
 		t.Fatal("null artifact_ids accepted")
 	}
-	if err := validateRegisteredToolInput(
-		"slack_post_message",
+	if err := validate(
+		"app__chat__post_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":[""]}`),
 	); err == nil {
 		t.Fatal("empty artifact ID accepted")
@@ -244,7 +246,7 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 		"artifact_ids": tooManyArtifactIDs,
 	})
 	require.NoError(t, err)
-	if err := validateRegisteredToolInput("slack_post_message", tooManyInput); err == nil {
+	if err := validate("app__chat__post_message", tooManyInput); err == nil {
 		t.Fatal("more than 20 artifact IDs accepted")
 	}
 }

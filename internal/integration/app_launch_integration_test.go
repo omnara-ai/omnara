@@ -14,10 +14,10 @@ import (
 
 func TestAppLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 	// Both cases exercise the same receipt lease without admitting any work.
-	f := newChoiceJourney(t, 1, true)
+	f := newChoiceJourney(t, 1)
 	ctx := t.Context()
 	_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID, ReceiptKey: "untrusted-launch", Payload: []byte(`{}`),
+		ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, ReceiptKey: "untrusted-launch", Payload: []byte(`{}`),
 	})
 	require.NoError(t, err)
 	receipt := f.claim()
@@ -40,7 +40,7 @@ func TestAppLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 					return nil, nil
 				},
 			})
-			result, err := workflow.Decide(ctx, receipt.Lease(), receipt, f.connection, []AppEvent{event})
+			result, err := workflow.Decide(ctx, receipt.Lease(), receipt, f.appSetup, []AppEvent{event})
 			require.Equal(t, 1, calls)
 			if test.foreignLauncher {
 				require.ErrorContains(t, err, "returned an intent for another app")

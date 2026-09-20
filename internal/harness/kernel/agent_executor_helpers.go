@@ -90,6 +90,7 @@ func (e AgentExecutor) contextBuilder() modelcontext.Builder {
 		builder.Store = modelcontext.NewStore(
 			e.Store.Execution(),
 			e.Store.Artifacts(),
+			e.Store.Integrations(),
 		)
 	}
 	if builder.Skills == nil && e.Store != nil {

@@ -27,9 +27,9 @@ const githubIntakeTimeout = 5 * time.Second
 const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLimit
 
 type githubIntakeStore interface {
-	GetIntegrationConnectionByProviderAccount(context.Context, string, string, string) (
-		integrationstore.IntegrationConnectionRecord, error,
-	)
+	ListProjectAppsByProviderIdentity(
+		context.Context, string, string, string, uuid.UUID, int,
+	) ([]integrationstore.ProjectAppRecord, error)
 	AcceptIntegrationReceipt(context.Context, integrationstore.VerifiedIntegrationReceipt) (
 		integrationstore.IntegrationInboxRecord, bool, error,
 	)
@@ -41,19 +41,19 @@ type githubIntakeSecrets interface {
 	)
 }
 
-// GitHubWebhookCredentialConnections reads bounded credential candidates from
-// existing connections for an App, without tying its URL to one installation.
+// GitHubWebhookCredentialApps reads bounded credential candidates from
+// saved apps for an App, without tying its URL to one installation.
 // The store should deduplicate credential references and select representatives
-// with live project secret access. Disabled installations may supply credentials
+// with live project secret access. Disconnected apps may supply credentials
 // for App-level verification; they never receive input. Return at most limit.
-type GitHubWebhookCredentialConnections func(
+type GitHubWebhookCredentialApps func(
 	context.Context, string, int,
-) ([]integrationstore.IntegrationConnectionRecord, error)
+) ([]integrationstore.ProjectAppRecord, error)
 
 // GitHubEventsHandler serves the provider-signed POST GitHubEventsPath. Known
 // active installation events require durable acceptance. Verified App pings and
-// unmanaged/disabled installation events acknowledge without agent input.
-// Ping/bootstrap verification resolves credentials from existing connections;
+// unmanaged/disconnected installation events acknowledge without agent input.
+// Ping/bootstrap verification resolves credentials from saved apps;
 // normal events resolve directly by (github, App ID, installation ID).
 func (s *Server) GitHubEventsHandler() http.Handler {
 	if s.store == nil {
@@ -63,14 +63,14 @@ func (s *Server) GitHubEventsHandler() http.Handler {
 	}
 	return &githubIntakeHandler{
 		store: s.store.Integrations(), secrets: s.store.Secrets(),
-		appConnections: s.store.Integrations().ListGitHubWebhookCredentialConnections,
+		credentialApps: s.store.Integrations().ListGitHubWebhookCredentialApps,
 	}
 }
 
 type githubIntakeHandler struct {
 	store          githubIntakeStore
 	secrets        githubIntakeSecrets
-	appConnections GitHubWebhookCredentialConnections
+	credentialApps GitHubWebhookCredentialApps
 }
 
 func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -102,22 +102,50 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, openapi.ErrorCodeForbidden, "GitHub installation identity mismatch")
 		return
 	}
-	var connection integrationstore.IntegrationConnectionRecord
-	known := false
+	var result integrationFanoutResult
+	var invalidWebhook bool
 	if hint.Installation.ID > 0 {
-		connection, err = h.store.GetIntegrationConnectionByProviderAccount(ctx,
-			integrationstore.IntegrationProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10))
-		if err != nil && !storeerr.IsNotFound(err) {
+		result, err = fanoutIntegrationApps(ctx, h.store.ListProjectAppsByProviderIdentity,
+			integrationstore.IntegrationProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
+			func(ctx context.Context, app integrationstore.ProjectAppRecord) (bool, error) {
+				event, verified, err := h.verifyAppCredential(ctx, r.Header, raw, appID, app)
+				if verified && err != nil {
+					invalidWebhook = true
+					return true, storeerr.InvalidRequest(err)
+				}
+				if err != nil || !verified {
+					return verified, err
+				}
+				if !integration.GitHubWebhookInstallationMatches(app, event) {
+					return true, storeerr.ErrUnauthorized
+				}
+				_, _, err = h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+					ProjectID: app.ProjectID, AppID: app.ID,
+					ReceiptKey: "github:" + event.EventType + ":" + event.DeliveryID, Payload: raw,
+				})
+				return true, err
+			})
+		if err != nil {
 			apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "GitHub intake unavailable")
 			return
 		}
-		known = err == nil
-		if known && !integration.GitHubWebhookInstallationMatches(connection, hint) {
-			apierror.Write(w, openapi.ErrorCodeForbidden, "GitHub installation identity mismatch")
+	}
+	if invalidWebhook {
+		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid GitHub webhook")
+		return
+	}
+	if result.Matched > 0 {
+		// Never borrow another app's credentials for a known installation.
+		if result.Verified == 0 {
+			apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid GitHub callback")
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
-	event, verified, err := h.verifyAppWebhook(ctx, r.Header, raw, appID, connection, known)
+	// Only unmanaged installations and App-level pings use bounded credential
+	// candidates. This cap never limits ordinary event fanout.
+	event, verified, err := h.verifyAppWebhook(ctx, r.Header, raw, appID)
 	if err != nil {
 		if verified {
 			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid GitHub webhook")
@@ -131,8 +159,6 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if event.Installation.ID == 0 {
-		// Ping is an App health probe, not a project receipt. Header relabeling
-		// cannot discard a routable payload: its signed installation is present.
 		var ping struct {
 			Zen  string `json:"zen"`
 			Hook struct {
@@ -145,76 +171,57 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "GitHub event requires an installation")
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if !known || connection.State != integrationstore.IntegrationConnectionStateActive {
-		// A physical App may have installations not connected here. Verification
-		// does not provision one or forward its events to a different project.
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	// Headers are diagnostic receipt identity only. Normalization/semantic
-	// deduplication use signed body facts, so relabeling a replay grants nothing.
-	_, _, err = h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: connection.ProjectID, ConnectionID: connection.ID,
-		ReceiptKey: "github:" + event.EventType + ":" + event.DeliveryID,
-		Payload:    raw,
-	})
-	if err != nil {
-		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "GitHub receipt was not accepted")
-		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *githubIntakeHandler) verifyAppCredential(
+	ctx context.Context, header http.Header, raw []byte, appID string, app integrationstore.ProjectAppRecord,
+) (github.Webhook, bool, error) {
+	if app.Provider != integrationstore.IntegrationProviderGitHub || app.ProviderTenantID != appID ||
+		app.CredentialSecretID == uuid.Nil {
+		return github.Webhook{}, false, nil
+	}
+	credential, err := h.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
+		OrgID: app.OrgID, ProjectID: app.ProjectID, SecretID: app.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
+	})
+	if err != nil {
+		return github.Webhook{}, false, err
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(credential.Payload[secrets.KeyAppID]), 10, 64)
+	if err != nil {
+		return github.Webhook{}, false, storeerr.InvalidRequest(fmt.Errorf("invalid GitHub credential App ID: %w", err))
+	}
+	if strconv.FormatInt(id, 10) != appID ||
+		!github.ValidSignature(header, raw, credential.Payload[secrets.KeyWebhookSecret]) {
+		return github.Webhook{}, false, nil
+	}
+	event, err := github.DecodeWebhook(header, raw, credential.Payload[secrets.KeyWebhookSecret])
+	return event, true, err
+}
+
 func (h *githubIntakeHandler) verifyAppWebhook(
 	ctx context.Context, header http.Header, raw []byte, appID string,
-	connection integrationstore.IntegrationConnectionRecord, known bool,
 ) (github.Webhook, bool, error) {
-	candidates := []integrationstore.IntegrationConnectionRecord{connection}
-	if !known {
-		if h.appConnections == nil {
-			return github.Webhook{}, false, fmt.Errorf("github App credential resolver is required")
+	if h.credentialApps == nil {
+		return github.Webhook{}, false, fmt.Errorf("github App credential resolver is required")
+	}
+	candidates, err := h.credentialApps(ctx, appID, githubWebhookCredentialLimit)
+	if err != nil {
+		return github.Webhook{}, false, err
+	}
+	if len(candidates) > githubWebhookCredentialLimit {
+		return github.Webhook{}, false, fmt.Errorf("github App credential candidate limit exceeded")
+	}
+	var retryErr error
+	for _, app := range candidates {
+		event, verified, err := h.verifyAppCredential(ctx, header, raw, appID, app)
+		if verified {
+			return event, true, err
 		}
-		var err error
-		candidates, err = h.appConnections(ctx, appID, githubWebhookCredentialLimit)
-		if err != nil {
-			return github.Webhook{}, false, err
-		}
-		if len(candidates) > githubWebhookCredentialLimit {
-			return github.Webhook{}, false, fmt.Errorf("github App credential candidate limit exceeded")
+		if err != nil && !permanentIntegrationIngressError(err) {
+			retryErr = err
 		}
 	}
-	seen := map[uuid.UUID]bool{}
-	var accessErr error
-	for _, candidate := range candidates {
-		if candidate.Provider != integrationstore.IntegrationProviderGitHub || candidate.ProviderTenantID != appID ||
-			candidate.CredentialSecretID == uuid.Nil || seen[candidate.CredentialSecretID] {
-			continue
-		}
-		input := secretstore.ReadProjectAvailableSecretPayloadInput{
-			OrgID: candidate.OrgID, ProjectID: candidate.ProjectID, SecretID: candidate.CredentialSecretID,
-			Kind: secrets.KindGitHubAppCredentials,
-		}
-		credential, err := h.secrets.ReadProjectAvailableSecretPayload(ctx, input)
-		if err != nil {
-			accessErr = err
-			continue
-		}
-		seen[candidate.CredentialSecretID] = true
-		id, err := strconv.ParseInt(strings.TrimSpace(credential.Payload[secrets.KeyAppID]), 10, 64)
-		if err != nil || strconv.FormatInt(id, 10) != appID ||
-			!github.ValidSignature(header, raw, credential.Payload[secrets.KeyWebhookSecret]) {
-			continue
-		}
-		event, err := github.DecodeWebhook(header, raw, credential.Payload[secrets.KeyWebhookSecret])
-		if err != nil {
-			// Distinguish a verified body with malformed transport headers from
-			// an invalid signature without exposing credential/store errors.
-			return github.Webhook{}, true, err
-		}
-		return event, true, nil
-	}
-	return github.Webhook{}, false, accessErr
+	return github.Webhook{}, false, retryErr
 }

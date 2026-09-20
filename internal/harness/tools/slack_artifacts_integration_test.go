@@ -133,6 +133,9 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 				)
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSlackToolIdentity(w, r) {
+					return
+				}
 				requests[r.URL.Path]++
 				switch r.URL.Path {
 				case "/files.getUploadURLExternal":
@@ -284,7 +287,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 					t,
 					ctx,
 					"call_"+seed,
-					toolcatalog.ToolNameSlackPostMessage,
+					toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
 					string(input),
 					fixture.Now.Add(20*time.Second),
 				)
@@ -293,7 +296,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 					t.Fatalf("dispatch artifact send: %v", err)
 				}
 				body := toolResultMapFromTestParts(t, result.ContentParts)
-				require.Equal(t, "chat", body["resource"])
+				require.Equal(t, "chat", body["app"])
 				if tt.wantCode == "delivered" {
 					require.Equal(t, "C123", body["channel_id"])
 					require.Len(t, body["file_ids"], artifactCount)

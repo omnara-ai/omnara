@@ -8,15 +8,14 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
-import { agentConfigModel, fakeId } from '@/test/fixtures'
+import { agentConfigModel, fakeId, projectApp } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, waitForUI } from '@/test/secret-editor'
 
 import { ProjectAppForm } from './ProjectAppForm'
 
 const orgId = fakeId('org'),
-  projectId = fakeId('proj'),
-  connectionId = fakeId('iin')
+  projectId = fakeId('proj')
 const path = `/api/v1/orgs/${orgId}/projects/${projectId}`
 const now = '2026-09-18T00:00:00Z'
 function profile(letter: string, name: string): AgentProfile {
@@ -47,23 +46,6 @@ const profileNameRoutes = [support, reviews, triage].map((item) => ({
   path: path + '/agent-profiles/' + item.id,
   respond: () => Response.json(item),
 }))
-function connection(provider: 'slack' | 'discord', publicKey = '') {
-  const providerConfig: Record<string, string> = {}
-  if (publicKey) providerConfig.public_key = publicKey
-  return {
-    id: connectionId,
-    org_id: orgId,
-    project_id: projectId,
-    provider,
-    provider_tenant_id: provider === 'slack' ? 'T123' : '111',
-    provider_account_ref: provider === 'slack' ? 'U123' : '222',
-    provider_agent_display_name: 'Shared bot',
-    state: 'active',
-    provider_config: providerConfig,
-    created_at: now,
-    updated_at: now,
-  }
-}
 
 let root: Root, container: HTMLDivElement, cache: QueryClient, restore: () => void
 beforeEach(() => {
@@ -126,22 +108,8 @@ async function chooseProfile(name: string) {
   })
 }
 const mixedApp: ProjectApp = {
-  id: fakeId('app'),
-  project_id: projectId,
-  name: 'Shared support',
-  enabled: false,
-  created_at: now,
-  updated_at: now,
+  ...projectApp({ name: 'shared-support', state: 'active', provider_tenant_id: 'T123' }),
   settings: {
-    resource: {
-      definition: 'omnara.slack',
-      connection: connectionId,
-      enabled: true,
-      tools: { slack_read: { deferred: true, permission: { mode: 'always_allow' } } },
-      listener: { events: ['message'] },
-      interaction_handler: { definition: 'omnara.slack.interactions' },
-      scope: { slack: { channel_id: 'C123', thread_ts: '123.456' } },
-    },
     launcher: {
       trigger: 'mention',
       scope_kind: 'channel',
@@ -157,23 +125,12 @@ const mixedApp: ProjectApp = {
 
 it('keeps off-page and existing-agent slots and retries a failed profile save', async () => {
   let attempts = 0
-  const selected = connection('slack')
   const api = fakeApi([
     ...profileNameRoutes,
     {
       method: 'GET',
       path: path + '/apps',
       respond: () => Response.json({ data: [mixedApp], next_cursor: null }),
-    },
-    {
-      method: 'GET',
-      path: path + '/integration-connections',
-      respond: () => jsonResponse({ data: [selected], next_cursor: null }),
-    },
-    {
-      method: 'GET',
-      path: path + '/integration-connections/' + connectionId,
-      respond: () => jsonResponse(selected),
     },
     {
       method: 'GET',
@@ -231,7 +188,7 @@ it('keeps off-page and existing-agent slots and retries a failed profile save', 
   expect(updates[0]?.body).toEqual(updates[1]?.body)
   expect(updates[1]?.body).toEqual({
     name: mixedApp.name,
-    enabled: false,
+    definition_id: mixedApp.definition_id,
     settings: {
       ...mixedApp.settings,
       launcher: {
@@ -275,11 +232,6 @@ it.each(['retry', 'remove'] as const)(
         method: 'GET',
         path: path + '/agent-profiles',
         respond: () => Response.json({ data: [support], next_cursor: 'page-two' }),
-      },
-      {
-        method: 'GET',
-        path: path + '/integration-connections/' + connectionId,
-        respond: () => jsonResponse(connection('slack')),
       },
       {
         method: 'PUT',
@@ -340,13 +292,14 @@ it.each(['retry', 'remove'] as const)(
 )
 
 it.each([1, 15])(
-  'requires a Discord key only for multiple profiles while counting %s fixed agents toward the slot limit',
+  'keeps the Discord public key while counting %s fixed agents toward the slot limit',
   async (existingCount) => {
-    const selected = connection('discord')
     const app: ProjectApp = {
       ...mixedApp,
+      definition_id: 'omnara.discord',
+      provider: 'discord',
+      provider_config: { public_key: 'ab'.repeat(32) },
       settings: {
-        resource: { definition: 'omnara.discord', connection: connectionId, tools: {} },
         launcher: {
           trigger: 'mention',
           scope_kind: 'channel',
@@ -363,11 +316,6 @@ it.each([1, 15])(
     }
     const api = fakeApi([
       ...profileNameRoutes,
-      {
-        method: 'GET',
-        path: path + '/integration-connections/' + connectionId,
-        respond: () => jsonResponse(selected),
-      },
       {
         method: 'GET',
         path: path + '/agent-profiles',
@@ -396,14 +344,16 @@ it.each([1, 15])(
     })
     expect(button('Save changes').disabled).toBe(false)
     await chooseProfile('Reviews')
-    await waitForUI(() => {
-      expect(document.body.textContent).toContain(
-        existingCount === 15 ? 'at most 16 slots' : 'public_key on this Discord connection',
-      )
-    })
-    expect(button('Save changes').disabled).toBe(true)
-    await submit()
-    expect(api.requestsTo('PUT', path + '/apps/' + app.id)).toHaveLength(0)
+    if (existingCount === 15) {
+      await waitForUI(() => {
+        expect(document.body.textContent).toContain('at most 16 slots')
+      })
+      expect(button('Save changes').disabled).toBe(true)
+      await submit()
+      expect(api.requestsTo('PUT', path + '/apps/' + app.id)).toHaveLength(0)
+    } else {
+      expect(button('Save changes').disabled).toBe(false)
+    }
     act(() => {
       button('Remove Reviews').click()
     })
@@ -414,75 +364,123 @@ it.each([1, 15])(
     })
     expect(api.requestsTo('PUT', path + '/apps/' + app.id)[0]?.body).toEqual({
       name: app.name,
-      enabled: app.enabled,
+      definition_id: app.definition_id,
       settings: app.settings,
     })
   },
 )
 
-it.each([false, true])(
-  'preserves saved Discord settings without requiring a key for an unrelated edit (handler=%s)',
-  async (handler) => {
-    const app: ProjectApp = {
-      ...mixedApp,
-      settings: {
-        resource: { definition: 'omnara.discord', connection: connectionId, tools: {} },
-        launcher: {
-          trigger: 'mention',
-          scope_kind: 'channel',
-          scope_ref: '333',
-          slots: [
-            ...Array.from({ length: handler ? 1 : 2 }, (_, i) => ({
-              key: `profile_${i}`,
-              agent_profile_id: support.id,
-            })),
-            { key: 'fixed', agent_id: fakeId('agt') },
-          ],
-        },
+it('requires a public key for even one Discord launch profile', async () => {
+  const app = {
+    ...mixedApp,
+    definition_id: 'omnara.discord',
+    provider: 'discord' as const,
+    settings: {
+      launcher: {
+        trigger: 'mention',
+        scope_kind: 'channel',
+        scope_ref: '333',
+        slots: [{ key: 'default', agent_profile_id: support.id }],
       },
+    },
+  }
+  const api = fakeApi([
+    ...profileNameRoutes,
+    {
+      method: 'GET',
+      path: path + '/agent-profiles',
+      respond: () => Response.json({ data: [support], next_cursor: null }),
+    },
+  ])
+  render(
+    api,
+    <ProjectAppForm
+      orgId={orgId}
+      projectId={projectId}
+      app={app}
+      provider="discord"
+      onSaved={vi.fn()}
+    />,
+  )
+  await waitForUI(() => {
+    expect(document.body.textContent).toContain('Configure a valid Discord public key')
+  })
+  expect(button('Save changes').disabled).toBe(true)
+  await submit()
+  expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
+})
+
+it.each(['saved channel', 'new launcher'] as const)(
+  'uses the verified Slack workspace when switching from %s',
+  async (scenario) => {
+    const app = {
+      ...mixedApp,
+      settings: scenario === 'saved channel' ? mixedApp.settings : {},
     }
-    if (handler)
-      app.settings.resource.interaction_handler = { definition: 'omnara.discord.interactions' }
     const api = fakeApi([
+      ...profileNameRoutes,
+      {
+        method: 'GET',
+        path: path + '/agent-profiles',
+        respond: () => Response.json({ data: [support], next_cursor: null }),
+      },
       {
         method: 'PUT',
         path: path + '/apps/' + app.id,
         respond: ({ body }) =>
           Response.json({ ...app, ...schemas.zSaveProjectAppRequest.parse(body) }),
       },
-      ...profileNameRoutes,
-      {
-        method: 'GET',
-        path: path + '/integration-connections/' + connectionId,
-        respond: () => jsonResponse(connection('discord')),
-      },
-      {
-        method: 'GET',
-        path: path + '/agent-profiles',
-        respond: () => Response.json({ data: [support], next_cursor: null }),
-      },
     ])
-    const closed = vi.fn()
+    const onSaved = vi.fn()
     render(
       api,
       <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
+        provider="slack"
         app={app}
-        provider="discord"
-        onSaved={closed}
+        onSaved={onSaved}
       />,
     )
-    await enter('App setup name', 'Renamed Discord')
+    function selectScope(value: string) {
+      act(() => {
+        const select = container.querySelector<HTMLSelectElement>('select[aria-label="Launch in"]')
+        if (!select) throw new Error('Missing launcher scope selector')
+        select.value = value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+    }
+    if (scenario === 'new launcher') {
+      act(() => {
+        container.querySelector<HTMLInputElement>('input[name="launcher"]')?.click()
+      })
+      await chooseProfile('Support')
+      expect(container.textContent).toContain('Workspace: T123')
+      selectScope('channel')
+      await enter('Channel ID', 'C456')
+    }
+    selectScope('workspace')
+    expect(container.textContent).toContain('Workspace: T123')
+    expect(container.textContent).not.toContain('Enter a Slack workspace ID')
     expect(button('Save changes').disabled).toBe(false)
     await submit()
     await waitForUI(() => {
-      expect(closed).toHaveBeenCalled()
+      expect(onSaved).toHaveBeenCalled()
     })
-    expect(api.requestsTo('PUT', path + '/apps/' + app.id)[0]?.body).toEqual({
-      name: 'Renamed Discord',
-      enabled: app.enabled,
-      settings: app.settings,
+    const updates = api.requestsTo('PUT', path + '/apps/' + app.id)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]?.body).toMatchObject({
+      settings: {
+        launcher: {
+          trigger: 'mention',
+          scope_kind: 'workspace',
+          scope_ref: 'T123',
+          slots:
+            scenario === 'saved channel'
+              ? mixedApp.settings.launcher?.slots
+              : [{ key: 'default', agent_profile_id: support.id }],
+        },
+      },
     })
   },
 )

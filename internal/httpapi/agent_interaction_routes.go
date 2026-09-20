@@ -223,7 +223,7 @@ func agentInteractionResponseFromRecord(
 		return openapi.AgentInteraction{}, err
 	}
 	if destination != nil {
-		connectionID, err := publicID(publicid.KindIntegrationConnection, destination.ConnectionID)
+		appID, err := publicID(publicid.KindProjectApp, destination.AppID)
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
@@ -231,10 +231,18 @@ func agentInteractionResponseFromRecord(
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
+		var config, args map[string]interface{}
+		if err := json.Unmarshal(destination.Config, &config); err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		if err := json.Unmarshal(destination.Args, &args); err != nil {
+			return openapi.AgentInteraction{}, err
+		}
 		response.Destination = &openapi.AgentInteractionDestination{
-			HandlerDefinition:   destination.HandlerDefinition,
-			ResourceKey:         destination.ResourceKey,
-			ConnectionId:        connectionID,
+			HandlerDefinition: destination.HandlerDefinition,
+			Config:            config, Args: args,
+			HandlerKey:          destination.HandlerKey,
+			AppId:               appID,
 			IntegrationTargetId: targetID,
 			Address: openapi.IntegrationConversationAddress{
 				Kind: destination.Address.Kind, Ref: destination.Address.Ref,

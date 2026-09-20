@@ -25,7 +25,9 @@ import (
 func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	t.Parallel()
 	f := newAppActivationFixture(t)
-	definition := f.definition(t, "Initial origin", map[string]agentconfig.AppResourceCompiled{"chat": f.resource()})
+	definition := f.definition(t, "Initial origin", map[string]agentconfig.AppCapabilityCompiled{
+		"chat__thread_messages": f.listener(),
+	})
 	input := f.launchInput(uuid.Nil, "initial-origin")
 	input.DerivedConfig = &definition
 	input.InitialInput = &executionstore.LaunchInitialInput{
@@ -35,13 +37,13 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 		Metadata: json.RawMessage(`{"event":"message","timestamp":"123.456"}`),
 		Actor: &executionstore.ActorParams{
 			Provider:         "slack",
-			ProviderTenantID: f.connection.ProviderTenantID,
+			ProviderTenantID: f.app.ProviderTenantID,
 			ProviderUserID:   "U_INITIAL",
 		},
 		Origin: &executionstore.LaunchInputOrigin{
-			ConnectionID: f.connection.ID,
-			Address:      integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
-			DisplayName:  "Initial thread",
+			AppID:       f.app.ID,
+			Address:     integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
+			DisplayName: "Initial thread",
 		},
 		DeliveryMode:           executionstore.DeliveryModeSteering,
 		CancelOpenInteractions: true,
@@ -57,7 +59,7 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	require.JSONEq(t, string(input.InitialInput.ContentBlocks), string(launch.InputContentBlocks))
 	require.Equal(t, launch.IntegrationTarget.ID, launch.AgentInput.IntegrationTargetID)
 	require.Equal(t, integrationstore.TargetAttribution, launch.IntegrationTarget.RoutingRole)
-	require.Equal(t, "integration:slack:"+f.connection.ID.String(), launch.AgentInput.IdempotencyScope)
+	require.Equal(t, "integration:slack:"+f.app.ID.String(), launch.AgentInput.IdempotencyScope)
 	require.Equal(t, input.InitialInput.SemanticEventKey, launch.AgentInput.InputIdempotencyKey)
 	require.Len(t, f.listeners(t, launch.Agent.ID), 1)
 	f.disable(t)
@@ -89,7 +91,7 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 			definition := f.definition(
 				t,
 				"Failed initial input",
-				map[string]agentconfig.AppResourceCompiled{"chat": f.resource()},
+				map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": f.listener()},
 			)
 			input := f.launchInput(uuid.Nil, "invalid-initial")
 			input.DerivedConfig = &definition
@@ -97,12 +99,12 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"test"}]`),
 				Actor: &executionstore.ActorParams{
 					Provider:         "slack",
-					ProviderTenantID: f.connection.ProviderTenantID,
+					ProviderTenantID: f.app.ProviderTenantID,
 					ProviderUserID:   "U_INITIAL",
 				},
 				Origin: &executionstore.LaunchInputOrigin{
-					ConnectionID: f.connection.ID,
-					Address:      integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
+					AppID:   f.app.ID,
+					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 				},
 				SemanticEventKey: "message:123.456",
 			}
@@ -188,7 +190,6 @@ func TestLaunchPreparedArtifactMetadataReplayAndRollback(t *testing.T) {
 
 type inboxLaunchFixture struct {
 	appActivationFixture
-	app     integrationstore.ProjectAppRecord
 	receipt integrationstore.IntegrationInboxRecord
 	slots   map[string]executionstore.InboxLaunchSlot
 }
@@ -207,11 +208,9 @@ func newInboxLaunchFixture(
 	setup := integrationstore.SaveProjectAppInput{
 		OrgID:        testOrgID,
 		ProjectID:    testProjectID,
-		Name:         "launch-slots",
+		Name:         f.app.Name,
 		DefinitionID: appdefinition.Slack,
-		Enabled:      true,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{Connection: f.resource().ConnectionID},
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123"},
 		},
 	}
@@ -222,16 +221,16 @@ func newInboxLaunchFixture(
 		)
 	}
 	var err error
-	f.app, err = f.store.Integrations().CreateProjectApp(f.ctx, setup)
+	f.app, err = f.store.Integrations().UpdateProjectApp(f.ctx, f.app.ID, setup)
 	require.NoError(t, err)
 	_, _, err = f.store.Integrations().
 		AcceptIntegrationReceipt(
 			f.ctx,
 			integrationstore.VerifiedIntegrationReceipt{
-				ProjectID:    testProjectID,
-				ConnectionID: f.connection.ID,
-				ReceiptKey:   "launch-event",
-				Payload:      []byte(`{"event":"message"}`),
+				ProjectID:  testProjectID,
+				AppID:      f.app.ID,
+				ReceiptKey: "launch-event",
+				Payload:    []byte(`{"event":"message"}`),
 			},
 		)
 	require.NoError(t, err)
@@ -241,7 +240,7 @@ func newInboxLaunchFixture(
 			f.ctx,
 			integrationstore.ClaimIntegrationInboxInput{
 				ProjectID:     testProjectID,
-				ConnectionID:  f.connection.ID,
+				AppID:         f.app.ID,
 				LeaseDuration: leaseDuration,
 			},
 		)
@@ -253,7 +252,7 @@ func newInboxLaunchFixture(
 		definition := f.definition(
 			t,
 			"Frozen initial config "+key,
-			map[string]agentconfig.AppResourceCompiled{"chat": f.resource()},
+			map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": f.listener()},
 		)
 		launch := f.launchInput(uuid.Nil, "inbox-launch-"+key)
 		launch.DerivedConfig, launch.ProfileID = &definition, f.profile.ID
@@ -265,24 +264,24 @@ func newInboxLaunchFixture(
 			Metadata: json.RawMessage(`{"event":"frozen-first"}`),
 			Actor: &executionstore.ActorParams{
 				Provider:         "slack",
-				ProviderTenantID: f.connection.ProviderTenantID,
+				ProviderTenantID: f.app.ProviderTenantID,
 				ProviderUserID:   "U_LAUNCH",
 			},
 			Origin: &executionstore.LaunchInputOrigin{
-				ConnectionID: f.connection.ID,
-				Address:      integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
+				AppID:   f.app.ID,
+				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			},
 			SemanticEventKey: "message:123.456",
 			DeliveryMode:     executionstore.DeliveryModeSteering,
 		}
 		slot := executionstore.InboxLaunchSlot{
-			AgentID: plannedID,
-			Launch:  launch,
+			AgentID:     plannedID,
+			ListenerKey: "chat__thread_messages",
+			Launch:      launch,
 			Selection: integrationstore.InboxAppSelection{
-				AppID:        f.app.ID,
-				ConnectionID: f.connection.ID,
-				Address:      launch.InitialInput.Origin.Address,
-				Slot:         key,
+				AppID:   f.app.ID,
+				Address: launch.InitialInput.Origin.Address,
+				Slot:    key,
 			},
 		}
 		if withFile {
@@ -400,7 +399,7 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	require.Equal(t, f.slots["a"].ArtifactIDs[0], created.Artifacts[0].ID)
 	require.Equal(t, created.Agent.ID, created.Artifacts[0].AgentID)
 	require.JSONEq(t, string(f.slots["a"].Launch.InitialInput.ContentBlocks), string(created.InputContentBlocks))
-	require.Len(t, f.listeners(t, created.Agent.ID), 1)
+	require.Len(t, f.listeners(t, created.Agent.ID), 2)
 	var count int
 	require.NoError(
 		t,
@@ -478,7 +477,7 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 			f.ctx,
 			integrationstore.ClaimIntegrationInboxInput{
 				ProjectID:     testProjectID,
-				ConnectionID:  f.connection.ID,
+				AppID:         f.app.ID,
 				LeaseDuration: time.Minute,
 			},
 		)
@@ -553,7 +552,6 @@ func TestInboxLaunchRetainsFrozenMembershipAcrossAppEdit(t *testing.T) {
 				ProjectID:    testProjectID,
 				Name:         f.app.Name,
 				DefinitionID: f.app.DefinitionID,
-				Enabled:      true,
 				Settings:     settings,
 			},
 		)
@@ -586,22 +584,25 @@ func TestInboxLaunchRejectsIdempotencyKeyForDifferentPlannedAgent(t *testing.T) 
 	f.assertAbsent(t, "a")
 }
 
-func TestInboxLaunchLocksSecondaryResourceConnectionBeforeReceipt(t *testing.T) {
+func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, false, time.Minute, "a")
 	credential := createIntegrationCredential(t, f.ctx, f.store, testProjectID, f.user.ID, "secondary-launch")
-	secondary := mustCreateIntegrationConnection(
+	secondary := mustCreateProjectApp(
 		t,
 		f.ctx,
 		f.store,
-		slackIntegrationConnectionInput(f.profile.ID, uuid.Nil, f.user.ID, credential, "A_SECONDARY", "T_SECONDARY"),
+		slackProjectAppSetupInput(f.profile.ID, uuid.Nil, f.user.ID, credential, "A_SECONDARY", "T_SECONDARY"),
 	)
-	resource := f.resource()
-	resource.ConnectionID = publicResourceID(publicid.KindIntegrationConnection, secondary.ID)
+	resource := f.listener()
+	resource.AppID = publicResourceID(publicid.KindProjectApp, secondary.ID)
 	definition := f.definition(
 		t,
 		"Secondary resource gate",
-		map[string]agentconfig.AppResourceCompiled{"chat": f.resource(), "secondary": resource},
+		map[string]agentconfig.AppCapabilityCompiled{
+			"chat__thread_messages":              f.listener(),
+			secondary.Name + "__thread_messages": resource,
+		},
 	)
 	slot := f.slots["a"]
 	var err error
@@ -619,10 +620,10 @@ func TestInboxLaunchLocksSecondaryResourceConnectionBeforeReceipt(t *testing.T) 
 		AcceptIntegrationReceipt(
 			f.ctx,
 			integrationstore.VerifiedIntegrationReceipt{
-				ProjectID:    testProjectID,
-				ConnectionID: f.connection.ID,
-				ReceiptKey:   "secondary-event",
-				Payload:      []byte(`{}`),
+				ProjectID:  testProjectID,
+				AppID:      f.app.ID,
+				ReceiptKey: "secondary-event",
+				Payload:    []byte(`{}`),
 			},
 		)
 	require.NoError(t, err)
@@ -631,7 +632,7 @@ func TestInboxLaunchLocksSecondaryResourceConnectionBeforeReceipt(t *testing.T) 
 			f.ctx,
 			integrationstore.ClaimIntegrationInboxInput{
 				ProjectID:     testProjectID,
-				ConnectionID:  f.connection.ID,
+				AppID:         f.app.ID,
 				LeaseDuration: time.Minute,
 			},
 		)
@@ -652,24 +653,24 @@ func TestInboxLaunchLocksSecondaryResourceConnectionBeforeReceipt(t *testing.T) 
 	q := dbsqlc.New(blocker)
 	require.NoError(
 		t,
-		q.LockIntegrationConnectionLifecycleExclusive(
+		q.LockProjectAppLifecycleExclusive(
 			f.ctx,
-			dbsqlc.LockIntegrationConnectionLifecycleExclusiveParams{ConnectionID: secondary.ID},
+			dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: secondary.ID},
 		),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
 		return f.store.Execution().AdmitInboxLaunchSlot(f.ctx, receipt.Lease(), "a")
 	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationConnectionLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectAppLifecycleShared", 1)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
 	defer cancel()
 	_, err = q.LockIntegrationInboxReceipt(
 		lockCtx,
 		dbsqlc.LockIntegrationInboxReceiptParams{ProjectID: testProjectID, ID: receipt.ID},
 	)
-	require.NoError(t, err, "secondary connection gate must precede receipt lock")
+	require.NoError(t, err, "secondary app gate must precede receipt lock")
 	require.NoError(t, blocker.Commit(f.ctx))
-	result := integrationdb.AwaitSuccess(t, done, "secondary connection admission")
+	result := integrationdb.AwaitSuccess(t, done, "secondary app admission")
 	require.Equal(t, slot.AgentID, result.Agent.ID)
-	require.Len(t, f.listeners(t, result.Agent.ID), 2)
+	require.Len(t, f.listeners(t, result.Agent.ID), 3)
 }

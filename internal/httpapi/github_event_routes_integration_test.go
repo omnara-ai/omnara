@@ -33,10 +33,10 @@ import (
 const githubJourneyWebhookSecret = "local-test-webhook-secret"
 
 type githubHTTPJourney struct {
-	handler    http.Handler
-	project    publicHTTPProject
-	connection integrationstore.IntegrationConnectionRecord
-	secretID   string
+	handler  http.Handler
+	project  publicHTTPProject
+	app      integrationstore.ProjectAppRecord
+	secretID string
 }
 
 func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHTTPJourney {
@@ -46,34 +46,36 @@ func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHT
 	project := bootstrapPublicHTTPProject(t, handler, seed)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	secretID := createConnectionHTTPSecret(t, handler, project, "github-credentials", map[string]any{
+	secretID := createAppSetupHTTPSecret(t, handler, project, "github-credentials", map[string]any{
 		"kind": "github_app_credentials", "app_id": "123", "webhook_secret": githubJourneyWebhookSecret,
 		"private_key": string(pem.EncodeToMemory(&pem.Block{
 			Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
 		})),
 	})
-	connection := githubHTTPJourneyConnection(t, handler, project, secretID, "456")
-	return githubHTTPJourney{handler, project, connection, secretID}
+	app := githubHTTPJourneyApp(t, handler, project, secretID, "456")
+	return githubHTTPJourney{handler, project, app, secretID}
 }
 
-func githubHTTPJourneyConnection(
+func githubHTTPJourneyApp(
 	t *testing.T, handler http.Handler, project publicHTTPProject, secretID, installationID string,
-) integrationstore.IntegrationConnectionRecord {
+) integrationstore.ProjectAppRecord {
 	t.Helper()
-	body := connectionHTTPBody("github", "123", installationID)
+	app := createSetupHTTPApp(t, handler, project, "github-"+installationID, appdefinition.GitHub)
+	body := appSetupHTTPBody("123", installationID)
 	body["credential_secret_id"] = secretID
-	created := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/integration-connections",
-		projectAppHTTPJSON(t, body), "", http.StatusCreated, authHeaders(project.AdminToken))
-	id := mustPublicHTTPID(t, publicid.KindIntegrationConnection, testutil.RequireType[string](t, created["id"]))
-	connection, err := project.Store.Integrations().GetIntegrationConnection(t.Context(), project.ProjectUUID, id)
+	body["expected_setup_revision"] = app.SetupRevision
+	created := requestJSONWithHeaders(t, handler, http.MethodPost, appSetupPath(t, project, app),
+		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
+	id := mustPublicHTTPID(t, publicid.KindProjectApp, testutil.RequireType[string](t, created["id"]))
+	app, err := project.Store.Integrations().GetProjectApp(t.Context(), project.ProjectUUID, id)
 	require.NoError(t, err)
 	var identity github.AppIdentity
-	require.NoError(t, json.Unmarshal(connection.ProviderIdentity, &identity))
+	require.NoError(t, json.Unmarshal(app.ProviderIdentity, &identity))
 	require.Equal(t, int64(123), identity.AppID)
 	require.Equal(t, installationID, strconv.FormatInt(identity.InstallationID, 10))
 	require.Equal(t, int64(999), identity.BotUserID)
 	require.Equal(t, "helper[bot]", identity.BotLogin)
-	return connection
+	return app
 }
 
 func githubHTTPWebhook(
@@ -98,7 +100,7 @@ func (f githubHTTPJourney) consume(t *testing.T, raw string) []integration.AppSl
 	t.Helper()
 	inbox := f.project.Store.Integrations()
 	receipt, found, err := inbox.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project.ProjectUUID, ConnectionID: f.connection.ID, LeaseDuration: time.Minute,
+		ProjectID: f.project.ProjectUUID, AppID: f.app.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
@@ -157,7 +159,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 		t.Run(trigger, func(t *testing.T) {
 			t.Parallel()
 			f := newGitHubHTTPJourney(t, "github-"+strings.ReplaceAll(trigger, "_", "-"))
-			connectionID := testPublicID(t, publicid.KindIntegrationConnection, f.connection.ID)
+			appRef := testPublicID(t, publicid.KindProjectApp, f.app.ID)
 			base := map[string]any{
 				"instruction": "Review this pull request.",
 				"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
@@ -166,17 +168,15 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				projectAppHTTPJSON(t, base), f.project.AdminToken, http.StatusCreated)
 			profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "review-profile", "Review",
 				testutil.RequireType[string](t, config["id"]), f.project.AdminToken, http.StatusCreated)
-			app := projectAppHTTPBody("GitHub review", map[string]any{
-				"definition": "omnara.github", "connection": connectionID,
-				"listener": map[string]any{"events": []string{"discussion_comment", "review_comment", "commit"}},
-				"tools":    map[string]any{"github_read": map[string]any{}},
-			})
-			testutil.RequireType[map[string]any](t, app["settings"])["launcher"] = map[string]any{
-				"trigger": trigger, "scope_kind": "repository", "scope_ref": "1001",
-				"slots": []any{map[string]any{"key": "reviewer", "agent_profile_id": profile["id"]}},
+			app := map[string]any{
+				"name": f.app.Name, "definition_id": appdefinition.GitHub,
+				"settings": map[string]any{"launcher": map[string]any{
+					"trigger": trigger, "scope_kind": "repository", "scope_ref": "1001",
+					"slots": []any{map[string]any{"key": "reviewer", "agent_profile_id": profile["id"]}},
+				}},
 			}
-			requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/apps",
-				projectAppHTTPJSON(t, app), "", http.StatusCreated, authHeaders(f.project.AdminToken))
+			requestJSONWithHeaders(t, f.handler, http.MethodPut, f.project.ProjectPath+"/apps/"+appRef,
+				projectAppHTTPJSON(t, app), "", http.StatusOK, authHeaders(f.project.AdminToken))
 			raw, eventType := githubHTTPComment(t, 42, 3001, "@helper please review"), "issue_comment"
 			if trigger == "pull_request_opened" {
 				raw, eventType = githubHTTPPullRequest(t, "opened"), "pull_request"
@@ -185,7 +185,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			var receipts int
 			pool := integrationPoolForHandler(t, f.handler)
 			require.NoError(t, pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM integration_inbox WHERE connection_id=$1`, f.connection.ID).Scan(&receipts))
+				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 			require.Zero(t, receipts)
 			// A failed initial persistence returns 503 and stores nothing. GitHub
 			// does not retry automatically: these are manual redeliveries carrying
@@ -196,14 +196,14 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			githubHTTPWebhook(t, f.handler, eventType, "initial", githubJourneyWebhookSecret,
 				raw, http.StatusServiceUnavailable)
 			require.NoError(t, pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM integration_inbox WHERE connection_id=$1`, f.connection.ID).Scan(&receipts))
+				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 			require.Zero(t, receipts)
 			_, err = pool.Exec(t.Context(), `ALTER TABLE integration_inbox DROP CONSTRAINT github_test_fail_receipt`)
 			require.NoError(t, err)
 			for range 2 {
 				githubHTTPWebhook(t, f.handler, eventType, "initial", githubJourneyWebhookSecret, raw, http.StatusNoContent)
 				require.NoError(t, pool.QueryRow(t.Context(),
-					`SELECT count(*) FROM integration_inbox WHERE connection_id=$1`, f.connection.ID).Scan(&receipts))
+					`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 				require.Equal(t, 1, receipts, "manual redelivery must accept once and then deduplicate")
 			}
 			results := f.consume(t, raw)
@@ -277,12 +277,14 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 func TestGitHubHTTPExistingAgentListenerJourney(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "github-existing")
-	source := projectAppHTTPSource(map[string]any{
-		"definition": "omnara.github",
-		"connection": testPublicID(t, publicid.KindIntegrationConnection, f.connection.ID),
-		"scope":      map[string]any{"github": map[string]any{"repository_id": 1001, "pull_request": 42}},
-		"listener":   map[string]any{"events": []string{"discussion_comment", "review_comment", "commit"}},
-	})
+	source := map[string]any{
+		"instruction": "Review this pull request.",
+		"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
+		"listeners": map[string]any{f.app.Name + "__pull_request": map[string]any{"config": map[string]any{
+			"conversations": []any{map[string]any{"repository_id": 1001, "pull_request": 42}},
+			"events":        []string{"discussion_comment", "review_comment", "commit"},
+		}}},
+	}
 	config := createPublicHTTPAgentConfig(t, f.handler, f.project, "existing-config", "json",
 		projectAppHTTPJSON(t, source), f.project.AdminToken, http.StatusCreated)
 	profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "existing-profile", "Existing reviewer",
@@ -310,38 +312,40 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	grant := requestJSONWithHeaders(t, f.handler, http.MethodPost, secretPath+"/grants",
 		projectAppHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
 		"", http.StatusCreated, authHeaders(f.project.AdminToken))
-	connection2 := githubHTTPJourneyConnection(t, f.handler, second, f.secretID, "457")
+	secondApp := githubHTTPJourneyApp(t, f.handler, second, f.secretID, "457")
 	inbox := f.project.Store.Integrations()
-	candidates, err := inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 16)
+	candidates, err := inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1, "shared credential is decrypted at most once for an App ping")
-	require.Equal(t, f.connection.CredentialSecretID, candidates[0].CredentialSecretID)
+	require.Equal(t, f.app.CredentialSecretID, candidates[0].CredentialSecretID)
 	credential, err := f.project.Store.Secrets().ReadProjectAvailableSecretPayload(ctx,
 		secretstore.ReadProjectAvailableSecretPayloadInput{
 			OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
-			SecretID: f.connection.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
+			SecretID: f.app.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
 		})
 	require.NoError(t, err)
 	material := map[string]any{
 		"kind": "github_app_credentials", "app_id": "123", "webhook_secret": githubJourneyWebhookSecret,
 		"private_key": credential.Payload[secrets.KeyPrivateKey],
 	}
-	separateSecret := createConnectionHTTPSecret(t, f.handler, f.project, "second-credential", material)
-	separate := githubHTTPJourneyConnection(t, f.handler, f.project, separateSecret, "458")
-	candidates, err = inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 16)
+	separateSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "second-credential", material)
+	separate := githubHTTPJourneyApp(t, f.handler, f.project, separateSecret, "458")
+	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 2)
-	limited, err := inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 1)
+	limited, err := inbox.ListGitHubWebhookCredentialApps(ctx, "123", 1)
 	require.NoError(t, err)
 	require.Len(t, limited, 1)
 	require.Equal(t, candidates[0].ID, limited[0].ID, "bounded lookup has stable ordering")
 	material["app_id"] = "124"
-	otherSecret := createConnectionHTTPSecret(t, f.handler, f.project, "other-app-credential", material)
-	otherBody := connectionHTTPBody("github", "124", "459")
+	otherSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "other-app-credential", material)
+	otherBody := appSetupHTTPBody("124", "459")
 	otherBody["credential_secret_id"] = otherSecret
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/integration-connections",
-		projectAppHTTPJSON(t, otherBody), "", http.StatusCreated, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 16)
+	otherApp := createSetupHTTPApp(t, f.handler, f.project, "other-github", appdefinition.GitHub)
+	otherBody["expected_setup_revision"] = otherApp.SetupRevision
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, otherApp),
+		projectAppHTTPJSON(t, otherBody), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 2, "a different App cannot become a credential candidate")
 	for _, candidate := range candidates {
@@ -357,12 +361,9 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	pool := integrationPoolForHandler(t, f.handler)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
 	require.Zero(t, count, "App health/unmanaged installation callbacks do not choose a project")
-	state := connectionHTTPBody("github", "123", "456")
-	state["credential_secret_id"], state["state"] = f.secretID, "disabled"
-	connectionPath := f.project.ProjectPath + "/integration-connections/" +
-		testPublicID(t, publicid.KindIntegrationConnection, f.connection.ID)
-	requestJSONWithHeaders(t, f.handler, http.MethodPut, connectionPath,
-		projectAppHTTPJSON(t, state), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	appPath := f.project.ProjectPath + "/apps/" + testPublicID(t, publicid.KindProjectApp, f.app.ID)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, appPath+"/disconnect",
+		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	githubHTTPWebhook(t, f.handler, "issue_comment", "disabled", githubJourneyWebhookSecret,
 		githubHTTPComment(t, 42, 3001, "@helper disabled installation"), http.StatusNoContent)
 	// The same physical App URL still durably accepts the second installation's
@@ -370,16 +371,16 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	installed := `{"action":"created","installation":{"id":457,"app_id":123}}`
 	githubHTTPWebhook(t, f.handler, "installation", "managed", githubJourneyWebhookSecret,
 		installed, http.StatusNoContent)
-	f2 := githubHTTPJourney{handler: f.handler, project: second, connection: connection2, secretID: f.secretID}
+	f2 := githubHTTPJourney{handler: f.handler, project: second, app: secondApp, secretID: f.secretID}
 	require.Empty(t, f2.consume(t, installed))
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT count(*) FROM integration_inbox WHERE project_id=$1`, f.project.ProjectUUID).Scan(&count))
 	require.Zero(t, count)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
-		f.project.ProjectPath+"/integration-connections/"+
-			testPublicID(t, publicid.KindIntegrationConnection, separate.ID),
+		f.project.ProjectPath+"/apps/"+
+			testPublicID(t, publicid.KindProjectApp, separate.ID),
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 16)
+	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	// Disabled credentials can serve App health even after the other project's
@@ -387,17 +388,17 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 		secretPath+"/grants/"+testutil.RequireType[string](t, grant["id"]),
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 16)
+	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
-	require.Equal(t, f.connection.ID, candidates[0].ID)
-	require.Equal(t, integrationstore.IntegrationConnectionStateDisabled, candidates[0].State)
+	require.Equal(t, f.app.ID, candidates[0].ID)
+	require.Equal(t, integrationstore.ProjectAppStateDisconnected, candidates[0].State)
 	githubHTTPWebhook(t, f.handler, "ping", "disabled-ping", githubJourneyWebhookSecret, ping, http.StatusNoContent)
 	githubHTTPWebhook(t, f.handler, "installation", "revoked", githubJourneyWebhookSecret,
-		installed, http.StatusServiceUnavailable)
-	requestJSONWithHeaders(t, f.handler, http.MethodDelete, connectionPath,
+		installed, http.StatusUnauthorized)
+	requestJSONWithHeaders(t, f.handler, http.MethodDelete, appPath,
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialConnections(ctx, "123", 16)
+	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Empty(t, candidates, "deleted and no-longer-authorized references cannot verify a callback")
 	githubHTTPWebhook(t, f.handler, "ping", "unavailable-ping", githubJourneyWebhookSecret, ping, http.StatusUnauthorized)

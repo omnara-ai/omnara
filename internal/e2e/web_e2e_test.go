@@ -4,7 +4,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -25,6 +29,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
+	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -99,7 +105,7 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleAdmin,
 		authz.ProjectRoleAdmin,
 	)
-	providerFixture := webE2EVerifiedConnectionFixture(t, store, orgID, projectID, adminUserID)
+	providerFixture := webE2EVerifiedAppSetupFixture(t, store, orgID, projectID, adminUserID)
 	createWebE2EUser(
 		t,
 		ctx,
@@ -135,11 +141,15 @@ func TestWebE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode onboarding project id: %v", err)
 	}
-	onboardingProfileID, err := publicid.Decode(publicid.KindAgentProfile, onboardingProject.agentID)
+	onboardingProfileID, err := publicid.Decode(
+		publicid.KindAgentProfile,
+		onboardingProject.agentID,
+	)
 	if err != nil {
 		t.Fatalf("decode onboarding profile id: %v", err)
 	}
-	if err := store.Execution().DeleteAgentProfile(ctx, onboardingProjectID, onboardingProfileID); err != nil {
+	if err := store.Execution().
+		DeleteAgentProfile(ctx, onboardingProjectID, onboardingProfileID); err != nil {
 		t.Fatalf("delete bootstrapped onboarding profile: %v", err)
 	}
 	onboardingEmail := "web-onboarding-" + env.seed + "@example.com"
@@ -153,11 +163,12 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleAdmin,
 		authz.ProjectRoleAdmin,
 	)
-	switchOrg, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:         adminUserID,
-		Name:           webE2ESwitchOrgName,
-		IdempotencyKey: "web-switch-target-org",
-	})
+	switchOrg, err := store.Organizations().
+		CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+			UserID:         adminUserID,
+			Name:           webE2ESwitchOrgName,
+			IdempotencyKey: "web-switch-target-org",
+		})
 	if err != nil {
 		t.Fatalf("create web e2e switch target organization: %v", err)
 	}
@@ -188,11 +199,12 @@ func TestWebE2E(t *testing.T) {
 		secondInvitationOrg.Org.ID,
 		thirdInvitationOrg.Org.ID,
 	} {
-		if _, err := store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
-			OrgID: invitationOrgID,
-			Email: inviteeEmail,
-			Role:  authz.OrgRoleMember,
-		}); err != nil {
+		if _, err := store.Identity().
+			CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
+				OrgID: invitationOrgID,
+				Email: inviteeEmail,
+				Role:  authz.OrgRoleMember,
+			}); err != nil {
 			t.Fatalf("create web e2e pending organization invitation: %v", err)
 		}
 	}
@@ -223,21 +235,42 @@ func TestWebE2E(t *testing.T) {
 }
 
 // The real API binary has no provider-client test switch. Playwright replaces
-// only GitHub/Discord connection creation with this loopback fixture: it seeds verified
-// identity using the secret just saved through the real public API. Discovery
+// only GitHub/Discord credential setup with this loopback fixture: it configures
+// a saved app using the secret just saved through the real public API. Discovery
 // itself is covered by HTTP integration tests with local provider servers.
-func webE2EVerifiedConnectionFixture(
+func webE2EVerifiedAppSetupFixture(
 	t *testing.T,
 	store *storage.Store,
 	orgID, projectID, userID uuid.UUID,
 ) string {
 	t.Helper()
-	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body openapi.SaveIntegrationConnectionRequest
-		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&body) != nil ||
-			(body.Provider != "github" && body.Provider != "discord") ||
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /apps/{app_id}/setup", func(w http.ResponseWriter, r *http.Request) {
+		appID, err := publicid.Decode(publicid.KindProjectApp, r.PathValue("app_id"))
+		if err != nil {
+			http.Error(w, "invalid app id", http.StatusBadRequest)
+			return
+		}
+		app, err := store.Integrations().GetProjectApp(r.Context(), projectID, appID)
+		if err != nil || app.OrgID != orgID {
+			http.Error(
+				w,
+				"browser app was not persisted in the fixture project",
+				http.StatusNotFound,
+			)
+			return
+		}
+		var body openapi.ConfigureProjectAppRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&body) != nil ||
+			(app.Provider != "github" && app.Provider != "discord") ||
 			body.ProviderTenantId != "111" || body.ProviderAccountRef != "222" {
 			http.Error(w, "invalid provider browser fixture request", http.StatusBadRequest)
+			return
+		}
+		if body.ExpectedSetupRevision != app.SetupRevision {
+			http.Error(w, "app setup changed", http.StatusConflict)
 			return
 		}
 		secretID, err := publicid.Decode(publicid.KindSecret, body.CredentialSecretId)
@@ -250,13 +283,14 @@ func webE2EVerifiedConnectionFixture(
 			http.Error(w, "browser credential was not persisted", http.StatusBadRequest)
 			return
 		}
-		input := integrationstore.SaveIntegrationConnectionInput{
-			OrgID: orgID, ProjectID: projectID, InstalledByUserID: userID,
-			Provider: string(body.Provider), ProviderTenantID: "111", ProviderAccountRef: "222",
-			State:              integrationstore.IntegrationConnectionStateActive,
+		input := integrationstore.ConfigureProjectAppInput{
+			OrgID: orgID, ProjectID: projectID, AppID: app.ID,
+			ExpectedSetupRevision: body.ExpectedSetupRevision, InstalledByUserID: userID,
+			Provider: app.Provider, ProviderTenantID: "111", ProviderAccountRef: "222",
 			CredentialSecretID: secretID, CredentialVersionID: secret.CurrentVersionID,
+			ProviderConfig: app.ProviderConfig,
 		}
-		if body.Provider == "github" {
+		if app.Provider == "github" {
 			input.CredentialAppID = 111
 			input.ProviderIdentity = json.RawMessage(`{
 				"app_id":111,"installation_id":222,"app_slug":"web-fixture","bot_user_id":444,"bot_login":"web-fixture[bot]"
@@ -274,25 +308,140 @@ func webE2EVerifiedConnectionFixture(
 		if body.ProviderAgentDisplayName != nil {
 			input.ProviderAgentDisplayName = *body.ProviderAgentDisplayName
 		}
-		connection, err := store.Integrations().CreateIntegrationConnection(r.Context(), input)
+		configured, err := store.Integrations().ConfigureProjectApp(r.Context(), input)
 		if err != nil {
-			t.Errorf("seed verified provider browser connection: %v", err)
-			http.Error(w, "could not seed verified connection", http.StatusInternalServerError)
+			t.Errorf("configure verified browser app: %v", err)
+			http.Error(w, "could not configure verified app", http.StatusInternalServerError)
 			return
 		}
-		id, err := publicid.Encode(publicid.KindIntegrationConnection, connection.ID)
+		id, err := publicid.Encode(publicid.KindProjectApp, configured.ID)
 		if err != nil {
-			t.Errorf("encode provider fixture connection: %v", err)
-			http.Error(w, "could not encode connection", http.StatusInternalServerError)
+			t.Errorf("encode provider fixture app: %v", err)
+			http.Error(w, "could not encode app", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]string{"id": id}); err != nil {
 			t.Errorf("write provider fixture response: %v", err)
 		}
-	}))
+	})
+	fixture := httptest.NewServer(mux)
 	t.Cleanup(fixture.Close)
 	return fixture.URL
+}
+
+func TestWebE2EVerifiedAppSetupFixture(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "web-app-setup-fixture")
+	env.startAPI(t, ctx)
+	project := env.bootstrapProjectViaAPI(
+		t,
+		ctx,
+		"web-app-setup-fixture",
+		webE2EProviderConfig,
+		webE2EModelName,
+	)
+	fixtureURL := webE2EVerifiedAppSetupFixture(t, storage.NewStore(env.db),
+		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindOrganization, project.orgID)),
+		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)),
+		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindUser, project.adminUserID)))
+	for _, provider := range []string{"github", "discord"} {
+		app := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/apps", map[string]any{
+			"name":          "browser-" + provider,
+			"definition_id": "omnara." + provider,
+			"settings":      map[string]any{},
+		}, "", project.adminToken, http.StatusCreated)
+		appID := testutil.RequireType[string](t, app["id"])
+		material := map[string]any{"kind": "generic", "value": "local-discord-token"}
+		if provider == "github" {
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			require.NoError(t, err)
+			material = map[string]any{
+				"kind":           "github_app_credentials",
+				"app_id":         "111",
+				"webhook_secret": "local-webhook-secret",
+				"private_key": string(
+					pem.EncodeToMemory(
+						&pem.Block{
+							Type:  "RSA PRIVATE KEY",
+							Bytes: x509.MarshalPKCS1PrivateKey(key),
+						},
+					),
+				),
+			}
+		}
+		secret := env.requestJSON(
+			t,
+			ctx,
+			http.MethodPost,
+			"/api/v1/orgs/"+project.orgID+"/secrets",
+			map[string]any{
+				"name":     provider + "-browser-credentials",
+				"owner":    map[string]any{"kind": "project", "project_id": project.projectID},
+				"material": material,
+			},
+			"",
+			project.adminToken,
+			http.StatusCreated,
+		)
+		setup := map[string]any{
+			"expected_setup_revision": app["setup_revision"], "credential_secret_id": secret["id"],
+			"provider_tenant_id": "111", "provider_account_ref": "222",
+		}
+		if provider == "discord" {
+			setup["provider_config"] = map[string]any{
+				"public_key":  strings.Repeat("ab", 32),
+				"shard_count": 4,
+			}
+		}
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			fixtureURL+"/apps/"+appID+"/setup",
+			strings.NewReader(string(mustJSON(setup))),
+		)
+		require.NoError(t, err)
+		result := doServiceJSONRequest(t, request, http.StatusOK)
+		require.Equal(t, appID, result["id"])
+		configured := env.requestJSON(
+			t,
+			ctx,
+			http.MethodGet,
+			project.projectPath+"/apps/"+appID,
+			nil,
+			"",
+			project.adminToken,
+			http.StatusOK,
+		)
+		require.Equal(t, "active", configured["state"])
+		require.Equal(t, provider, configured["provider"])
+		require.Equal(t, secret["id"], configured["credential_secret_id"])
+		require.Equal(t, float64(2), configured["setup_revision"])
+		if provider == "discord" {
+			require.Equal(
+				t,
+				float64(4),
+				testutil.RequireType[map[string]any](t, configured["provider_config"])["shard_count"],
+			)
+		}
+		stale, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			fixtureURL+"/apps/"+appID+"/setup",
+			strings.NewReader(string(mustJSON(setup))),
+		)
+		require.NoError(t, err)
+		response, err := http.DefaultClient.Do(stale)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(
+			t,
+			http.StatusConflict,
+			response.StatusCode,
+			"fixture must fence an old browser setup revision",
+		)
+	}
 }
 
 func createWebE2EUser(

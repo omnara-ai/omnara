@@ -27,11 +27,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func discordInboxConnection() integrationstore.IntegrationConnectionRecord {
-	return integrationstore.IntegrationConnectionRecord{
+func discordInboxApp() integrationstore.ProjectAppRecord {
+	return integrationstore.ProjectAppRecord{
 		ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), CredentialSecretID: uuid.New(),
 		Provider: "discord", ProviderTenantID: "11", ProviderAccountRef: "22", UpdatedAt: time.Now(),
-		State: integrationstore.IntegrationConnectionStateActive, ProviderAgentDisplayName: "Helper",
+		State: integrationstore.ProjectAppStateActive, ProviderAgentDisplayName: "Helper",
 	}
 }
 
@@ -56,10 +56,10 @@ func discordInboxPayload(t *testing.T, message discord.Message) []byte {
 
 func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	t.Parallel()
-	connection := discordInboxConnection()
+	appSetup := discordInboxApp()
 	message := discordInboxMessageFixture()
 	channel := discord.Channel{ID: "300", GuildID: "100", Type: 0, Name: "help"}
-	root, ok, err := NormalizeDiscordAppEvent(connection, discordInboxPayload(t, message), channel)
+	root, ok, err := NormalizeDiscordAppEvent(appSetup, discordInboxPayload(t, message), channel)
 	if err != nil || !ok {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
@@ -76,7 +76,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	message.ID, message.ChannelID, message.Type = "501", "500", 19
 	message.Content, message.Mentions = "ordinary reply", nil
 	channel = discord.Channel{ID: "500", GuildID: "100", ParentID: "300", Type: 11, Name: "discussion"}
-	reply, ok, err := NormalizeDiscordAppEvent(connection, discordInboxPayload(t, message), channel)
+	reply, ok, err := NormalizeDiscordAppEvent(appSetup, discordInboxPayload(t, message), channel)
 	if err != nil || !ok || *reply.Event.Scope.Discord != want || reply.Event.Mentioned ||
 		reply.DeliveryMode != executionstore.DeliveryModeSteering || !reply.CancelOpenInteractions {
 		t.Fatalf("reply: %+v ok=%v err=%v", reply, ok, err)
@@ -85,11 +85,11 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 		t.Fatal("different messages share semantic identity")
 	}
 	message.Thread = &discord.Channel{ID: "999", ParentID: "777", GuildID: "888", Type: 11}
-	replayed, ok, err := NormalizeDiscordAppEvent(connection, discordInboxPayload(t, message), channel)
+	replayed, ok, err := NormalizeDiscordAppEvent(appSetup, discordInboxPayload(t, message), channel)
 	if err != nil || !ok || replayed.SemanticKey != reply.SemanticKey || *replayed.Event.Scope.Discord != want {
 		t.Fatalf("nested event thread altered scope: %+v %v", replayed, err)
 	}
-	addresses, err := reply.Event.RoutingAddresses(connection.ProviderTenantID)
+	addresses, err := reply.Event.RoutingAddresses(appSetup.ProviderTenantID)
 	if err != nil || len(addresses) != 3 || addresses[2].Ref != "100" {
 		t.Fatalf("guild routing inferred from App ID: %+v %v", addresses, err)
 	}
@@ -116,7 +116,7 @@ func TestDiscordInboxIgnoresNonConversationalEvents(t *testing.T) {
 			t.Parallel()
 			m := discordInboxMessageFixture()
 			tc.edit(&m)
-			_, ok, err := NormalizeDiscordAppEvent(discordInboxConnection(), discordInboxPayload(t, m),
+			_, ok, err := NormalizeDiscordAppEvent(discordInboxApp(), discordInboxPayload(t, m),
 				discord.Channel{ID: "300", GuildID: "100", Type: 0})
 			if err != nil || ok {
 				t.Fatalf("ignored input: ok=%v err=%v", ok, err)
@@ -136,48 +136,48 @@ func TestDiscordInboxRejectsUnprovenScope(t *testing.T) {
 		{ID: "300", GuildID: "100", ParentID: "../400", Type: 11},
 		{ID: "300", GuildID: "100", Type: 2},
 	} {
-		if _, ok, err := NormalizeDiscordAppEvent(discordInboxConnection(),
+		if _, ok, err := NormalizeDiscordAppEvent(discordInboxApp(),
 			discordInboxPayload(t, discordInboxMessageFixture()), channel); err == nil || ok {
 			t.Fatalf("accepted unproven channel: %+v", channel)
 		}
 	}
 	for _, raw := range []string{"null", "[]", "{}", "{", `{"type":"MESSAGE_CREATE","sequence":-1}`,
 		`{"type":"MESSAGE_CREATE","sequence":1,"data":{"id":"../500"}}`} {
-		if _, _, err := discordInboxMessage(discordInboxConnection(), []byte(raw)); err == nil {
+		if _, _, err := discordInboxMessage(discordInboxApp(), []byte(raw)); err == nil {
 			t.Fatalf("accepted invalid payload %q", raw)
 		}
 	}
 	for _, raw := range [][]byte{{0xff}, bytes.Repeat([]byte(" "), integrationstore.IntegrationInboxMaxPayloadBytes+1)} {
-		if _, _, err := discordInboxMessage(discordInboxConnection(), raw); err == nil {
+		if _, _, err := discordInboxMessage(discordInboxApp(), raw); err == nil {
 			t.Fatal("accepted invalid bytes")
 		}
 	}
 }
 
 type discordInboxFixture struct {
-	mu         sync.Mutex
-	connection integrationstore.IntegrationConnectionRecord
-	version    uuid.UUID
-	identity   discord.Identity
-	channels   map[string]discord.Channel
-	message    discord.Message
-	contents   map[string][]byte
-	requests   []string
-	posts      int
-	revoked    bool
-	afterRead  func()
-	override   func(http.ResponseWriter, *http.Request) bool
+	mu        sync.Mutex
+	appSetup  integrationstore.ProjectAppRecord
+	version   uuid.UUID
+	identity  discord.Identity
+	channels  map[string]discord.Channel
+	message   discord.Message
+	contents  map[string][]byte
+	requests  []string
+	posts     int
+	revoked   bool
+	afterRead func()
+	override  func(http.ResponseWriter, *http.Request) bool
 }
 
-func (f *discordInboxFixture) GetIntegrationConnection(
-	_ context.Context, projectID, connectionID uuid.UUID,
-) (integrationstore.IntegrationConnectionRecord, error) {
+func (f *discordInboxFixture) GetProjectApp(
+	_ context.Context, projectID, appID uuid.UUID,
+) (integrationstore.ProjectAppRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if projectID != f.connection.ProjectID || connectionID != f.connection.ID {
-		return integrationstore.IntegrationConnectionRecord{}, storeerr.ErrUnauthorized
+	if projectID != f.appSetup.ProjectID || appID != f.appSetup.ID {
+		return integrationstore.ProjectAppRecord{}, storeerr.ErrUnauthorized
 	}
-	return f.connection, nil
+	return f.appSetup, nil
 }
 
 func (f *discordInboxFixture) ReadProjectAvailableSecretPayload(
@@ -185,8 +185,8 @@ func (f *discordInboxFixture) ReadProjectAvailableSecretPayload(
 ) (secretstore.SecretPayloadRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if input.OrgID != f.connection.OrgID || input.ProjectID != f.connection.ProjectID ||
-		input.SecretID != f.connection.CredentialSecretID || input.Kind != secrets.KindGeneric || f.revoked {
+	if input.OrgID != f.appSetup.OrgID || input.ProjectID != f.appSetup.ProjectID ||
+		input.SecretID != f.appSetup.CredentialSecretID || input.Kind != secrets.KindGeneric || f.revoked {
 		return secretstore.SecretPayloadRecord{}, storeerr.ErrUnauthorized
 	}
 	result := secretstore.SecretPayloadRecord{
@@ -203,8 +203,8 @@ func (f *discordInboxFixture) GetProjectAvailableSecret(
 ) (secretstore.ProjectSecretAccessRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.revoked || orgID != f.connection.OrgID || projectID != f.connection.ProjectID ||
-		secretID != f.connection.CredentialSecretID {
+	if f.revoked || orgID != f.appSetup.OrgID || projectID != f.appSetup.ProjectID ||
+		secretID != f.appSetup.CredentialSecretID {
 		return secretstore.ProjectSecretAccessRecord{}, storeerr.ErrUnauthorized
 	}
 	return secretstore.ProjectSecretAccessRecord{
@@ -221,7 +221,7 @@ func (f discordInboxTransport) RoundTrip(r *http.Request) (*http.Response, error
 
 func newDiscordInboxFixture(t *testing.T) (*discordInboxFixture, *DiscordAppInboxProvider) {
 	t.Helper()
-	f := &discordInboxFixture{connection: discordInboxConnection(), version: uuid.New(),
+	f := &discordInboxFixture{appSetup: discordInboxApp(), version: uuid.New(),
 		identity: discord.Identity{ApplicationID: "11", BotUserID: "22"}, message: discordInboxMessageFixture(),
 		channels: map[string]discord.Channel{
 			"300": {ID: "300", GuildID: "100", Type: 0, Name: "help"},
@@ -313,7 +313,7 @@ func TestDiscordInboxExpansionIsReadOnlyAndReplayStable(t *testing.T) {
 	t.Parallel()
 	f, p := newDiscordInboxFixture(t)
 	raw := discordInboxPayload(t, f.message)
-	expansion, err := p.Expand(t.Context(), f.connection, raw)
+	expansion, err := p.Expand(t.Context(), f.appSetup, raw)
 	if err != nil || len(expansion.Events) != 1 || f.posts != 0 {
 		t.Fatalf("expansion: %+v %v posts=%d", expansion, err, f.posts)
 	}
@@ -326,13 +326,13 @@ func TestDiscordInboxExpansionIsReadOnlyAndReplayStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replay, err := p.Expand(t.Context(), f.connection, raw)
+	replay, err := p.Expand(t.Context(), f.appSetup, raw)
 	if err != nil || len(replay.Events) != 1 || replay.Events[0].SemanticKey != expansion.Events[0].SemanticKey {
 		t.Fatalf("replay: %+v %v", replay, err)
 	}
 	message := f.message
 	message.Mentions = nil
-	ignored, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, message))
+	ignored, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, message))
 	if err != nil || len(ignored.Events) != 0 {
 		t.Fatalf("ordinary root: %+v %v", ignored, err)
 	}
@@ -349,23 +349,23 @@ func TestDiscordInboxAccessIsRevalidated(t *testing.T) {
 		name string
 		edit func(*discordInboxFixture)
 	}{
-		{"connection disabled", func(f *discordInboxFixture) {
-			f.connection.State = integrationstore.IntegrationConnectionStateDisabled
+		{"app disabled", func(f *discordInboxFixture) {
+			f.appSetup.State = integrationstore.ProjectAppStateDisconnected
 		}},
-		{"connection revision", func(f *discordInboxFixture) {
-			f.connection.UpdatedAt = f.connection.UpdatedAt.Add(time.Second)
+		{"app setup revision", func(f *discordInboxFixture) {
+			f.appSetup.SetupRevision++
 		}},
 		{"secret revoked", func(f *discordInboxFixture) { f.revoked = true }},
 		{"secret version", func(f *discordInboxFixture) { f.version = uuid.New() }},
-		{"app identity", func(f *discordInboxFixture) { f.connection.ProviderTenantID = "111" }},
-		{"bot identity", func(f *discordInboxFixture) { f.connection.ProviderAccountRef = "222" }},
+		{"app identity", func(f *discordInboxFixture) { f.appSetup.ProviderTenantID = "111" }},
+		{"bot identity", func(f *discordInboxFixture) { f.appSetup.ProviderAccountRef = "222" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f, p := newDiscordInboxFixture(t)
-			connection := f.connection
+			appSetup := f.appSetup
 			f.afterRead = func() { tc.edit(f) }
-			_, err := p.Expand(t.Context(), connection, discordInboxPayload(t, f.message))
+			_, err := p.Expand(t.Context(), appSetup, discordInboxPayload(t, f.message))
 			if !errors.Is(err, storeerr.ErrUnauthorized) || len(f.requests) != 0 {
 				t.Fatalf("authority: err=%v requests=%v", err, f.requests)
 			}
@@ -379,7 +379,7 @@ func TestDiscordInboxWrongTokenIdentityAndRetryFence(t *testing.T) {
 		t.Parallel()
 		f, p := newDiscordInboxFixture(t)
 		f.identity.ApplicationID = "999"
-		_, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		_, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		var apiErr *discord.APIError
 		if !errors.As(err, &apiErr) || apiErr.Code != discord.ScopeMismatch || len(f.requests) != 2 {
 			t.Fatalf("token identity: %v requests=%v", err, f.requests)
@@ -396,7 +396,7 @@ func TestDiscordInboxWrongTokenIdentityAndRetryFence(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return true
 		}
-		_, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		_, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		if !errors.Is(err, storeerr.ErrUnauthorized) || len(f.requests) != 3 {
 			t.Fatalf("retry fence: %v requests=%v", err, f.requests)
 		}
@@ -408,13 +408,13 @@ func TestDiscordInboxPrepareCreatesOneThreadOnlyAfterAuthority(t *testing.T) {
 	f, p := newDiscordInboxFixture(t)
 	raw := discordInboxPayload(t, f.message)
 	scope := appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}
-	if err := p.PrepareConversation(t.Context(), f.connection, raw, scope, nil); err == nil || len(f.requests) != 0 {
+	if err := p.PrepareConversation(t.Context(), f.appSetup, raw, scope, nil); err == nil || len(f.requests) != 0 {
 		t.Fatalf("missing authority: %v requests=%v", err, f.requests)
 	}
 	var checks atomic.Int32
 	authority := func(context.Context) error { checks.Add(1); return nil }
 	for range 2 {
-		if err := p.PrepareConversation(t.Context(), f.connection, raw, scope, authority); err != nil {
+		if err := p.PrepareConversation(t.Context(), f.appSetup, raw, scope, authority); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -423,7 +423,7 @@ func TestDiscordInboxPrepareCreatesOneThreadOnlyAfterAuthority(t *testing.T) {
 	}
 	wrong := scope
 	wrong.ThreadID = "600"
-	err := p.PrepareConversation(t.Context(), f.connection, raw, wrong, authority)
+	err := p.PrepareConversation(t.Context(), f.appSetup, raw, wrong, authority)
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("frozen scope mismatch: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestDiscordInboxPrepareRevocationCancelsMutation(t *testing.T) {
 		return false
 	}
 	sentinel := errors.New("frozen recipient lost authority")
-	err := p.PrepareConversation(t.Context(), f.connection, discordInboxPayload(t, f.message),
+	err := p.PrepareConversation(t.Context(), f.appSetup, discordInboxPayload(t, f.message),
 		appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
 		func(context.Context) error {
 			if revoked.Load() {
@@ -489,7 +489,7 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 	captured.Attachments = append([]discord.Attachment(nil), f.message.Attachments...)
 	captured.Attachments[0].URL = "https://untrusted.invalid/must-not-be-fetched"
 	raw := discordInboxPayload(t, captured)
-	expansion, err := p.Expand(t.Context(), f.connection, raw)
+	expansion, err := p.Expand(t.Context(), f.appSetup, raw)
 	if err != nil || len(expansion.Events) != 1 || len(expansion.Events[0].Files) != 1 {
 		t.Fatalf("file expansion: %+v %v", expansion, err)
 	}
@@ -506,29 +506,29 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 	artifacts := &discordInboxArtifacts{uploaded: map[uuid.UUID][]byte{}}
 	consumer := &AppInboxConsumer{artifacts: artifacts}
 	slot := AppInboxSlot{AgentID: uuid.New(), Files: files}
-	prepared, err := consumer.prepareFiles(t.Context(), p, f.connection, raw, slot, expansion.Files)
+	prepared, err := consumer.prepareFiles(t.Context(), p, f.appSetup, raw, slot, expansion.Files)
 	if err != nil || len(prepared) != 1 || string(artifacts.uploaded[files[0].ArtifactID]) != "hello" {
 		t.Fatalf("artifact upload: %+v %v", prepared, err)
 	}
 	requestCount := len(f.requests)
-	if _, err := consumer.prepareFiles(t.Context(), p, f.connection, raw, slot, map[string]AppInboxFile{}); err != nil ||
+	if _, err := consumer.prepareFiles(t.Context(), p, f.appSetup, raw, slot, map[string]AppInboxFile{}); err != nil ||
 		len(f.requests) != requestCount {
 		t.Fatalf("already uploaded recovery performed I/O: %v", err)
 	}
 	delete(artifacts.uploaded, files[0].ArtifactID)
-	if _, err := consumer.prepareFiles(t.Context(), p, f.connection, raw, slot, map[string]AppInboxFile{}); err != nil {
+	if _, err := consumer.prepareFiles(t.Context(), p, f.appSetup, raw, slot, map[string]AppInboxFile{}); err != nil {
 		t.Fatalf("rehydrated frozen bytes: %v", err)
 	}
 	delete(artifacts.uploaded, files[0].ArtifactID)
 	f.mu.Lock()
 	f.contents["701"] = []byte("other")
 	f.mu.Unlock()
-	_, err = consumer.prepareFiles(t.Context(), p, f.connection, raw, slot, map[string]AppInboxFile{})
+	_, err = consumer.prepareFiles(t.Context(), p, f.appSetup, raw, slot, map[string]AppInboxFile{})
 	if !errors.Is(err, storeerr.ErrIdempotencyConflict) || len(artifacts.uploaded) != 0 {
 		t.Fatalf("changed content was admitted: %v", err)
 	}
 	requestCount = len(f.requests)
-	if _, err := p.DownloadFile(t.Context(), f.connection, raw, "702"); err == nil || len(f.requests) != requestCount {
+	if _, err := p.DownloadFile(t.Context(), f.appSetup, raw, "702"); err == nil || len(f.requests) != requestCount {
 		t.Fatalf("uncaptured file caused I/O: %v", err)
 	}
 }
@@ -540,7 +540,7 @@ func TestDiscordInboxAttachmentBoundsAndRateLimit(t *testing.T) {
 		f, p := newDiscordInboxFixture(t)
 		f.message.Content = ""
 		f.message.Attachments = []discord.Attachment{{ID: "701", Size: discord.MaxFileBytes + 1}, {ID: "702", Size: 0}}
-		expansion, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		expansion, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		if err != nil || len(expansion.Events) != 1 || len(expansion.Files) != 0 || len(f.requests) != 3 {
 			t.Fatalf("skip expansion: %+v %v requests=%v", expansion, err, f.requests)
 		}
@@ -560,7 +560,7 @@ func TestDiscordInboxAttachmentBoundsAndRateLimit(t *testing.T) {
 			_, _ = w.Write([]byte(`{"retry_after":60}`))
 			return true
 		}
-		expansion, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		expansion, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		var apiErr *discord.APIError
 		if !errors.As(err, &apiErr) || apiErr.Code != discord.RateLimited || apiErr.RetryAfter != time.Minute ||
 			len(expansion.Events) != 0 {
@@ -575,11 +575,11 @@ func TestDiscordInboxAttachmentRecoveryRefusesChangedMetadata(t *testing.T) {
 	f.attach("701", []byte("hello"), "text/plain")
 	raw := discordInboxPayload(t, f.message)
 	f.message.Attachments[0].Filename = "different.txt"
-	if _, err := p.DownloadFile(t.Context(), f.connection, raw, "701"); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, err := p.DownloadFile(t.Context(), f.appSetup, raw, "701"); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("changed file metadata: %v", err)
 	}
 	requestCount := len(f.requests)
-	if _, err := p.DownloadFile(t.Context(), f.connection, raw, "../701"); err == nil || len(f.requests) != requestCount {
+	if _, err := p.DownloadFile(t.Context(), f.appSetup, raw, "../701"); err == nil || len(f.requests) != requestCount {
 		t.Fatalf("unsafe file ID: %v", err)
 	}
 }
@@ -594,7 +594,7 @@ func TestDiscordInboxRevocationAfterDownloadDoesNotPublishEvent(t *testing.T) {
 		}
 		return false
 	}
-	expansion, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+	expansion, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 	if !errors.Is(err, storeerr.ErrUnauthorized) || len(expansion.Events) != 0 || len(expansion.Files) != 0 {
 		t.Fatalf("revoked expansion published: %+v %v", expansion, err)
 	}
@@ -610,7 +610,7 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 			f.attach(id, content, "text/plain")
 		}
 		f.attach("704", []byte("too much"), "text/plain")
-		expansion, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		expansion, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		if err != nil || len(expansion.Files) != 3 || len(expansion.Events) != 1 {
 			t.Fatalf("bounded media: files=%d events=%d err=%v", len(expansion.Files), len(expansion.Events), err)
 		}
@@ -626,7 +626,7 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 		for i := range discord.MaxFiles + 1 {
 			f.attach(fmt.Sprint(701+i), nil, "text/plain")
 		}
-		expansion, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		expansion, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		if err != nil || len(expansion.Files) != 0 || len(f.requests) != 3 ||
 			!strings.Contains(string(expansion.Events[0].Metadata), "too_many_attachments") {
 			t.Fatalf("attachment count: %+v %v requests=%v", expansion, err, f.requests)
@@ -636,7 +636,7 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 		t.Parallel()
 		f, p := newDiscordInboxFixture(t)
 		f.attach("701", []byte{'O', 'g', 'g', 'S', 0, 0, 0}, "audio/ogg")
-		expansion, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message))
+		expansion, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		if err != nil || len(expansion.Events) != 1 || len(expansion.Files) != 0 ||
 			!strings.Contains(string(expansion.Events[0].Metadata), "unsupported_media_type") {
 			t.Fatalf("unsupported media: %+v %v", expansion, err)
@@ -649,11 +649,11 @@ func TestDiscordInboxThreadPreparationDoesNotMutateReplies(t *testing.T) {
 	f, p := newDiscordInboxFixture(t)
 	f.message.ID, f.message.ChannelID, f.message.Mentions = "501", "400", nil
 	raw := discordInboxPayload(t, f.message)
-	expansion, err := p.Expand(t.Context(), f.connection, raw)
+	expansion, err := p.Expand(t.Context(), f.appSetup, raw)
 	if err != nil || len(expansion.Events) != 1 {
 		t.Fatalf("thread reply: %+v %v", expansion, err)
 	}
-	if err := p.PrepareConversation(t.Context(), f.connection, raw, *expansion.Events[0].Event.Scope.Discord,
+	if err := p.PrepareConversation(t.Context(), f.appSetup, raw, *expansion.Events[0].Event.Scope.Discord,
 		func(context.Context) error { return nil }); err != nil || f.posts != 0 {
 		t.Fatalf("reply preparation: err=%v posts=%d", err, f.posts)
 	}
@@ -664,19 +664,32 @@ func TestDiscordInboxContextAndMissingContent(t *testing.T) {
 	f, p := newDiscordInboxFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := p.Expand(ctx, f.connection, discordInboxPayload(t, f.message)); !errors.Is(err, context.Canceled) ||
+	if _, err := p.Expand(ctx, f.appSetup, discordInboxPayload(t, f.message)); !errors.Is(err, context.Canceled) ||
 		len(f.requests) != 0 {
 		t.Fatalf("canceled request: %v requests=%v", err, f.requests)
 	}
 	f.message.Content = ""
-	if _, err := p.Expand(t.Context(), f.connection, discordInboxPayload(t, f.message)); err == nil ||
+	if _, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message)); err == nil ||
 		!strings.Contains(err.Error(), "message-content intent") {
 		t.Fatalf("missing message content silently accepted: %v", err)
 	}
 	unsupported := []byte(`{"type":"MESSAGE_UPDATE","sequence":9,"data":{}}`)
 	count := len(f.requests)
-	if expanded, err := p.Expand(t.Context(), f.connection, unsupported); err != nil ||
+	if expanded, err := p.Expand(t.Context(), f.appSetup, unsupported); err != nil ||
 		len(expanded.Events) != 0 || len(f.requests) != count {
 		t.Fatalf("mutation event was expanded: %+v %v", expanded, err)
+	}
+}
+
+func TestDiscordInboxSettingsEditPreservesSetupAccess(t *testing.T) {
+	f, provider := newDiscordInboxFixture(t)
+	app := f.appSetup
+	f.afterRead = func() { f.appSetup.UpdatedAt = app.UpdatedAt.Add(time.Hour) }
+	_, check, err := provider.requestAccess(t.Context(), app, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := check(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 }

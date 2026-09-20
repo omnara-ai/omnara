@@ -16,7 +16,7 @@ type AppProfileChoiceOption struct {
 }
 
 type AppProfileChoiceRecord struct {
-	ID, ProjectID, ConnectionID, AppID uuid.UUID
+	ID, ProjectID, AppID uuid.UUID
 	// OwnerReceiptID is immutable publication provenance; only that receipt may
 	// present the menu, using its current inbox lease and ordinary recovery.
 	OwnerReceiptID                  uuid.UUID
@@ -42,12 +42,12 @@ type EnsureAppProfileChoiceInput struct {
 
 // ChooseAppProfileInput carries events built by trusted app code from the stored
 // source. SourceChoiceUpdatedAt fences attachment siblings that replace it.
-// SourceConnectionUpdatedAt pins the connection authenticated by the callback.
+// SourceSetupRevision pins the app authenticated by the callback.
 type ChooseAppProfileInput struct {
-	ProjectID, ConnectionID, ID uuid.UUID
+	ProjectID, AppID, ID        uuid.UUID
 	Key, ActorID                string
 	MessageChannelID, MessageID string
 	SourceChoiceUpdatedAt       time.Time
 	Events                      json.RawMessage
-	SourceConnectionUpdatedAt   time.Time
+	SourceSetupRevision         int64
 }

@@ -42,11 +42,13 @@ and retry — don't skip ahead.
         and run code on your machine when analysis helps. Cite your
         sources."
    - ordinary built-in tools except create_machine and delete_machine —
-     list them from GET /tool-catalog. Do not add provider app tools or
-     interaction-destination tools without app resources. If I chose Slack,
-     its setup below supplies the scoped read/send tools, listener and
-     interaction handler to agents it launches; the base profile needs
-     no implicit integration tools
+     list them from GET /tool-catalog. The compiler supplies
+     list_interaction_handlers and set_interaction_handler by default. If I
+     chose Slack, its app launcher below supplies namespaced read/send tools,
+     a thread listener and an interaction handler to agents it launches;
+     leave app tools out of the base profile. Tell the agent to use the
+     available app__<app-name>__post_message tool for answers and updates
+     in Slack, or reply directly in Omnara when no Slack tool is available
    - the granted model and pool
    - if a PAT was collected: create a project-owned secret from the
      temp file without reading or printing its value, delete the
@@ -62,9 +64,15 @@ and retry — don't skip ahead.
    — the conversation lives there; I can keep using it in the browser
    anytime.
 
-5. If I chose Slack: ask for an app configuration token from
-   https://api.slack.com/apps (under "Your App Configuration
-   Tokens"), call the profile's slack-setup endpoint, and open the
-   returned oauth_url in my browser for me to approve within 10
-   minutes. Once approved, tell me to open Slack and @-mention the
-   bot in any channel to start a conversation, or DM it for a persistent one-on-one agent.
+5. If I chose Slack: ask for the Slack workspace ID (T…) and an app
+   configuration token from https://api.slack.com/apps (under "Your App
+   Configuration Tokens"). Create a project app with an immutable name
+   such as "team-chat", definition_id "omnara.slack", and
+   settings.launcher {trigger: "mention", scope_kind: "workspace",
+   scope_ref: <workspace ID>, slots: [{key: "default",
+   agent_profile_id: <profile ID>}]}. Use the returned app ID with
+   POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/slack-setup, sending
+   app_name and app_configuration_token. Open the returned oauth_url in my
+   browser for me to approve before expires_at. Once approved, tell me to
+   invite the bot to a channel in that workspace and @-mention it to start a
+   conversation, or DM it for a persistent one-on-one agent.

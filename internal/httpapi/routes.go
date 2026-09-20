@@ -57,7 +57,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", s.mcpProtectedResourceMetadataRoute)
 	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
-	mux.HandleFunc("POST /api/integrations/discord/{connection_id}/interactions", s.discordInteractionsRoute)
+	mux.HandleFunc("POST /api/integrations/discord/{application_id}/interactions", s.discordInteractionsRoute)
 	mux.Handle("POST /api/integrations/github/{app_id}/events", s.GitHubEventsHandler())
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)

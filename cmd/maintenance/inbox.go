@@ -81,11 +81,11 @@ func parseInboxCommand(args []string, diagnostics io.Writer) (inboxCommand, erro
 	flags := flag.NewFlagSet("maintenance inbox "+c.action, flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
 	project := flags.String("project", "", "project public ID (required)")
-	var connection, state, after, receipt string
+	var app, state, after, receipt string
 	limit := 50
 	switch c.action {
 	case "list":
-		flags.StringVar(&connection, "connection", "", "connection public ID filter")
+		flags.StringVar(&app, "app", "", "app public ID filter")
 		flags.StringVar(&state, "state", "failed", "pending, processing, failed, completed, discarded or all")
 		flags.IntVar(&limit, "limit", 50, "page size (1-100)")
 		flags.StringVar(&after, "after", "", "continuation cursor from the previous page")
@@ -129,10 +129,10 @@ func parseInboxCommand(args []string, diagnostics io.Writer) (inboxCommand, erro
 	default:
 		return c, errors.New("invalid --state")
 	}
-	if connection != "" {
-		c.list.ConnectionID, err = publicid.Decode(publicid.KindIntegrationConnection, connection)
+	if app != "" {
+		c.list.AppID, err = publicid.Decode(publicid.KindProjectApp, app)
 		if err != nil {
-			return c, fmt.Errorf("invalid --connection: %w", err)
+			return c, fmt.Errorf("invalid --app: %w", err)
 		}
 	}
 	if after != "" {
@@ -149,18 +149,18 @@ func parseInboxCommand(args []string, diagnostics io.Writer) (inboxCommand, erro
 }
 
 type inboxReceiptView struct {
-	ID           uuid.UUID                              `json:"receipt_id"`
-	ProjectID    string                                 `json:"project_id"`
-	ConnectionID string                                 `json:"connection_id"`
-	ReceiptKey   string                                 `json:"receipt_key"`
-	State        integrationstore.IntegrationInboxState `json:"state"`
-	Attempts     int                                    `json:"attempt_count"`
-	CreatedAt    time.Time                              `json:"created_at"`
-	UpdatedAt    time.Time                              `json:"updated_at"`
-	AvailableAt  time.Time                              `json:"available_at"`
-	TerminalAt   *time.Time                             `json:"terminal_at,omitempty"`
-	LastError    string                                 `json:"last_error,omitempty"`
-	Slots        []inboxSlotView                        `json:"slots,omitempty"`
+	ID          uuid.UUID                              `json:"receipt_id"`
+	ProjectID   string                                 `json:"project_id"`
+	AppID       string                                 `json:"app_id"`
+	ReceiptKey  string                                 `json:"receipt_key"`
+	State       integrationstore.IntegrationInboxState `json:"state"`
+	Attempts    int                                    `json:"attempt_count"`
+	CreatedAt   time.Time                              `json:"created_at"`
+	UpdatedAt   time.Time                              `json:"updated_at"`
+	AvailableAt time.Time                              `json:"available_at"`
+	TerminalAt  *time.Time                             `json:"terminal_at,omitempty"`
+	LastError   string                                 `json:"last_error,omitempty"`
+	Slots       []inboxSlotView                        `json:"slots,omitempty"`
 }
 
 // Deliberately project only identity references and stage presence. Never encode
@@ -180,11 +180,11 @@ func inboxView(summary integrationstore.IntegrationInboxSummary) (inboxReceiptVi
 	if err != nil {
 		return inboxReceiptView{}, err
 	}
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, summary.ConnectionID)
+	app, err := publicid.Encode(publicid.KindProjectApp, summary.AppID)
 	if err != nil {
 		return inboxReceiptView{}, err
 	}
-	return inboxReceiptView{ID: summary.ID, ProjectID: project, ConnectionID: connection,
+	return inboxReceiptView{ID: summary.ID, ProjectID: project, AppID: app,
 		ReceiptKey: summary.ReceiptKey, State: summary.State, Attempts: summary.AttemptCount,
 		CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, AvailableAt: summary.AvailableAt,
 		TerminalAt: summary.CompletedAt, LastError: summary.LastError}, nil

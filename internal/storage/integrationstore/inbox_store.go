@@ -29,21 +29,21 @@ func (s *Store) AcceptIntegrationReceipt(
 		return IntegrationInboxRecord{}, false, fmt.Errorf("begin accept inbox receipt: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.enterInboxConnection(ctx, tx, input.ProjectID, input.ConnectionID); err != nil {
+	if err := s.enterInboxApp(ctx, tx, input.ProjectID, input.AppID); err != nil {
 		return IntegrationInboxRecord{}, false, err
 	}
 	q := dbsqlc.New(tx)
 	row, err := q.InsertIntegrationInboxReceipt(ctx, dbsqlc.InsertIntegrationInboxReceiptParams{
-		ProjectID:    input.ProjectID,
-		ConnectionID: input.ConnectionID,
-		ReceiptKey:   input.ReceiptKey,
-		Payload:      input.Payload,
+		ProjectID:  input.ProjectID,
+		AppID:      input.AppID,
+		ReceiptKey: input.ReceiptKey,
+		Payload:    input.Payload,
 	})
 	created := !errors.Is(err, pgx.ErrNoRows)
 	if !created {
 		// Separate statement sees a concurrent receipt committed while INSERT waited.
 		row, err = q.GetIntegrationInboxReceiptByKey(ctx, dbsqlc.GetIntegrationInboxReceiptByKeyParams{
-			ProjectID: input.ProjectID, ConnectionID: input.ConnectionID, ReceiptKey: input.ReceiptKey,
+			ProjectID: input.ProjectID, AppID: input.AppID, ReceiptKey: input.ReceiptKey,
 		})
 	}
 	if err != nil {
@@ -55,28 +55,29 @@ func (s *Store) AcceptIntegrationReceipt(
 	return inboxRecord(row), created, nil
 }
 
-func (s *Store) enterInboxConnection(
-	ctx context.Context, tx pgx.Tx, projectID, connectionID uuid.UUID, additional ...uuid.UUID,
+func (s *Store) enterInboxApp(
+	ctx context.Context, tx pgx.Tx, projectID, appID uuid.UUID, additional ...uuid.UUID,
 ) error {
-	connection, err := getIntegrationConnection(ctx, dbsqlc.New(tx), projectID, connectionID)
+	app, err := getProjectApp(ctx, dbsqlc.New(tx), projectID, appID)
 	if err != nil {
 		return err
 	}
-	if err := lifecyclelock.EnterActiveProject(ctx, tx, connection.OrgID, projectID); err != nil {
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, app.OrgID, projectID); err != nil {
 		return err
 	}
-	// Lock the sorted union before the receipt. An admission may use resources
-	// on other connections; taking those gates beneath the receipt can deadlock
-	// with another receipt and concurrent connection revocation.
-	ids := append([]uuid.UUID{connectionID}, additional...)
-	return LockAppConnectionsTx(ctx, tx, projectID, nil, ids...)
+	// Lock the sorted union before the receipt. An admission may use capabilities
+	// on other apps; taking those gates beneath the receipt can deadlock
+	// with another receipt and concurrent app revocation.
+	// Compiled references only need project ownership. The receipt's owning
+	// app supplies the required live authority for this admission.
+	return lockProjectAppsTx(ctx, tx, projectID, additional, []uuid.UUID{appID})
 }
 
 func (s *Store) ClaimIntegrationInbox(
 	ctx context.Context, input ClaimIntegrationInboxInput,
 ) (IntegrationInboxRecord, bool, error) {
-	if input.ProjectID == uuid.Nil || input.ConnectionID == uuid.Nil {
-		return IntegrationInboxRecord{}, false, inboxInvalid("project and connection are required")
+	if input.ProjectID == uuid.Nil || input.AppID == uuid.Nil {
+		return IntegrationInboxRecord{}, false, inboxInvalid("project and app are required")
 	}
 	if input.LeaseDuration < time.Second || input.LeaseDuration > IntegrationInboxMaxLease {
 		return IntegrationInboxRecord{}, false, inboxInvalid("lease must be between one second and five minutes")
@@ -86,11 +87,11 @@ func (s *Store) ClaimIntegrationInbox(
 		return IntegrationInboxRecord{}, false, fmt.Errorf("begin claim inbox: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.enterInboxConnection(ctx, tx, input.ProjectID, input.ConnectionID); err != nil {
+	if err := s.enterInboxApp(ctx, tx, input.ProjectID, input.AppID); err != nil {
 		return IntegrationInboxRecord{}, false, err
 	}
 	row, err := dbsqlc.New(tx).ClaimIntegrationInboxReceipt(ctx, dbsqlc.ClaimIntegrationInboxReceiptParams{
-		ProjectID: input.ProjectID, ConnectionID: input.ConnectionID,
+		ProjectID: input.ProjectID, AppID: input.AppID,
 		ClaimToken: uuid.New(), LeaseMilliseconds: input.LeaseDuration.Milliseconds(),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -105,24 +106,24 @@ func (s *Store) ClaimIntegrationInbox(
 	return inboxRecord(row), true, nil
 }
 
-// ListReadyIntegrationInboxConnections discovers work without acquiring child
+// ListReadyIntegrationInboxApps discovers work without acquiring child
 // locks before lifecycle gates. Claim revalidates scope and skips busy receipts.
 // Workers also call RecoverIntegrationInbox periodically, even when this is empty.
-func (s *Store) ListReadyIntegrationInboxConnections(
+func (s *Store) ListReadyIntegrationInboxApps(
 	ctx context.Context, limit int,
-) ([]IntegrationInboxConnection, error) {
+) ([]IntegrationInboxApp, error) {
 	if err := validateInboxBatch(limit); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListReadyIntegrationInboxConnections(ctx, dbsqlc.ListReadyIntegrationInboxConnectionsParams{
+	rows, err := s.q.ListReadyIntegrationInboxApps(ctx, dbsqlc.ListReadyIntegrationInboxAppsParams{
 		RowLimit: int32(limit),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list ready inbox connections: %w", err)
+		return nil, fmt.Errorf("list ready inbox apps: %w", err)
 	}
-	result := make([]IntegrationInboxConnection, 0, len(rows))
+	result := make([]IntegrationInboxApp, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, IntegrationInboxConnection{ProjectID: row.ProjectID, ConnectionID: row.ConnectionID})
+		result = append(result, IntegrationInboxApp{ProjectID: row.ProjectID, AppID: row.AppID})
 	}
 	return result, nil
 }
@@ -169,7 +170,7 @@ func (s *Store) ListIntegrationInbox(
 		return ListIntegrationInboxResult{}, inboxInvalid("invalid inbox cursor")
 	}
 	rows, err := s.q.ListIntegrationInboxReceipts(ctx, dbsqlc.ListIntegrationInboxReceiptsParams{
-		ProjectID: input.ProjectID, ConnectionID: storeutil.IDFromNil(input.ConnectionID), State: string(input.State),
+		ProjectID: input.ProjectID, AppID: storeutil.IDFromNil(input.AppID), State: string(input.State),
 		CursorSet: input.After.Set, CursorCreatedAt: input.After.CreatedAt,
 		CursorID: input.After.ID, RowLimit: int32(input.Limit + 1),
 	})
@@ -183,7 +184,7 @@ func (s *Store) ListIntegrationInbox(
 	}
 	for _, row := range rows {
 		result.Receipts = append(result.Receipts, IntegrationInboxSummary{
-			ID: row.ID, ProjectID: row.ProjectID, ConnectionID: row.ConnectionID, ReceiptKey: row.ReceiptKey,
+			ID: row.ID, ProjectID: row.ProjectID, AppID: row.AppID, ReceiptKey: row.ReceiptKey,
 			State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
 			ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
 			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
@@ -261,8 +262,8 @@ func (s *Store) CleanupDeletedIntegrationInbox(ctx context.Context, limit int) (
 }
 
 func validateIntegrationReceipt(input VerifiedIntegrationReceipt) error {
-	if input.ProjectID == uuid.Nil || input.ConnectionID == uuid.Nil {
-		return inboxInvalid("project and connection are required")
+	if input.ProjectID == uuid.Nil || input.AppID == uuid.Nil {
+		return inboxInvalid("project and app are required")
 	}
 	if strings.TrimSpace(input.ReceiptKey) == "" || len(input.ReceiptKey) > IntegrationInboxMaxReceiptKeyBytes ||
 		!utf8.ValidString(input.ReceiptKey) || strings.ContainsRune(input.ReceiptKey, 0) {
@@ -299,7 +300,7 @@ func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
 	}
 	return IntegrationInboxRecord{
 		IntegrationInboxSummary: IntegrationInboxSummary{
-			ID: row.ID, ProjectID: row.ProjectID, ConnectionID: row.ConnectionID, ReceiptKey: row.ReceiptKey,
+			ID: row.ID, ProjectID: row.ProjectID, AppID: row.AppID, ReceiptKey: row.ReceiptKey,
 			State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
 			ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
 			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,

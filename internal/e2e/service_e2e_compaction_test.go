@@ -429,12 +429,21 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 	defer openai.Close()
 
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
+	// Keep the tool schemas fixed so the small context window measures the
+	// history/tool-group boundary independently of optional routing tools.
+	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
 		"deterministic-compaction-tool-group",
-		"openai-prod",
-		"service-e2e-local",
+		`instruction: Help the user make progress.
+model:
+  provider_config: openai-prod
+  name: service-e2e-local
+tools:
+  run_command: {}
+  list_interaction_handlers: {enabled: false}
+  set_interaction_handler: {enabled: false}
+`,
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {
 				ContextWindowTokens:    2100,
@@ -442,7 +451,6 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 				DefaultMaxOutputTokens: 64,
 			},
 		},
-		"run_command",
 	)
 	agentID := project.createAgent(t, ctx)
 	project.createInput(t, ctx, agentID, "compactable service user history "+strings.Repeat("old user detail ", 120))

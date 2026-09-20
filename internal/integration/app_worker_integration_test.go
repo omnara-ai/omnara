@@ -22,6 +22,13 @@ import (
 
 func appWorkerFixture(t *testing.T) (*pgxpool.Pool, *storage.Store, storagefixture.ProjectIDs, uuid.UUID) {
 	t.Helper()
+	return appProviderFixture(t, "slack", "T123", "A123")
+}
+
+func appProviderFixture(
+	t *testing.T, provider, tenant, account string,
+) (*pgxpool.Pool, *storage.Store, storagefixture.ProjectIDs, uuid.UUID) {
+	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
 	pool := integrationdb.OpenMigratedPool(t, t.Context(), filepath.Join(filepath.Dir(file), "../../migrations"))
 	ids := storagefixture.ProjectIDs{
@@ -34,30 +41,31 @@ func appWorkerFixture(t *testing.T) (*pgxpool.Pool, *storage.Store, storagefixtu
 	}
 	storagefixture.SeedProject(t, t.Context(), pool, ids, time.Now())
 	store := storage.NewStore(pool)
-	connection := uuid.Must(uuid.NewV7())
+	appSetup := uuid.Must(uuid.NewV7())
 	_, err := pool.Exec(
 		t.Context(),
-		`INSERT INTO integration_connections(id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,created_at,updated_at) VALUES($1,$2,$3,$4,'slack','active','T123','A123',now(),now())`,
-		connection,
+		`INSERT INTO project_apps(id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,$6,'active',$7,$8,'chat',$9,$5,now(),now())`,
+		appSetup,
 		ids.OrgID,
 		ids.ProjectID,
 		ids.ProviderAdminUserID,
+		ids.ProviderSecretID, provider, tenant, account, "omnara."+provider,
 	)
 	require.NoError(t, err)
-	return pool, store, ids, connection
+	return pool, store, ids, appSetup
 }
 
 func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
-	pool, store, ids, connection := appWorkerFixture(t)
+	pool, store, ids, appSetup := appWorkerFixture(t)
 	inbox := store.Integrations()
 	ctx := t.Context()
 	receipt, _, err := inbox.AcceptIntegrationReceipt(
 		ctx,
 		integrationstore.VerifiedIntegrationReceipt{
-			ProjectID:    ids.ProjectID,
-			ConnectionID: connection,
-			ReceiptKey:   "partial",
-			Payload:      []byte(`{"event":"test"}`),
+			ProjectID:  ids.ProjectID,
+			AppID:      appSetup,
+			ReceiptKey: "partial",
+			Payload:    []byte(`{"event":"test"}`),
 		},
 	)
 	require.NoError(t, err)
@@ -139,16 +147,16 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 }
 
 func TestAppInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T) {
-	pool, store, ids, connection := appWorkerFixture(t)
+	pool, store, ids, appSetup := appWorkerFixture(t)
 	inbox := store.Integrations()
 	ctx := t.Context()
 	_, _, err := inbox.AcceptIntegrationReceipt(
 		ctx,
 		integrationstore.VerifiedIntegrationReceipt{
-			ProjectID:    ids.ProjectID,
-			ConnectionID: connection,
-			ReceiptKey:   "expired",
-			Payload:      []byte(`{}`),
+			ProjectID:  ids.ProjectID,
+			AppID:      appSetup,
+			ReceiptKey: "expired",
+			Payload:    []byte(`{}`),
 		},
 	)
 	require.NoError(t, err)
@@ -156,7 +164,7 @@ func TestAppInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T) {
 		ctx,
 		integrationstore.ClaimIntegrationInboxInput{
 			ProjectID:     ids.ProjectID,
-			ConnectionID:  connection,
+			AppID:         appSetup,
 			LeaseDuration: time.Minute,
 		},
 	)
@@ -199,28 +207,28 @@ func TestAppInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAppInboxWorkerSlowReceiptDoesNotBlockSameConnection(t *testing.T) {
-	_, store, ids, connection := appWorkerFixture(t)
+func TestAppInboxWorkerSlowReceiptDoesNotBlockSameApp(t *testing.T) {
+	_, store, ids, appSetup := appWorkerFixture(t)
 	inbox := store.Integrations()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	slow, _, err := inbox.AcceptIntegrationReceipt(
 		ctx,
 		integrationstore.VerifiedIntegrationReceipt{
-			ProjectID:    ids.ProjectID,
-			ConnectionID: connection,
-			ReceiptKey:   "slow-file",
-			Payload:      []byte(`{}`),
+			ProjectID:  ids.ProjectID,
+			AppID:      appSetup,
+			ReceiptKey: "slow-file",
+			Payload:    []byte(`{}`),
 		},
 	)
 	require.NoError(t, err)
 	fast, _, err := inbox.AcceptIntegrationReceipt(
 		ctx,
 		integrationstore.VerifiedIntegrationReceipt{
-			ProjectID:    ids.ProjectID,
-			ConnectionID: connection,
-			ReceiptKey:   "other-conversation",
-			Payload:      []byte(`{}`),
+			ProjectID:  ids.ProjectID,
+			AppID:      appSetup,
+			ReceiptKey: "other-conversation",
+			Payload:    []byte(`{}`),
 		},
 	)
 	require.NoError(t, err)
@@ -255,7 +263,7 @@ func TestAppInboxWorkerSlowReceiptDoesNotBlockSameConnection(t *testing.T) {
 	case err := <-fastCompleted:
 		require.NoError(t, err)
 	case <-time.After(10 * time.Second):
-		t.Fatal("slow receipt blocked another conversation on the same connection")
+		t.Fatal("slow receipt blocked another conversation on the same app")
 	}
 	completed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, fast.ID)
 	require.NoError(t, err)
@@ -265,4 +273,25 @@ func TestAppInboxWorkerSlowReceiptDoesNotBlockSameConnection(t *testing.T) {
 	require.Equal(t, integrationstore.IntegrationInboxProcessing, busy.State)
 	cancel()
 	require.NoError(t, <-done)
+}
+
+// seedIndependentApp gives a second saved app its own lifecycle and receipt
+// identity while deliberately using the same physical provider credentials.
+func seedIndependentApp(
+	t *testing.T, pool *pgxpool.Pool, template integrationstore.ProjectAppRecord, name string,
+) integrationstore.ProjectAppRecord {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	_, err := pool.Exec(t.Context(), `INSERT INTO project_apps
+		(id,org_id,project_id,name,definition_id,settings,installed_by_user_id,provider,state,
+		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
+		 provider_metadata,setup_revision,created_at,updated_at)
+		SELECT $2,org_id,project_id,$3,definition_id,settings,installed_by_user_id,provider,state,
+		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
+		 provider_metadata,setup_revision,now(),now()
+		FROM project_apps WHERE id=$1`, template.ID, id, name)
+	require.NoError(t, err)
+	app, err := storage.NewStore(pool).Integrations().GetProjectApp(t.Context(), template.ProjectID, id)
+	require.NoError(t, err)
+	return app
 }

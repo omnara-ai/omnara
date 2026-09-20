@@ -4,7 +4,7 @@ description: Use built-in tools for web search, commands, machines, integrations
 icon: "toolbox"
 ---
 
-Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. Provider tools also require a scoped [app resource](/integrations/apps). Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
+Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. App tools use names such as `app__engineering__post_message` and the credentials of that project [app](/integrations/apps). Their optional fixed config narrows the destination; otherwise the model can choose destinations accessible to those credentials. Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
 
 This page explains what each tool does and the inputs it accepts. To retrieve the current catalog programmatically, use [`GET /tool-catalog`](/tools/permissions#check-available-tools).
 
@@ -18,7 +18,7 @@ The tools are grouped by what they do:
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
 | Files | `upload_file`, `download_file`, `read_file`, `search_files` |
-| Apps | Slack, GitHub and Discord read/write tools; `list_interaction_destinations`, `set_interaction_destination` |
+| Apps | Slack, GitHub and Discord read/write tools; `list_interaction_handlers`, `set_interaction_handler` |
 | Skills | `skill` |
 | Tool loading | `tool_search` |
 
@@ -175,7 +175,7 @@ Use `upload_file` to copy a file from an attached machine into Omnara's virtual 
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, take the artifact ID from the final component of each `/artifacts/<artifact_id>` path and pass those IDs in `artifact_ids` to `slack_post_message` or `discord_post_message`, with an app resource authorizing the destination.
+On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, take the artifact ID from the final component of each `/artifacts/<artifact_id>` path and pass those IDs in `artifact_ids` to the Slack or Discord app’s qualified `post_message` tool.
 
 ### `download_file`
 
@@ -229,32 +229,32 @@ Existing media references remain inline so their attachments remain available to
 
 ## App tools
 
-Select these tools through [app resources](/integrations/apps), with the connection
-and scope the agent may use. Tool calls accept a `resource` key; it is required
-when several attachments expose the action. Sending and receiving are separate
-capabilities, and ordinary model output remains in Omnara.
+Select [app tools](/integrations/apps) by qualified name, such as
+`app__engineering__post_message`. An app owns its credentials; each tool's optional
+`config` fixes settings separately from its model arguments. The credential's
+provider access, live app state and ordinary tool permission govern execution.
 
-- [Slack](/integrations/slack#configure-an-existing-agent): `slack_read` reads a
-  channel or thread; `slack_post_message` sends `text` and optional `artifact_ids`.
-- [GitHub](/integrations/github#select-tools-for-one-pr): `github_read` reads a PR;
-  `github_discussion_comment`, `github_inline_comment` and `github_reply` post
-  individual comments inside that PR.
-- [Discord](/integrations/discord#give-an-agent-scoped-tools): `discord_read` reads
-  messages; `discord_post_message` sends `content` and optional `artifact_ids`.
+Slack and Discord offer `read` and `post_message`. GitHub offers `read`,
+`discussion_comment`, `inline_comment` and `reply`. See the provider guides for
+arguments and pagination. Ordinary model output remains in Omnara.
 
-Slack and Discord posts can request `follow_replies: true` when the resource also
-has `follow: {replies: true}`. A successful post registers receiving for that
-conversation; it does not select an approval destination. Normal tool permission
-modes apply to provider actions.
+Slack and Discord posts may request `follow_replies: true` when the agent config
+contains that app's `thread_messages` listener. Confirmed publication registers
+the returned conversation under the listener; it does not choose an approval
+destination. The listener remains independent of later sender changes.
 
-### `list_interaction_destinations` / `set_interaction_destination`
+### `list_interaction_handlers` / `set_interaction_handler`
 
-Declaring an enabled interaction handler adds these tools unless explicit policy
-disables them. `list_interaction_destinations` lists eligible `resource` and
-`target_id` pairs. `set_interaction_destination` takes
-`{"destination":{"resource":"approvals","target_id":"itgt_…"}}` from that list,
-or `{"destination":null}` for dashboard-only. It changes future questions and
-approvals, without moving existing prompts or changing send-tool scopes.
+These are compiled defaults for tool-capable configs, unless explicitly disabled.
+`list_interaction_handlers` accepts `cursor` and `limit`, returning handler keys,
+descriptions and effective argument schemas. Its current selection is included
+independently of pagination. No configured handlers means an empty list.
+
+`set_interaction_handler` takes `{"handler":"engineering","args":{"channel_id":"C123"}}`
+when that handler permits a dynamic channel, or `{"handler":null,"args":{}}` for
+dashboard only. Fixed destination fields are omitted from `args`. The choice
+persists for future questions and approvals; existing prompts keep their captured
+destination. A new provider input can select its matching handler automatically.
 
 ## Subagents
 

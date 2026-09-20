@@ -16,32 +16,50 @@ const getInteractionCallbackAgent = `-- name: GetInteractionCallbackAgent :one
 SELECT agent_id
 FROM agent_interaction_read_projection
 WHERE project_id = $1 AND id = $2
-  AND destination ->> 'connection_id' = $3::text
+  AND destination ->> 'app_id' = $3::text
 `
 
 type GetInteractionCallbackAgentParams struct {
 	ProjectID     uuid.UUID
 	InteractionID uuid.UUID
-	ConnectionID  string
+	AppID         string
 }
 
 func (q *Queries) GetInteractionCallbackAgent(ctx context.Context, arg GetInteractionCallbackAgentParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getInteractionCallbackAgent, arg.ProjectID, arg.InteractionID, arg.ConnectionID)
+	row := q.db.QueryRow(ctx, getInteractionCallbackAgent, arg.ProjectID, arg.InteractionID, arg.AppID)
 	var agent_id uuid.UUID
 	err := row.Scan(&agent_id)
 	return agent_id, err
 }
 
+const getInteractionCallbackAppID = `-- name: GetInteractionCallbackAppID :one
+SELECT (destination ->> 'app_id')::uuid AS app_id
+FROM agent_interactions
+WHERE id = $1 AND destination ->> 'app_id' IS NOT NULL
+`
+
+type GetInteractionCallbackAppIDParams struct {
+	ID uuid.UUID
+}
+
+// Private callback routing only; the captured prompt is checked again during resolution.
+func (q *Queries) GetInteractionCallbackAppID(ctx context.Context, arg GetInteractionCallbackAppIDParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getInteractionCallbackAppID, arg.ID)
+	var app_id uuid.UUID
+	err := row.Scan(&app_id)
+	return app_id, err
+}
+
 const getInteractionDestinationTarget = `-- name: GetInteractionDestinationTarget :one
-SELECT target.id, target.integration_connection_id AS connection_id,
+SELECT target.id, target.app_id AS app_id,
        target.provider_ref_kind, target.provider_ref, target.target_ref, target.display_name,
-       connection.provider, connection.state AS connection_state
+       app.provider, app.state AS app_state
 FROM integration_targets target
-JOIN integration_connections connection
-  ON connection.project_id = target.project_id AND connection.id = target.integration_connection_id
+JOIN project_apps app
+  ON app.project_id = target.project_id AND app.id = target.app_id
 WHERE target.project_id = $1 AND target.agent_id = $2
   AND target.id = $3 AND target.deleted_at IS NULL
-  AND connection.deleted_at IS NULL
+  AND app.deleted_at IS NULL
 `
 
 type GetInteractionDestinationTargetParams struct {
@@ -52,13 +70,13 @@ type GetInteractionDestinationTargetParams struct {
 
 type GetInteractionDestinationTargetRow struct {
 	ID              uuid.UUID
-	ConnectionID    uuid.UUID
+	AppID           uuid.UUID
 	ProviderRefKind string
 	ProviderRef     string
 	TargetRef       string
 	DisplayName     string
 	Provider        string
-	ConnectionState string
+	AppState        string
 }
 
 func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetInteractionDestinationTargetParams) (GetInteractionDestinationTargetRow, error) {
@@ -66,20 +84,20 @@ func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetIn
 	var i GetInteractionDestinationTargetRow
 	err := row.Scan(
 		&i.ID,
-		&i.ConnectionID,
+		&i.AppID,
 		&i.ProviderRefKind,
 		&i.ProviderRef,
 		&i.TargetRef,
 		&i.DisplayName,
 		&i.Provider,
-		&i.ConnectionState,
+		&i.AppState,
 	)
 	return i, err
 }
 
 const getInteractionSelection = `-- name: GetInteractionSelection :one
 SELECT current_config_id, integration_target_id,
-       coalesce(interaction_resource_key, '') AS resource_key
+       coalesce(interaction_handler_key, '') AS handler_key, interaction_handler_args AS handler_args
 FROM agents
 WHERE project_id = $1 AND id = $2
 `
@@ -92,71 +110,20 @@ type GetInteractionSelectionParams struct {
 type GetInteractionSelectionRow struct {
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
-	ResourceKey         string
+	HandlerKey          string
+	HandlerArgs         *json.RawMessage
 }
 
 func (q *Queries) GetInteractionSelection(ctx context.Context, arg GetInteractionSelectionParams) (GetInteractionSelectionRow, error) {
 	row := q.db.QueryRow(ctx, getInteractionSelection, arg.ProjectID, arg.AgentID)
 	var i GetInteractionSelectionRow
-	err := row.Scan(&i.CurrentConfigID, &i.IntegrationTargetID, &i.ResourceKey)
+	err := row.Scan(
+		&i.CurrentConfigID,
+		&i.IntegrationTargetID,
+		&i.HandlerKey,
+		&i.HandlerArgs,
+	)
 	return i, err
-}
-
-const listInteractionDestinationTargets = `-- name: ListInteractionDestinationTargets :many
-SELECT target.id, target.integration_connection_id AS connection_id,
-       target.provider_ref_kind, target.provider_ref, target.target_ref, target.display_name,
-       connection.provider, connection.state AS connection_state
-FROM integration_targets target
-JOIN integration_connections connection
-  ON connection.project_id = target.project_id AND connection.id = target.integration_connection_id
-WHERE target.project_id = $1 AND target.agent_id = $2
-  AND target.deleted_at IS NULL AND connection.deleted_at IS NULL
-ORDER BY target.created_at, target.id
-`
-
-type ListInteractionDestinationTargetsParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-type ListInteractionDestinationTargetsRow struct {
-	ID              uuid.UUID
-	ConnectionID    uuid.UUID
-	ProviderRefKind string
-	ProviderRef     string
-	TargetRef       string
-	DisplayName     string
-	Provider        string
-	ConnectionState string
-}
-
-func (q *Queries) ListInteractionDestinationTargets(ctx context.Context, arg ListInteractionDestinationTargetsParams) ([]ListInteractionDestinationTargetsRow, error) {
-	rows, err := q.db.Query(ctx, listInteractionDestinationTargets, arg.ProjectID, arg.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListInteractionDestinationTargetsRow{}
-	for rows.Next() {
-		var i ListInteractionDestinationTargetsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConnectionID,
-			&i.ProviderRefKind,
-			&i.ProviderRef,
-			&i.TargetRef,
-			&i.DisplayName,
-			&i.Provider,
-			&i.ConnectionState,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const recordAgentInteractionPresentationReceipt = `-- name: RecordAgentInteractionPresentationReceipt :execrows
@@ -196,24 +163,26 @@ func (q *Queries) RecordAgentInteractionPresentationReceipt(ctx context.Context,
 const setInteractionSelection = `-- name: SetInteractionSelection :execrows
 UPDATE agents
 SET integration_target_id = $1::uuid,
-    interaction_resource_key = $2::text,
+    interaction_handler_key = $2::text,
+    interaction_handler_args = $3::jsonb,
     updated_at = statement_timestamp()
-WHERE agents.project_id = $3 AND agents.id = $4
-  AND (($1::uuid IS NULL AND $2::text IS NULL)
-    OR ($2::text <> '' AND EXISTS (
+WHERE agents.project_id = $4 AND agents.id = $5
+  AND (($1::uuid IS NULL AND $2::text IS NULL AND $3::jsonb IS NULL)
+    OR ($2::text <> '' AND jsonb_typeof($3::jsonb) = 'object' AND EXISTS (
       SELECT 1 FROM integration_targets target
-      JOIN integration_connections connection
-        ON connection.project_id = target.project_id
-       AND connection.id = target.integration_connection_id
+      JOIN project_apps app
+        ON app.project_id = target.project_id
+       AND app.id = target.app_id
       WHERE target.project_id = agents.project_id AND target.agent_id = agents.id
         AND target.id = $1::uuid AND target.deleted_at IS NULL
-        AND connection.deleted_at IS NULL AND connection.state = 'active'
+        AND app.deleted_at IS NULL AND app.state = 'active'
     )))
 `
 
 type SetInteractionSelectionParams struct {
 	TargetID    *uuid.UUID
-	ResourceKey *string
+	HandlerKey  *string
+	HandlerArgs *json.RawMessage
 	ProjectID   uuid.UUID
 	AgentID     uuid.UUID
 }
@@ -221,7 +190,8 @@ type SetInteractionSelectionParams struct {
 func (q *Queries) SetInteractionSelection(ctx context.Context, arg SetInteractionSelectionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setInteractionSelection,
 		arg.TargetID,
-		arg.ResourceKey,
+		arg.HandlerKey,
+		arg.HandlerArgs,
 		arg.ProjectID,
 		arg.AgentID,
 	)

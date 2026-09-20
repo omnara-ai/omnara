@@ -39,24 +39,24 @@ func (s *Store) recoverFailedInbox(ctx context.Context, projectID, receiptID uui
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	connection, err := getIntegrationConnection(ctx, q, projectID, receipt.ConnectionID)
+	app, err := getProjectApp(ctx, q, projectID, receipt.AppID)
 	if err != nil {
 		return err
 	}
-	if err := lifecyclelock.EnterActiveProject(ctx, tx, connection.OrgID, projectID); err != nil {
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, app.OrgID, projectID); err != nil {
 		return err
 	}
-	if err := q.LockIntegrationConnectionLifecycleShared(ctx,
-		dbsqlc.LockIntegrationConnectionLifecycleSharedParams{ConnectionID: receipt.ConnectionID}); err != nil {
+	if err := q.LockProjectAppLifecycleShared(ctx,
+		dbsqlc.LockProjectAppLifecycleSharedParams{AppID: receipt.AppID}); err != nil {
 		return err
 	}
-	// Recheck after waiting for revocation. Discard also works on disabled live
-	// connections; retry cannot grant authority to an inactive connection.
-	connection, err = getIntegrationConnection(ctx, q, projectID, receipt.ConnectionID)
+	// Recheck after waiting for revocation. Discard also works on disconnected live
+	// apps; retry cannot grant authority to an inactive app.
+	app, err = getProjectApp(ctx, q, projectID, receipt.AppID)
 	if err != nil {
 		return err
 	}
-	if !discard && connection.State != IntegrationConnectionStateActive {
+	if !discard && app.State != ProjectAppStateActive {
 		return storeerr.ErrUnauthorized
 	}
 	if _, err := q.LockIntegrationInboxReceipt(ctx, dbsqlc.LockIntegrationInboxReceiptParams{
@@ -78,13 +78,13 @@ func (s *Store) recoverFailedInbox(ctx context.Context, projectID, receiptID uui
 	if receipt.State != IntegrationInboxFailed {
 		return storeerr.ErrStateTransitionConflict
 	}
-	identities, err := inboxSelectionIdentities(receipt.Plan, receipt.ConnectionID)
+	identities, err := inboxSelectionIdentities(receipt.Plan, receipt.AppID)
 	if err != nil {
 		return err
 	}
 	// Sharing this gate with empty-plan decisions makes operator retry the
 	// precise boundary at which plain follow-ups begin waiting for a listener again.
-	if err := lockInboxSelectionConversations(ctx, tx, projectID, receipt.ConnectionID, identities); err != nil {
+	if err := lockInboxSelectionConversations(ctx, tx, projectID, receipt.AppID, identities); err != nil {
 		return err
 	}
 	var rows int64
@@ -108,18 +108,16 @@ func (s *Store) recoverFailedInbox(ctx context.Context, projectID, receiptID uui
 		}
 		for identity := range identities {
 			targets, err := q.ListConversationSelections(ctx, dbsqlc.ListConversationSelectionsParams{
-				ProjectID:    projectID,
-				ConnectionID: receipt.ConnectionID,
-				Kind:         identity.Address.Kind,
-				Ref:          identity.Address.Ref,
+				ProjectID: projectID,
+				AppID:     receipt.AppID,
+				Kind:      identity.Address.Kind,
+				Ref:       identity.Address.Ref,
 			})
 			if err != nil {
 				return err
 			}
-			for _, target := range targets {
-				if target.AppID != nil && *target.AppID == identity.AppID {
-					return fmt.Errorf("cannot discard retained app selection: %w", storeerr.ErrStateTransitionConflict)
-				}
+			if len(targets) != 0 {
+				return fmt.Errorf("cannot discard retained app selection: %w", storeerr.ErrStateTransitionConflict)
 			}
 		}
 		rows, err = q.DiscardFailedIntegrationInboxReceipt(ctx, dbsqlc.DiscardFailedIntegrationInboxReceiptParams{

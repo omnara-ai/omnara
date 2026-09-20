@@ -1,4 +1,4 @@
-import { type ProfileAppProvider, profileAppTools, type ProjectApp } from '@omnara/sdk'
+import { type IntegrationProvider, type ProjectApp } from '@omnara/sdk'
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -7,7 +7,7 @@ import { githubHasAdvancedSlots, type ProjectAppFormValues } from './projectAppF
 import { ProjectAppProfilePicker } from './ProjectAppProfilePicker'
 
 const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
-const launcherScopeKinds: Record<ProfileAppProvider, readonly string[]> = {
+const launcherScopeKinds: Record<IntegrationProvider, readonly string[]> = {
   slack: ['workspace', 'channel'],
   github: ['repository'],
   discord: ['channel'],
@@ -16,7 +16,7 @@ const launcherScopeKinds: Record<ProfileAppProvider, readonly string[]> = {
 interface LauncherFieldsProps {
   orgId: string
   projectId: string
-  provider: ProfileAppProvider
+  provider: IntegrationProvider
   app?: ProjectApp
   values: ProjectAppFormValues
   onChange: (patch: Partial<ProjectAppFormValues>) => void
@@ -125,7 +125,12 @@ function ProjectAppLauncherScopeFields({
               const scopeKind = event.target.value
               onChange({
                 scopeKind,
-                scopeRef: launcher?.scope_kind === scopeKind ? launcher.scope_ref : '',
+                scopeRef:
+                  scopeKind === 'workspace'
+                    ? (workspaceId ?? '')
+                    : launcher?.scope_kind === scopeKind
+                      ? launcher.scope_ref
+                      : '',
               })
             }}
           >
@@ -136,7 +141,7 @@ function ProjectAppLauncherScopeFields({
       )}
       {values.scopeKind === 'workspace' ? (
         <FieldDescription>
-          Workspace: {values.scopeRef || (workspaceId ?? 'Choose a Slack connection')}. The bot must
+          Workspace: {values.scopeRef || (workspaceId ?? 'Connect this Slack app')}. The bot must
           have access to the conversation.
         </FieldDescription>
       ) : (
@@ -206,91 +211,5 @@ function ProjectAppLaunchProfiles({
         </FieldDescription>
       )}
     </>
-  )
-}
-
-export function ProjectAppCapabilityFields({
-  provider,
-  values,
-  onChange,
-  app,
-}: {
-  provider: ProfileAppProvider
-  values: ProjectAppFormValues
-  onChange: (patch: Partial<ProjectAppFormValues>) => void
-  app?: ProjectApp
-}) {
-  const selectedTools = new Set(values.tools)
-  return (
-    <Field>
-      <FieldLabel>Capabilities</FieldLabel>
-      {profileAppTools[provider].map((tool) => (
-        <label key={tool} className="flex gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="tools"
-            value={tool}
-            checked={selectedTools.has(tool)}
-            onChange={(event) => {
-              onChange({
-                tools: event.target.checked
-                  ? [...values.tools, tool]
-                  : values.tools.filter((value) => value !== tool),
-              })
-            }}
-          />
-          {tool.replaceAll('_', ' ')}
-        </label>
-      ))}
-      <FieldDescription>
-        Choose the capabilities this app offers. Agent tool permissions still apply.
-      </FieldDescription>
-      <label className="flex gap-2 text-sm">
-        <input
-          type="checkbox"
-          name="listen"
-          checked={values.listen}
-          onChange={(event) => {
-            onChange({ listen: event.target.checked })
-          }}
-        />
-        Receive later messages{provider === 'github' ? ' and commits' : ''} in the agent’s
-        conversation
-      </label>
-      {app?.settings.resource.listener && values.listen && (
-        <FieldDescription>
-          Saved event selection is kept:{' '}
-          {app.settings.resource.listener.events.join(', ') || 'none'}.
-        </FieldDescription>
-      )}
-      {provider !== 'github' && (
-        <label className="flex gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="interactions"
-            checked={values.interactions}
-            onChange={(event) => {
-              onChange({ interactions: event.target.checked })
-            }}
-          />
-          Show agent questions and approvals in {provider === 'slack' ? 'Slack' : 'Discord'}
-        </label>
-      )}
-      {!values.launcher && (
-        <FieldDescription>
-          This app stores reusable capability defaults. Choose which capabilities to use and supply
-          a conversation scope when adding it to an agent. Saving these defaults does not start a
-          listener or send messages.
-          {app?.settings.resource.scope && ' The concrete scope already saved on this app is kept.'}
-        </FieldDescription>
-      )}
-      {app && (
-        <FieldDescription>
-          Settings outside this form, including conversation scope, follow behavior, tool
-          permissions and MCP configuration, are kept. Selected tools keep their saved policies and
-          enabled settings.
-        </FieldDescription>
-      )}
-    </Field>
   )
 }

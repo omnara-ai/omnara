@@ -31,19 +31,19 @@ const integrationTargetRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"
 
 func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 	ctx context.Context,
-	projectID, connectionID uuid.UUID,
+	projectID, appID uuid.UUID,
 	providerRefPrefix, displayName string,
 ) error {
-	if projectID == uuid.Nil || connectionID == uuid.Nil || providerRefPrefix == "" || displayName == "" {
-		return errors.New("project, integration connection, provider ref prefix, and display name are required")
+	if projectID == uuid.Nil || appID == uuid.Nil || providerRefPrefix == "" || displayName == "" {
+		return errors.New("project, app, provider ref prefix, and display name are required")
 	}
 	_, err := s.q.UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 		ctx,
 		dbsqlc.UpdateIntegrationTargetDisplayNamesByProviderRefPrefixParams{
-			ProjectID:               projectID,
-			IntegrationConnectionID: connectionID,
-			ProviderRefPrefix:       providerRefPrefix,
-			DisplayName:             displayName,
+			ProjectID:         projectID,
+			AppID:             appID,
+			ProviderRefPrefix: providerRefPrefix,
+			DisplayName:       displayName,
 		},
 	)
 	if err != nil {
@@ -89,30 +89,30 @@ func integrationTargetRecordFromGetSQLC(
 	row dbsqlc.GetIntegrationTargetRow,
 ) IntegrationTargetRecord {
 	return integrationTargetRecordFromFields(
-		row.ID, row.OrgID, row.ProjectID, row.AgentID, row.IntegrationConnectionID,
+		row.ID, row.OrgID, row.ProjectID, row.AgentID, row.AppID,
 		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.DisplayName,
 		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
 	)
 }
 
 func integrationTargetRecordFromFields(
-	id, orgID, projectID, agentID, integrationConnectionID uuid.UUID,
+	id, orgID, projectID, agentID, appID uuid.UUID,
 	targetRef, providerRef, providerRefKind, displayName string,
 	providerMetadata json.RawMessage,
 	createdAt, updatedAt time.Time,
 ) IntegrationTargetRecord {
 	return IntegrationTargetRecord{
-		ID:                      id,
-		OrgID:                   orgID,
-		ProjectID:               projectID,
-		AgentID:                 agentID,
-		IntegrationConnectionID: integrationConnectionID,
-		TargetRef:               targetRef,
-		ProviderRef:             providerRef,
-		ProviderRefKind:         providerRefKind,
-		DisplayName:             displayName,
-		ProviderMetadata:        providerMetadata,
-		CreatedAt:               createdAt,
-		UpdatedAt:               updatedAt,
+		ID:               id,
+		OrgID:            orgID,
+		ProjectID:        projectID,
+		AgentID:          agentID,
+		AppID:            appID,
+		TargetRef:        targetRef,
+		ProviderRef:      providerRef,
+		ProviderRefKind:  providerRefKind,
+		DisplayName:      displayName,
+		ProviderMetadata: providerMetadata,
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
 	}
 }

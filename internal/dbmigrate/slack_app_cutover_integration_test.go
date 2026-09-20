@@ -4,25 +4,33 @@ package dbmigrate_test
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 	for _, scenario := range []string{
-		"normal", "injected_failure", "continuable_retry", "custom_collision",
+		"normal", "injected_failure", "rewrite_failure", "continuable_retry", "custom_collision",
 		"live_lease", "started_context", "unfinished_tool", "open_interaction", "unsupported_setup",
+		"fixed_agent", "mislabeled_fixed_agent", "multiple_targets", "multiple_apps", "enabled", "json", "yaml", "yaml_alias", "enabled_json", "enabled_yaml", "channel", "dm",
+		"wire_json", "wire_yaml", "enabled_wire_json", "enabled_wire_yaml", "enabled_null_json", "enabled_null_yaml",
+		"absent_send", "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota", "invalid_policy", "unmapped_policy", "invalid_address", "bad_hash", "bad_source_hash", "config_limit",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -45,7 +53,19 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				require.NoError(t, err)
 			}
 			modelID, revisionID, profileID := uuid.New(), uuid.New(), uuid.New()
-			versionID, configID, connectionID := uuid.New(), uuid.New(), uuid.New()
+			versionID, configID := uuid.New(), uuid.New()
+			appID := uuid.MustParse("00000000-0000-4000-8000-000000000001")
+			secondAppID := uuid.MustParse("00000000-0000-4000-8000-000000000002")
+			credentialID, credentialVersionID := uuid.New(), uuid.New()
+			exec(`WITH secret AS (
+				INSERT INTO secrets(id,org_id,management_kind,owner_kind,name,kind,metadata,
+                current_version_id,created_at,updated_at)
+				VALUES($1,$2,'tenant','org','slack-cutover','slack_app_credentials','{}',$3,now(),now()))
+				INSERT INTO secret_versions(id,org_id,secret_id,version_number,payload_keys,encryption_scheme,key_id,dek_wrapped_by,
+				encrypted_dek,encrypted_dek_nonce,nonce,ciphertext,created_at)
+				SELECT $3,org_id,$1,1,ARRAY['bot_token','signing_secret'],encryption_scheme,key_id,dek_wrapped_by,
+				encrypted_dek,encrypted_dek_nonce,nonce,ciphertext,now() FROM secret_versions WHERE id=$4`,
+				credentialID, ids.OrgID, credentialVersionID, ids.ProviderSecretVersionID)
 			exec(`WITH model AS (
 			 INSERT INTO configured_models(id,org_id,model_provider_config_id,name,
              current_revision_id,management_kind,created_at,updated_at)
@@ -59,10 +79,22 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			)
 			var compiledObject map[string]any
 			require.NoError(t, json.Unmarshal([]byte(compiled), &compiledObject))
+			legacyTools := testutil.RequireType[map[string]any](t, compiledObject["tools"])
+			legacySendPolicy := testutil.RequireType[map[string]any](t, legacyTools["send_integration_message"])
+			sendingEnabled := strings.HasPrefix(scenario, "enabled") || scenario == "absent_send"
+			if sendingEnabled {
+				legacySendPolicy["enabled"] = true
+			}
+			if scenario == "absent_send" {
+				delete(legacyTools, "send_integration_message")
+			}
 			if scenario == "custom_collision" {
 				compiledObject["tools"] = map[string]any{
-					"slack_post_message": map[string]any{"type": "custom", "enabled": true},
+					"app__slack__post_message": map[string]any{"type": "custom", "enabled": true},
 				}
+			}
+			if scenario == "preflight_invalid_policy" {
+				legacySendPolicy["permission"] = map[string]any{"mode": "always_ask"}
 			}
 			canonical, err := json.Marshal(compiledObject)
 			require.NoError(t, err)
@@ -70,7 +102,8 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(compiled)))
 			// Compiled-only snapshots are a released contract since migration39.
 			exec(
-				`INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,definition,compiled_definition,effective_definition_hash,created_at)
+				`INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,definition,compiled_definition,
+                 effective_definition_hash,created_at)
 			 VALUES($1,$2,$3,$4,$5::jsonb,$5::jsonb,$6,now())`,
 				configID,
 				ids.OrgID,
@@ -79,22 +112,82 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				compiled,
 				hash,
 			)
+			var source, sourceFormat any
+			switch scenario {
+			case "json", "enabled_json", "bad_source_hash":
+				source, sourceFormat = compiled, "json"
+			case "yaml", "yaml_alias", "enabled_yaml":
+				sourceFormat = "yaml"
+				source = `# Keep this profile note.
+instruction: Review
+tools:
+  # Explicitly disabled
+  send_integration_message: {enabled: false, permission: {mode: always_allow, parameters: {}}} # policy
+  set_integration_target: {enabled: true, permission: {mode: always_allow, parameters: {}}}
+`
+				if scenario == "yaml_alias" {
+					source = `instruction: Review
+tools:
+  send_integration_message: &disabled {enabled: false, permission: {mode: always_allow, parameters: {}}}
+  ask_question: *disabled
+  set_integration_target: {enabled: true, permission: {mode: always_allow, parameters: {}}}
+`
+				}
+			}
+			if source != nil && sendingEnabled {
+				source = strings.ReplaceAll(testutil.RequireType[string](t, source), "enabled: false", "enabled: true")
+			}
+			// Literal released builder/API tool entries have source-only type and
+			// nullable enabled fields absent from their compiled representation.
+			if strings.Contains(scenario, "wire_") || strings.Contains(scenario, "null_") {
+				policy := `{"type":"built_in","enabled":false}`
+				if sendingEnabled {
+					policy = `{"type":"built_in"}`
+				}
+				if strings.Contains(scenario, "null_") {
+					policy = `{"type":"built_in","enabled":null}`
+				}
+				sourceFormat = "json"
+				source = `{"instruction":"Review","tools":{"send_integration_message":` + policy + `}}`
+				if strings.HasSuffix(scenario, "yaml") {
+					sourceFormat = "yaml"
+					source = "instruction: Review\ntools:\n  send_integration_message: " + policy + "\n"
+				}
+			}
+			if source != nil {
+				exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
+				exec(`UPDATE agent_configs SET source=$2,source_format=$3,source_hash=$4 WHERE id=$1`,
+					configID, source, sourceFormat, fmt.Sprintf("%x", sha256.Sum256([]byte(testutil.RequireType[string](t, source)))))
+				exec(`ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
+			}
+
 			exec(`WITH profile AS (
 			 INSERT INTO agent_profiles(id,project_id,name,current_version_id,created_at,updated_at)
              VALUES($1,$2,'shared',$3,now(),now()))
 			 INSERT INTO agent_profile_versions(id,project_id,profile_id,generation,agent_config_id,created_at)
              VALUES($3,$2,$1,1,$4,now())`, profileID, ids.ProjectID, versionID, configID)
 			exec(
-				`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,provider,integration_kind,
-			 connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,created_at,updated_at)
+				`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
+             provider,integration_kind,
+			 connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,
+             credential_secret_id,created_at,updated_at)
 			 VALUES($1,$2,$3,$4,$5,'slack','agent_profile','webhook','active','T123','A123',
-             '{"bot_user_id":"U123"}',now(),now())`,
-				connectionID,
+             '{"bot_user_id":"U123"}',$6,'2026-01-01','2026-01-01')`,
+				appID,
 				ids.OrgID,
 				ids.ProjectID,
 				profileID,
 				ids.ProviderAdminUserID,
+				credentialID,
 			)
+			// Tie creation time to exercise the ID tiebreaker for stable names.
+			exec(`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
+             provider,integration_kind,
+			 connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,
+             credential_secret_id,created_at,updated_at)
+			 VALUES($1,$2,$3,$4,$5,'slack','agent_profile','webhook','disabled','T456','A456',
+			 '{"bot_user_id":"U456"}',$6,'2026-01-01','2026-01-01')`,
+				secondAppID, ids.OrgID, ids.ProjectID, profileID, ids.ProviderAdminUserID, credentialID)
 			agents := []uuid.UUID{uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()}
 			const archivedIndex, subagentIndex, noTurnIndex = 2, 3, 4
 			for i, agentID := range agents {
@@ -205,51 +298,309 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				if i == archivedIndex {
 					q(`UPDATE agents SET state='archived',archived_at=now() WHERE id=$1`, agentID)
 				}
+				kind, address := "thread", fmt.Sprintf("C123:111.%d", i+1)
+				if scenario == "channel" {
+					kind, address = "channel", fmt.Sprintf("C%d", i+1)
+				}
+				if scenario == "dm" {
+					kind, address = "dm", fmt.Sprintf("D%d", i+1)
+				}
+				if scenario == "preflight_address" {
+					address = fmt.Sprintf("C%d:invalid", i+1)
+				}
 				q(
-					`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,provider_ref,provider_ref_kind,created_at,updated_at)
-				 VALUES($1,$2,$3,$4,'slack',$5,'thread',now(),now())`,
+					`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
+                     provider_ref,provider_ref_kind,created_at,updated_at)
+				 VALUES($1,$2,$3,$4,'slack',$5,$6,now(),now())`,
 					targetID,
 					ids.ProjectID,
 					agentID,
-					connectionID,
-					fmt.Sprintf("C123:111.%d", i+1),
+					appID,
+					address, kind,
 				)
 				q(`UPDATE agents SET integration_target_id=$2 WHERE id=$1`, agentID, targetID)
+				if i == noTurnIndex {
+					// Unadmitted provider history retains its original attribution ID.
+					q(`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,
+                     integration_target_id,queued_at,canceled_at)
+					 VALUES($1,$2,'canceled','content','steering',$3,now(),now())`, ids.ProjectID, agentID, targetID)
+				}
+				if scenario == "multiple_apps" || scenario == "multiple_targets" {
+					otherApp := secondAppID
+					if scenario == "multiple_targets" {
+						otherApp = appID
+					}
+					q(`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
+                     provider_ref,provider_ref_kind,created_at,updated_at)
+					 VALUES($1,$2,$3,$4,'other',$5,'dm',now(),now())`, uuid.New(), ids.ProjectID, agentID, otherApp, fmt.Sprintf(
+						"D%d",
+						i+1,
+					))
+				}
 				require.NoError(t, tx.Commit())
 			}
+			// Snapshot durable history and agent data before the migration writes
+			// config activations. Exact JSON comparison catches unintended edits.
+			history := func() string {
+				t.Helper()
+				var value string
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object(
+				 'agents',(SELECT jsonb_agg(to_jsonb(a)-'current_config_id'-'next_event_sequence'
+                 -'integration_target_id'-'updated_at'
+                 -'interaction_handler_key'-'interaction_handler_args' ORDER BY a.id) FROM agents a),
+				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'app_id'-'routing_role'-'selection_slot')
+                  || jsonb_build_object('app_id',coalesce(to_jsonb(t)->'app_id',to_jsonb(t)->'integration_install_id'))
+                  ORDER BY t.id) FROM integration_targets t),
+				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
+                  WHERE i.input_idempotency_key IS DISTINCT FROM 'slack_app_cutover'),
+				 'contexts',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM model_call_contexts c),
+				 'outputs',(SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM model_outputs o),
+				 'blocks',(SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM content_blocks b),
+				 'secrets',(SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM secrets s),
+				 'versions',(SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id) FROM secret_versions v))::text`).Scan(&value))
+				return value
+			}
 			switch scenario {
+			case "bad_hash", "bad_source_hash":
+				exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
+				if scenario == "bad_hash" {
+					exec(`UPDATE agent_configs SET effective_definition_hash=repeat('0',64) WHERE id=$1`, configID)
+				} else {
+					exec(`UPDATE agent_configs SET source_hash=repeat('0',64) WHERE id=$1`, configID)
+				}
+				exec(`ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
+			case "preflight_quota":
+				exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
 			case "live_lease":
 				exec(`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
                     VALUES($1,$2,now(),now(),now()+interval '1 hour')`, agents[0], uuid.New())
 			case "open_interaction":
 				exec(`INSERT INTO agent_interactions(agent_id,tool_call_id,interaction_kind,state,created_at)
                     SELECT agent_id,id,'question','open',now() FROM tool_calls WHERE agent_id=$1`, agents[0])
+			case "mislabeled_fixed_agent":
+				exec(`UPDATE integration_installs SET agent_profile_id=NULL,agent_id=$2 WHERE id=$1`, appID, agents[0])
+			case "fixed_agent":
+				exec(
+					`UPDATE integration_installs SET agent_profile_id=NULL,agent_id=$2,integration_kind='agent' WHERE id=$1`,
+					appID,
+					agents[0],
+				)
 			case "unsupported_setup":
-				exec(`UPDATE integration_installs SET connection_mode='custom' WHERE id=$1`, connectionID)
+				exec(`UPDATE integration_installs SET connection_mode='custom' WHERE id=$1`, appID)
+			}
+			if scenario == "preflight_unmapped_policy" {
+				projectID := uuid.New()
+				storagefixture.InsertProject(t, ctx, pool, ids.OrgID, projectID, "No Slack app", "no-slack-app", time.Now())
+				exec(`INSERT INTO agent_configs(org_id,project_id,configured_model_id,definition,compiled_definition,
+                 effective_definition_hash,created_at)
+				 VALUES($1,$2,$3,$4::jsonb,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
 			}
 			switch scenario {
-			case "custom_collision", "live_lease", "started_context", "unfinished_tool", "open_interaction", "unsupported_setup":
+			case "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota",
+				"custom_collision", "live_lease", "started_context", "unfinished_tool", "open_interaction",
+				"unsupported_setup", "fixed_agent", "mislabeled_fixed_agent", "multiple_targets":
 				err := applyProductionPostgresMigrations(ctx, db)
 				want := "requires maintenance"
 				if scenario == "custom_collision" {
 					want = "conflicts with a new app built-in"
 				}
-				if scenario == "unsupported_setup" {
-					want = "unsupported legacy integration setup"
+				if scenario == "unsupported_setup" || scenario == "fixed_agent" || scenario == "mislabeled_fixed_agent" {
+					want = "not a profile-bound Slack webhook setup"
+				}
+				if scenario == "multiple_targets" {
+					want = "has several live targets through one Slack app"
+				}
+				if strings.HasPrefix(scenario, "preflight_") {
+					want = "has an unmappable legacy send policy"
+				}
+				if scenario == "preflight_address" {
+					want = "invalid Slack target"
+				}
+				if scenario == "preflight_quota" {
+					want = "needs additional config quota"
 				}
 				require.ErrorContains(t, err, want)
 				require.Equal(t, int64(39), currentPostgresMigrationVersion(t, ctx, db))
 				// The complete SQL40 transaction rolled back, leaving the old release usable.
 				var oldConnections int
 				require.NoError(t, db.QueryRowContext(ctx,
-					`SELECT count(*) FROM integration_installs WHERE id=$1`, connectionID).Scan(&oldConnections))
+					`SELECT count(*) FROM integration_installs WHERE id=$1`, appID).Scan(&oldConnections))
 				require.Equal(t, 1, oldConnections)
 				var newTableExists bool
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT to_regclass('project_apps') IS NOT NULL`).Scan(&newTableExists))
 				require.False(t, newTableExists)
+				// Exercise an old-writer statement after rollback, not just a table lookup.
+				exec(
+					`UPDATE integration_installs SET updated_at=now() WHERE id=$1 AND agent_profile_id IS NOT DISTINCT FROM agent_profile_id`,
+					appID,
+				)
+				var untouched string
+				require.NoError(
+					t,
+					db.QueryRowContext(
+						ctx,
+						`SELECT effective_definition_hash FROM agent_configs WHERE id=$1`,
+						configID,
+					).Scan(
+						&untouched,
+					),
+				)
+				require.Equal(t, hash, untouched)
+				if scenario == "multiple_targets" {
+					var count int
+					require.NoError(
+						t,
+						db.QueryRowContext(
+							ctx,
+							`SELECT count(*) FROM integration_targets WHERE integration_install_id=$1`,
+							appID,
+						).Scan(
+							&count,
+						),
+					)
+					require.Equal(t, 2*len(agents), count)
+					identified := false
+					for _, agentID := range agents {
+						if !strings.Contains(err.Error(), agentID.String()) {
+							continue
+						}
+						identified = true
+						var rawTargets []byte
+						require.NoError(
+							t,
+							db.QueryRowContext(
+								ctx,
+								`SELECT jsonb_agg(id::text ORDER BY id) FROM integration_targets WHERE agent_id=$1 AND integration_install_id=$2`,
+								agentID,
+								appID,
+							).Scan(
+								&rawTargets,
+							),
+						)
+						var targets []string
+						require.NoError(t, json.Unmarshal(rawTargets, &targets))
+						for _, target := range targets {
+							require.Contains(t, err.Error(), target)
+						}
+					}
+					require.True(t, identified, "guard must identify the agent and every conflicting target")
+				}
 				return
 			}
+			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
+				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
+				// Independently exercise Go41's defensive checks and transaction
+				// rollback even if maintenance preflight was bypassed after SQL40.
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
+				if scenario == "config_limit" {
+					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
+				}
+				if scenario == "invalid_address" {
+					exec(`UPDATE integration_targets SET provider_ref='C1:invalid' WHERE agent_id=$1`, agents[0])
+				}
+				expectedConfigs := 1
+				if scenario == "invalid_policy" {
+					// Inject after SQL40 so this remains a Go41 defense test when
+					// SQL40 also rejects unmappable policies before its rename.
+					legacySendPolicy["permission"] = map[string]any{"mode": "always_ask", "parameters": map[string]any{}}
+					invalid, err := json.Marshal(compiledObject)
+					require.NoError(t, err)
+					exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
+					exec(
+						`UPDATE agent_configs SET definition=$2::jsonb,compiled_definition=$2::jsonb,effective_definition_hash=$3 WHERE id=$1`,
+						configID,
+						invalid,
+						fmt.Sprintf(
+							"%x",
+							sha256.Sum256(
+								invalid,
+							),
+						),
+					)
+					exec(`ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
+				}
+				if scenario == "unmapped_policy" {
+					projectID := uuid.New()
+					storagefixture.InsertProject(t, ctx, pool, ids.OrgID, projectID, "No Slack app", "no-slack-app", time.Now())
+					exec(`INSERT INTO agent_configs(org_id,project_id,configured_model_id,definition,compiled_definition,
+                 effective_definition_hash,created_at)
+					 VALUES($1,$2,$3,$4::jsonb,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
+					expectedConfigs++
+				}
+
+				before := history()
+				err := applyProductionPostgresMigrations(ctx, db)
+				want := "stored config hashes do not match content"
+				if scenario == "invalid_policy" {
+					want = "legacy send only supports always_allow"
+				}
+				if scenario == "unmapped_policy" {
+					want = "disabled legacy send policy has no known Slack app"
+				}
+				if scenario == "invalid_address" {
+					want = "invalid Slack target"
+				}
+				if scenario == "config_limit" {
+					want = "exceeds project config limit"
+				}
+				require.ErrorContains(t, err, want)
+				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.JSONEq(t, before, history())
+				var count int
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
+				require.Equal(t, expectedConfigs, count)
+				require.NoError(
+					t,
+					db.QueryRowContext(
+						ctx,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND integration_target_id IS NULL`,
+						configID,
+					).Scan(
+						&count,
+					),
+				)
+				require.Equal(t, len(agents), count)
+				return
+			}
+			if scenario == "rewrite_failure" {
+				exec(`CREATE FUNCTION reject_cutover_rewrite() RETURNS trigger LANGUAGE plpgsql AS $$
+				 BEGIN RAISE EXCEPTION 'injected rewrite failure'; END $$;
+				 CREATE TRIGGER reject_cutover_rewrite BEFORE UPDATE ON agent_configs
+				 FOR EACH ROW EXECUTE FUNCTION reject_cutover_rewrite()`)
+				before := history()
+				err := applyProductionPostgresMigrations(ctx, db)
+				require.ErrorContains(t, err, "injected rewrite failure")
+				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.JSONEq(t, before, history())
+				var active, configs int
+				require.NoError(
+					t,
+					db.QueryRowContext(
+						ctx,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND integration_target_id IS NULL`,
+						configID,
+					).Scan(
+						&active,
+					),
+				)
+				require.Equal(t, len(agents), active)
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs))
+				require.Equal(t, 1, configs)
+				var triggerEnabled string
+				require.NoError(
+					t,
+					db.QueryRowContext(
+						ctx,
+						`SELECT tgenabled::text FROM pg_trigger WHERE tgname='agent_configs_immutable'`,
+					).Scan(
+						&triggerEnabled,
+					),
+				)
+				require.Equal(t, "O", triggerEnabled)
+				exec(`DROP TRIGGER reject_cutover_rewrite ON agent_configs; DROP FUNCTION reject_cutover_rewrite()`)
+			}
+
 			if scenario == "injected_failure" {
 				exec(`CREATE FUNCTION reject_cutover_config_event() RETURNS trigger LANGUAGE plpgsql AS $$
 				 BEGIN
@@ -267,7 +618,7 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
 				require.Equal(t, 1, count)
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_inputs`).Scan(&count))
-				require.Equal(t, len(agents), count)
+				require.Equal(t, len(agents)+1, count)
 				exec(`DROP TRIGGER reject_cutover ON agent_inputs; DROP FUNCTION reject_cutover_config_event()`)
 			}
 			if scenario == "continuable_retry" {
@@ -288,7 +639,9 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				}, ids, agents[0], configID, revisionID, turnID, false)
 				require.NoError(t, tx.Commit())
 			}
+			before := history()
 			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
+			require.JSONEq(t, before, history())
 			execution := executionstore.New(pool, executionstore.Config{})
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
@@ -308,19 +661,40 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 					snapshot.AgentConfig.EffectiveDefinitionHash,
 				)
 				require.NoError(t, err)
-				require.Len(t, contract.AppResources, 1)
-				for _, resource := range contract.AppResources {
-					require.Equal(t, fmt.Sprintf("111.%d", i+1), resource.Scope.Slack.ThreadTS)
-					require.Nil(t, resource.Listener)
-					require.Nil(t, resource.InteractionHandler)
-					require.Nil(t, resource.Follow)
-				}
+				require.Empty(t, contract.Listeners)
+				require.Empty(t, contract.InteractionHandlers)
 				var raw agentconfig.Compiled
 				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &raw))
-				require.False(t, raw.Tools["slack_post_message"].Enabled)
-				require.Contains(t, raw.Tools, "set_interaction_destination")
+				encodedAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
+				require.NoError(t, err)
+				tool := raw.Tools["app__slack__post_message"]
+				require.Equal(t, sendingEnabled, tool.Enabled)
+				require.Equal(t, "always_allow", tool.Permission.Mode)
+				require.Equal(t, encodedAppID, tool.AppID)
+				address := fmt.Sprintf(`{"channel_id":"C123","thread_ts":"111.%d"}`, i+1)
+				if scenario == "channel" {
+					address = fmt.Sprintf(`{"channel_id":"C%d"}`, i+1)
+				}
+				if scenario == "dm" {
+					address = fmt.Sprintf(`{"channel_id":"D%d"}`, i+1)
+				}
+				require.JSONEq(t, address, string(tool.Config))
+				wantApps := 1
+				if scenario == "multiple_apps" {
+					wantApps = 2
+					require.JSONEq(t, fmt.Sprintf(`{"channel_id":"D%d"}`, i+1), string(raw.Tools["app__slack-2__post_message"].Config))
+				}
+				require.Len(t, contract.AppTools, wantApps)
+				prepared, err := agentconfig.PrepareAppCapabilities(raw, map[string]agentconfig.AppResolution{
+					encodedAppID: {AppID: encodedAppID, Definition: appdefinition.Slack},
+				})
+				require.NoError(t, err)
+				require.Empty(t, prepared.Unavailable)
+				require.Contains(t, raw.Tools, "set_interaction_handler")
 				require.NotContains(t, raw.Tools, "set_integration_target")
 				require.NotContains(t, raw.Tools, "send_integration_message")
+				require.NotContains(t, string(snapshot.AgentConfig.CompiledDefinition), "app_resources")
+				require.NotContains(t, string(snapshot.AgentConfig.CompiledDefinition), "omnara.slack")
 				if i != noTurnIndex {
 					var oldID string
 					require.NoError(
@@ -349,13 +723,17 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				)
 				require.False(t, runnable)
 			}
-			rows, err := db.QueryContext(ctx, `SELECT compiled_definition,effective_definition_hash FROM agent_configs`)
+			rows, err := db.QueryContext(
+				ctx,
+				`SELECT definition,compiled_definition,effective_definition_hash FROM agent_configs`,
+			)
 			require.NoError(t, err)
 			defer rows.Close()
 			for rows.Next() {
-				var raw []byte
+				var definition, raw []byte
 				var hash string
-				require.NoError(t, rows.Scan(&raw, &hash))
+				require.NoError(t, rows.Scan(&definition, &raw, &hash))
+				require.JSONEq(t, string(raw), string(definition))
 				_, err := agentconfig.RuntimeContractFromCompiled(raw, "", hash)
 				require.NoError(t, err)
 			}
@@ -368,7 +746,7 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT count(*) FROM agents WHERE integration_target_id IS NOT NULL OR interaction_resource_key IS NOT NULL`,
+					`SELECT count(*) FROM agents WHERE integration_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL OR interaction_handler_args IS NOT NULL`,
 				).
 					Scan(
 						&pointers,
@@ -380,17 +758,126 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT settings FROM project_apps WHERE launch_connection_id=$1`,
-					connectionID,
+					`SELECT settings FROM project_apps WHERE id=$1`,
+					appID,
 				).
 					Scan(
 						&setup,
 					),
 			)
-			encoded, err := publicid.Encode(publicid.KindIntegrationConnection, connectionID)
-			require.NoError(t, err)
-			require.Contains(t, string(setup), encoded)
+			require.NotContains(t, string(setup), "connection")
 			require.Contains(t, string(setup), profileID.String())
+			var name, secondName, secondState string
+			var preservedCredential uuid.UUID
+			require.NoError(
+				t,
+				db.QueryRowContext(
+					ctx,
+					`SELECT name,credential_secret_id FROM project_apps WHERE id=$1`,
+					appID,
+				).Scan(
+					&name,
+					&preservedCredential,
+				),
+			)
+			require.Equal(t, "slack", name)
+			require.Equal(t, credentialID, preservedCredential)
+			require.NoError(
+				t,
+				db.QueryRowContext(
+					ctx,
+					`SELECT name,state FROM project_apps WHERE id=$1`,
+					secondAppID,
+				).Scan(
+					&secondName,
+					&secondState,
+				),
+			)
+			require.Equal(t, "slack-2", secondName)
+			require.Equal(t, "disconnected", secondState)
+			var oldCompiled []byte
+			var migratedSource, migratedFormat, migratedSourceHash sql.NullString
+			require.NoError(t, db.QueryRowContext(
+				ctx,
+				`SELECT compiled_definition,source,source_format,source_hash FROM agent_configs WHERE id=$1`,
+				configID,
+			).
+				Scan(&oldCompiled, &migratedSource, &migratedFormat, &migratedSourceHash))
+			var historical agentconfig.Compiled
+			require.NoError(t, json.Unmarshal(oldCompiled, &historical))
+			for _, name := range []string{"app__slack__post_message", "app__slack-2__post_message"} {
+				tool, exists := historical.Tools[name]
+				if sendingEnabled {
+					require.False(t, exists)
+				} else {
+					require.True(t, exists)
+					require.False(t, tool.Enabled)
+					require.JSONEq(t, `{}`, string(tool.Config))
+				}
+			}
+			// The shared profile is still usable for a new mention. An enabled
+			// legacy entry must not mask the launcher's ordinary fixed tool;
+			// an explicit disable still wins unchanged.
+			encodedAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
+			require.NoError(t, err)
+			launched, err := agentconfig.DeriveWithAppCapabilities(historical, agentconfig.AppCapabilitiesSource{
+				Tools: map[string]agentconfig.AgentConfigToolSource{
+					"app__slack__post_message": {Config: map[string]any{"channel_id": "C999", "thread_ts": "999.1"}},
+				},
+			}, agentconfig.CompileOptions{ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
+				require.Equal(t, "slack", name)
+				return agentconfig.AppResolution{AppID: encodedAppID, Definition: appdefinition.Slack}, nil
+			}})
+			require.NoError(t, err)
+			if sendingEnabled {
+				require.True(t, launched.Tools["app__slack__post_message"].Enabled)
+				require.JSONEq(
+					t,
+					`{"channel_id":"C999","thread_ts":"999.1"}`,
+					string(
+						launched.Tools["app__slack__post_message"].Config,
+					),
+				)
+			} else {
+				require.Equal(t, historical.Tools["app__slack__post_message"], launched.Tools["app__slack__post_message"])
+			}
+
+			require.Equal(t, source != nil, migratedSource.Valid)
+			if source != nil {
+				require.Equal(t, sourceFormat, migratedFormat.String)
+				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(migratedSource.String))), migratedSourceHash.String)
+				var object map[string]any
+				if sourceFormat == "json" {
+					require.NoError(t, json.Unmarshal([]byte(migratedSource.String), &object))
+				} else {
+					require.NoError(t, yaml.Unmarshal([]byte(migratedSource.String), &object))
+				}
+				require.NotContains(t, object["tools"], "send_integration_message")
+				if sendingEnabled {
+					require.NotContains(t, object["tools"], "app__slack__post_message")
+				} else {
+					require.Contains(t, object["tools"], "app__slack__post_message")
+				}
+				require.NotContains(t, migratedSource.String, "app_id")
+				if scenario == "yaml" {
+					require.Contains(t, migratedSource.String, "# Keep this profile note.")
+					require.Contains(t, migratedSource.String, "# Explicitly disabled")
+					require.Contains(t, migratedSource.String, "# policy")
+				}
+			}
+			var inputTargets int
+			require.NoError(
+				t,
+				db.QueryRowContext(
+					ctx,
+					`SELECT count(*) FROM agent_inputs input JOIN integration_targets target ON target.id=input.integration_target_id WHERE target.app_id=$1`,
+					appID,
+				).Scan(
+					&inputTargets,
+				),
+			)
+			require.Equal(t, 1, inputTargets)
+
 			var profileConfig string
 			require.NoError(
 				t,
@@ -453,6 +940,8 @@ func seedSlackCutoverSuccessfulRetry(
 		agentID,
 		succeeded,
 	)
+	exec(`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,text_content,created_at)
+	 VALUES($1,'model_output',$2,1,'text','Historical Slack reply',now())`, agentID, outputID)
 	if withTool {
 		toolID := uuid.New()
 		exec(`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)

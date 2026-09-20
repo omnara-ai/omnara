@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -58,31 +57,23 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 			executionstore.CreateAgentProfileInput{ProjectID: ids.ProjectID, Name: "review", CurrentConfigID: base.ID},
 		)
 	require.NoError(t, err)
-	connection := uuid.Must(uuid.NewV7())
+	appSetup := uuid.Must(uuid.NewV7())
 	_, err = pool.Exec(
 		ctx,
-		`INSERT INTO integration_connections(id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,created_at,updated_at) VALUES($1,$2,$3,$4,'slack','active','T123','app-router',now(),now())`,
-		connection,
+		`INSERT INTO project_apps(id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'slack','active','T123','app-router','chat','omnara.slack',$5,now(),now())`,
+		appSetup,
 		ids.OrgID,
 		ids.ProjectID,
 		ids.ProviderAdminUserID,
+		ids.ProviderSecretID,
 	)
-	require.NoError(t, err)
-	publicConnection, err := publicid.Encode(publicid.KindIntegrationConnection, connection)
 	require.NoError(t, err)
 	setup := integrationstore.SaveProjectAppInput{
 		OrgID:        ids.OrgID,
 		ProjectID:    ids.ProjectID,
-		Name:         "reviewers",
+		Name:         "chat",
 		DefinitionID: appdefinition.Slack,
-		Enabled:      true,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{
-				Definition:         appdefinition.Slack,
-				Connection:         publicConnection,
-				Listener:           &appdefinition.Listener{Events: []string{"message"}},
-				InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
-			},
 			Launcher: &integrationstore.AppLauncher{
 				Trigger:   "mention",
 				ScopeKind: "workspace",
@@ -94,17 +85,17 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 			},
 		},
 	}
-	app, err := store.Integrations().CreateProjectApp(ctx, setup)
+	app, err := store.Integrations().UpdateProjectApp(ctx, appSetup, setup)
 	require.NoError(t, err)
 	claim := func(key string) integrationstore.IntegrationInboxRecord {
 		_, _, err := store.Integrations().
 			AcceptIntegrationReceipt(
 				ctx,
 				integrationstore.VerifiedIntegrationReceipt{
-					ProjectID:    ids.ProjectID,
-					ConnectionID: connection,
-					ReceiptKey:   key,
-					Payload:      []byte(`{"verified":true}`),
+					ProjectID:  ids.ProjectID,
+					AppID:      appSetup,
+					ReceiptKey: key,
+					Payload:    []byte(`{"verified":true}`),
 				},
 			)
 		require.NoError(t, err)
@@ -113,7 +104,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 				ctx,
 				integrationstore.ClaimIntegrationInboxInput{
 					ProjectID:     ids.ProjectID,
-					ConnectionID:  connection,
+					AppID:         appSetup,
 					LeaseDuration: time.Minute,
 				},
 			)
@@ -156,9 +147,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	require.ErrorIs(t, failures[1-winner], integrationstore.ErrAppSelectionReserved)
 	plan, receipt := plans[winner], receipts[winner]
 	require.Len(t, plan, 2)
-	// Disabling a launcher stops future selections; this frozen N-slot
-	// membership and its pinned profile remain admitted work.
-	setup.Enabled = false
+	// Editing launcher slots does not change frozen membership or its pinned profile.
 	setup.Settings.Launcher.Slots[1].Key = "c"
 	_, err = store.Integrations().UpdateProjectApp(ctx, app.ID, setup)
 	require.NoError(t, err)
@@ -296,8 +285,8 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	for _, result := range consumed {
 		require.False(t, result.Input.Created)
 	}
-	// Completed replay needs neither active connection nor fresh handler writes.
-	_, err = pool.Exec(ctx, `UPDATE integration_connections SET state='disabled' WHERE id=$1`, connection)
+	// Completed replay needs neither active app nor fresh handler writes.
+	_, err = pool.Exec(ctx, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, appSetup)
 	require.NoError(t, err)
 	results, err = router.Admit(ctx, receipt.Lease())
 	require.NoError(t, err)
@@ -314,7 +303,7 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 		integrationstore.IntegrationInboxFailed,
 	} {
 		t.Run(string(ownerState), func(t *testing.T) {
-			pool, store, ids, connection := appWorkerFixture(t)
+			pool, store, ids, appSetup := appWorkerFixture(t)
 			ctx := t.Context()
 			inbox := store.Integrations()
 			router := NewAppRouter(store.Execution(), inbox)
@@ -337,22 +326,14 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 					},
 				)
 			require.NoError(t, err)
-			publicConnection, err := publicid.Encode(publicid.KindIntegrationConnection, connection)
-			require.NoError(t, err)
-			_, err = inbox.CreateProjectApp(
-				ctx,
+			_, err = inbox.UpdateProjectApp(
+				ctx, appSetup,
 				integrationstore.SaveProjectAppInput{
 					OrgID:        ids.OrgID,
 					ProjectID:    ids.ProjectID,
-					Name:         "reviewers",
+					Name:         "chat",
 					DefinitionID: appdefinition.Slack,
-					Enabled:      true,
 					Settings: integrationstore.ProjectAppSettings{
-						Resource: agentconfig.AgentConfigAppResourceSource{
-							Definition: appdefinition.Slack,
-							Connection: publicConnection,
-							Listener:   &appdefinition.Listener{Events: []string{"message"}},
-						},
 						Launcher: &integrationstore.AppLauncher{
 							Trigger:   "mention",
 							ScopeKind: "workspace",
@@ -368,7 +349,7 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 					ctx,
 					integrationstore.ClaimIntegrationInboxInput{
 						ProjectID:     ids.ProjectID,
-						ConnectionID:  connection,
+						AppID:         appSetup,
 						LeaseDuration: time.Minute,
 					},
 				)
@@ -380,10 +361,10 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 				_, _, err := inbox.AcceptIntegrationReceipt(
 					ctx,
 					integrationstore.VerifiedIntegrationReceipt{
-						ProjectID:    ids.ProjectID,
-						ConnectionID: connection,
-						ReceiptKey:   key,
-						Payload:      []byte(`{}`),
+						ProjectID:  ids.ProjectID,
+						AppID:      appSetup,
+						ReceiptKey: key,
+						Payload:    []byte(`{}`),
 					},
 				)
 				require.NoError(t, err)

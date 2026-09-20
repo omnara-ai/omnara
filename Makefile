@@ -146,7 +146,7 @@ race-unit: ## Run internal unit tests with race detection
 	$(GO) test -race -count=1 ./internal/...
 
 openapi-generate:
-	OMNARA_REGEN_APP_OPENAPI=1 $(GO) test ./api/openapi -run TestGeneratedAppResourceSchemasAreCurrent
+	OMNARA_REGEN_APP_OPENAPI=1 $(GO) test ./api/openapi -run TestGeneratedAppCapabilitySchemasAreCurrent
 	$(OAPI_CODEGEN) -config api/openapi/oapi-codegen.yaml api/openapi/openapi.yaml
 
 openapi-check:

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -20,6 +21,9 @@ import (
 const integrationEventsPath = "/api/integrations/slack/events"
 
 func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), integrationIntakeTimeout)
+	defer cancel()
+	r = r.WithContext(ctx)
 	raw, ok := readIntegrationCallbackBody(w, r, slack.EventBodyMaxBytes)
 	if !ok {
 		return
@@ -33,113 +37,112 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, map[string]string{"challenge": challenge})
 		return
 	}
-	install, ok := s.verifySignedSlackCallback(w, r, raw, envelope.APIAppID, envelope.TeamID)
-	if !ok {
+	if s.store == nil {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "store unavailable")
 		return
 	}
-	if !slack.EventCallbackEnvelope(envelope) {
-		logent.IntegrationEvent(r.Context(), install, "ignored_envelope", envelope.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
-		return
-	}
-	installIdentity, err := slack.ParseInstallIdentity(install.ProviderIdentity)
+	response := ""
+	var rejected error
+	result, err := fanoutIntegrationApps(ctx, s.store.Integrations().ListProjectAppsForProviderEventVerification,
+		integrationstore.IntegrationProviderSlack, envelope.TeamID, envelope.APIAppID,
+		func(ctx context.Context, app integrationstore.ProjectAppRecord) (bool, error) {
+			credentials, err := s.integrationSlackCredentials(ctx, app)
+			if err != nil {
+				return false, err
+			}
+			if !slack.ValidSignature(r.Header, raw, credentials.SigningSecret, time.Now().UTC()) {
+				return false, nil
+			}
+			effect, err := s.acceptSlackEvent(ctx, app, envelope, raw)
+			if err == nil {
+				if response != "received" {
+					response = effect
+				}
+			} else {
+				rejected = err
+			}
+			return true, err
+		})
 	if err != nil {
-		writeIntegrationProviderError(w, err)
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "Slack intake unavailable")
 		return
 	}
-	identity := slack.Identity{
-		AppID:       install.ProviderAccountRef,
-		WorkspaceID: install.ProviderTenantID,
-		BotUserID:   installIdentity.BotUserID,
-	}
-	if !slack.ValidateEnvelopeIdentity(identity, envelope) {
-		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack event identity")
+	if result.Verified == 0 {
+		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid signature")
 		return
+	}
+	if response == "" {
+		if errors.Is(rejected, storeerr.ErrInvalidRequest) {
+			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid slack event")
+		} else {
+			apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack event identity")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": response})
+}
+
+func (s *Server) acceptSlackEvent(
+	ctx context.Context, app integrationstore.ProjectAppRecord, envelope slack.EventsEnvelope, raw []byte,
+) (string, error) {
+	if !slack.EventCallbackEnvelope(envelope) {
+		return "ignored", nil
+	}
+	identity, err := slack.ParseInstallIdentity(app.ProviderIdentity)
+	if err != nil {
+		return "", storeerr.InvalidRequest(err)
+	}
+	providerIdentity := slack.Identity{
+		AppID: app.ProviderAccountRef, WorkspaceID: app.ProviderTenantID, BotUserID: identity.BotUserID,
+	}
+	if !slack.ValidateEnvelopeIdentity(providerIdentity, envelope) {
+		return "", storeerr.ErrUnauthorized
 	}
 	if envelope.EventID == "" {
-		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "missing slack event id")
-		return
+		return "", storeerr.InvalidRequest(errors.New("missing event id"))
 	}
-	if slack.DisabledInstallEvent(installIdentity.BotUserID, envelope.Event) {
-		if install.State == integrationstore.IntegrationConnectionStateActive {
-			applied, err := s.store.Integrations().DisableIntegrationConnection(
-				r.Context(),
-				integrationstore.DisableIntegrationConnectionInput{
-					ProjectID:           install.ProjectID,
-					ID:                  install.ID,
-					ExpectedOAuthFlowID: &install.LastOAuthFlowID,
-				},
-			)
-			if err != nil {
-				writeIntegrationProviderError(w, err)
-				return
-			}
-			if !applied {
-				logent.IntegrationEvent(r.Context(), install, "ignored_stale_install", envelope.Event.Type)
-				writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
-				return
-			}
-		}
-		logent.IntegrationEvent(r.Context(), install, "disabled", envelope.Event.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "disabled"})
-		return
+	if app.State != integrationstore.ProjectAppStateActive {
+		return "ignored", nil
 	}
-	if slack.IgnoredLifecycleEvent(installIdentity.BotUserID, envelope.Event) {
-		logent.IntegrationEvent(r.Context(), install, "ignored_event", envelope.Event.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
-		return
+	if slack.DisabledInstallEvent(identity.BotUserID, envelope.Event) {
+		_, err := s.store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+			ProjectID: app.ProjectID, AppID: app.ID, ExpectedSetupRevision: &app.SetupRevision,
+		})
+		return "disabled", err
 	}
-	if !slack.ValidateRuntimeBotAuthorization(identity, envelope) {
-		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack event identity")
-		return
+	if slack.IgnoredLifecycleEvent(identity.BotUserID, envelope.Event) {
+		return "ignored", nil
 	}
-	if install.State != integrationstore.IntegrationConnectionStateActive {
-		logent.IntegrationEvent(r.Context(), install, "ignored_disabled", envelope.Event.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
-		return
+	if !slack.ValidateRuntimeBotAuthorization(providerIdentity, envelope) {
+		return "", storeerr.ErrUnauthorized
 	}
 	if update, ok := slack.EventNameUpdate(envelope); ok {
-		if err := s.applyIntegrationNameUpdate(r.Context(), install, update); err != nil {
-			writeIntegrationProviderError(w, err)
-			return
-		}
-		logent.IntegrationEvent(r.Context(), install, "name_updated", envelope.Event.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "updated"})
-		return
+		return "updated", s.applyIntegrationNameUpdate(ctx, app, update)
 	}
-	if slack.RemoteUserEvent(install.ProviderTenantID, envelope.Event) ||
-		slack.BotOrSelfEvent(installIdentity.BotUserID, envelope.Event) {
-		logent.IntegrationEvent(r.Context(), install, "ignored_event", envelope.Event.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
-		return
+	if slack.RemoteUserEvent(app.ProviderTenantID, envelope.Event) ||
+		slack.BotOrSelfEvent(identity.BotUserID, envelope.Event) {
+		return "ignored", nil
 	}
-	// Capture eligible human messages before routing. App/listener policy and
-	// message/app_mention semantic deduplication belong to the inbox consumer.
+	// Every independently authorized app receives its own durable receipt.
+	// Listener policy and message/app_mention semantic deduplication run later.
 	event := envelope.Event
 	if (event.Type != "message" && event.Type != "app_mention") ||
 		(event.Subtype != "" && event.Subtype != "file_share") || event.Channel == "" || event.TS == "" {
-		logent.IntegrationEvent(r.Context(), install, "ignored_event", envelope.Event.Type)
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
-		return
+		return "ignored", nil
 	}
-	_, _, err = s.store.Integrations().AcceptIntegrationReceipt(
-		r.Context(),
-		integrationstore.VerifiedIntegrationReceipt{
-			ProjectID: install.ProjectID, ConnectionID: install.ID,
-			ReceiptKey: "slack:" + envelope.EventID, Payload: raw,
-		},
-	)
-	if err != nil {
-		writeIntegrationProviderError(w, err)
-		return
+	_, _, err = s.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: app.ProjectID, AppID: app.ID,
+		ReceiptKey: "slack:" + envelope.EventID, Payload: raw,
+	})
+	if err == nil {
+		logent.IntegrationEvent(ctx, app, "received", envelope.Event.Type)
 	}
-	logent.IntegrationEvent(r.Context(), install, "received", envelope.Event.Type)
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "received"})
+	return "received", err
 }
 
 func (s *Server) applyIntegrationNameUpdate(
 	ctx context.Context,
-	install integrationstore.IntegrationConnectionRecord,
+	install integrationstore.ProjectAppRecord,
 	update slack.NameUpdate,
 ) error {
 	if update.ConversationID != "" {
@@ -165,7 +168,7 @@ func (s *Server) applyIntegrationNameUpdate(
 
 func (s *Server) integrationSlackCredentials(
 	ctx context.Context,
-	install integrationstore.IntegrationConnectionRecord,
+	install integrationstore.ProjectAppRecord,
 ) (slack.AppCredentials, error) {
 	credential, err := s.store.Secrets().ReadProjectAvailableSecretPayload(
 		ctx,
@@ -181,7 +184,7 @@ func (s *Server) integrationSlackCredentials(
 	}
 	credentials, err := slack.AppCredentialsFromPayload(credential.Payload)
 	if err != nil {
-		return slack.AppCredentials{}, fmt.Errorf("read slack integration credentials: %w", err)
+		return slack.AppCredentials{}, storeerr.InvalidRequest(fmt.Errorf("read slack app credentials: %w", err))
 	}
 	return credentials, nil
 }

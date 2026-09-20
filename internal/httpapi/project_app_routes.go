@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -146,9 +147,7 @@ func parseProjectAppRequest(
 		)
 	}
 	input := integrationstore.SaveProjectAppInput{
-		OrgID: orgID, ProjectID: projectID, Name: body.Name, DefinitionID: body.Settings.Resource.Definition,
-		Enabled:  body.Enabled == nil || *body.Enabled,
-		Settings: integrationstore.ProjectAppSettings{Resource: body.Settings.Resource},
+		OrgID: orgID, ProjectID: projectID, Name: body.Name, DefinitionID: body.DefinitionId,
 	}
 	if source := body.Settings.Launcher; source != nil {
 		launcher := &integrationstore.AppLauncher{
@@ -189,9 +188,26 @@ func projectAppResponse(app integrationstore.ProjectAppRecord) (openapi.ProjectA
 		return openapi.ProjectApp{}, err
 	}
 	response := openapi.ProjectApp{
-		Id: id, ProjectId: projectID, Name: app.Name, Enabled: app.Enabled,
-		Settings:  openapi.ProjectAppSettings{Resource: app.Settings.Resource},
+		Id: id, ProjectId: projectID, Name: app.Name, DefinitionId: app.DefinitionID,
+		Provider: openapi.IntegrationProvider(app.Provider), State: openapi.ProjectAppState(app.State),
+		SetupRevision: app.SetupRevision, ProviderTenantId: app.ProviderTenantID,
+		ProviderAccountRef: app.ProviderAccountRef, ProviderAgentDisplayName: app.ProviderAgentDisplayName,
 		CreatedAt: app.CreatedAt, UpdatedAt: app.UpdatedAt,
+	}
+	response.CredentialSecretId, err = idOrNil(publicid.KindSecret, app.CredentialSecretID)
+	if err != nil {
+		return openapi.ProjectApp{}, err
+	}
+	if err := json.Unmarshal(app.ProviderConfig, &response.ProviderConfig); err != nil {
+		return openapi.ProjectApp{}, err
+	}
+	response.LastOauthFlowId, err = idOrNil(publicid.KindIntegrationOAuthFlow, app.LastOAuthFlowID)
+	if err != nil {
+		return openapi.ProjectApp{}, err
+	}
+	response.Capabilities, err = appCapabilitiesResponse(app.DefinitionID)
+	if err != nil {
+		return openapi.ProjectApp{}, err
 	}
 	if source := app.Settings.Launcher; source != nil {
 		launcher := &openapi.AppLauncher{

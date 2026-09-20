@@ -39,15 +39,15 @@ func (s *appPlanExecution) GetAgentProfile(
 
 type appPlanIntegrations struct {
 	AppRoutingStore
-	connection integrationstore.IntegrationConnectionRecord
-	receipt    integrationstore.IntegrationInboxRecord
+	appSetup integrationstore.ProjectAppRecord
+	receipt  integrationstore.IntegrationInboxRecord
 }
 
-func (s *appPlanIntegrations) GetIntegrationConnectionByID(
+func (s *appPlanIntegrations) GetProjectAppByID(
 	context.Context,
 	uuid.UUID,
-) (integrationstore.IntegrationConnectionRecord, error) {
-	return s.connection, nil
+) (integrationstore.ProjectAppRecord, error) {
+	return s.appSetup, nil
 }
 
 func (s *appPlanIntegrations) GetIntegrationInbox(
@@ -62,18 +62,24 @@ func appPlannerFixture(
 	t *testing.T,
 ) (*AppRouter, *appPlanExecution, *appPlanIntegrations, integrationstore.ProjectAppRecord, AppEvent) {
 	t.Helper()
-	project, org := uuid.New(), uuid.New()
+	project, org, appID := uuid.New(), uuid.New(), uuid.New()
+	publicApp, err := publicid.Encode(publicid.KindProjectApp, appID)
+	require.NoError(t, err)
 	disabled := false
 	source := agentconfig.AgentConfigSource{
 		Instruction: "Pinned original",
 		Model:       agentconfig.AgentConfigModelSource{ProviderConfig: "test", Name: "model"},
 		Tools: map[string]agentconfig.AgentConfigToolSource{
-			toolcatalog.ToolNameSlackPostMessage: {Enabled: &disabled},
+			toolcatalog.AppToolName("chat", "post_message"): {Enabled: &disabled},
 		},
 	}
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
-	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{})
+	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{
+		ResolveAppName: func(string) (agentconfig.AppResolution, error) {
+			return agentconfig.AppResolution{AppID: publicApp, Definition: appdefinition.Slack}, nil
+		},
+	})
 	require.NoError(t, err)
 	base := executionstore.AgentConfigRecord{
 		ID:                      uuid.New(),
@@ -94,45 +100,33 @@ func appPlannerFixture(
 		},
 	}
 	integrations := &appPlanIntegrations{
-		connection: integrationstore.IntegrationConnectionRecord{
-			ID:                uuid.New(),
+		appSetup: integrationstore.ProjectAppRecord{
+			ID:   appID,
+			Name: "chat", DefinitionID: appdefinition.Slack,
 			OrgID:             org,
 			ProjectID:         project,
 			Provider:          "slack",
 			ProviderTenantID:  "T123",
-			State:             integrationstore.IntegrationConnectionStateActive,
+			State:             integrationstore.ProjectAppStateActive,
 			InstalledByUserID: uuid.New(),
 		},
 	}
 	integrations.receipt = integrationstore.IntegrationInboxRecord{
 		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
-			ID:           uuid.New(),
-			ProjectID:    project,
-			ConnectionID: integrations.connection.ID,
+			ID:        uuid.New(),
+			ProjectID: project,
+			AppID:     integrations.appSetup.ID,
 		},
 	}
-	connectionID, err := publicid.Encode(publicid.KindIntegrationConnection, integrations.connection.ID)
-	require.NoError(t, err)
-	app := integrationstore.ProjectAppRecord{
-		ID:           uuid.New(),
-		ProjectID:    project,
-		DefinitionID: appdefinition.Slack,
-		Enabled:      true,
-		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{
-				Definition: appdefinition.Slack,
-				Connection: connectionID,
-				Tools:      map[string]agentconfig.AgentConfigToolSource{toolcatalog.ToolNameSlackPostMessage: {}},
-				Listener:   &appdefinition.Listener{Events: []string{"message"}},
-			},
-			Launcher: &integrationstore.AppLauncher{
-				Trigger:   "mention",
-				ScopeKind: "workspace",
-				ScopeRef:  "T123",
-				Slots: []integrationstore.AppLaunchSlot{
-					{Key: "a", AgentProfileID: &execution.profile.ID},
-					{Key: "b", AgentProfileID: &execution.profile.ID},
-				},
+	app := integrations.appSetup
+	app.Settings = integrationstore.ProjectAppSettings{
+		Launcher: &integrationstore.AppLauncher{
+			Trigger:   "mention",
+			ScopeKind: "workspace",
+			ScopeRef:  "T123",
+			Slots: []integrationstore.AppLaunchSlot{
+				{Key: "a", AgentProfileID: &execution.profile.ID},
+				{Key: "b", AgentProfileID: &execution.profile.ID},
 			},
 		},
 	}
@@ -156,11 +150,11 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + oldID.String() + `"}]`,
 	)
 	event.Files = []AppPlannedFile{{ArtifactID: oldID, ProviderFileID: "F123"}}
-	requests, err := prepareAppEvents([]AppEvent{event}, integrations.connection)
+	requests, err := prepareAppEvents([]AppEvent{event}, integrations.appSetup)
 	require.NoError(t, err)
-	requests[0].candidates.Launchers = []integrationstore.ProjectAppRecord{app}
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	requests[0].candidates.Launcher = &app
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 2)
 	require.Equal(t, 1, execution.reads)
@@ -180,11 +174,14 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(slot.Launch.DerivedConfig.CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
-		require.False(t, compiled.Tools[toolcatalog.ToolNameSlackPostMessage].Enabled)
-		for _, resource := range compiled.AppResources {
-			require.Equal(t, event.Event.Scope, *resource.Scope)
-			require.NotEmpty(t, resource.AppInstanceID)
-		}
+		require.False(t, compiled.Tools[toolcatalog.AppToolName("chat", "post_message")].Enabled)
+		key := app.Name + "__thread_messages"
+		require.Equal(t, key, slot.ListenerKey)
+		require.Equal(t, compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].AppID, compiled.Listeners[key].AppID)
+		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`,
+			string(compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].Config))
+		require.JSONEq(t, `{"events":["message"]}`, string(compiled.Listeners[key].Config))
+		require.NotEmpty(t, compiled.InteractionHandlers[app.Name].AppID)
 		raw, err := json.Marshal(slot)
 		require.NoError(t, err)
 		var kernel executionstore.InboxLaunchSlot
@@ -196,7 +193,7 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 	// embedded nil store interface would panic if replanning were attempted.
 	integrations.receipt.Plan, err = json.Marshal(plan)
 	require.NoError(t, err)
-	integrations.connection.State = integrationstore.IntegrationConnectionStateDisabled
+	integrations.appSetup.State = integrationstore.ProjectAppStateDisconnected
 	got, err := router.Freeze(t.Context(), integrations.receipt.Lease(), nil)
 	require.NoError(t, err)
 	require.Equal(t, plan, got)
@@ -212,26 +209,26 @@ func TestAppPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T) {
 		app.Settings.Launcher.Slots,
 		integrationstore.AppLaunchSlot{Key: "trigger", AgentID: &agent},
 	)
-	requests, err := prepareAppEvents([]AppEvent{event}, integrations.connection)
+	requests, err := prepareAppEvents([]AppEvent{event}, integrations.appSetup)
 	require.NoError(t, err)
 	requests[0].candidates = integrationstore.AppRoutingCandidates{
-		Launchers: []integrationstore.ProjectAppRecord{app},
+		Launcher: &app,
 		Listeners: []integrationstore.AgentListenerRecord{
 			{
 				AgentID:     agent,
-				ResourceKey: "channel",
+				ListenerKey: "channel",
 				Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
 			},
 			{
 				AgentID:     agent,
-				ResourceKey: "another",
+				ListenerKey: "another",
 				Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
 			},
 		},
 		Selections: []integrationstore.IntegrationTargetRecord{{AppID: app.ID, SelectionSlot: "removed-old-slot"}},
 	}
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
 	require.Zero(t, execution.reads)
@@ -245,29 +242,29 @@ func TestAppPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T) {
 	// listener alone does not suppress an unrelated thread's first selection.
 	requests[0].candidates.Selections = nil
 	requests[0].candidates.Listeners[0].Address = requests[0].address
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
 	requests[0].candidates.Listeners[0].Address = integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"}
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 3)
 }
 
-func TestAppPlanExpansionContinuesOnlyDeclaredListeners(t *testing.T) {
+func TestAppPlanExpansionContinuesLauncherRuntimeListener(t *testing.T) {
 	router, _, integrations, app, first := appPlannerFixture(t)
 	second := first
 	second.SemanticKey = "message:0"
 	second.Event.Mentioned = false
-	requests, err := prepareAppEvents([]AppEvent{first, second}, integrations.connection)
+	requests, err := prepareAppEvents([]AppEvent{first, second}, integrations.appSetup)
 	require.NoError(t, err)
 	for i := range requests {
-		requests[i].candidates.Launchers = []integrationstore.ProjectAppRecord{app}
+		requests[i].candidates.Launcher = &app
 	}
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 4)
 	var launches, inputs int
@@ -285,65 +282,57 @@ func TestAppPlanExpansionContinuesOnlyDeclaredListeners(t *testing.T) {
 	}
 	require.Equal(t, 2, launches)
 	require.Equal(t, 2, inputs)
-	app.Settings.Resource.Listener = nil
-	for i := range requests {
-		requests[i].candidates.Launchers = []integrationstore.ProjectAppRecord{app}
-	}
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
-	require.NoError(t, err)
-	require.Len(t, plan, 2)
 }
 
 func TestAppPlanDiscordThreadRequiresExactListener(t *testing.T) {
 	router, _, integrations, _, event := appPlannerFixture(t)
-	integrations.connection.Provider = "discord"
-	integrations.connection.ProviderTenantID = "11"
+	integrations.appSetup.Provider = "discord"
+	integrations.appSetup.ProviderTenantID = "11"
 	event.Actor.Provider, event.Actor.ProviderTenantID = "discord", "11"
 	event.Event.Scope = appdefinition.Scope{
 		Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
 	}
 	event.Event.Mentioned = false
-	requests, err := prepareAppEvents([]AppEvent{event}, integrations.connection)
+	requests, err := prepareAppEvents([]AppEvent{event}, integrations.appSetup)
 	require.NoError(t, err)
 	parent, exact := uuid.New(), uuid.New()
 	requests[0].candidates.Listeners = []integrationstore.AgentListenerRecord{
 		{
 			AgentID:     parent,
-			ResourceKey: "channel",
+			ListenerKey: "channel",
 			Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "300"},
 		},
 		{
 			AgentID:     parent,
-			ResourceKey: "guild",
+			ListenerKey: "guild",
 			Address:     integrationstore.ConversationAddress{Kind: "guild", Ref: "100"},
 		},
 		{
 			AgentID:     exact,
-			ResourceKey: "thread",
+			ListenerKey: "thread",
 			Address:     integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"},
 		},
 	}
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
 	for _, slot := range plan {
 		require.Equal(t, exact, slot.AgentID)
 	}
 	requests[0].candidates.Listeners = requests[0].candidates.Listeners[:2]
-	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.connection, requests)
-	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
+	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Empty(t, plan, "parent authority must not subscribe every thread")
 }
 
 func TestAppPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	router, execution, integrations, app, event := appPlannerFixture(t)
-	requests, err := prepareAppEvents([]AppEvent{event}, integrations.connection)
+	requests, err := prepareAppEvents([]AppEvent{event}, integrations.appSetup)
 	require.NoError(t, err)
-	requests[0].candidates.Launchers = []integrationstore.ProjectAppRecord{app}
-	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	requests[0].candidates.Launcher = &app
+	plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Empty(t, plan, "matching saved setups do not authorize an implicit launch")
 	require.Zero(t, execution.reads)
@@ -354,9 +343,9 @@ func TestAppPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	requests[0].event.Directed = true
 	requests[0].event.Launches = []AppLaunchIntent{{AppID: app.ID, Slot: "b", ProfileID: execution.profile.ID}}
 	requests[0].candidates.Listeners = []integrationstore.AgentListenerRecord{
-		{AgentID: uuid.New(), ResourceKey: "unrelated", Address: requests[0].address},
+		{AgentID: uuid.New(), ListenerKey: "unrelated", Address: requests[0].address},
 	}
-	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
 	for _, slot := range plan {
@@ -370,18 +359,20 @@ func TestAppPlanRejectsUnavailableLaunchIntents(t *testing.T) {
 		name   string
 		change func(*appEventCandidates)
 	}{
-		{"absent app", func(r *appEventCandidates) { r.candidates.Launchers = nil }},
-		{"disabled app", func(r *appEventCandidates) { r.candidates.Launchers[0].Enabled = false }},
-		{"wrong project", func(r *appEventCandidates) { r.candidates.Launchers[0].ProjectID = uuid.New() }},
-		{"removed launcher", func(r *appEventCandidates) { r.candidates.Launchers[0].Settings.Launcher = nil }},
-		{"removed slot", func(r *appEventCandidates) { r.candidates.Launchers[0].Settings.Launcher.Slots = nil }},
+		{"absent app", func(r *appEventCandidates) { r.candidates.Launcher = nil }},
+		{"disabled app", func(r *appEventCandidates) {
+			r.candidates.Launcher.State = integrationstore.ProjectAppStateDisconnected
+		}},
+		{"wrong project", func(r *appEventCandidates) { r.candidates.Launcher.ProjectID = uuid.New() }},
+		{"removed launcher", func(r *appEventCandidates) { r.candidates.Launcher.Settings.Launcher = nil }},
+		{"removed slot", func(r *appEventCandidates) { r.candidates.Launcher.Settings.Launcher.Slots = nil }},
 		{"retargeted profile", func(r *appEventCandidates) {
 			other := uuid.New()
-			r.candidates.Launchers[0].Settings.Launcher.Slots[0].AgentProfileID = &other
+			r.candidates.Launcher.Settings.Launcher.Slots[0].AgentProfileID = &other
 		}},
 		{"changed to fixed agent", func(r *appEventCandidates) {
 			other := uuid.New()
-			r.candidates.Launchers[0].Settings.Launcher.Slots[0] = integrationstore.AppLaunchSlot{
+			r.candidates.Launcher.Settings.Launcher.Slots[0] = integrationstore.AppLaunchSlot{
 				Key: "a", AgentID: &other,
 			}
 		}},
@@ -389,7 +380,7 @@ func TestAppPlanRejectsUnavailableLaunchIntents(t *testing.T) {
 		{"ambiguous recipient", func(r *appEventCandidates) { r.event.Launches[0].AgentID = uuid.New() }},
 		{"retargeted fixed agent", func(r *appEventCandidates) {
 			actual, expected := uuid.New(), uuid.New()
-			r.candidates.Launchers[0].Settings.Launcher.Slots[0] = integrationstore.AppLaunchSlot{
+			r.candidates.Launcher.Settings.Launcher.Slots[0] = integrationstore.AppLaunchSlot{
 				Key: "a", AgentID: &actual,
 			}
 			r.event.Launches[0].ProfileID, r.event.Launches[0].AgentID = uuid.Nil, expected
@@ -404,11 +395,11 @@ func TestAppPlanRejectsUnavailableLaunchIntents(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			router, execution, integrations, app, event := appPlannerFixture(t)
 			event.Launches = []AppLaunchIntent{{AppID: app.ID, Slot: "a", ProfileID: execution.profile.ID}}
-			requests, err := prepareAppEvents([]AppEvent{event}, integrations.connection)
+			requests, err := prepareAppEvents([]AppEvent{event}, integrations.appSetup)
 			require.NoError(t, err)
-			requests[0].candidates.Launchers = []integrationstore.ProjectAppRecord{app}
+			requests[0].candidates.Launcher = &app
 			test.change(&requests[0])
-			plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+			plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 			require.ErrorIs(t, err, ErrAppLaunchUnavailable)
 			require.Empty(t, plan)
 			require.Zero(t, execution.reads, "stale choices must fail before profile derivation")
@@ -424,9 +415,6 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			router, execution, integrations, app, first := appPlannerFixture(t)
-			if settled {
-				app.Settings.Resource.Listener = nil
-			}
 			first.Directed = true
 			first.Launches = []AppLaunchIntent{
 				{AppID: app.ID, Slot: "a", ProfileID: execution.profile.ID},
@@ -444,13 +432,13 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 			// Duplicate intent within an event must not create a second launch or
 			// an extra initial input for that same slot.
 			first.Launches = append(first.Launches, first.Launches[0])
-			requests, err := prepareAppEvents([]AppEvent{first, second}, integrations.connection)
+			requests, err := prepareAppEvents([]AppEvent{first, second}, integrations.appSetup)
 			require.NoError(t, err)
 			agents := map[string]uuid.UUID{"a": uuid.New(), "b": uuid.New()}
 			for i := range requests {
-				requests[i].candidates.Launchers = []integrationstore.ProjectAppRecord{app}
+				requests[i].candidates.Launcher = &app
 				requests[i].candidates.Listeners = []integrationstore.AgentListenerRecord{
-					{AgentID: uuid.New(), ResourceKey: "unrelated", Address: requests[i].address},
+					{AgentID: uuid.New(), ListenerKey: "unrelated", Address: requests[i].address},
 				}
 				if settled {
 					for slot, agent := range agents {
@@ -464,7 +452,7 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 					}
 				}
 			}
-			plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.connection, requests)
+			plan, err := router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 			require.NoError(t, err)
 			require.Len(t, plan, 3, "two chosen slots, then a file only for the chosen original recipient")
 			launches := 0
@@ -501,6 +489,101 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 				}
 			}
 			require.Equal(t, 1, inputs, "directed files must skip even listeners planned earlier in this expansion")
+		})
+	}
+}
+
+func TestAppLaunchPreservesEntireExistingCapabilities(t *testing.T) {
+	_, execution, _, app, event := appPlannerFixture(t)
+	base := execution.profile.CurrentConfig
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+	appID := compiled.Tools[toolcatalog.AppToolName(app.Name, "post_message")].AppID
+	toolKey, listenerKey := toolcatalog.AppToolName(app.Name, "post_message"), app.Name+"__thread_messages"
+	tool := compiled.Tools[toolKey]
+	tool.Config = json.RawMessage(`{"channel_id":"C999","thread_ts":"9.9"}`)
+	tool.Deferred = true
+	compiled.Tools[toolKey] = tool
+	compiled.Listeners = map[string]agentconfig.AppCapabilityCompiled{listenerKey: {AppID: appID, Config: json.RawMessage(`{}`)}}
+	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: appID, Config: json.RawMessage(`{"channel_id":"C999"}`)}}
+	encoded, err := agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+	derived, key, err := deriveAppLaunch(base, app, event.Event.Scope)
+	require.NoError(t, err)
+	require.Equal(t, listenerKey, key, "launch admission follows this listener independently of its empty config")
+	var actual agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(derived.Config.CompiledDefinition, &actual))
+	require.Equal(t, tool, actual.Tools[toolKey])
+	require.Equal(t, compiled.Listeners, actual.Listeners)
+	require.Equal(t, compiled.InteractionHandlers, actual.InteractionHandlers)
+	require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`,
+		string(actual.Tools[toolcatalog.AppToolName(app.Name, "read")].Config))
+
+	other, err := publicid.Encode(publicid.KindProjectApp, uuid.New())
+	require.NoError(t, err)
+	compiled.Listeners[listenerKey] = agentconfig.AppCapabilityCompiled{AppID: other, Config: json.RawMessage(`{}`)}
+	encoded, err = agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+	_, _, err = deriveAppLaunch(base, app, event.Event.Scope)
+	require.ErrorIs(t, err, ErrAppLaunchUnavailable, "a reused app name must not retarget its pinned listener")
+}
+
+func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
+	for _, test := range []struct {
+		definition, provider, listener string
+		scope                          appdefinition.Scope
+		address                        string
+	}{
+		{
+			appdefinition.Slack, "slack", "thread_messages",
+			appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
+			`{"channel_id":"C123","thread_ts":"1.2"}`,
+		},
+		{
+			appdefinition.Discord, "discord", "thread_messages",
+			appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}},
+			`{"guild_id":"100","channel_id":"300","thread_id":"500"}`,
+		},
+		{
+			appdefinition.GitHub, "github", "pull_request",
+			appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 9007199254740993, PullRequest: 42}},
+			`{"repository_id":9007199254740993,"pull_request":42}`,
+		},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			_, execution, _, app, _ := appPlannerFixture(t)
+			base := execution.profile.CurrentConfig
+			app.Provider, app.DefinitionID, app.Name = test.provider, test.definition, "receiver"
+			derived, key, err := deriveAppLaunch(base, app, test.scope)
+			require.NoError(t, err)
+			require.Equal(t, "receiver__"+test.listener, key)
+			var compiled agentconfig.Compiled
+			require.NoError(t, json.Unmarshal(derived.Config.CompiledDefinition, &compiled))
+			definition, _ := appdefinition.Lookup(app.DefinitionID)
+			for _, operation := range definition.Tools {
+				require.JSONEq(t, test.address, string(compiled.Tools[toolcatalog.AppToolName(app.Name, operation)].Config))
+			}
+			prepared, err := definition.Listeners[test.listener].Prepare(compiled.Listeners[key].Config)
+			require.NoError(t, err)
+			require.Empty(t, prepared.Conversations)
+			if definition.InteractionHandler != nil {
+				require.JSONEq(t, test.address, string(compiled.InteractionHandlers[app.Name].Config))
+			} else {
+				require.Empty(t, compiled.InteractionHandlers)
+			}
+			content, err := appInputContext(app, test.scope, json.RawMessage(`[{"type":"text","text":"hello"}]`))
+			require.NoError(t, err)
+			var blocks []struct {
+				Text     string
+				Metadata map[string]string
+			}
+			require.NoError(t, json.Unmarshal(content, &blocks))
+			require.Equal(t, "hello", blocks[0].Text)
+			require.Equal(t, "true", blocks[1].Metadata["omnara_hidden"])
+			require.Contains(t, blocks[1].Text, `"app":"receiver"`)
+			require.Contains(t, blocks[1].Text, test.address)
 		})
 	}
 }

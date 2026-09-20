@@ -43,9 +43,8 @@ type InboxListenerAuthority struct {
 }
 
 type InboxListenerReference struct {
-	ResourceKey string                               `json:"resource_key"`
+	ListenerKey string                               `json:"listener_key"`
 	Address     integrationstore.ConversationAddress `json:"address"`
-	Followed    bool                                 `json:"followed,omitempty"`
 }
 
 type InboxInputPreparation struct {
@@ -101,8 +100,8 @@ func (s *Store) admitInboxInputSlotOnce(
 		return InboxInputResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// Origin equals the receipt connection. The lease helper acquires sorted
-	// project/connection gates before receipt; no config resource gates are needed
+	// Origin equals the receipt app. The lease helper acquires sorted
+	// project/app gates before receipt; no config resource gates are needed
 	// to deliver a frozen ordinary input. Conversation precedes the agent row.
 	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease)
 	if err != nil {
@@ -136,7 +135,7 @@ func (s *Store) admitInboxInputSlotOnce(
 		ctx,
 		tx,
 		lease.ProjectID,
-		slot.Input.Origin.ConnectionID,
+		slot.Input.Origin.AppID,
 		slot.Input.Origin.Address,
 	); err != nil {
 		return InboxInputResult{}, err
@@ -309,7 +308,7 @@ func decodeInboxInputSlot(
 	}
 	if (slot.Input.ProjectID != uuid.Nil && slot.Input.ProjectID != receipt.ProjectID) ||
 		(slot.Input.AgentID != uuid.Nil && slot.Input.AgentID != slot.AgentID) || slot.Input.Origin == nil ||
-		slot.Input.Origin.ConnectionID != receipt.ConnectionID || slot.Input.Actor == nil {
+		slot.Input.Origin.AppID != receipt.AppID || slot.Input.Actor == nil {
 		return fail()
 	}
 	if slot.Sibling != nil &&

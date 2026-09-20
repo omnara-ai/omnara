@@ -16,7 +16,7 @@ const findInboxSelectionReservations = `-- name: FindInboxSelectionReservations 
 WITH matches AS MATERIALIZED (
   SELECT id, state
   FROM integration_inbox
-  WHERE project_id = $1 AND connection_id = $2
+  WHERE project_id = $1 AND app_id = $2
     AND id <> $3 AND plan IS NOT NULL
     AND state IN ('pending', 'processing', 'failed')
     AND ($4::boolean OR state <> 'failed')
@@ -29,7 +29,7 @@ LIMIT 2
 
 type FindInboxSelectionReservationsParams struct {
 	ProjectID     uuid.UUID
-	ConnectionID  uuid.UUID
+	AppID         uuid.UUID
 	ReceiptID     uuid.UUID
 	IncludeFailed bool
 	Selection     json.RawMessage
@@ -43,10 +43,12 @@ type FindInboxSelectionReservationsRow struct {
 // Read other immutable plans without locking their receipts. The caller holds
 // its own receipt and then the conversation gate; locking another receipt here
 // would invert that order. Identity omits slot to reserve the entire N-slot set.
+// The receipt's app scopes both launches and ordinary follow-ups; independently
+// configured apps never reserve one another's conversation.
 func (q *Queries) FindInboxSelectionReservations(ctx context.Context, arg FindInboxSelectionReservationsParams) ([]FindInboxSelectionReservationsRow, error) {
 	rows, err := q.db.Query(ctx, findInboxSelectionReservations,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.ReceiptID,
 		arg.IncludeFailed,
 		arg.Selection,

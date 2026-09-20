@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 var (
@@ -53,15 +54,15 @@ func (r *AppRouter) Freeze(
 	if len(receipt.Plan) != 0 {
 		return decodeAppInboxPlan(receipt.Plan)
 	}
-	connection, err := r.integrations.GetIntegrationConnectionByID(ctx, receipt.ConnectionID)
+	appSetup, err := r.integrations.GetProjectAppByID(ctx, receipt.AppID)
 	if err != nil {
 		return nil, err
 	}
-	if connection.ProjectID != lease.ProjectID ||
-		connection.State != integrationstore.IntegrationConnectionStateActive {
+	if appSetup.ProjectID != lease.ProjectID ||
+		appSetup.State != integrationstore.ProjectAppStateActive {
 		return nil, storeerr.ErrUnauthorized
 	}
-	requests, err := prepareAppEvents(events, connection)
+	requests, err := prepareAppEvents(events, appSetup)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +96,7 @@ func (r *AppRouter) Freeze(
 	if err != nil || frozen != nil {
 		return frozen, err
 	}
-	plan, err := r.buildAppPlan(ctx, receipt, connection, requests)
+	plan, err := r.buildAppPlan(ctx, receipt, appSetup, requests)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func (r *AppRouter) Freeze(
 
 func prepareAppEvents(
 	events []AppEvent,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 ) ([]appEventCandidates, error) {
 	if len(events) > 64 {
 		return nil, fmt.Errorf("app expansion exceeds 64 events")
@@ -170,14 +171,14 @@ func prepareAppEvents(
 			return nil, fmt.Errorf("events require distinct bounded semantic keys")
 		}
 		seen[event.SemanticKey] = true
-		if event.Event.Scope.Provider() != connection.Provider || event.Actor.Provider != connection.Provider ||
-			event.Actor.ProviderTenantID != connection.ProviderTenantID ||
+		if event.Event.Scope.Provider() != appSetup.Provider || event.Actor.Provider != appSetup.Provider ||
+			event.Actor.ProviderTenantID != appSetup.ProviderTenantID ||
 			event.Actor.ProviderUserID == "" {
 			return nil, storeerr.ErrUnauthorized
 		}
-		account := connection.ProviderTenantID
-		if connection.Provider == appdefinition.ProviderGitHub {
-			account = connection.ProviderAccountRef
+		account := appSetup.ProviderTenantID
+		if appSetup.Provider == appdefinition.ProviderGitHub {
+			account = appSetup.ProviderAccountRef
 		}
 		addresses, err := event.Event.RoutingAddresses(account)
 		if err != nil {
@@ -217,19 +218,29 @@ func prepareAppEvents(
 	return requests, nil
 }
 
+// Root Discord mentions normalize to their future thread address. Their verified
+// source channel may authorize that one input; ordinary thread replies, including
+// mentions within a thread, still require an exact thread subscription.
+func (r appEventCandidates) matchesListenerAddress(address integrationstore.ConversationAddress) bool {
+	if !slices.Contains(r.scopes, address) {
+		return false
+	}
+	scope := r.event.Event.Scope.Discord
+	if scope == nil || address == r.address {
+		return true
+	}
+	if !r.event.Event.Mentioned || address.Kind != "channel" || address.Ref != scope.ChannelID {
+		return false
+	}
+	var metadata DiscordEventMetadata
+	return json.Unmarshal(r.event.Metadata, &metadata) == nil && metadata.ThreadStarter &&
+		metadata.SourceChannelID == scope.ChannelID && metadata.ChannelID == scope.ChannelID &&
+		metadata.MessageID == scope.ThreadID && metadata.ThreadID == scope.ThreadID && metadata.GuildID == scope.GuildID
+}
+
 func sameAppCandidates(a, b integrationstore.AppRoutingCandidates) bool {
 	canonical := func(c integrationstore.AppRoutingCandidates) integrationstore.AppRoutingCandidates {
-		c.Launchers, c.Listeners, c.Selections = slices.Clone(
-			c.Launchers,
-		), slices.Clone(
-			c.Listeners,
-		), slices.Clone(
-			c.Selections,
-		)
-		slices.SortFunc(
-			c.Launchers,
-			func(a, b integrationstore.ProjectAppRecord) int { return bytes.Compare(a.ID[:], b.ID[:]) },
-		)
+		c.Listeners, c.Selections = slices.Clone(c.Listeners), slices.Clone(c.Selections)
 		slices.SortFunc(
 			c.Listeners,
 			func(a, b integrationstore.AgentListenerRecord) int { return bytes.Compare(a.ID[:], b.ID[:]) },
@@ -246,14 +257,16 @@ func sameAppCandidates(a, b integrationstore.AppRoutingCandidates) bool {
 func (r *AppRouter) buildAppPlan(
 	ctx context.Context,
 	receipt integrationstore.IntegrationInboxRecord,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	requests []appEventCandidates,
 ) (AppInboxPlan, error) {
 	plan := AppInboxPlan{}
 	profiles := map[uuid.UUID]executionstore.AgentProfileRecord{}
 	type plannedRecipient struct {
-		agentID   uuid.UUID
-		resources map[string]agentconfig.AppResourceCompiled
+		agentID        uuid.UUID
+		listeners      map[string]agentconfig.AppCapabilityCompiled
+		launchListener string
+		launchAddress  integrationstore.ConversationAddress
 	}
 	var planned []plannedRecipient
 	requests = slices.Clone(requests)
@@ -272,6 +285,11 @@ func (r *AppRouter) buildAppPlan(
 	selected := map[selectionKey]selectedRecipient{}
 	for _, request := range requests {
 		event, candidates := request.event, request.candidates
+		content, err := appInputContext(appSetup, event.Event.Scope, event.ContentBlocks)
+		if err != nil {
+			return nil, err
+		}
+		event.ContentBlocks = content
 		recipients := map[uuid.UUID]*executionstore.InboxListenerAuthority{}
 		addListener := func(agentID uuid.UUID, ref executionstore.InboxListenerReference) {
 			authority := recipients[agentID]
@@ -282,15 +300,14 @@ func (r *AppRouter) buildAppPlan(
 			authority.Alternatives = append(authority.Alternatives, ref)
 		}
 		for _, listener := range candidates.Listeners {
-			if event.Directed || (event.Event.Scope.Discord != nil && listener.Address != request.address) {
+			if event.Directed || !request.matchesListenerAddress(listener.Address) {
 				continue
 			}
 			addListener(
 				listener.AgentID,
 				executionstore.InboxListenerReference{
-					ResourceKey: listener.ResourceKey,
+					ListenerKey: listener.ListenerKey,
 					Address:     listener.Address,
-					Followed:    listener.ToolCallID != uuid.Nil,
 				},
 			)
 		}
@@ -298,30 +315,45 @@ func (r *AppRouter) buildAppPlan(
 			if event.Directed {
 				break
 			}
-			for key, resource := range recipient.resources {
-				if !resource.Enabled || resource.Listener == nil || resource.Scope == nil ||
-					!resource.Scope.Contains(event.Event.Scope) ||
-					!slices.Contains(resource.Listener.Events, event.Event.Kind) {
-					continue
-				}
-				id, err := publicid.Decode(publicid.KindIntegrationConnection, resource.ConnectionID)
+			for key, capability := range recipient.listeners {
+				id, err := publicid.Decode(publicid.KindProjectApp, capability.AppID)
 				if err != nil {
 					return nil, err
 				}
-				if id != connection.ID {
+				if id != appSetup.ID {
 					continue
 				}
-				kind, ref, _ := resource.Scope.Conversation()
-				if event.Event.Scope.Discord != nil && (kind != request.address.Kind || ref != request.address.Ref) {
+				_, name, ok := toolcatalog.SplitAppListenerName(key)
+				definition, found := appdefinition.Lookup(appSetup.DefinitionID)
+				listener, exported := definition.Listeners[name]
+				if !ok || !found || !exported {
+					return nil, fmt.Errorf("invalid app listener %q", key)
+				}
+				prepared, err := listener.Prepare(capability.Config)
+				if err != nil {
+					return nil, err
+				}
+				if !slices.Contains(prepared.Events, event.Event.Kind) {
 					continue
 				}
-				addListener(
-					recipient.agentID,
-					executionstore.InboxListenerReference{
-						ResourceKey: key,
-						Address:     integrationstore.ConversationAddress{Kind: kind, Ref: ref},
-					},
-				)
+				if key == recipient.launchListener && recipient.launchAddress == request.address {
+					addListener(recipient.agentID, executionstore.InboxListenerReference{
+						ListenerKey: key, Address: recipient.launchAddress,
+					})
+				}
+				for _, conversation := range prepared.Conversations {
+					kind, ref, err := conversation.Conversation()
+					if err != nil {
+						return nil, err
+					}
+					address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
+					if !request.matchesListenerAddress(address) {
+						continue
+					}
+					addListener(recipient.agentID, executionstore.InboxListenerReference{
+						ListenerKey: key, Address: address,
+					})
+				}
 			}
 		}
 		for _, intent := range event.Launches {
@@ -363,7 +395,7 @@ func (r *AppRouter) buildAppPlan(
 				}
 				profiles[profileID] = profile
 			}
-			derived, err := r.deriveAppLaunch(ctx, receipt.ProjectID, profile.CurrentConfig, app, event.Event.Scope)
+			derived, listenerKey, err := deriveAppLaunch(profile.CurrentConfig, app, event.Event.Scope)
 			if err != nil {
 				return nil, err
 			}
@@ -385,15 +417,14 @@ func (r *AppRouter) buildAppPlan(
 			}
 			key := appPlanKey(event.SemanticKey, "profile", app.ID.String(), intent.Slot)
 			selection := &integrationstore.InboxAppSelection{
-				AppID:        app.ID,
-				ConnectionID: connection.ID,
-				Address:      request.address,
-				Slot:         intent.Slot,
+				AppID:   app.ID,
+				Address: request.address,
+				Slot:    intent.Slot,
 			}
 			launch := &executionstore.LaunchAgentInput{
 				ProjectID:           receipt.ProjectID,
 				ProfileID:           profileID,
-				LaunchedBy:          identitystore.NewUserPrincipal(connection.InstalledByUserID),
+				LaunchedBy:          identitystore.NewUserPrincipal(appSetup.InstalledByUserID),
 				DerivedConfig:       &derived.Config,
 				DerivedBaseConfigID: derived.BaseConfigID,
 				IdempotencyKey:      "app:" + receipt.ID.String() + ":" + key,
@@ -405,9 +436,9 @@ func (r *AppRouter) buildAppPlan(
 					DeliveryMode:           event.DeliveryMode,
 					CancelOpenInteractions: event.CancelOpenInteractions,
 					Origin: &executionstore.LaunchInputOrigin{
-						ConnectionID: connection.ID,
-						Address:      request.address,
-						DisplayName:  event.DisplayName,
+						AppID:       appSetup.ID,
+						Address:     request.address,
+						DisplayName: event.DisplayName,
 					},
 				},
 			}
@@ -422,8 +453,9 @@ func (r *AppRouter) buildAppPlan(
 				ArtifactIDs:    appArtifactIDs(files),
 				BaseConfigID:   derived.BaseConfigID,
 				BaseConfigHash: derived.BaseConfigHash,
+				ListenerKey:    listenerKey,
 			}
-			planned = append(planned, plannedRecipient{agentID, contract.AppResources})
+			planned = append(planned, plannedRecipient{agentID, contract.Listeners, listenerKey, request.address})
 			selected[identity] = selectedRecipient{agentID, request.order}
 		}
 		for agentID, listener := range recipients {
@@ -447,9 +479,9 @@ func (r *AppRouter) buildAppPlan(
 					Metadata:      event.Metadata,
 					Actor:         &event.Actor,
 					Origin: &executionstore.AgentInputOrigin{
-						ConnectionID: connection.ID,
-						Address:      request.address,
-						DisplayName:  event.DisplayName,
+						AppID:       appSetup.ID,
+						Address:     request.address,
+						DisplayName: event.DisplayName,
 					},
 					IdempotencyKey:         event.SemanticKey,
 					DeliveryMode:           event.DeliveryMode,
@@ -475,88 +507,119 @@ func resolveAppLaunchIntent(
 	if intent.AppID == uuid.Nil || intent.Slot == "" || (intent.ProfileID == uuid.Nil) == (intent.AgentID == uuid.Nil) {
 		return unavailable()
 	}
-	for _, app := range candidates.Launchers {
-		if app.ID != intent.AppID {
+	app := candidates.Launcher
+	if app == nil || app.ID != intent.AppID || app.ProjectID != projectID ||
+		app.State != integrationstore.ProjectAppStateActive || app.Settings.Launcher == nil {
+		return unavailable()
+	}
+	for _, slot := range app.Settings.Launcher.Slots {
+		if slot.Key != intent.Slot {
 			continue
 		}
-		if app.ProjectID != projectID || !app.Enabled || app.Settings.Launcher == nil {
+		var profileID, agentID uuid.UUID
+		if slot.AgentProfileID != nil {
+			profileID = *slot.AgentProfileID
+		}
+		if slot.AgentID != nil {
+			agentID = *slot.AgentID
+		}
+		if profileID != intent.ProfileID || agentID != intent.AgentID {
 			return unavailable()
 		}
-		for _, slot := range app.Settings.Launcher.Slots {
-			if slot.Key != intent.Slot {
-				continue
-			}
-			var profileID, agentID uuid.UUID
-			if slot.AgentProfileID != nil {
-				profileID = *slot.AgentProfileID
-			}
-			if slot.AgentID != nil {
-				agentID = *slot.AgentID
-			}
-			if profileID != intent.ProfileID || agentID != intent.AgentID {
-				return unavailable()
-			}
-			if profileID != uuid.Nil {
-				for _, target := range candidates.Selections {
-					if target.AppID != app.ID || target.SelectionSlot != slot.Key {
-						continue
-					}
-					if target.DeletedAt != nil || target.AgentID == uuid.Nil {
-						return unavailable()
-					}
-					return app, target.AgentID, nil
+		if profileID != uuid.Nil {
+			for _, target := range candidates.Selections {
+				if target.AppID != app.ID || target.SelectionSlot != slot.Key {
+					continue
 				}
+				if target.DeletedAt != nil || target.AgentID == uuid.Nil {
+					return unavailable()
+				}
+				return *app, target.AgentID, nil
 			}
-			return app, uuid.Nil, nil
 		}
-		return unavailable()
+		return *app, uuid.Nil, nil
 	}
 	return unavailable()
 }
 
-func (r *AppRouter) deriveAppLaunch(
-	ctx context.Context,
-	projectID uuid.UUID,
+// deriveAppLaunch adds the hosted launcher's concrete capabilities without
+// changing explicit profile entries. Admission separately follows the launch
+// conversation, even if the profile already declared an empty listener.
+func deriveAppLaunch(
 	base executionstore.AgentConfigRecord,
 	app integrationstore.ProjectAppRecord,
 	scope appdefinition.Scope,
-) (AppProfileDerivation, error) {
+) (AppProfileDerivation, string, error) {
+	fail := func(err error) (AppProfileDerivation, string, error) { return AppProfileDerivation{}, "", err }
+	if base.ProjectID != app.ProjectID || app.State != integrationstore.ProjectAppStateActive {
+		return fail(storeerr.ErrUnauthorized)
+	}
+	definition, found := appdefinition.Lookup(app.DefinitionID)
+	if !found || definition.Provider != app.Provider {
+		return fail(fmt.Errorf("invalid launcher app definition"))
+	}
+	if err := scope.Validate(app.Provider); err != nil {
+		return fail(err)
+	}
 	instance, err := publicid.Encode(publicid.KindProjectApp, app.ID)
 	if err != nil {
-		return AppProfileDerivation{}, err
+		return fail(err)
 	}
-	resource := app.Settings.Resource
-	resource.Definition, resource.AppInstance, resource.Scope = "", instance, &scope
-	opts := agentconfig.CompileOptions{
-		ResolveAppInstance: func(id string) (agentconfig.AppInstanceResolution, error) {
-			if id != instance {
-				return agentconfig.AppInstanceResolution{}, storeerr.ErrUnauthorized
-			}
-			return agentconfig.AppInstanceResolution{AppInstanceID: instance, Resource: app.Settings.Resource}, nil
-		},
-		ResolveAppConnection: func(id, provider string) (string, error) {
-			connectionID, err := publicid.Decode(publicid.KindIntegrationConnection, id)
-			if err != nil {
-				return "", err
-			}
-			connection, err := r.integrations.GetIntegrationConnectionByID(ctx, connectionID)
-			if err != nil {
-				return "", err
-			}
-			if connection.ProjectID != projectID || connection.Provider != provider ||
-				connection.State != integrationstore.IntegrationConnectionStateActive {
-				return "", storeerr.ErrUnauthorized
-			}
-			return id, nil
-		},
+	listenerName := "thread_messages"
+	if app.DefinitionID == appdefinition.GitHub {
+		listenerName = "pull_request"
 	}
-	return DeriveAppProfileConfig(
-		base,
-		map[string]agentconfig.AgentConfigAppResourceSource{
-			"app_" + strings.ReplaceAll(app.ID.String(), "-", ""): resource,
+	_, exists := definition.Listeners[listenerName]
+	if !exists {
+		return fail(fmt.Errorf("app has no launch listener"))
+	}
+	listenerKey := app.Name + "__" + listenerName
+	var original agentconfig.Compiled
+	if err := json.Unmarshal(base.CompiledDefinition, &original); err != nil {
+		return fail(err)
+	}
+	if capability, exists := original.Listeners[listenerKey]; exists && capability.AppID != instance {
+		return fail(fmt.Errorf("%w: launch listener references another app", ErrAppLaunchUnavailable))
+	}
+	var destination any
+	switch app.Provider {
+	case appdefinition.ProviderSlack:
+		destination = scope.Slack
+	case appdefinition.ProviderDiscord:
+		destination = scope.Discord
+	case appdefinition.ProviderGitHub:
+		destination = scope.GitHub
+	}
+	raw, err := json.Marshal(destination)
+	if err != nil {
+		return fail(err)
+	}
+	var config map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&config); err != nil {
+		return fail(err)
+	}
+	additions := agentconfig.AppCapabilitiesSource{Tools: map[string]agentconfig.AgentConfigToolSource{}}
+	for _, operation := range definition.Tools {
+		additions.Tools[toolcatalog.AppToolName(app.Name, operation)] = agentconfig.AgentConfigToolSource{Config: config}
+	}
+	additions.Listeners = map[string]agentconfig.AgentConfigAppCapabilitySource{listenerKey: {}}
+	if definition.InteractionHandler != nil {
+		additions.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{app.Name: {Config: config}}
+	}
+	derived, err := DeriveAppProfileConfig(base, additions, agentconfig.CompileOptions{
+		ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
+			if name != app.Name {
+				return agentconfig.AppResolution{}, storeerr.ErrUnauthorized
+			}
+			return agentconfig.AppResolution{AppID: instance, Definition: app.DefinitionID}, nil
 		},
-		opts,
-	)
+	})
+	if err != nil {
+		return fail(err)
+	}
+	return derived, listenerKey, nil
 }
 
 func appPlanKey(parts ...string) string {
@@ -648,4 +711,32 @@ func appRecipientContent(event AppEvent) (json.RawMessage, []AppPlannedFile, err
 	}
 	raw, err := json.Marshal(blocks)
 	return raw, files, err
+}
+
+// appInputContext records the verified reply address alongside ordinary content.
+// Flexible tools need typed provider IDs and the saved app name, rather than a
+// display label or an opaque attribution target. Hidden blocks remain visible
+// to the model while the console can render the original message separately.
+func appInputContext(
+	app integrationstore.ProjectAppRecord, scope appdefinition.Scope, content json.RawMessage,
+) (json.RawMessage, error) {
+	context, err := json.Marshal(struct {
+		App     string              `json:"app"`
+		Address appdefinition.Scope `json:"reply_address"`
+	}{app.Name, scope})
+	if err != nil {
+		return nil, err
+	}
+	block, err := json.Marshal(map[string]any{
+		"type": "text", "text": "Incoming app conversation: " + string(context),
+		"metadata": map[string]string{"omnara_hidden": "true"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil, err
+	}
+	return json.Marshal(append(blocks, block))
 }

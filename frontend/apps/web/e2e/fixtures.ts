@@ -1,43 +1,39 @@
-import { schemas } from '@omnara/sdk'
+import { type ProjectApp, schemas, zJsonText } from '@omnara/sdk'
 import { expect, type Page } from '@playwright/test'
+import { z } from 'zod'
 
 /** Browser-side OAuth result fixture; callback persistence is covered by Go integration tests. */
-export async function mockSlackSetupReturn(page: Page, projectPath: string, projectID: string) {
-  const connection = schemas.zIntegrationConnection.parse({
-    id: `iin_${'a'.repeat(26)}`,
-    org_id: projectPath.split('/')[4],
-    project_id: projectID,
-    provider: 'slack',
-    provider_tenant_id: 'T_BROWSER',
-    provider_account_ref: 'A_BROWSER',
-    provider_agent_display_name: 'Browser Slack bot',
-    state: 'active',
-    provider_config: {},
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+export async function mockSlackSetupReturn(
+  page: Page,
+  projectPath: string,
+  draft: ProjectApp,
+  flowID: string,
+) {
+  // Keep the original setup while authorization is pending. Only the exact
+  // flow completion advances the revision and connects this app.
+  let app: ProjectApp = { ...draft }
+  await page.route(`**${projectPath}/apps/${draft.id}`, async (route) => {
+    if (route.request().method() === 'PUT') {
+      const metadata = schemas.zSaveProjectAppRequest.parse(route.request().postDataJSON())
+      if (metadata.name !== app.name || metadata.definition_id !== app.definition_id)
+        throw new Error('The browser fixture cannot change app identity')
+      app = { ...app, ...metadata, updated_at: new Date().toISOString() }
+    } else if (route.request().method() !== 'GET') return route.continue()
+    await route.fulfill({ json: app })
   })
-  await page.route(`**${projectPath}/integration-connections**`, async (route) => {
-    if (route.request().method() !== 'GET') return route.continue()
-    const detail = new URL(route.request().url()).pathname.endsWith(`/${connection.id}`)
-    await route.fulfill({ json: detail ? connection : { data: [connection], next_cursor: null } })
-  })
-  const appID = `app_${'a'.repeat(26)}`
-  await page.route(`**${projectPath}/apps`, async (route) => {
-    if (route.request().method() !== 'POST') return route.continue()
-    const body = schemas.zSaveProjectAppRequest.parse(route.request().postDataJSON())
-    expect(body.settings.resource.connection).toBe(connection.id)
-    expect(body.settings.launcher).toBeUndefined()
-    const app = schemas.zProjectApp.parse({
-      ...body,
-      id: appID,
-      project_id: projectID,
-      created_at: connection.created_at,
-      updated_at: connection.updated_at,
-    })
-    await page.route(`**${projectPath}/apps/${appID}`, (read) => read.fulfill({ json: app }))
-    await route.fulfill({ status: 201, json: app })
-  })
-  return { connection, appID }
+  return {
+    complete: () => {
+      app = {
+        ...app,
+        state: 'active',
+        setup_revision: app.setup_revision + 1,
+        last_oauth_flow_id: flowID,
+        provider_tenant_id: 'T123',
+        provider_account_ref: 'A123',
+        provider_agent_display_name: 'Browser Slack bot',
+      }
+    },
+  }
 }
 
 export function requiredEnvironmentVariable(name: string): string {
@@ -68,4 +64,118 @@ export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   })
 
   return failures
+}
+
+export async function createAppDraft(
+  page: Page,
+  projectID: string,
+  provider: 'github' | 'discord' | 'slack',
+  name: string,
+) {
+  const label = provider === 'github' ? 'GitHub' : provider === 'discord' ? 'Discord' : 'Slack'
+  const appsPath = `/projects/${projectID}/apps`
+  if (new URL(page.url()).pathname !== appsPath) await page.goto(appsPath)
+  await page.getByRole('link', { name: 'Add app', exact: true }).click()
+  await page.getByRole('link', { name: `Set up ${label}`, exact: false }).click()
+  await page.getByLabel('App name', { exact: true }).fill(name)
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/apps'),
+  )
+  await page.getByRole('button', { name: 'Create app', exact: true }).click()
+  const response = await saved
+  expect(response.status()).toBe(201)
+  expect(response.request().postDataJSON()).toEqual({
+    name,
+    definition_id: `omnara.${provider}`,
+    settings: {},
+  })
+  const app = schemas.zProjectApp.parse(await response.json())
+  expect(app.state).toBe('disconnected')
+  expect(app.credential_secret_id).toBeUndefined()
+  await expect(page).toHaveURL(`/projects/${projectID}/apps/${app.id}`)
+  await expect(page.getByText(/Finish setup: connect an account/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect account', exact: true })).toBeVisible()
+  await expectAppCapabilities(page, app)
+  return { app, apiProjectPath: response.url().replace(/\/apps$/, '') }
+}
+
+export async function readApp(page: Page, apiProjectPath: string, appID: string) {
+  const body = await page.evaluate(async (path) => {
+    const response = await fetch(path)
+    if (!response.ok) throw new Error(`Read app failed: ${response.status}`)
+    return response.text()
+  }, `${apiProjectPath}/apps/${appID}`)
+  return zJsonText.pipe(schemas.zProjectApp).parse(body)
+}
+
+export async function mockVerifiedAppSetup(
+  page: Page,
+  apiProjectPath: string,
+  provider: 'github' | 'discord',
+) {
+  await page.route('**/apps/*/setup', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const request = schemas.zConfigureProjectAppRequest.parse(route.request().postDataJSON())
+    const appID = schemas.zProjectAppId.parse(
+      new URL(route.request().url()).pathname.split('/').at(-2),
+    )
+    expect(request.credential_secret_id).toMatch(/^sec_[a-z2-7]{26}$/)
+    const seeded = await page.request.post(
+      `${requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_FIXTURE')}/apps/${appID}/setup`,
+      { data: request },
+    )
+    expect(seeded.status()).toBe(200)
+    expect(z.object({ id: schemas.zProjectAppId }).parse(await seeded.json()).id).toBe(appID)
+    const app = await readApp(page, apiProjectPath, appID)
+    expect(app.provider).toBe(provider)
+    expect(app.credential_secret_id).toBe(request.credential_secret_id)
+    expect(app.setup_revision).toBe(request.expected_setup_revision + 1)
+    await route.fulfill({ status: 200, json: app })
+  })
+}
+
+export async function fillProviderAccount(page: Page, provider: 'github' | 'discord') {
+  await page
+    .getByLabel(provider === 'github' ? 'GitHub App ID' : 'Discord Application ID', {
+      exact: true,
+    })
+    .fill('111')
+  await page
+    .getByLabel(provider === 'github' ? 'Installation ID' : 'Bot User ID', { exact: true })
+    .fill('222')
+}
+
+export function expectSlackAuthorization(oauthURL: string, browserOrigin: string) {
+  const oauth = new URL(oauthURL)
+  expect(oauth.hostname).toBe('slack.com')
+  expect(oauth.pathname).toBe('/oauth/v2/authorize')
+  expect(oauth.searchParams.get('client_id')).toBe('local-slack-client')
+  expect(oauth.searchParams.get('state')).toBeTruthy()
+  expect(oauth.searchParams.get('redirect_uri')).toBe(
+    `${browserOrigin}/api/integrations/oauth/callback`,
+  )
+}
+
+export async function expectAppCapabilities(page: Page, app: ProjectApp) {
+  const capabilities = page.getByRole('region', { name: 'Capabilities', exact: true })
+  await expect(capabilities.getByText(`app__${app.name}__read`, { exact: true })).toBeVisible()
+  const listener = app.provider === 'github' ? 'pull_request' : 'thread_messages'
+  await expect(capabilities.getByText(`${app.name}__${listener}`, { exact: true })).toBeVisible()
+  if (app.provider !== 'github')
+    await expect(capabilities.getByText(app.name, { exact: true })).toBeVisible()
+}
+
+export async function expectInteractionToolMenu(page: Page) {
+  await page.getByRole('button', { name: 'Add tools' }).click()
+  await expect(page.getByRole('menuitem', { name: 'ask_question', exact: true })).toBeVisible()
+  for (const name of ['list_interaction_handlers', 'set_interaction_handler'])
+    await expect(page.getByRole('menuitem', { name, exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Other tools', exact: true }).click()
+  for (const name of ['list_interaction_handlers', 'set_interaction_handler'])
+    await expect(page.getByLabel(`${name} permission`, { exact: true })).toContainText(
+      'Always allow',
+    )
+  await page.getByRole('button', { name: 'Other tools', exact: true }).click()
 }

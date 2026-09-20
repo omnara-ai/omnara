@@ -38,7 +38,7 @@ func (p InteractionPresenter) Enqueue(
 // can safely race. An attempted but unconfirmed send is never automatically reposted.
 func (p InteractionPresenter) EnqueuePending(ctx context.Context, runner interactionRunner) error {
 	pending, err := p.Store.Execution().ListPendingInteractionPresentations(ctx,
-		[]string{appdefinition.SlackInteractions, appdefinition.DiscordInteractions},
+		[]string{appdefinition.Slack, appdefinition.Discord},
 		executionstore.MaxPendingInteractionPresentations)
 	if err != nil {
 		return err

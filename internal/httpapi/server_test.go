@@ -738,7 +738,7 @@ func TestPublicIDEncodingInvariantReturnsHTTP500(t *testing.T) {
 
 func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) {
 	authorization, err := toolpermission.NewAuthorization(
-		"set_interaction_destination",
+		"set_interaction_handler",
 		json.RawMessage(`{"destination":null}`),
 	)
 	if err != nil {
@@ -752,7 +752,7 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 		t.Fatal("always_ask permission mode missing")
 	}
 	value, err := toolpermission.NewAllowDenyForm(
-		"Permission requested for set_interaction_destination",
+		"Permission requested for set_interaction_handler",
 		[]interactionform.ContextItem{{Label: "Destination", Value: "Omnara dashboard"}},
 	)
 	if err != nil {
@@ -808,10 +808,10 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 	if _, exposed := request["authorization"]; exposed {
 		t.Fatalf("public response exposed internal authorization: %+v", request)
 	}
-	if request["title"] != "Permission requested for set_interaction_destination" {
+	if request["title"] != "Permission requested for set_interaction_handler" {
 		t.Fatalf("public response lost interaction form title: %+v", request)
 	}
-	if decoded["tool_name"] != "set_interaction_destination" {
+	if decoded["tool_name"] != "set_interaction_handler" {
 		t.Fatalf("public response lost permission tool name: %+v", decoded)
 	}
 	if toolCallID, ok := decoded["tool_call_id"].(string); !ok || !strings.HasPrefix(toolCallID, "tcl_") {
@@ -1483,7 +1483,8 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 		{
 			name:   "slack setup route exact match",
 			method: http.MethodPost,
-			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/agent-profiles/" + agentProfilePath +
+			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/apps/" +
+				strings.Replace(agentProfilePath, "aprf_", "app_", 1) +
 				"/slack-setup",
 			body: `{}`,
 			want: http.StatusForbidden,

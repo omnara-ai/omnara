@@ -4,13 +4,7 @@ import * as z from 'zod'
 
 import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
 import { formatAgentEventList } from './agent-rendering.ts'
-import {
-  appCommandGroups,
-  runDiscordAppSetup,
-  runGitHubAppSetup,
-  zDiscordAppBody,
-  zGitHubAppBody,
-} from './app-setup.ts'
+import { appCommandGroups } from './app-setup.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
@@ -24,7 +18,6 @@ import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
-import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
 
 export const commandGroups: CommandGroup[] = [
   ...appCommandGroups,
@@ -775,40 +768,6 @@ export const commandGroups: CommandGroup[] = [
         }),
         body: zMcpAddBody,
         run: runProfileMcpAdd,
-      }),
-      flowOp({
-        verb: 'slack',
-        aliases: ['slack-setup'],
-        summary: 'Connect Slack to an agent profile through OAuth',
-        path: z.object({
-          orgID: schemas.zOrganizationId,
-          projectID: schemas.zProjectId,
-          agentProfileID: schemas.zAgentProfileId,
-        }),
-        body: zSlackBody,
-        run: runSlackIntegration,
-      }),
-      flowOp({
-        verb: 'github',
-        summary: 'Launch this profile on pull requests using an existing GitHub connection',
-        path: z.object({
-          orgID: schemas.zOrganizationId,
-          projectID: schemas.zProjectId,
-          agentProfileID: schemas.zAgentProfileId,
-        }),
-        body: zGitHubAppBody,
-        run: runGitHubAppSetup,
-      }),
-      flowOp({
-        verb: 'discord',
-        summary: 'Launch this profile on mentions using an existing Discord connection',
-        path: z.object({
-          orgID: schemas.zOrganizationId,
-          projectID: schemas.zProjectId,
-          agentProfileID: schemas.zAgentProfileId,
-        }),
-        body: zDiscordAppBody,
-        run: runDiscordAppSetup,
       }),
     ],
   },

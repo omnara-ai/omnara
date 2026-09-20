@@ -119,14 +119,12 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			require.Equal(t, "external", actorProvider)
 			require.Equal(t, "helpdesk", actorTenant)
 			require.Equal(t, "customer-7", actorUser)
-			var apps, connections, listeners int
+			var apps, listeners int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT
     (SELECT count(*) FROM project_apps WHERE project_id=$1),
-    (SELECT count(*) FROM integration_connections WHERE project_id=$1),
     (SELECT count(*) FROM agent_listeners WHERE agent_id=$2)`, f.project.ProjectUUID, f.agent.ID).
-				Scan(&apps, &connections, &listeners))
+				Scan(&apps, &listeners))
 			require.Zero(t, apps)
-			require.Zero(t, connections)
 			require.Zero(t, listeners)
 		})
 	}
@@ -190,8 +188,8 @@ func TestCustomIntegrationPublicInputRejectsOrigin(t *testing.T) {
 	token := customIntegrationHTTPKey(t, f.handler, f.project, "operator", "operator")
 	body := customIntegrationHTTPInput()
 	body["origin"] = map[string]any{
-		"connection_id": testPublicID(t, publicid.KindIntegrationConnection, uuid.New()),
-		"address":       map[string]any{"kind": "channel", "ref": "C123"},
+		"app_id":  testPublicID(t, publicid.KindProjectApp, uuid.New()),
+		"address": map[string]any{"kind": "channel", "ref": "C123"},
 	}
 	rejected := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.path+"/inputs",
 		projectAppHTTPJSON(t, body), "rejected-origin", http.StatusBadRequest, authHeaders(token))

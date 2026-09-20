@@ -32,11 +32,11 @@ func freezeTestAppEvents(
 	if len(receipt.Plan) != 0 {
 		return decodeAppInboxPlan(receipt.Plan)
 	}
-	connection, err := router.integrations.GetIntegrationConnectionByID(ctx, receipt.ConnectionID)
+	appSetup, err := router.integrations.GetProjectAppByID(ctx, receipt.AppID)
 	if err != nil {
 		return nil, err
 	}
-	events, err = testAppLaunchWorkflow(router).Decide(ctx, lease, receipt, connection, events)
+	events, err = testAppLaunchWorkflow(router).Decide(ctx, lease, receipt, appSetup, events)
 	if err != nil {
 		return nil, err
 	}
@@ -46,16 +46,16 @@ func freezeTestAppEvents(
 func applyTestAppLaunchPolicy(
 	t *testing.T,
 	receipt integrationstore.IntegrationInboxRecord,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	requests []appEventCandidates,
 ) {
 	t.Helper()
 	for i := range requests {
 		request := &requests[i]
 		request.event.Launches = nil
-		for _, app := range request.candidates.Launchers {
+		if app := request.candidates.Launcher; app != nil {
 			intents, err := EverySlotAppLauncher(t.Context(), AppLaunchContext{
-				Receipt: receipt, Connection: connection, App: app,
+				Receipt: receipt, App: *app,
 				Event: request.event, Address: request.address, Candidates: request.candidates,
 			})
 			require.NoError(t, err)

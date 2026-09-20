@@ -22,9 +22,9 @@ SELECT EXISTS (
    AND target.agent_id = $2
    AND target.id = $3
    AND target.deleted_at IS NULL
-  JOIN integration_connections install
+  JOIN project_apps install
     ON install.project_id = target.project_id
-   AND install.id = target.integration_connection_id
+   AND install.id = target.app_id
    AND install.state = 'active'
    AND install.deleted_at IS NULL
   WHERE actor.id = $4

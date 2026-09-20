@@ -65,6 +65,7 @@ type AppInboxSlot struct {
 	Files          []AppPlannedFile                             `json:"files,omitempty"`
 	BaseConfigID   uuid.UUID                                    `json:"base_config_id,omitempty"`
 	BaseConfigHash string                                       `json:"base_config_hash,omitempty"`
+	ListenerKey    string                                       `json:"listener_key,omitempty"`
 	Listener       *executionstore.InboxListenerAuthority       `json:"listener,omitempty"`
 }
 
@@ -93,7 +94,7 @@ type AppExecutionStore interface {
 
 type AppRoutingStore interface {
 	GetIntegrationInbox(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationInboxRecord, error)
-	GetIntegrationConnectionByID(context.Context, uuid.UUID) (integrationstore.IntegrationConnectionRecord, error)
+	GetProjectAppByID(context.Context, uuid.UUID) (integrationstore.ProjectAppRecord, error)
 	WithIntegrationInboxLease(
 		context.Context,
 		integrationstore.IntegrationInboxLease,

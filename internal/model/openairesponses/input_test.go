@@ -196,7 +196,7 @@ func TestPrepareIncludesInteractionRoutingAtEndOfProviderInput(t *testing.T) {
 		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
 		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameAskQuestion}},
 		InteractionRouting: &modelcontext.InteractionRoutingContext{
-			Destination: &modelcontext.InteractionDestinationRef{Resource: "slack", TargetID: "slack-abcd"},
+			Destination: &modelcontext.InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123"}`)},
 		},
 	}})
 	if err != nil {
@@ -221,8 +221,8 @@ func TestPrepareIncludesInteractionRoutingAtEndOfProviderInput(t *testing.T) {
 	}
 	if last.Role != string(responsesRoleSystem) ||
 		!strings.Contains(lastContent, "Default destination for new questions and permission prompts") ||
-		!strings.Contains(lastContent, "slack-abcd") ||
-		!strings.Contains(lastContent, `"resource":"slack"`) {
+		!strings.Contains(lastContent, "C123") ||
+		!strings.Contains(lastContent, `"handler":"slack"`) {
 		t.Fatalf("expected integration targets as final provider input item, got %+v in %s", last, prepared.Body)
 	}
 	if strings.Contains(lastContent, "internal-target-id") {
@@ -241,7 +241,7 @@ func TestPrepareOmitsInteractionRoutingForAskQuestion(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	if strings.Contains(string(prepared.Body), "Default destination for new questions and permission prompts") ||
-		strings.Contains(string(prepared.Body), "slack-abcd") {
+		strings.Contains(string(prepared.Body), "C123") {
 		t.Fatalf("integration target context leaked into ask_question request: %s", prepared.Body)
 	}
 }

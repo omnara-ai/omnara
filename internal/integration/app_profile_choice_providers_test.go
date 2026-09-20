@@ -35,8 +35,8 @@ func providerProfileChoice(t *testing.T) integrationstore.AppProfileChoiceRecord
 func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testing.T) {
 	t.Parallel()
 	f, provider := newDiscordInboxFixture(t)
-	f.connection.ProviderConfig = json.RawMessage(`{"public_key":"` + strings.Repeat("a", 64) + `"}`)
-	event, ok, err := NormalizeDiscordAppEvent(f.connection, discordInboxPayload(t, f.message), f.channels["300"])
+	f.appSetup.ProviderConfig = json.RawMessage(`{"public_key":"` + strings.Repeat("a", 64) + `"}`)
+	event, ok, err := NormalizeDiscordAppEvent(f.appSetup, discordInboxPayload(t, f.message), f.channels["300"])
 	require.NoError(t, err)
 	require.True(t, ok)
 	choice := providerProfileChoice(t)
@@ -75,7 +75,7 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 	}
 	var checks atomic.Int32
 	check := func(context.Context) error { checks.Add(1); return nil }
-	channel, message, err := provider.PresentProfileChoice(t.Context(), f.connection, choice, check)
+	channel, message, err := provider.PresentProfileChoice(t.Context(), f.appSetup, choice, check)
 	require.NoError(t, err)
 	require.Equal(t, "500", channel)
 	require.Equal(t, "600", message)
@@ -102,7 +102,7 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 
 	// Re-presenting the same durable choice reuses the source thread and the
 	// enforced message nonce. It must not create a second unrelated thread.
-	channel, message, err = provider.PresentProfileChoice(t.Context(), f.connection, choice, check)
+	channel, message, err = provider.PresentProfileChoice(t.Context(), f.appSetup, choice, check)
 	require.NoError(t, err)
 	require.Equal(t, "500", channel)
 	require.Equal(t, "600", message)
@@ -112,7 +112,7 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 	f.mu.Unlock()
 	require.Equal(t, 1, threadPosts)
 	choice.MessageChannelID, choice.MessageID = channel, message
-	require.NoError(t, provider.DismissProfileChoice(t.Context(), f.connection, choice, "Selected Reviewer."))
+	require.NoError(t, provider.DismissProfileChoice(t.Context(), f.appSetup, choice, "Selected Reviewer."))
 	dismissal := <-requests
 	require.Equal(t, "Selected Reviewer.", dismissal["content"])
 	require.Equal(t, []any{}, dismissal["components"])
@@ -120,17 +120,21 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 	f.mu.Lock()
 	f.revoked = true
 	f.mu.Unlock()
-	_, _, err = provider.PresentProfileChoice(t.Context(), f.connection, choice, check)
+	_, _, err = provider.PresentProfileChoice(t.Context(), f.appSetup, choice, check)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	require.Empty(t, requests)
 }
 
 func TestAppProfileChoiceSlackProviderPostsAndClearsNativeMenu(t *testing.T) {
 	t.Parallel()
-	connection := slackInboxTestConnection()
-	access := &slackInboxTestAccess{connection: connection, version: uuid.New()}
+	appSetup := slackInboxTestApp()
+	access := &slackInboxTestAccess{appSetup: appSetup, version: uuid.New()}
 	requests := make(chan map[string]any, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth.test" {
+			_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+			return
+		}
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Contains(t, []string{"/chat.postMessage", "/chat.update"}, r.URL.Path)
@@ -151,7 +155,7 @@ func TestAppProfileChoiceSlackProviderPostsAndClearsNativeMenu(t *testing.T) {
 	require.NoError(t, err)
 	var checks atomic.Int32
 	check := func(context.Context) error { checks.Add(1); return nil }
-	channel, message, err := provider.PresentProfileChoice(t.Context(), connection, choice, check)
+	channel, message, err := provider.PresentProfileChoice(t.Context(), appSetup, choice, check)
 	require.NoError(t, err)
 	require.Equal(t, "C123", channel)
 	require.Equal(t, "2.3", message)
@@ -170,13 +174,13 @@ func TestAppProfileChoiceSlackProviderPostsAndClearsNativeMenu(t *testing.T) {
 	}
 	require.Positive(t, checks.Load())
 	choice.MessageChannelID, choice.MessageID = channel, message
-	require.NoError(t, provider.DismissProfileChoice(t.Context(), connection, choice, "Selected Reviewer."))
+	require.NoError(t, provider.DismissProfileChoice(t.Context(), appSetup, choice, "Selected Reviewer."))
 	dismissal := <-requests
 	require.Equal(t, "C123", dismissal["channel"])
 	require.Equal(t, "2.3", dismissal["ts"])
 	require.Equal(t, "Selected Reviewer.", dismissal["text"])
 	require.Equal(t, []any{}, dismissal["blocks"])
-	_, _, err = provider.PresentProfileChoice(t.Context(), connection, choice,
+	_, _, err = provider.PresentProfileChoice(t.Context(), appSetup, choice,
 		func(context.Context) error { return storeerr.ErrUnauthorized })
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	require.Empty(t, requests, "revoked app authority must prevent provider I/O")

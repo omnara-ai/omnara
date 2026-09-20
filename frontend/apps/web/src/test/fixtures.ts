@@ -1,9 +1,11 @@
 import type {
   AgentConfigModel,
+  AppDefinition,
   CurrentUser,
   CurrentUserOrg,
   MachinePool,
   OrgInvitation,
+  ProjectApp,
   ProjectMachinePoolGrant,
 } from '@omnara/sdk'
 
@@ -115,6 +117,57 @@ export function orgInvitation(overrides: Partial<OrgInvitation> = {}): OrgInvita
     email: 'person@example.com',
     org_role: 'member',
     created_at: timestamp,
+    ...overrides,
+  }
+}
+
+export function appDefinition(provider: AppDefinition['provider'] = 'slack'): AppDefinition {
+  const capability = {
+    config_schema: { type: 'object', properties: {} },
+    input_schema: { type: 'object', properties: {} },
+  }
+  const definition: AppDefinition = {
+    id: `omnara.${provider}`,
+    provider,
+    capabilities: {
+      tools:
+        provider === 'github'
+          ? {
+              read: capability,
+              discussion_comment: capability,
+              inline_comment: capability,
+              reply: capability,
+            }
+          : { read: capability, post_message: capability },
+      listeners: {
+        [provider === 'github' ? 'pull_request' : 'thread_messages']: {
+          config_schema: { type: 'object', properties: {} },
+        },
+      },
+    },
+  }
+  if (provider !== 'github') definition.capabilities.interaction_handler = capability
+  return definition
+}
+
+export function projectApp(overrides: Partial<ProjectApp> = {}): ProjectApp {
+  const definition = appDefinition(overrides.provider)
+  return {
+    id: fakeId('app'),
+    project_id: fakeId('proj'),
+    name: 'engineering',
+    definition_id: definition.id,
+    provider: definition.provider,
+    state: 'disconnected',
+    setup_revision: 1,
+    settings: {},
+    provider_tenant_id: '',
+    provider_account_ref: '',
+    provider_agent_display_name: '',
+    provider_config: {},
+    capabilities: definition.capabilities,
+    created_at: timestamp,
+    updated_at: timestamp,
     ...overrides,
   }
 }

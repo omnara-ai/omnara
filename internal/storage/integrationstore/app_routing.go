@@ -14,22 +14,23 @@ import (
 // AppRoutingCandidates is a snapshot for planning only. Admission rechecks the
 // live listener/config or launcher authority in its transaction.
 type AppRoutingCandidates struct {
-	Launchers  []ProjectAppRecord
+	Launcher   *ProjectAppRecord
 	Listeners  []AgentListenerRecord
 	Selections []IntegrationTargetRecord
 }
 
 type AgentListenerRecord struct {
-	ID, ProjectID, AgentID, ConnectionID uuid.UUID
-	ResourceKey                          string
-	Address                              ConversationAddress
-	Events                               []string
-	SourceConfigID                       uuid.UUID
-	ToolCallID                           uuid.UUID
+	ID, ProjectID, AgentID, AppID uuid.UUID
+	ListenerKey                   string
+	Address                       ConversationAddress
+	Events                        []string
+	SourceConfigID                uuid.UUID
+	ToolCallID                    uuid.UUID
+	Origin                        ListenerOrigin
 }
 
 // AppRoutingCandidatesForInbox reads routing in the caller's fenced receipt
-// transaction. The lease has already acquired project/connection/receipt gates;
+// transaction. The lease has already acquired project/app/receipt gates;
 // callers visiting multiple conversations must supply them in canonical order.
 // No agent lock or provider I/O belongs in this planning transaction.
 func (s *Store) AppRoutingCandidatesForInbox(
@@ -49,7 +50,7 @@ func (s *Store) AppRoutingCandidatesForInbox(
 		ctx,
 		work.tx,
 		work.record.ProjectID,
-		work.record.ConnectionID,
+		work.record.AppID,
 		conversation,
 	); err != nil {
 		return AppRoutingCandidates{}, err
@@ -62,20 +63,20 @@ func (s *Store) AppRoutingCandidatesForInbox(
 		ctx,
 		work.tx,
 		work.record.ProjectID,
-		work.record.ConnectionID,
+		work.record.AppID,
 		conversation,
 		scopes,
 		event,
 	)
 }
 
-// AppRoutingCandidatesTx reads under the caller's connection and conversation
+// AppRoutingCandidatesTx reads under the caller's app and conversation
 // gates. Provider decoding supplies the exact conversation and bounded parent
 // addresses; there is no user-authored SQL/filter language.
 func (s *Store) AppRoutingCandidatesTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, connectionID uuid.UUID,
+	projectID, appID uuid.UUID,
 	conversation ConversationAddress,
 	scopes []ConversationAddress,
 	event string,
@@ -99,34 +100,21 @@ func (s *Store) AppRoutingCandidatesTx(
 			unique = append(unique, scope)
 		}
 	}
-	connection, err := getIntegrationConnection(ctx, dbsqlc.New(tx), projectID, connectionID)
+	app, err := getProjectApp(ctx, dbsqlc.New(tx), projectID, appID)
 	if err != nil {
 		return AppRoutingCandidates{}, err
 	}
-	if connection.State != IntegrationConnectionStateActive {
+	if app.State != ProjectAppStateActive {
 		return AppRoutingCandidates{}, storeerr.ErrUnauthorized
 	}
 	q := dbsqlc.New(tx)
 	result := AppRoutingCandidates{}
-	for _, scope := range unique {
-		rows, err := q.ListProjectAppLaunchers(
-			ctx,
-			dbsqlc.ListProjectAppLaunchersParams{
-				ProjectID:    projectID,
-				ConnectionID: &connectionID,
-				ScopeKind:    &scope.Kind,
-				ScopeRef:     &scope.Ref,
-			},
-		)
-		if err != nil {
-			return AppRoutingCandidates{}, err
-		}
-		for _, row := range rows {
-			app, err := projectAppRecord(row)
-			if err != nil {
-				return AppRoutingCandidates{}, err
+	if launcher := app.Settings.Launcher; launcher != nil {
+		for _, scope := range unique {
+			if launcher.ScopeKind == scope.Kind && launcher.ScopeRef == scope.Ref {
+				result.Launcher = &app
+				break
 			}
-			result.Launchers = append(result.Launchers, app)
 		}
 	}
 	rawScopes, err := json.Marshal(unique)
@@ -136,10 +124,10 @@ func (s *Store) AppRoutingCandidatesTx(
 	listeners, err := q.ListMatchingAgentListeners(
 		ctx,
 		dbsqlc.ListMatchingAgentListenersParams{
-			ProjectID:    projectID,
-			ConnectionID: connectionID,
-			Scopes:       rawScopes,
-			Event:        event,
+			ProjectID: projectID,
+			AppID:     appID,
+			Scopes:    rawScopes,
+			Event:     event,
 		},
 	)
 	if err != nil {
@@ -150,8 +138,9 @@ func (s *Store) AppRoutingCandidatesTx(
 			ID:             row.ID,
 			ProjectID:      row.ProjectID,
 			AgentID:        row.AgentID,
-			ConnectionID:   row.ConnectionID,
-			ResourceKey:    row.ResourceKey,
+			AppID:          row.AppID,
+			ListenerKey:    row.ListenerKey,
+			Origin:         ListenerOrigin(row.Origin),
 			Address:        ConversationAddress{Kind: row.ScopeKind, Ref: row.ScopeRef},
 			Events:         row.Events,
 			SourceConfigID: row.SourceConfigID,
@@ -164,10 +153,10 @@ func (s *Store) AppRoutingCandidatesTx(
 	selections, err := q.ListConversationSelections(
 		ctx,
 		dbsqlc.ListConversationSelectionsParams{
-			ProjectID:    projectID,
-			ConnectionID: connectionID,
-			Kind:         conversation.Kind,
-			Ref:          conversation.Ref,
+			ProjectID: projectID,
+			AppID:     appID,
+			Kind:      conversation.Kind,
+			Ref:       conversation.Ref,
 		},
 	)
 	if err != nil {
@@ -176,7 +165,7 @@ func (s *Store) AppRoutingCandidatesTx(
 	for _, row := range selections {
 		result.Selections = append(
 			result.Selections,
-			appTargetRecord(dbsqlc.GetAgentConversationTargetRow(row), connection.OrgID),
+			appTargetRecord(dbsqlc.GetAgentConversationTargetRow(row), app.OrgID),
 		)
 	}
 	return result, nil

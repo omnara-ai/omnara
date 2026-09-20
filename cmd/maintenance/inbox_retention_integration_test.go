@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
-	store := storage.NewStore(pool)
+	store := newMaintenanceInboxStore(t, pool, ids)
 	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: Keep accepted history\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
@@ -40,32 +41,32 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Message: "Accepted user input survives",
 	})
 	require.NoError(t, err)
-	live, disabled, deleted := uuid.New(), uuid.New(), uuid.New()
-	_, err = pool.Exec(ctx, `INSERT INTO integration_connections
- (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,
-  deleted_at,created_at,updated_at)
- VALUES ($1,$4,$5,$6,'github','active','123','456',NULL,now(),now()),
-        ($2,$4,$5,$6,'github','disabled','123','457',NULL,now(),now()),
-        ($3,$4,$5,$6,'github','disabled','123','458',statement_timestamp(),now(),now())`,
-		live, disabled, deleted, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID)
+	live := createMaintenanceInboxApp(t, store, ids, "live", appdefinition.GitHub).ID
+	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected", appdefinition.GitHub).ID
+	deleted := createMaintenanceInboxApp(t, store, ids, "deleted", appdefinition.GitHub).ID
+	applied, err := store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+		ProjectID: ids.ProjectID, AppID: disconnected,
+	})
 	require.NoError(t, err)
+	require.True(t, applied)
+	require.NoError(t, store.Integrations().DeleteProjectApp(ctx, ids.OrgID, ids.ProjectID, deleted))
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
- (project_id,connection_id,receipt_key,payload,state,completed_at)
+ (project_id,app_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'old:'||n,'verified raw callback'::bytea,'completed',statement_timestamp()-interval '8 days'
  FROM generate_series(1,102) n`, ids.ProjectID, live)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
- (project_id,connection_id,receipt_key,payload,state)
+ (project_id,app_id,receipt_key,payload,state)
  SELECT $1,$2,'deleted:'||n,'obsolete raw callback'::bytea,'failed' FROM generate_series(1,102) n`,
 		ids.ProjectID, deleted)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
- (project_id,connection_id,receipt_key,payload,state,completed_at,plan,progress)
+ (project_id,app_id,receipt_key,payload,state,completed_at,plan,progress)
  VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}','{}'),
         ($1,$2,'failed','failed callback'::bytea,'failed',NULL,'{"slot":{"identity":"frozen"}}',
          '{"slot":{"prepared":{"digest":"frozen"}}}'),
         ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',NULL,'{}','{}'),
-        ($1,$2,'pending','pending callback'::bytea,'pending',NULL,NULL,'{}')`, ids.ProjectID, live, disabled)
+        ($1,$2,'pending','pending callback'::bytea,'pending',NULL,NULL,'{}')`, ids.ProjectID, live, disconnected)
 	require.NoError(t, err)
 	type retainedReceipt struct {
 		key, state, payload, plan, progress string
@@ -97,11 +98,11 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 		runCoreMaintenanceTick(ctx, logger, store)
 		var completedCount, deletedCount int
 		require.NoError(t, pool.QueryRow(ctx,
-			`SELECT count(*) FROM integration_inbox WHERE connection_id=$1 AND receipt_key LIKE 'old:%'`,
+			`SELECT count(*) FROM integration_inbox WHERE app_id=$1 AND receipt_key LIKE 'old:%'`,
 			live).Scan(&completedCount))
 		require.Equal(t, remaining, completedCount, "one completed batch per real maintenance tick")
 		require.NoError(t, pool.QueryRow(ctx,
-			`SELECT count(*) FROM integration_inbox WHERE connection_id=$1`, deleted).Scan(&deletedCount))
+			`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, deleted).Scan(&deletedCount))
 		require.Equal(t, remaining, deletedCount, "one deleted-scope batch per real maintenance tick")
 		require.Equal(t, retained, readRetained())
 		var inputID, agentID uuid.UUID

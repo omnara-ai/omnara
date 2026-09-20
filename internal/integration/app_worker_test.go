@@ -30,14 +30,14 @@ func (f appWorkerConsumerFunc) Consume(
 type appWorkerTestStore struct {
 	mu sync.Mutex
 	AppInboxSchedulerStore
-	claimed     int
-	recovered   int
-	ready       bool
-	retried     []integrationstore.IntegrationInboxLease
-	connections []integrationstore.IntegrationInboxConnection
-	claimOrder  []uuid.UUID
-	scans       int
-	noClaim     bool
+	claimed    int
+	recovered  int
+	ready      bool
+	retried    []integrationstore.IntegrationInboxLease
+	apps       []integrationstore.IntegrationInboxApp
+	claimOrder []uuid.UUID
+	scans      int
+	noClaim    bool
 }
 
 func (s *appWorkerTestStore) RecoverIntegrationInbox(context.Context, int) (int64, error) {
@@ -47,20 +47,20 @@ func (s *appWorkerTestStore) RecoverIntegrationInbox(context.Context, int) (int6
 	return 0, nil
 }
 
-func (s *appWorkerTestStore) ListReadyIntegrationInboxConnections(
+func (s *appWorkerTestStore) ListReadyIntegrationInboxApps(
 	context.Context,
 	int,
-) ([]integrationstore.IntegrationInboxConnection, error) {
+) ([]integrationstore.IntegrationInboxApp, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scans++
 	if !s.ready {
 		return nil, nil
 	}
-	if len(s.connections) > 0 {
-		return append([]integrationstore.IntegrationInboxConnection(nil), s.connections...), nil
+	if len(s.apps) > 0 {
+		return append([]integrationstore.IntegrationInboxApp(nil), s.apps...), nil
 	}
-	return []integrationstore.IntegrationInboxConnection{{ProjectID: uuid.New(), ConnectionID: uuid.New()}}, nil
+	return []integrationstore.IntegrationInboxApp{{ProjectID: uuid.New(), AppID: uuid.New()}}, nil
 }
 
 func (s *appWorkerTestStore) ClaimIntegrationInbox(
@@ -70,7 +70,7 @@ func (s *appWorkerTestStore) ClaimIntegrationInbox(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.claimed++
-	s.claimOrder = append(s.claimOrder, input.ConnectionID)
+	s.claimOrder = append(s.claimOrder, input.AppID)
 	if s.noClaim {
 		return integrationstore.IntegrationInboxRecord{}, false, nil
 	}
@@ -78,7 +78,7 @@ func (s *appWorkerTestStore) ClaimIntegrationInbox(
 		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
 			ID:           uuid.New(),
 			ProjectID:    input.ProjectID,
-			ConnectionID: input.ConnectionID,
+			AppID:        input.AppID,
 			CreatedAt:    time.Now().Add(-2 * time.Minute),
 			AttemptCount: 1,
 		},
@@ -86,15 +86,15 @@ func (s *appWorkerTestStore) ClaimIntegrationInbox(
 	}, true, nil
 }
 
-func TestAppInboxWorkerRotatesConnectionsBeforeRevisitingHotConnection(t *testing.T) {
-	connections := []integrationstore.IntegrationInboxConnection{
-		{ProjectID: uuid.New(), ConnectionID: uuid.New()},
-		{ProjectID: uuid.New(), ConnectionID: uuid.New()},
-		{ProjectID: uuid.New(), ConnectionID: uuid.New()},
+func TestAppInboxWorkerRotatesAppsBeforeRevisitingHotApp(t *testing.T) {
+	apps := []integrationstore.IntegrationInboxApp{
+		{ProjectID: uuid.New(), AppID: uuid.New()},
+		{ProjectID: uuid.New(), AppID: uuid.New()},
+		{ProjectID: uuid.New(), AppID: uuid.New()},
 	}
-	// The store supplies oldest-first discovery. Every connection stays ready,
-	// including a hot first connection that would win every independent scan.
-	store := &appWorkerTestStore{ready: true, connections: connections}
+	// The store supplies oldest-first discovery. Every app stays ready,
+	// including a hot first app that would win every independent scan.
+	store := &appWorkerTestStore{ready: true, apps: apps}
 	worker := NewAppInboxWorker(
 		store,
 		appWorkerConsumerFunc(
@@ -106,15 +106,15 @@ func TestAppInboxWorkerRotatesConnectionsBeforeRevisitingHotConnection(t *testin
 	)
 	var want []uuid.UUID
 	for range 4 {
-		for _, connection := range connections {
+		for _, appSetup := range apps {
 			worked, err := worker.RunOnce(t.Context())
 			require.NoError(t, err)
 			require.True(t, worked)
-			want = append(want, connection.ConnectionID)
+			want = append(want, appSetup.AppID)
 		}
 	}
 	require.Equal(t, want, store.claimOrder)
-	require.Equal(t, 4, store.scans, "one discovery per connection round, not per receipt")
+	require.Equal(t, 4, store.scans, "one discovery per app round, not per receipt")
 	require.Equal(t, 1, store.recovered, "receipt traffic must not multiply recovery scans")
 }
 
@@ -141,10 +141,10 @@ func TestAppInboxWorkerRecoveryContinuesWhileAllConsumersAreBusy(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		connection := integrationstore.IntegrationInboxConnection{ProjectID: uuid.New(), ConnectionID: uuid.New()}
+		appSetup := integrationstore.IntegrationInboxApp{ProjectID: uuid.New(), AppID: uuid.New()}
 		store := &appWorkerTestStore{
-			ready:       true,
-			connections: []integrationstore.IntegrationInboxConnection{connection},
+			ready: true,
+			apps:  []integrationstore.IntegrationInboxApp{appSetup},
 		}
 		started := make(chan struct{}, 1)
 		consumer := appWorkerConsumerFunc(
@@ -173,14 +173,14 @@ func TestAppInboxWorkerRecoveryContinuesWhileAllConsumersAreBusy(t *testing.T) {
 	})
 }
 
-func TestAppInboxWorkerSameConnectionCanUseConcurrentConsumers(t *testing.T) {
+func TestAppInboxWorkerSameAppCanUseConcurrentConsumers(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		store := &appWorkerTestStore{
 			ready: true,
-			connections: []integrationstore.IntegrationInboxConnection{
-				{ProjectID: uuid.New(), ConnectionID: uuid.New()},
+			apps: []integrationstore.IntegrationInboxApp{
+				{ProjectID: uuid.New(), AppID: uuid.New()},
 			},
 		}
 		started := make(chan struct{}, 2)
@@ -201,7 +201,7 @@ func TestAppInboxWorkerSameConnectionCanUseConcurrentConsumers(t *testing.T) {
 		<-started
 		synctest.Wait()
 		store.mu.Lock()
-		require.Equal(t, 2, store.claimed, "a slow file must not serialize the entire connection")
+		require.Equal(t, 2, store.claimed, "a slow file must not serialize the entire app")
 		store.mu.Unlock()
 		cancel()
 		require.NoError(t, <-done)
@@ -261,7 +261,7 @@ func TestAppInboxWorkerBoundedConcurrencyAndShutdown(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestAppInboxWorkerRecoversWithoutReadyConnections(t *testing.T) {
+func TestAppInboxWorkerRecoversWithoutReadyApps(t *testing.T) {
 	store := &appWorkerTestStore{}
 	consumer := appWorkerConsumerFunc(
 		func(context.Context, integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
@@ -333,7 +333,7 @@ func TestAppInboxWorkerLogsReceiptAndRecoveryOutcome(t *testing.T) {
 	require.NoError(t, json.Unmarshal(output.Bytes(), &entry))
 	require.Equal(t, "app inbox admission failed", entry["msg"])
 	require.NotEmpty(t, entry["receipt_id"])
-	require.Equal(t, store.claimOrder[0].String(), entry["connection_id"])
+	require.Equal(t, store.claimOrder[0].String(), entry["app_id"])
 	require.Equal(t, float64(1), entry["attempt"])
 	require.GreaterOrEqual(t, entry["receipt_age"], float64(2*time.Minute))
 	require.Equal(t, "retry_scheduled", entry["outcome"])

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"strings"
@@ -21,7 +22,7 @@ func newSlackAppCutoverMigration() *goose.Migration {
 	return goose.NewGoMigration(41, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
 }
 
-// SQL40 preserves setup before removing connection-owned destinations. This
+// SQL40 preserves install IDs as app IDs and retains conversation attribution. This
 // migration runs before any new release writers start. Keep its data encoding
 // local: replay must not depend on a future config compiler or provider client.
 func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
@@ -31,13 +32,16 @@ func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	if err := preflightSlackAppCutover(ctx, tx); err != nil {
 		return err
 	}
-	if err := rewriteSlackAppConfigs(ctx, tx); err != nil {
+	apps, err := slackCutoverApps(ctx, tx)
+	if err != nil {
 		return err
 	}
-	if err := fillSlackAppConnections(ctx, tx); err != nil {
+	// Successors must read the original send policy before shared/historical
+	// configs drop enabled legacy entries. Both writes commit atomically.
+	if err := migrateSlackAgentTools(ctx, tx); err != nil {
 		return err
 	}
-	return migrateSlackAgentResources(ctx, tx)
+	return rewriteSlackAppConfigs(ctx, tx, apps)
 }
 
 type appCutoverConfig struct {
@@ -46,12 +50,41 @@ type appCutoverConfig struct {
 	definition, compiled       []byte
 }
 
-var appCutoverToolNames = [][2]string{
-	{"send_integration_message", "slack_post_message"},
-	{"set_integration_target", "set_interaction_destination"},
+type slackCutoverApp struct {
+	id, name string
+	deleted  bool
 }
 
-func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx) error {
+func (app slackCutoverApp) toolName() string { return "app__" + app.name + "__post_message" }
+
+func (app slackCutoverApp) publicID() (string, error) {
+	id, err := uuid.Parse(app.id)
+	if err != nil {
+		return "", err
+	}
+	return publicid.Encode(publicid.KindProjectApp, id)
+}
+
+func slackCutoverApps(ctx context.Context, tx *sql.Tx) (map[string][]slackCutoverApp, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT project_id::text,id::text,name,deleted_at IS NOT NULL FROM project_apps
+		WHERE definition_id='omnara.slack' ORDER BY project_id,created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	apps := map[string][]slackCutoverApp{}
+	for rows.Next() {
+		var projectID string
+		var app slackCutoverApp
+		if err := rows.Scan(&projectID, &app.id, &app.name, &app.deleted); err != nil {
+			return nil, err
+		}
+		apps[projectID] = append(apps[projectID], app)
+	}
+	return apps, rows.Err()
+}
+
+func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx, apps map[string][]slackCutoverApp) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id::text, project_id::text, source, source_format, source_hash,
 		       definition::text, compiled_definition::text, effective_definition_hash
@@ -67,7 +100,7 @@ func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx) error {
 			&config.sourceHash, &config.definition, &config.compiled, &config.hash); err != nil {
 			return err
 		}
-		updated, changed, err := rewriteSlackAppConfig(config)
+		updated, changed, err := rewriteSlackAppConfig(config, apps[config.projectID])
 		if err != nil {
 			return fmt.Errorf("slack app cutover config %s: %w", config.id, err)
 		}
@@ -102,12 +135,12 @@ func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx) error {
 	return err
 }
 
-func rewriteSlackAppConfig(config appCutoverConfig) (appCutoverConfig, bool, error) {
-	definition, definitionChanged, err := renameAppToolsJSON(config.definition)
+func rewriteSlackAppConfig(config appCutoverConfig, apps []slackCutoverApp) (appCutoverConfig, bool, error) {
+	definition, definitionChanged, err := rewriteSlackToolsJSON(config.definition, apps, true)
 	if err != nil {
 		return config, false, err
 	}
-	compiled, compiledChanged, err := renameAppToolsJSON(config.compiled)
+	compiled, compiledChanged, err := rewriteSlackToolsJSON(config.compiled, apps, true)
 	if err != nil {
 		return config, false, err
 	}
@@ -116,9 +149,9 @@ func rewriteSlackAppConfig(config appCutoverConfig) (appCutoverConfig, bool, err
 	if config.source.Valid {
 		switch config.format.String {
 		case "json":
-			source, sourceChanged, err = renameAppToolsJSON([]byte(config.source.String))
+			source, sourceChanged, err = rewriteSlackToolsJSON([]byte(config.source.String), apps, false)
 		case "yaml":
-			source, sourceChanged, err = renameAppToolsYAML([]byte(config.source.String))
+			source, sourceChanged, err = rewriteSlackToolsYAML([]byte(config.source.String), apps)
 		default:
 			err = fmt.Errorf("unsupported source format %q", config.format.String)
 		}
@@ -145,7 +178,54 @@ func rewriteSlackAppConfig(config appCutoverConfig) (appCutoverConfig, bool, err
 	return config, true, err
 }
 
-func renameAppToolsJSON(raw []byte) ([]byte, bool, error) {
+// Frozen legacy policy grammar. The released send tool only supports
+// always_allow; explicit disable is its deny mechanism. Never reinterpret an
+// unsupported policy as a flexible app grant.
+func slackCutoverSendPolicy(value any) (map[string]any, error) {
+	tool, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("legacy send policy must be an object; repair before cutover")
+	}
+	policy := maps.Clone(tool)
+	for key, value := range tool {
+		switch key {
+		case "type":
+			if value != "built_in" {
+				return nil, errors.New("legacy send type must be built_in")
+			}
+			delete(policy, key)
+		case "enabled", "deferred":
+			// Released source accepts a nullable enabled field; null means the
+			// default, just like omission. Compiled policies contain a boolean.
+			if key == "enabled" && value == nil {
+				delete(policy, key)
+				continue
+			}
+			if _, ok := value.(bool); !ok {
+				return nil, fmt.Errorf("legacy send %s must be boolean", key)
+			}
+		case "permission":
+			permission, ok := value.(map[string]any)
+			if !ok || permission["mode"] != "always_allow" {
+				return nil, errors.New("legacy send only supports always_allow; repair before cutover")
+			}
+			for field, parameter := range permission {
+				if field == "mode" {
+					continue
+				}
+				parameters, ok := parameter.(map[string]any)
+				if field != "parameters" || !ok || len(parameters) != 0 {
+					return nil, errors.New("legacy send policy has unsupported settings; repair before cutover")
+				}
+			}
+		default:
+			return nil, fmt.Errorf("legacy send has unsupported field %q; repair before cutover", key)
+		}
+	}
+	return policy, nil
+}
+
+func rewriteSlackToolsJSON(raw []byte, apps []slackCutoverApp, compiled bool) ([]byte, bool, error) {
 	value, err := decodeAgentConfigNameMigrationJSON(raw)
 	if err != nil {
 		return nil, false, err
@@ -154,7 +234,7 @@ func renameAppToolsJSON(raw []byte) ([]byte, bool, error) {
 	if !ok {
 		return nil, false, errors.New("config must be an object")
 	}
-	changed, err := renameAppToolKeys(root)
+	changed, err := rewriteSlackToolKeys(root, apps, compiled)
 	if err != nil || !changed {
 		return raw, changed, err
 	}
@@ -162,25 +242,51 @@ func renameAppToolsJSON(raw []byte) ([]byte, bool, error) {
 	return encoded, true, err
 }
 
-func renameAppToolKeys(root map[string]any) (bool, error) {
+func rewriteSlackToolKeys(root map[string]any, apps []slackCutoverApp, compiled bool) (bool, error) {
 	tools, _ := root["tools"].(map[string]any)
 	changed := false
-	for _, names := range appCutoverToolNames {
-		value, exists := tools[names[0]]
-		if !exists {
-			continue
+	if value, exists := tools["send_integration_message"]; exists {
+		policy, err := slackCutoverSendPolicy(value)
+		if err != nil {
+			return false, err
 		}
-		if current, exists := tools[names[1]]; exists && !reflect.DeepEqual(current, value) {
-			return false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
+		if policy["enabled"] == false {
+			if len(apps) == 0 {
+				return false, errors.New("disabled legacy send policy has no known Slack app; repair before cutover")
+			}
+			// Preserve disables for live apps, including disconnected setups.
+			// Tombstones cannot resolve by name when source is saved again; a
+			// future app reusing that name has a new identity and no old policy.
+			for _, app := range apps {
+				if app.deleted {
+					continue
+				}
+				tool := maps.Clone(policy)
+				if compiled {
+					tool["app_id"], err = app.publicID()
+					if err != nil {
+						return false, err
+					}
+					tool["config"] = map[string]any{}
+				}
+				tools[app.toolName()] = tool
+			}
 		}
-		tools[names[1]] = value
-		delete(tools, names[0])
+		delete(tools, "send_integration_message")
+		changed = true
+	}
+	if policy, exists := tools["set_integration_target"]; exists {
+		if current, exists := tools["set_interaction_handler"]; exists && !reflect.DeepEqual(current, policy) {
+			return false, errors.New("legacy and new handler selection tools have different settings")
+		}
+		tools["set_interaction_handler"] = policy
+		delete(tools, "set_integration_target")
 		changed = true
 	}
 	return changed, nil
 }
 
-func renameAppToolsYAML(raw []byte) ([]byte, bool, error) {
+func rewriteSlackToolsYAML(raw []byte, apps []slackCutoverApp) ([]byte, bool, error) {
 	value, err := decodeAgentConfigNameMigrationYAML(raw)
 	if err != nil {
 		return nil, false, err
@@ -189,7 +295,7 @@ func renameAppToolsYAML(raw []byte) ([]byte, bool, error) {
 	if !ok {
 		return nil, false, errors.New("config must be an object")
 	}
-	changed, err := renameAppToolKeys(expected)
+	changed, err := rewriteSlackToolKeys(expected, apps, false)
 	if err != nil || !changed {
 		return raw, changed, err
 	}
@@ -214,25 +320,37 @@ func renameAppToolsYAML(raw []byte) ([]byte, bool, error) {
 		if tools == nil || tools.Kind != yaml.MappingNode {
 			return nil, false, errors.New("tools must be a mapping")
 		}
-		for _, names := range appCutoverToolNames {
-			oldIndex, newIndex := -1, -1
-			for i := 0; i < len(tools.Content); i += 2 {
-				if tools.Content[i].Value == names[0] {
-					oldIndex = i
+		var entries []*yaml.Node
+		for i := 0; i < len(tools.Content); i += 2 {
+			key, value := tools.Content[i], tools.Content[i+1]
+			switch key.Value {
+			case "send_integration_message":
+				// App tools infer their type from the qualified name. Preserve
+				// source comments and formatting while dropping source-only fields.
+				var policyFields []*yaml.Node
+				for j := 0; j < len(value.Content); j += 2 {
+					field, setting := value.Content[j], value.Content[j+1]
+					if field.Value == "type" || (field.Value == "enabled" && setting.Tag == "!!null") {
+						continue
+					}
+					policyFields = append(policyFields, field, setting)
 				}
-				if tools.Content[i].Value == names[1] {
-					newIndex = i
+				value.Content = policyFields
+				for _, app := range apps {
+					if _, exists := expected["tools"].(map[string]any)[app.toolName()]; exists {
+						renamedKey := *key
+						renamedKey.Value = app.toolName()
+						entries = append(entries, &renamedKey, value)
+					}
 				}
-			}
-			if oldIndex < 0 {
-				continue
-			}
-			if newIndex >= 0 {
-				tools.Content = append(tools.Content[:oldIndex], tools.Content[oldIndex+2:]...)
-			} else {
-				tools.Content[oldIndex].Value = names[1]
+			case "set_integration_target":
+				key.Value = "set_interaction_handler"
+				entries = append(entries, key, value)
+			default:
+				entries = append(entries, key, value)
 			}
 		}
+		tools.Content = entries
 	}
 	var encoded bytes.Buffer
 	encoder := yaml.NewEncoder(&encoded)
@@ -245,53 +363,13 @@ func renameAppToolsYAML(raw []byte) ([]byte, bool, error) {
 	}
 	decoded, err := decodeAgentConfigNameMigrationYAML(encoded.Bytes())
 	if err != nil || !reflect.DeepEqual(expected, decoded) {
-		return nil, false, errors.New("rewriting Slack tool names changed other source values")
+		return nil, false, errors.New("rewriting Slack tools changed other source values")
 	}
 	return encoded.Bytes(), true, nil
 }
 
-func fillSlackAppConnections(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id::text, launch_connection_id::text FROM project_apps
-		WHERE definition_id='omnara.slack' AND launch_connection_id IS NOT NULL
-		AND NOT (settings->'resource' ? 'connection') ORDER BY id`)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rows.Close() }()
-	type connectionRef struct{ appID, connectionID string }
-	var refs []connectionRef
-	for rows.Next() {
-		var ref connectionRef
-		if err := rows.Scan(&ref.appID, &ref.connectionID); err != nil {
-			return err
-		}
-		refs = append(refs, ref)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, ref := range refs {
-		id, err := uuid.Parse(ref.connectionID)
-		if err != nil {
-			return err
-		}
-		encoded, err := publicid.Encode(publicid.KindIntegrationConnection, id)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE project_apps SET settings=jsonb_set(settings,
-			'{resource,connection}',to_jsonb($2::text)) WHERE id=$1::uuid`, ref.appID, encoded); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 type slackCutoverTarget struct {
-	id, connectionID, kind, ref string
+	id, appID, appName, kind, ref string
 }
 
 // Frozen provider address grammar: migration replay cannot depend on future runtime validation.
@@ -309,64 +387,57 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 	if !ok {
 		return nil, errors.New("compiled config must be an object")
 	}
-	if _, exists := root["app_resources"]; exists {
-		return nil, errors.New("pre-cutover config already contains app resources")
-	}
 	tools, _ := root["tools"].(map[string]any)
 	if tools == nil {
 		tools = map[string]any{}
 		root["tools"] = tools
 	}
-	policy, exists := tools["slack_post_message"]
+	policy, exists := tools["send_integration_message"]
 	if !exists {
 		policy = map[string]any{
 			"enabled":    true,
 			"permission": map[string]any{"mode": "always_allow", "parameters": map[string]any{}},
 		}
 	}
-	tool, ok := policy.(map[string]any)
-	if !ok {
-		return nil, errors.New("slack sending tool policy must be an object")
+	tool, err := slackCutoverSendPolicy(policy)
+	if err != nil {
+		return nil, err
 	}
-	resources := map[string]any{}
-	var keys []string
+	delete(tools, "send_integration_message")
+	if _, err := rewriteSlackToolKeys(root, nil, true); err != nil {
+		return nil, err
+	}
+	seen := map[string]string{}
 	for _, target := range targets {
-		id, err := uuid.Parse(target.connectionID)
+		if previous, exists := seen[target.appID]; exists {
+			return nil, fmt.Errorf("targets %s and %s belong to one Slack app; repair before cutover", previous, target.id)
+		}
+		seen[target.appID] = target.id
+		app := slackCutoverApp{id: target.appID, name: target.appName}
+		appID, err := app.publicID()
 		if err != nil {
 			return nil, err
 		}
-		connection, err := publicid.Encode(publicid.KindIntegrationConnection, id)
-		if err != nil {
-			return nil, err
-		}
-		scope := map[string]any{}
+		config := map[string]any{}
 		switch target.kind {
 		case "dm", "channel":
 			if !slackCutoverChannel.MatchString(target.ref) {
 				return nil, fmt.Errorf("invalid Slack target %s address %q", target.id, target.ref)
 			}
-			scope["channel_id"] = target.ref
+			config["channel_id"] = target.ref
 		case "thread":
 			channel, timestamp, found := strings.Cut(target.ref, ":")
 			if !found || !slackCutoverChannel.MatchString(channel) || !slackCutoverTimestamp.MatchString(timestamp) {
 				return nil, fmt.Errorf("invalid Slack target %s", target.id)
 			}
-			scope["channel_id"], scope["thread_ts"] = channel, timestamp
+			config["channel_id"], config["thread_ts"] = channel, timestamp
 		default:
 			return nil, fmt.Errorf("unsupported Slack target %s kind %q", target.id, target.kind)
 		}
-		key := "slack_" + strings.ReplaceAll(target.id, "-", "")
-		keys = append(keys, key)
-		resources[key] = map[string]any{
-			"definition":    "omnara.slack",
-			"enabled":       true,
-			"connection_id": connection,
-			"scope":         map[string]any{"slack": scope},
-			"tools":         []string{"slack_post_message"},
-		}
+		sending := maps.Clone(tool)
+		sending["app_id"], sending["config"] = appID, config
+		tools[app.toolName()] = sending
 	}
-	tool["app_origin"] = map[string]any{"resource_keys": keys}
-	tools["slack_post_message"], root["app_resources"] = tool, resources
 	return json.Marshal(root)
 }
 
@@ -375,9 +446,8 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	collisionErr := tx.QueryRowContext(ctx, `SELECT config.id::text, tool.key
  FROM agent_configs config
  CROSS JOIN LATERAL jsonb_each(coalesce(nullif(config.compiled_definition->'tools','null'::jsonb),'{}'::jsonb)) tool
- WHERE tool.value->>'type'='custom' AND tool.key IN ('slack_read','slack_post_message',
- 'github_read','github_discussion_comment','github_inline_comment','github_reply',
- 'discord_read','discord_post_message','list_interaction_destinations','set_interaction_destination') LIMIT 1`,
+ WHERE tool.value->>'type'='custom' AND (starts_with(tool.key,'app__')
+ OR tool.key IN ('list_interaction_handlers','set_interaction_handler')) LIMIT 1`,
 	).Scan(&collisionConfig, &collisionTool)
 	if collisionErr == nil {
 		return fmt.Errorf(
@@ -425,19 +495,19 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func migrateSlackAgentResources(ctx context.Context, tx *sql.Tx) error {
+func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT agent.id::text, agent.current_config_id::text, config.compiled_definition::text,
-		       target.id::text, connection.id::text, target.provider_ref_kind, target.provider_ref
+		       target.id::text, app.id::text, app.name, target.provider_ref_kind, target.provider_ref
 		FROM agents agent
 		JOIN projects project ON project.id=agent.project_id AND project.deleted_at IS NULL
 		JOIN orgs org ON org.id=agent.org_id AND org.deleted_at IS NULL
 		JOIN agent_configs config ON config.project_id=agent.project_id AND config.id=agent.current_config_id
 		JOIN integration_targets target ON target.project_id=agent.project_id AND target.agent_id=agent.id
 		  AND target.deleted_at IS NULL
-		JOIN integration_connections connection ON connection.project_id=target.project_id
-		  AND connection.id=target.integration_connection_id AND connection.provider='slack'
-		  AND connection.deleted_at IS NULL
+		JOIN project_apps app ON app.project_id=target.project_id
+		  AND app.id=target.app_id AND app.definition_id='omnara.slack'
+		  AND app.deleted_at IS NULL
 		ORDER BY agent.id, target.id`)
 	if err != nil {
 		return err
@@ -458,7 +528,8 @@ func migrateSlackAgentResources(ctx context.Context, tx *sql.Tx) error {
 			&configID,
 			&compiled,
 			&target.id,
-			&target.connectionID,
+			&target.appID,
+			&target.appName,
 			&target.kind,
 			&target.ref,
 		); err != nil {
@@ -524,7 +595,7 @@ func migrateSlackAgentResources(ctx context.Context, tx *sql.Tx) error {
 	// targets as history, but no new handler/listener authority is inferred from them.
 	_, err = tx.ExecContext(
 		ctx,
-		`UPDATE agents SET integration_target_id=NULL, interaction_resource_key=NULL WHERE integration_target_id IS NOT NULL`,
+		`UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE integration_target_id IS NOT NULL`,
 	)
 	return err
 }

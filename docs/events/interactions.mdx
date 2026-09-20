@@ -105,8 +105,8 @@ Reconcile the interaction list on reconnect and periodically while connected;
 stream hints alone are insufficient.
 
 When a built-in Slack or Discord handler presents the interaction, list and
-resolve responses include its captured `destination`. Its `iin_…` and `itgt_…`
-values are public IDs. This snapshot stays fixed when the agent's current
+resolve responses include its captured `destination`. Its `app_id` and `integration_target_id`
+are public IDs; `handler_key`, `config` and `args` describe the captured handler. This snapshot stays fixed when the agent's current
 destination changes. Optional `presentation_receipt` contains recorded provider
 message metadata. These fields describe built-in delivery; your application can
 present interactions without them. See

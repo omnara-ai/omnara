@@ -1,8 +1,8 @@
 import {
   type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
-  type IntegrationConnection,
   type IntegrationOAuthSetup,
+  type ProjectApp,
   sdk,
   type SlackSetup,
 } from '@omnara/sdk'
@@ -53,7 +53,6 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
 
   if (usesExistingApp) {
     const draft: Partial<z.input<typeof zCreateIntegrationOAuthSetupRequest>> = {
-      provider: 'slack',
       client_id: body.client_id,
       client_secret: body.client_secret,
       signing_secret: body.signing_secret,
@@ -91,7 +90,7 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
 
 export async function runSlackIntegration(
   context: FlowContext<
-    { orgID: string; projectID: string; agentProfileID: string },
+    { orgID: string; projectID: string; appID: string },
     z.output<typeof zSlackBody>
   >,
 ): Promise<void> {
@@ -100,16 +99,20 @@ export async function runSlackIntegration(
   const setupPath = {
     orgID: path.orgID,
     projectID: path.projectID,
-    agentProfileID: path.agentProfileID,
+    appID: path.appID,
   }
   let start: IntegrationOAuthSetup | SlackSetup
   let slackAppId: string | undefined
   if (request.kind === 'create-app') {
-    const { data } = await sdk.createSlackSetup({ client, path: setupPath, body: request.body })
+    const { data } = await sdk.createProjectAppSlackSetup({
+      client,
+      path: setupPath,
+      body: request.body,
+    })
     start = data
     slackAppId = data.slack_app_id
   } else {
-    const { data } = await sdk.createIntegrationOAuthSetup({
+    const { data } = await sdk.createProjectAppOAuthSetup({
       client,
       path: setupPath,
       body: request.body,
@@ -122,19 +125,17 @@ export async function runSlackIntegration(
     start.oauth_url,
     body.browser,
   )
-  report.start('Waiting for the Slack connection and app setup to be saved')
-  let integration: IntegrationConnection
+  report.start('Waiting for the Slack app setup to be saved')
+  let app: ProjectApp
   try {
-    integration = await pollUntilDeadline({
+    app = await pollUntilDeadline({
       expiresAt: start.expires_at,
-      expiredMessage: 'Slack authorization expired before connection and app setup were saved',
+      expiredMessage: 'Slack authorization expired before app setup were saved',
       async fetchOnce() {
-        const { data } = await sdk.listIntegrationConnections({
-          client,
-          path: { orgID: path.orgID, projectID: path.projectID },
-          query: { oauth_flow_id: start.flow_id, limit: 1 },
-        })
-        return data.data[0]
+        const { data } = await sdk.getProjectApp({ client, path: setupPath })
+        return data.state === 'active' && data.last_oauth_flow_id === start.flow_id
+          ? data
+          : undefined
       },
     })
   } catch (error) {
@@ -144,24 +145,8 @@ export async function runSlackIntegration(
     }
     throw error
   }
-  report.stop('Slack connection and app setup saved')
-  report.info(`Connection ID: ${integration.id}`)
-  // Reconnect can preserve an existing disabled app with no launcher. List by
-  // connection rather than pretending the connection has a profile destination.
-  let cursor: string | undefined
-  do {
-    const { data } = await sdk.listProjectApps({
-      client,
-      path: { orgID: path.orgID, projectID: path.projectID },
-      query: { cursor, limit: 100 },
-    })
-    for (const app of data.data) {
-      if (app.settings.resource.connection === integration.id) {
-        report.info(`App ID: ${app.id} (${app.name}; ${app.enabled ? 'enabled' : 'disabled'})`)
-      }
-    }
-    cursor = data.next_cursor ?? undefined
-  } while (cursor)
+  report.stop('Slack app setup saved')
+  report.info(`App ID: ${app.id} (${app.name})`)
   report.info(
     'Reconnect preserves existing app settings. Use apps get/update to inspect or change the launcher.',
   )

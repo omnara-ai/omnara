@@ -31,8 +31,8 @@ type AppInboxExpansion struct {
 // AppInboxProvider owns verified provider normalization and bounded file reads.
 // It cannot mutate agents, plans or subscriptions. Credentials never enter output.
 type AppInboxProvider interface {
-	Expand(context.Context, integrationstore.IntegrationConnectionRecord, []byte) (AppInboxExpansion, error)
-	DownloadFile(context.Context, integrationstore.IntegrationConnectionRecord, []byte, string) (AppInboxFile, error)
+	Expand(context.Context, integrationstore.ProjectAppRecord, []byte) (AppInboxExpansion, error)
+	DownloadFile(context.Context, integrationstore.ProjectAppRecord, []byte, string) (AppInboxFile, error)
 }
 
 type AppArtifactUploader interface {
@@ -97,27 +97,27 @@ func (c *AppInboxConsumer) Consume(
 	if err != nil {
 		return nil, err
 	}
-	connection, err := c.inbox.GetIntegrationConnectionByID(ctx, receipt.ConnectionID)
+	appSetup, err := c.inbox.GetProjectAppByID(ctx, receipt.AppID)
 	if err != nil {
 		return nil, err
 	}
-	if connection.ProjectID != lease.ProjectID ||
-		connection.State != integrationstore.IntegrationConnectionStateActive {
+	if appSetup.ProjectID != lease.ProjectID ||
+		appSetup.State != integrationstore.ProjectAppStateActive {
 		return nil, storeerr.ErrUnauthorized
 	}
-	adapter := c.providers[connection.Provider]
+	adapter := c.providers[appSetup.Provider]
 	var expansion AppInboxExpansion
 	if len(receipt.Plan) == 0 {
 		if adapter == nil {
-			return nil, fmt.Errorf("no inbox consumer for provider %s", connection.Provider)
+			return nil, fmt.Errorf("no inbox consumer for provider %s", appSetup.Provider)
 		}
 		if _, ok := adapter.(*SlackAppInboxProvider); ok && len(receipt.Events) == 0 {
-			event, eligible, err := NormalizeSlackAppEvent(connection, receipt.Payload)
+			event, eligible, err := NormalizeSlackAppEvent(appSetup, receipt.Payload)
 			if err != nil {
 				return nil, err
 			}
 			if eligible {
-				empty, err := c.router.freezeEmptyIfUnrouted(ctx, lease, connection, event)
+				empty, err := c.router.freezeEmptyIfUnrouted(ctx, lease, appSetup, event)
 				if err != nil {
 					return nil, err
 				}
@@ -133,14 +133,14 @@ func (c *AppInboxConsumer) Consume(
 				return nil, fmt.Errorf("decode decided app events: %w", err)
 			}
 		} else {
-			expansion, err = adapter.Expand(ctx, connection, receipt.Payload)
+			expansion, err = adapter.Expand(ctx, appSetup, receipt.Payload)
 			if err != nil {
 				return nil, err
 			}
 			if c.launchers == nil {
 				return nil, fmt.Errorf("app launcher workflow is required")
 			}
-			expansion.Events, err = c.launchers.Decide(ctx, lease, receipt, connection, expansion.Events)
+			expansion.Events, err = c.launchers.Decide(ctx, lease, receipt, appSetup, expansion.Events)
 			if err != nil {
 				return nil, err
 			}
@@ -148,7 +148,7 @@ func (c *AppInboxConsumer) Consume(
 		if _, err = c.router.Freeze(ctx, lease, expansion.Events); err != nil {
 			if len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable) &&
 				c.launchers != nil && c.launchers.OnUnavailable != nil {
-				err = errors.Join(err, c.launchers.OnUnavailable(ctx, connection, expansion.Events))
+				err = errors.Join(err, c.launchers.OnUnavailable(ctx, appSetup, expansion.Events))
 			}
 			return nil, err
 		}
@@ -178,7 +178,7 @@ func (c *AppInboxConsumer) Consume(
 	if preparer, ok := adapter.(interface {
 		PrepareConversation(
 			context.Context,
-			integrationstore.IntegrationConnectionRecord,
+			integrationstore.ProjectAppRecord,
 			[]byte,
 			appdefinition.DiscordScope,
 			func(context.Context) error,
@@ -215,7 +215,7 @@ func (c *AppInboxConsumer) Consume(
 				}
 				return errors.Join(failures...)
 			}
-			if err := preparer.PrepareConversation(ctx, connection, receipt.Payload, scope, authority); err != nil {
+			if err := preparer.PrepareConversation(ctx, appSetup, receipt.Payload, scope, authority); err != nil {
 				return nil, err
 			}
 		}
@@ -230,7 +230,7 @@ func (c *AppInboxConsumer) Consume(
 		if len(slot.Files) == 0 || len(progress[key].Prepared) != 0 || len(progress[key].Committed) != 0 {
 			continue
 		}
-		prepared, err := c.prepareFiles(ctx, adapter, connection, receipt.Payload, slot, cache)
+		prepared, err := c.prepareFiles(ctx, adapter, appSetup, receipt.Payload, slot, cache)
 		if err == nil {
 			err = c.router.Prepare(ctx, lease, key, prepared)
 		}
@@ -243,15 +243,15 @@ func (c *AppInboxConsumer) Consume(
 		failures = append(failures, err)
 	}
 	if slackProvider, ok := adapter.(*SlackAppInboxProvider); ok {
-		c.notifySlackLaunchFailure(ctx, lease, connection, receipt.Payload, slackProvider, err)
-		if feedbackErr := slackProvider.acknowledge(ctx, connection, receipt.Payload, results); feedbackErr != nil {
+		c.notifySlackLaunchFailure(ctx, lease, appSetup, receipt.Payload, slackProvider, err)
+		if feedbackErr := slackProvider.acknowledge(ctx, appSetup, receipt.Payload, results); feedbackErr != nil {
 			slog.WarnContext(
 				ctx,
 				"Slack input acknowledgement failed",
 				"receipt_id",
 				lease.ReceiptID,
-				"connection_id",
-				connection.ID,
+				"app_id",
+				appSetup.ID,
 				"error",
 				feedbackErr,
 			)
@@ -271,8 +271,8 @@ func (c *AppInboxConsumer) Consume(
 						"Canceled interaction dismissal failed",
 						"receipt_id",
 						lease.ReceiptID,
-						"connection_id",
-						connection.ID,
+						"app_id",
+						appSetup.ID,
 						"error",
 						dismissErr,
 					)
@@ -286,7 +286,7 @@ func (c *AppInboxConsumer) Consume(
 func (c *AppInboxConsumer) prepareFiles(
 	ctx context.Context,
 	adapter AppInboxProvider,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 	slot AppInboxSlot,
 	cache map[string]AppInboxFile,
@@ -310,7 +310,7 @@ func (c *AppInboxConsumer) prepareFiles(
 				if adapter == nil {
 					return nil, fmt.Errorf("file download provider is unavailable")
 				}
-				content, err = adapter.DownloadFile(ctx, connection, payload, file.ProviderFileID)
+				content, err = adapter.DownloadFile(ctx, appSetup, payload, file.ProviderFileID)
 				if err != nil {
 					return nil, err
 				}

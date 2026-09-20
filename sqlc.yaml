@@ -36,10 +36,10 @@ rules:
     message: "cron_triggers query must filter deleted_at (or annotate @sqlc-vet-disable cron-triggers-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+cron_triggers\b') && !query.sql.contains('deleted_at')
-  - name: integration-connections-deleted-at
-    message: "integration_connections query must filter deleted_at (or annotate @sqlc-vet-disable integration-connections-deleted-at)"
+  - name: project-apps-deleted-at
+    message: "project_apps query must filter deleted_at (or annotate @sqlc-vet-disable project-apps-deleted-at)"
     rule: >-
-      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_connections\b') && !query.sql.contains('deleted_at')
+      query.sql.matches(r'(?i)\b(from|join|update)\s+project_apps\b') && !query.sql.contains('deleted_at')
   - name: integration-targets-deleted-at
     message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
     rule: >-
@@ -73,7 +73,7 @@ sql:
       - configured-models-deleted-at
       - agent-profiles-deleted-at
       - agent-profile-versions-deleted-at
-      - integration-connections-deleted-at
+      - project-apps-deleted-at
       - integration-targets-deleted-at
       - machine-pools-deleted-at
       - machines-deleted-at

@@ -17,7 +17,6 @@ type AppLauncher func(context.Context, AppLaunchContext) ([]AppLaunchIntent, err
 
 type AppLaunchContext struct {
 	Receipt    integrationstore.IntegrationInboxRecord
-	Connection integrationstore.IntegrationConnectionRecord
 	App        integrationstore.ProjectAppRecord
 	Event      AppEvent
 	Address    integrationstore.ConversationAddress
@@ -29,7 +28,7 @@ type AppLaunchWorkflow struct {
 	launchers map[string]AppLauncher
 	// OnUnavailable lets an app update its presentation after a setup edit
 	// invalidates a decided launch. Failure to notify never changes admission.
-	OnUnavailable func(context.Context, integrationstore.IntegrationConnectionRecord, []AppEvent) error
+	OnUnavailable func(context.Context, integrationstore.ProjectAppRecord, []AppEvent) error
 }
 
 func NewAppLaunchWorkflow(router *AppRouter, launchers map[string]AppLauncher) *AppLaunchWorkflow {
@@ -47,10 +46,10 @@ func (w *AppLaunchWorkflow) Decide(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	receipt integrationstore.IntegrationInboxRecord,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	events []AppEvent,
 ) ([]AppEvent, error) {
-	requests, err := prepareAppEvents(events, connection)
+	requests, err := prepareAppEvents(events, appSetup)
 	if err != nil {
 		return nil, err
 	}
@@ -76,13 +75,13 @@ func (w *AppLaunchWorkflow) Decide(
 		// Normalization describes provider facts. Only app code supplies launch
 		// decisions; callback handoffs skip this stage entirely.
 		event.Launches, event.Directed = nil, false
-		for _, app := range request.candidates.Launchers {
+		if app := request.candidates.Launcher; app != nil {
 			launcher := w.launchers[app.DefinitionID]
 			if launcher == nil {
 				return nil, fmt.Errorf("no launcher registered for app %s", app.DefinitionID)
 			}
 			intents, err := launcher(ctx, AppLaunchContext{
-				Receipt: receipt, Connection: connection, App: app,
+				Receipt: receipt, App: *app,
 				Event: request.event, Address: request.address, Candidates: request.candidates,
 			})
 			if err != nil {
@@ -107,7 +106,8 @@ func (w *AppLaunchWorkflow) Decide(
 // may reuse it; the generic planner does not choose fan-out as a default.
 func EverySlotAppLauncher(_ context.Context, input AppLaunchContext) ([]AppLaunchIntent, error) {
 	launcher := input.App.Settings.Launcher
-	if !input.App.Enabled || launcher == nil || !input.Event.Event.MatchesLauncher(launcher.Trigger) {
+	if input.App.State != integrationstore.ProjectAppStateActive || launcher == nil ||
+		!input.Event.Event.MatchesLauncher(launcher.Trigger) {
 		return nil, nil
 	}
 	profilesSelected := false

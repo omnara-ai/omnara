@@ -47,7 +47,7 @@ type appConsumerProvider struct {
 
 func (p *appConsumerProvider) Expand(
 	context.Context,
-	integrationstore.IntegrationConnectionRecord,
+	integrationstore.ProjectAppRecord,
 	[]byte,
 ) (AppInboxExpansion, error) {
 	p.expansions++
@@ -56,7 +56,7 @@ func (p *appConsumerProvider) Expand(
 
 func (p *appConsumerProvider) DownloadFile(
 	context.Context,
-	integrationstore.IntegrationConnectionRecord,
+	integrationstore.ProjectAppRecord,
 	[]byte,
 	string,
 ) (AppInboxFile, error) {
@@ -86,7 +86,7 @@ func TestAppConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T) {
 	prepared, err := consumer.prepareFiles(
 		t.Context(),
 		provider,
-		integrationstore.IntegrationConnectionRecord{},
+		integrationstore.ProjectAppRecord{},
 		nil,
 		slot,
 		cache,
@@ -101,7 +101,7 @@ func TestAppConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T) {
 	prepared, err = consumer.prepareFiles(
 		t.Context(),
 		nil,
-		integrationstore.IntegrationConnectionRecord{},
+		integrationstore.ProjectAppRecord{},
 		nil,
 		slot,
 		nil,
@@ -114,7 +114,7 @@ func TestAppConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T) {
 	_, err = consumer.prepareFiles(
 		t.Context(),
 		provider,
-		integrationstore.IntegrationConnectionRecord{},
+		integrationstore.ProjectAppRecord{},
 		nil,
 		slot,
 		map[string]AppInboxFile{},

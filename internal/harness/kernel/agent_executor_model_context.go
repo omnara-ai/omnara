@@ -87,6 +87,7 @@ func (e AgentExecutor) modelContextToolRuntime(
 	contextStore := modelcontext.NewStore(
 		e.Store.Execution(),
 		e.Store.Artifacts(),
+		e.Store.Integrations(),
 	)
 	specs, err := modelcontext.RuntimeContractToolSpecs(
 		ctx,

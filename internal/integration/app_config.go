@@ -20,7 +20,7 @@ type AppProfileDerivation struct {
 
 func DeriveAppProfileConfig(
 	base executionstore.AgentConfigRecord,
-	resources map[string]agentconfig.AgentConfigAppResourceSource,
+	additions agentconfig.AppCapabilitiesSource,
 	opts agentconfig.CompileOptions,
 ) (AppProfileDerivation, error) {
 	if base.ID == uuid.Nil || base.ProjectID == uuid.Nil {
@@ -37,7 +37,7 @@ func DeriveAppProfileConfig(
 	if err := json.Unmarshal(base.CompiledDefinition, &compiled); err != nil {
 		return AppProfileDerivation{}, err
 	}
-	derived, err := agentconfig.DeriveWithAppResources(compiled, resources, opts)
+	derived, err := agentconfig.DeriveWithAppCapabilities(compiled, additions, opts)
 	if err != nil {
 		return AppProfileDerivation{}, err
 	}

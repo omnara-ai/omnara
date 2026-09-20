@@ -12,10 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -34,7 +32,7 @@ type choiceTestProvider struct {
 }
 
 func (p *choiceTestProvider) PresentProfileChoice(
-	ctx context.Context, _ integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, _ integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, check func(context.Context) error) (string, string, error) {
 	if err := check(ctx); err != nil {
 		return "", "", err
@@ -46,32 +44,32 @@ func (p *choiceTestProvider) PresentProfileChoice(
 	return "C123", choice.ID.String(), nil
 }
 
-func (p *choiceTestProvider) DismissProfileChoice(_ context.Context, _ integrationstore.IntegrationConnectionRecord,
+func (p *choiceTestProvider) DismissProfileChoice(_ context.Context, _ integrationstore.ProjectAppRecord,
 	_ integrationstore.AppProfileChoiceRecord, text string) error {
 	p.notices = append(p.notices, text)
 	return nil
 }
 
 type choiceJourney struct {
-	t          *testing.T
-	pool       *pgxpool.Pool
-	store      *storage.Store
-	ids        storagefixture.ProjectIDs
-	connection integrationstore.IntegrationConnectionRecord
-	profiles   []executionstore.AgentProfileRecord
-	app        integrationstore.ProjectAppRecord
-	provider   *choiceTestProvider
-	consumer   *AppInboxConsumer
-	event      AppEvent
+	t        *testing.T
+	pool     *pgxpool.Pool
+	store    *storage.Store
+	ids      storagefixture.ProjectIDs
+	appSetup integrationstore.ProjectAppRecord
+	profiles []executionstore.AgentProfileRecord
+	app      integrationstore.ProjectAppRecord
+	provider *choiceTestProvider
+	consumer *AppInboxConsumer
+	event    AppEvent
 }
 
-func newChoiceJourney(t *testing.T, profileCount int, listener bool) *choiceJourney {
+func newChoiceJourney(t *testing.T, profileCount int) *choiceJourney {
 	t.Helper()
-	pool, store, ids, connectionID := appWorkerFixture(t)
+	pool, store, ids, appID := appWorkerFixture(t)
 	ctx := t.Context()
-	connection, err := store.Integrations().GetIntegrationConnectionByID(ctx, connectionID)
+	appSetup, err := store.Integrations().GetProjectAppByID(ctx, appID)
 	require.NoError(t, err)
-	f := &choiceJourney{t: t, pool: pool, store: store, ids: ids, connection: connection, provider: &choiceTestProvider{}}
+	f := &choiceJourney{t: t, pool: pool, store: store, ids: ids, appSetup: appSetup, provider: &choiceTestProvider{}}
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
 	var slots []integrationstore.AppLaunchSlot
@@ -83,19 +81,14 @@ func newChoiceJourney(t *testing.T, profileCount int, listener bool) *choiceJour
 		f.profiles = append(f.profiles, profile)
 		slots = append(slots, integrationstore.AppLaunchSlot{Key: name, AgentProfileID: &profile.ID})
 	}
-	publicConnection, err := publicid.Encode(publicid.KindIntegrationConnection, connectionID)
-	require.NoError(t, err)
-	resource := agentconfig.AgentConfigAppResourceSource{Definition: appdefinition.Slack, Connection: publicConnection}
-	if listener {
-		resource.Listener = &appdefinition.Listener{Events: []string{"message"}}
-	}
-	f.app, err = store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "review", DefinitionID: appdefinition.Slack, Enabled: true,
-		Settings: integrationstore.ProjectAppSettings{Resource: resource, Launcher: &integrationstore.AppLauncher{
+	f.app, err = store.Integrations().UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
+		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123", Slots: slots,
 		}},
 	})
 	require.NoError(t, err)
+	f.appSetup = f.app
 	f.event = AppEvent{
 		Event: appdefinition.Event{Kind: "message", Mentioned: true, Scope: appdefinition.Scope{
 			Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"},
@@ -120,7 +113,7 @@ func (f *choiceJourney) receive(key string, event AppEvent) []AppSlotAdmission {
 	f.t.Helper()
 	_, _, err := f.store.Integrations().AcceptIntegrationReceipt(f.t.Context(),
 		integrationstore.VerifiedIntegrationReceipt{
-			ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID, ReceiptKey: key, Payload: []byte(`{"original":true}`),
+			ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, ReceiptKey: key, Payload: []byte(`{"original":true}`),
 		})
 	require.NoError(f.t, err)
 	f.provider.events = []AppEvent{event}
@@ -134,7 +127,7 @@ func (f *choiceJourney) claim() integrationstore.IntegrationInboxRecord {
 	f.t.Helper()
 	receipt, found, err := f.store.Integrations().ClaimIntegrationInbox(f.t.Context(),
 		integrationstore.ClaimIntegrationInboxInput{
-			ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID, LeaseDuration: time.Minute,
+			ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, LeaseDuration: time.Minute,
 		})
 	require.NoError(f.t, err)
 	require.True(f.t, found)
@@ -143,7 +136,7 @@ func (f *choiceJourney) claim() integrationstore.IntegrationInboxRecord {
 
 func (f *choiceJourney) choose(choice integrationstore.AppProfileChoiceRecord, key string) {
 	f.t.Helper()
-	selected, err := SelectChatAppProfile(f.t.Context(), f.store.Integrations(), f.connection, choice.ID,
+	selected, err := SelectChatAppProfile(f.t.Context(), f.store.Integrations(), f.appSetup, choice.ID,
 		key, "U_CHOOSER", "C123", choice.ID.String())
 	require.NoError(f.t, err)
 	require.Equal(f.t, key, selected.SelectedKey)
@@ -151,7 +144,7 @@ func (f *choiceJourney) choose(choice integrationstore.AppProfileChoiceRecord, k
 
 func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
 	var originalConfigs int
 	require.NoError(t, f.pool.QueryRow(
@@ -203,7 +196,7 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	require.Len(t, results, 1)
 	require.False(t, results[0].Launch.Created)
 	_, found, err := f.store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID, LeaseDuration: time.Minute,
+		ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.False(t, found, "duplicate selection cannot enqueue a second launch")
@@ -218,7 +211,7 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 
 func TestChatProfileChoiceSingleProfileNeedsNoMenu(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 1, true)
+	f := newChoiceJourney(t, 1)
 	results := f.receive("mention", f.event)
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Launch)
@@ -227,15 +220,15 @@ func TestChatProfileChoiceSingleProfileNeedsNoMenu(t *testing.T) {
 
 func TestChatProfileChoiceFastClickBeforeOwnerFreeze(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
 	_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID, ReceiptKey: "owner", Payload: []byte(`{}`),
+		ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, ReceiptKey: "owner", Payload: []byte(`{}`),
 	})
 	require.NoError(t, err)
 	owner := f.claim()
 	f.provider.events = []AppEvent{f.event}
-	_, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.connection, f.provider.events)
+	_, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.appSetup, f.provider.events)
 	require.NoError(t, err)
 	require.Len(t, f.provider.menus, 1)
 	// The provider menu is confirmed, but the publishing receipt has not frozen
@@ -275,7 +268,7 @@ type blockedChoiceProvider struct {
 }
 
 func (p *blockedChoiceProvider) PresentProfileChoice(
-	ctx context.Context, _ integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, _ integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, check func(context.Context) error) (string, string, error) {
 	if err := check(ctx); err != nil {
 		return "", "", err
@@ -293,14 +286,14 @@ func (p *blockedChoiceProvider) PresentProfileChoice(
 
 func TestChatProfileChoiceConcurrentSiblingDoesNotPostAnotherMenu(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
 	p := &blockedChoiceProvider{choiceTestProvider: f.provider, started: make(chan struct{}), release: make(chan struct{})}
 	t.Cleanup(func() { close(p.release) })
 	launcher := NewChatAppLauncher(f.store.Integrations(), f.store.Execution(), map[string]AppInboxProvider{"slack": p})
 	capture := func(key string) integrationstore.IntegrationInboxRecord {
 		_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-			ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID, ReceiptKey: key, Payload: []byte(`{}`),
+			ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, ReceiptKey: key, Payload: []byte(`{}`),
 		})
 		require.NoError(t, err)
 		return f.claim()
@@ -309,7 +302,7 @@ func TestChatProfileChoiceConcurrentSiblingDoesNotPostAnotherMenu(t *testing.T) 
 	event := f.event
 	event.Sibling = &executionstore.InboxMessageSibling{Key: "files"}
 	input := AppLaunchContext{
-		Receipt: first, Connection: f.connection, App: f.app, Event: event,
+		Receipt: first, App: f.app, Event: event,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
 	}
 	one := integrationdb.RunAsync(func() ([]AppLaunchIntent, error) { return launcher.Decide(ctx, input) })
@@ -329,27 +322,27 @@ func TestChatProfileChoiceConcurrentSiblingDoesNotPostAnotherMenu(t *testing.T) 
 
 func TestUnavailableChatSetupDoesNotDropOtherLaunchesOrListeners(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 1, true)
-	_, err := f.store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
-		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, Name: "working setup", DefinitionID: appdefinition.Slack,
-		Enabled: true, Settings: f.app.Settings,
-	})
-	require.NoError(t, err)
+	f := newChoiceJourney(t, 1)
+	other := seedIndependentApp(t, f.pool, f.app, "working-setup")
+	unavailable := map[uuid.UUID]bool{f.app.ID: true}
 	router := NewAppRouter(f.store.Execution(), f.store.Integrations())
 	workflow := NewAppLaunchWorkflow(router, map[string]AppLauncher{appdefinition.Slack: func(
 		ctx context.Context, input AppLaunchContext,
 	) ([]AppLaunchIntent, error) {
-		if input.App.ID == f.app.ID {
+		if unavailable[input.App.ID] {
 			return nil, ErrAppLaunchUnavailable
 		}
 		return EverySlotAppLauncher(ctx, input)
 	}})
 	f.consumer = NewAppInboxConsumer(router, f.store.Integrations(), nil,
 		map[string]AppInboxProvider{"slack": f.provider}, nil, workflow)
+	require.Empty(t, f.receive("initial", f.event), "the unavailable app settles its own receipt")
+	f.appSetup = other
 	results := f.receive("initial", f.event)
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Launch)
 	agentID := results[0].Launch.Agent.ID
+	unavailable[other.ID] = true
 	follow := f.event
 	follow.SemanticKey = "next-message"
 	results = f.receive("next", follow)
@@ -360,7 +353,7 @@ func TestUnavailableChatSetupDoesNotDropOtherLaunchesOrListeners(t *testing.T) {
 
 func TestChatProfileChoiceRetainsAttachmentDigestBeforeSelection(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
 	f.event.Sibling = &executionstore.InboxMessageSibling{Key: "files-callback"}
 	require.Empty(t, f.receive("mention", f.event))
@@ -407,7 +400,7 @@ func TestChatProfileChoiceRetainsAttachmentDigestBeforeSelection(t *testing.T) {
 
 func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	require.Empty(t, f.receive("mention", f.event))
 	f.choose(f.provider.menus[0], "heavy")
 	// Keep the same key but replace the profile after the click and before work.
@@ -415,7 +408,7 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
 	_, err := f.store.Integrations().UpdateProjectApp(t.Context(), f.app.ID, integrationstore.SaveProjectAppInput{
 		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, DefinitionID: f.app.DefinitionID,
-		Name: f.app.Name, Enabled: true, Settings: settings,
+		Name: f.app.Name, Settings: settings,
 	})
 	require.NoError(t, err)
 	worker := NewAppInboxWorker(f.store.Integrations(), f.consumer, AppInboxWorkerOptions{})
@@ -437,27 +430,29 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 
 func TestChatProfileChoiceLateFilesReachEachChosenAgentWithoutListener(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, false)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
-	_, err := f.store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, Name: "overlapping", DefinitionID: appdefinition.Slack,
-		Enabled: true, Settings: f.app.Settings,
-	})
-	require.NoError(t, err)
+	other := seedIndependentApp(t, f.pool, f.app, "overlapping")
 	f.event.Sibling = &executionstore.InboxMessageSibling{Key: "slack-files:1.2"}
 	require.Empty(t, f.receive("both-menus", f.event))
+	f.appSetup = other
+	require.Empty(t, f.receive("both-menus", f.event))
 	require.Len(t, f.provider.menus, 2)
+	f.appSetup = f.app
 	f.choose(f.provider.menus[0], "light")
 	results, err := f.consumer.Consume(ctx, f.claim().Lease())
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	first := results[0].Launch.Agent.ID
+	f.appSetup = other
 	f.choose(f.provider.menus[1], "heavy")
 	results, err = f.consumer.Consume(ctx, f.claim().Lease())
 	require.NoError(t, err)
 	require.Len(t, results, 1, "the second choice must not replay its original request into the first agent")
 	second := results[0].Launch.Agent.ID
 	require.NotEqual(t, first, second)
+	removeTestAgentListeners(t, f.store, f.ids.ProjectID, first)
+	removeTestAgentListeners(t, f.store, f.ids.ProjectID, second)
 
 	content := []byte("the original attachment")
 	id := uuid.New()
@@ -474,17 +469,20 @@ func TestChatProfileChoiceLateFilesReachEachChosenAgentWithoutListener(t *testin
 	attachment.Files = []AppPlannedFile{file}
 	attachment.ContentBlocks, err = json.Marshal([]map[string]any{{"type": "media_ref", "artifact_id": id.String()}})
 	require.NoError(t, err)
-	results = f.receive("late-files", attachment)
-	require.Len(t, results, 2)
-	for _, result := range results {
-		require.NotNil(t, result.Input)
-		require.Contains(t, []uuid.UUID{first, second}, result.Input.AgentInput.AgentID)
-		require.True(t, result.Input.Created)
-	}
-	results = f.receive("duplicate-late-files", attachment)
-	require.Len(t, results, 2)
-	for _, result := range results {
-		require.False(t, result.Input.Created)
+	for _, app := range []integrationstore.ProjectAppRecord{f.app, other} {
+		f.appSetup = app
+		results = f.receive("late-files", attachment)
+		require.Len(t, results, 1)
+		require.NotNil(t, results[0].Input)
+		require.True(t, results[0].Input.Created)
+		expected := first
+		if app.ID == other.ID {
+			expected = second
+		}
+		require.Equal(t, expected, results[0].Input.AgentInput.AgentID)
+		results = f.receive("duplicate-late-files", attachment)
+		require.Len(t, results, 1)
+		require.False(t, results[0].Input.Created)
 	}
 	require.Len(t, f.provider.menus, 2)
 }
@@ -496,7 +494,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("mentioned=%t/frozen=%t", scenario.mentioned, scenario.frozen), func(t *testing.T) {
 			t.Parallel()
-			f := newChoiceJourney(t, 2, true)
+			f := newChoiceJourney(t, 2)
 			ctx := t.Context()
 			require.Empty(t, f.receive("mention", f.event))
 			f.choose(f.provider.menus[0], "heavy")
@@ -509,7 +507,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 				require.NoError(t, err)
 			}
 			_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-				ProjectID: f.ids.ProjectID, ConnectionID: f.connection.ID,
+				ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID,
 				ReceiptKey: "early-reply", Payload: []byte(`{}`),
 			})
 			require.NoError(t, err)
@@ -518,7 +516,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			event.SemanticKey, event.Event.Mentioned = "early-reply", scenario.mentioned
 			f.provider.events = []AppEvent{event}
 			if !scenario.mentioned {
-				_, err = router.freezeEmptyIfUnrouted(ctx, reply.Lease(), f.connection, event)
+				_, err = router.freezeEmptyIfUnrouted(ctx, reply.Lease(), f.appSetup, event)
 				require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved,
 					"Slack's download shortcut must protect the selection-to-plan gap too")
 			}
@@ -540,7 +538,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 
 func TestChatProfileChoiceUnavailableMenuRecoversOnNewMention(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	f.provider.presentationError = ErrAppLaunchUnavailable
 	require.Empty(t, f.receive("missing-presentation-configuration", f.event))
 	require.Empty(t, f.provider.menus)
@@ -558,7 +556,7 @@ func TestChatProfileChoiceUnavailableMenuRecoversOnNewMention(t *testing.T) {
 
 func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
 	require.Empty(t, f.receive("old-menu", f.event))
 	old := f.provider.menus[0]
@@ -566,10 +564,10 @@ func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
 	_, err := f.store.Integrations().UpdateProjectApp(ctx, f.app.ID, integrationstore.SaveProjectAppInput{
 		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, DefinitionID: f.app.DefinitionID,
-		Name: f.app.Name, Enabled: true, Settings: settings,
+		Name: f.app.Name, Settings: settings,
 	})
 	require.NoError(t, err)
-	_, err = SelectChatAppProfile(ctx, f.store.Integrations(), f.connection, old.ID,
+	_, err = SelectChatAppProfile(ctx, f.store.Integrations(), f.appSetup, old.ID,
 		"heavy", "U_CHOOSER", "C123", old.ID.String())
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	next := f.event
@@ -586,7 +584,7 @@ func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 
 func TestChatProfileChoiceRetryCannotUseAnotherProfilesSettledAgent(t *testing.T) {
 	t.Parallel()
-	f := newChoiceJourney(t, 2, true)
+	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
 	require.Empty(t, f.receive("original-mention", f.event))
 	f.choose(f.provider.menus[0], "heavy")
@@ -598,7 +596,7 @@ func TestChatProfileChoiceRetryCannotUseAnotherProfilesSettledAgent(t *testing.T
 		settings.Launcher.Slots[1].AgentProfileID = &id
 		_, err := f.store.Integrations().UpdateProjectApp(ctx, f.app.ID, integrationstore.SaveProjectAppInput{
 			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, DefinitionID: f.app.DefinitionID,
-			Name: f.app.Name, Enabled: true, Settings: settings,
+			Name: f.app.Name, Settings: settings,
 		})
 		require.NoError(t, err)
 	}

@@ -14,7 +14,7 @@ import (
 
 type AppInboxSchedulerStore interface {
 	RecoverIntegrationInbox(context.Context, int) (int64, error)
-	ListReadyIntegrationInboxConnections(context.Context, int) ([]integrationstore.IntegrationInboxConnection, error)
+	ListReadyIntegrationInboxApps(context.Context, int) ([]integrationstore.IntegrationInboxApp, error)
 	ClaimIntegrationInbox(
 		context.Context,
 		integrationstore.ClaimIntegrationInboxInput,
@@ -48,9 +48,9 @@ type AppInboxWorker struct {
 	options  AppInboxWorkerOptions
 
 	// One shared discovery round prevents each consumer from repeatedly taking
-	// the first connection. Entries keep the store's oldest-ready order.
+	// the first app. Entries keep the store's oldest-ready order.
 	readyMu sync.Mutex
-	ready   []integrationstore.IntegrationInboxConnection
+	ready   []integrationstore.IntegrationInboxApp
 
 	recoveryMu      sync.Mutex
 	recoveryRunning bool
@@ -138,12 +138,12 @@ func (w *AppInboxWorker) RunOnce(ctx context.Context) (bool, error) {
 		failures = append(failures, err)
 	}
 	// A bounded round avoids spinning on stale discovery or claim races. A hot
-	// connection receives only one turn while other discovered entries wait.
+	// app receives only one turn while other discovered entries wait.
 	for attempt := range integrationstore.IntegrationInboxMaxBatch {
 		if err := ctx.Err(); err != nil {
 			return false, errors.Join(append(failures, err)...)
 		}
-		connection, found, err := w.nextConnection(ctx, attempt == 0)
+		appSetup, found, err := w.nextApp(ctx, attempt == 0)
 		if err != nil {
 			return false, errors.Join(append(failures, err)...)
 		}
@@ -151,17 +151,17 @@ func (w *AppInboxWorker) RunOnce(ctx context.Context) (bool, error) {
 			break
 		}
 		receipt, claimed, err := w.inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-			ProjectID:     connection.ProjectID,
-			ConnectionID:  connection.ConnectionID,
+			ProjectID:     appSetup.ProjectID,
+			AppID:         appSetup.AppID,
 			LeaseDuration: integrationstore.IntegrationInboxMaxLease,
 		})
 		if err != nil {
 			failures = append(
 				failures,
 				fmt.Errorf(
-					"claim inbox connection %s project %s: %w",
-					connection.ConnectionID,
-					connection.ProjectID,
+					"claim inbox app %s project %s: %w",
+					appSetup.AppID,
+					appSetup.ProjectID,
 					err,
 				),
 			)
@@ -191,31 +191,31 @@ func (w *AppInboxWorker) recoverDue(ctx context.Context) error {
 	return err
 }
 
-func (w *AppInboxWorker) nextConnection(
+func (w *AppInboxWorker) nextApp(
 	ctx context.Context,
 	discover bool,
-) (integrationstore.IntegrationInboxConnection, bool, error) {
+) (integrationstore.IntegrationInboxApp, bool, error) {
 	w.readyMu.Lock()
 	defer w.readyMu.Unlock()
 	if len(w.ready) == 0 && discover {
-		connections, err := w.inbox.ListReadyIntegrationInboxConnections(ctx, integrationstore.IntegrationInboxMaxBatch)
+		apps, err := w.inbox.ListReadyIntegrationInboxApps(ctx, integrationstore.IntegrationInboxMaxBatch)
 		if err != nil {
-			return integrationstore.IntegrationInboxConnection{}, false, err
+			return integrationstore.IntegrationInboxApp{}, false, err
 		}
-		seen := make(map[integrationstore.IntegrationInboxConnection]bool, len(connections))
-		for _, connection := range connections {
-			if !seen[connection] {
-				w.ready = append(w.ready, connection)
-				seen[connection] = true
+		seen := make(map[integrationstore.IntegrationInboxApp]bool, len(apps))
+		for _, appSetup := range apps {
+			if !seen[appSetup] {
+				w.ready = append(w.ready, appSetup)
+				seen[appSetup] = true
 			}
 		}
 	}
 	if len(w.ready) == 0 {
-		return integrationstore.IntegrationInboxConnection{}, false, nil
+		return integrationstore.IntegrationInboxApp{}, false, nil
 	}
-	connection := w.ready[0]
+	appSetup := w.ready[0]
 	w.ready = w.ready[1:]
-	return connection, true, nil
+	return appSetup, true, nil
 }
 
 func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.IntegrationInboxRecord) error {
@@ -245,8 +245,8 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 				"completed delayed app inbox receipt",
 				"receipt_id",
 				receipt.ID,
-				"connection_id",
-				receipt.ConnectionID,
+				"app_id",
+				receipt.AppID,
 				"project_id",
 				receipt.ProjectID,
 				"attempt",
@@ -290,8 +290,8 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 		"app inbox admission failed",
 		"receipt_id",
 		receipt.ID,
-		"connection_id",
-		receipt.ConnectionID,
+		"app_id",
+		receipt.AppID,
 		"project_id",
 		receipt.ProjectID,
 		"attempt",
@@ -304,9 +304,9 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 		err,
 	)
 	return fmt.Errorf(
-		"receipt %s connection %s (attempt %d): %w",
+		"receipt %s app %s (attempt %d): %w",
 		receipt.ID,
-		receipt.ConnectionID,
+		receipt.AppID,
 		receipt.AttemptCount,
 		err,
 	)

@@ -20,8 +20,8 @@ func TestToolCatalogImplicit(t *testing.T) {
 	}
 	for _, names := range [][]string{
 		toolcatalog.MachineToolNames(), toolcatalog.MachinePoolToolNames(), toolcatalog.SubagentToolNames(),
-		{toolcatalog.ToolNameSkill, toolcatalog.ToolNameSlackPostMessage,
-			toolcatalog.ToolNameListInteractionDestinations, toolcatalog.ToolNameSetInteractionDestination,
+		{toolcatalog.ToolNameSkill,
+			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles, toolcatalog.ToolNameToolSearch},
 	} {
 		for _, name := range names {

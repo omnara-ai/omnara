@@ -52,6 +52,9 @@ func TestInteractionDeliveryRecoversUnstartedQueueWork(t *testing.T) {
 			require.Equal(t, 1, offers)
 			var posts atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSlackToolIdentity(w, r) {
+					return
+				}
 				if r.URL.Path != "/chat.postMessage" {
 					t.Errorf("unexpected request %s", r.URL.Path)
 					http.Error(w, "unexpected request", http.StatusInternalServerError)
@@ -89,6 +92,9 @@ func TestInteractionDeliveryConcurrentPresentersPublishOnce(t *testing.T) {
 	interaction := pendingPermissionPresentation(t, f, nil)
 	var posts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected request %s", r.URL.Path)
 			http.Error(w, "unexpected request", http.StatusInternalServerError)
@@ -120,6 +126,9 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 			interaction := pendingPermissionPresentation(t, f, nil)
 			var posts atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSlackToolIdentity(w, r) {
+					return
+				}
 				switch r.URL.Path {
 				case "/chat.postMessage":
 					posts.Add(1)
@@ -161,12 +170,12 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 				)
 				require.NoError(t, err)
 			case "revoked":
-				_, err := f.Store.Integrations().DisableIntegrationConnection(
+				_, err := f.Store.Integrations().DisconnectProjectApp(
 					ctx,
-					integrationstore.DisableIntegrationConnectionInput{
-						ProjectID:           toolsTestProjectID,
-						ID:                  f.Install.ID,
-						ExpectedOAuthFlowID: &f.Install.LastOAuthFlowID,
+					integrationstore.DisconnectProjectAppInput{
+						ProjectID:             toolsTestProjectID,
+						AppID:                 f.Install.ID,
+						ExpectedSetupRevision: &f.Install.SetupRevision,
 					},
 				)
 				require.NoError(t, err)
@@ -190,7 +199,7 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 			require.Equal(t, want, posts.Load())
 			pending, err := f.Store.Execution().ListPendingInteractionPresentations(
 				ctx,
-				[]string{appdefinition.SlackInteractions},
+				[]string{appdefinition.Slack},
 				10,
 			)
 			require.NoError(t, err)
@@ -222,6 +231,9 @@ func TestInteractionDeliveryRetriesOnlyConfirmedReceipt(t *testing.T) {
 	require.NoError(t, err)
 	var posts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected request %s", r.URL.Path)
 			http.Error(w, "unexpected request", http.StatusInternalServerError)

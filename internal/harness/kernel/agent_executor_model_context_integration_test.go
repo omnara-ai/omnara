@@ -25,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,14 +78,15 @@ model:
 	if err != nil {
 		t.Fatalf("capture agent config: %v", err)
 	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          kernelTestProjectID,
-		AgentID:            launch.Agent.ID,
-		RuntimeLockID:      turn.RuntimeLockID,
-		OpeningInputIDs:    turn.InputIDs,
-		AgentConfigID:      snapshot.AgentConfig.ID,
-		InputEventSequence: turn.OpeningEventSequence,
-	})
+	modelClaim, err := fixture.Store.Execution().
+		ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
+			ProjectID:          kernelTestProjectID,
+			AgentID:            launch.Agent.ID,
+			RuntimeLockID:      turn.RuntimeLockID,
+			OpeningInputIDs:    turn.InputIDs,
+			AgentConfigID:      snapshot.AgentConfig.ID,
+			InputEventSequence: turn.OpeningEventSequence,
+		})
 	if err != nil {
 		t.Fatalf("claim model call context: %v", err)
 	}
@@ -151,25 +153,28 @@ model:
 	if err != nil {
 		t.Fatalf("create integration credential secret: %v", err)
 	}
-	install, err := fixture.Store.Integrations().CreateIntegrationConnection(
-		ctx,
-		integrationstore.SaveIntegrationConnectionInput{
-			OrgID:     kernelTestOrgID,
-			ProjectID: kernelTestProjectID,
-
-			InstalledByUserID: kernelTestUserID,
-			Provider:          integrationstore.IntegrationProviderSlack,
-
-			State:              integrationstore.IntegrationConnectionStateActive,
-			ProviderTenantID:   "T_IMPLICIT_TOOL",
-			ProviderAccountRef: "A_IMPLICIT_TOOL",
-			CredentialSecretID: secret.ID,
-			ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create integration connection: %v", err)
-	}
+	app, err := fixture.Store.Integrations().
+		CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
+			Name: "implicit", DefinitionID: appdefinition.Slack,
+		})
+	require.NoError(t, err)
+	install, err := fixture.Store.Integrations().
+		ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+			OrgID:                 kernelTestOrgID,
+			ProjectID:             kernelTestProjectID,
+			AppID:                 app.ID,
+			ExpectedSetupRevision: app.SetupRevision,
+			InstalledByUserID:     kernelTestUserID,
+			Provider:              integrationstore.IntegrationProviderSlack,
+			ProviderTenantID:      "T_IMPLICIT_TOOL",
+			ProviderAccountRef:    "A_IMPLICIT_TOOL",
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   secret.CurrentVersionID,
+			OAuthFlowID:           uuid.Must(uuid.NewV7()),
+			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
+		})
+	require.NoError(t, err)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -182,11 +187,16 @@ model:
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"hello"}]`),
 				SemanticEventKey: "kernel-origin",
 				Actor: &executionstore.ActorParams{
-					Provider: "slack", ProviderTenantID: install.ProviderTenantID, ProviderUserID: "U_FIXTURE",
+					Provider:         "slack",
+					ProviderTenantID: install.ProviderTenantID,
+					ProviderUserID:   "U_FIXTURE",
 				},
 				Origin: &executionstore.LaunchInputOrigin{
-					ConnectionID: install.ID,
-					Address:      integrationstore.ConversationAddress{Kind: "thread", Ref: "CIMPLICITTOOL:1.0"},
+					AppID: install.ID,
+					Address: integrationstore.ConversationAddress{
+						Kind: "thread",
+						Ref:  "CIMPLICITTOOL:1.0",
+					},
 				},
 			},
 		},
@@ -205,9 +215,22 @@ model:
 	if err != nil {
 		t.Fatalf("reload model context tool runtime: %v", err)
 	}
-	if len(specs) != 0 {
-		t.Fatalf("attribution target unexpectedly granted tools: %+v", specs)
+	for _, spec := range specs {
+		require.False(
+			t,
+			toolcatalog.UsesAppToolNamespace(spec.Name),
+			"attribution must not grant app tools",
+		)
 	}
+	selection, err := fixture.Store.Execution().
+		GetInteractionSelection(ctx, kernelTestProjectID, launch.Agent.ID)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		executionstore.InteractionSelection{},
+		selection,
+		"an origin without a handler remains dashboard only",
+	)
 }
 
 func TestAgentExecutorRecordsErrorWhenModelGrantUnavailableBeforeContextCreation(t *testing.T) {
@@ -248,7 +271,8 @@ model:
 		"unavailable-grant",
 		"CUNAVAILABLEGRANT:1.0",
 	)
-	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
+	config, found, err := fixture.Store.Execution().
+		GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
 	if err != nil {
 		t.Fatalf("load agent config: %v", err)
 	}
@@ -330,7 +354,10 @@ model:
 		t.Fatalf("execute turn after model grant unavailable: %v", err)
 	}
 	if len(modelClient.responses) != 1 {
-		t.Fatalf("model responded after unavailable grant; remaining responses=%d", len(modelClient.responses))
+		t.Fatalf(
+			"model responded after unavailable grant; remaining responses=%d",
+			len(modelClient.responses),
+		)
 	}
 	if postedDecodeErr != nil {
 		t.Fatalf("decode Slack runtime message: %v", postedDecodeErr)
@@ -414,54 +441,65 @@ func attachKernelSlackHandler(
 	if err != nil {
 		t.Fatalf("create integration credential secret: %v", err)
 	}
-	install, err := fixture.Store.Integrations().CreateIntegrationConnection(
-		ctx,
-		integrationstore.SaveIntegrationConnectionInput{
-			OrgID:     kernelTestOrgID,
-			ProjectID: kernelTestProjectID,
-
-			InstalledByUserID: kernelTestUserID,
-			Provider:          integrationstore.IntegrationProviderSlack,
-
-			State:              integrationstore.IntegrationConnectionStateActive,
-			ProviderTenantID:   "T_" + identifier,
-			ProviderAccountRef: "A_" + identifier,
-			CredentialSecretID: secret.ID,
-			ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B_KERNEL_TEST"}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("create integration connection: %v", err)
-	}
-	config := fixture.currentAgentConfig(t, ctx, agentID)
-	source, err := agentconfig.ParseSource(agentconfig.SourceFormat(config.SourceFormat), []byte(config.Source))
+	const handlerKey = "runtime-notifications"
+	app, err := fixture.Store.Integrations().
+		CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
+			Name: handlerKey, DefinitionID: appdefinition.Slack,
+		})
 	require.NoError(t, err)
-	connectionID, err := publicid.Encode(publicid.KindIntegrationConnection, install.ID)
+	install, err := fixture.Store.Integrations().
+		ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+			OrgID:                 kernelTestOrgID,
+			ProjectID:             kernelTestProjectID,
+			AppID:                 app.ID,
+			ExpectedSetupRevision: app.SetupRevision,
+			InstalledByUserID:     kernelTestUserID,
+			Provider:              integrationstore.IntegrationProviderSlack,
+			ProviderTenantID:      "T_" + identifier,
+			ProviderAccountRef:    "A_" + identifier,
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   secret.CurrentVersionID,
+			OAuthFlowID:           uuid.Must(uuid.NewV7()),
+			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_KERNEL_TEST"}`),
+		})
+	require.NoError(t, err)
+	config := fixture.currentAgentConfig(t, ctx, agentID)
+	source, err := agentconfig.ParseSource(
+		agentconfig.SourceFormat(config.SourceFormat),
+		[]byte(config.Source),
+	)
+	require.NoError(t, err)
+	appID, err := publicid.Encode(publicid.KindProjectApp, install.ID)
 	require.NoError(t, err)
 	channel, thread, found := strings.Cut(providerRef, ":")
 	require.True(t, found, "runtime-message fixture requires a Slack thread")
-	const resourceKey = "runtime_notifications"
-	if source.AppResources == nil {
-		source.AppResources = make(map[string]agentconfig.AgentConfigAppResourceSource)
+	if source.InteractionHandlers == nil {
+		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigAppCapabilitySource)
 	}
 	// Runtime notices need a handler, independently of model send tools or listeners.
-	source.AppResources[resourceKey] = agentconfig.AgentConfigAppResourceSource{
-		Definition: appdefinition.Slack,
-		Connection: connectionID,
-		Scope: &appdefinition.Scope{Slack: &appdefinition.SlackScope{
-			ChannelID: channel, ThreadTS: thread,
-		}},
-		InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
+	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigAppCapabilitySource{
+		Config: map[string]any{"channel_id": channel, "thread_ts": thread},
 	}
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
 	configuredModel := currentConfiguredModelForKernelConfig(t, ctx, fixture.Store, config)
-	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{
-		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-			return resolvedKernelAgentConfigModel(configuredModel), nil
+	compiled, err := agentconfig.Compile(
+		agentconfig.SourceFormatJSON,
+		raw,
+		agentconfig.CompileOptions{
+			ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+				return resolvedKernelAgentConfigModel(configuredModel), nil
+			},
+			ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
+				require.Equal(t, install.Name, name)
+				return agentconfig.AppResolution{
+					AppID:      appID,
+					Definition: install.DefinitionID,
+				}, nil
+			},
 		},
-		ResolveAppConnection: func(id, _ string) (string, error) { return id, nil },
-	})
+	)
 	require.NoError(t, err)
 	_, err = fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
@@ -469,33 +507,45 @@ func attachKernelSlackHandler(
 			ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: compiled.CanonicalJSON,
 			CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
 		},
-		AgentID: agentID, ExpectedCurrentConfigID: config.ID,
-		ActorType: "user", ActorID: kernelTestUserID, IdempotencyKey: "kernel-handler-" + identifier,
+		AgentID:                 agentID,
+		ExpectedCurrentConfigID: config.ID,
+		ActorType:               "user",
+		ActorID:                 kernelTestUserID,
+		IdempotencyKey:          "kernel-handler-" + identifier,
 	})
 	require.NoError(t, err)
 
-	// Activation must materialize the fixed target without prior input. Select it
-	// through the production helper under the agent lock, instead of seeding a pointer.
-	choices, err := fixture.Store.Execution().ListInteractionDestinations(ctx, kernelTestProjectID, agentID)
-	require.NoError(t, err)
-	require.Len(t, choices.Destinations, 1)
-	destination := choices.Destinations[0].Destination
-	require.Equal(t, resourceKey, destination.ResourceKey)
-	require.Equal(t, install.ID, destination.ConnectionID)
-	require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: providerRef}, destination.Address)
+	// Config activation creates no target. Materialize this verified origin's
+	// canonical attribution and select its matching handler in one transaction.
 	tx, err := fixture.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE",
-		kernelTestProjectID, agentID)
-	require.NoError(t, err)
-	selection, err := fixture.Store.Execution().SelectInteractionDestinationForOriginTx(
-		ctx, tx, kernelTestProjectID, agentID, destination.IntegrationTargetID,
+	require.NoError(t, integrationstore.LockAppsTx(ctx, tx, kernelTestProjectID, nil, install.ID))
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: providerRef}
+	require.NoError(
+		t,
+		integrationstore.LockConversationTx(ctx, tx, kernelTestProjectID, install.ID, address),
+	)
+	_, err = tx.Exec(
+		ctx,
+		"SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE",
+		kernelTestProjectID,
+		agentID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{
-		IntegrationTargetID: destination.IntegrationTargetID, ResourceKey: resourceKey,
-	}, selection)
+	target, err := fixture.Store.Integrations().
+		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID, AppID: install.ID,
+			Address: address, Role: integrationstore.TargetAttribution,
+		})
+	require.NoError(t, err)
+	selection, err := fixture.Store.Execution().SelectInteractionDestinationForOriginTx(
+		ctx, tx, kernelTestProjectID, agentID, target.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, target.ID, selection.IntegrationTargetID)
+	require.Equal(t, handlerKey, selection.HandlerKey)
+	require.JSONEq(t, `{}`, string(selection.Args))
 	require.NoError(t, tx.Commit(ctx))
 	return botToken
 }
@@ -532,7 +582,14 @@ func TestAgentExecutorSettlesTurnWhenConfiguredModelWasDeleted(t *testing.T) {
 		t.Fatalf("delete configured model: %v", err)
 	}
 
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "continue", now.Add(time.Millisecond))
+	work := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"continue",
+		now.Add(time.Millisecond),
+	)
 	executor := AgentExecutor{
 		Store: fixture.Store,
 		ModelResolver: modelprovider.Resolver{
@@ -597,11 +654,15 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossGrantReplacement(t *testing.T) 
 				)
 			})
 		},
-		responses: []model.Response{{
-			ID:         "resp_after_replacement_grant",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "prepared request completed"}},
-			StopReason: model.StopReasonEndTurn,
-		}},
+		responses: []model.Response{
+			{
+				ID: "resp_after_replacement_grant",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "prepared request completed"},
+				},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -667,7 +728,8 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossCredentialRotation(t *testing.T
 	if err != nil {
 		t.Fatalf("load model provider: %v", err)
 	}
-	credential, err := fixture.Store.Secrets().GetSecret(ctx, config.OrgID, provider.CredentialSecretID)
+	credential, err := fixture.Store.Secrets().
+		GetSecret(ctx, config.OrgID, provider.CredentialSecretID)
 	if err != nil {
 		t.Fatalf("load model credential: %v", err)
 	}
@@ -690,11 +752,15 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossCredentialRotation(t *testing.T
 				)
 			})
 		},
-		responses: []model.Response{{
-			ID:         "resp_after_credential_rotation",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "prepared request completed"}},
-			StopReason: model.StopReasonEndTurn,
-		}},
+		responses: []model.Response{
+			{
+				ID: "resp_after_credential_rotation",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "prepared request completed"},
+				},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -774,7 +840,8 @@ tools:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
+	config, found, err := fixture.Store.Execution().
+		GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
 	if err != nil {
 		t.Fatalf("load agent config: %v", err)
 	}
@@ -824,7 +891,10 @@ tools:
 		t.Fatalf("execute turn with unsupported required tools: %v", err)
 	}
 	if modelClient.preparedCount() != 0 {
-		t.Fatalf("model prepared %d requests after tool-support rejection, want 0", modelClient.preparedCount())
+		t.Fatalf(
+			"model prepared %d requests after tool-support rejection, want 0",
+			modelClient.preparedCount(),
+		)
 	}
 	assertDurableModelErrorForKernelTest(
 		t,

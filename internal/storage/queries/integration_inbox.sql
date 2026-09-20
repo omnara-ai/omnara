@@ -1,57 +1,57 @@
 -- Verified bytes and receipt identity are immutable. Provider verification happens
--- before this query; the owner holds active project/connection lifecycle gates.
+-- before this query; the owner holds active project/app lifecycle gates.
 -- name: InsertIntegrationInboxReceipt :one
-INSERT INTO integration_inbox (project_id, connection_id, receipt_key, payload)
-VALUES (sqlc.arg(project_id), sqlc.arg(connection_id), sqlc.arg(receipt_key), sqlc.arg(payload))
-ON CONFLICT (project_id, connection_id, receipt_key) DO NOTHING
-RETURNING id, project_id, connection_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload)
+VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload))
+ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
+RETURNING id, project_id, app_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- name: GetIntegrationInboxReceiptByKey :one
-SELECT id, project_id, connection_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, app_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
-WHERE project_id = sqlc.arg(project_id) AND connection_id = sqlc.arg(connection_id)
+WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
   AND receipt_key = sqlc.arg(receipt_key);
 
 -- name: GetIntegrationInboxReceipt :one
-SELECT id, project_id, connection_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, app_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
 -- name: ListIntegrationInboxReceipts :many
-SELECT id, project_id, connection_id, receipt_key, state, attempt_count,
+SELECT id, project_id, app_id, receipt_key, state, attempt_count,
        available_at, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id)
-  AND (sqlc.narg(connection_id)::uuid IS NULL OR connection_id = sqlc.narg(connection_id)::uuid)
+  AND (sqlc.narg(app_id)::uuid IS NULL OR app_id = sqlc.narg(app_id)::uuid)
   AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text)
   AND (NOT sqlc.arg(cursor_set)::boolean
        OR (created_at, id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
--- name: ListReadyIntegrationInboxConnections :many
+-- name: ListReadyIntegrationInboxApps :many
 -- Bound pending receipt inspection before checking scope. Recovery drains an
--- inactive connection that occupies this frontier; history is never inspected.
+-- inactive app that occupies this frontier; history is never inspected.
 WITH frontier AS MATERIALIZED (
-  SELECT inbox.project_id, inbox.connection_id
+  SELECT inbox.project_id, inbox.app_id
   FROM integration_inbox inbox
   WHERE inbox.state = 'pending' AND inbox.available_at <= statement_timestamp()
     AND inbox.attempt_count < 8
   ORDER BY inbox.available_at, inbox.id
   LIMIT sqlc.arg(row_limit)
 )
-SELECT DISTINCT frontier.project_id, frontier.connection_id
+SELECT DISTINCT frontier.project_id, frontier.app_id
 FROM frontier
-JOIN integration_connections connection ON connection.project_id = frontier.project_id AND connection.id = frontier.connection_id
+JOIN project_apps app ON app.project_id = frontier.project_id AND app.id = frontier.app_id
 JOIN projects project ON project.id = frontier.project_id
 JOIN orgs org ON org.id = project.org_id
-WHERE connection.state = 'active' AND connection.deleted_at IS NULL
+WHERE app.state = 'active' AND app.deleted_at IS NULL
   AND project.deleted_at IS NULL AND org.deleted_at IS NULL;
 
 -- name: ClaimIntegrationInboxReceipt :one
 WITH candidate AS (
   SELECT ready.id FROM integration_inbox ready
-  WHERE ready.project_id = sqlc.arg(project_id) AND ready.connection_id = sqlc.arg(connection_id)
+  WHERE ready.project_id = sqlc.arg(project_id) AND ready.app_id = sqlc.arg(app_id)
     AND ready.state = 'pending' AND ready.available_at <= statement_timestamp() AND ready.attempt_count < 8
   ORDER BY ready.available_at, ready.id
   LIMIT 1
@@ -63,7 +63,7 @@ SET state = 'processing', attempt_count = inbox.attempt_count + 1,
     claim_expires_at = statement_timestamp() + sqlc.arg(lease_milliseconds)::bigint * interval '1 millisecond',
     updated_at = statement_timestamp()
 FROM candidate WHERE inbox.id = candidate.id
-RETURNING inbox.id, inbox.project_id, inbox.connection_id, inbox.receipt_key, inbox.payload, inbox.events, inbox.plan, inbox.progress, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
+RETURNING inbox.id, inbox.project_id, inbox.app_id, inbox.receipt_key, inbox.payload, inbox.events, inbox.plan, inbox.progress, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
 
 -- Locking and checking are separate statements in Go: time advances while waiting.
 -- name: LockIntegrationInboxReceipt :one
@@ -72,7 +72,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 FOR UPDATE;
 
 -- name: ReadIntegrationInboxLease :one
-SELECT id, project_id, connection_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
+SELECT id, project_id, app_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
@@ -140,7 +140,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND state = 'faile
 -- only after the bounded SKIP LOCKED selection; healthy pending work is untouched.
 -- name: RecoverExpiredIntegrationInboxReceipts :execrows
 WITH candidates AS MATERIALIZED (
-  SELECT expired.id, expired.project_id, expired.connection_id
+  SELECT expired.id, expired.project_id, expired.app_id
   FROM integration_inbox expired
   WHERE expired.state = 'processing' AND expired.claim_expires_at <= statement_timestamp()
   ORDER BY expired.claim_expires_at, expired.id
@@ -148,10 +148,10 @@ WITH candidates AS MATERIALIZED (
   FOR UPDATE SKIP LOCKED
 ), scoped AS (
   SELECT candidates.id,
-    (connection.state = 'active' AND connection.deleted_at IS NULL
+    (app.state = 'active' AND app.deleted_at IS NULL
      AND project.deleted_at IS NULL AND org.deleted_at IS NULL) AS active
   FROM candidates
-  JOIN integration_connections connection ON connection.project_id = candidates.project_id AND connection.id = candidates.connection_id
+  JOIN project_apps app ON app.project_id = candidates.project_id AND app.id = candidates.app_id
   JOIN projects project ON project.id = candidates.project_id
   JOIN orgs org ON org.id = project.org_id
 )
@@ -165,27 +165,27 @@ SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN 'failed
 FROM scoped WHERE inbox.id = scoped.id;
 
 -- Start from inactive scopes, not the inbox. The materialized scope set and
--- per-project connection batches keep the planner off healthy pending/history rows.
+-- per-project app batches keep the planner off healthy pending/history rows.
 -- There is deliberately no global inbox sort before LIMIT. Each matching scope
 -- probes the pending-ready partial index; processing receipts are fenced from
 -- use immediately and failed by expired-lease recovery after their lease ends.
 -- name: FailInactiveIntegrationInboxReceipts :execrows
-WITH inactive_connections AS MATERIALIZED (
-  SELECT connection.project_id, array_agg(connection.id) AS connection_ids
-  FROM integration_connections connection
-  JOIN projects project ON project.id = connection.project_id
+WITH inactive_apps AS MATERIALIZED (
+  SELECT app.project_id, array_agg(app.id) AS app_ids
+  FROM project_apps app
+  JOIN projects project ON project.id = app.project_id
   JOIN orgs org ON org.id = project.org_id
-  WHERE connection.state <> 'active' OR connection.deleted_at IS NOT NULL
+  WHERE app.state <> 'active' OR app.deleted_at IS NOT NULL
      OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
-  GROUP BY connection.project_id
+  GROUP BY app.project_id
 ), candidates AS MATERIALIZED (
   SELECT unsettled.id
-  FROM inactive_connections connection
+  FROM inactive_apps app
   CROSS JOIN LATERAL (
     SELECT inbox.id FROM integration_inbox inbox
-    WHERE inbox.project_id = connection.project_id AND inbox.connection_id = ANY(connection.connection_ids)
+    WHERE inbox.project_id = app.project_id AND inbox.app_id = ANY(app.app_ids)
       AND inbox.state = 'pending'
-    ORDER BY inbox.connection_id, inbox.available_at, inbox.id
+    ORDER BY inbox.app_id, inbox.available_at, inbox.id
     LIMIT sqlc.arg(row_limit)
     FOR UPDATE SKIP LOCKED
   ) unsettled
@@ -209,22 +209,22 @@ WITH candidates AS (
 DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates.id;
 
 -- Soft-deleted scopes no longer need raw payloads, including failed receipts.
--- Disabled live connections retain failed selection facts for operator recovery.
+-- Disconnected live apps retain failed selection facts for operator recovery.
 -- Resolve deleted scopes first, then use the unique receipt identity index.
--- An empty cleanup poll does not inspect retained history in live connections.
+-- An empty cleanup poll does not inspect retained history in live apps.
 -- name: CleanupDeletedIntegrationInboxReceipts :execrows
-WITH deleted_connections AS MATERIALIZED (
-  SELECT connection.project_id, connection.id
-  FROM integration_connections connection
-  JOIN projects project ON project.id = connection.project_id
+WITH deleted_apps AS MATERIALIZED (
+  SELECT app.project_id, app.id
+  FROM project_apps app
+  JOIN projects project ON project.id = app.project_id
   JOIN orgs org ON org.id = project.org_id
-  WHERE connection.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
+  WHERE app.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
 ), candidates AS MATERIALIZED (
   SELECT obsolete.id
-  FROM deleted_connections connection
+  FROM deleted_apps app
   CROSS JOIN LATERAL (
     SELECT inbox.id FROM integration_inbox inbox
-    WHERE inbox.project_id = connection.project_id AND inbox.connection_id = connection.id
+    WHERE inbox.project_id = app.project_id AND inbox.app_id = app.id
     ORDER BY inbox.receipt_key
     LIMIT sqlc.arg(row_limit)
     FOR UPDATE SKIP LOCKED

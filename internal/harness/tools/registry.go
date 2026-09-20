@@ -131,6 +131,9 @@ func toolImplementationFor(name string) (toolImplementation, bool, error) {
 	if err != nil {
 		return toolImplementation{}, false, err
 	}
+	if implementation, ok := appToolImplementation(name); ok {
+		return implementation, true, nil
+	}
 	if implementation, ok := mcpToolImplementation(name); ok {
 		return implementation, true, nil
 	}
@@ -165,9 +168,7 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 }
 
 func builtInToolRegistrations() []toolRegistration {
-	registrations := append(githubToolRegistrations(), interactionToolRegistrations()...)
-	registrations = append(registrations, slackToolRegistrations()...)
-	registrations = append(registrations, discordToolRegistrations()...)
+	registrations := interactionToolRegistrations()
 	return append(registrations, []toolRegistration{
 		{
 			name:                   toolcatalog.ToolNameReadFile,

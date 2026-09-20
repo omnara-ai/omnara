@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,9 @@ var errInvalidIntegrationAction = errors.New("invalid integration action")
 const integrationActionsPath = "/api/integrations/slack/actions"
 
 func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), integrationIntakeTimeout)
+	defer cancel()
+	r = r.WithContext(ctx)
 	raw, ok := readIntegrationCallbackBody(w, r, slack.ActionBodyMaxBytes)
 	if !ok {
 		return
@@ -34,7 +38,16 @@ func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request)
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
-	install, ok := s.verifySignedSlackCallback(w, r, raw, envelope.APIAppID, envelope.Team.ID)
+	if s.store == nil {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "store unavailable")
+		return
+	}
+	ownerID, err := s.slackCallbackOwner(ctx, envelope)
+	if err != nil {
+		writeIntegrationProviderError(w, err)
+		return
+	}
+	install, ok := s.verifySignedSlackCallback(w, r, raw, ownerID, envelope.APIAppID, envelope.Team.ID)
 	if !ok {
 		return
 	}
@@ -52,10 +65,6 @@ func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request)
 		envelope,
 	) {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack action identity")
-		return
-	}
-	if install.State != integrationstore.IntegrationConnectionStateActive {
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
 		return
 	}
 	if s.slackProfileChoiceAction(w, r, install, envelope) {
@@ -76,7 +85,7 @@ func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) resolveIntegrationInteractionAction(
 	r *http.Request,
-	install integrationstore.IntegrationConnectionRecord,
+	install integrationstore.ProjectAppRecord,
 	envelope slack.ActionsEnvelope,
 ) (map[string]any, error) {
 	actionValue, err := slack.PromptActionFromActions(envelope)
@@ -114,9 +123,9 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if err != nil {
 		return nil, err
 	}
-	if destination == nil || destination.ConnectionID != install.ID ||
+	if destination == nil || destination.AppID != install.ID ||
 		destination.IntegrationTargetID != integrationTargetID ||
-		destination.HandlerDefinition != appdefinition.SlackInteractions {
+		destination.HandlerDefinition != appdefinition.Slack {
 		return nil, storeerr.ErrUnauthorized
 	}
 	var receipt integration.InteractionReceipt
@@ -142,6 +151,13 @@ func (s *Server) resolveIntegrationInteractionAction(
 		GetAgentInteractionForPresentation(r.Context(), install.ProjectID, agentID, interactionID)
 	if err != nil {
 		return nil, err
+	}
+	latest, err := s.store.Integrations().GetProjectApp(r.Context(), install.ProjectID, install.ID)
+	if err != nil {
+		return nil, err
+	}
+	if latest.State != integrationstore.ProjectAppStateActive || latest.SetupRevision != install.SetupRevision {
+		return nil, storeerr.ErrUnauthorized
 	}
 	if existing.State != executionstore.AgentInteractionStateOpen {
 		s.dismissInteractionAsync(r.Context(), existing)
@@ -169,8 +185,8 @@ func (s *Server) resolveIntegrationInteractionAction(
 		displayName = envelope.User.DisplayName()
 	}
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
-		ConnectionID: install.ID, SourceConnectionUpdatedAt: install.UpdatedAt,
-		HandlerDefinition: appdefinition.SlackInteractions, Address: destination.Address,
+		AppID: install.ID, SourceSetupRevision: install.SetupRevision,
+		HandlerDefinition: appdefinition.Slack, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
 			ProjectID:  install.ProjectID,
 			AgentID:    agentID,

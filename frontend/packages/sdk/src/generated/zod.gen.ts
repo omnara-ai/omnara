@@ -137,8 +137,6 @@ export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
 
 export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
-export const zIntegrationConnectionId = z.string().regex(/^iin_[a-z2-7]{26}$/);
-
 export const zIntegrationTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
 
 export const zAgentEventId = z.string().regex(/^evt_[a-z2-7]{26}$/);
@@ -606,7 +604,6 @@ export const zMcpoAuthStartResponse = z.object({
 });
 
 export const zCreateIntegrationOAuthSetupRequest = z.object({
-    provider: z.string().optional().default('slack'),
     client_id: z.string().min(1),
     client_secret: z.string().min(1),
     signing_secret: z.string().min(1),
@@ -619,63 +616,15 @@ export const zIntegrationProvider = z.enum([
     'discord'
 ]);
 
-export const zIntegrationConnectionState = z.enum(['active', 'disabled']);
-
 /**
  * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
  */
-export const zIntegrationConnectionDisplayName = z.string().max(512);
+export const zAppProviderDisplayName = z.string().max(512);
 
 /**
- * Non-secret provider configuration, validated for the selected provider. Slack and GitHub connections require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks) and shard_count (optional integer from 1 through 4096, default 1). Saves persist the default shard_count. Shard count is the configured Gateway topology; each shard is leased independently. Increase it explicitly if Discord requires more shards. Credentials and app behavior are not accepted here.
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub apps require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks) and shard_count (optional integer from 1 through 4096, default 1). Saves persist the default shard_count. Shard count is the configured Gateway topology; each shard is leased independently. Increase it explicitly if Discord requires more shards. Credentials and app behavior are not accepted here.
  */
-export const zIntegrationConnectionConfig = z.record(z.string(), z.unknown());
-
-/**
- * Project-owned provider access. GitHub tenant is the numeric App ID and account is the numeric Installation ID; the github_app_credentials secret must have the same App ID. Discord tenant is the Application ID and account is the bot User ID (canonical decimal snowflakes), not a guild ID; its generic secret contains the bot token. Slack connections are created through OAuth setup. Provider account identity cannot change on update. Saving replaces mutable settings; omitted state defaults to active. Omitted configuration becomes an empty object for Slack and GitHub, or {"shard_count":1} for Discord.
- */
-export const zSaveIntegrationConnectionRequest = z.object({
-    provider: zIntegrationProvider,
-    provider_tenant_id: z.string().min(1).max(512),
-    provider_account_ref: z.string().min(1).max(512),
-    provider_agent_display_name: zIntegrationConnectionDisplayName.optional(),
-    credential_secret_id: zSecretId,
-    provider_config: zIntegrationConnectionConfig.optional(),
-    state: zIntegrationConnectionState.optional()
-});
-
-/**
- * Project-owned provider account identity, non-secret configuration, and an authorized secret reference. Apps own launch behavior and destinations. Credential payloads are never returned.
- */
-export const zIntegrationConnection = z.object({
-    id: zIntegrationConnectionId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    provider: zIntegrationProvider,
-    state: zIntegrationConnectionState,
-    provider_tenant_id: z.string(),
-    provider_account_ref: z.string(),
-    provider_agent_display_name: zIntegrationConnectionDisplayName,
-    credential_secret_id: zSecretId.optional(),
-    provider_config: zIntegrationConnectionConfig,
-    created_at: zTimestamp,
-    updated_at: zTimestamp
-});
-
-export const zListIntegrationConnectionsResponse = z.object({
-    data: z.array(zIntegrationConnection),
-    next_cursor: z.string().nullable()
-});
-
-export const zIntegrationOAuthSetup = z.object({
-    provider: z.string(),
-    flow_id: zIntegrationOAuthFlowId,
-    oauth_url: z.url(),
-    redirect_uri: z.url(),
-    events_url: z.url(),
-    actions_url: z.url(),
-    expires_at: zTimestamp
-});
+export const zAppProviderConfig = z.record(z.string(), z.unknown());
 
 export const zSlackSetupIcon = z.object({
     filename: z.string().optional(),
@@ -687,17 +636,6 @@ export const zCreateSlackSetupRequest = z.object({
     app_configuration_token: z.string().min(1),
     icon: zSlackSetupIcon.optional(),
     return_to: z.string().optional()
-});
-
-export const zSlackSetup = z.object({
-    provider: z.string(),
-    flow_id: zIntegrationOAuthFlowId,
-    slack_app_id: z.string(),
-    oauth_url: z.url(),
-    redirect_uri: z.url(),
-    events_url: z.url(),
-    actions_url: z.url(),
-    expires_at: zTimestamp
 });
 
 export const zResolveAgentConfigToolsRequest = z.object({
@@ -1327,7 +1265,7 @@ export const zUpdateAgentConfigResponse = z.object({
 export const zMachineMetadata = z.record(z.string(), z.string().max(512));
 
 /**
- * A provider conversation address scoped to one connection. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
+ * A provider conversation address scoped to one app. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
  */
 export const zIntegrationConversationAddress = z.object({
     kind: z.string().min(1).max(128),
@@ -1719,40 +1657,9 @@ export const zAgentInteractionState = z.enum([
 ]);
 
 /**
- * Immutable destination captured when this interaction was created, not the agent's current selection. The built-in presenter checks live resource and connection authority before sending. Project-authorized dashboard/API resolution remains available independently.
- */
-export const zAgentInteractionDestination = z.object({
-    handler_definition: z.string().min(1).max(256),
-    resource_key: z.string().min(1),
-    integration_target_id: zIntegrationTargetId,
-    connection_id: zIntegrationConnectionId,
-    address: zIntegrationConversationAddress
-});
-
-/**
  * Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
  */
 export const zInteractionPresentationReceipt = z.record(z.string(), z.unknown());
-
-export const zAgentInteraction = z.object({
-    id: zAgentInteractionId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_id: zAgentId,
-    tool_call_id: zToolCallId,
-    tool_name: z.string().optional(),
-    agent_name: zAgentName.optional(),
-    subagent_key: z.string().optional(),
-    interaction_kind: zAgentInteractionKind,
-    state: zAgentInteractionState,
-    request: zInteractionForm,
-    resolution: zInteractionResolution.optional(),
-    destination: zAgentInteractionDestination.optional(),
-    presentation_receipt: zInteractionPresentationReceipt.optional(),
-    resolved_by_input_id: zAgentInputId.optional(),
-    created_at: zTimestamp,
-    resolved_at: zTimestamp.optional()
-});
 
 /**
  * omnara for project members, an integration provider such as slack, or external for API-managed actors.
@@ -1814,11 +1721,6 @@ export const zResolveAgentInteractionRequest = z.object({
 
 export const zListActorsResponse = z.object({
     data: z.array(zActor),
-    next_cursor: z.string().nullable()
-});
-
-export const zListAgentInteractionsResponse = z.object({
-    data: z.array(zAgentInteraction),
     next_cursor: z.string().nullable()
 });
 
@@ -2770,6 +2672,69 @@ export const zListProjectMembershipGrantsResponse = z.object({
 
 export const zProjectAppId = z.string().regex(/^app_[a-z2-7]{26}$/);
 
+export const zIntegrationOAuthSetup = z.object({
+    app_id: zProjectAppId,
+    setup_revision: z.int().gte(1),
+    provider: z.string(),
+    flow_id: zIntegrationOAuthFlowId,
+    oauth_url: z.url(),
+    redirect_uri: z.url(),
+    events_url: z.url(),
+    actions_url: z.url(),
+    expires_at: zTimestamp
+});
+
+export const zSlackSetup = z.object({
+    app_id: zProjectAppId,
+    setup_revision: z.int().gte(1),
+    provider: z.string(),
+    flow_id: zIntegrationOAuthFlowId,
+    slack_app_id: z.string(),
+    oauth_url: z.url(),
+    redirect_uri: z.url(),
+    events_url: z.url(),
+    actions_url: z.url(),
+    expires_at: zTimestamp
+});
+
+/**
+ * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
+ */
+export const zAgentInteractionDestination = z.object({
+    handler_definition: z.string(),
+    handler_key: z.string(),
+    app_id: zProjectAppId,
+    config: z.record(z.string(), z.unknown()),
+    args: z.record(z.string(), z.unknown()),
+    integration_target_id: zIntegrationTargetId,
+    address: zIntegrationConversationAddress
+});
+
+export const zAgentInteraction = z.object({
+    id: zAgentInteractionId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    agent_id: zAgentId,
+    tool_call_id: zToolCallId,
+    tool_name: z.string().optional(),
+    agent_name: zAgentName.optional(),
+    subagent_key: z.string().optional(),
+    interaction_kind: zAgentInteractionKind,
+    state: zAgentInteractionState,
+    request: zInteractionForm,
+    resolution: zInteractionResolution.optional(),
+    destination: zAgentInteractionDestination.optional(),
+    presentation_receipt: zInteractionPresentationReceipt.optional(),
+    resolved_by_input_id: zAgentInputId.optional(),
+    created_at: zTimestamp,
+    resolved_at: zTimestamp.optional()
+});
+
+export const zListAgentInteractionsResponse = z.object({
+    data: z.array(zAgentInteraction),
+    next_cursor: z.string().nullable()
+});
+
 export const zAppLaunchSlot = z.intersection(z.unknown(), z.object({
     key: z.string().min(1).max(64),
     agent_profile_id: zAgentProfileId.optional(),
@@ -2783,132 +2748,102 @@ export const zAppLauncher = z.object({
     slots: z.array(zAppLaunchSlot).min(1).max(16)
 });
 
-export const zAppResourceAgentToolInputSchema = z.object({
+export const zProjectAppSettings = z.object({
+    launcher: zAppLauncher.optional()
+});
+
+export const zConfigAgentToolInputSchema = z.object({
     properties: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
     required: z.array(z.string().min(1)).optional(),
     type: z.literal('object')
 });
 
-export const zAppResourceAppDiscordScope = z.object({
-    channel_id: z.string().min(1).regex(/\S/),
-    guild_id: z.string().min(1).regex(/\S/).optional(),
-    thread_id: z.string().min(1).regex(/\S/).optional()
+export const zConfigAppCapabilitySource = z.object({
+    config: z.record(z.string(), z.unknown()).optional()
 });
 
-export const zAppResourceAppFollow = z.object({
-    replies: z.boolean()
-});
-
-export const zAppResourceAppGitHubScope = z.object({
-    pull_request: z.int().gte(1),
-    repository_id: z.int().gte(1)
-});
-
-export const zAppResourceAppInteractionHandler = z.object({
-    definition: z.string().min(1).regex(/\S/)
-});
-
-export const zAppResourceAppListener = z.object({
-    events: z.array(z.string().min(1).regex(/\S/)).min(1)
-});
-
-export const zAppResourceAppSlackScope = z.object({
-    channel_id: z.string().min(1).regex(/\S/),
-    thread_ts: z.string().min(1).regex(/\S/).optional()
-});
-
-export const zAppResourceAppScope = z.intersection(z.union([
-    z.record(z.string(), z.unknown()),
-    z.record(z.string(), z.unknown()),
-    z.record(z.string(), z.unknown())
-]), z.object({
-    discord: zAppResourceAppDiscordScope.optional(),
-    github: zAppResourceAppGitHubScope.optional(),
-    slack: zAppResourceAppSlackScope.optional()
-}));
-
-export const zAppResourceMcpAuthSource = z.object({
-    region: z.string().min(1).optional(),
-    secret_id: z.string().min(1).regex(/^sec_[a-z2-7]{26}$/),
-    service: z.string().min(1).optional(),
-    type: z.enum([
-        'bearer',
-        'oauth',
-        'sigv4'
-    ])
-});
-
-export const zAppResourceToolPermissionSelection = z.object({
+export const zConfigToolPermissionSelection = z.object({
     mode: z.string().min(1).regex(/\S/),
     parameters: z.record(z.string(), z.unknown()).optional()
 });
 
-export const zAppResourceAppToolSource = z.object({
+export const zConfigToolSource = z.object({
+    config: z.record(z.string(), z.unknown()).optional(),
     deferred: z.boolean().optional(),
     description: z.string().min(1).optional(),
     enabled: z.boolean().nullish(),
-    input_schema: zAppResourceAgentToolInputSchema.optional(),
-    permission: zAppResourceToolPermissionSelection.optional(),
+    input_schema: zConfigAgentToolInputSchema.optional(),
+    permission: zConfigToolPermissionSelection.optional(),
     type: z.enum(['built_in', 'custom']).optional()
 });
-
-export const zAppResourceMcpToolSource = z.object({
-    deferred: z.boolean().nullish(),
-    enabled: z.boolean().nullish(),
-    permission: zAppResourceToolPermissionSelection.optional()
-});
-
-export const zAppResourceAppMcpSource = z.object({
-    auth: zAppResourceMcpAuthSource.optional(),
-    default_enabled: z.boolean().nullish(),
-    deferred: z.boolean().optional(),
-    permission: zAppResourceToolPermissionSelection.optional(),
-    tools: z.record(z.string(), zAppResourceMcpToolSource).optional(),
-    url: z.string().min(1).optional()
-});
-
-export const zAppResourceSource = z.intersection(z.union([
-    z.record(z.string(), z.unknown()),
-    z.record(z.string(), z.unknown())
-]), z.object({
-    app_instance: z.string().regex(/^app_[a-z2-7]{26}$/).optional(),
-    connection: z.string().regex(/^iin_[a-z2-7]{26}$/).optional(),
-    definition: z.string().min(1).regex(/\S/).optional(),
-    enabled: z.boolean().optional(),
-    follow: zAppResourceAppFollow.optional(),
-    interaction_handler: zAppResourceAppInteractionHandler.optional(),
-    listener: zAppResourceAppListener.optional(),
-    mcp: z.record(z.string(), zAppResourceAppMcpSource).optional(),
-    scope: zAppResourceAppScope.optional(),
-    tools: z.record(z.string(), zAppResourceAppToolSource).optional()
-}));
 
 export const zCreateAgentRequest = z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId,
     name: zAgentName.optional(),
     message: z.string().optional(),
-    app_resources: z.record(z.string(), zAppResourceSource).optional(),
+    tools: z.record(z.string(), zConfigToolSource).optional(),
+    listeners: z.record(z.string(), zConfigAppCapabilitySource).optional(),
+    interaction_handlers: z.record(z.string(), zConfigAppCapabilitySource).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
 });
 
-export const zProjectAppSettings = z.object({
-    resource: zAppResourceSource,
-    launcher: zAppLauncher.optional()
+/**
+ * Immutable, project-unique app name used in config keys and qualified tool names.
+ */
+export const zProjectAppName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/);
+
+/**
+ * Creates a disconnected app, or updates its launcher settings. Name and definition_id are immutable. Configure credentials through this app's setup endpoints.
+ */
+export const zSaveProjectAppRequest = z.object({
+    name: zProjectAppName,
+    definition_id: z.string().min(1),
+    settings: zProjectAppSettings
 });
 
-export const zSaveProjectAppRequest = z.object({
-    name: zResourceName,
-    settings: zProjectAppSettings,
-    enabled: z.boolean().optional().default(true)
+export const zProjectAppState = z.enum(['active', 'disconnected']);
+
+/**
+ * Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant/account are the Application ID and bot User ID; its generic secret contains the bot token. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ */
+export const zConfigureProjectAppRequest = z.object({
+    expected_setup_revision: z.int().gte(1),
+    provider_tenant_id: z.string().min(1).max(512),
+    provider_account_ref: z.string().min(1).max(512),
+    provider_agent_display_name: zAppProviderDisplayName.optional(),
+    credential_secret_id: zSecretId,
+    provider_config: zAppProviderConfig.optional()
+});
+
+export const zAppCapabilityDefinition = z.object({
+    description: z.string().optional(),
+    config_schema: z.record(z.string(), z.unknown()),
+    input_schema: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zAppCapabilities = z.object({
+    tools: z.record(z.string(), zAppCapabilityDefinition),
+    listeners: z.record(z.string(), zAppCapabilityDefinition),
+    interaction_handler: zAppCapabilityDefinition.optional()
 });
 
 export const zProjectApp = z.object({
     id: zProjectAppId,
     project_id: zProjectId,
-    name: zResourceName,
+    name: zProjectAppName,
+    definition_id: z.string(),
+    provider: zIntegrationProvider,
+    state: zProjectAppState,
+    setup_revision: z.int().gte(1),
+    last_oauth_flow_id: zIntegrationOAuthFlowId.optional(),
     settings: zProjectAppSettings,
-    enabled: z.boolean(),
+    provider_tenant_id: z.string(),
+    provider_account_ref: z.string(),
+    provider_agent_display_name: zAppProviderDisplayName,
+    credential_secret_id: zSecretId.optional(),
+    provider_config: zAppProviderConfig,
+    capabilities: zAppCapabilities,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -2916,6 +2851,16 @@ export const zProjectApp = z.object({
 export const zListProjectAppsResponse = z.object({
     data: z.array(zProjectApp),
     next_cursor: z.string().nullable()
+});
+
+export const zAppDefinition = z.object({
+    id: z.string(),
+    provider: zIntegrationProvider,
+    capabilities: zAppCapabilities
+});
+
+export const zListAppDefinitionsResponse = z.object({
+    data: z.array(zAppDefinition)
 });
 
 /**
@@ -3010,11 +2955,6 @@ export const zSecretOwnerProjectIdFilter = zProjectId;
  * Filter to secrets that have a version created by this MCP OAuth flow.
  */
 export const zSecretMcpoAuthFlowIdFilter = zMcpoAuthFlowId;
-
-/**
- * Only return the integration connection completed by this OAuth setup flow.
- */
-export const zIntegrationConnectionOAuthFlowIdFilter = zIntegrationOAuthFlowId;
 
 /**
  * Filter a project inventory by how the secret became available.
@@ -3673,71 +3613,6 @@ export const zDeleteSecretGrantPath = z.object({
  */
 export const zDeleteSecretGrantResponse = z.void();
 
-export const zListIntegrationConnectionsPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
-});
-
-export const zListIntegrationConnectionsQuery = z.object({
-    name: z.string().min(1).max(200).optional(),
-    oauth_flow_id: zIntegrationOAuthFlowId.optional(),
-    sort: zResourceListSort.optional(),
-    limit: z.int().gte(1).lte(100).optional().default(50),
-    cursor: z.string().max(1024).optional()
-});
-
-/**
- * Integration connections in the project, newest first.
- */
-export const zListIntegrationConnectionsResponse2 = zListIntegrationConnectionsResponse;
-
-export const zCreateIntegrationConnectionBody = zSaveIntegrationConnectionRequest;
-
-export const zCreateIntegrationConnectionPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
-});
-
-/**
- * Integration connection.
- */
-export const zCreateIntegrationConnectionResponse = zIntegrationConnection;
-
-export const zDeleteIntegrationConnectionPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationConnectionID: zIntegrationConnectionId
-});
-
-/**
- * Integration connection deleted.
- */
-export const zDeleteIntegrationConnectionResponse = z.void();
-
-export const zGetIntegrationConnectionPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationConnectionID: zIntegrationConnectionId
-});
-
-/**
- * Integration connection.
- */
-export const zGetIntegrationConnectionResponse = zIntegrationConnection;
-
-export const zUpdateIntegrationConnectionBody = zSaveIntegrationConnectionRequest;
-
-export const zUpdateIntegrationConnectionPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationConnectionID: zIntegrationConnectionId
-});
-
-/**
- * Integration connection.
- */
-export const zUpdateIntegrationConnectionResponse = zIntegrationConnection;
-
 export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
 
 export const zResolveAgentConfigToolsPath = z.object({
@@ -3904,55 +3779,31 @@ export const zUpdateAgentProfilePath = z.object({
  */
 export const zUpdateAgentProfileResponse = zAgentProfile;
 
-export const zCreateProjectIntegrationOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
+export const zCreateProjectAppOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
 
-export const zCreateProjectIntegrationOAuthSetupPath = z.object({
+export const zCreateProjectAppOAuthSetupPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    appID: zProjectAppId
 });
 
 /**
  * Integration OAuth setup created.
  */
-export const zCreateProjectIntegrationOAuthSetupResponse = zIntegrationOAuthSetup;
+export const zCreateProjectAppOAuthSetupResponse = zIntegrationOAuthSetup;
 
-export const zCreateProjectSlackSetupBody = zCreateSlackSetupRequest;
+export const zCreateProjectAppSlackSetupBody = zCreateSlackSetupRequest;
 
-export const zCreateProjectSlackSetupPath = z.object({
+export const zCreateProjectAppSlackSetupPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    appID: zProjectAppId
 });
 
 /**
  * Slack app created and OAuth setup started.
  */
-export const zCreateProjectSlackSetupResponse = zSlackSetup;
-
-export const zCreateIntegrationOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
-
-export const zCreateIntegrationOAuthSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    agentProfileID: z.string().regex(/^aprf_[a-z2-7]{26}$/)
-});
-
-/**
- * Integration OAuth setup created.
- */
-export const zCreateIntegrationOAuthSetupResponse = zIntegrationOAuthSetup;
-
-export const zCreateSlackSetupBody = zCreateSlackSetupRequest;
-
-export const zCreateSlackSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    agentProfileID: z.string().regex(/^aprf_[a-z2-7]{26}$/)
-});
-
-/**
- * Slack app created and OAuth setup started.
- */
-export const zCreateSlackSetupResponse = zSlackSetup;
+export const zCreateProjectAppSlackSetupResponse = zSlackSetup;
 
 export const zListCronTriggersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -5018,7 +4869,7 @@ export const zCreateProjectAppPath = z.object({
 });
 
 /**
- * Create reusable app setup and optional launcher.
+ * Create an app and optional launcher.
  */
 export const zCreateProjectAppResponse = zProjectApp;
 
@@ -5029,7 +4880,7 @@ export const zDeleteProjectAppPath = z.object({
 });
 
 /**
- * Delete app setup without revoking compiled agent resources.
+ * Delete app setup and revoke its capabilities.
  */
 export const zDeleteProjectAppResponse = z.void();
 
@@ -5053,6 +4904,40 @@ export const zUpdateProjectAppPath = z.object({
 });
 
 /**
- * Replace app setup for future attachments and launches.
+ * Update app launcher settings.
  */
 export const zUpdateProjectAppResponse = zProjectApp;
+
+export const zConfigureProjectAppBody = zConfigureProjectAppRequest;
+
+export const zConfigureProjectAppPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    appID: zProjectAppId
+});
+
+/**
+ * App setup.
+ */
+export const zConfigureProjectAppResponse = zProjectApp;
+
+export const zDisconnectProjectAppPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    appID: zProjectAppId
+});
+
+/**
+ * App setup.
+ */
+export const zDisconnectProjectAppResponse = zProjectApp;
+
+export const zListAppDefinitionsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * The code-defined app catalog.
+ */
+export const zListAppDefinitionsResponse2 = zListAppDefinitionsResponse;

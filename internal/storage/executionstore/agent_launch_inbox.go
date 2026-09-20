@@ -21,6 +21,7 @@ import (
 // admission never resolves the current profile/app settings again. Existing-agent
 // trigger slots are ordinary inputs, not launches, and have no selection envelope.
 type InboxLaunchSlot struct {
+	ListenerKey string                             `json:"listener_key"`
 	Selection   integrationstore.InboxAppSelection `json:"selection"`
 	AgentID     uuid.UUID                          `json:"agent_id"`
 	Launch      LaunchAgentInput                   `json:"launch"`
@@ -66,7 +67,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
 ) (LaunchAgentResult, error) {
-	// This unlocked immutable-plan read discovers all earlier connection gates.
+	// This unlocked immutable-plan read discovers all earlier app gates.
 	// The fenced read below is authoritative for preparation and admission.
 	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
@@ -85,28 +86,25 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	resources, err := launchAppResourcesTx(ctx, q, slot.Launch)
+	resources, err := launchAppIDsTx(ctx, q, slot.Launch)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	var connections []uuid.UUID
-	for _, resource := range resources {
-		if !resource.Enabled || resource.ConnectionID == "" {
-			continue
-		}
-		id, err := publicid.Decode(publicid.KindIntegrationConnection, resource.ConnectionID)
+	var apps []uuid.UUID
+	for _, ref := range resources {
+		id, err := publicid.Decode(publicid.KindProjectApp, ref)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		connections = append(connections, id)
+		apps = append(apps, id)
 	}
-	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, connections...)
+	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, apps...)
 	if err != nil {
 		// No admission writes have happened. Release this connection before using
 		// diagnostic reads, including on a pool with only one available session.
 		_ = tx.Rollback(ctx)
 		// A first attempt may have committed while this worker waited, and then
-		// released its lease or lost live connection authority. Replay is a read.
+		// released its lease or lost live app authority. Replay is a read.
 		latest, readErr := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if readErr == nil {
 			latestSlot, latestProgress, decodeErr := decodeInboxLaunchSlot(latest, slotKey)
@@ -135,7 +133,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	// All these gates were acquired before the receipt. Validate only this
 	// slot's concrete resource authorities; another slot's revocation must not
 	// block independent progress. FreezePlan already reserved the full membership.
-	if err := integrationstore.LockAppConnectionsTx(ctx, tx, lease.ProjectID, resources); err != nil {
+	if err := integrationstore.LockAppsTx(ctx, tx, lease.ProjectID, resources); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	selection := slot.Selection
@@ -143,8 +141,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		ctx,
 		tx,
 		lease.ProjectID,
-		resources,
-		AgentInputOrigin{ConnectionID: selection.ConnectionID, Address: selection.Address},
+		AgentInputOrigin{AppID: selection.AppID, Address: selection.Address},
 	); err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -152,6 +149,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		AgentID:       slot.AgentID,
 		AppID:         selection.AppID,
 		SelectionSlot: selection.Slot,
+		ListenerKey:   slot.ListenerKey,
 		Artifacts:     artifacts,
 	}
 	txNotifications := s.newTxNotifications()
@@ -207,8 +205,8 @@ func decodeInboxLaunchSlot(
 		return fail("planned agent requires a UUIDv7 identity")
 	}
 	selection := slot.Selection
-	if selection.AppID == uuid.Nil || selection.ConnectionID != receipt.ConnectionID || selection.Slot == "" {
-		return fail("launch selection must belong to the receipt connection and name an app slot")
+	if selection.AppID == uuid.Nil || selection.AppID != receipt.AppID || selection.Slot == "" {
+		return fail("launch selection must belong to the receipt app and name an app slot")
 	}
 	if slot.Launch.ProjectID == uuid.Nil {
 		slot.Launch.ProjectID = receipt.ProjectID
@@ -227,7 +225,7 @@ func decodeInboxLaunchSlot(
 		return slot, progress, err
 	}
 	if slot.Launch.InitialInput == nil || initial.Origin == nil || initial.Actor == nil ||
-		initial.Origin.ConnectionID != selection.ConnectionID || initial.Origin.Address != selection.Address {
+		initial.Origin.AppID != selection.AppID || initial.Origin.Address != selection.Address {
 		return fail("inbox launch requires initial content, actor and origin matching its frozen selection")
 	}
 	var stages map[string]json.RawMessage

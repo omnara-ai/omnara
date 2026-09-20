@@ -9,9 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/require"
@@ -20,23 +18,19 @@ import (
 func TestAppSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	store := integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
+	store := integrationstore.New(f.pool, executionstore.AppAccess{})
 	var profileID uuid.UUID
 	require.NoError(
 		t,
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1 LIMIT 1`, f.project).Scan(&profileID),
 	)
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, f.connection)
-	require.NoError(t, err)
-	f.exec(t, `UPDATE integration_connections SET provider_tenant_id='T123' WHERE id=$1`, f.connection)
+	f.exec(t, `UPDATE project_apps SET provider_tenant_id='T123' WHERE id=$1`, f.appID)
 	setup := integrationstore.SaveProjectAppInput{
 		OrgID:        f.org,
 		ProjectID:    f.project,
-		Name:         "reviewers",
+		Name:         "inbox-app",
 		DefinitionID: appdefinition.Slack,
-		Enabled:      true,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{Connection: connection},
 			Launcher: &integrationstore.AppLauncher{
 				Trigger:   "mention",
 				ScopeKind: "workspace",
@@ -48,7 +42,7 @@ func TestAppSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
 			},
 		},
 	}
-	app, err := store.CreateProjectApp(f.ctx, setup)
+	app, err := store.UpdateProjectApp(f.ctx, f.appID, setup)
 	require.NoError(t, err)
 	plan := func(keys ...string) json.RawMessage {
 		t.Helper()
@@ -57,7 +51,7 @@ func TestAppSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
 			id, err := uuid.NewV7()
 			require.NoError(t, err)
 			slots[key] = map[string]any{"agent_id": id,
-				"selection": integrationstore.InboxAppSelection{AppID: app.ID, ConnectionID: f.connection,
+				"selection": integrationstore.InboxAppSelection{AppID: app.ID,
 					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"}, Slot: key}}
 		}
 		raw, err := json.Marshal(slots)

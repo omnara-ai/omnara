@@ -32,24 +32,24 @@ type DiscordInboxSecrets interface {
 	)
 }
 
-type DiscordInboxConnections interface {
-	GetIntegrationConnection(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationConnectionRecord, error)
+type DiscordInboxApps interface {
+	GetProjectApp(context.Context, uuid.UUID, uuid.UUID) (integrationstore.ProjectAppRecord, error)
 }
 
 type DiscordAppInboxProvider struct {
-	config      discord.Config
-	secrets     DiscordInboxSecrets
-	connections DiscordInboxConnections
+	config  discord.Config
+	secrets DiscordInboxSecrets
+	apps    DiscordInboxApps
 }
 
 // NewDiscordAppInboxProvider uses config only for trusted HTTP settings and an
 // optional additional BeforeRequest check. Credentials always come from the
 // project's live secret reference. Runtime/checkpoint ownership stays elsewhere.
 func NewDiscordAppInboxProvider(
-	config discord.Config, secrets DiscordInboxSecrets, connections DiscordInboxConnections,
+	config discord.Config, secrets DiscordInboxSecrets, apps DiscordInboxApps,
 ) *DiscordAppInboxProvider {
 	config.Credentials = discord.Credentials{}
-	return &DiscordAppInboxProvider{config: config, secrets: secrets, connections: connections}
+	return &DiscordAppInboxProvider{config: config, secrets: secrets, apps: apps}
 }
 
 type DiscordEventMetadata struct {
@@ -72,13 +72,13 @@ type DiscordEventFile struct {
 
 // NormalizeDiscordAppEvent accepts only a trusted, durably captured Dispatch and
 // current REST channel metadata. Guild identity must be present in the dispatch
-// and agree with the lookup; it is never inferred from connection App ID.
+// and agree with the lookup; it is never inferred from saved app application ID.
 // Root messages require a native bot mention. Replies identify exactly one
 // thread; the router must require a selected/followed thread for ordinary replies.
 func NormalizeDiscordAppEvent(
-	connection integrationstore.IntegrationConnectionRecord, raw []byte, channel discord.Channel,
+	appSetup integrationstore.ProjectAppRecord, raw []byte, channel discord.Channel,
 ) (AppEvent, bool, error) {
-	message, ok, err := discordInboxMessage(connection, raw)
+	message, ok, err := discordInboxMessage(appSetup, raw)
 	if err != nil || !ok {
 		return AppEvent{}, ok, err
 	}
@@ -107,9 +107,9 @@ func NormalizeDiscordAppEvent(
 			Scope: appdefinition.Scope{Discord: &appdefinition.DiscordScope{
 				GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID,
 			}}},
-		SemanticKey: "discord:message:" + connection.ProviderTenantID + ":" + message.Message.ID,
+		SemanticKey: "discord:message:" + appSetup.ProviderTenantID + ":" + message.Message.ID,
 		DisplayName: channel.Name,
-		Actor: executionstore.ActorParams{Provider: "discord", ProviderTenantID: connection.ProviderTenantID,
+		Actor: executionstore.ActorParams{Provider: "discord", ProviderTenantID: appSetup.ProviderTenantID,
 			ProviderUserID: message.Message.Author.ID, DisplayName: &name},
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
 	}
@@ -132,10 +132,10 @@ func NormalizeDiscordAppEvent(
 }
 
 func discordInboxMessage(
-	connection integrationstore.IntegrationConnectionRecord, raw []byte,
+	appSetup integrationstore.ProjectAppRecord, raw []byte,
 ) (discord.MessageEvent, bool, error) {
-	if connection.Provider != "discord" || connection.State != integrationstore.IntegrationConnectionStateActive ||
-		!discordInboxID(connection.ProviderTenantID) || !discordInboxID(connection.ProviderAccountRef) {
+	if appSetup.Provider != "discord" || appSetup.State != integrationstore.ProjectAppStateActive ||
+		!discordInboxID(appSetup.ProviderTenantID) || !discordInboxID(appSetup.ProviderAccountRef) {
 		return discord.MessageEvent{}, false, storeerr.ErrUnauthorized
 	}
 	var dispatch discord.Dispatch
@@ -144,7 +144,7 @@ func discordInboxMessage(
 		dispatch.Type == "" || dispatch.Sequence < 0 {
 		return discord.MessageEvent{}, false, fmt.Errorf("invalid discord inbox dispatch")
 	}
-	message, ok, err := discord.NormalizeMessage(dispatch, connection.ProviderAccountRef)
+	message, ok, err := discord.NormalizeMessage(dispatch, appSetup.ProviderAccountRef)
 	if err != nil || !ok {
 		return message, ok, err
 	}
@@ -179,30 +179,30 @@ func discordInboxMessageScope(message discord.Message, channel discord.Channel) 
 }
 
 func (p *DiscordAppInboxProvider) requestAccess(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, authority func(context.Context) error,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, authority func(context.Context) error,
 ) (*discord.Client, func(context.Context) error, error) {
-	if p.secrets == nil || p.connections == nil {
-		return nil, nil, fmt.Errorf("discord secret and connection resolvers are required")
+	if p.secrets == nil || p.apps == nil {
+		return nil, nil, fmt.Errorf("discord secret and app resolvers are required")
 	}
-	checkConnection := func(ctx context.Context) error {
-		latest, err := p.connections.GetIntegrationConnection(ctx, connection.ProjectID, connection.ID)
+	checkAppSetup := func(ctx context.Context) error {
+		latest, err := p.apps.GetProjectApp(ctx, appSetup.ProjectID, appSetup.ID)
 		if err != nil {
 			return err
 		}
-		if latest.State != integrationstore.IntegrationConnectionStateActive || latest.Provider != "discord" ||
-			latest.ID != connection.ID || latest.OrgID != connection.OrgID || latest.ProjectID != connection.ProjectID ||
-			latest.ProviderTenantID != connection.ProviderTenantID ||
-			latest.ProviderAccountRef != connection.ProviderAccountRef ||
-			latest.CredentialSecretID != connection.CredentialSecretID || !latest.UpdatedAt.Equal(connection.UpdatedAt) {
+		if latest.State != integrationstore.ProjectAppStateActive || latest.Provider != "discord" ||
+			latest.ID != appSetup.ID || latest.OrgID != appSetup.OrgID || latest.ProjectID != appSetup.ProjectID ||
+			latest.ProviderTenantID != appSetup.ProviderTenantID ||
+			latest.ProviderAccountRef != appSetup.ProviderAccountRef ||
+			latest.CredentialSecretID != appSetup.CredentialSecretID || latest.SetupRevision != appSetup.SetupRevision {
 			return storeerr.ErrUnauthorized
 		}
 		return nil
 	}
-	if err := checkConnection(ctx); err != nil {
+	if err := checkAppSetup(ctx); err != nil {
 		return nil, nil, err
 	}
 	credential, err := p.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
-		OrgID: connection.OrgID, ProjectID: connection.ProjectID, SecretID: connection.CredentialSecretID,
+		OrgID: appSetup.OrgID, ProjectID: appSetup.ProjectID, SecretID: appSetup.CredentialSecretID,
 		Kind: secrets.KindGeneric,
 	})
 	if err != nil {
@@ -213,7 +213,7 @@ func (p *DiscordAppInboxProvider) requestAccess(
 			return err
 		}
 		access, err := p.secrets.GetProjectAvailableSecret(
-			ctx, connection.OrgID, connection.ProjectID, connection.CredentialSecretID,
+			ctx, appSetup.OrgID, appSetup.ProjectID, appSetup.CredentialSecretID,
 		)
 		if err != nil {
 			return err
@@ -222,7 +222,7 @@ func (p *DiscordAppInboxProvider) requestAccess(
 			access.Secret.CurrentVersionID != credential.CurrentVersionID {
 			return storeerr.ErrUnauthorized
 		}
-		if err := checkConnection(ctx); err != nil {
+		if err := checkAppSetup(ctx); err != nil {
 			return err
 		}
 		if p.config.BeforeRequest != nil {
@@ -239,14 +239,14 @@ func (p *DiscordAppInboxProvider) requestAccess(
 		return nil, nil, err
 	}
 	config := p.config
-	config.Credentials = discord.Credentials{ApplicationID: connection.ProviderTenantID,
-		BotUserID: connection.ProviderAccountRef, BotToken: credential.Payload[secrets.KeyValue]}
+	config.Credentials = discord.Credentials{ApplicationID: appSetup.ProviderTenantID,
+		BotUserID: appSetup.ProviderAccountRef, BotToken: credential.Payload[secrets.KeyValue]}
 	config.BeforeRequest = check
 	client, err := discord.NewClient(config)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Generic secret rotation can replace the token without editing connection
+	// Generic secret rotation can replace the token without editing app
 	// identity. Prove this token still belongs to both immutable identities.
 	if err := client.CheckIdentity(ctx); err != nil {
 		return nil, nil, err
@@ -258,15 +258,15 @@ func (p *DiscordAppInboxProvider) requestAccess(
 // and ephemeral UUID placeholders. The existing consumer freezes per-recipient
 // UUIDs, uploads via artifactstore and atomically admits artifact metadata/input.
 func (p *DiscordAppInboxProvider) Expand(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, raw []byte,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
 ) (AppInboxExpansion, error) {
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
 	defer cancel()
-	message, ok, err := discordInboxMessage(connection, raw)
+	message, ok, err := discordInboxMessage(appSetup, raw)
 	if err != nil || !ok {
 		return AppInboxExpansion{}, err
 	}
-	client, check, err := p.requestAccess(ctx, connection, nil)
+	client, check, err := p.requestAccess(ctx, appSetup, nil)
 	if err != nil {
 		return AppInboxExpansion{}, err
 	}
@@ -274,7 +274,7 @@ func (p *DiscordAppInboxProvider) Expand(
 	if err != nil {
 		return AppInboxExpansion{}, err
 	}
-	event, ok, err := NormalizeDiscordAppEvent(connection, raw, channel)
+	event, ok, err := NormalizeDiscordAppEvent(appSetup, raw, channel)
 	if err != nil || !ok {
 		return AppInboxExpansion{}, err
 	}
@@ -382,11 +382,11 @@ func discordInboxDownload(
 // DownloadFile rehydrates only a captured attachment ID, never an event URL.
 // The consumer compares the returned bytes/metadata with the frozen digest.
 func (p *DiscordAppInboxProvider) DownloadFile(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, raw []byte, fileID string,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte, fileID string,
 ) (AppInboxFile, error) {
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
 	defer cancel()
-	message, ok, err := discordInboxMessage(connection, raw)
+	message, ok, err := discordInboxMessage(appSetup, raw)
 	if err != nil {
 		return AppInboxFile{}, err
 	}
@@ -405,7 +405,7 @@ func (p *DiscordAppInboxProvider) DownloadFile(
 	if captured == nil {
 		return AppInboxFile{}, fmt.Errorf("attachment is not in the captured discord message")
 	}
-	client, check, err := p.requestAccess(ctx, connection, nil)
+	client, check, err := p.requestAccess(ctx, appSetup, nil)
 	if err != nil {
 		return AppInboxFile{}, err
 	}
@@ -433,24 +433,24 @@ func (p *DiscordAppInboxProvider) DownloadFile(
 // PrepareConversation runs only after the consumer freezes a nonempty plan and
 // before admission. authority must recheck that receipt's lease and a current
 // accepting recipient/launcher for frozenScope before EVERY HTTP attempt. The
-// provider independently fences connection/credential revisions. Never pass an
+// provider independently fences app/credential revisions. Never pass an
 // unconditional success callback from a worker; an empty plan must not call this.
 // Replays reuse Discord's one thread per source message. No thread is created
 // during Expand, and existing thread replies cause no provider mutation here.
 func (p *DiscordAppInboxProvider) PrepareConversation(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, raw []byte,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
 	frozenScope appdefinition.DiscordScope, authority func(context.Context) error,
 ) error {
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
 	defer cancel()
-	message, ok, err := discordInboxMessage(connection, raw)
+	message, ok, err := discordInboxMessage(appSetup, raw)
 	if err != nil {
 		return err
 	}
 	if !ok || authority == nil {
 		return fmt.Errorf("discord conversation preparation requires a message and live plan authority")
 	}
-	client, check, err := p.requestAccess(ctx, connection, authority)
+	client, check, err := p.requestAccess(ctx, appSetup, authority)
 	if err != nil {
 		return err
 	}
@@ -458,7 +458,7 @@ func (p *DiscordAppInboxProvider) PrepareConversation(
 	if err != nil {
 		return err
 	}
-	event, ok, err := NormalizeDiscordAppEvent(connection, raw, channel)
+	event, ok, err := NormalizeDiscordAppEvent(appSetup, raw, channel)
 	if err != nil {
 		return err
 	}
@@ -467,7 +467,7 @@ func (p *DiscordAppInboxProvider) PrepareConversation(
 	}
 	if !channel.IsThread() {
 		_, err = client.EnsureThread(ctx, discord.Scope{GuildID: frozenScope.GuildID, ChannelID: frozenScope.ChannelID},
-			message.Message.ID, discordConversationName(connection))
+			message.Message.ID, discordConversationName(appSetup))
 		if err != nil {
 			return err
 		}
@@ -475,8 +475,8 @@ func (p *DiscordAppInboxProvider) PrepareConversation(
 	return check(ctx)
 }
 
-func discordConversationName(connection integrationstore.IntegrationConnectionRecord) string {
-	name := strings.TrimSpace(connection.ProviderAgentDisplayName)
+func discordConversationName(appSetup integrationstore.ProjectAppRecord) string {
+	name := strings.TrimSpace(appSetup.ProviderAgentDisplayName)
 	if name == "" {
 		name = "Omnara"
 	}

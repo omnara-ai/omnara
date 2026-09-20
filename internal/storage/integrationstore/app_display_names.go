@@ -16,17 +16,17 @@ import (
 // It neither chooses an agent nor grants any authority to receive or send.
 func (s *Store) GetConversationDisplayName(
 	ctx context.Context,
-	projectID, connectionID uuid.UUID,
+	projectID, appID uuid.UUID,
 	address ConversationAddress,
 ) (string, error) {
-	if projectID == uuid.Nil || connectionID == uuid.Nil {
-		return "", storeerr.InvalidRequest(errors.New("project and connection are required"))
+	if projectID == uuid.Nil || appID == uuid.Nil {
+		return "", storeerr.InvalidRequest(errors.New("project and app are required"))
 	}
 	if err := address.Validate(); err != nil {
 		return "", err
 	}
 	name, err := s.q.GetConversationDisplayName(ctx, dbsqlc.GetConversationDisplayNameParams{
-		ProjectID: projectID, ConnectionID: connectionID, Kind: address.Kind, Ref: address.Ref,
+		ProjectID: projectID, AppID: appID, Kind: address.Kind, Ref: address.Ref,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil

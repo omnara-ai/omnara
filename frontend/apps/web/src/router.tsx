@@ -162,7 +162,6 @@ const projectAppCatalogRoute = createRoute({
 const createProjectAppRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/apps/new/$provider',
-  validateSearch: z.object({ integration_connection: z.string().optional().catch(undefined) }),
   component: lazyRouteComponent(
     () => import('@/routes/CreateProjectAppPage'),
     'CreateProjectAppPage',

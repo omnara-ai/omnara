@@ -18,42 +18,49 @@ fixture tests establish neither production readiness nor a fixed completion time
 
 ## What changes
 
-- Installs become connections with the same identities and credential references.
-  SQL40 captures each old Slack setup as a project app. Keep the existing Slack
-  app, tokens, secret encryption keys, public origins and callback URLs.
-- Agents, historical events, attribution and Slack messages survive. Go41 renames
-  stored tool policies (`send_integration_message` to `slack_post_message`,
-  `set_integration_target` to `set_interaction_destination`), including historical
-  configs; it does not rewrite message text.
-- Eligible old agents get individual compiled-only successor configs containing
-  their own Slack send scopes and existing explicit tool policy. Shared profiles
-  do not acquire those destinations. Archived agents, subagents and agents with
-  no previous turn are included when their org/project, target and connection
-  meet Go41's selection. Disabled connections remain subject to live revocation.
-- Old conversations get **no listeners, follow policy or interaction handler**.
-  Old automatic interaction destinations are cleared. Plain replies in an old
-  thread do not resume its previous agent; a fresh mention can launch a new one.
-  Cancel old pending turns/prompts before migrating; resume an old agent through
-  the dashboard/API, or attach new receiving/handler capabilities explicitly.
+- Installs become project apps with the same internal identities and credential references.
+  Live installations receive deterministic names (`slack`, `slack-2`, …) before
+  tombstones. Deleted installations become disconnected. Launcher settings retain
+  the installed profile and workspace.
+- History, attribution targets and provider messages survive. Go41 replaces the
+  old global send policy with qualified app tools and replaces
+  `set_integration_target` with `set_interaction_handler`. Message text is unchanged.
+- Eligible old agents receive compiled-only successor configs with fixed sending
+  destinations and preserved explicit policy. Shared profiles do not acquire
+  those destinations. Archived agents, subagents and agents with no prior turn
+  are included when they have a live project, app and target.
+- Old conversations get no listeners or interaction handlers. Old automatic
+  prompt destinations are cleared. Plain replies in old threads do not resume
+  the previous agent; a fresh mention can launch a new one. Resume old agents
+  through the dashboard/API or explicitly add receiving capabilities later.
 
 ## API and configuration changes
 
-This release replaces the project `/integration-installs` collection and item
-routes with `/integration-connections`; there is no old-route alias. Existing
-`iin_` identifiers remain valid. Upgrade API clients and generated SDKs with the
-cluster release. Connections describe provider accounts and credentials; their
-old `agent_profile_id`, `agent_id`, `integration_kind` and `connection_mode`
-fields are removed. Configure launch behavior through [project apps](/integrations/apps).
+The project `/integration-installs` API is replaced by `/apps`; public app IDs
+use `app_` rather than `iin_`. Internal IDs and audit references are preserved.
+Upgrade clients and generated SDKs with the cluster release. There is no separate
+connection API. Apps own credentials, setup and optional launcher settings.
 
-Actor responses can now report `github` and `discord` providers, and secret
-responses can report the `github_app_credentials` kind. Update clients that
-validate these response values as closed enums before enabling the new providers.
+Publish and install the matching generated SDK before running the updated
+standalone examples or switching API clients. The npm SDK releases through
+`0.1.15` do not contain these app operations. As part of the SDK release, raise the
+four signal-agent examples’ minimum `@omnara/sdk` version to that release and
+verify them against the published package; do not substitute a raw source checkout
+for the package in their Node runtime.
 
-The migration rewrites stored configurations, but clients that submit new source
-must use `slack_post_message` and `set_interaction_destination` instead of the
-removed generic tool names. Slack access now requires an explicit app resource;
-a tool name alone grants no access. Existing Slack OAuth, event and interaction
-callback URLs are preserved, so this API rename requires no Slack webhook change.
+New configs select `app__<name>__<operation>` under `tools`, with optional fixed
+`config`. Named `listeners` and `interaction_handlers` are independent blocks.
+The generic send tool is removed; the selection tools are
+`list_interaction_handlers` and `set_interaction_handler`. Configs keep resolved
+app IDs, so name reuse cannot redirect an existing agent.
+
+Slack's OAuth callback, event and interaction URLs stay the same; no Slack
+webhook URL change is required. New setup requests use app-scoped
+`/apps/{appID}/oauth/setup` or `/apps/{appID}/slack-setup`. Finish or restart
+in-flight setup through the new app page after cutover.
+
+Actor responses add `github` and `discord`; secrets add `github_app_credentials`.
+Update clients that validate those response enums before enabling new providers.
 
 ## Prepare and rehearse
 
@@ -102,14 +109,16 @@ ROLLBACK;
 | --- | --- |
 | Raw work, across the whole database | No `agent_runtime_locks` with `lease_expires_at > statement_timestamp()`, no `model_call_contexts.state = 'started'`, no `tool_calls.state <> 'completed'`, no `agent_interactions.state = 'open'`. SQL40 checks before renaming; Go41 rechecks under lock. |
 | Derived work, for every agent with a latest turn | No `agent_continuable_model_contexts` or `agent_next_model_work` row for that latest turn (greatest `agent_turns.turn_sequence`), and `agent_has_incomplete_tool_batch(project_id, agent_id)` is false. Pass the same project/agent IDs to both frontier functions. An idle worker is insufficient. Historical failed/retry contexts superseded by success or stop are not themselves blockers. |
-| Stored configs | No `compiled_definition.tools` entry of type `custom` named `slack_read`, `slack_post_message`, `github_read`, `github_discussion_comment`, `github_inline_comment`, `github_reply`, `discord_read`, `discord_post_message`, `list_interaction_destinations` or `set_interaction_destination`; no unequal old/new policy pair in definition, compiled definition or source for either rename above. Check historical as well as current configs. Only the name-collision guard runs before SQL40's rename; Go41 also checks policy conflicts, source parsing/hashes and rewrite uniqueness. |
-| Old setup and addresses | Every install, including deleted rows, satisfies SQL40's Slack / `agent_profile` / `webhook` gate. Eligible targets use `dm` or `channel` with `^[CDG][A-Z0-9]+$`, or `thread` with that channel plus `:` and `^[0-9]+\.[0-9]+$` timestamp. No eligible current compiled config already has `app_resources`. |
-| Quota and writer freeze | `effective_resource_limits.max_agent_configs_per_project` minus all stored project configs minus the number of eligible agents must be nonnegative, with further launch capacity planned; every writer stopped and the same preflight rerun after the freeze. Database sessions alone cannot prove the freeze. |
+| Stored configs | No custom tool using `app__` or the new handler tool names. Compiled legacy send policy must be an object containing only boolean `enabled`/`deferred` and optional `always_allow` permission with empty parameters. Source may also include `type: built_in` and nullable `enabled`; the migration normalizes these released forms. A disabled policy needs a known Slack app in its project. SQL40 rejects unmappable compiled policy before renaming. Go41 also validates source parsing, hashes and rewrite uniqueness. |
+| Old setup and addresses | Installs must be Slack webhook setups with a profile, not an agent destination. A live active setup requires credentials. Eligible targets must use a valid Slack channel, DM or channel-and-timestamp thread address. SQL40 checks these before renaming. |
+| Multiple targets through one app | No eligible agent may have more than one live target through the same Slack install. SQL40 reports the agent and target IDs before renaming. Review those destinations on the schema-39 copy and arrange an explicit repair before cutover; the migration does not choose a destination or broaden access. Multiple targets through different apps are supported. |
+| Quota and writer freeze | The new default of 10 million configs, or an explicit org override, must cover all existing configs plus at most one successor per eligible agent. SQL40 checks this conservative budget. Stop every writer and rerun preflight after freezing. |
+
 
 Eligible agents have a current config, an undeleted org/project, and an undeleted
-Slack target/connection. Do not exclude archived agents, subagents, agents with
-no previous turn or disabled connections. Count each eligible agent once for
-quota, even when it has several targets. SQL40/Go41 are the final gates; do not
+Slack target/app. Do not exclude archived agents, subagents, agents with
+no previous turn or disconnected apps. Count each eligible agent once for
+quota, even when it has targets through several different apps. SQL40/Go41 are the final gates; do not
 bypass their checks if preparation missed a blocker.
 
 The [39 → 40 → 41 fixture test](https://github.com/omnara-ai/omnara/blob/main/internal/dbmigrate/slack_app_cutover_integration_test.go)
@@ -200,7 +209,7 @@ actually persisted by the new service.
 2. Require successful completion through 41 and check the migration version on
    the writer. Before starting writers, compare the rehearsal/backup inventory:
    existing agents/history/targets and credential references remain; Slack app
-   setup has encoded connection references; eligible agents have isolated
+   setup has qualified tools with immutable app references; eligible agents have isolated
    successor scopes and preserved explicit policy; old pointers are cleared and
    no old-thread listeners were created. Inspect metadata/IDs, not secret values.
    Use the fixture assertions above as the acceptance checklist.
@@ -238,18 +247,18 @@ maintenance inbox discard --project proj_... --receipt RECEIPT_UUID --reason "op
 
 Inspect the failure before choosing retry or discard. Output contains metadata,
 frozen identities and progress flags, without provider payloads or credentials.
-Retry requires a failed receipt and an active connection. It grants another
+Retry requires a failed receipt and an active app. It grants another
 bounded attempt budget while preserving the original recipients, planned IDs,
 prepared files and committed inputs; admission still checks current authority.
 
 Discard releases a failed launch reservation only when no launch slot committed
 and no selection target remains, including retired targets. Committed inputs to
 existing agents do not block discard and retain their deduplication. A partially
-launched selection must be retried. Discard works on disabled live connections.
+launched selection must be retried. Discard works on disconnected live apps.
 The original receipt, plan and diagnostics remain stored; a new event can select
 fresh launch membership. Completed and discarded receipts become eligible for
 cleanup seven days after completion or discard. Transport deduplication lasts
-until deletion; failed receipts remain available under live or disabled scopes.
+until deletion; failed receipts remain available under active or disconnected apps.
 
 After discard commits, prepared-file cleanup uses the existing blob settings
 only when `OMNARA_BLOB_S3_BUCKET` is configured. Missing configuration or deletion
@@ -266,12 +275,32 @@ redeliver the failed delivery from GitHub. GitHub does not automatically retry
 it, and Omnara has no GitHub redelivery scheduler. See
 [GitHub delivery recovery](/integrations/github#configure-incoming-pr-work).
 
+### Shared-webhook setup failures
+
+Independent saved apps can share a physical bot and webhook endpoint. Known
+invalid signatures and revoked/missing setups are skipped, but unknown secret,
+decryption/KMS or database errors still return non-2xx. Healthy siblings commit
+their receipts before that response; redelivery deduplicates those receipts.
+
+Find `provider event app failed` logs and use `app_id`, `project_id`, provider,
+`setup_revision`, `stage` and `retryable` to identify the affected setup. Logs
+include the error type, not raw error text, payloads or credentials. Restore a
+shared database/KMS outage first. For a persistently corrupt setup, reconnect
+that saved app with valid credentials for the same provider identity, or
+disconnect it until repaired so independent healthy apps can continue. Do not
+acknowledge unknown failures merely because another app succeeded.
+
+After repair, redeliver events that failed before intake persisted them; GitHub
+requires manual redelivery. Disconnect preserves existing inbox recovery data.
+Reconnect before using the failed-receipt retry commands above for work already
+stored by Omnara.
+
 ## Failure and restore
 
 | Failure point | Recovery while maintenance remains active |
 | --- | --- |
 | Before SQL40, or SQL40 failed and version is still 39 | Its early work/frontier/custom-name guards leave the old schema usable. Resolve work using the old release privately; obtain reviewed historical-config repair for collisions, or postpone. Confirm the actual version and old-release health before reopening. |
-| Go41 failed; version is 40 | Go-only hash, address, policy-conflict or quota checks can still fail after SQL40 commits; the repeated work guards can also catch a broken freeze. Go41 rolls back its own rewrites/successors. **Never restart old services on schema 40.** Preserve diagnostics; use a reviewed schema-40 SQL repair and rerun the same release migrator, or restore the pre-40 snapshot and old release. Do not copy the test's synthetic retry/trigger manipulation into operations. |
+| Go41 failed; version is 40 | Source parsing, content hashes and post-rewrite uniqueness can still fail after SQL40 commits; the repeated work, policy, address and quota guards can also catch a broken freeze. Go41 rolls back its own rewrites/successors. **Never restart old services on schema 40.** Preserve diagnostics; use a reviewed schema-40 SQL repair and rerun the same release migrator, or restore the pre-40 snapshot and old release. Do not copy the test's synthetic retry/trigger manipulation into operations. |
 | Version 41, validation fails before customer traffic | Keep ingress blocked; stop all newly started writers. Use reviewed forward repair, or restore the pre-40 snapshot and old images/configuration. Account for any controlled smoke-test side effects: restoring Postgres does not unsend a Slack message or undo a machine command. |
 | Customer traffic or retained customer work has resumed | Prefer forward repair. Restoring the old snapshot loses post-snapshot work and requires a separate, explicit recovery decision and reconciliation. |
 

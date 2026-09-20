@@ -16,7 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// GitHubAppIdentity belongs in connection.ProviderIdentity. Setup must resolve
+// GitHubAppIdentity belongs in app.ProviderIdentity. Setup must resolve
 // the App's bot account: neither its numeric App ID nor installation ID is the
 // bot's user ID or @mention login. This normalizer performs no provider I/O.
 type GitHubAppIdentity struct {
@@ -31,12 +31,12 @@ type GitHubAppIdentity struct {
 type GitHubAppInboxProvider struct{}
 
 func (GitHubAppInboxProvider) Expand(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, payload []byte,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, payload []byte,
 ) (AppInboxExpansion, error) {
 	if err := ctx.Err(); err != nil {
 		return AppInboxExpansion{}, err
 	}
-	event, ok, err := NormalizeGitHubAppEvent(connection, payload)
+	event, ok, err := NormalizeGitHubAppEvent(appSetup, payload)
 	if err != nil || !ok {
 		return AppInboxExpansion{}, err
 	}
@@ -44,7 +44,7 @@ func (GitHubAppInboxProvider) Expand(
 }
 
 func (GitHubAppInboxProvider) DownloadFile(
-	_ context.Context, _ integrationstore.IntegrationConnectionRecord, _ []byte, _ string,
+	_ context.Context, _ integrationstore.ProjectAppRecord, _ []byte, _ string,
 ) (AppInboxFile, error) {
 	return AppInboxFile{}, fmt.Errorf("GitHub webhook events do not plan file downloads")
 }
@@ -92,9 +92,9 @@ type GitHubEventMetadata struct {
 // Human comments/reviews steer and cancel open interactions; opens/commits queue.
 // No provider mutation (including review publication) happens at this boundary.
 func NormalizeGitHubAppEvent(
-	connection integrationstore.IntegrationConnectionRecord, raw []byte,
+	appSetup integrationstore.ProjectAppRecord, raw []byte,
 ) (AppEvent, bool, error) {
-	if connection.Provider != integrationstore.IntegrationProviderGitHub {
+	if appSetup.Provider != integrationstore.IntegrationProviderGitHub {
 		return AppEvent{}, false, storeerr.ErrUnauthorized
 	}
 	var payload githubEventPayload
@@ -108,13 +108,13 @@ func NormalizeGitHubAppEvent(
 	if eventType == "" {
 		return AppEvent{}, false, nil
 	}
-	if !GitHubWebhookInstallationMatches(connection, payload.Webhook) {
+	if !GitHubWebhookInstallationMatches(appSetup, payload.Webhook) {
 		return AppEvent{}, false, storeerr.ErrUnauthorized
 	}
 	var identity GitHubAppIdentity
-	if json.Unmarshal(connection.ProviderIdentity, &identity) != nil ||
+	if json.Unmarshal(appSetup.ProviderIdentity, &identity) != nil ||
 		identity.BotUserID <= 0 || !validGitHubBotLogin(identity.BotLogin) {
-		return AppEvent{}, false, fmt.Errorf("GitHub connection requires verified bot_user_id and bot_login")
+		return AppEvent{}, false, fmt.Errorf("GitHub app requires verified bot_user_id and bot_login")
 	}
 	if githubSelfEvent(payload.Sender, identity) {
 		return AppEvent{}, false, nil
@@ -210,7 +210,7 @@ func NormalizeGitHubAppEvent(
 		SemanticKey: fmt.Sprintf("github:%d:%s", payload.Repository.ID, key),
 		DisplayName: fmt.Sprintf("%s#%d", payload.Repository.FullName, metadata.PullRequest),
 		Actor: executionstore.ActorParams{
-			Provider: "github", ProviderTenantID: connection.ProviderTenantID,
+			Provider: "github", ProviderTenantID: appSetup.ProviderTenantID,
 			ProviderUserID: strconv.FormatInt(actor.ID, 10), DisplayName: &actor.Login,
 		},
 		DeliveryMode: executionstore.DeliveryModeQueued,
@@ -254,9 +254,9 @@ func githubPayloadEventType(p githubEventPayload) string {
 }
 
 // GitHubWebhookInstallationMatches checks signed payload facts against the
-// connection. GitHub omits app_id on many installation summaries; HMAC validation
-// with that connection's App credentials establishes App identity at intake.
-func GitHubWebhookInstallationMatches(c integrationstore.IntegrationConnectionRecord, event github.Webhook) bool {
+// app. GitHub omits app_id on many installation summaries; HMAC validation
+// with that app's App credentials establishes App identity at intake.
+func GitHubWebhookInstallationMatches(c integrationstore.ProjectAppRecord, event github.Webhook) bool {
 	appID, appErr := strconv.ParseInt(c.ProviderTenantID, 10, 64)
 	installationID, installationErr := strconv.ParseInt(c.ProviderAccountRef, 10, 64)
 	return c.Provider == integrationstore.IntegrationProviderGitHub && appErr == nil && installationErr == nil &&

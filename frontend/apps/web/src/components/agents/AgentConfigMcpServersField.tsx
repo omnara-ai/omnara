@@ -3,6 +3,7 @@ import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
 import { permissionSelection } from '@/components/agents/agentConfigBasicExtract'
+import { mcpServerNameError } from '@/components/agents/agentConfigMcp'
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
 import { AgentConfigMcpServerTools } from '@/components/agents/AgentConfigMcpServerTools'
@@ -18,7 +19,6 @@ import {
   type BasicConfig,
   type BasicMcpServer,
   type McpAuthType,
-  mcpServerNameError,
 } from '@/components/agents/useAgentBuilderForm'
 import { KeyRound, PlusIcon, Trash2Icon } from '@/components/icons'
 import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'

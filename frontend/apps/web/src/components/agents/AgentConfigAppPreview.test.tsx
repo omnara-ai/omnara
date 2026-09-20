@@ -15,25 +15,21 @@ import { waitForUI } from '@/test/secret-editor'
 import { createBasicConfigSession, useAgentBuilderForm } from './useAgentBuilderForm'
 
 it('sends scoped app selection to preview and exposes the resolver issue to the builder', async () => {
-  const resource = {
-    app_instance: fakeId('app'),
-    scope: { slack: { channel_id: 'C123', thread_ts: '123.456' } },
-    tools: { slack_post_message: {} },
-  }
+  const tool = { config: { channel_id: 'C123', thread_ts: '123.456' } }
   const scope = { orgId: fakeId('org'), projectId: fakeId('proj') }
-  const source = JSON.stringify({ instruction: 'Review', app_resources: { chat: resource } })
+  const source = JSON.stringify({ instruction: 'Review', tools: { app__chat__post_message: tool } })
   const api = fakeApi([
     {
       method: 'POST',
       path: `/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/agent-configs/tools`,
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        expect(JSON.parse(request.source)).toHaveProperty('app_resources.chat', resource)
+        expect(JSON.parse(request.source)).toHaveProperty('tools.app__chat__post_message', tool)
         return jsonResponse(
           {
             code: 'invalid_request',
-            error: 'Invalid resource',
-            issues: [{ path: '/app_resources/chat', message: 'Connection is inactive' }],
+            error: 'Invalid app tool',
+            issues: [{ path: '/tools/app__chat__post_message', message: 'App not found' }],
           },
           400,
         )
@@ -60,7 +56,7 @@ it('sends scoped app selection to preview and exposes the resolver issue to the 
       )
     })
     await waitForUI(() => {
-      expect(container.textContent).toContain('/app_resources/chat: Connection is inactive')
+      expect(container.textContent).toContain('/tools/app__chat__post_message: App not found')
     })
     expect(api.requests).toHaveLength(1)
   } finally {

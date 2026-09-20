@@ -4,9 +4,12 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { appDefinitionLabel, appProvider } from '@/components/apps/appDefinitions'
+import { ConnectSlackDialog } from '@/components/apps/ConnectSlackDialog'
 import { ProjectAppActions } from '@/components/apps/ProjectAppActions'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
+import { ProjectAppSetup } from '@/components/apps/ProjectAppSetup'
 import { ProjectAppSummary } from '@/components/apps/ProjectAppSummary'
+import { SlackOAuthOutcomeDialog } from '@/components/apps/SlackOAuthOutcomeDialog'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,6 +45,7 @@ export function ProjectAppDetail({
 }) {
   const query = useProjectApp(orgId, projectId, appId)
   const [editing, setEditing] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const navigate = useNavigate()
   if (query.isPending) return <Spinner className="size-4" />
   const unavailable =
@@ -59,7 +63,7 @@ export function ProjectAppDetail({
       </div>
     )
   const app = query.data
-  const provider = appProvider(app.settings.resource.definition)
+  const provider = appProvider(app.definition_id)
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <header className="flex flex-col gap-3">
@@ -72,12 +76,30 @@ export function ProjectAppDetail({
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="type-title">{app.name}</h1>
-          <Badge variant="outline">{appDefinitionLabel(app.settings.resource.definition)}</Badge>
-          <Badge variant={app.enabled ? 'outline' : 'secondary'}>
-            {app.enabled ? 'Enabled' : 'Disabled'}
+          <Badge variant="outline">{appDefinitionLabel(app.definition_id)}</Badge>
+          <Badge variant={app.state === 'active' ? 'outline' : 'secondary'}>
+            {app.state === 'active' ? 'Connected' : 'Disconnected'}
           </Badge>
         </div>
-        {canManage && !editing && (
+        {app.state === 'disconnected' && !app.provider_tenant_id && !connecting && !editing && (
+          <p className="text-muted-foreground text-sm">
+            {canManage
+              ? 'Finish setup: connect an account to use this app’s capabilities, then choose optional launch settings.'
+              : 'Setup is unfinished. Ask a project administrator to connect this app.'}
+          </p>
+        )}
+        {canManage && !editing && !connecting && provider && (
+          <Button
+            className="self-start"
+            variant={app.state === 'active' ? 'outline' : 'default'}
+            onClick={() => {
+              setConnecting(true)
+            }}
+          >
+            {app.provider_tenant_id ? 'Reconnect account' : 'Connect account'}
+          </Button>
+        )}
+        {canManage && !editing && !connecting && (
           <ProjectAppActions
             orgId={orgId}
             projectId={projectId}
@@ -103,6 +125,34 @@ export function ProjectAppDetail({
           </Button>
         </div>
       )}
+      {connecting &&
+        provider &&
+        canManage &&
+        (provider === 'slack' ? (
+          <ConnectSlackDialog
+            open
+            app={app}
+            orgId={orgId}
+            projectId={projectId}
+            onOpenChange={setConnecting}
+            onConnected={() => {
+              setEditing(true)
+            }}
+          />
+        ) : (
+          <ProjectAppSetup
+            orgId={orgId}
+            projectId={projectId}
+            app={app}
+            onSaved={() => {
+              setConnecting(false)
+              setEditing(true)
+            }}
+            onCancel={() => {
+              setConnecting(false)
+            }}
+          />
+        ))}
       {editing && provider && canManage ? (
         <>
           <p className="text-muted-foreground text-sm">
@@ -123,8 +173,9 @@ export function ProjectAppDetail({
           />
         </>
       ) : (
-        <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />
+        !connecting && <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />
       )}
+      <SlackOAuthOutcomeDialog />
     </div>
   )
 }

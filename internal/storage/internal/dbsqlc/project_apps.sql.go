@@ -34,6 +34,82 @@ func (q *Queries) AgentProfileHasProjectApp(ctx context.Context, arg AgentProfil
 	return referenced, err
 }
 
+const configureProjectApp = `-- name: ConfigureProjectApp :one
+UPDATE project_apps
+SET installed_by_user_id = $1,
+    provider_tenant_id = $2,
+    provider_account_ref = $3,
+    provider_agent_display_name = $4,
+    credential_secret_id = $5::uuid,
+    provider_config = $6, provider_identity = $7,
+    provider_metadata = $8,
+    last_oauth_flow_id = coalesce($9::uuid, last_oauth_flow_id),
+    state = 'active', setup_revision = setup_revision + 1, updated_at = statement_timestamp()
+WHERE project_id = $10 AND id = $11 AND deleted_at IS NULL
+  AND setup_revision = $12
+RETURNING id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+`
+
+type ConfigureProjectAppParams struct {
+	InstalledByUserID        *uuid.UUID
+	ProviderTenantID         *string
+	ProviderAccountRef       *string
+	ProviderAgentDisplayName string
+	CredentialSecretID       uuid.UUID
+	ProviderConfig           json.RawMessage
+	ProviderIdentity         json.RawMessage
+	ProviderMetadata         json.RawMessage
+	OauthFlowID              *uuid.UUID
+	ProjectID                uuid.UUID
+	ID                       uuid.UUID
+	ExpectedSetupRevision    int64
+}
+
+// Provider identity and secret version were verified before entering this
+// transaction. The revision rejects a stale setup result; unrelated settings
+// edits deliberately do not invalidate that verification.
+func (q *Queries) ConfigureProjectApp(ctx context.Context, arg ConfigureProjectAppParams) (ProjectApp, error) {
+	row := q.db.QueryRow(ctx, configureProjectApp,
+		arg.InstalledByUserID,
+		arg.ProviderTenantID,
+		arg.ProviderAccountRef,
+		arg.ProviderAgentDisplayName,
+		arg.CredentialSecretID,
+		arg.ProviderConfig,
+		arg.ProviderIdentity,
+		arg.ProviderMetadata,
+		arg.OauthFlowID,
+		arg.ProjectID,
+		arg.ID,
+		arg.ExpectedSetupRevision,
+	)
+	var i ProjectApp
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
+	)
+	return i, err
+}
+
 const countProjectApps = `-- name: CountProjectApps :one
 SELECT count(*)::bigint FROM project_apps WHERE project_id = $1 AND deleted_at IS NULL
 `
@@ -50,7 +126,9 @@ func (q *Queries) CountProjectApps(ctx context.Context, arg CountProjectAppsPara
 }
 
 const deleteProjectApp = `-- name: DeleteProjectApp :execrows
-UPDATE project_apps SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+UPDATE project_apps
+SET state = 'disconnected', credential_secret_id = NULL, deleted_at = statement_timestamp(),
+    setup_revision = setup_revision + 1, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
@@ -68,7 +146,9 @@ func (q *Queries) DeleteProjectApp(ctx context.Context, arg DeleteProjectAppPara
 }
 
 const deleteProjectAppsForProjectDeletion = `-- name: DeleteProjectAppsForProjectDeletion :exec
-UPDATE project_apps SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+UPDATE project_apps
+SET state = 'disconnected', credential_secret_id = NULL, deleted_at = statement_timestamp(),
+    setup_revision = setup_revision + 1, updated_at = statement_timestamp()
 WHERE project_id = $1 AND deleted_at IS NULL
 `
 
@@ -81,91 +161,30 @@ func (q *Queries) DeleteProjectAppsForProjectDeletion(ctx context.Context, arg D
 	return err
 }
 
-const disableUnchangedProjectApp = `-- name: DisableUnchangedProjectApp :one
+const disconnectProjectApp = `-- name: DisconnectProjectApp :execrows
 UPDATE project_apps
-SET enabled = false, updated_at = statement_timestamp()
-WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
-  AND definition_id = $3 AND name = $4
-  AND settings = $5::jsonb
-RETURNING id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
+SET state = 'disconnected', setup_revision = setup_revision + 1, updated_at = statement_timestamp()
+WHERE project_id = $1 AND id = $2
+  AND deleted_at IS NULL
+  AND ($3::bigint IS NULL OR setup_revision = $3)
 `
 
-type DisableUnchangedProjectAppParams struct {
-	ProjectID    uuid.UUID
-	ID           uuid.UUID
-	DefinitionID string
-	Name         string
-	Settings     json.RawMessage
+type DisconnectProjectAppParams struct {
+	ProjectID             uuid.UUID
+	ID                    uuid.UUID
+	ExpectedSetupRevision *int64
 }
 
-// A disable-only edit cannot acquire destination/secret locks after its app row.
-// Match the observed setup atomically; concurrent settings edits must be re-read.
-func (q *Queries) DisableUnchangedProjectApp(ctx context.Context, arg DisableUnchangedProjectAppParams) (ProjectApp, error) {
-	row := q.db.QueryRow(ctx, disableUnchangedProjectApp,
-		arg.ProjectID,
-		arg.ID,
-		arg.DefinitionID,
-		arg.Name,
-		arg.Settings,
-	)
-	var i ProjectApp
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.Name,
-		&i.DefinitionID,
-		&i.Settings,
-		&i.LaunchConnectionID,
-		&i.LaunchScopeKind,
-		&i.LaunchScopeRef,
-		&i.Enabled,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getConnectionProjectAppForSetup = `-- name: GetConnectionProjectAppForSetup :one
-SELECT id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
-FROM project_apps
-WHERE project_id = $1 AND deleted_at IS NULL
-  AND definition_id = $2
-  AND settings->'resource'->>'connection' = $3::text
-ORDER BY created_at, id
-LIMIT 1
-`
-
-type GetConnectionProjectAppForSetupParams struct {
-	ProjectID     uuid.UUID
-	DefinitionID  string
-	ConnectionRef string
-}
-
-// OAuth reconnect preserves the oldest configured setup, including a disabled
-// launcher or one removed by an operator. Project app count is resource-bounded.
-func (q *Queries) GetConnectionProjectAppForSetup(ctx context.Context, arg GetConnectionProjectAppForSetupParams) (ProjectApp, error) {
-	row := q.db.QueryRow(ctx, getConnectionProjectAppForSetup, arg.ProjectID, arg.DefinitionID, arg.ConnectionRef)
-	var i ProjectApp
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.Name,
-		&i.DefinitionID,
-		&i.Settings,
-		&i.LaunchConnectionID,
-		&i.LaunchScopeKind,
-		&i.LaunchScopeRef,
-		&i.Enabled,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+func (q *Queries) DisconnectProjectApp(ctx context.Context, arg DisconnectProjectAppParams) (int64, error) {
+	result, err := q.db.Exec(ctx, disconnectProjectApp, arg.ProjectID, arg.ID, arg.ExpectedSetupRevision)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getProjectApp = `-- name: GetProjectApp :one
-SELECT id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
+SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 `
@@ -180,111 +199,220 @@ func (q *Queries) GetProjectApp(ctx context.Context, arg GetProjectAppParams) (P
 	var i ProjectApp
 	err := row.Scan(
 		&i.ID,
+		&i.OrgID,
 		&i.ProjectID,
-		&i.Name,
-		&i.DefinitionID,
-		&i.Settings,
-		&i.LaunchConnectionID,
-		&i.LaunchScopeKind,
-		&i.LaunchScopeRef,
-		&i.Enabled,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
+	)
+	return i, err
+}
+
+const getProjectAppByID = `-- name: GetProjectAppByID :one
+SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+FROM project_apps WHERE id = $1 AND deleted_at IS NULL
+`
+
+type GetProjectAppByIDParams struct {
+	ID uuid.UUID
+}
+
+// Private provider ingress resolves identity before a project principal exists.
+func (q *Queries) GetProjectAppByID(ctx context.Context, arg GetProjectAppByIDParams) (ProjectApp, error) {
+	row := q.db.QueryRow(ctx, getProjectAppByID, arg.ID)
+	var i ProjectApp
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
+	)
+	return i, err
+}
+
+const getProjectAppByName = `-- name: GetProjectAppByName :one
+SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+FROM project_apps
+WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL
+`
+
+type GetProjectAppByNameParams struct {
+	ProjectID uuid.UUID
+	Name      string
+}
+
+func (q *Queries) GetProjectAppByName(ctx context.Context, arg GetProjectAppByNameParams) (ProjectApp, error) {
+	row := q.db.QueryRow(ctx, getProjectAppByName, arg.ProjectID, arg.Name)
+	var i ProjectApp
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
 	)
 	return i, err
 }
 
 const insertProjectApp = `-- name: InsertProjectApp :one
-INSERT INTO project_apps(project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled)
+INSERT INTO project_apps(org_id, project_id, name, definition_id, provider, settings, state, created_at, updated_at)
 VALUES ($1, $2, $3, $4,
-        $5, $6, $7, $8)
-RETURNING id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
+        $5, $6, 'disconnected', statement_timestamp(), statement_timestamp())
+RETURNING id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
 `
 
 type InsertProjectAppParams struct {
-	ProjectID          uuid.UUID
-	Name               string
-	DefinitionID       string
-	Settings           json.RawMessage
-	LaunchConnectionID *uuid.UUID
-	LaunchScopeKind    *string
-	LaunchScopeRef     *string
-	Enabled            bool
+	OrgID        uuid.UUID
+	ProjectID    uuid.UUID
+	Name         string
+	DefinitionID string
+	Provider     string
+	Settings     json.RawMessage
 }
 
+// Apps own credentials and behavior. Metadata writes never change setup_revision.
 func (q *Queries) InsertProjectApp(ctx context.Context, arg InsertProjectAppParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, insertProjectApp,
+		arg.OrgID,
 		arg.ProjectID,
 		arg.Name,
 		arg.DefinitionID,
+		arg.Provider,
 		arg.Settings,
-		arg.LaunchConnectionID,
-		arg.LaunchScopeKind,
-		arg.LaunchScopeRef,
-		arg.Enabled,
 	)
 	var i ProjectApp
 	err := row.Scan(
 		&i.ID,
+		&i.OrgID,
 		&i.ProjectID,
-		&i.Name,
-		&i.DefinitionID,
-		&i.Settings,
-		&i.LaunchConnectionID,
-		&i.LaunchScopeKind,
-		&i.LaunchScopeRef,
-		&i.Enabled,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
 	)
 	return i, err
 }
 
-const listProjectAppLaunchers = `-- name: ListProjectAppLaunchers :many
-SELECT id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
+const integrationOAuthFlowConsumed = `-- name: IntegrationOAuthFlowConsumed :one
+SELECT EXISTS (SELECT 1 FROM project_apps WHERE last_oauth_flow_id = $1) AS consumed
+`
+
+type IntegrationOAuthFlowConsumedParams struct {
+	FlowID *uuid.UUID
+}
+
+// @sqlc-vet-disable project-apps-deleted-at
+// Tombstones also prevent reusing a completed setup attempt.
+func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg IntegrationOAuthFlowConsumedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, integrationOAuthFlowConsumed, arg.FlowID)
+	var consumed bool
+	err := row.Scan(&consumed)
+	return consumed, err
+}
+
+const listProjectAppMetadataByIDs = `-- name: ListProjectAppMetadataByIDs :many
+SELECT id, project_id, name, definition_id, provider, state, deleted_at
 FROM project_apps
-WHERE project_id = $1 AND launch_connection_id = $2
-  AND launch_scope_kind = $3 AND launch_scope_ref = $4
-  AND enabled AND deleted_at IS NULL
+WHERE project_id = $1 AND id = ANY($2::uuid[])
 ORDER BY id
 `
 
-type ListProjectAppLaunchersParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID *uuid.UUID
-	ScopeKind    *string
-	ScopeRef     *string
+type ListProjectAppMetadataByIDsParams struct {
+	ProjectID uuid.UUID
+	Ids       []uuid.UUID
 }
 
-func (q *Queries) ListProjectAppLaunchers(ctx context.Context, arg ListProjectAppLaunchersParams) ([]ProjectApp, error) {
-	rows, err := q.db.Query(ctx, listProjectAppLaunchers,
-		arg.ProjectID,
-		arg.ConnectionID,
-		arg.ScopeKind,
-		arg.ScopeRef,
-	)
+type ListProjectAppMetadataByIDsRow struct {
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	Name         string
+	DefinitionID string
+	Provider     string
+	State        string
+	DeletedAt    *time.Time
+}
+
+// Metadata keeps stored configs interpretable after app deletion. These reads
+// grant no execution authority; tools check live setup immediately before I/O.
+func (q *Queries) ListProjectAppMetadataByIDs(ctx context.Context, arg ListProjectAppMetadataByIDsParams) ([]ListProjectAppMetadataByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listProjectAppMetadataByIDs, arg.ProjectID, arg.Ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ProjectApp{}
+	items := []ListProjectAppMetadataByIDsRow{}
 	for rows.Next() {
-		var i ProjectApp
+		var i ListProjectAppMetadataByIDsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
 			&i.Name,
 			&i.DefinitionID,
-			&i.Settings,
-			&i.LaunchConnectionID,
-			&i.LaunchScopeKind,
-			&i.LaunchScopeRef,
-			&i.Enabled,
+			&i.Provider,
+			&i.State,
 			&i.DeletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -297,7 +425,7 @@ func (q *Queries) ListProjectAppLaunchers(ctx context.Context, arg ListProjectAp
 }
 
 const listProjectApps = `-- name: ListProjectApps :many
-SELECT id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
+SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND deleted_at IS NULL
   AND ($2::text = '' OR name ILIKE $2::text ESCAPE '\')
@@ -333,17 +461,101 @@ func (q *Queries) ListProjectApps(ctx context.Context, arg ListProjectAppsParams
 		var i ProjectApp
 		if err := rows.Scan(
 			&i.ID,
+			&i.OrgID,
 			&i.ProjectID,
-			&i.Name,
-			&i.DefinitionID,
-			&i.Settings,
-			&i.LaunchConnectionID,
-			&i.LaunchScopeKind,
-			&i.LaunchScopeRef,
-			&i.Enabled,
+			&i.InstalledByUserID,
+			&i.Provider,
+			&i.State,
+			&i.ProviderTenantID,
+			&i.ProviderAccountRef,
+			&i.ProviderAgentDisplayName,
+			&i.CredentialSecretID,
+			&i.ProviderConfig,
+			&i.ProviderIdentity,
+			&i.ProviderMetadata,
+			&i.LastOauthFlowID,
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Name,
+			&i.DefinitionID,
+			&i.Settings,
+			&i.SetupRevision,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectAppsByProviderIdentity = `-- name: ListProjectAppsByProviderIdentity :many
+SELECT app.id, app.org_id, app.project_id, app.installed_by_user_id, app.provider, app.state, app.provider_tenant_id, app.provider_account_ref, app.provider_agent_display_name, app.credential_secret_id, app.provider_config, app.provider_identity, app.provider_metadata, app.last_oauth_flow_id, app.deleted_at, app.created_at, app.updated_at, app.name, app.definition_id, app.settings, app.setup_revision
+FROM project_apps app
+JOIN projects project ON project.id = app.project_id
+JOIN orgs org ON org.id = app.org_id
+WHERE app.provider = $1 AND app.provider_tenant_id = $2
+  AND ($3::text IS NULL OR app.provider_account_ref = $3::text)
+  AND (app.state = 'active' OR ($4::boolean
+    AND app.state = 'disconnected' AND app.credential_secret_id IS NOT NULL))
+  AND app.deleted_at IS NULL
+  AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+  AND ($5::uuid IS NULL OR app.id > $5::uuid)
+ORDER BY app.id LIMIT $6
+`
+
+type ListProjectAppsByProviderIdentityParams struct {
+	Provider            string
+	ProviderTenantID    *string
+	ProviderAccountRef  *string
+	IncludeDisconnected bool
+	AfterID             *uuid.UUID
+	RowLimit            int32
+}
+
+// A physical bot can have independent saved apps, including in other projects.
+// Iterate all pages; a truncated fanout must never be acknowledged as complete.
+func (q *Queries) ListProjectAppsByProviderIdentity(ctx context.Context, arg ListProjectAppsByProviderIdentityParams) ([]ProjectApp, error) {
+	rows, err := q.db.Query(ctx, listProjectAppsByProviderIdentity,
+		arg.Provider,
+		arg.ProviderTenantID,
+		arg.ProviderAccountRef,
+		arg.IncludeDisconnected,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectApp{}
+	for rows.Next() {
+		var i ProjectApp
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.InstalledByUserID,
+			&i.Provider,
+			&i.State,
+			&i.ProviderTenantID,
+			&i.ProviderAccountRef,
+			&i.ProviderAgentDisplayName,
+			&i.CredentialSecretID,
+			&i.ProviderConfig,
+			&i.ProviderIdentity,
+			&i.ProviderMetadata,
+			&i.LastOauthFlowID,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Name,
+			&i.DefinitionID,
+			&i.Settings,
+			&i.SetupRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -356,7 +568,8 @@ func (q *Queries) ListProjectApps(ctx context.Context, arg ListProjectAppsParams
 }
 
 const lockProjectApp = `-- name: LockProjectApp :one
-SELECT id FROM project_apps
+SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+FROM project_apps
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR UPDATE
 `
@@ -366,60 +579,100 @@ type LockProjectAppParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) LockProjectApp(ctx context.Context, arg LockProjectAppParams) (uuid.UUID, error) {
+func (q *Queries) LockProjectApp(ctx context.Context, arg LockProjectAppParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, lockProjectApp, arg.ProjectID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
-const updateProjectApp = `-- name: UpdateProjectApp :one
-UPDATE project_apps
-SET name = $1, settings = $2,
-    launch_connection_id = $3, launch_scope_kind = $4,
-    launch_scope_ref = $5, enabled = $6, updated_at = statement_timestamp()
-WHERE project_id = $7 AND id = $8 AND definition_id = $9 AND deleted_at IS NULL
-RETURNING id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
-`
-
-type UpdateProjectAppParams struct {
-	Name               string
-	Settings           json.RawMessage
-	LaunchConnectionID *uuid.UUID
-	LaunchScopeKind    *string
-	LaunchScopeRef     *string
-	Enabled            bool
-	ProjectID          uuid.UUID
-	ID                 uuid.UUID
-	DefinitionID       string
-}
-
-func (q *Queries) UpdateProjectApp(ctx context.Context, arg UpdateProjectAppParams) (ProjectApp, error) {
-	row := q.db.QueryRow(ctx, updateProjectApp,
-		arg.Name,
-		arg.Settings,
-		arg.LaunchConnectionID,
-		arg.LaunchScopeKind,
-		arg.LaunchScopeRef,
-		arg.Enabled,
-		arg.ProjectID,
-		arg.ID,
-		arg.DefinitionID,
-	)
 	var i ProjectApp
 	err := row.Scan(
 		&i.ID,
+		&i.OrgID,
 		&i.ProjectID,
-		&i.Name,
-		&i.DefinitionID,
-		&i.Settings,
-		&i.LaunchConnectionID,
-		&i.LaunchScopeKind,
-		&i.LaunchScopeRef,
-		&i.Enabled,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
+	)
+	return i, err
+}
+
+const lockProjectAppLifecycleExclusive = `-- name: LockProjectAppLifecycleExclusive :exec
+SELECT pg_advisory_xact_lock(hashtextextended('project_app:' || $1::uuid::text, 0))
+`
+
+type LockProjectAppLifecycleExclusiveParams struct {
+	AppID uuid.UUID
+}
+
+func (q *Queries) LockProjectAppLifecycleExclusive(ctx context.Context, arg LockProjectAppLifecycleExclusiveParams) error {
+	_, err := q.db.Exec(ctx, lockProjectAppLifecycleExclusive, arg.AppID)
+	return err
+}
+
+const lockProjectAppLifecycleShared = `-- name: LockProjectAppLifecycleShared :exec
+SELECT pg_advisory_xact_lock_shared(hashtextextended('project_app:' || $1::uuid::text, 0))
+`
+
+type LockProjectAppLifecycleSharedParams struct {
+	AppID uuid.UUID
+}
+
+// Take the lifecycle gate before app/profile/agent row locks. Sorted app IDs
+// provide a common order when one agent uses several apps.
+func (q *Queries) LockProjectAppLifecycleShared(ctx context.Context, arg LockProjectAppLifecycleSharedParams) error {
+	_, err := q.db.Exec(ctx, lockProjectAppLifecycleShared, arg.AppID)
+	return err
+}
+
+const updateProjectAppSettings = `-- name: UpdateProjectAppSettings :one
+UPDATE project_apps SET settings = $1, updated_at = statement_timestamp()
+WHERE project_id = $2 AND id = $3 AND deleted_at IS NULL
+RETURNING id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+`
+
+type UpdateProjectAppSettingsParams struct {
+	Settings  json.RawMessage
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) UpdateProjectAppSettings(ctx context.Context, arg UpdateProjectAppSettingsParams) (ProjectApp, error) {
+	row := q.db.QueryRow(ctx, updateProjectAppSettings, arg.Settings, arg.ProjectID, arg.ID)
+	var i ProjectApp
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
 	)
 	return i, err
 }

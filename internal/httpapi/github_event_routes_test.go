@@ -1,15 +1,18 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -24,26 +28,32 @@ import (
 )
 
 type githubIntakeFixture struct {
-	connection  integrationstore.IntegrationConnectionRecord
-	credential  secretstore.SecretPayloadRecord
-	lookupErr   error
-	secretErr   error
-	acceptErr   error
-	accepted    []integrationstore.VerifiedIntegrationReceipt
-	secretRead  *secretstore.ReadProjectAvailableSecretPayloadInput
-	commit      func(context.Context) error
-	connections map[string]integrationstore.IntegrationConnectionRecord
-	candidates  []integrationstore.IntegrationConnectionRecord
-	resolverErr error
-	appLookups  int
+	app            integrationstore.ProjectAppRecord
+	credential     secretstore.SecretPayloadRecord
+	lookupErr      error
+	secretErr      error
+	acceptErr      error
+	accepted       []integrationstore.VerifiedIntegrationReceipt
+	secretRead     *secretstore.ReadProjectAvailableSecretPayloadInput
+	commit         func(context.Context) error
+	appsByIdentity map[string]integrationstore.ProjectAppRecord
+	candidates     []integrationstore.ProjectAppRecord
+	resolverErr    error
+	appLookups     int
+	pages          int
+	apps           []integrationstore.ProjectAppRecord
+	secretErrors   map[uuid.UUID]error
+	credentials    map[uuid.UUID]secretstore.SecretPayloadRecord
+	acceptErrors   map[uuid.UUID]error
+	secretReads    []secretstore.ReadProjectAvailableSecretPayloadInput
 }
 
 func newGitHubIntakeFixture() *githubIntakeFixture {
 	return &githubIntakeFixture{
-		connection: integrationstore.IntegrationConnectionRecord{
+		app: integrationstore.ProjectAppRecord{
 			ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), CredentialSecretID: uuid.New(),
 			Provider: "github", ProviderTenantID: "123", ProviderAccountRef: "456",
-			State: integrationstore.IntegrationConnectionStateActive,
+			State: integrationstore.ProjectAppStateActive,
 		},
 		credential: secretstore.SecretPayloadRecord{CurrentVersionID: uuid.New(), Payload: secrets.Payload{
 			secrets.KeyAppID: "123", secrets.KeyWebhookSecret: "webhook-secret", secrets.KeyPrivateKey: "private-key",
@@ -51,33 +61,61 @@ func newGitHubIntakeFixture() *githubIntakeFixture {
 	}
 }
 
-func (f *githubIntakeFixture) GetIntegrationConnectionByProviderAccount(
-	_ context.Context, provider, appID, installationID string,
-) (integrationstore.IntegrationConnectionRecord, error) {
-	if f.connections != nil {
-		connection, found := f.connections[provider+":"+appID+":"+installationID]
-		if !found {
-			return integrationstore.IntegrationConnectionRecord{}, storeerr.ErrNotFound
+func (f *githubIntakeFixture) ListProjectAppsByProviderIdentity(
+	_ context.Context, provider, appID, installationID string, after uuid.UUID, limit int,
+) ([]integrationstore.ProjectAppRecord, error) {
+	f.pages++
+	if f.lookupErr != nil {
+		if storeerr.IsNotFound(f.lookupErr) {
+			return nil, nil
 		}
-		return connection, f.lookupErr
+		return nil, f.lookupErr
 	}
-	return f.connection, f.lookupErr
+	apps := f.apps
+	if apps == nil {
+		apps = []integrationstore.ProjectAppRecord{f.app}
+		if f.appsByIdentity != nil {
+			apps = nil
+			for _, app := range f.appsByIdentity {
+				apps = append(apps, app)
+			}
+		}
+	}
+	var result []integrationstore.ProjectAppRecord
+	for _, app := range apps {
+		if app.Provider == provider && app.ProviderTenantID == appID && app.ProviderAccountRef == installationID &&
+			app.State == integrationstore.ProjectAppStateActive && app.ID.String() > after.String() {
+			result = append(result, app)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID.String() < result[j].ID.String() })
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
 }
 
-func (f *githubIntakeFixture) appConnections(
+func (f *githubIntakeFixture) credentialApps(
 	_ context.Context, _ string, _ int,
-) ([]integrationstore.IntegrationConnectionRecord, error) {
+) ([]integrationstore.ProjectAppRecord, error) {
 	f.appLookups++
 	if f.candidates != nil {
 		return f.candidates, f.resolverErr
 	}
-	return []integrationstore.IntegrationConnectionRecord{f.connection}, f.resolverErr
+	return []integrationstore.ProjectAppRecord{f.app}, f.resolverErr
 }
 
 func (f *githubIntakeFixture) ReadProjectAvailableSecretPayload(
 	_ context.Context, input secretstore.ReadProjectAvailableSecretPayloadInput,
 ) (secretstore.SecretPayloadRecord, error) {
 	f.secretRead = &input
+	f.secretReads = append(f.secretReads, input)
+	if err := f.secretErrors[input.ProjectID]; err != nil {
+		return secretstore.SecretPayloadRecord{}, err
+	}
+	if credential, ok := f.credentials[input.ProjectID]; ok {
+		return credential, nil
+	}
 	return f.credential, f.secretErr
 }
 
@@ -88,6 +126,9 @@ func (f *githubIntakeFixture) AcceptIntegrationReceipt(
 		if err := f.commit(ctx); err != nil {
 			return integrationstore.IntegrationInboxRecord{}, false, err
 		}
+	}
+	if err := f.acceptErrors[input.AppID]; err != nil {
+		return integrationstore.IntegrationInboxRecord{}, false, err
 	}
 	if f.acceptErr != nil {
 		return integrationstore.IntegrationInboxRecord{}, false, f.acceptErr
@@ -127,7 +168,7 @@ func TestGitHubHTTPIntakePersistsExactBodyBeforeAcknowledgement(t *testing.T) {
 		}
 		return ctx.Err()
 	}
-	h := &githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}
+	h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}
 	mux := http.NewServeMux()
 	mux.Handle("POST "+GitHubEventsPath, h)
 	for range 2 {
@@ -139,11 +180,11 @@ func TestGitHubHTTPIntakePersistsExactBodyBeforeAcknowledgement(t *testing.T) {
 	}
 	if len(f.accepted) != 2 || string(f.accepted[0].Payload) != githubIntakeBody ||
 		f.accepted[0].ReceiptKey != "github:issue_comment:delivery-1" ||
-		f.accepted[0].ProjectID != f.connection.ProjectID || f.accepted[0].ConnectionID != f.connection.ID {
+		f.accepted[0].ProjectID != f.app.ProjectID || f.accepted[0].AppID != f.app.ID {
 		t.Fatalf("receipt: %+v", f.accepted)
 	}
-	if f.secretRead == nil || f.secretRead.OrgID != f.connection.OrgID ||
-		f.secretRead.ProjectID != f.connection.ProjectID || f.secretRead.SecretID != f.connection.CredentialSecretID ||
+	if f.secretRead == nil || f.secretRead.OrgID != f.app.OrgID ||
+		f.secretRead.ProjectID != f.app.ProjectID || f.secretRead.SecretID != f.app.CredentialSecretID ||
 		f.secretRead.Kind != secrets.KindGitHubAppCredentials {
 		t.Fatalf("secret scope: %+v", f.secretRead)
 	}
@@ -176,7 +217,7 @@ func TestGitHubHTTPIntakeWaitsForDurableCommit(t *testing.T) {
 	r := githubIntakeRequest(t, f, githubIntakeBody)
 	go func() {
 		defer close(done)
-		(&githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}).ServeHTTP(w, r)
+		(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).ServeHTTP(w, r)
 	}()
 	<-entered
 	statusBeforeCommit := w.status.Load()
@@ -206,16 +247,16 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 		{"wrong credential App", http.StatusUnauthorized, func(f *githubIntakeFixture, _ *http.Request) {
 			f.credential.Payload[secrets.KeyAppID] = "321"
 		}},
-		{"wrong installation", http.StatusForbidden, func(f *githubIntakeFixture, _ *http.Request) {
-			f.connection.ProviderAccountRef = "654"
+		{"unmanaged installation", http.StatusNoContent, func(f *githubIntakeFixture, _ *http.Request) {
+			f.app.ProviderAccountRef = "654"
 		}},
 		{"disabled", http.StatusNoContent, func(f *githubIntakeFixture, _ *http.Request) {
-			f.connection.State = integrationstore.IntegrationConnectionStateDisabled
+			f.app.State = integrationstore.ProjectAppStateDisconnected
 		}},
-		{"wrong provider", http.StatusForbidden, func(f *githubIntakeFixture, _ *http.Request) {
-			f.connection.Provider = "discord"
+		{"wrong provider", http.StatusUnauthorized, func(f *githubIntakeFixture, _ *http.Request) {
+			f.app.Provider = "discord"
 		}},
-		{"unknown connection", http.StatusNoContent, func(f *githubIntakeFixture, _ *http.Request) {
+		{"unknown app", http.StatusNoContent, func(f *githubIntakeFixture, _ *http.Request) {
 			f.lookupErr = storeerr.ErrNotFound
 		}},
 		{"bad path", http.StatusNotFound, func(_ *githubIntakeFixture, r *http.Request) {
@@ -239,8 +280,8 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 		{"bad delivery", http.StatusBadRequest, func(_ *githubIntakeFixture, r *http.Request) {
 			r.Header.Set(github.DeliveryHeader, "bad:delivery")
 		}},
-		{"ping cannot bypass installation", http.StatusForbidden, func(f *githubIntakeFixture, r *http.Request) {
-			f.connection.ProviderAccountRef = "654"
+		{"ping cannot route unmanaged installation", http.StatusNoContent, func(f *githubIntakeFixture, r *http.Request) {
+			f.app.ProviderAccountRef = "654"
 			r.Header.Set(github.EventHeader, "ping")
 		}},
 		{"caller cancellation", http.StatusServiceUnavailable, func(f *githubIntakeFixture, _ *http.Request) {
@@ -253,7 +294,7 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 			r := githubIntakeRequest(t, f, githubIntakeBody)
 			tc.edit(f, r)
 			w := httptest.NewRecorder()
-			(&githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}).ServeHTTP(w, r)
+			(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).ServeHTTP(w, r)
 			if w.Code != tc.status || len(f.accepted) != 0 {
 				t.Fatalf("response: %d %s receipts=%d", w.Code, w.Body.String(), len(f.accepted))
 			}
@@ -274,7 +315,7 @@ func TestGitHubHTTPIntakePingIsSignedAndAppScoped(t *testing.T) {
 			r.Header.Del(github.SignatureHeader)
 		}
 		w := httptest.NewRecorder()
-		(&githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}).ServeHTTP(w, r)
+		(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).ServeHTTP(w, r)
 		if signed && (w.Code != http.StatusNoContent || len(f.accepted) != 0) ||
 			!signed && (w.Code != http.StatusUnauthorized || len(f.accepted) != 0) {
 			t.Fatalf("ping signed=%v status=%d receipts=%d", signed, w.Code, len(f.accepted))
@@ -285,7 +326,7 @@ func TestGitHubHTTPIntakePingIsSignedAndAppScoped(t *testing.T) {
 func TestGitHubHTTPIntakeBoundsAndWiring(t *testing.T) {
 	t.Parallel()
 	f := newGitHubIntakeFixture()
-	h := &githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}
+	h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}
 	for _, tc := range []struct {
 		body   string
 		status int
@@ -352,13 +393,13 @@ func TestGitHubHTTPMountedRouteUsesProviderAuthentication(t *testing.T) {
 func TestGitHubHTTPAppURLRoutesSeparateInstallationProjects(t *testing.T) {
 	t.Parallel()
 	f := newGitHubIntakeFixture()
-	second := f.connection
+	second := f.app
 	second.ID, second.ProjectID, second.ProviderAccountRef = uuid.New(), uuid.New(), "789"
-	f.connections = map[string]integrationstore.IntegrationConnectionRecord{
-		"github:123:456": f.connection,
+	f.appsByIdentity = map[string]integrationstore.ProjectAppRecord{
+		"github:123:456": f.app,
 		"github:123:789": second,
 	}
-	h := &githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}
+	h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}
 	mux := http.NewServeMux()
 	mux.Handle("POST "+GitHubEventsPath, h)
 	for _, installation := range []string{"456", "789"} {
@@ -369,18 +410,18 @@ func TestGitHubHTTPAppURLRoutesSeparateInstallationProjects(t *testing.T) {
 			t.Fatalf("installation %s: %d %s", installation, w.Code, w.Body.String())
 		}
 	}
-	if len(f.accepted) != 2 || f.accepted[0].ConnectionID != f.connection.ID ||
-		f.accepted[0].ProjectID != f.connection.ProjectID || f.accepted[1].ConnectionID != second.ID ||
+	if len(f.accepted) != 2 || f.accepted[0].AppID != f.app.ID ||
+		f.accepted[0].ProjectID != f.app.ProjectID || f.accepted[1].AppID != second.ID ||
 		f.accepted[1].ProjectID != second.ProjectID || f.appLookups != 0 {
 		t.Fatalf("cross-project routing: %+v, App lookups=%d", f.accepted, f.appLookups)
 	}
 	if f.secretRead.ProjectID != second.ProjectID || f.secretRead.SecretID != second.CredentialSecretID {
 		t.Fatalf("shared credential was not read in receiving project's grant scope: %+v", f.secretRead)
 	}
-	// Disabling one connection never becomes an App-wide credential anchor.
-	first := f.connection
-	first.State = integrationstore.IntegrationConnectionStateDisabled
-	f.connections["github:123:456"] = first
+	// Disabling one app never becomes an App-wide credential anchor.
+	first := f.app
+	first.State = integrationstore.ProjectAppStateDisconnected
+	f.appsByIdentity["github:123:456"] = first
 	for _, installation := range []string{"456", "789"} {
 		body := strings.Replace(githubIntakeBody, `"id":456`, `"id":`+installation, 1)
 		w := httptest.NewRecorder()
@@ -389,7 +430,7 @@ func TestGitHubHTTPAppURLRoutesSeparateInstallationProjects(t *testing.T) {
 			t.Fatalf("after disable, installation %s: %d", installation, w.Code)
 		}
 	}
-	if len(f.accepted) != 3 || f.accepted[2].ConnectionID != second.ID {
+	if len(f.accepted) != 3 || f.accepted[2].AppID != second.ID {
 		t.Fatalf("disabled installation affected another: %+v", f.accepted)
 	}
 }
@@ -397,9 +438,9 @@ func TestGitHubHTTPAppURLRoutesSeparateInstallationProjects(t *testing.T) {
 func TestGitHubHTTPAppPingAndUnmanagedInstallationDoNotChooseProject(t *testing.T) {
 	t.Parallel()
 	f := newGitHubIntakeFixture()
-	f.connection.State = integrationstore.IntegrationConnectionStateDisabled
-	f.connections = map[string]integrationstore.IntegrationConnectionRecord{}
-	h := &githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}
+	f.app.State = integrationstore.ProjectAppStateDisconnected
+	f.appsByIdentity = map[string]integrationstore.ProjectAppRecord{}
+	h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}
 	for _, tc := range []struct{ eventType, body string }{
 		{"ping", `{"zen":"Keep it logically awesome","hook":{"id":123}}`},
 		{"installation", `{"action":"created","installation":{"id":789,"app_id":123}}`},
@@ -432,18 +473,18 @@ func TestGitHubHTTPAppCredentialResolutionIsBoundedAndRequired(t *testing.T) {
 		name string
 		edit func(*githubIntakeFixture, *githubIntakeHandler)
 	}{
-		{"missing resolver", func(_ *githubIntakeFixture, h *githubIntakeHandler) { h.appConnections = nil }},
+		{"missing resolver", func(_ *githubIntakeFixture, h *githubIntakeHandler) { h.credentialApps = nil }},
 		{"resolver failure", func(f *githubIntakeFixture, _ *githubIntakeHandler) {
 			f.resolverErr = errors.New("private-key webhook-secret")
 		}},
 		{"too many candidates", func(f *githubIntakeFixture, _ *githubIntakeHandler) {
-			f.candidates = make([]integrationstore.IntegrationConnectionRecord, githubWebhookCredentialLimit+1)
+			f.candidates = make([]integrationstore.ProjectAppRecord, githubWebhookCredentialLimit+1)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newGitHubIntakeFixture()
-			h := &githubIntakeHandler{store: f, secrets: f, appConnections: f.appConnections}
+			h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}
 			tc.edit(f, h)
 			r := githubIntakeRequest(t, f, `{"zen":"Keep it logically awesome","hook":{"id":123}}`)
 			r.Header.Set(github.EventHeader, "ping")
@@ -454,5 +495,125 @@ func TestGitHubHTTPAppCredentialResolutionIsBoundedAndRequired(t *testing.T) {
 				t.Fatalf("unbounded/failed resolver: %d %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestGitHubHTTPFanoutPagesEveryIndependentApp(t *testing.T) {
+	t.Parallel()
+	f := newGitHubIntakeFixture()
+	for range 205 {
+		app := f.app
+		app.ID, app.ProjectID = uuid.New(), uuid.New()
+		// Even a shared secret must be read through each receiving project's grant.
+		f.apps = append(f.apps, app)
+	}
+	h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}
+	for range 2 {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, githubIntakeRequest(t, f, githubIntakeBody))
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("fanout: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if f.pages != 6 || len(f.accepted) != 410 || len(f.secretReads) != 410 || f.appLookups != 0 {
+		t.Fatalf("pages=%d receipts=%d credential reads=%d fallback=%d",
+			f.pages, len(f.accepted), len(f.secretReads), f.appLookups)
+	}
+	for i, input := range f.accepted {
+		if input.ProjectID != f.secretReads[i].ProjectID || string(input.Payload) != githubIntakeBody {
+			t.Fatalf("receipt escaped credential scope: %+v", input)
+		}
+	}
+}
+
+func TestGitHubHTTPFanoutIsolatesBadAppsAndRetriesTransientFailures(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name                  string
+		secretErr, receiptErr error
+		invalidSecret         bool
+		invalidAppID          bool
+		status                int
+	}{
+		{name: "revoked grant", secretErr: storeerr.ErrNotFound, status: http.StatusNoContent},
+		{name: "denied grant", secretErr: storeerr.ErrUnauthorized, status: http.StatusNoContent},
+		{name: "invalid credentials", invalidSecret: true, status: http.StatusNoContent},
+		{name: "malformed credential identity", invalidAppID: true, status: http.StatusNoContent},
+		{
+			name: "unknown decrypt error", secretErr: errors.New("decrypt failed: secret-canary"),
+			status: http.StatusServiceUnavailable,
+		},
+		{name: "transient secret", secretErr: errors.New("secret store unavailable"), status: http.StatusServiceUnavailable},
+		{name: "transient receipt", receiptErr: errors.New("database unavailable"), status: http.StatusServiceUnavailable},
+		{name: "disconnected during admission", receiptErr: storeerr.ErrUnauthorized, status: http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			bad := f.app
+			bad.ID, bad.ProjectID = uuid.New(), uuid.New()
+			f.apps = []integrationstore.ProjectAppRecord{bad, f.app}
+			f.secretErrors = map[uuid.UUID]error{bad.ProjectID: tc.secretErr}
+			f.acceptErrors = map[uuid.UUID]error{bad.ID: tc.receiptErr}
+			if tc.invalidSecret || tc.invalidAppID {
+				appID := "123"
+				if tc.invalidAppID {
+					appID = "malformed-app-id"
+				}
+				f.credentials = map[uuid.UUID]secretstore.SecretPayloadRecord{bad.ProjectID: {Payload: secrets.Payload{
+					secrets.KeyAppID: appID, secrets.KeyWebhookSecret: "another-app-secret",
+				}}}
+			}
+			var logs bytes.Buffer
+			r := githubIntakeRequest(t, f, githubIntakeBody)
+			r = r.WithContext(log.WithLogger(r.Context(), slog.New(slog.NewJSONHandler(&logs, nil))))
+			w := httptest.NewRecorder()
+			(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).ServeHTTP(w, r)
+			if w.Code != tc.status || len(f.accepted) != 1 || f.accepted[0].AppID != f.app.ID || f.appLookups != 0 {
+				t.Fatalf("response=%d receipts=%+v fallback=%d", w.Code, f.accepted, f.appLookups)
+			}
+			if tc.secretErr != nil || tc.receiptErr != nil || tc.invalidAppID {
+				var entry struct {
+					AppID         uuid.UUID `json:"app_id"`
+					ProjectID     uuid.UUID `json:"project_id"`
+					SetupRevision int64     `json:"setup_revision"`
+					Provider      string    `json:"provider"`
+					Stage         string    `json:"stage"`
+					Retryable     bool      `json:"retryable"`
+					ErrorType     string    `json:"error_type"`
+				}
+				if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+					t.Fatalf("decode failed-app diagnostic: %v", err)
+				}
+				stage := "credential_verification"
+				if tc.receiptErr != nil {
+					stage = "intake"
+				}
+				if entry.AppID != bad.ID || entry.ProjectID != bad.ProjectID || entry.Provider != bad.Provider ||
+					entry.SetupRevision != bad.SetupRevision || entry.Stage != stage || entry.ErrorType == "" ||
+					entry.Retryable != (tc.status == http.StatusServiceUnavailable) {
+					t.Fatalf("wrong failed-app diagnostic: %+v", entry)
+				}
+			}
+			for _, private := range []string{"secret-canary", "another-app-secret", "malformed-app-id", "@helper hi"} {
+				if strings.Contains(logs.String(), private) || strings.Contains(w.Body.String(), private) {
+					t.Fatalf("diagnostics exposed private content %q", private)
+				}
+			}
+		})
+	}
+}
+
+func TestGitHubHTTPKnownInstallationNeverBorrowsFallbackCredentials(t *testing.T) {
+	t.Parallel()
+	f := newGitHubIntakeFixture()
+	f.credentials = map[uuid.UUID]secretstore.SecretPayloadRecord{f.app.ProjectID: {Payload: secrets.Payload{
+		secrets.KeyAppID: "123", secrets.KeyWebhookSecret: "other-secret",
+	}}}
+	w := httptest.NewRecorder()
+	(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).
+		ServeHTTP(w, githubIntakeRequest(t, f, githubIntakeBody))
+	if w.Code != http.StatusUnauthorized || f.appLookups != 0 || len(f.accepted) != 0 {
+		t.Fatalf("response=%d fallback=%d receipts=%+v", w.Code, f.appLookups, f.accepted)
 	}
 }

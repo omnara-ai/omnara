@@ -85,6 +85,11 @@ func TestDefaultMachineTools(t *testing.T) {
 				slices.Sort(wantTools)
 			}
 			for _, supportsTools := range []bool{true, false} {
+				expected := slices.Clone(wantTools)
+				if supportsTools {
+					expected = append(expected, "list_interaction_handlers", "set_interaction_handler")
+					slices.Sort(expected)
+				}
 				opts := testMachineSourceCompileOptions(t)
 				opts.ResolveModelSelection = func(_, _ string) (ResolvedModelSelection, error) {
 					return ResolvedModelSelection{ConfiguredModelID: "test-model", SupportsTools: &supportsTools}, nil
@@ -118,7 +123,7 @@ func TestDefaultMachineTools(t *testing.T) {
 						t.Fatalf("%s permission = %s, want %s", tool.Name, tool.Permission.Mode, wantPermission)
 					}
 				}
-				if diff := cmp.Diff(wantTools, got); diff != "" {
+				if diff := cmp.Diff(expected, got); diff != "" {
 					t.Fatalf("tools mismatch (-want +got):\n%s", diff)
 				}
 			}
@@ -152,7 +157,9 @@ func TestDefaultRetrievalTools(t *testing.T) {
 				names = append(names, tool.Name)
 				require.Contains(t, result.Compiled.Tools, tool.Name)
 			}
-			require.Equal(t, test.want, names)
+			expected := append(slices.Clone(test.want), "list_interaction_handlers", "set_interaction_handler")
+			slices.Sort(expected)
+			require.Equal(t, expected, names)
 		})
 	}
 }
@@ -166,6 +173,6 @@ func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
 	require.NoError(t, err)
 	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
 	require.NoError(t, err)
-	require.Len(t, contract.Tools, 1)
-	require.Equal(t, "web_fetch", contract.Tools[0].Name)
+	require.Len(t, contract.Tools, 3)
+	require.Equal(t, "web_fetch", contract.Tools[2].Name)
 }

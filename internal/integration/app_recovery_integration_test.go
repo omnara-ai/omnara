@@ -21,20 +21,18 @@ import (
 
 func TestAppRouterDiscardMixedPlanPreservesAdmittedListenerInput(t *testing.T) {
 	t.Parallel()
-	pool, store, ids, connection := appWorkerFixture(t)
+	pool, store, ids, appSetup := appWorkerFixture(t)
 	ctx := t.Context()
 	inbox := store.Integrations()
 	router := NewAppRouter(store.Execution(), inbox)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	publicConnection, err := publicid.Encode(publicid.KindIntegrationConnection, connection)
+	publicApp, err := publicid.Encode(publicid.KindProjectApp, appSetup)
 	require.NoError(t, err)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
-	compiled.AppResources = map[string]agentconfig.AppResourceCompiled{"channel": {
-		Definition: appdefinition.Slack, Enabled: true, ConnectionID: publicConnection,
-		Scope:    &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123"}},
-		Listener: &appdefinition.Listener{Events: []string{"message"}},
+	compiled.Listeners = map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": {
+		AppID: publicApp, Config: json.RawMessage(`{"conversations":[{"channel_id":"C123"}],"events":["message"]}`),
 	}}
 	encoded, err := agentconfig.EncodeCompiled(compiled)
 	require.NoError(t, err)
@@ -56,23 +54,22 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedListenerInput(t *testing.T) {
 	}
 	profile := createProfile("first")
 	setup := integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "reviewer", DefinitionID: appdefinition.Slack, Enabled: true,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{Connection: publicConnection},
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "review", AgentProfileID: &profile.ID}}},
 		},
 	}
-	app, err := inbox.CreateProjectApp(ctx, setup)
+	app, err := inbox.UpdateProjectApp(ctx, appSetup, setup)
 	require.NoError(t, err)
 	capture := func(key string) integrationstore.IntegrationInboxRecord {
 		t.Helper()
 		_, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-			ProjectID: ids.ProjectID, ConnectionID: connection, ReceiptKey: key, Payload: []byte(`{}`),
+			ProjectID: ids.ProjectID, AppID: appSetup, ReceiptKey: key, Payload: []byte(`{}`),
 		})
 		require.NoError(t, err)
 		receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-			ProjectID: ids.ProjectID, ConnectionID: connection, LeaseDuration: time.Minute,
+			ProjectID: ids.ProjectID, AppID: appSetup, LeaseDuration: time.Minute,
 		})
 		require.NoError(t, err)
 		require.True(t, found)

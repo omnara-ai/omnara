@@ -36,6 +36,7 @@ func TestExplicitDefaultToolsMigration(t *testing.T) {
 		t.Run(string(source.format), func(t *testing.T) {
 			current, err := agentconfig.Compile(source.format, []byte(source.raw), opts)
 			require.NoError(t, err)
+			current = defaultToolsMigrationFixture(t, current)
 			var legacy agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(current.CanonicalJSON, &legacy))
 			delete(legacy.Tools, "skill")
@@ -101,6 +102,7 @@ func TestExplicitRetrievalToolsMigration(t *testing.T) {
 			source := `{"instruction":"Help","model":{"provider_config":"openai","name":"test"},` + extra + `}`
 			current, err := agentconfig.Compile(agentconfig.SourceFormatJSON, []byte(source), agentconfig.CompileOptions{})
 			require.NoError(t, err)
+			current = defaultToolsMigrationFixture(t, current)
 			var original struct{ Tools map[string]json.RawMessage }
 			require.NoError(t, json.Unmarshal([]byte(source), &original))
 			var legacy agentconfig.Compiled
@@ -154,6 +156,7 @@ func TestExplicitDefaultToolsMigrationSubagents(t *testing.T) {
 			}
 			current, err := agentconfig.Compile(test.format, []byte(source), opts)
 			require.NoError(t, err)
+			current = defaultToolsMigrationFixture(t, current)
 			var legacy agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(current.CanonicalJSON, &legacy))
 			for _, name := range append([]string{"skill", "read_file", "search_files"}, toolcatalog.SubagentToolNames()...) {
@@ -230,4 +233,16 @@ func TestExplicitDefaultToolsMigrationRejectsInconsistentConfig(t *testing.T) {
 			require.Equal(t, before, after)
 		})
 	}
+}
+
+// Migration38 predates the app handler defaults. Keep its fixtures in that
+// released vocabulary even as the current compiler learns new implicit tools.
+func defaultToolsMigrationFixture(t *testing.T, result agentconfig.Result) agentconfig.Result {
+	t.Helper()
+	delete(result.Compiled.Tools, "list_interaction_handlers")
+	delete(result.Compiled.Tools, "set_interaction_handler")
+	encoded, err := agentconfig.EncodeCompiled(result.Compiled)
+	require.NoError(t, err)
+	result.CanonicalJSON, result.Hash = encoded.CanonicalJSON, encoded.Hash
+	return result
 }

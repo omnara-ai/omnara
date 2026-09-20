@@ -419,9 +419,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_connections install
+LEFT JOIN project_apps install
   ON install.project_id = target.project_id
- AND install.id = target.integration_connection_id
+ AND install.id = target.app_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -602,9 +602,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_connections install
+LEFT JOIN project_apps install
   ON install.project_id = target.project_id
- AND install.id = target.integration_connection_id
+ AND install.id = target.app_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -759,9 +759,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_connections install
+LEFT JOIN project_apps install
   ON install.project_id = target.project_id
- AND install.id = target.integration_connection_id
+ AND install.id = target.app_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id

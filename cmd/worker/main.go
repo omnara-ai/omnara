@@ -186,7 +186,7 @@ func main() {
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts()),
+			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
 			Skills: store.Skills(),
 		},
 		ModelResolver: modelprovider.Resolver{

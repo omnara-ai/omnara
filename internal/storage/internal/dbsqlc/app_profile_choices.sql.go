@@ -19,26 +19,26 @@ WITH expired AS MATERIALIZED (
     WHERE choice.expires_at < statement_timestamp() - $1::bigint * interval '1 millisecond'
       AND NOT EXISTS (
           SELECT 1 FROM integration_inbox inbox
-          WHERE inbox.project_id = choice.project_id AND inbox.connection_id = choice.connection_id
+          WHERE inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
             AND inbox.receipt_key = 'choice:' || choice.id::text
             AND inbox.state IN ('pending', 'processing', 'failed')
       )
     ORDER BY choice.expires_at, choice.id
     LIMIT $2
     FOR UPDATE SKIP LOCKED
-), deleted_connections AS MATERIALIZED (
-    SELECT connection.project_id, connection.id
-    FROM integration_connections connection
-    JOIN projects project ON project.id = connection.project_id
+), deleted_apps AS MATERIALIZED (
+    SELECT app.project_id, app.id
+    FROM project_apps app
+    JOIN projects project ON project.id = app.project_id
     JOIN orgs org ON org.id = project.org_id
-    WHERE connection.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
+    WHERE app.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
 ), deleted AS MATERIALIZED (
     SELECT obsolete.id
-    FROM deleted_connections connection
+    FROM deleted_apps app
     CROSS JOIN LATERAL (
         SELECT choice.id FROM app_profile_choices choice
-        WHERE choice.project_id = connection.project_id AND choice.connection_id = connection.id
-        ORDER BY choice.app_id, choice.source_key
+        WHERE choice.project_id = app.project_id AND choice.app_id = app.id
+        ORDER BY choice.source_key
         LIMIT $2
         FOR UPDATE SKIP LOCKED
     ) obsolete
@@ -56,8 +56,8 @@ type CleanupAppProfileChoicesParams struct {
 }
 
 // Retain live source bookkeeping beyond expiry, including work awaiting recovery.
-// Deleted connection/project/org scopes no longer need payloads or replay facts;
-// disabled live connections still retain failed work for operator recovery.
+// Deleted app/project/org scopes no longer need payloads or replay facts;
+// disconnected live apps still retain failed work for operator recovery.
 // Bound each indexed path separately so empty sweeps do not scan recent history.
 func (q *Queries) CleanupAppProfileChoices(ctx context.Context, arg CleanupAppProfileChoicesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupAppProfileChoices, arg.RetentionMilliseconds, arg.RowLimit)
@@ -70,20 +70,20 @@ func (q *Queries) CleanupAppProfileChoices(ctx context.Context, arg CleanupAppPr
 const expireAppProfileChoice = `-- name: ExpireAppProfileChoice :exec
 UPDATE app_profile_choices
 SET expires_at = LEAST(expires_at, statement_timestamp()), updated_at = statement_timestamp()
-WHERE project_id = $1 AND connection_id = $2 AND id = $3
+WHERE project_id = $1 AND app_id = $2 AND id = $3
   AND selected_key IS NULL AND expires_at > statement_timestamp()
 `
 
 type ExpireAppProfileChoiceParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	ID           uuid.UUID
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	ID        uuid.UUID
 }
 
 // Unusable menus release the pending conversation without erasing replay facts.
 // Accepted selections and their durable handoff never expire through this path.
 func (q *Queries) ExpireAppProfileChoice(ctx context.Context, arg ExpireAppProfileChoiceParams) error {
-	_, err := q.db.Exec(ctx, expireAppProfileChoice, arg.ProjectID, arg.ConnectionID, arg.ID)
+	_, err := q.db.Exec(ctx, expireAppProfileChoice, arg.ProjectID, arg.AppID, arg.ID)
 	return err
 }
 
@@ -91,40 +91,39 @@ const findPendingAppProfileChoice = `-- name: FindPendingAppProfileChoice :one
 WITH candidates AS (
     (SELECT choice.id, 0 AS priority
      FROM app_profile_choices choice
-     JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.connection_id = choice.connection_id
+     JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
        AND inbox.receipt_key = 'choice:' || choice.id::text
-     WHERE choice.project_id = $1 AND choice.connection_id = $2
-       AND choice.app_id = $3 AND choice.address_kind = $4
-       AND choice.address_ref = $5 AND choice.selected_key IS NOT NULL
+     WHERE choice.project_id = $1 AND choice.app_id = $2
+       AND choice.address_kind = $3
+       AND choice.address_ref = $4 AND choice.selected_key IS NOT NULL
        AND (inbox.state IN ('pending', 'processing') OR (inbox.state = 'failed' AND inbox.plan IS NOT NULL))
      LIMIT 1)
     UNION ALL
     (SELECT choice.id, 1 AS priority
      FROM app_profile_choices choice
-     WHERE choice.project_id = $1 AND choice.connection_id = $2
-       AND choice.app_id = $3 AND choice.address_kind = $4
-       AND choice.address_ref = $5
+     WHERE choice.project_id = $1 AND choice.app_id = $2
+       AND choice.address_kind = $3
+       AND choice.address_ref = $4
        AND choice.selected_key IS NULL AND choice.expires_at > statement_timestamp()
        AND (choice.message_id IS NOT NULL OR EXISTS (
            SELECT 1 FROM integration_inbox owner
            WHERE owner.id = choice.owner_receipt_id AND owner.project_id = choice.project_id
-             AND owner.connection_id = choice.connection_id AND owner.state IN ('pending', 'processing')
+             AND owner.app_id = choice.app_id AND owner.state IN ('pending', 'processing')
        ))
      ORDER BY choice.expires_at, choice.id
      LIMIT 1)
 )
-SELECT choice.id, choice.project_id, choice.connection_id, choice.app_id, choice.owner_receipt_id, choice.address_kind, choice.address_ref, choice.source_key, choice.event, choice.payload, choice.options, choice.selected_key, choice.selected_by, choice.message_channel_id, choice.message_id, choice.expires_at, choice.created_at, choice.updated_at
+SELECT choice.id, choice.project_id, choice.app_id, choice.owner_receipt_id, choice.address_kind, choice.address_ref, choice.source_key, choice.event, choice.payload, choice.options, choice.selected_key, choice.selected_by, choice.message_channel_id, choice.message_id, choice.expires_at, choice.created_at, choice.updated_at
 FROM candidates JOIN app_profile_choices choice ON choice.id = candidates.id
 ORDER BY candidates.priority
 LIMIT 1
 `
 
 type FindPendingAppProfileChoiceParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	AppID        uuid.UUID
-	AddressKind  string
-	AddressRef   string
+	ProjectID   uuid.UUID
+	AppID       uuid.UUID
+	AddressKind string
+	AddressRef  string
 }
 
 // A selected request owns the menu until its decided work settles, even after
@@ -134,7 +133,6 @@ type FindPendingAppProfileChoiceParams struct {
 func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendingAppProfileChoiceParams) (AppProfileChoice, error) {
 	row := q.db.QueryRow(ctx, findPendingAppProfileChoice,
 		arg.ProjectID,
-		arg.ConnectionID,
 		arg.AppID,
 		arg.AddressKind,
 		arg.AddressRef,
@@ -143,7 +141,6 @@ func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendi
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
 		&i.AppID,
 		&i.OwnerReceiptID,
 		&i.AddressKind,
@@ -166,23 +163,21 @@ func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendi
 const findUnplannedAppProfileChoiceReservation = `-- name: FindUnplannedAppProfileChoiceReservation :one
 SELECT inbox.id, inbox.state
 FROM app_profile_choices choice
-JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.connection_id = choice.connection_id
+JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
   AND inbox.receipt_key = 'choice:' || choice.id::text
-WHERE choice.project_id = $1 AND choice.connection_id = $2
+WHERE choice.project_id = $1 AND choice.app_id = $2
   AND choice.address_kind = $3 AND choice.address_ref = $4
-  AND ($5::uuid IS NULL OR choice.app_id = $5::uuid)
-  AND choice.selected_key IS NOT NULL AND inbox.id <> $6
+  AND choice.selected_key IS NOT NULL AND inbox.id <> $5
   AND inbox.plan IS NULL AND inbox.state IN ('pending', 'processing')
 LIMIT 1
 `
 
 type FindUnplannedAppProfileChoiceReservationParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	AddressKind  string
-	AddressRef   string
-	AppID        *uuid.UUID
-	ReceiptID    uuid.UUID
+	ProjectID   uuid.UUID
+	AppID       uuid.UUID
+	AddressKind string
+	AddressRef  string
+	ReceiptID   uuid.UUID
 }
 
 type FindUnplannedAppProfileChoiceReservationRow struct {
@@ -191,15 +186,15 @@ type FindUnplannedAppProfileChoiceReservationRow struct {
 }
 
 // Read without locking another receipt: the caller already holds its own inbox
-// lease then the conversation gate. The app filter is absent for plain replies;
-// failed unplanned work has no frozen launch reservation and permits a new request.
+// lease then the conversation gate. Every receipt, including a plain reply,
+// belongs to one app; another app's chooser cannot reserve its conversation.
+// Failed unplanned work has no frozen launch reservation and permits a new request.
 func (q *Queries) FindUnplannedAppProfileChoiceReservation(ctx context.Context, arg FindUnplannedAppProfileChoiceReservationParams) (FindUnplannedAppProfileChoiceReservationRow, error) {
 	row := q.db.QueryRow(ctx, findUnplannedAppProfileChoiceReservation,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.AddressKind,
 		arg.AddressRef,
-		arg.AppID,
 		arg.ReceiptID,
 	)
 	var i FindUnplannedAppProfileChoiceReservationRow
@@ -208,24 +203,23 @@ func (q *Queries) FindUnplannedAppProfileChoiceReservation(ctx context.Context, 
 }
 
 const getAppProfileChoice = `-- name: GetAppProfileChoice :one
-SELECT id, project_id, connection_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
+SELECT id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
 FROM app_profile_choices
-WHERE project_id = $1 AND connection_id = $2 AND id = $3
+WHERE project_id = $1 AND app_id = $2 AND id = $3
 `
 
 type GetAppProfileChoiceParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	ID           uuid.UUID
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	ID        uuid.UUID
 }
 
 func (q *Queries) GetAppProfileChoice(ctx context.Context, arg GetAppProfileChoiceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, getAppProfileChoice, arg.ProjectID, arg.ConnectionID, arg.ID)
+	row := q.db.QueryRow(ctx, getAppProfileChoice, arg.ProjectID, arg.AppID, arg.ID)
 	var i AppProfileChoice
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
 		&i.AppID,
 		&i.OwnerReceiptID,
 		&i.AddressKind,
@@ -246,7 +240,7 @@ func (q *Queries) GetAppProfileChoice(ctx context.Context, arg GetAppProfileChoi
 }
 
 const getAppProfileChoiceAppForShare = `-- name: GetAppProfileChoiceAppForShare :one
-SELECT id, project_id, name, definition_id, settings, launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at
+SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR SHARE
@@ -257,55 +251,73 @@ type GetAppProfileChoiceAppForShareParams struct {
 	ID        uuid.UUID
 }
 
-// Callers hold the active project/connection gates and conversation lock. The
+// Callers hold the active project/app gates and conversation lock. The
 // shared app row fences edits without taking a profile lock in reverse order.
 func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetAppProfileChoiceAppForShareParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, getAppProfileChoiceAppForShare, arg.ProjectID, arg.ID)
 	var i ProjectApp
 	err := row.Scan(
 		&i.ID,
+		&i.OrgID,
 		&i.ProjectID,
-		&i.Name,
-		&i.DefinitionID,
-		&i.Settings,
-		&i.LaunchConnectionID,
-		&i.LaunchScopeKind,
-		&i.LaunchScopeRef,
-		&i.Enabled,
+		&i.InstalledByUserID,
+		&i.Provider,
+		&i.State,
+		&i.ProviderTenantID,
+		&i.ProviderAccountRef,
+		&i.ProviderAgentDisplayName,
+		&i.CredentialSecretID,
+		&i.ProviderConfig,
+		&i.ProviderIdentity,
+		&i.ProviderMetadata,
+		&i.LastOauthFlowID,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Name,
+		&i.DefinitionID,
+		&i.Settings,
+		&i.SetupRevision,
 	)
 	return i, err
 }
 
+const getAppProfileChoiceAppID = `-- name: GetAppProfileChoiceAppID :one
+SELECT app_id FROM app_profile_choices WHERE id = $1
+`
+
+type GetAppProfileChoiceAppIDParams struct {
+	ID uuid.UUID
+}
+
+// Private callback routing only; provider verification and choice authorization follow.
+func (q *Queries) GetAppProfileChoiceAppID(ctx context.Context, arg GetAppProfileChoiceAppIDParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAppProfileChoiceAppID, arg.ID)
+	var app_id uuid.UUID
+	err := row.Scan(&app_id)
+	return app_id, err
+}
+
 const getAppProfileChoiceBySource = `-- name: GetAppProfileChoiceBySource :one
-SELECT id, project_id, connection_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
+SELECT id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
 FROM app_profile_choices
-WHERE project_id = $1 AND connection_id = $2
-  AND app_id = $3 AND source_key = $4
+WHERE project_id = $1 AND app_id = $2
+  AND source_key = $3
 `
 
 type GetAppProfileChoiceBySourceParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	AppID        uuid.UUID
-	SourceKey    string
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	SourceKey string
 }
 
 // Source lookup precedes pending lookup: expired or selected sources never revive.
 func (q *Queries) GetAppProfileChoiceBySource(ctx context.Context, arg GetAppProfileChoiceBySourceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, getAppProfileChoiceBySource,
-		arg.ProjectID,
-		arg.ConnectionID,
-		arg.AppID,
-		arg.SourceKey,
-	)
+	row := q.db.QueryRow(ctx, getAppProfileChoiceBySource, arg.ProjectID, arg.AppID, arg.SourceKey)
 	var i AppProfileChoice
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
 		&i.AppID,
 		&i.OwnerReceiptID,
 		&i.AddressKind,
@@ -326,15 +338,14 @@ func (q *Queries) GetAppProfileChoiceBySource(ctx context.Context, arg GetAppPro
 }
 
 const insertAppProfileChoice = `-- name: InsertAppProfileChoice :one
-INSERT INTO app_profile_choices(project_id, connection_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options)
-VALUES ($1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10)
-RETURNING id, project_id, connection_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
+INSERT INTO app_profile_choices(project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $7, $8, $9)
+RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
 `
 
 type InsertAppProfileChoiceParams struct {
 	ProjectID      uuid.UUID
-	ConnectionID   uuid.UUID
 	AppID          uuid.UUID
 	OwnerReceiptID uuid.UUID
 	AddressKind    string
@@ -348,7 +359,6 @@ type InsertAppProfileChoiceParams struct {
 func (q *Queries) InsertAppProfileChoice(ctx context.Context, arg InsertAppProfileChoiceParams) (AppProfileChoice, error) {
 	row := q.db.QueryRow(ctx, insertAppProfileChoice,
 		arg.ProjectID,
-		arg.ConnectionID,
 		arg.AppID,
 		arg.OwnerReceiptID,
 		arg.AddressKind,
@@ -362,7 +372,6 @@ func (q *Queries) InsertAppProfileChoice(ctx context.Context, arg InsertAppProfi
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
 		&i.AppID,
 		&i.OwnerReceiptID,
 		&i.AddressKind,
@@ -383,18 +392,18 @@ func (q *Queries) InsertAppProfileChoice(ctx context.Context, arg InsertAppProfi
 }
 
 const insertAppProfileChoiceInboxReceipt = `-- name: InsertAppProfileChoiceInboxReceipt :one
-INSERT INTO integration_inbox(project_id, connection_id, receipt_key, payload, events)
+INSERT INTO integration_inbox(project_id, app_id, receipt_key, payload, events)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (project_id, connection_id, receipt_key) DO NOTHING
-RETURNING id, project_id, connection_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
+RETURNING id, project_id, app_id, receipt_key, payload, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 `
 
 type InsertAppProfileChoiceInboxReceiptParams struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	ReceiptKey   string
-	Payload      []byte
-	Events       *json.RawMessage
+	ProjectID  uuid.UUID
+	AppID      uuid.UUID
+	ReceiptKey string
+	Payload    []byte
+	Events     *json.RawMessage
 }
 
 // This is the sole trusted normalized-event handoff. Ordinary verified receipts
@@ -402,7 +411,7 @@ type InsertAppProfileChoiceInboxReceiptParams struct {
 func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg InsertAppProfileChoiceInboxReceiptParams) (IntegrationInbox, error) {
 	row := q.db.QueryRow(ctx, insertAppProfileChoiceInboxReceipt,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.ReceiptKey,
 		arg.Payload,
 		arg.Events,
@@ -411,7 +420,7 @@ func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg In
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
+		&i.AppID,
 		&i.ReceiptKey,
 		&i.Payload,
 		&i.Events,
@@ -433,7 +442,7 @@ func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg In
 const recordAppProfileChoiceMessage = `-- name: RecordAppProfileChoiceMessage :execrows
 UPDATE app_profile_choices
 SET message_channel_id = $1, message_id = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND connection_id = $4 AND id = $5
+WHERE project_id = $3 AND app_id = $4 AND id = $5
   AND message_id IS NULL
 `
 
@@ -441,7 +450,7 @@ type RecordAppProfileChoiceMessageParams struct {
 	MessageChannelID *string
 	MessageID        *string
 	ProjectID        uuid.UUID
-	ConnectionID     uuid.UUID
+	AppID            uuid.UUID
 	ID               uuid.UUID
 }
 
@@ -450,7 +459,7 @@ func (q *Queries) RecordAppProfileChoiceMessage(ctx context.Context, arg RecordA
 		arg.MessageChannelID,
 		arg.MessageID,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.ID,
 	)
 	if err != nil {
@@ -462,17 +471,17 @@ func (q *Queries) RecordAppProfileChoiceMessage(ctx context.Context, arg RecordA
 const selectAppProfileChoice = `-- name: SelectAppProfileChoice :one
 UPDATE app_profile_choices
 SET selected_key = $1, selected_by = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND connection_id = $4 AND id = $5
+WHERE project_id = $3 AND app_id = $4 AND id = $5
   AND selected_key IS NULL AND expires_at > statement_timestamp()
   AND updated_at = $6
-RETURNING id, project_id, connection_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
+RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
 `
 
 type SelectAppProfileChoiceParams struct {
 	SelectedKey       *string
 	SelectedBy        *string
 	ProjectID         uuid.UUID
-	ConnectionID      uuid.UUID
+	AppID             uuid.UUID
 	ID                uuid.UUID
 	ExpectedUpdatedAt time.Time
 }
@@ -483,7 +492,7 @@ func (q *Queries) SelectAppProfileChoice(ctx context.Context, arg SelectAppProfi
 		arg.SelectedKey,
 		arg.SelectedBy,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.ID,
 		arg.ExpectedUpdatedAt,
 	)
@@ -491,7 +500,6 @@ func (q *Queries) SelectAppProfileChoice(ctx context.Context, arg SelectAppProfi
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
 		&i.AppID,
 		&i.OwnerReceiptID,
 		&i.AddressKind,
@@ -514,18 +522,18 @@ func (q *Queries) SelectAppProfileChoice(ctx context.Context, arg SelectAppProfi
 const updateAppProfileChoiceSource = `-- name: UpdateAppProfileChoiceSource :one
 UPDATE app_profile_choices
 SET event = $1, payload = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND connection_id = $4 AND id = $5
+WHERE project_id = $3 AND app_id = $4 AND id = $5
   AND source_key = $6 AND selected_key IS NULL AND expires_at > statement_timestamp()
-RETURNING id, project_id, connection_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
+RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
 `
 
 type UpdateAppProfileChoiceSourceParams struct {
-	Event        json.RawMessage
-	Payload      []byte
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	ID           uuid.UUID
-	SourceKey    string
+	Event     json.RawMessage
+	Payload   []byte
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	ID        uuid.UUID
+	SourceKey string
 }
 
 // Source and verified body change together, and only for a fenced attachment sibling.
@@ -534,7 +542,7 @@ func (q *Queries) UpdateAppProfileChoiceSource(ctx context.Context, arg UpdateAp
 		arg.Event,
 		arg.Payload,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.ID,
 		arg.SourceKey,
 	)
@@ -542,7 +550,6 @@ func (q *Queries) UpdateAppProfileChoiceSource(ctx context.Context, arg UpdateAp
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
-		&i.ConnectionID,
 		&i.AppID,
 		&i.OwnerReceiptID,
 		&i.AddressKind,

@@ -614,7 +614,7 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 			SystemPrompt:      "sys",
 			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
 			InteractionRouting: &modelcontext.InteractionRoutingContext{
-				Destination: &modelcontext.InteractionDestinationRef{Resource: "slack", TargetID: "slack-abcd"},
+				Destination: &modelcontext.InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123"}`)},
 			},
 			Messages: []modelcontext.Message{
 				{
@@ -662,7 +662,7 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 	if len(systemBlocks) != 2 || systemBlocks[0].CacheControl != nil ||
 		systemBlocks[1].CacheControl == nil ||
 		!strings.Contains(systemBlocks[1].Text, "Default destination for new questions and permission prompts") ||
-		!strings.Contains(systemBlocks[1].Text, "slack-abcd") ||
+		!strings.Contains(systemBlocks[1].Text, "C123") ||
 		strings.Contains(systemBlocks[1].Text, "internal-target-id") {
 		t.Fatalf("expected integration target refs without durable ids: %s", system)
 	}

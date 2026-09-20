@@ -112,29 +112,12 @@ func SubagentCompiledFrom(
 ) (Compiled, error) {
 	child := base
 	child.Tools = copyTools(base.Tools)
-	child.AppResources = nil
-	child.AppToolPolicies = nil
+	child.Listeners = nil
+	child.InteractionHandlers = nil
 	child.MCP = maps.Clone(base.MCP)
 	for name, tool := range child.Tools {
-		if tool.AppOrigin == nil {
-			continue
-		}
-		if !tool.AppOrigin.Base {
+		if tool.AppID != "" || toolcatalog.UsesAppToolNamespace(name) {
 			delete(child.Tools, name)
-		} else {
-			tool.AppOrigin = nil
-			child.Tools[name] = tool
-		}
-	}
-	for name, server := range child.MCP {
-		if server.AppOrigin == nil {
-			continue
-		}
-		if !server.AppOrigin.Base {
-			delete(child.MCP, name)
-		} else {
-			server.AppOrigin = nil
-			child.MCP[name] = server
 		}
 	}
 	child.MaxDepth = depth.MaxDepth

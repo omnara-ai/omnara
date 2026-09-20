@@ -446,23 +446,3 @@ func createHTTPOrgMemberToken(
 	}
 	return user, pat.Token
 }
-
-func requestRawWithHeaders(
-	t *testing.T,
-	handler http.Handler,
-	method, path, body string,
-	wantStatus int,
-	headers map[string]string,
-) string {
-	t.Helper()
-	req := newJSONRequest(method, path, body)
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != wantStatus {
-		t.Fatalf("%s %s status=%d want=%d body=%s", method, path, rec.Code, wantStatus, rec.Body.String())
-	}
-	return rec.Body.String()
-}

@@ -64,7 +64,7 @@ func TestCompilePreservesSourceWithDefaultTools(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Source != string(source) || len(parsed.Tools) != 1 || len(result.Compiled.Tools) != 13 {
+		if result.Source != string(source) || len(parsed.Tools) != 1 || len(result.Compiled.Tools) != 15 {
 			t.Fatalf("source changed or compiled defaults missing: %s", result.Source)
 		}
 		if *parsed.Tools["run_command"].Enabled || parsed.Tools["run_command"].Permission.Mode != "always_ask" {

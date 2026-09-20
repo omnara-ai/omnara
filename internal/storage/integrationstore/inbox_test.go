@@ -32,14 +32,14 @@ func TestInboxRetentionRejectsInvalidPolicyBeforeDatabaseAccess(t *testing.T) {
 
 func TestInboxReceiptBounds(t *testing.T) {
 	valid := VerifiedIntegrationReceipt{
-		ProjectID: uuid.New(), ConnectionID: uuid.New(), ReceiptKey: "event:1", Payload: []byte{0, 255, 1},
+		ProjectID: uuid.New(), AppID: uuid.New(), ReceiptKey: "event:1", Payload: []byte{0, 255, 1},
 	}
 	if err := validateIntegrationReceipt(valid); err != nil {
 		t.Fatal(err)
 	}
 	for _, mutate := range []func(*VerifiedIntegrationReceipt){
 		func(v *VerifiedIntegrationReceipt) { v.ProjectID = uuid.Nil },
-		func(v *VerifiedIntegrationReceipt) { v.ConnectionID = uuid.Nil },
+		func(v *VerifiedIntegrationReceipt) { v.AppID = uuid.Nil },
 		func(v *VerifiedIntegrationReceipt) { v.ReceiptKey = "  " },
 		func(v *VerifiedIntegrationReceipt) { v.ReceiptKey = "bad\x00key" },
 		func(v *VerifiedIntegrationReceipt) { v.ReceiptKey = string([]byte{255}) },
@@ -59,6 +59,54 @@ func TestInboxReceiptBounds(t *testing.T) {
 	valid.ReceiptKey = strings.Repeat("x", IntegrationInboxMaxReceiptKeyBytes)
 	if err := validateIntegrationReceipt(valid); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInboxSelectionRequiresReceiptApp(t *testing.T) {
+	appID := uuid.New()
+	selection := InboxAppSelection{
+		AppID: appID, Address: ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, Slot: "default",
+	}
+	plan, err := json.Marshal(map[string]any{"one": map[string]any{"selection": selection}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inboxSelectionIdentities(plan, appID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inboxSelectionIdentities(plan, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("another app's selection accepted: %v", err)
+	}
+	duplicate, err := json.Marshal(map[string]any{
+		"one": map[string]any{"selection": selection}, "two": map[string]any{"selection": selection},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inboxSelectionIdentities(duplicate, appID); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("duplicate selection slot accepted: %v", err)
+	}
+	_, _, err = ensureAppProfileChoiceTx(t.Context(), nil,
+		IntegrationInboxRecord{IntegrationInboxSummary: IntegrationInboxSummary{AppID: appID}},
+		EnsureAppProfileChoiceInput{AppID: uuid.New()})
+	if !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("another app's chooser accepted: %v", err)
+	}
+}
+
+func TestAppRuntimeRequiresPositiveSetupRevision(t *testing.T) {
+	valid := AppRuntimeRevision{
+		ProjectID: uuid.New(), AppID: uuid.New(), Key: "shard/0", SetupRevision: 1, CredentialVersionID: uuid.New(),
+	}
+	if err := valid.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, revision := range []int64{-1, 0} {
+		invalid := valid
+		invalid.SetupRevision = revision
+		if err := invalid.validate(); !errors.Is(err, storeerr.ErrInvalidRequest) {
+			t.Fatalf("invalid setup revision %d accepted: %v", revision, err)
+		}
 	}
 }
 

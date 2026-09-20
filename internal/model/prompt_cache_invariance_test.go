@@ -64,7 +64,7 @@ func conversationStates(systemPrompt string) []modelcontext.Bundle {
 			{Name: toolcatalog.ToolNameAskQuestion},
 		},
 		InteractionRouting: &modelcontext.InteractionRoutingContext{
-			Destination: &modelcontext.InteractionDestinationRef{Resource: "slack", TargetID: "slack-abcd"},
+			Destination: &modelcontext.InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123"}`)},
 		},
 	}
 	user1 := modelcontext.Message{Role: modelprotocol.RoleUser, Sequence: 10, Content: text("list the files")}

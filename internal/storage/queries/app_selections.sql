@@ -1,11 +1,13 @@
 -- Read other immutable plans without locking their receipts. The caller holds
 -- its own receipt and then the conversation gate; locking another receipt here
 -- would invert that order. Identity omits slot to reserve the entire N-slot set.
+-- The receipt's app scopes both launches and ordinary follow-ups; independently
+-- configured apps never reserve one another's conversation.
 -- name: FindInboxSelectionReservations :many
 WITH matches AS MATERIALIZED (
   SELECT id, state
   FROM integration_inbox
-  WHERE project_id = sqlc.arg(project_id) AND connection_id = sqlc.arg(connection_id)
+  WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
     AND id <> sqlc.arg(receipt_id) AND plan IS NOT NULL
     AND state IN ('pending', 'processing', 'failed')
     AND (sqlc.arg(include_failed)::boolean OR state <> 'failed')

@@ -77,7 +77,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	observedConfigID, err := lockConfigChangeAppResourcesTx(ctx, tx, qtx, input)
+	observedConfigID, err := lockConfigChangeAppsTx(ctx, tx, qtx, input)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
@@ -103,7 +103,7 @@ func (s *Store) changeAgentConfigOnce(
 	}
 	if !idempotentReplay && observedConfigID != agent.CurrentConfigID {
 		return ChangeAgentConfigResult{}, fmt.Errorf(
-			"agent config changed while acquiring app connection gates: %w",
+			"agent config changed while acquiring app gates: %w",
 			storeutil.ErrRetryTransaction,
 		)
 	}
@@ -219,17 +219,11 @@ func (s *Store) changeAgentConfigOnce(
 		if currentAgent.CurrentConfigID == config.ID {
 			if err := integrationstore.ReconcileAgentListenersTx(ctx, tx, integrationstore.ReconcileAgentListenersInput{
 				OrgID: project.OrgID, ProjectID: input.ProjectID, AgentID: input.AgentID, ConfigID: config.ID,
-				Previous: currentContract.AppResources, Next: nextContract.AppResources,
+				Next: nextContract.Listeners,
 			}); err != nil {
 				return ChangeAgentConfigResult{}, err
 			}
-			if err := s.activateHandlerTargetsTx(
-				ctx,
-				tx,
-				input.ProjectID,
-				input.AgentID,
-				nextContract.AppResources,
-			); err != nil {
+			if _, err := s.ReconcileInteractionSelectionTx(ctx, tx, input.ProjectID, input.AgentID); err != nil {
 				return ChangeAgentConfigResult{}, err
 			}
 			deleteMachines, err = s.reconcileAgentMachineSourcesTx(

@@ -12,23 +12,19 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 const (
@@ -42,13 +38,11 @@ const (
 var errIntegrationOAuthStateTooLarge = errors.New("integration oauth state exceeds maximum size")
 
 type integrationOAuthState struct {
-	// Missing/false keeps the legacy profile-and-app setup contract. Only the
-	// project endpoints seal connection-only state, which cannot carry a profile.
-	ConnectionOnly    bool      `json:"connection_only,omitempty"`
 	FlowID            uuid.UUID `json:"flow_id"`
 	OrgID             uuid.UUID `json:"org_id"`
 	ProjectID         uuid.UUID `json:"project_id"`
-	AgentProfileID    uuid.UUID `json:"agent_profile_id"`
+	AppID             uuid.UUID `json:"app_id"`
+	SetupRevision     int64     `json:"setup_revision"`
 	InstalledByUserID uuid.UUID `json:"installed_by_user_id"`
 	Provider          string    `json:"provider"`
 	ClientID          string    `json:"client_id"`
@@ -61,7 +55,11 @@ type integrationOAuthState struct {
 
 func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil || s.publicURL == "" || s.secretKeyWrapper == nil {
-		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "integration oauth is not configured")
+		apierror.Write(
+			w,
+			openapi.ErrorCodeServiceUnavailable,
+			"integration oauth is not configured",
+		)
 		return
 	}
 	stateToken := strings.TrimSpace(r.URL.Query().Get("state"))
@@ -87,15 +85,6 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid oauth state")
 		return
 	}
-	if providerError := r.URL.Query().Get("error"); providerError != "" {
-		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": []string{providerError}})
-		return
-	}
-	code := strings.TrimSpace(r.URL.Query().Get("code"))
-	if code == "" {
-		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": []string{"missing_code"}})
-		return
-	}
 	if principal.ID != state.InstalledByUserID {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "oauth state belongs to another user")
 		return
@@ -117,6 +106,42 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
+	app, err := s.store.Integrations().GetProjectApp(r.Context(), state.ProjectID, state.AppID)
+	if storeerr.IsNotFound(err) {
+		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"app_deleted"}})
+		return
+	}
+	if err != nil {
+		apierror.WriteError(w, apierror.ProjectScoped(err))
+		return
+	}
+	if app.OrgID != state.OrgID || app.Provider != state.Provider {
+		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid oauth state")
+		return
+	}
+	if app.SetupRevision != state.SetupRevision {
+		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"app_setup_changed"}})
+		return
+	}
+	if providerError := r.URL.Query().Get("error"); providerError != "" {
+		s.redirectOAuthOutcome(
+			w,
+			r,
+			state.ReturnTo,
+			url.Values{"integration_oauth_error": []string{providerError}},
+		)
+		return
+	}
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if code == "" {
+		s.redirectOAuthOutcome(
+			w,
+			r,
+			state.ReturnTo,
+			url.Values{"integration_oauth_error": []string{"missing_code"}},
+		)
+		return
+	}
 	consumed, err := s.store.Integrations().IntegrationOAuthFlowConsumed(r.Context(), state.FlowID)
 	if err != nil {
 		logpkg.Error(r.Context(), fmt.Errorf("check integration oauth flow consumed: %w", err))
@@ -124,7 +149,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if consumed {
-		apierror.Write(w, openapi.ErrorCodeUnauthorized, "integration oauth state already redeemed")
+		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"flow_consumed"}})
 		return
 	}
 	redirectURI := s.absolutePublicURL(integrationOAuthCallbackPath)
@@ -142,7 +167,24 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			return
 		}
 		logpkg.Error(r.Context(), fmt.Errorf("integration oauth code exchange failed: %w", err))
-		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": []string{"exchange_failed"}})
+		s.redirectOAuthOutcome(
+			w,
+			r,
+			state.ReturnTo,
+			url.Values{"integration_oauth_error": []string{"exchange_failed"}},
+		)
+		return
+	}
+	var observed slack.InstallIdentity
+	_ = json.Unmarshal(app.ProviderIdentity, &observed)
+	verified, err := slack.ParseInstallIdentity(providerInstall.ProviderIdentity)
+	if err != nil || (observed.BotUserID != "" && observed.BotUserID != verified.BotUserID) {
+		s.redirectOAuthOutcome(
+			w,
+			r,
+			state.ReturnTo,
+			url.Values{"integration_oauth_error": {"setup_save_failed"}},
+		)
 		return
 	}
 	credentialSecret, err := s.createSlackIntegrationCredentialSecret(
@@ -153,7 +195,10 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		providerInstall.CredentialPayload,
 	)
 	if err != nil {
-		logpkg.Error(r.Context(), fmt.Errorf("integration oauth credential secret save failed: %w", err))
+		logpkg.Error(
+			r.Context(),
+			fmt.Errorf("integration oauth credential secret save failed: %w", err),
+		)
 		s.redirectOAuthOutcome(
 			w,
 			r,
@@ -162,45 +207,23 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		)
 		return
 	}
-	connection := integrationstore.SaveIntegrationConnectionInput{
-		OrgID:                    state.OrgID,
-		ProjectID:                state.ProjectID,
-		InstalledByUserID:        state.InstalledByUserID,
-		Provider:                 state.Provider,
-		State:                    integrationstore.IntegrationConnectionStateActive,
-		ProviderTenantID:         providerInstall.ProviderTenantID,
-		ProviderAccountRef:       providerInstall.ProviderAccountRef,
-		ProviderAgentDisplayName: providerInstall.ProviderAgentDisplayName,
-		CredentialSecretID:       credentialSecret.ID,
-		ProviderIdentity:         providerInstall.ProviderIdentity,
-		ProviderMetadata:         providerInstall.ProviderMetadata,
-		OAuthFlowID:              state.FlowID,
-	}
-	var install integrationstore.IntegrationConnectionRecord
-	if state.ConnectionOnly {
-		install, err = s.store.Integrations().CompleteSlackConnectionSetup(r.Context(), connection)
-	} else {
-		install, _, err = s.store.Integrations().CompleteSlackAppSetup(r.Context(), connection,
-			integrationstore.SaveProjectAppInput{
-				OrgID: state.OrgID, ProjectID: state.ProjectID, DefinitionID: appdefinition.Slack, Enabled: true,
-				Settings: integrationstore.ProjectAppSettings{
-					Resource: agentconfig.AgentConfigAppResourceSource{
-						Definition: appdefinition.Slack,
-						Tools: map[string]agentconfig.AgentConfigToolSource{
-							toolcatalog.ToolNameSlackRead:        {},
-							toolcatalog.ToolNameSlackPostMessage: {},
-						},
-						Listener:           &appdefinition.Listener{Events: []string{"message"}},
-						InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
-					},
-					Launcher: &integrationstore.AppLauncher{
-						Trigger: "mention", ScopeKind: "workspace", ScopeRef: providerInstall.ProviderTenantID,
-						Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &state.AgentProfileID}},
-					},
-				},
-			},
-		)
-	}
+	install, err := s.store.Integrations().
+		ConfigureProjectApp(r.Context(), integrationstore.ConfigureProjectAppInput{
+			OrgID:                    state.OrgID,
+			ProjectID:                state.ProjectID,
+			AppID:                    state.AppID,
+			ExpectedSetupRevision:    state.SetupRevision,
+			InstalledByUserID:        state.InstalledByUserID,
+			Provider:                 app.Provider,
+			ProviderTenantID:         providerInstall.ProviderTenantID,
+			ProviderAccountRef:       providerInstall.ProviderAccountRef,
+			ProviderAgentDisplayName: providerInstall.ProviderAgentDisplayName,
+			CredentialSecretID:       credentialSecret.ID,
+			CredentialVersionID:      credentialSecret.CurrentVersionID,
+			ProviderIdentity:         providerInstall.ProviderIdentity,
+			ProviderMetadata:         providerInstall.ProviderMetadata,
+			OAuthFlowID:              state.FlowID,
+		})
 	if err != nil {
 		s.cleanupIntegrationOAuthSecret(
 			r.Context(),
@@ -208,12 +231,25 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			principal,
 			credentialSecret.ID,
 		)
-		if errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
-			apierror.Write(w, openapi.ErrorCodeUnauthorized, "integration oauth state already redeemed")
+		var outcome string
+		switch {
+		case errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed):
+			outcome = "flow_consumed"
+		case errors.Is(err, integrationstore.ErrProjectAppSetupChanged):
+			outcome = "app_setup_changed"
+		case storeerr.IsNotFound(err):
+			// The app may have been deleted while Slack exchanged the code.
+			_, appErr := s.store.Integrations().GetProjectApp(r.Context(), state.ProjectID, state.AppID)
+			if storeerr.IsNotFound(appErr) {
+				outcome = "app_deleted"
+			}
+		}
+		if outcome != "" {
+			s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {outcome}})
 			return
 		}
-		// A conflict can mean app quota, a concurrent setup edit, or connection
-		// ownership. It does not establish that this Slack app is already connected.
+		// A concurrent setup, deletion, or identity mismatch rejects this flow.
+		// Only its newly created credential is cleaned up; the saved app remains intact.
 		logpkg.Error(r.Context(), fmt.Errorf("integration oauth setup save failed: %w", err))
 		s.redirectOAuthOutcome(
 			w,
@@ -223,17 +259,12 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		)
 		return
 	}
-	logent.IntegrationConnection(r.Context(), install)
-	outcome := url.Values{"integration_oauth": {"success"}}
-	if state.ConnectionOnly {
-		connectionID, err := publicID(publicid.KindIntegrationConnection, install.ID)
-		if err != nil {
-			logpkg.Error(r.Context(), err)
-			apierror.Write(w, openapi.ErrorCodeInternalError)
-			return
-		}
-		outcome.Set("integration_connection", connectionID)
+	appID, err := publicID(publicid.KindProjectApp, install.ID)
+	if err != nil {
+		apierror.Write(w, openapi.ErrorCodeInternalError)
+		return
 	}
+	outcome := url.Values{"integration_oauth": {"success"}, "app_id": {appID}}
 	s.redirectOAuthOutcome(w, r, state.ReturnTo, outcome)
 }
 
@@ -267,8 +298,10 @@ func (s *Server) cleanupIntegrationOAuthSecret(
 	if secretID == uuid.Nil {
 		return
 	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	if _, err := s.store.Secrets().DeleteSecret(
-		ctx,
+		cleanupCtx,
 		secretstore.DeleteSecretInput{OrgID: orgID, SecretID: secretID, Actor: actor},
 	); err != nil &&
 		!storeerr.IsNotFound(err) {
@@ -276,56 +309,15 @@ func (s *Server) cleanupIntegrationOAuthSecret(
 	}
 }
 
-func (s *Server) validateSlackAppSetupConfig(
-	ctx context.Context,
-	config executionstore.AgentConfigRecord,
-) error {
-	if _, err := agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition,
-		config.CompilerVersion,
-		config.EffectiveDefinitionHash,
-	); err != nil {
-		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config is invalid")
-	}
-	var compiled agentconfig.Compiled
-	if err := json.Unmarshal(config.CompiledDefinition, &compiled); err != nil {
-		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config is invalid")
-	}
-	if policy, exists := compiled.Tools[toolcatalog.ToolNameSlackPostMessage]; exists && !policy.Enabled {
-		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent profile config disables slack_post_message")
-	}
-	configuredModel, err := s.store.Models().GetConfiguredModel(ctx, config.OrgID, config.ConfiguredModelID)
-	if err != nil {
-		return apierror.ProjectScoped(err)
-	}
-	grant, err := s.store.Models().GetActiveProjectModelGrantForConfiguredModel(
-		ctx,
-		config.OrgID,
-		config.ProjectID,
-		config.ConfiguredModelID,
-	)
-	if err != nil {
-		return apierror.ProjectScoped(err)
-	}
-	if !configuredModel.SupportsTools || (grant.SupportsTools != nil && !*grant.SupportsTools) {
-		return apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"agent profile model does not support tools",
-		)
-	}
-	return nil
-}
-
 func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) error {
-	// A missing profile alone never changes an old flow into connection-only
-	// setup, and project flows cannot accidentally create an app from a profile.
-	if state.ConnectionOnly != (state.AgentProfileID == uuid.Nil) {
-		return errors.New("invalid oauth state scope")
+	if state.AppID == uuid.Nil || state.SetupRevision < 1 {
+		return errors.New("invalid oauth app setup scope")
 	}
-	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" || state.ClientSecret == "" ||
+	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" ||
+		state.ClientSecret == "" ||
 		state.SigningSecret == "" ||
 		state.ExpiresAt.IsZero() ||
-		now.After(state.ExpiresAt) {
+		!now.Before(state.ExpiresAt) {
 		return errors.New("invalid oauth state")
 	}
 	if state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
@@ -335,7 +327,10 @@ func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) e
 	return nil
 }
 
-func (s *Server) encodeIntegrationOAuthState(ctx context.Context, state integrationOAuthState) (string, error) {
+func (s *Server) encodeIntegrationOAuthState(
+	ctx context.Context,
+	state integrationOAuthState,
+) (string, error) {
 	if s.secretKeyWrapper == nil {
 		return "", errors.New("secret key wrapper is required")
 	}
@@ -349,11 +344,19 @@ func (s *Server) encodeIntegrationOAuthState(ctx context.Context, state integrat
 	return secrets.SealToken(ctx, s.secretKeyWrapper, integrationOAuthStatePurpose, body)
 }
 
-func (s *Server) decodeIntegrationOAuthState(ctx context.Context, token string) (integrationOAuthState, error) {
+func (s *Server) decodeIntegrationOAuthState(
+	ctx context.Context,
+	token string,
+) (integrationOAuthState, error) {
 	if s.secretKeyWrapper == nil {
 		return integrationOAuthState{}, errors.New("secret key wrapper is required")
 	}
-	plaintext, err := secrets.OpenToken(ctx, s.secretKeyWrapper, integrationOAuthStatePurpose, token)
+	plaintext, err := secrets.OpenToken(
+		ctx,
+		s.secretKeyWrapper,
+		integrationOAuthStatePurpose,
+		token,
+	)
 	if err != nil {
 		return integrationOAuthState{}, err
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ func (f profileChoiceFixture) selectionPlan(t *testing.T, appID uuid.UUID, slot 
 	t.Helper()
 	plan, err := json.Marshal(map[string]any{"chosen": map[string]any{
 		"selection": integrationstore.InboxAppSelection{
-			AppID: appID, ConnectionID: f.connection, Address: f.input.Address, Slot: slot,
+			AppID: appID, Address: f.input.Address, Slot: slot,
 		},
 	}})
 	require.NoError(t, err)
@@ -66,7 +67,7 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 			// Reducing a setup to one profile must not bypass the accepted choice.
 			setup := integrationstore.SaveProjectAppInput{
 				OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
-				Enabled: true, Settings: f.app.Settings,
+				Settings: f.app.Settings,
 			}
 			setup.Settings.Launcher.Slots = setup.Settings.Launcher.Slots[1:]
 			_, err = f.store.UpdateProjectApp(f.ctx, f.app.ID, setup)
@@ -78,18 +79,21 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 			require.Equal(t, decided.ID, reservation.ReceiptID)
 
 			// Accepted misconfiguration remains independent across distinct apps.
-			setup.Name = "Another setup"
-			otherApp, err := f.store.CreateProjectApp(f.ctx, setup)
-			require.NoError(t, err)
+			otherApp := f.addApp(t, "another-setup", setup.Settings)
+			other := f
+			other.appID, other.app = otherApp.ID, otherApp
+			otherReceipt := other.receipt(t, "raw-follow-up", f.input.Payload)
 			otherMenu := nextInput
 			otherMenu.AppID = otherApp.ID
 			otherMenu.Options = otherMenu.Options[1:]
-			independent, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), otherMenu)
+			_, _, err = f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), otherMenu)
+			require.ErrorIs(t, err, storeerr.ErrUnauthorized, "a receipt cannot create another app's menu")
+			independent, created, err := f.store.EnsureAppProfileChoice(f.ctx, otherReceipt.Lease(), otherMenu)
 			require.NoError(t, err)
 			require.True(t, created, "a distinct app still owns its independent menu")
 			require.Equal(t, otherApp.ID, independent.AppID)
 			otherPlan := f.selectionPlan(t, otherApp.ID, "review")
-			f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+			other.mutate(t, otherReceipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 				return work.FreezePlan(f.ctx, otherPlan)
 			})
 		})
@@ -176,7 +180,7 @@ func TestAppProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created, "failed unplanned receipt must not trap users behind a stale menu")
 	require.NotEqual(t, choice.ID, fresh.ID)
-	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.connection, fresh.ID, "C123", "new-menu"))
+	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, fresh.ID, "C123", "new-menu"))
 	fresh = f.readChoice(t, fresh.ID)
 	_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
 	require.NoError(t, err)
@@ -195,7 +199,7 @@ func TestAppProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 			return work.FreezePlan(f.ctx, f.selectionPlan(t, f.app.ID, "support"))
 		})
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
-	retained, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.connection, f.app.ID, choice.SourceKey)
+	retained, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.app.ID, choice.SourceKey)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "support", retained.SelectedKey)
@@ -221,7 +225,7 @@ func TestAppProfileChoiceRetriedUnplannedReceiptsCompeteToFreeze(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, created)
 			require.NoError(t, f.store.RecordAppProfileChoiceMessage(
-				f.ctx, f.project, f.connection, fresh.ID, "C123", "new-menu"))
+				f.ctx, f.project, f.appID, fresh.ID, "C123", "new-menu"))
 			fresh = f.readChoice(t, fresh.ID)
 			_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
 			require.NoError(t, err)
@@ -299,13 +303,16 @@ func TestAppProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing
 			require.NoError(t, err)
 			defer func() { _ = tx.Rollback(f.ctx) }()
 			require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
-			require.NoError(t, integrationstore.LockAppConnectionsTx(f.ctx, tx, f.project, nil, f.connection))
-			require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, f.connection, f.input.Address))
+			require.NoError(
+				t,
+				dbsqlc.New(tx).LockProjectAppLifecycleShared(f.ctx, dbsqlc.LockProjectAppLifecycleSharedParams{AppID: f.appID}),
+			)
+			require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, f.appID, f.input.Address))
 			require.NoError(t, lifecyclelock.Agents(f.ctx, tx,
 				[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: launch.Agent.ID}}))
 			target, err := f.store.EnsureConversationTargetTx(f.ctx, tx, integrationstore.EnsureConversationTargetInput{
-				ProjectID: f.project, AgentID: launch.Agent.ID, ConnectionID: f.connection,
-				Address: f.input.Address, Role: integrationstore.TargetSelected, AppID: f.app.ID, SelectionSlot: "support",
+				ProjectID: f.project, AgentID: launch.Agent.ID, AppID: f.appID,
+				Address: f.input.Address, Role: integrationstore.TargetSelected, SelectionSlot: "support",
 			})
 			require.NoError(t, err)
 			if tc.retired {
@@ -319,7 +326,7 @@ func TestAppProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing
 			require.ErrorIs(t, err, integrationstore.ErrAppSelectionSettled)
 			require.False(t, created)
 			require.Zero(t, choice)
-			_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.connection, f.app.ID, input.SourceKey)
+			_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.app.ID, input.SourceKey)
 			require.NoError(t, err)
 			require.False(t, found, "a stale snapshot must not create a menu after admission")
 			if tc.pending {
@@ -345,7 +352,7 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	click := f.chooseInput(t, choice, "support")
 	setup := integrationstore.SaveProjectAppInput{
 		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
-		Enabled: true, Settings: f.app.Settings,
+		Settings: f.app.Settings,
 	}
 	setup.Settings.Launcher.Slots[0].AgentProfileID = &f.input.Options[1].ProfileID
 	_, err := f.store.UpdateProjectApp(f.ctx, f.app.ID, setup)
@@ -474,12 +481,12 @@ func TestAppProfileChoiceExplicitExpiryPreservesAcceptedWork(t *testing.T) {
 	t.Parallel()
 	f := newProfileChoiceFixture(t)
 	choice := f.menu(t)
-	require.ErrorIs(t, f.store.ExpireAppProfileChoice(f.ctx, uuid.New(), f.connection, choice.ID), storeerr.ErrNotFound)
+	require.ErrorIs(t, f.store.ExpireAppProfileChoice(f.ctx, uuid.New(), f.appID, choice.ID), storeerr.ErrNotFound)
 	require.ErrorIs(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, uuid.New(), choice.ID), storeerr.ErrNotFound)
-	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.connection, choice.ID))
+	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.appID, choice.ID))
 	expired := f.readChoice(t, choice.ID)
 	require.True(t, expired.ExpiresAt.Before(choice.ExpiresAt))
-	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.connection, choice.ID))
+	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.appID, choice.ID))
 	require.Equal(t, expired, f.readChoice(t, choice.ID), "repeated expiry does not change the revision")
 	input := f.input
 	input.SourceKey = "another-source"
@@ -487,12 +494,12 @@ func TestAppProfileChoiceExplicitExpiryPreservesAcceptedWork(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, f.store.RecordAppProfileChoiceMessage(
-		f.ctx, f.project, f.connection, fresh.ID, "C123", "fresh-menu"))
+		f.ctx, f.project, f.appID, fresh.ID, "C123", "fresh-menu"))
 	fresh = f.readChoice(t, fresh.ID)
 	selected, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
 	require.NoError(t, err)
 	receipt := f.decidedReceipt(t, selected.ID)
-	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.connection, selected.ID))
+	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.appID, selected.ID))
 	require.Equal(t, selected, f.readChoice(t, selected.ID))
 	require.Equal(t, receipt, f.decidedReceipt(t, selected.ID), "expiration cannot change accepted work")
 }

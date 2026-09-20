@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -47,10 +47,11 @@ type integrationToolFixture struct {
 	Lock               executionstore.AgentRuntimeLockRecord
 	ModelCallContextID uuid.UUID
 	ModelOutputEventID uuid.UUID
-	Install            integrationstore.IntegrationConnectionRecord
+	Install            integrationstore.ProjectAppRecord
 	Target             integrationstore.IntegrationTargetRecord
 	Now                time.Time
 	WithMCP            bool
+	AppTools           map[string]ToolSpec
 }
 
 func toolsTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
@@ -94,6 +95,9 @@ func TestPostIntegrationRuntimeMessageUsesSelectedHandler(t *testing.T) {
 	prepareInteractionPromptFixture(t, ctx, fixture)
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected integration provider path %s", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -148,18 +152,21 @@ func TestIntegrationQuestionPromptDisabledTargetFallsBackToOmnara(t *testing.T) 
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "question-disabled-target")
 	prepareInteractionPromptFixture(t, ctx, fixture)
-	if _, err := fixture.Store.Integrations().DisableIntegrationConnection(
+	if _, err := fixture.Store.Integrations().DisconnectProjectApp(
 		ctx,
-		integrationstore.DisableIntegrationConnectionInput{
-			ProjectID:           toolsTestProjectID,
-			ID:                  fixture.Install.ID,
-			ExpectedOAuthFlowID: &fixture.Install.LastOAuthFlowID,
+		integrationstore.DisconnectProjectAppInput{
+			ProjectID:             toolsTestProjectID,
+			AppID:                 fixture.Install.ID,
+			ExpectedSetupRevision: &fixture.Install.SetupRevision,
 		},
 	); err != nil {
 		t.Fatalf("disable install: %v", err)
 	}
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path == "/chat.postMessage" {
 			postCount++
 		}
@@ -212,6 +219,9 @@ func TestQuestionDispatchCommitsDurableWaitBeforePrompt(t *testing.T) {
 	releaseResponse := make(chan struct{})
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -318,6 +328,9 @@ func TestIntegrationQuestionPromptRetriesShortRateLimit(t *testing.T) {
 	prepareInteractionPromptFixture(t, ctx, fixture)
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -376,6 +389,9 @@ func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
 	postCount := 0
 	readbackCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		switch r.URL.Path {
 		case "/chat.postMessage":
 			var payload map[string]any
@@ -489,6 +505,9 @@ func TestIntegrationQuestionPromptUnknownOutcomeKeepsDashboardOpen(t *testing.T)
 	postCount := 0
 	readbackCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		switch r.URL.Path {
 		case "/chat.postMessage":
 			postCount++
@@ -553,6 +572,9 @@ func TestIntegrationQuestionPromptDeliveryFailureKeepsDashboardOpen(t *testing.T
 	prepareInteractionPromptFixture(t, ctx, fixture)
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -603,18 +625,21 @@ func TestIntegrationPermissionPromptDisabledTargetFallsBackToOmnara(t *testing.T
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "permission-disabled-target")
 	prepareInteractionPromptFixture(t, ctx, fixture)
-	if _, err := fixture.Store.Integrations().DisableIntegrationConnection(
+	if _, err := fixture.Store.Integrations().DisconnectProjectApp(
 		ctx,
-		integrationstore.DisableIntegrationConnectionInput{
-			ProjectID:           toolsTestProjectID,
-			ID:                  fixture.Install.ID,
-			ExpectedOAuthFlowID: &fixture.Install.LastOAuthFlowID,
+		integrationstore.DisconnectProjectAppInput{
+			ProjectID:             toolsTestProjectID,
+			AppID:                 fixture.Install.ID,
+			ExpectedSetupRevision: &fixture.Install.SetupRevision,
 		},
 	); err != nil {
 		t.Fatalf("disable install: %v", err)
 	}
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path == "/chat.postMessage" {
 			postCount++
 		}
@@ -679,6 +704,9 @@ func TestIntegrationPermissionPromptDeliveryDoesNotBlockOmnaraPrompt(t *testing.
 		releaseOnce.Do(func() { close(releasePost) })
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -754,6 +782,9 @@ func TestIntegrationExistingPermissionPromptDoesNotRedeliver(t *testing.T) {
 	prepareInteractionPromptFixture(t, ctx, fixture)
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -826,14 +857,16 @@ func newIntegrationToolFixtureWithMCP(
 }
 
 type toolFixtureOptions struct {
-	withMCP         bool
-	withSubagents   bool
-	withSlackApp    bool
-	withDiscordApp  bool
-	discordGuild    string
-	slackChannel    string
-	slackPermission string
-	appConnection   string
+	withMCP            bool
+	withSubagents      bool
+	withSlackApp       bool
+	withDiscordApp     bool
+	withGitHubApp      bool
+	withoutAppListener bool
+	githubPermission   string
+	discordGuild       string
+	slackChannel       string
+	slackPermission    string
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -891,15 +924,21 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	ensureIntegrationToolsProjectAdmin(t, ctx, store, user.ID, now)
 
-	install := createIntegrationToolInstall(t, ctx, store, uuid.Nil, user.ID, label, now.Add(3*time.Second))
+	var install integrationstore.ProjectAppRecord
 	if fixtureOptions.withDiscordApp {
-		install = createDiscordToolConnection(t, ctx, store, user.ID)
-	}
-	if fixtureOptions.withSlackApp || fixtureOptions.withDiscordApp {
-		fixtureOptions.appConnection, err = publicid.Encode(publicid.KindIntegrationConnection, install.ID)
-		require.NoError(t, err)
+		install = createDiscordToolApp(t, ctx, store, user.ID)
+	} else if fixtureOptions.withGitHubApp {
+		install = createGitHubToolApp(t, ctx, store, user.ID)
+	} else {
+		install = createSlackToolApp(t, ctx, store, user.ID, "chat", label)
 	}
 	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, fixtureOptions)
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+	if fixtureOptions.withDiscordApp {
+		address = integrationstore.ConversationAddress{Kind: "channel", Ref: "444"}
+	} else if fixtureOptions.withGitHubApp {
+		address = integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#7"}
+	}
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -915,8 +954,8 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 					Provider: install.Provider, ProviderTenantID: install.ProviderTenantID, ProviderUserID: "U_FIXTURE",
 				},
 				Origin: &executionstore.LaunchInputOrigin{
-					ConnectionID: install.ID,
-					Address:      integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
+					AppID:   install.ID,
+					Address: address,
 				},
 			},
 		},
@@ -926,15 +965,6 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	agent := launch.Agent
 	target := launch.IntegrationTarget
-	if err := storagetest.SeedAgentIntegrationTarget(
-		ctx,
-		pool,
-		toolsTestProjectID,
-		agent.ID,
-		target.ID,
-	); err != nil {
-		t.Fatalf("set integration target: %v", err)
-	}
 	input := launch.AgentInput
 	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, toolsTestClaimInput())
 	if err != nil {
@@ -964,6 +994,22 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		admitted.Events[0].Sequence,
 		uuid.Nil,
 	)
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(launch.AgentConfig.CompiledDefinition, &compiled))
+	appID, err := publicid.Encode(publicid.KindProjectApp, install.ID)
+	require.NoError(t, err)
+	prepared, err := agentconfig.PrepareAppCapabilities(compiled, map[string]agentconfig.AppResolution{
+		appID: {AppID: appID, Definition: install.DefinitionID},
+	})
+	require.NoError(t, err)
+	require.Empty(t, prepared.Unavailable)
+	appTools := map[string]ToolSpec{}
+	for _, tool := range prepared.Tools {
+		appTools[tool.Name] = ToolSpec{
+			Type: tool.Type, Permission: tool.Permission, InputSchema: tool.InputSchema,
+			Description: tool.Description, Deferred: tool.Deferred,
+		}
+	}
 	return integrationToolFixture{
 		Pool:               pool,
 		Store:              store,
@@ -977,6 +1023,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		Target:             target,
 		Now:                now,
 		WithMCP:            withMCP,
+		AppTools:           appTools,
 	}
 }
 
@@ -992,13 +1039,16 @@ func (f *integrationToolFixture) turn() Turn {
 			"ask_question": {
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			},
-			"slack_post_message": {
+			"app__chat__post_message": {
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			},
-			"set_interaction_destination": {
+			"set_interaction_handler": {
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			},
 		},
+	}
+	for name, tool := range f.AppTools {
+		turn.Tools[name] = tool
 	}
 	if f.WithMCP {
 		turn.Tools[toolcatalog.MCPRuntimeToolName("docs", "greet")] = ToolSpec{
@@ -1150,29 +1200,44 @@ tools:
     permission:
       mode: always_allow
       parameters: {}
-  slack_post_message: {}
-  set_interaction_destination: {}
 `
-	if fixtureOptions.slackPermission != "" {
-		sourceYAML = strings.Replace(sourceYAML, "slack_post_message: {}",
-			"slack_post_message: {permission: {mode: "+fixtureOptions.slackPermission+"}}", 1)
-	}
-	if fixtureOptions.withSlackApp {
+	if fixtureOptions.withSlackApp || fixtureOptions.withDiscordApp {
 		channel := fixtureOptions.slackChannel
 		if channel == "" {
 			channel = "C123"
 		}
-		sourceYAML += "app_resources:\n  chat:\n    definition: omnara.slack\n    connection: " +
-			fixtureOptions.appConnection + "\n    scope:\n      slack:\n        channel_id: " + channel +
-			"\n    tools:\n      slack_read: {}\n      slack_post_message: {}\n    follow:\n      replies: true\n"
-	}
-	if fixtureOptions.withDiscordApp {
-		sourceYAML += "app_resources:\n  chat:\n    definition: omnara.discord\n    connection: " +
-			fixtureOptions.appConnection + "\n    scope:\n      discord:\n        channel_id: \"444\"\n"
-		if fixtureOptions.discordGuild != "" {
-			sourceYAML += "        guild_id: \"" + fixtureOptions.discordGuild + "\"\n"
+		if fixtureOptions.withDiscordApp {
+			channel = "444"
 		}
-		sourceYAML += "    tools:\n      discord_read: {}\n      discord_post_message: {}\n    follow:\n      replies: true\n"
+		config := map[string]any{"channel_id": channel}
+		if fixtureOptions.discordGuild != "" {
+			config["guild_id"] = fixtureOptions.discordGuild
+		}
+		raw, err := json.Marshal(config)
+		require.NoError(t, err)
+		permission := fixtureOptions.slackPermission
+		if permission == "" {
+			permission = toolpermission.ModeAlwaysAllow
+		}
+		sourceYAML += "  app__chat__read:\n    config: " + string(raw) + "\n" +
+			"  app__chat__post_message:\n    permission: {mode: " + permission + "}\n    config: " + string(raw) + "\n"
+		if !fixtureOptions.withoutAppListener {
+			sourceYAML += "listeners:\n  chat__thread_messages: {}\n"
+		}
+	}
+	if fixtureOptions.withGitHubApp {
+		permission := fixtureOptions.githubPermission
+		if permission == "" {
+			permission = toolpermission.ModeAlwaysAllow
+		}
+		for _, operation := range []string{"read", "discussion_comment", "inline_comment", "reply"} {
+			sourceYAML += "  app__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n" +
+				"    config: {repository_id: 123, pull_request: 7}\n"
+		}
+		if !fixtureOptions.withoutAppListener {
+			sourceYAML += "listeners:\n  chat__pull_request:\n" +
+				"    config: {conversations: [{repository_id: 123, pull_request: 7}]}\n"
+		}
 	}
 	if withMCP {
 		sourceYAML += `mcp:
@@ -1233,19 +1298,8 @@ func compileToolsAgentYAMLResolved(
 	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), toolsTestProjectID,
 		storagefixture.DefaultModelInput(toolsTestOrgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveAppConnection: func(id, provider string) (string, error) {
-			connectionID, err := publicid.Decode(publicid.KindIntegrationConnection, id)
-			if err != nil {
-				return "", err
-			}
-			connection, err := store.Integrations().GetIntegrationConnection(ctx, toolsTestProjectID, connectionID)
-			if err != nil {
-				return "", err
-			}
-			if connection.Provider != provider {
-				return "", storeerr.ErrUnauthorized
-			}
-			return id, nil
+		ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
+			return resolveToolsAppName(ctx, store, name)
 		},
 		ResolveModelSelection: func(
 			providerConfigName string,
@@ -1315,80 +1369,61 @@ func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID
 	return id
 }
 
-func createIntegrationToolInstall(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	agentProfileID, userID uuid.UUID,
-	label string,
-	now time.Time,
-) integrationstore.IntegrationConnectionRecord {
-	t.Helper()
-	install, err := store.Integrations().CreateIntegrationConnection(
-		ctx,
-		integrationToolInstallInput(
-			agentProfileID,
-			userID,
-			createIntegrationToolSecrets(t, ctx, store, userID, label, now),
-			now,
-		),
-	)
+func resolveToolsAppName(ctx context.Context, store *storage.Store, name string) (agentconfig.AppResolution, error) {
+	result, err := store.Integrations().ListProjectApps(ctx, integrationstore.ListProjectAppsInput{
+		ProjectID: toolsTestProjectID, NamePattern: name, Limit: 100,
+	})
 	if err != nil {
-		t.Fatalf("create integration connection: %v", err)
+		return agentconfig.AppResolution{}, err
 	}
-	return install
+	for _, app := range result.Apps {
+		if app.Name != name || app.State != integrationstore.ProjectAppStateActive {
+			continue
+		}
+		ref, err := publicid.Encode(publicid.KindProjectApp, app.ID)
+		return agentconfig.AppResolution{AppID: ref, Definition: app.DefinitionID}, err
+	}
+	return agentconfig.AppResolution{}, storeerr.ErrNotFound
 }
 
-func createIntegrationToolSecrets(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	userID uuid.UUID,
-	label string,
-	now time.Time,
-) uuid.UUID {
+func createSlackToolApp(
+	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID, name, label string,
+) integrationstore.ProjectAppRecord {
 	t.Helper()
-	secret, _, err := store.Secrets().CreateSecret(
-		ctx,
-		secretstore.CreateSecretInput{
-			OrgID:          toolsTestOrgID,
-			OwnerKind:      secretstore.SecretOwnerProject,
-			OwnerProjectID: toolsTestProjectID,
-			Name:           "tools-integration-" + label + "-credentials",
-			Material: secrets.SlackAppCredentialsMaterial{
-				AccessToken:   "xoxb-test",
-				ClientID:      "client-id",
-				ClientSecret:  "client-secret",
-				SigningSecret: "signing-secret",
-			},
-			Actor: toolsTestUserPrincipal(userID),
+	secret, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:          toolsTestOrgID,
+		OwnerKind:      secretstore.SecretOwnerProject,
+		OwnerProjectID: toolsTestProjectID,
+		Name:           "tools-integration-" + label + "-credentials",
+		Actor:          toolsTestUserPrincipal(userID),
+		Material: secrets.SlackAppCredentialsMaterial{
+			AccessToken:   "xoxb-test",
+			ClientID:      "client-id",
+			ClientSecret:  "client-secret",
+			SigningSecret: "signing-secret",
 		},
-	)
-	if err != nil {
-		t.Fatalf("create integration credential secret: %v", err)
-	}
-	return secret.ID
-}
-
-func integrationToolInstallInput(
-	agentProfileID, userID uuid.UUID,
-	credentialSecretID uuid.UUID,
-	now time.Time,
-) integrationstore.SaveIntegrationConnectionInput {
-	return integrationstore.SaveIntegrationConnectionInput{
-		OrgID:     toolsTestOrgID,
-		ProjectID: toolsTestProjectID,
-
-		InstalledByUserID: userID,
-		Provider:          integrationstore.IntegrationProviderSlack,
-
-		State:              integrationstore.IntegrationConnectionStateActive,
-		ProviderTenantID:   "T123",
-		ProviderAccountRef: "A123",
-		CredentialSecretID: credentialSecretID,
-		ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B123"}`),
-		ProviderMetadata:   json.RawMessage(`{}`),
-	}
+	})
+	require.NoError(t, err)
+	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: name, DefinitionID: appdefinition.Slack,
+	})
+	require.NoError(t, err)
+	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+		OrgID:                 toolsTestOrgID,
+		ProjectID:             toolsTestProjectID,
+		AppID:                 app.ID,
+		ExpectedSetupRevision: app.SetupRevision,
+		InstalledByUserID:     userID,
+		Provider:              appdefinition.ProviderSlack,
+		ProviderTenantID:      "T123",
+		ProviderAccountRef:    "A123",
+		CredentialSecretID:    secret.ID,
+		CredentialVersionID:   version.ID,
+		OAuthFlowID:           uuid.Must(uuid.NewV7()),
+		ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B123"}`),
+	})
+	require.NoError(t, err)
+	return app
 }
 
 func integrationToolKeyWrapper(t *testing.T) secrets.KeyWrapper {

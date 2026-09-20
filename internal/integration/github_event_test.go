@@ -14,10 +14,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-func githubEventConnection() integrationstore.IntegrationConnectionRecord {
-	return integrationstore.IntegrationConnectionRecord{
+func githubEventApp() integrationstore.ProjectAppRecord {
+	return integrationstore.ProjectAppRecord{
 		ID: uuid.New(), ProjectID: uuid.New(), Provider: "github", ProviderTenantID: "123", ProviderAccountRef: "456",
-		State:            integrationstore.IntegrationConnectionStateActive,
+		State:            integrationstore.ProjectAppStateActive,
 		ProviderIdentity: json.RawMessage(`{"bot_user_id":999,"bot_login":"helper[bot]"}`),
 	}
 }
@@ -78,8 +78,8 @@ func TestGitHubNormalizeAppEvents(t *testing.T) {
 	} {
 		t.Run(tc.eventType, func(t *testing.T) {
 			t.Parallel()
-			connection := githubEventConnection()
-			event, ok, err := NormalizeGitHubAppEvent(connection, githubEventJSON(t, githubEventFixture(tc.eventType)))
+			appSetup := githubEventApp()
+			event, ok, err := NormalizeGitHubAppEvent(appSetup, githubEventJSON(t, githubEventFixture(tc.eventType)))
 			if err != nil || !ok {
 				t.Fatalf("normalize: ok=%v err=%v", ok, err)
 			}
@@ -122,19 +122,19 @@ func TestGitHubSynchronizeQueuesAndUsesTransitionIdentity(t *testing.T) {
 	t.Parallel()
 	payload := githubEventFixture("pull_request")
 	payload.Action, payload.Before, payload.After = "synchronize", strings.Repeat("a", 40), strings.Repeat("b", 40)
-	event, ok, err := NormalizeGitHubAppEvent(githubEventConnection(), githubEventJSON(t, payload))
+	event, ok, err := NormalizeGitHubAppEvent(githubEventApp(), githubEventJSON(t, payload))
 	if err != nil || !ok || event.DeliveryMode != executionstore.DeliveryModeQueued ||
 		event.CancelOpenInteractions || event.Event.Mentioned || event.Event.Kind != "commit" {
 		t.Fatalf("commit: %+v %v %v", event, ok, err)
 	}
 	payload.Before = strings.Repeat("c", 40)
-	other, ok, err := NormalizeGitHubAppEvent(githubEventConnection(), githubEventJSON(t, payload))
+	other, ok, err := NormalizeGitHubAppEvent(githubEventApp(), githubEventJSON(t, payload))
 	if err != nil || !ok || event.SemanticKey == other.SemanticKey {
 		t.Fatalf("force-push transition identity: %+v %v %v", other, ok, err)
 	}
 	payload.Before = strings.Repeat("a", 40)
 	payload.PullRequest.UpdatedAt = time.Unix(1000, 0)
-	other, ok, err = NormalizeGitHubAppEvent(githubEventConnection(), githubEventJSON(t, payload))
+	other, ok, err = NormalizeGitHubAppEvent(githubEventApp(), githubEventJSON(t, payload))
 	if err != nil || !ok || event.SemanticKey == other.SemanticKey {
 		t.Fatalf("repeated force-push transition: %+v %v %v", other, ok, err)
 	}
@@ -160,7 +160,7 @@ func TestGitHubNormalizeIgnoresNonInputs(t *testing.T) {
 			t.Parallel()
 			payload := githubEventFixture("issue_comment")
 			tc.edit(&payload)
-			_, ok, err := NormalizeGitHubAppEvent(githubEventConnection(), githubEventJSON(t, payload))
+			_, ok, err := NormalizeGitHubAppEvent(githubEventApp(), githubEventJSON(t, payload))
 			if err != nil || ok {
 				t.Fatalf("ignored input: ok=%v err=%v", ok, err)
 			}
@@ -171,9 +171,9 @@ func TestGitHubNormalizeIgnoresNonInputs(t *testing.T) {
 		`{"action":"deleted","installation":{"id":456}}`,
 		`{"ref":"refs/heads/main","commits":[{"id":"abc"}]}`,
 	} {
-		connection := githubEventConnection()
-		connection.ProviderIdentity = nil
-		_, ok, err := NormalizeGitHubAppEvent(connection, []byte(raw))
+		appSetup := githubEventApp()
+		appSetup.ProviderIdentity = nil
+		_, ok, err := NormalizeGitHubAppEvent(appSetup, []byte(raw))
 		if err != nil || ok {
 			t.Fatalf("unsupported input: ok=%v err=%v", ok, err)
 		}
@@ -184,39 +184,39 @@ func TestGitHubNormalizeRejectsWrongIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
-		edit func(*githubEventPayload, *integrationstore.IntegrationConnectionRecord)
+		edit func(*githubEventPayload, *integrationstore.ProjectAppRecord)
 	}{
-		{"installation", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) {
+		{"installation", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) {
 			p.Installation.ID++
 		}},
-		{"app", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) {
+		{"app", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) {
 			p.Installation.AppID = 321
 		}},
-		{"repository", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) { p.Repository.ID++ }},
-		{"missing repository", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) {
+		{"repository", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) { p.Repository.ID++ }},
+		{"missing repository", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) {
 			p.PullRequest.Base.Repo = nil
 		}},
-		{"PR number", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) {
+		{"PR number", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) {
 			p.PullRequest.Number = 0
 		}},
-		{"comment ID", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) { p.Comment.ID = 0 }},
-		{"sender", func(p *githubEventPayload, _ *integrationstore.IntegrationConnectionRecord) { p.Sender.ID++ }},
-		{"bot identity absent", func(_ *githubEventPayload, c *integrationstore.IntegrationConnectionRecord) {
+		{"comment ID", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) { p.Comment.ID = 0 }},
+		{"sender", func(p *githubEventPayload, _ *integrationstore.ProjectAppRecord) { p.Sender.ID++ }},
+		{"bot identity absent", func(_ *githubEventPayload, c *integrationstore.ProjectAppRecord) {
 			c.ProviderIdentity = nil
 		}},
-		{"wrong provider", func(_ *githubEventPayload, c *integrationstore.IntegrationConnectionRecord) {
+		{"wrong provider", func(_ *githubEventPayload, c *integrationstore.ProjectAppRecord) {
 			c.Provider = "slack"
 		}},
-		{"noncanonical app", func(_ *githubEventPayload, c *integrationstore.IntegrationConnectionRecord) {
+		{"noncanonical app", func(_ *githubEventPayload, c *integrationstore.ProjectAppRecord) {
 			c.ProviderTenantID = "0123"
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			connection := githubEventConnection()
+			appSetup := githubEventApp()
 			payload := githubEventFixture("pull_request_review_comment")
-			tc.edit(&payload, &connection)
-			_, ok, err := NormalizeGitHubAppEvent(connection, githubEventJSON(t, payload))
+			tc.edit(&payload, &appSetup)
+			_, ok, err := NormalizeGitHubAppEvent(appSetup, githubEventJSON(t, payload))
 			if err == nil || ok {
 				t.Fatalf("invalid input: ok=%v err=%v", ok, err)
 			}
@@ -226,9 +226,9 @@ func TestGitHubNormalizeRejectsWrongIdentity(t *testing.T) {
 
 func TestGitHubNormalizationStableOnRenameAndHeaderReplay(t *testing.T) {
 	t.Parallel()
-	connection := githubEventConnection()
+	appSetup := githubEventApp()
 	payload := githubEventFixture("pull_request_review_comment")
-	before, _, err := NormalizeGitHubAppEvent(connection, githubEventJSON(t, payload))
+	before, _, err := NormalizeGitHubAppEvent(appSetup, githubEventJSON(t, payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestGitHubNormalizationStableOnRenameAndHeaderReplay(t *testing.T) {
 	// Neither unsigned nor body-injected transport metadata can choose a kind.
 	raw := githubEventJSON(t, payload)
 	raw = append([]byte(`{"event_type":"pull_request","delivery_id":"different",`), raw[1:]...)
-	after, ok, err := NormalizeGitHubAppEvent(connection, raw)
+	after, ok, err := NormalizeGitHubAppEvent(appSetup, raw)
 	if err != nil || !ok || before.SemanticKey != after.SemanticKey ||
 		*before.Event.Scope.GitHub != *after.Event.Scope.GitHub || before.Event.Mentioned != after.Event.Mentioned {
 		t.Fatalf("rename/replay changed identity: %+v %v", after, err)
@@ -248,7 +248,7 @@ func TestGitHubNormalizationStableOnRenameAndHeaderReplay(t *testing.T) {
 	payload.Repository.ID++
 	payload.PullRequest.Base.Repo.ID = payload.Repository.ID
 	payload.Repository.FullName = "owner/repository"
-	other, ok, err := NormalizeGitHubAppEvent(connection, githubEventJSON(t, payload))
+	other, ok, err := NormalizeGitHubAppEvent(appSetup, githubEventJSON(t, payload))
 	if err != nil || !ok || other.Event.Scope.GitHub.RepositoryID == before.Event.Scope.GitHub.RepositoryID {
 		t.Fatalf("name reuse: %+v %v", other, err)
 	}
@@ -273,22 +273,22 @@ func TestGitHubMentionBoundaries(t *testing.T) {
 func TestGitHubInboxAdapter(t *testing.T) {
 	t.Parallel()
 	provider := GitHubAppInboxProvider{}
-	connection := githubEventConnection()
-	expansion, err := provider.Expand(t.Context(), connection, githubEventJSON(t, githubEventFixture("issue_comment")))
+	appSetup := githubEventApp()
+	expansion, err := provider.Expand(t.Context(), appSetup, githubEventJSON(t, githubEventFixture("issue_comment")))
 	if err != nil || len(expansion.Events) != 1 || len(expansion.Files) != 0 {
 		t.Fatalf("expansion: %+v %v", expansion, err)
 	}
-	if _, err = provider.DownloadFile(t.Context(), connection, nil, "file"); err == nil {
+	if _, err = provider.DownloadFile(t.Context(), appSetup, nil, "file"); err == nil {
 		t.Fatal("unexpected file download")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err = provider.Expand(ctx, connection, []byte(`{}`)); !errors.Is(err, context.Canceled) {
+	if _, err = provider.Expand(ctx, appSetup, []byte(`{}`)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled expansion: %v", err)
 	}
 	for _, raw := range [][]byte{nil, []byte("null"), []byte("[]"), []byte("{"), {0xff},
 		[]byte(strings.Repeat(" ", integrationstore.IntegrationInboxMaxPayloadBytes+1))} {
-		if _, _, err = NormalizeGitHubAppEvent(connection, raw); err == nil {
+		if _, _, err = NormalizeGitHubAppEvent(appSetup, raw); err == nil {
 			t.Fatal("accepted invalid JSON")
 		}
 	}
@@ -329,7 +329,7 @@ func TestGitHubReviewAndCommitPolicies(t *testing.T) {
 			t.Parallel()
 			payload := githubEventFixture(tc.eventType)
 			tc.edit(&payload)
-			event, ok, err := NormalizeGitHubAppEvent(githubEventConnection(), githubEventJSON(t, payload))
+			event, ok, err := NormalizeGitHubAppEvent(githubEventApp(), githubEventJSON(t, payload))
 			if ok != tc.wantEvent || (err != nil) != tc.wantError {
 				t.Fatalf("policy: event=%+v ok=%v err=%v", event, ok, err)
 			}

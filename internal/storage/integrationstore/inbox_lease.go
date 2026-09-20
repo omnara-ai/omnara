@@ -20,7 +20,7 @@ import (
 
 // IntegrationInboxLeaseTx is a fenced receipt transaction. The caller owns the
 // transaction and MUST roll back if any method fails. Acquire it before any
-// conversation/agent locks: organization, project, connection, receipt, then
+// conversation/agent locks: organization, project, app, receipt, then
 // conversation/agent state. Never call provider I/O while holding this handle.
 // Use the same transaction for launch/input admission and CommitSlot so either
 // both commit or neither does. A failed lease check must roll back admission.
@@ -32,9 +32,10 @@ type IntegrationInboxLeaseTx struct {
 }
 
 // LockIntegrationInboxLeaseTx fences a receipt and its frozen admission's
-// connections. Additional identities must include every resource used by the
+// apps. Additional identities include every compiled app reference used by the
 // admission, read from the immutable plan before entering this method. They are
-// locked in one sorted union with the receipt connection.
+// locked in one sorted union with the receipt app but need not be active. Only
+// the receipt app supplies live authority; each concrete action rechecks its app.
 func (s *Store) LockIntegrationInboxLeaseTx(
 	ctx context.Context, tx pgx.Tx, lease IntegrationInboxLease, additional ...uuid.UUID,
 ) (*IntegrationInboxLeaseTx, error) {
@@ -51,7 +52,7 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 	if err != nil {
 		return nil, fmt.Errorf("load inbox lease scope: %w", err)
 	}
-	if err := s.enterInboxConnection(ctx, tx, lease.ProjectID, row.ConnectionID, additional...); err != nil {
+	if err := s.enterInboxApp(ctx, tx, lease.ProjectID, row.AppID, additional...); err != nil {
 		return nil, err
 	}
 	if _, err := q.LockIntegrationInboxReceipt(ctx, dbsqlc.LockIntegrationInboxReceiptParams{

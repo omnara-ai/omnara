@@ -1,5 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { zAppResourceSource } from '@omnara/sdk/zod'
+import { zConfigAppCapabilitySource } from '@omnara/sdk/zod'
 import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
@@ -100,6 +100,7 @@ const mcpEntry = z.strictObject({
 export type McpEntry = z.infer<typeof mcpEntry>
 
 const toolEntry = z.strictObject({
+  config: z.record(z.string(), z.json()).optional(),
   type: z.literal('built_in').optional(),
   enabled: z.boolean().nullable().optional(),
   permission: permission.optional(),
@@ -137,7 +138,8 @@ const basicDocument = z.looseObject({
   model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
-  app_resources: z.record(z.string(), zAppResourceSource).optional(),
+  listeners: z.record(z.string(), zConfigAppCapabilitySource).optional(),
+  interaction_handlers: z.record(z.string(), zConfigAppCapabilitySource).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
   subagents: z.record(z.string(), subagentEntry).optional(),
@@ -181,7 +183,8 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     modelName: doc.model?.name ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
-    appResources: doc.app_resources ?? {},
+    listeners: doc.listeners ?? {},
+    interactionHandlers: doc.interaction_handlers ?? {},
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
@@ -215,6 +218,7 @@ function toolDraft(name: string, entry: z.infer<typeof toolEntry>): BasicTool {
     permission: permissionDraft(entry.permission),
   }
   if (entry.deferred) draft.deferred = true
+  if (entry.config !== undefined) draft.config = entry.config
   return draft
 }
 

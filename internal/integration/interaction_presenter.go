@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,7 +62,7 @@ func (p InteractionPresenter) DismissCanceled(
 }
 
 type interactionAccess struct {
-	connection  integrationstore.IntegrationConnectionRecord
+	appSetup    integrationstore.ProjectAppRecord
 	credential  secretstore.SecretPayloadRecord
 	destination executionstore.InteractionDestination
 }
@@ -70,35 +70,35 @@ type interactionAccess struct {
 func (p InteractionPresenter) access(
 	ctx context.Context, projectID uuid.UUID, destination executionstore.InteractionDestination,
 ) (interactionAccess, error) {
-	connection, err := p.Store.Integrations().GetIntegrationConnection(ctx, projectID, destination.ConnectionID)
+	appSetup, err := p.Store.Integrations().GetProjectApp(ctx, projectID, destination.AppID)
 	if err != nil {
 		return interactionAccess{}, err
 	}
-	if connection.State != integrationstore.IntegrationConnectionStateActive {
+	if appSetup.State != integrationstore.ProjectAppStateActive || appSetup.DefinitionID != destination.HandlerDefinition {
 		return interactionAccess{}, storeerr.ErrUnauthorized
 	}
 	switch destination.HandlerDefinition {
-	case appdefinition.SlackInteractions:
-		if connection.Provider != appdefinition.ProviderSlack {
+	case appdefinition.Slack:
+		if appSetup.Provider != appdefinition.ProviderSlack {
 			return interactionAccess{}, storeerr.ErrUnauthorized
 		}
-	case appdefinition.DiscordInteractions:
-		if connection.Provider != appdefinition.ProviderDiscord ||
-			DiscordInteractionPublicKey(connection.ProviderConfig) == "" {
+	case appdefinition.Discord:
+		if appSetup.Provider != appdefinition.ProviderDiscord ||
+			DiscordInteractionPublicKey(appSetup.ProviderConfig) == "" {
 			return interactionAccess{}, storeerr.ErrUnauthorized
 		}
 	default:
 		return interactionAccess{}, storeerr.ErrUnauthorized
 	}
-	kind, err := integrationstore.IntegrationConnectionCredentialKind(connection.Provider)
+	kind, err := integrationstore.ProjectAppCredentialKind(appSetup.Provider)
 	if err != nil {
 		return interactionAccess{}, err
 	}
 	input := secretstore.ReadProjectAvailableSecretPayloadInput{
-		OrgID: connection.OrgID, ProjectID: projectID, SecretID: connection.CredentialSecretID, Kind: kind,
+		OrgID: appSetup.OrgID, ProjectID: projectID, SecretID: appSetup.CredentialSecretID, Kind: kind,
 	}
 	credential, err := p.Store.Secrets().ReadProjectAvailableSecretPayload(ctx, input)
-	return interactionAccess{connection: connection, credential: credential, destination: destination}, err
+	return interactionAccess{appSetup: appSetup, credential: credential, destination: destination}, err
 }
 
 func DiscordInteractionPublicKey(config json.RawMessage) string {
@@ -118,12 +118,12 @@ func (p InteractionPresenter) recheck(
 		return err
 	}
 	current, err := p.Store.Integrations().
-		GetIntegrationConnection(ctx, access.connection.ProjectID, access.connection.ID)
+		GetProjectApp(ctx, access.appSetup.ProjectID, access.appSetup.ID)
 	if err != nil {
 		return err
 	}
-	if current.State != integrationstore.IntegrationConnectionStateActive ||
-		!current.UpdatedAt.Equal(access.connection.UpdatedAt) {
+	if current.State != integrationstore.ProjectAppStateActive ||
+		current.SetupRevision != access.appSetup.SetupRevision {
 		return storeerr.ErrUnauthorized
 	}
 	secret, err := p.Store.Secrets().GetProjectAvailableSecret(
@@ -138,39 +138,55 @@ func (p InteractionPresenter) recheck(
 	return nil
 }
 
-func (a interactionAccess) slackTarget() (slack.MessageTarget, error) {
+func (a interactionAccess) slackTarget(ctx context.Context, client *http.Client) (slack.MessageTarget, error) {
 	credentials, err := slack.AppCredentialsFromPayload(a.credential.Payload)
 	if err != nil {
+		return slack.MessageTarget{}, err
+	}
+	identity, err := slack.ParseInstallIdentity(a.appSetup.ProviderIdentity)
+	if err != nil {
+		return slack.MessageTarget{}, err
+	}
+	if err := slack.CheckIdentity(ctx, slack.OAuthConfig{HTTPClient: client}, credentials.BotToken, slack.Identity{
+		AppID: a.appSetup.ProviderAccountRef, WorkspaceID: a.appSetup.ProviderTenantID, BotUserID: identity.BotUserID,
+	}); err != nil {
 		return slack.MessageTarget{}, err
 	}
 	channel, thread, err := slack.Destination(a.destination.Address.Kind, a.destination.Address.Ref)
 	return slack.MessageTarget{Channel: channel, ThreadTS: thread, BotToken: credentials.BotToken}, err
 }
 
-func (a interactionAccess) discordScope() (discord.Scope, error) {
-	address := a.destination.Address
-	if address.Kind == "channel" {
-		return discord.Scope{ChannelID: address.Ref}, nil
+// DiscordInteractionScope retains every captured destination field, including
+// guild context that the canonical channel/thread attribution address omits.
+func DiscordInteractionScope(destination executionstore.InteractionDestination) (discord.Scope, error) {
+	if destination.HandlerDefinition != appdefinition.Discord {
+		return discord.Scope{}, storeerr.ErrUnauthorized
 	}
-	if address.Kind == "thread" {
-		channel, thread, ok := strings.Cut(address.Ref, ":")
-		if ok {
-			return discord.Scope{ChannelID: channel, ThreadID: thread}, nil
-		}
+	scope, err := appdefinition.ResolveDestination(appdefinition.ProviderDiscord, destination.Config, destination.Args)
+	if err != nil {
+		return discord.Scope{}, err
 	}
-	return discord.Scope{}, errors.New("unsupported Discord interaction scope")
+	kind, ref, err := scope.Conversation()
+	if err != nil {
+		return discord.Scope{}, err
+	}
+	if destination.Address != (integrationstore.ConversationAddress{Kind: kind, Ref: ref}) {
+		return discord.Scope{}, storeerr.ErrUnauthorized
+	}
+	return discord.Scope{GuildID: scope.Discord.GuildID, ChannelID: scope.Discord.ChannelID,
+		ThreadID: scope.Discord.ThreadID}, nil
 }
 
 func (p InteractionPresenter) discordClient(
 	ctx context.Context, access interactionAccess, check func(context.Context) error,
 ) (*discord.Client, error) {
 	client, err := discord.NewClient(discord.Config{HTTPClient: p.HTTPClient, BeforeRequest: check,
-		Credentials: discord.Credentials{ApplicationID: access.connection.ProviderTenantID,
-			BotUserID: access.connection.ProviderAccountRef, BotToken: access.credential.Payload[secrets.KeyValue]}})
+		Credentials: discord.Credentials{ApplicationID: access.appSetup.ProviderTenantID,
+			BotUserID: access.appSetup.ProviderAccountRef, BotToken: access.credential.Payload[secrets.KeyValue]}})
 	if err != nil {
 		return nil, err
 	}
-	// Secret values can rotate independently of connection setup. Revalidate the
+	// Secret values can rotate independently of app setup. Revalidate the
 	// live token's identity before any prompt, dismissal or runtime message.
 	if err := client.CheckIdentity(ctx); err != nil {
 		return nil, err
@@ -225,8 +241,8 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	if len(record.PresentationReceipt) != 0 {
 		return nil
 	}
-	if destination.HandlerDefinition != appdefinition.SlackInteractions &&
-		destination.HandlerDefinition != appdefinition.DiscordInteractions {
+	if destination.HandlerDefinition != appdefinition.Slack &&
+		destination.HandlerDefinition != appdefinition.Discord {
 		return fmt.Errorf("unsupported interaction handler %q", destination.HandlerDefinition)
 	}
 	// A claim is permanent, including an uncertain commit or provider response.
@@ -264,8 +280,9 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	}
 	var receipt InteractionReceipt
 	switch destination.HandlerDefinition {
-	case appdefinition.SlackInteractions:
-		target, err := access.slackTarget()
+	case appdefinition.Slack:
+		client := slack.WithRequestCheck(p.HTTPClient, check)
+		target, err := access.slackTarget(ctx, client)
 		if err != nil {
 			return err
 		}
@@ -273,7 +290,6 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 		if err != nil {
 			return err
 		}
-		client := slack.WithRequestCheck(p.HTTPClient, check)
 		messageID, err := postSlackInteraction(ctx, client, target, payload, interactionID)
 		if err != nil {
 			return err
@@ -283,12 +299,12 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 			ChannelID: target.Channel,
 			MessageID: messageID,
 		}
-	case appdefinition.DiscordInteractions:
+	case appdefinition.Discord:
 		client, err := p.discordClient(ctx, access, check)
 		if err != nil {
 			return err
 		}
-		scope, err := access.discordScope()
+		scope, err := DiscordInteractionScope(access.destination)
 		if err != nil {
 			return err
 		}
@@ -410,7 +426,7 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 	if err != nil {
 		return err
 	}
-	if receipt.Provider != access.connection.Provider {
+	if receipt.Provider != access.appSetup.Provider {
 		return storeerr.ErrUnauthorized
 	}
 	check := func(ctx context.Context) error { return p.recheck(ctx, access, checkAuthority) }
@@ -419,8 +435,9 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 		text = "Response recorded."
 	}
 	switch destination.HandlerDefinition {
-	case appdefinition.SlackInteractions:
-		target, err := access.slackTarget()
+	case appdefinition.Slack:
+		client := slack.WithRequestCheck(p.HTTPClient, check)
+		target, err := access.slackTarget(ctx, client)
 		if err != nil {
 			return err
 		}
@@ -429,18 +446,18 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 		}
 		result, err := slack.DismissPrompt(
 			ctx,
-			slack.WithRequestCheck(p.HTTPClient, check),
+			client,
 			target,
 			receipt.MessageID,
 			text,
 		)
 		return slackPromptError(result, err)
-	case appdefinition.DiscordInteractions:
+	case appdefinition.Discord:
 		client, err := p.discordClient(ctx, access, check)
 		if err != nil {
 			return err
 		}
-		scope, err := access.discordScope()
+		scope, err := DiscordInteractionScope(access.destination)
 		if err != nil {
 			return err
 		}
@@ -462,17 +479,9 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 func (p InteractionPresenter) PostRuntimeMessage(
 	ctx context.Context, projectID, agentID, operationID uuid.UUID, text string,
 ) error {
-	choices, err := p.Store.Execution().ListInteractionDestinations(ctx, projectID, agentID)
+	destination, err := p.Store.Execution().GetSelectedInteractionDestination(ctx, projectID, agentID)
 	if err != nil {
 		return err
-	}
-	var destination *executionstore.InteractionDestination
-	for _, choice := range choices.Destinations {
-		if choice.Destination.IntegrationTargetID == choices.Current.IntegrationTargetID &&
-			choice.Destination.ResourceKey == choices.Current.ResourceKey {
-			d := choice.Destination
-			destination = &d
-		}
 	}
 	if destination == nil {
 		return nil
@@ -485,24 +494,20 @@ func (p InteractionPresenter) PostRuntimeMessage(
 		if err := p.Store.Execution().EnsureRuntimeLockActive(ctx, projectID, agentID, operationID); err != nil {
 			return err
 		}
-		current, err := p.Store.Execution().ListInteractionDestinations(ctx, projectID, agentID)
+		current, err := p.Store.Execution().GetSelectedInteractionDestination(ctx, projectID, agentID)
 		if err != nil {
 			return err
 		}
-		if current.Current != choices.Current {
+		if !reflect.DeepEqual(current, destination) {
 			return storeerr.ErrUnauthorized
 		}
-		for _, choice := range current.Destinations {
-			if choice.Destination == *destination {
-				return nil
-			}
-		}
-		return storeerr.ErrUnauthorized
+		return nil
 	}
 	check := func(ctx context.Context) error { return p.recheck(ctx, access, authority) }
 	switch destination.HandlerDefinition {
-	case appdefinition.SlackInteractions:
-		target, err := access.slackTarget()
+	case appdefinition.Slack:
+		client := slack.WithRequestCheck(p.HTTPClient, check)
+		target, err := access.slackTarget(ctx, client)
 		if err != nil {
 			return err
 		}
@@ -510,14 +515,14 @@ func (p InteractionPresenter) PostRuntimeMessage(
 		if err != nil {
 			return err
 		}
-		_, result, err := slack.PostPromptReceipt(ctx, slack.WithRequestCheck(p.HTTPClient, check), target, payload)
+		_, result, err := slack.PostPromptReceipt(ctx, client, target, payload)
 		return slackPromptError(result, err)
-	case appdefinition.DiscordInteractions:
+	case appdefinition.Discord:
 		client, err := p.discordClient(ctx, access, check)
 		if err != nil {
 			return err
 		}
-		scope, err := access.discordScope()
+		scope, err := DiscordInteractionScope(access.destination)
 		if err != nil {
 			return err
 		}

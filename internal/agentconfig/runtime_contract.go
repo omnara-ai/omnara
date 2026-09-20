@@ -17,17 +17,18 @@ import (
 )
 
 type RuntimeContract struct {
-	Instruction     string
-	Model           ModelCompiled
-	MachineSources  []RuntimeMachine
-	Tools           []RuntimeTool
-	MCPServers      []RuntimeMCPServer
-	AppResources    map[string]AppResourceCompiled
-	Skills          []SkillCompiled
-	Subagents       map[string]SubagentCompiled
-	MaxSubagents    *int
-	MaxDepth        *int
-	configuredTools map[string]struct{}
+	Instruction         string
+	Model               ModelCompiled
+	MachineSources      []RuntimeMachine
+	Tools               []RuntimeTool
+	MCPServers          []RuntimeMCPServer
+	AppTools            map[string]ToolCompiled
+	Listeners           map[string]AppCapabilityCompiled
+	InteractionHandlers map[string]AppCapabilityCompiled
+	Skills              []SkillCompiled
+	Subagents           map[string]SubagentCompiled
+	MaxSubagents        *int
+	MaxDepth            *int
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -39,37 +40,17 @@ func (contract RuntimeContract) SubagentKeys() []string {
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
+	for _, tool := range contract.AppTools {
+		if tool.Enabled {
+			return true
+		}
+	}
 	return len(contract.Tools) > 0 || len(contract.MCPServers) > 0
 }
 
-func (contract RuntimeContract) WithImplicitBuiltInTool(name string) (RuntimeContract, error) {
-	// Provider entries are policy only until an app resource grants scope.
-	if toolcatalog.AppToolProvider(name) != "" {
-		return contract, nil
-	}
-	if _, configured := contract.configuredTools[name]; configured {
-		return contract, nil
-	}
-	for _, tool := range contract.Tools {
-		if tool.Name == name {
-			return contract, nil
-		}
-	}
-	catalog, err := toolcatalog.Default()
-	if err != nil {
-		return RuntimeContract{}, err
-	}
-	entry, ok := catalog.Lookup(name)
-	if !ok {
-		return RuntimeContract{}, fmt.Errorf("built-in tool %q is not registered", name)
-	}
-	contract.Tools = append([]RuntimeTool(nil), contract.Tools...)
-	contract.Tools = append(contract.Tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
-	sort.Slice(contract.Tools, func(i, j int) bool { return contract.Tools[i].Name < contract.Tools[j].Name })
-	return contract, nil
-}
-
 type RuntimeTool struct {
+	AppID       string
+	Config      json.RawMessage
 	Name        string
 	Type        string
 	Permission  toolpermission.Selection
@@ -127,9 +108,9 @@ func RuntimeContractFromCompiled(
 		return RuntimeContract{}, fmt.Errorf("parse compiled agent config: %w", err)
 	}
 	if err := validateCompiledApps(compiled); err != nil {
-		return RuntimeContract{}, fmt.Errorf("compiled app resources: %w", err)
+		return RuntimeContract{}, fmt.Errorf("compiled app capabilities: %w", err)
 	}
-	tools, err := runtimeTools(compiled.Tools, compiled.AppResources)
+	tools, err := runtimeTools(compiled.Tools)
 	if err != nil {
 		return RuntimeContract{}, err
 	}
@@ -137,27 +118,29 @@ func RuntimeContractFromCompiled(
 	if err != nil {
 		return RuntimeContract{}, err
 	}
-	configuredTools := make(map[string]struct{}, len(compiled.Tools))
-	for name := range compiled.Tools {
-		configuredTools[name] = struct{}{}
-	}
 	contract := RuntimeContract{
-		Instruction:     compiled.Instruction,
-		Model:           compiled.Model,
-		MachineSources:  runtimeMachineSources(compiled.MachineSources),
-		Tools:           tools,
-		MCPServers:      mcpServers,
-		AppResources:    compiled.AppResources,
-		Skills:          compiled.Skills,
-		Subagents:       compiled.Subagents,
-		MaxSubagents:    compiled.MaxSubagents,
-		MaxDepth:        compiled.MaxDepth,
-		configuredTools: configuredTools,
+		Instruction:         compiled.Instruction,
+		Model:               compiled.Model,
+		MachineSources:      runtimeMachineSources(compiled.MachineSources),
+		Tools:               tools,
+		MCPServers:          mcpServers,
+		AppTools:            appToolsFromCompiled(compiled),
+		Listeners:           compiled.Listeners,
+		InteractionHandlers: compiled.InteractionHandlers,
+		Skills:              compiled.Skills,
+		Subagents:           compiled.Subagents,
+		MaxSubagents:        compiled.MaxSubagents,
+		MaxDepth:            compiled.MaxDepth,
 	}
 	return contract, nil
 }
 
 func (contract RuntimeContract) DefersAnyTool() bool {
+	for _, tool := range contract.AppTools {
+		if tool.Enabled && tool.Deferred {
+			return true
+		}
+	}
 	for _, tool := range contract.Tools {
 		if tool.Deferred {
 			return true
@@ -182,7 +165,7 @@ func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {
 	return machines
 }
 
-func runtimeTools(compiled map[string]ToolCompiled, resources map[string]AppResourceCompiled) ([]RuntimeTool, error) {
+func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 	if len(compiled) == 0 {
 		return nil, nil
 	}
@@ -198,22 +181,15 @@ func runtimeTools(compiled map[string]ToolCompiled, resources map[string]AppReso
 	out := make([]RuntimeTool, 0, len(names))
 	for _, name := range names {
 		tool := compiled[name]
+		if toolcatalog.UsesAppToolNamespace(name) {
+			continue
+		}
 		entry, builtInName := catalog.Lookup(name)
 		if err := validateRuntimeTool(name, tool, entry, builtInName); err != nil {
 			return nil, err
 		}
-		if !tool.Enabled || !toolHasResources(name, resources) {
+		if !tool.Enabled {
 			continue
-		}
-		if toolcatalog.AppToolProvider(name) != "" {
-			keys := AppToolResources(resources, name)
-			if len(keys) == 0 {
-				continue
-			}
-			entry, err = entry.WithAppResources(keys)
-			if err != nil {
-				return nil, err
-			}
 		}
 		if tool.Type == toolcatalog.ToolTypeCustom {
 			out = append(out, RuntimeTool{
@@ -255,9 +231,15 @@ func validateRuntimeTool(
 	entry toolcatalog.Entry,
 	builtInName bool,
 ) error {
+	if err := validateUnsupportedConfig(tool.Config); err != nil {
+		return fmt.Errorf("compiled tool %q: %w", name, err)
+	}
+	if tool.Type != "" && tool.Type != toolcatalog.ToolTypeBuiltIn && tool.Type != toolcatalog.ToolTypeCustom {
+		return fmt.Errorf("compiled tool %q has unsupported type", name)
+	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
-		if toolcatalog.UsesMCPRuntimeNamespace(name) {
-			return fmt.Errorf("compiled custom tool %q uses the reserved MCP tool namespace", name)
+		if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesAppToolNamespace(name) {
+			return fmt.Errorf("compiled custom tool %q uses a reserved app or MCP tool namespace", name)
 		}
 		if toolcatalog.IsReservedWireToolName(name) {
 			return fmt.Errorf("compiled custom tool %q uses a reserved name", name)

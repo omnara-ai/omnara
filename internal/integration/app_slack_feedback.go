@@ -15,7 +15,7 @@ import (
 func (c *AppInboxConsumer) notifySlackLaunchFailure(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 	provider *SlackAppInboxProvider,
 	failure error,
@@ -37,11 +37,11 @@ func (c *AppInboxConsumer) notifySlackLaunchFailure(
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	envelope, _, ok, err := slackInboxEnvelope(connection, payload)
+	envelope, _, ok, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil || !ok {
 		return
 	}
-	config, token, _, err := provider.requestAccess(ctx, connection)
+	config, token, _, err := provider.requestAccess(ctx, appSetup)
 	if err == nil {
 		thread := envelope.Event.ThreadTS
 		if thread == "" && envelope.Event.ChannelType != "im" {
@@ -62,8 +62,8 @@ func (c *AppInboxConsumer) notifySlackLaunchFailure(
 			"Slack launch failure notice failed",
 			"receipt_id",
 			lease.ReceiptID,
-			"connection_id",
-			connection.ID,
+			"app_id",
+			appSetup.ID,
 			"error",
 			err,
 		)

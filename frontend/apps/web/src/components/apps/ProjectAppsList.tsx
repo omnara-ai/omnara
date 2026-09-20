@@ -43,15 +43,13 @@ export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId
                       ? app.settings.launcher.trigger === 'pull_request_opened'
                         ? 'Starts agents when a pull request opens'
                         : 'Starts agents when the bot is mentioned'
-                      : 'Reusable capabilities · no automatic launches'}
+                      : 'No automatic launches'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">
-                    {appDefinitionLabel(app.settings.resource.definition)}
-                  </Badge>
-                  <Badge variant={app.enabled ? 'outline' : 'secondary'}>
-                    {app.enabled ? 'Enabled' : 'Disabled'}
+                  <Badge variant="outline">{appDefinitionLabel(app.definition_id)}</Badge>
+                  <Badge variant={app.state === 'active' ? 'outline' : 'secondary'}>
+                    {app.state === 'active' ? 'Connected' : 'Disconnected'}
                   </Badge>
                 </div>
               </Link>

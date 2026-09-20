@@ -16,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
@@ -32,14 +31,14 @@ import (
 )
 
 type profileChoiceHTTPFixture struct {
-	handler    http.Handler
-	project    publicHTTPProject
-	pool       *pgxpool.Pool
-	connection integrationstore.IntegrationConnectionRecord
-	app        integrationstore.ProjectAppRecord
-	options    []integrationstore.AppProfileChoiceOption
-	key        ed25519.PrivateKey
-	updates    chan map[string]any
+	handler       http.Handler
+	project       publicHTTPProject
+	pool          *pgxpool.Pool
+	app           integrationstore.ProjectAppRecord
+	options       []integrationstore.AppProfileChoiceOption
+	key           ed25519.PrivateKey
+	updates       chan map[string]any
+	signingSecret string
 }
 
 // Start with profiles and a verified source receipt, never an agent or a fake
@@ -48,6 +47,12 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	t.Helper()
 	updates := make(chan map[string]any, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth.test" {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+			})
+			return
+		}
 		if !assert.Equal(t, "/api/chat.update", r.URL.Path) {
 			http.NotFound(w, r)
 			return
@@ -83,20 +88,24 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 		Name: "bot", Material: material, Actor: httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	connection, err := project.Store.Integrations().CreateIntegrationConnection(t.Context(),
-		integrationstore.SaveIntegrationConnectionInput{
-			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, InstalledByUserID: project.AdminUserUUID,
-			Provider: provider, State: integrationstore.IntegrationConnectionStateActive,
-			ProviderTenantID: tenant, ProviderAccountRef: account, CredentialSecretID: secret.ID,
-			ProviderConfig: config, ProviderIdentity: identity,
-		})
+	app, err := project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", DefinitionID: "omnara." + provider,
+	})
+	require.NoError(t, err)
+	app, err = project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
+		InstalledByUserID: project.AdminUserUUID, Provider: provider,
+		ProviderTenantID: tenant, ProviderAccountRef: account, CredentialSecretID: secret.ID,
+		CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
+		ProviderConfig: config, ProviderIdentity: identity,
+	})
 	require.NoError(t, err)
 	base := createPublicHTTPAgentConfig(t, handler, project, "profile-choice", "json",
 		`{"instruction":"Help with the original request","model":{"provider_config":"openai-prod","name":"gpt-test"}}`,
 		project.AdminToken, http.StatusCreated)
 	configID := mustPublicHTTPID(t, publicid.KindAgentConfig, testutil.RequireType[string](t, base["id"]))
 	f := profileChoiceHTTPFixture{
-		handler: handler, project: project, pool: pool, connection: connection, key: privateKey, updates: updates,
+		handler: handler, project: project, pool: pool, app: app, key: privateKey, updates: updates,
 	}
 	var slots []integrationstore.AppLaunchSlot
 	for _, name := range []string{"Support", "Reviewer"} {
@@ -108,12 +117,9 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 		slots = append(slots, integrationstore.AppLaunchSlot{Key: key, AgentProfileID: &profile.ID})
 		f.options = append(f.options, integrationstore.AppProfileChoiceOption{Key: key, ProfileID: profile.ID, Name: name})
 	}
-	f.app, err = project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
-		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "Support", DefinitionID: "omnara." + provider,
-		Enabled: true, Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{
-				Connection: testPublicID(t, publicid.KindIntegrationConnection, connection.ID),
-			},
+	f.app, err = project.Store.Integrations().UpdateProjectApp(t.Context(), app.ID, integrationstore.SaveProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", DefinitionID: "omnara." + provider,
+		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: scopeKind, ScopeRef: scopeRef, Slots: slots},
 		},
 	})
@@ -128,7 +134,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 		message, thread = "401", "301"
 	}
 	scope := appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "500", ChannelID: "299", ThreadID: thread}}
-	if f.connection.Provider == appdefinition.ProviderSlack {
+	if f.app.Provider == appdefinition.ProviderSlack {
 		channel, message, thread, originalActor = "C123", "222.333", "111.222", "U_ORIGINAL"
 		if other {
 			message, thread = "222.444", "111.444"
@@ -138,8 +144,8 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	source := integration.AppEvent{
 		Event:       appdefinition.Event{Kind: "message", Mentioned: true, Scope: scope},
 		SemanticKey: "source:" + message, ContentBlocks: json.RawMessage(`[{"type":"text","text":"original request"}]`),
-		Actor: executionstore.ActorParams{Provider: f.connection.Provider,
-			ProviderTenantID: f.connection.ProviderTenantID, ProviderUserID: originalActor},
+		Actor: executionstore.ActorParams{Provider: f.app.Provider,
+			ProviderTenantID: f.app.ProviderTenantID, ProviderUserID: originalActor},
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
 	}
 	kind, ref, err := scope.Conversation()
@@ -148,13 +154,13 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	payload := []byte("  {\"text\":\"original request\"}\n")
 	store := f.project.Store.Integrations()
 	accepted, created, err := store.AcceptIntegrationReceipt(t.Context(), integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.project.ProjectUUID, ConnectionID: f.connection.ID, ReceiptKey: source.SemanticKey, Payload: payload,
+		ProjectID: f.project.ProjectUUID, AppID: f.app.ID, ReceiptKey: source.SemanticKey, Payload: payload,
 	})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Nil(t, accepted.Events)
 	claimed, found, err := store.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project.ProjectUUID, ConnectionID: f.connection.ID,
+		ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
 		LeaseDuration: integrationstore.IntegrationInboxMaxLease,
 	})
 	require.NoError(t, err)
@@ -168,7 +174,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 		})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.NoError(t, store.RecordAppProfileChoiceMessage(t.Context(), f.project.ProjectUUID, f.connection.ID,
+	require.NoError(t, store.RecordAppProfileChoiceMessage(t.Context(), f.project.ProjectUUID, f.app.ID,
 		choice.ID, channel, message))
 	return f.readChoice(t, choice.ID)
 }
@@ -176,7 +182,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 func (f profileChoiceHTTPFixture) readChoice(t *testing.T, id uuid.UUID) integrationstore.AppProfileChoiceRecord {
 	t.Helper()
 	choice, err := f.project.Store.Integrations().GetAppProfileChoice(
-		t.Context(), f.project.ProjectUUID, f.connection.ID, id)
+		t.Context(), f.project.ProjectUUID, f.app.ID, id)
 	require.NoError(t, err)
 	return choice
 }
@@ -198,8 +204,8 @@ func (f profileChoiceHTTPFixture) assertReceiptCount(t *testing.T, choiceID uuid
 	t.Helper()
 	var count int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM integration_inbox
-		WHERE project_id=$1 AND connection_id=$2 AND receipt_key=$3`,
-		f.project.ProjectUUID, f.connection.ID, "choice:"+choiceID.String()).Scan(&count))
+		WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
+		f.project.ProjectUUID, f.app.ID, "choice:"+choiceID.String()).Scan(&count))
 	require.Equal(t, want, count)
 }
 
@@ -210,7 +216,7 @@ func (f profileChoiceHTTPFixture) callback(
 	t.Helper()
 	id := testPublicID(t, publicid.KindAppProfileChoice, choiceID)
 	path := "/api/integrations/discord/" +
-		testPublicID(t, publicid.KindIntegrationConnection, f.connection.ID) + "/interactions"
+		f.app.ProviderTenantID + "/interactions"
 	payload := map[string]any{
 		"id": "600", "type": 3, "application_id": "100", "guild_id": "500", "channel_id": menu.MessageChannelID,
 		"member": map[string]any{"user": map[string]any{"id": actor, "username": "selector"}},
@@ -219,7 +225,7 @@ func (f profileChoiceHTTPFixture) callback(
 		"data": map[string]any{"custom_id": discord.ProfileChoiceCustomIDPrefix + id,
 			"component_type": 3, "values": []string{key}},
 	}
-	if f.connection.Provider == appdefinition.ProviderSlack {
+	if f.app.Provider == appdefinition.ProviderSlack {
 		path = integrationActionsPath
 		payload = map[string]any{
 			"type": "block_actions", "api_app_id": "A123", "team": map[string]string{"id": "T123"},
@@ -237,9 +243,13 @@ func (f profileChoiceHTTPFixture) callback(
 	timestamp := fmt.Sprint(time.Now().Unix())
 	headers := map[string]string{"Content-Type": "application/json", "X-Signature-Timestamp": timestamp,
 		"X-Signature-Ed25519": hex.EncodeToString(ed25519.Sign(f.key, []byte(timestamp+body)))}
-	if f.connection.Provider == appdefinition.ProviderSlack {
+	if f.app.Provider == appdefinition.ProviderSlack {
 		body = url.Values{"payload": []string{body}}.Encode()
-		headers = unitSlackSignedHeaders(body, "signing-secret")
+		secret := f.signingSecret
+		if secret == "" {
+			secret = "signing-secret"
+		}
+		headers = unitSlackSignedHeaders(body, secret)
 		headers["Content-Type"] = "application/x-www-form-urlencoded"
 	}
 	if badSignature {
@@ -258,7 +268,7 @@ func (f profileChoiceHTTPFixture) assertAccepted(
 ) {
 	t.Helper()
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	if f.connection.Provider == appdefinition.ProviderDiscord {
+	if f.app.Provider == appdefinition.ProviderDiscord {
 		require.JSONEq(t, `{"type":7,"data":{
 "content":"Selected Reviewer. The original request has been queued for the agent.",
 			"components":[],"allowed_mentions":{"parse":[]}}}`, response.Body.String())
@@ -297,8 +307,8 @@ func TestAppProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *testing.T) {
 			f.assertReceiptCount(t, menu.ID, 1)
 			var receiptID uuid.UUID
 			require.NoError(t, f.pool.QueryRow(t.Context(),
-				`SELECT id FROM integration_inbox WHERE project_id=$1 AND connection_id=$2 AND receipt_key=$3`,
-				f.project.ProjectUUID, f.connection.ID, "choice:"+menu.ID.String()).Scan(&receiptID))
+				`SELECT id FROM integration_inbox WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
+				f.project.ProjectUUID, f.app.ID, "choice:"+menu.ID.String()).Scan(&receiptID))
 			receipt, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.project.ProjectUUID, receiptID)
 			require.NoError(t, err)
 			require.Equal(t, integrationstore.IntegrationInboxPending, receipt.State)
@@ -364,7 +374,9 @@ func TestAppProfileChoiceCallbacksRejectForgedAndCrossMenuChoices(t *testing.T) 
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					response := f.callback(t, menu, test.id, "reviewer", "700", test.bad, test.change)
-					if test.bad {
+					if test.id != menu.ID && test.id != other.ID {
+						require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+					} else if test.bad {
 						require.Equal(t, http.StatusUnauthorized, response.Code, response.Body.String())
 					} else if provider == appdefinition.ProviderDiscord {
 						require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -407,12 +419,12 @@ func TestAppProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 				_, err := f.project.Store.Integrations().UpdateProjectApp(t.Context(), f.app.ID,
 					integrationstore.SaveProjectAppInput{
 						OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
-						Name: f.app.Name, DefinitionID: f.app.DefinitionID, Enabled: true, Settings: settings,
+						Name: f.app.Name, DefinitionID: f.app.DefinitionID, Settings: settings,
 					})
 				require.NoError(t, err)
 			} else {
 				require.NoError(t, f.project.Store.Integrations().ExpireAppProfileChoice(
-					t.Context(), f.project.ProjectUUID, f.connection.ID, menu.ID))
+					t.Context(), f.project.ProjectUUID, f.app.ID, menu.ID))
 			}
 			response := f.callback(t, menu, menu.ID, "reviewer", "700", false, nil)
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -425,4 +437,110 @@ func TestAppProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 			require.False(t, time.Now().Before(choice.ExpiresAt))
 		})
 	}
+}
+
+func TestAppProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{appdefinition.ProviderSlack, appdefinition.ProviderDiscord} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceHTTPFixture(t, provider)
+			menu := f.menu(t, false)
+			other := projectAppHTTPSecondProject(t, f.handler, f.project)
+			publicKey, privateKey, err := ed25519.GenerateKey(nil)
+			require.NoError(t, err)
+			material := secrets.Material(secrets.GenericMaterial{Value: "other-token"})
+			config := json.RawMessage(projectAppHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}))
+			if provider == appdefinition.ProviderSlack {
+				material = secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-other", ClientID: "client",
+					ClientSecret: "client-secret", SigningSecret: "other-signing-secret"}
+				config = json.RawMessage(`{}`)
+			}
+			secret, _, err := f.project.Store.Secrets().CreateSecret(t.Context(), secretstore.CreateSecretInput{
+				OrgID: other.OrgUUID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: other.ProjectUUID,
+				Name: "other-bot", Material: material, Actor: httpUserPrincipal(other.AdminUserUUID),
+			})
+			require.NoError(t, err)
+			app, err := f.project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
+				OrgID: other.OrgUUID, ProjectID: other.ProjectUUID, Name: "sibling", DefinitionID: f.app.DefinitionID,
+			})
+			require.NoError(t, err)
+			app, err = f.project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+				OrgID: other.OrgUUID, ProjectID: other.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
+				InstalledByUserID: other.AdminUserUUID, Provider: provider,
+				ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,
+				CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
+				ProviderConfig: config, ProviderIdentity: f.app.ProviderIdentity,
+			})
+			require.NoError(t, err)
+			forged := f
+			forged.key, forged.signingSecret = privateKey, "other-signing-secret"
+			response := forged.callback(t, menu, menu.ID, "reviewer", "700", false, nil)
+			require.Equal(t, http.StatusUnauthorized, response.Code, response.Body.String())
+			f.assertReceiptCount(t, menu.ID, 0)
+			f.assertAccepted(t, f.callback(t, menu, menu.ID, "reviewer", "700", false, nil), menu)
+			f.assertReceiptCount(t, menu.ID, 1)
+			var count int
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, app.ID).Scan(&count))
+			require.Zero(t, count, "shared provider identity must not fan out a callback")
+		})
+	}
+}
+
+func TestAppProfileChoiceMetadataEditPreservesCallbackAuthority(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{appdefinition.ProviderSlack, appdefinition.ProviderDiscord} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceHTTPFixture(t, provider)
+			menu := f.menu(t, false)
+			settings := f.app.Settings
+			launcher := *settings.Launcher
+			launcher.Slots = []integrationstore.AppLaunchSlot{launcher.Slots[1], launcher.Slots[0]}
+			settings.Launcher = &launcher
+			updated, err := f.project.Store.Integrations().
+				UpdateProjectApp(t.Context(), f.app.ID, integrationstore.SaveProjectAppInput{
+					OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: f.app.Name,
+					DefinitionID: f.app.DefinitionID, Settings: settings,
+				})
+			require.NoError(t, err)
+			require.Equal(t, f.app.SetupRevision, updated.SetupRevision)
+			f.assertAccepted(t, f.callback(t, menu, menu.ID, "reviewer", "700", false, nil), menu)
+			f.assertReceiptCount(t, menu.ID, 1)
+		})
+	}
+}
+
+func TestAppProfileChoiceRejectsSetupChangedAfterAuthentication(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceHTTPFixture(t, appdefinition.ProviderDiscord)
+	menu := f.menu(t, false)
+	credential, err := f.project.Store.Secrets().GetSecret(t.Context(), f.app.OrgID, f.app.CredentialSecretID)
+	require.NoError(t, err)
+	updated, err := f.project.Store.Integrations().
+		ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+			OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, AppID: f.app.ID, ExpectedSetupRevision: f.app.SetupRevision,
+			InstalledByUserID: f.project.AdminUserUUID, Provider: f.app.Provider,
+			ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,
+			CredentialSecretID: credential.ID, CredentialVersionID: credential.CurrentVersionID,
+			ProviderConfig: f.app.ProviderConfig, ProviderIdentity: f.app.ProviderIdentity,
+		})
+	require.NoError(t, err)
+	require.Greater(t, updated.SetupRevision, f.app.SetupRevision)
+	input := discord.Interaction{Type: 3, ChannelID: menu.MessageChannelID,
+		User: &discord.User{ID: "700"},
+		Message: &discord.Message{
+			ID: menu.MessageID, ChannelID: menu.MessageChannelID, Author: discord.User{ID: f.app.ProviderAccountRef},
+		},
+		Data: discord.InteractionData{
+			CustomID:      discord.ProfileChoiceCustomIDPrefix + testPublicID(t, publicid.KindAppProfileChoice, menu.ID),
+			ComponentType: 3, Values: []string{"reviewer"}},
+	}
+	// The handler already authenticated this snapshot before setup was replaced.
+	response, err := (&Server{store: f.project.Store}).discordProfileChoiceAction(t.Context(), f.app, input)
+	require.NoError(t, err)
+	require.Equal(t, 4, response.Type)
+	require.Equal(t, unavailableProfileChoice, response.Data.Content)
+	f.assertReceiptCount(t, menu.ID, 0)
 }

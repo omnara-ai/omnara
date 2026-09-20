@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import {
+  mcpRuntimeToolNameError,
+  mcpServerNameError,
+  mcpToolEnabled,
+  unexposableMcpTools,
+} from '@/components/agents/agentConfigMcp'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
@@ -9,14 +15,11 @@ import {
   type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
-  mcpRuntimeToolNameError,
-  mcpServerNameError,
-  mcpToolEnabled,
-  unexposableMcpTools,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
-  appResources: {},
+  listeners: {},
+  interactionHandlers: {},
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',
   modelName: 'claude-sonnet-5',

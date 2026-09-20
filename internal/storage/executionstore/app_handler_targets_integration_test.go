@@ -3,78 +3,123 @@
 package executionstore_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppHandlerTargetsExistWithoutInputOrListener(t *testing.T) {
-	t.Parallel()
-	f := newAppActivationFixture(t)
-	resource := f.resource()
-	resource.Listener, resource.Follow = nil, nil
-	resource.Scope.Slack.ThreadTS = "111.222"
-	resource.InteractionHandler = &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions}
-	definition := f.definition(t, "Fixed handler only", map[string]agentconfig.AppResourceCompiled{"handler": resource})
-	config, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
-	require.NoError(t, err)
-	_, err = f.store.Execution().
-		CreateAgentProfile(
-			f.ctx,
-			executionstore.CreateAgentProfileInput{
-				ProjectID:       testProjectID,
-				Name:            "Fixed handler",
-				CurrentConfigID: config.ID,
+func handlerSelectionPlan(key, args string) executionstore.ToolCallPlan {
+	return func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		return executionstore.SetInteractionHandlerForToolCall(
+			executionstore.InteractionSelection{HandlerKey: key, Args: json.RawMessage(args)},
+			executionstore.ToolCallCompletionInput{
+				Outcome:            executionstore.ToolResultOutcomeSucceeded,
+				ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
 			},
-		)
+		), nil
+	}
+}
+
+func (f appInteractionFixture) selectionCall(t *testing.T) executionstore.ExecuteToolCallInput {
+	t.Helper()
+	id := createToolCallForProcessTest(
+		t,
+		f.ctx,
+		f.process,
+		uuid.NewString(),
+		toolcatalog.ToolNameSetInteractionHandler,
+	)
+	return executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       f.process.AgentID,
+		ToolCallID:    id,
+		RuntimeLockID: f.process.Lock.ID,
+	}
+}
+
+func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
+	t.Parallel()
+	f := newAppInteractionFixture(t)
+	handler := f.handlers["chat"]
+	handler.Config = json.RawMessage(`{"channel_id":"C777","thread_ts":"111.222"}`)
+	f.handlers["chat"] = handler
+	config, err := f.store.Execution().
+		CreateAgentConfig(f.ctx, f.definition(t, "fixed handler without catalog", f.handlers))
+	require.NoError(t, err)
+	launch, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		AgentConfigID:  config.ID,
+		LaunchedBy:     userPrincipal(f.user.ID),
+		IdempotencyKey: "fixed-handler",
+	})
 	require.NoError(t, err)
 	var count int
-	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets`).Scan(&count))
-	require.Zero(t, count, "profile saves materialize neither targets nor listeners")
-	launched, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(config.ID, "fixed-handler"))
-	require.NoError(t, err)
-	destinations, err := f.store.Execution().ListInteractionDestinations(f.ctx, testProjectID, launched.Agent.ID)
-	require.NoError(t, err)
-	require.Len(t, destinations.Destinations, 1)
-	require.Equal(t, "handler", destinations.Destinations[0].Destination.ResourceKey)
-	require.Equal(t, "C123:111.222", destinations.Destinations[0].Destination.Address.Ref)
-	require.Equal(t, executionstore.InteractionSelection{}, destinations.Current)
-	require.Empty(t, f.listeners(t, launched.Agent.ID))
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(
-			f.ctx,
-			`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`,
-			launched.Agent.ID,
-		).
-			Scan(
-				&count,
-			),
+		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, launch.Agent.ID).
+			Scan(&count),
 	)
-	require.Zero(t, count)
-	target, err := f.store.Integrations().
-		GetIntegrationTarget(f.ctx, testProjectID, destinations.Destinations[0].Destination.IntegrationTargetID)
+	require.Zero(t, count, "config save and activation create no handler targets")
+	page, err := f.store.Execution().
+		ListInteractionHandlers(f.ctx, testProjectID, launch.Agent.ID, "", 1)
 	require.NoError(t, err)
-	var role string
+	require.Len(t, page.Handlers, 1)
+	require.Equal(t, "chat", page.Handlers[0].Handler)
+	require.Nil(t, page.Selection)
+	require.NotEmpty(t, page.NextCursor)
+	lock, err := f.store.Execution().
+		AcquireAgentRuntimeLock(f.ctx, testProjectID, launch.Agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+	require.NoError(t, err)
+	f.process = processDaemonFixture{
+		Store:   f.store,
+		AgentID: launch.Agent.ID,
+		UserID:  f.user.ID,
+		Lock:    lock,
+	}
+	for range 2 {
+		_, err = f.store.Execution().
+			ExecuteToolCall(f.ctx, f.selectionCall(t), handlerSelectionPlan("chat", `{}`))
+		require.NoError(t, err)
+	}
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT routing_role FROM integration_targets WHERE id=$1`, target.ID).Scan(&role),
+		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, launch.Agent.ID).
+			Scan(&count),
 	)
-	require.Equal(t, string(integrationstore.TargetAttribution), role)
-	require.Equal(t, uuid.Nil, target.AppID)
+	require.Equal(t, 1, count, "selection creates and reuses canonical attribution")
+	next, err := f.store.Execution().
+		ListInteractionHandlers(f.ctx, testProjectID, launch.Agent.ID, page.NextCursor, 1)
+	require.NoError(t, err)
+	require.Equal(t, "other", next.Handlers[0].Handler)
+	require.Equal(
+		t,
+		"chat",
+		next.Selection.Handler,
+		"current selection is independent of pagination",
+	)
+	require.JSONEq(t, `{}`, string(next.Selection.Args))
+	require.Equal(t, "111.222", next.Selection.Destination.Slack.ThreadTS)
 	f.disable(t)
-	replayed, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(config.ID, "fixed-handler"))
+	replay, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		AgentConfigID:  config.ID,
+		LaunchedBy:     userPrincipal(f.user.ID),
+		IdempotencyKey: "fixed-handler",
+	})
 	require.NoError(t, err)
-	require.False(t, replayed.Created)
+	require.False(t, replay.Created)
 }
 
 func TestAppHandlerActivationClearsRevokedSelectionAndPreservesCapture(t *testing.T) {
@@ -82,134 +127,189 @@ func TestAppHandlerActivationClearsRevokedSelectionAndPreservesCapture(t *testin
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
 	prompt := f.question(t)
-	delete(f.resources, "chat")
-	f.change(t, f.resources)
-	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	delete(f.handlers, "chat")
+	f.change(t, f.handlers)
+	selection, err := f.store.Execution().
+		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{}, selection)
 	require.JSONEq(t, string(prompt.Destination), string(f.read(t, prompt.ID).Destination))
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
-	require.NoError(t, err, "revoking a handler preserves attribution/history")
-	destinations, err := f.store.Execution().ListInteractionDestinations(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err, "revocation preserves attribution/history")
+	page, err := f.store.Execution().
+		ListInteractionHandlers(f.ctx, testProjectID, f.process.AgentID, "", 100)
 	require.NoError(t, err)
-	for _, destination := range destinations.Destinations {
-		require.Equal(t, "other", destination.Destination.ResourceKey)
+	require.Len(t, page.Handlers, 1)
+	require.Equal(t, "other", page.Handlers[0].Handler)
+	require.Nil(t, page.Selection)
+}
+
+func TestAppHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {
+	t.Parallel()
+	f := newAppInteractionFixture(t)
+	input := f.selectionCall(t)
+	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+	require.NoError(t, integrationstore.LockConversationTx(f.ctx, blocker, testProjectID, f.app.ID,
+		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:555.666"}))
+	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+		return f.store.Execution().
+			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"thread_ts":"555.666"}`))
+	})
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAppConversation", 1)
+	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
+	defer cancel()
+	_, err := dbsqlc.New(blocker).
+		LockAgentInProject(lockCtx, dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.process.AgentID})
+	require.NoError(t, err, "selection must not hold the agent while waiting for a conversation")
+	require.NoError(t, blocker.Commit(f.ctx))
+	integrationdb.AwaitSuccess(t, done, "handler selection")
+	selection, err := f.store.Execution().
+		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.NotEqual(t, f.a.ID, selection.IntegrationTargetID)
+}
+
+func TestAppHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {
+	t.Parallel()
+	for _, change := range []string{"removed", "config", "same-address-different-config", "replacement-app", "unrelated"} {
+		t.Run(change, func(t *testing.T) {
+			t.Parallel()
+			f := newAppInteractionFixture(t)
+			input := f.selectionCall(t)
+			next := make(map[string]agentconfig.AppCapabilityCompiled, len(f.handlers))
+			for key, handler := range f.handlers {
+				next[key] = handler
+			}
+			switch change {
+			case "removed":
+				delete(next, "chat")
+			case "config":
+				handler := next["chat"]
+				handler.Config = json.RawMessage(`{"channel_id":"C999"}`)
+				next["chat"] = handler
+			case "same-address-different-config":
+				handler := next["chat"]
+				handler.Config = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
+				next["chat"] = handler
+			case "replacement-app":
+				replacement := f.createApp(t, "replacement")
+				handler := next["chat"]
+				handler.AppID = publicResourceID(publicid.KindProjectApp, replacement.ID)
+				next["chat"] = handler
+			}
+			config, err := f.store.Execution().
+				CreateAgentConfig(f.ctx, f.definition(t, "pending handler authority", next))
+			require.NoError(t, err)
+			activation := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+			_, err = dbsqlc.New(activation).
+				LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.process.AgentID})
+			require.NoError(t, err)
+			done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+				return f.store.Execution().
+					ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"thread_ts":"111.222"}`))
+			})
+			integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
+			_, err = activation.Exec(
+				f.ctx,
+				`UPDATE agents SET current_config_id=$3 WHERE project_id=$1 AND id=$2`,
+				testProjectID,
+				f.process.AgentID,
+				config.ID,
+			)
+			require.NoError(t, err)
+			require.NoError(t, activation.Commit(f.ctx))
+			result := integrationdb.Await(
+				t,
+				done,
+				"selection after config changed while waiting for agent lock",
+			)
+			if change == "unrelated" {
+				require.NoError(t, result.Err)
+			} else {
+				require.ErrorIs(t, result.Err, storeerr.ErrUnauthorized)
+			}
+			selection, err := f.store.Execution().
+				GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			if change == "unrelated" {
+				require.Equal(t, "chat", selection.HandlerKey)
+			} else {
+				require.Equal(t, executionstore.InteractionSelection{}, selection)
+			}
+		})
 	}
 }
 
-func TestAppHandlerInboxLaunchReusesSelectedOriginTarget(t *testing.T) {
+func TestAppHandlerSelectionAppGatePrecedesAgentLock(t *testing.T) {
 	t.Parallel()
-	f := newInboxLaunchFixture(t, false, time.Minute, "a")
-	slot := f.slots["a"]
-	slot.AgentID = uuid.Must(uuid.NewV7())
-	resource := f.resource()
-	resource.Listener, resource.Follow = nil, nil
-	resource.Scope.Slack.ThreadTS = "123.456"
-	resource.InteractionHandler = &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions}
-	definition := f.definition(
-		t,
-		"Selected exact handler",
-		map[string]agentconfig.AppResourceCompiled{"handler": resource},
-	)
-	slot.Launch.DerivedConfig, slot.Launch.IdempotencyKey = &definition, "selected-exact-handler"
-	// A distinct app retains independent profile selection in the same address.
-	setup := f.app.Settings
-	app, err := f.store.Integrations().
-		CreateProjectApp(
-			f.ctx,
-			integrationstore.SaveProjectAppInput{
-				OrgID:        testOrgID,
-				ProjectID:    testProjectID,
-				Name:         "other-handler-launcher",
-				DefinitionID: f.app.DefinitionID,
-				Settings:     setup,
-				Enabled:      true,
-			},
-		)
-	require.NoError(t, err)
-	slot.Selection.AppID = app.ID
-	_, _, err = f.store.Integrations().
-		AcceptIntegrationReceipt(
-			f.ctx,
-			integrationstore.VerifiedIntegrationReceipt{
-				ProjectID:    testProjectID,
-				ConnectionID: f.connection.ID,
-				ReceiptKey:   "handler-launch",
-				Payload:      []byte(`{}`),
-			},
-		)
-	require.NoError(t, err)
-	receipt, found, err := f.store.Integrations().
-		ClaimIntegrationInbox(
-			f.ctx,
-			integrationstore.ClaimIntegrationInboxInput{
-				ProjectID:     testProjectID,
-				ConnectionID:  f.connection.ID,
-				LeaseDuration: time.Minute,
-			},
-		)
-	require.NoError(t, err)
-	require.True(t, found)
-	plan, err := json.Marshal(map[string]executionstore.InboxLaunchSlot{"a": slot})
-	require.NoError(t, err)
+	f := newAppInteractionFixture(t)
+	input := f.selectionCall(t)
+	revocation := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+	q := dbsqlc.New(revocation)
 	require.NoError(
 		t,
-		f.store.Integrations().
-			WithIntegrationInboxLease(
-				f.ctx,
-				receipt.Lease(),
-				func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(f.ctx, plan) },
-			),
-	)
-	result, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, receipt.Lease(), "a")
-	require.NoError(t, err)
-	require.Equal(t, integrationstore.TargetSelected, result.IntegrationTarget.RoutingRole)
-	var count int
-	require.NoError(
-		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, slot.AgentID).
-			Scan(&count),
-	)
-	require.Equal(t, 1, count)
-	selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, slot.AgentID)
-	require.NoError(t, err)
-	require.Equal(t, "handler", selected.ResourceKey)
-	require.Equal(t, result.IntegrationTarget.ID, selected.IntegrationTargetID)
-}
-
-func TestAppHandlerConversationGatePrecedesConfigAgentLock(t *testing.T) {
-	t.Parallel()
-	f := newAppActivationFixture(t)
-	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "handler-gates"))
-	require.NoError(t, err)
-	resource := f.resource()
-	resource.Listener, resource.Follow = nil, nil
-	resource.InteractionHandler = &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions}
-	input := f.changeInput(
-		t,
-		agent.Agent.ID,
-		"Add fixed handler",
-		map[string]agentconfig.AppResourceCompiled{"handler": resource},
-		"handler-gates",
-	)
-	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(
-		t,
-		integrationstore.LockConversationTx(
+		q.LockProjectAppLifecycleExclusive(
 			f.ctx,
-			blocker,
-			testProjectID,
-			f.connection.ID,
-			integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
+			dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.app.ID},
 		),
 	)
-	done := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
-		return f.store.Execution().ChangeAgentConfig(f.ctx, input)
+	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+		return f.store.Execution().
+			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"thread_ts":"555.666"}`))
 	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAppConversation", 1)
-	_, err = dbsqlc.New(blocker).
-		LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.Agent.ID})
+	integrationdb.WaitForNamedLockWaiters(
+		t,
+		f.ctx,
+		f.store.pool,
+		"LockProjectAppLifecycleShared",
+		1,
+	)
+	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
+	defer cancel()
+	_, err := q.LockAgentInProject(
+		lockCtx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.process.AgentID},
+	)
+	require.NoError(t, err, "selection cannot hold the agent while waiting for the app")
+	_, err = revocation.Exec(
+		f.ctx,
+		`UPDATE project_apps SET state='disconnected' WHERE project_id=$1 AND id=$2`,
+		testProjectID,
+		f.app.ID,
+	)
 	require.NoError(t, err)
-	require.NoError(t, blocker.Commit(f.ctx))
-	integrationdb.AwaitSuccess(t, done, "fixed handler activation")
+	require.NoError(t, revocation.Commit(f.ctx))
+	result := integrationdb.Await(t, done, "pending selection after app revocation")
+	require.ErrorIs(t, result.Err, storeerr.ErrUnauthorized)
+	selection, err := f.store.Execution().
+		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{}, selection)
+}
+
+func TestAppHandlerSelectionValidatesArgsWithoutMutation(t *testing.T) {
+	t.Parallel()
+	f := newAppInteractionFixture(t)
+	initial := f.selectOrigin(t, f.a.ID)
+	input := f.selectionCall(t)
+	for _, args := range []string{
+		`{"channel_id":"C456"}`, `{"thread_ts":"invalid"}`, `{"app_id":"replacement"}`, `{"extra":true}`, `null`, `[]`,
+	} {
+		_, err := f.store.Execution().
+			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", args))
+		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+		selected, err := f.store.Execution().
+			GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+		require.NoError(t, err)
+		require.Equal(t, initial, selected)
+	}
+	_, err := f.store.Execution().
+		ExecuteToolCall(f.ctx, input, handlerSelectionPlan("", `{"thread_ts":"111.222"}`))
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	_, err = f.store.Execution().ExecuteToolCall(f.ctx, input, handlerSelectionPlan("", `{}`))
+	require.NoError(t, err)
+	selected, err := f.store.Execution().
+		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{}, selected)
 }

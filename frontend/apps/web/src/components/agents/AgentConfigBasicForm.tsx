@@ -61,20 +61,19 @@ export function AgentConfigBasicForm({
             resolvedTools={form.resolvedTools}
             onToolsChange={form.setTools}
           />
-          {Object.keys(form.appResources).length > 0 && (
+          {(Object.keys(form.listeners).length > 0 ||
+            Object.keys(form.interactionHandlers).length > 0) && (
             <div className="rounded-md border p-3 text-sm">
-              <p className="font-medium">App resources</p>
-              <ul>
-                {Object.entries(form.appResources).map(([key, resource]) => (
-                  <li key={key}>
-                    {key} · {resource.app_instance ?? resource.definition} ·{' '}
-                    {Object.keys(resource.tools ?? {}).join(', ') || 'No selected tools'}
-                  </li>
-                ))}
-              </ul>
+              <p className="font-medium">App capabilities</p>
+              {Object.keys(form.listeners).length > 0 && (
+                <p>Listeners: {Object.keys(form.listeners).join(', ')}</p>
+              )}
+              {Object.keys(form.interactionHandlers).length > 0 && (
+                <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
+              )}
               <p className="text-muted-foreground">
-                Edit resource scope and capabilities in YAML. Selected app tools appear in the tool
-                preview.
+                Edit listener and interaction settings in YAML. Sending tools are configured
+                separately.
               </p>
             </div>
           )}

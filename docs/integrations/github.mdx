@@ -28,77 +28,78 @@ or [Discord](/integrations/discord) interaction handler; GitHub has no interacti
 }
 ```
 
-Then create the connection using
-`POST /orgs/{orgID}/projects/{projectID}/integration-connections`:
+Create an Omnara app named `reviews` with definition `omnara.github`, then
+configure it at `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
 
 ```json
 {
-  "provider": "github",
+  "expected_setup_revision": 1,
   "provider_tenant_id": "12345",
   "provider_account_ref": "67890",
   "credential_secret_id": "sec_aeaqcaibaeaqcaibaeaqcaibae"
 }
 ```
 
-Use the returned `iin_…` ID in configs. The credential's App ID must match
-`provider_tenant_id`. A connection belongs to one project and one installation.
-Creating the connection verifies the App, installation and bot account with
-GitHub and saves the bot identity used for mentions and self-event filtering.
-Every save of an active connection repeats verification with GitHub. After
-renaming the GitHub App, save the connection to refresh the bot login used for
-mentions. The numeric App, installation and bot identities stay fixed. Disabling
-an existing connection without replacing its credential reference, or deleting
-the connection, does not require GitHub availability.
-Use GitHub's numeric repository ID in scopes; a repository's owner/name is not
-its identity.
+Use its current `setup_revision`. The credential's App ID must match
+`provider_tenant_id`; `provider_account_ref` is the installation ID. Omnara verifies
+the app, installation and bot identity before saving. Reconfigure after renaming
+the GitHub registration to refresh its bot login. Verified numeric identities
+remain fixed. Disconnecting or deleting the Omnara app requires no GitHub request
+and changes no comments or reviews in GitHub.
 
-GitHub sets a webhook URL on the App registration, rather than separately on
-each installation. The App-scoped callback path is
-`/api/integrations/github/{app_id}/events`, using the numeric App ID. It selects a
-project from the signed installation identity, so one App can serve connections
-for different installations in different projects. Do not substitute an `iin_…`
-connection ID in that URL. The server registers this route on the public Omnara
-host. Configure at least one connection before testing GitHub's webhook ping;
-a successful ping verifies the callback.
+Set the GitHub registration's webhook to
+`https://YOUR_OMNARA_HOST/api/integrations/github/APP_ID/events`, using the numeric
+GitHub App ID. The signed installation identity routes ordinary events to each
+matching active Omnara app. Independent apps may use the same installation;
+they are not automatically merged. Configure an active app before testing ping.
 
 ## Select tools for one PR
 
-Add this fragment to an ordinary [agent config](/agents/configuration), replacing
-the example connection, repository ID and PR number:
+After saving the `reviews` app, select operations by qualified tool name:
 
 ```yaml
-app_resources:
-  review:
-    definition: omnara.github
-    connection: iin_aeaqcaibaeaqcaibaeaqcaibae
-    scope:
-      github: {repository_id: 123456, pull_request: 42}
-    tools:
-      github_read: {}
-      github_discussion_comment:
-        permission: {mode: always_ask}
-      github_inline_comment:
-        permission: {mode: always_ask}
-      github_reply:
-        permission: {mode: always_ask}
+tools:
+  app__reviews__read:
+    config: {repository_id: 123456, pull_request: 42}
+  app__reviews__discussion_comment:
+    permission: {mode: always_ask}
+    config: {repository_id: 123456, pull_request: 42}
+  app__reviews__inline_comment:
+    permission: {mode: always_ask}
+    config: {repository_id: 123456, pull_request: 42}
+  app__reviews__reply:
+    permission: {mode: always_ask}
+    config: {repository_id: 123456, pull_request: 42}
 ```
 
-`github_read` reads PR details by default. Its `section` can select `diff`,
-`files`, `discussion_comments` or `review_comments`; list sections support
-`page` and `limit`. Large or binary diffs may be incomplete.
+Use the numeric repository ID, not its owner/name. Fixed destination fields are
+not model arguments and cannot be overridden. Empty config instead lets the model
+choose a PR within the credentials' access. Access to repository contents or a
+checkout is separate machine/profile configuration.
 
-`github_discussion_comment` posts a PR conversation comment using `body`.
-`github_inline_comment` posts on a diff using `body`, `commit_id`, `path`, `line`
-and `side` (`LEFT` or `RIGHT`); supply `start_line` and `start_side` together for
-a multiline comment. `github_reply` uses `comment_id` and `body` to reply to an
-existing review comment. These tools post individual comments, not a pending
-review that is published when the agent stops.
+`read` returns PR details by default. Its `section` can select `diff`, `files`,
+`discussion_comments` or `review_comments`; lists support `page` and `limit`.
+Large or binary diffs may be incomplete.
 
-Calls use `resource: "review"` when selecting this attachment. They cannot choose
-another repository or PR. Comment publication can have an uncertain result after
-a network failure; inspect GitHub before repeating the action.
+`discussion_comment` posts a PR conversation comment using `body`.
+`inline_comment` posts on the diff using `body`, `commit_id`, `path`, `line` and
+`side` (`LEFT` or `RIGHT`); provide `start_line` and `start_side` together for a
+multiline comment. `reply` uses `comment_id` and `body` to reply to an existing
+review comment. These publish individual comments; Omnara does not stage a review
+or publish one when an agent stops. A network failure can leave publication
+uncertain; inspect GitHub before repeating the action.
 
 ## Configure incoming PR work
+
+A manually configured listener looks like:
+
+```yaml
+listeners:
+  reviews__pull_request:
+    config:
+      conversations: [{repository_id: 123456, pull_request: 42}]
+      events: [discussion_comment, review_comment, commit]
+```
 
 A PR listener selects `discussion_comment`, `review_comment` and/or `commit`.
 Here `discussion_comment` means a comment in the PR conversation, not a GitHub
@@ -110,14 +111,9 @@ For PR-open launches, this is the project app body for
 
 ```json
 {
-  "name": "pr-reviewer",
+  "name": "reviews",
+  "definition_id": "omnara.github",
   "settings": {
-    "resource": {
-      "definition": "omnara.github",
-      "connection": "iin_aeaqcaibaeaqcaibaeaqcaibae",
-      "tools": {"github_read": {}, "github_discussion_comment": {}},
-      "listener": {"events": ["discussion_comment", "review_comment", "commit"]}
-    },
     "launcher": {
       "trigger": "pull_request_opened",
       "scope_kind": "repository",
@@ -128,7 +124,8 @@ For PR-open launches, this is the project app body for
 }
 ```
 
-The launcher supplies the concrete PR scope to a profile-derived agent. Use
+The launcher derives the PR tools and listener for the triggering PR, adding
+missing entries and preserving explicit entries from the profile. Use
 `trigger: "mention"` instead for explicit mentions in new human PR comments.
 Human discussion/review input steers the agent and cancels open interactions;
 PR opens and synchronization events queue. Bot comments, edits and unrelated
@@ -148,13 +145,13 @@ For an active configured installation, Omnara commits the signed raw callback
 before returning HTTP 204. A persistence failure returns 503; it does not schedule
 a GitHub retry. Manual redelivery with the same delivery ID is accepted once and
 deduplicated while that receipt remains stored. Signed pings and callbacks for
-unmanaged or disabled installations can receive 204 without creating agent work.
+unmanaged or disconnected installations can receive 204 without creating agent work.
 Omnara does not run an automatic GitHub redelivery scheduler.
 
 Completed raw receipts are eligible for cleanup seven days after completion.
 Their transport deduplication window ends when they are deleted; agent
 conversation history is preserved. Failed receipts remain available while their
-project and connection still exist.
+project and app still exist.
 
 See [Composable apps](/integrations/apps) for mixing these tools with another
 provider's listener or approval destination, and [Custom integrations](/integrations/custom-integrations)

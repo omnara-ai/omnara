@@ -19,9 +19,9 @@ import (
 // AgentInputOrigin is attribution for verified hosted inbox admission, not actor
 // identity or tool authority. Ordinary public input has no integration origin.
 type AgentInputOrigin struct {
-	ConnectionID uuid.UUID                            `json:"connection_id"`
-	Address      integrationstore.ConversationAddress `json:"address"`
-	DisplayName  string                               `json:"display_name,omitempty"`
+	AppID       uuid.UUID                            `json:"app_id"`
+	Address     integrationstore.ConversationAddress `json:"address"`
+	DisplayName string                               `json:"display_name,omitempty"`
 }
 
 // InboxInputResult returns the recorded input with Created=false on replay, without cancellation or
@@ -44,7 +44,7 @@ func prepareOriginContentInput(
 			errors.New("origin input requires project, agent and semantic idempotency key"),
 		)
 	}
-	if input.Origin == nil || input.Origin.ConnectionID == uuid.Nil || input.IntegrationTargetID != uuid.Nil {
+	if input.Origin == nil || input.Origin.AppID == uuid.Nil || input.IntegrationTargetID != uuid.Nil {
 		return input, nil, storeerr.InvalidRequest(errors.New("inbox input requires an origin, not a target ID"))
 	}
 	if err := input.Origin.Address.Validate(); err != nil {
@@ -66,33 +66,33 @@ func (s *Store) resolveInputOriginTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	input CreateAgentContentInputInput,
-) (CreateAgentContentInputInput, integrationstore.IntegrationConnectionRecord, error) {
-	connection, err := s.integrations.GetIntegrationConnectionByIDTx(ctx, tx, input.Origin.ConnectionID)
+) (CreateAgentContentInputInput, integrationstore.ProjectAppRecord, error) {
+	app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, input.Origin.AppID)
 	if err != nil {
-		return input, connection, err
+		return input, app, err
 	}
-	if connection.ProjectID != input.ProjectID {
-		return input, connection, storeerr.ErrUnauthorized
+	if app.ProjectID != input.ProjectID {
+		return input, app, storeerr.ErrUnauthorized
 	}
-	input.IdempotencyScope = integrationstore.IdempotencyScope(connection)
-	return input, connection, nil
+	input.IdempotencyScope = integrationstore.IdempotencyScope(app)
+	return input, app, nil
 }
 
 // This check belongs to verified provider ingress, not the generic actor resolver.
 func validateVerifiedProviderInputActor(
-	connection integrationstore.IntegrationConnectionRecord,
+	app integrationstore.ProjectAppRecord,
 	actor *ActorParams,
 ) error {
-	if actor == nil || strings.TrimSpace(actor.Provider) != connection.Provider ||
+	if actor == nil || strings.TrimSpace(actor.Provider) != app.Provider ||
 		strings.TrimSpace(
 			actor.ProviderTenantID,
-		) != connection.ProviderTenantID || strings.TrimSpace(actor.ProviderUserID) == "" {
+		) != app.ProviderTenantID || strings.TrimSpace(actor.ProviderUserID) == "" {
 		return storeerr.ErrUnauthorized
 	}
 	return nil
 }
 
-// Caller holds project/connection/conversation gates. No earlier locks are
+// Caller holds project/app/conversation gates. No earlier locks are
 // acquired here; the agent row serializes input dedupe and transient effects.
 func (s *Store) admitOriginContentTx(
 	ctx context.Context,
@@ -112,11 +112,11 @@ func (s *Store) admitOriginContentTx(
 	if result, found, err := s.originContentReplayTx(ctx, tx, input); err != nil || found {
 		return result, err
 	}
-	input, connection, err := s.resolveInputOriginTx(ctx, tx, input)
+	input, app, err := s.resolveInputOriginTx(ctx, tx, input)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := validateVerifiedProviderInputActor(connection, input.Actor); err != nil {
+	if err := validateVerifiedProviderInputActor(app, input.Actor); err != nil {
 		return InboxInputResult{}, err
 	}
 	agent, err := loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
@@ -124,7 +124,7 @@ func (s *Store) admitOriginContentTx(
 		return InboxInputResult{}, err
 	}
 	target, err := s.integrations.EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
-		ProjectID: input.ProjectID, AgentID: input.AgentID, ConnectionID: connection.ID,
+		ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: app.ID,
 		Address: input.Origin.Address, DisplayName: input.Origin.DisplayName, Role: integrationstore.TargetAttribution,
 	})
 	if err != nil {
@@ -181,7 +181,7 @@ func (s *Store) originContentReplayTx(
 	if err != nil {
 		return InboxInputResult{}, false, err
 	}
-	if target.AgentID != input.AgentID || target.IntegrationConnectionID != input.Origin.ConnectionID ||
+	if target.AgentID != input.AgentID || target.AppID != input.Origin.AppID ||
 		target.ProviderRefKind != input.Origin.Address.Kind || target.ProviderRef != input.Origin.Address.Ref {
 		return InboxInputResult{}, false, storeerr.ErrIdempotencyConflict
 	}

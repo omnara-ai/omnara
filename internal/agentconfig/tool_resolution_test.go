@@ -24,8 +24,8 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 			t.Fatalf("returned an already configured tool: %s", name)
 		}
 	}
-	compiled, err := compileTools(source)
-	if err != nil || len(compiled) != 13 || compiled["run_command"].Enabled {
+	compiled, err := compileTools(source, CompileOptions{}, true)
+	if err != nil || len(compiled) != 15 || compiled["run_command"].Enabled {
 		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
 	if len(source.Tools) != 1 || *source.Tools["run_command"].Enabled {
@@ -43,8 +43,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 		"skills: [" + skillID + "]\n",
 		"subagents: {worker: {type: self}}\n",
 		"subagents: {worker: {type: self}}\nskills: [" + skillID + "]\ntools:\n  spawn_agent: {enabled: false}\n  read_agent: {permission: {mode: always_ask}}\n",
-		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  slack_post_message: {enabled: false}\n",
-		"tools:\n  slack_post_message: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
+		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  web_search: {enabled: false}\n",
+		"tools:\n  web_search: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
 	} {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)
@@ -108,8 +108,8 @@ func TestToolPreviewDrafts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 13 {
-		t.Fatalf("got %d entries, want 13", len(entries))
+	if len(entries) != 15 {
+		t.Fatalf("got %d entries, want 15", len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Name == "run_command" && (entry.Enabled || entry.Permission.Mode != toolpermission.ModeAlwaysAsk) {
@@ -120,7 +120,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 		`{}`, `{"instruction":"", "model":{}, "mcp":{}}`,
 	} {
 		tools, err := ToolsFromSource(SourceFormatJSON, []byte(raw))
-		if err != nil || len(tools) != 0 {
+		if err != nil || len(tools) != 2 {
 			t.Fatalf("empty draft: %+v, %v", tools, err)
 		}
 	}

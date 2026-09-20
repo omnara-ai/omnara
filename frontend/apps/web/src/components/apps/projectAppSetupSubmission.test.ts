@@ -1,47 +1,30 @@
 import { expect, it, vi } from 'vitest'
 
-import { fakeId } from '@/test/fixtures'
+import { fakeId, projectApp } from '@/test/fixtures'
 
-import { projectAppFormValues } from './projectAppFormState'
 import { submitProjectAppSetup } from './projectAppSetupSubmission'
 
-it.each(['name', 'scope', 'profiles', 'discord-key'] as const)(
-  'rejects invalid %s before creating credentials or a connection',
+it.each(['tenant', 'account', 'discord-key', 'shards'] as const)(
+  'rejects invalid %s before saving credentials',
   async (invalid) => {
-    const provider = invalid === 'discord-key' ? 'discord' : 'github'
-    const values = {
-      ...projectAppFormValues(provider),
-      profileIds: [fakeId('aprf')],
-      scopeRef: '123',
-    }
-    if (invalid === 'name') values.name = '\u200b'
-    if (invalid === 'scope') values.scopeRef = '9223372036854775808'
-    if (invalid === 'profiles')
-      values.profileIds = Array.from(
-        { length: 17 },
-        (_, index) => `aprf_${String.fromCharCode(97 + index).repeat(26)}`,
-      )
-    if (invalid === 'discord-key') values.interactions = true
     const form = new FormData()
+    form.set('tenant', '111')
+    form.set('account', '222')
+    form.set('publicKey', 'ab'.repeat(32))
     form.set('shards', '1')
-    form.set('publicKey', 'invalid')
+    form.set(invalid === 'discord-key' ? 'publicKey' : invalid, 'invalid')
     type Actions = Parameters<typeof submitProjectAppSetup>[1]
     const actions: Actions = {
       createSecret: vi.fn<Actions['createSecret']>(),
-      createConnection: vi.fn<Actions['createConnection']>(),
-      createApp: vi.fn<Actions['createApp']>(),
-      updateApp: vi.fn<Actions['updateApp']>(),
+      configureApp: vi.fn<Actions['configureApp']>(),
       onSecretSaved: vi.fn(),
-      onConnectionSaved: vi.fn(),
     }
     await expect(
       submitProjectAppSetup(
         {
           form,
+          app: projectApp({ provider: 'discord' }),
           projectId: fakeId('proj'),
-          provider,
-          values,
-          creating: true,
           savedSecret: '',
           newCredential: true,
         },
@@ -49,7 +32,33 @@ it.each(['name', 'scope', 'profiles', 'discord-key'] as const)(
       ),
     ).rejects.toThrow()
     expect(actions.createSecret).not.toHaveBeenCalled()
-    expect(actions.createConnection).not.toHaveBeenCalled()
-    expect(actions.createApp).not.toHaveBeenCalled()
+    expect(actions.configureApp).not.toHaveBeenCalled()
   },
 )
+
+it('pins the app ID, revision and original provider identity on reconnect', async () => {
+  const app = projectApp({
+    provider: 'github',
+    provider_tenant_id: '111',
+    provider_account_ref: '222',
+    setup_revision: 8,
+  })
+  const form = new FormData()
+  form.set('tenant', '999')
+  form.set('account', '999')
+  form.set('secret', fakeId('sec'))
+  const configureApp = vi.fn(() => Promise.resolve(app))
+  await submitProjectAppSetup(
+    { form, app, projectId: app.project_id, savedSecret: '', newCredential: false },
+    { createSecret: vi.fn(), configureApp, onSecretSaved: vi.fn() },
+  )
+  expect(configureApp).toHaveBeenCalledWith({
+    appID: app.id,
+    expected_setup_revision: 8,
+    provider_tenant_id: '111',
+    provider_account_ref: '222',
+    provider_agent_display_name: '',
+    credential_secret_id: fakeId('sec'),
+    provider_config: {},
+  })
+})

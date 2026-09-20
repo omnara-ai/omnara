@@ -21,6 +21,9 @@ func TestInteractionPresenterLateReceiptAfterCancelDismisses(t *testing.T) {
 	prepareInteractionPromptFixture(t, ctx, f)
 	started, release, dismissed := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		switch r.URL.Path {
 		case "/chat.postMessage":
 			close(started)
@@ -49,7 +52,10 @@ func TestInteractionPresenterLateReceiptAfterCancelDismisses(t *testing.T) {
 		`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
 		f.Now,
 	)
-	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	executor := Executor{
+		Store:                 f.Store,
+		IntegrationHTTPClient: integrationProviderTestClient(server),
+	}
 	_, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
 	waitPresentation := enqueuePendingQuestionPresentations(t, ctx, executor)
@@ -70,7 +76,8 @@ func TestInteractionPresenterLateReceiptAfterCancelDismisses(t *testing.T) {
 		t.Fatal("late confirmed prompt was not dismissed")
 	}
 	require.NoError(t, waitPresentation())
-	current, found, err := f.Store.Execution().GetAgentInteraction(ctx, toolsTestProjectID, f.Agent.ID, interaction.ID)
+	current, found, err := f.Store.Execution().
+		GetAgentInteraction(ctx, toolsTestProjectID, f.Agent.ID, interaction.ID)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentInteractionStateCanceled, current.State)
@@ -81,13 +88,16 @@ func TestInteractionPresenterLateReceiptAfterCancelDismisses(t *testing.T) {
 	)
 }
 
-func TestInteractionPresenterRechecksConnectionBeforeRetry(t *testing.T) {
+func TestInteractionPresenterRechecksAppBeforeRetry(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixture(t, ctx, "presentation-revoked")
 	prepareInteractionPromptFixture(t, ctx, f)
 	started, release := make(chan struct{}, 1), make(chan struct{})
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
 		calls.Add(1)
 		if r.URL.Path != "/chat.postMessage" {
 			t.Errorf("unexpected provider request %s", r.URL.Path)
@@ -106,7 +116,10 @@ func TestInteractionPresenterRechecksConnectionBeforeRetry(t *testing.T) {
 	}()
 	call := f.recordToolCall(t, ctx, "revoked-question", "ask_question",
 		`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
-	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	executor := Executor{
+		Store:                 f.Store,
+		IntegrationHTTPClient: integrationProviderTestClient(server),
+	}
 	_, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
 	waitPresentation := enqueuePendingQuestionPresentations(t, ctx, executor)
@@ -116,8 +129,10 @@ func TestInteractionPresenterRechecksConnectionBeforeRetry(t *testing.T) {
 		t.Fatal("presentation did not start")
 	}
 	_, err = f.Store.Integrations().
-		DisableIntegrationConnection(ctx, integrationstore.DisableIntegrationConnectionInput{
-			ProjectID: toolsTestProjectID, ID: f.Install.ID, ExpectedOAuthFlowID: &f.Install.LastOAuthFlowID,
+		DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+			ProjectID:             toolsTestProjectID,
+			AppID:                 f.Install.ID,
+			ExpectedSetupRevision: &f.Install.SetupRevision,
 		})
 	require.NoError(t, err)
 	released = true

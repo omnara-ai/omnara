@@ -21,7 +21,7 @@ import (
 )
 
 func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
-	pool, _, ids, connectionID := appWorkerFixture(t)
+	pool, _, ids, appID := appWorkerFixture(t)
 	ctx := t.Context()
 	wrapper, err := secrets.NewLocalKeyWrapper(
 		"slack-inbox",
@@ -75,17 +75,21 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(
 		ctx,
-		`UPDATE integration_connections SET credential_secret_id=$2,provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`,
-		connectionID,
+		`UPDATE project_apps SET credential_secret_id=$2,provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`,
+		appID,
 		credential.ID,
 	)
 	require.NoError(t, err)
-	connection, err := store.Integrations().GetIntegrationConnection(ctx, ids.ProjectID, connectionID)
+	appSetup, err := store.Integrations().GetProjectApp(ctx, ids.ProjectID, appID)
 	require.NoError(t, err)
 	_, err = store.Secrets().GetProjectOwnedSecretPayload(ctx, ids.OrgID, ids.ProjectID, credential.ID)
 	require.Error(t, err, "this fixture must require the grant-aware read")
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth.test" {
+			_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+			return
+		}
 		requests.Add(1)
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 		_, _ = w.Write([]byte(`{"ok":true,"user":{"profile":{"display_name":"Alex"}},"channel":{"name":"reviews"}}`))
@@ -101,7 +105,7 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 		t,
 		slack.Event{Type: "message", Channel: "C123", TS: "1.2", User: "U123", Text: "hello"},
 	)
-	expanded, err := provider.Expand(ctx, connection, payload)
+	expanded, err := provider.Expand(ctx, appSetup, payload)
 	require.NoError(t, err)
 	require.Len(t, expanded.Events, 1)
 	before := requests.Load()
@@ -117,7 +121,7 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 			},
 		)
 	require.NoError(t, err)
-	_, err = provider.Expand(ctx, connection, payload)
+	_, err = provider.Expand(ctx, appSetup, payload)
 	require.Error(t, err)
 	require.Equal(t, before, requests.Load(), "revoked project grant must prevent every provider request")
 }

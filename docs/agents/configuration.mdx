@@ -129,18 +129,17 @@ The builder displays these defaults under **Tools → Other tools** without writ
 
 Existing machine configs gain missing machine-tool defaults only when saved again. The builder previews that saved result, not the tools currently stored for an existing config.
 
-### App resources
+### App capabilities
 
-Use `app_resources` to select provider tools, listeners, reply-following and
-interaction handlers independently. For example, a Slack send tool needs a
-connection and a channel/thread scope; an incoming Slack message alone does not
-grant it. A top-level `tools.slack_post_message` entry can set policy but supplies
-no destination by itself.
+Create a project app first, then reference its tools as
+`tools.app__<app-name>__<operation>`. Optional tool `config` fixes implementation
+settings independently of model arguments. Named `listeners` and
+`interaction_handlers` are separate config blocks. Removing a tool does not
+remove subscriptions; removing a listener removes its initial and runtime subscriptions.
 
-See [Composable apps](/integrations/apps) for a complete config that combines
-GitHub tools with a Slack approval destination, plus reusable project apps and
-provider-triggered launchers. App settings are captured when the config is
-created; editing a reusable app does not change an existing agent's config.
+App names resolve to immutable IDs when compiled, while credentials remain live
+on the app. See [Apps](/integrations/apps) for examples and provider launchers.
+Tools, listeners and interaction handlers are not inherited by spawned subagents.
 
 ### Deferred tools
 

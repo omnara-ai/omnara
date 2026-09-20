@@ -6,9 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -18,7 +16,7 @@ import (
 func TestProjectAppReferencesAndLifecycle(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	s := integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
+	s := integrationstore.New(f.pool, executionstore.AppAccess{})
 	execution := executionstore.New(f.pool, executionstore.Config{})
 	var configID uuid.UUID
 	require.NoError(
@@ -33,54 +31,54 @@ func TestProjectAppReferencesAndLifecycle(t *testing.T) {
 		OrgID: f.org, ProjectID: f.project, Name: "reviewer", CurrentConfigID: configID,
 	})
 	require.NoError(t, err)
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, f.connection)
-	require.NoError(t, err)
 	input := integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "Thread bot", DefinitionID: appdefinition.Slack, Enabled: true,
+		OrgID: f.org, ProjectID: f.project, Name: "thread-bot", DefinitionID: appdefinition.Slack,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{Connection: connection},
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "reviewer", AgentProfileID: &profile.ID}}},
 		},
 	}
 	app, err := s.CreateProjectApp(f.ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, appdefinition.Slack, app.Settings.Resource.Definition)
+	require.Equal(t, appdefinition.Slack, app.DefinitionID)
+	require.Equal(t, integrationstore.ProjectAppStateDisconnected, app.State)
+	require.EqualValues(t, 1, app.SetupRevision)
 	require.ErrorIs(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID), storeerr.ErrConflict)
 	_, err = s.CreateProjectApp(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.EqualError(t, err, `an app named "thread-bot" already exists in this project; choose a different name`)
 	_, err = s.GetProjectApp(f.ctx, uuid.New(), app.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	// Stopping the launcher keeps reusable setup and prevents deleting its profile.
-	input.Enabled = false
+	// Disconnected apps retain launcher references and protect their profiles.
 	updated, err := s.UpdateProjectApp(f.ctx, app.ID, input)
 	require.NoError(t, err)
-	require.False(t, updated.Enabled)
+	require.Equal(t, integrationstore.ProjectAppStateDisconnected, updated.State)
+	require.Equal(t, app.SetupRevision, updated.SetupRevision)
 	require.ErrorIs(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID), storeerr.ErrConflict)
 	require.NoError(t, s.DeleteProjectApp(f.ctx, f.org, f.project, app.ID))
 	require.NoError(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID))
 	_, err = s.GetProjectApp(f.ctx, f.project, app.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	// App deletion does not disconnect the provider account.
-	_, err = s.GetIntegrationConnection(f.ctx, f.project, f.connection)
+	// Deleting one app leaves independently owned apps intact.
+	other, err := s.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
+	require.Equal(t, integrationstore.ProjectAppStateActive, other.State)
 }
 
 func TestProjectAppIndependentCapabilitiesAndPagination(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	s := integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
+	s := integrationstore.New(f.pool, executionstore.AppAccess{})
 	input := integrationstore.SaveProjectAppInput{
 		OrgID:        f.org,
 		ProjectID:    f.project,
-		Name:         "Slack settings",
+		Name:         "slack-settings",
 		DefinitionID: appdefinition.Slack,
-		Enabled:      true,
 	}
 	first, err := s.CreateProjectApp(f.ctx, input)
 	require.NoError(t, err) // Reusable setup need not enable a launcher or listener.
-	input.Name = "More Slack settings"
+	input.Name = "more-slack-settings"
 	second, err := s.CreateProjectApp(f.ctx, input)
 	require.NoError(t, err)
 	page, err := s.ListProjectApps(f.ctx, integrationstore.ListProjectAppsInput{ProjectID: f.project, Limit: 1})
@@ -92,18 +90,26 @@ func TestProjectAppIndependentCapabilitiesAndPagination(t *testing.T) {
 		integrationstore.ListProjectAppsInput{ProjectID: f.project, Limit: 1, After: page.Next},
 	)
 	require.NoError(t, err)
-	require.False(t, page.HasMore)
+	require.True(t, page.HasMore)
 	require.Equal(t, first.ID, page.Apps[0].ID)
+	page, err = s.ListProjectApps(
+		f.ctx,
+		integrationstore.ListProjectAppsInput{ProjectID: f.project, Limit: 1, After: page.Next},
+	)
+	require.NoError(t, err)
+	require.False(t, page.HasMore)
+	require.Equal(t, f.appID, page.Apps[0].ID)
 	_, err = f.pool.Exec(
 		f.ctx,
-		`INSERT INTO org_resource_limit_overrides(org_id,max_active_project_apps_per_project) VALUES($1,2)`,
+		`INSERT INTO org_resource_limit_overrides(org_id,max_active_project_apps_per_project) VALUES($1,3)`,
 		f.org,
 	)
 	require.NoError(t, err)
-	input.Name = "Over limit"
+	input.Name = "over-limit"
 	_, err = s.CreateProjectApp(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.EqualError(t, err, "project apps limit of 3 reached: resource conflict")
 	page, err = s.ListProjectApps(f.ctx, integrationstore.ListProjectAppsInput{ProjectID: f.project, Limit: 100})
 	require.NoError(t, err)
-	require.Len(t, page.Apps, 2) // The failed insert rolled back.
+	require.Len(t, page.Apps, 3) // The failed insert rolled back.
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/stretchr/testify/require"
 )
@@ -29,46 +27,7 @@ func TestDiscordPresenterRechecksRotatedCredentialIdentity(t *testing.T) {
 				"discord-presenter",
 				toolFixtureOptions{withDiscordApp: true},
 			)
-			var err error
-			f.Install, err = f.Store.Integrations().UpdateIntegrationConnection(
-				ctx,
-				f.Install.ID,
-				integrationstore.SaveIntegrationConnectionInput{
-					OrgID:              toolsTestOrgID,
-					ProjectID:          toolsTestProjectID,
-					InstalledByUserID:  f.User.ID,
-					Provider:           "discord",
-					State:              integrationstore.IntegrationConnectionStateActive,
-					ProviderTenantID:   f.Install.ProviderTenantID,
-					ProviderAccountRef: f.Install.ProviderAccountRef,
-					CredentialSecretID: f.Install.CredentialSecretID,
-					ProviderConfig:     json.RawMessage(`{"public_key":"` + strings.Repeat("ab", 32) + `"}`),
-				},
-			)
-			require.NoError(t, err)
-			activateInteractionToolHandlers(t, ctx, f, "chat")
-			destinations, err := f.Store.Execution().ListInteractionDestinations(ctx, toolsTestProjectID, f.Agent.ID)
-			require.NoError(t, err)
-			require.Len(t, destinations.Destinations, 1)
-			tx, err := f.Pool.Begin(ctx)
-			require.NoError(t, err)
-			defer func() { _ = tx.Rollback(ctx) }()
-			_, err = tx.Exec(
-				ctx,
-				"SELECT id FROM agents WHERE project_id=$1 AND id=$2 FOR UPDATE",
-				toolsTestProjectID,
-				f.Agent.ID,
-			)
-			require.NoError(t, err)
-			_, err = f.Store.Execution().SelectInteractionDestinationForOriginTx(
-				ctx,
-				tx,
-				toolsTestProjectID,
-				f.Agent.ID,
-				destinations.Destinations[0].Destination.IntegrationTargetID,
-			)
-			require.NoError(t, err)
-			require.NoError(t, tx.Commit(ctx))
+			prepareInteractionPromptFixture(t, ctx, f)
 
 			var rotated atomic.Bool
 			rotate := func() {
@@ -140,7 +99,7 @@ func TestDiscordPresenterRechecksRotatedCredentialIdentity(t *testing.T) {
 				`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
 			client := integrationProviderTestClient(server)
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: client}
-			_, err = dispatchToolAndDrainAsync(t, ctx, executor, f.turn(), call)
+			_, err := dispatchToolAndDrainAsync(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			interaction := integrationToolInteraction(t, ctx, f, f.toolCallID(t, ctx, call.ID), "question")
 			require.Equal(t, executionstore.AgentInteractionStateOpen, interaction.State)

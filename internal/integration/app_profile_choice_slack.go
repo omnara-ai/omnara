@@ -10,10 +10,10 @@ import (
 )
 
 func (p *SlackAppInboxProvider) PresentProfileChoice(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, check func(context.Context) error,
 ) (string, string, error) {
-	config, token, _, err := p.requestAccess(ctx, connection)
+	config, token, _, err := p.requestAccess(ctx, appSetup)
 	if err != nil {
 		return "", "", err
 	}
@@ -43,10 +43,10 @@ func (p *SlackAppInboxProvider) PresentProfileChoice(
 }
 
 func (p *SlackAppInboxProvider) DismissProfileChoice(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, text string,
 ) error {
-	config, token, _, err := p.requestAccess(ctx, connection)
+	config, token, _, err := p.requestAccess(ctx, appSetup)
 	if err != nil {
 		return err
 	}

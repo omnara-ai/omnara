@@ -71,11 +71,10 @@ func setOrgResourceLimitOverrides(
     max_active_byo_daemon_tokens_per_machine,
     max_non_terminal_processes_per_agent,
     max_active_cron_triggers_per_project,
-    max_active_integration_connections_per_project,
     max_active_project_apps_per_project,
     max_active_app_listeners_per_agent
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 )
 ON CONFLICT (org_id) DO UPDATE SET
     max_active_projects_per_org = EXCLUDED.max_active_projects_per_org,
@@ -93,7 +92,6 @@ ON CONFLICT (org_id) DO UPDATE SET
     max_active_byo_daemon_tokens_per_machine = EXCLUDED.max_active_byo_daemon_tokens_per_machine,
     max_non_terminal_processes_per_agent = EXCLUDED.max_non_terminal_processes_per_agent,
     max_active_cron_triggers_per_project = EXCLUDED.max_active_cron_triggers_per_project,
-    max_active_integration_connections_per_project = EXCLUDED.max_active_integration_connections_per_project,
     max_active_project_apps_per_project = EXCLUDED.max_active_project_apps_per_project,
     max_active_app_listeners_per_agent = EXCLUDED.max_active_app_listeners_per_agent`,
 		testOrgID,
@@ -112,7 +110,6 @@ ON CONFLICT (org_id) DO UPDATE SET
 		value("max_active_byo_daemon_tokens_per_machine"),
 		value("max_non_terminal_processes_per_agent"),
 		value("max_active_cron_triggers_per_project"),
-		value("max_active_integration_connections_per_project"),
 		value("max_active_project_apps_per_project"),
 		value("max_active_app_listeners_per_agent"),
 	); err != nil {
@@ -149,7 +146,6 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveByoDaemonTokensPerMachine:        20,
 		MaxNonTerminalProcessesPerAgent:           32,
 		MaxActiveCronTriggersPerProject:           1_000,
-		MaxActiveIntegrationConnectionsPerProject: 1_000,
 		MaxActiveProjectAppsPerProject:            1_000,
 		MaxActiveAppListenersPerAgent:             1_024,
 	}
@@ -173,7 +169,6 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		"max_active_byo_daemon_tokens_per_machine":         13,
 		"max_non_terminal_processes_per_agent":             42,
 		"max_active_cron_triggers_per_project":             14,
-		"max_active_integration_connections_per_project":   15,
 		"max_active_project_apps_per_project":              16,
 		"max_active_app_listeners_per_agent":               17,
 	}
@@ -199,7 +194,6 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveByoDaemonTokensPerMachine:        13,
 		MaxNonTerminalProcessesPerAgent:           42,
 		MaxActiveCronTriggersPerProject:           14,
-		MaxActiveIntegrationConnectionsPerProject: 15,
 		MaxActiveProjectAppsPerProject:            16,
 		MaxActiveAppListenersPerAgent:             17,
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
 )
@@ -72,34 +73,34 @@ func bindInboxQueryFile(t *testing.T, file, name string, parameters map[string]a
 func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	app := uuid.New()
+	app := f.appID
 	// Completed plans match the requested identity but must not reserve it. Failed
 	// unplanned receipts and many unrelated pending/processing/failed plans must
 	// not turn either an empty lookup or a late match into a history scan.
 	f.exec(t, `INSERT INTO integration_inbox
- (project_id,connection_id,receipt_key,payload,state,plan,claim_token,claim_expires_at,completed_at)
+ (project_id,app_id,receipt_key,payload,state,plan,claim_token,claim_expires_at,completed_at)
  SELECT $1::uuid,$2::uuid,'reservation-history:'||n,'x'::bytea,
  CASE WHEN n<=8000 THEN 'completed' WHEN n<=16000 THEN 'failed' WHEN n<=24000 THEN 'pending'
       WHEN n<=28000 THEN 'processing' ELSE 'failed' END,
  CASE WHEN n>8000 AND n<=16000 THEN NULL ELSE
    jsonb_build_object('a',jsonb_build_object('selection',jsonb_build_object(
-     'app_id',$3::text,'connection_id',($2::uuid)::text,'slot','a',
+     'app_id',$3::text,'slot','a',
      'address',jsonb_build_object('kind','thread','ref',
        CASE WHEN n<=8000 THEN 'C123:123.456' ELSE 'C123:'||n||'.456' END)))) END,
  CASE WHEN n>24000 AND n<=28000 THEN uuidv7() ELSE NULL END,
  CASE WHEN n>24000 AND n<=28000 THEN now()+interval '1 minute' ELSE NULL END,
  CASE WHEN n<=8000 THEN now() ELSE NULL END
- FROM generate_series(1,32000) n`, f.project, f.connection, app.String())
+ FROM generate_series(1,32000) n`, f.project, f.appID, app.String())
 	f.exec(t, "ANALYZE integration_inbox")
 	identity := map[string]any{
-		"app_id": app, "connection_id": f.connection,
+		"app_id":  app,
 		"address": map[string]any{"kind": "thread", "ref": "C123:123.456"},
 	}
 	selection, err := json.Marshal(identity)
 	require.NoError(t, err)
 	own := uuid.New()
 	parameters := map[string]any{
-		"project_id": f.project, "connection_id": f.connection, "receipt_id": own, "selection": selection,
+		"project_id": f.project, "app_id": f.appID, "receipt_id": own, "selection": selection,
 		"include_failed": true,
 	}
 	assertLookup := func(t *testing.T, wantID uuid.UUID, wantState string, maxInspected float64) {
@@ -156,13 +157,13 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 			own, match := uuid.New(), uuid.New()
 			parameters["receipt_id"], parameters["selection"] = own, selection
 			f.exec(t, `INSERT INTO integration_inbox
- (id,project_id,connection_id,receipt_key,payload,plan,state,claim_token,claim_expires_at)
+ (id,project_id,app_id,receipt_key,payload,plan,state,claim_token,claim_expires_at)
  SELECT id,$1,$2,'matching:'||id,'x'::bytea,
    jsonb_build_object('a',jsonb_build_object('selection',$5::jsonb||'{"slot":"a"}'::jsonb),
                       'b',jsonb_build_object('selection',$5::jsonb||'{"slot":"b"}'::jsonb)), $6::text,
    CASE WHEN $6::text='processing' THEN uuidv7() ELSE NULL END,
    CASE WHEN $6::text='processing' THEN now()+interval '1 minute' ELSE NULL END
- FROM unnest(ARRAY[$3::uuid,$4::uuid]) id`, f.project, f.connection, own, match, selection, state)
+ FROM unnest(ARRAY[$3::uuid,$4::uuid]) id`, f.project, f.appID, own, match, selection, state)
 			assertLookup(t, match, state, 2)
 			parameters["include_failed"] = false
 			if state == "failed" {
@@ -208,35 +209,26 @@ func assertInboxRowsInspected(t *testing.T, plan inboxQueryPlan, maxRows float64
 func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	disabled := uuid.New()
-	f.exec(t, `INSERT INTO integration_connections
- (id,org_id,project_id,installed_by_user_id,provider,state,
-  provider_tenant_id,provider_account_ref,created_at,updated_at)
- SELECT $1,org_id,project_id,installed_by_user_id,provider,'disabled',provider_tenant_id,'disabled-history',now(),now()
- FROM integration_connections WHERE id=$2`, disabled, f.connection)
-	other := uuid.New()
-	f.exec(t, `INSERT INTO integration_connections
- (id,org_id,project_id,installed_by_user_id,provider,state,
-  provider_tenant_id,provider_account_ref,created_at,updated_at)
- SELECT $1,org_id,project_id,installed_by_user_id,provider,'active',provider_tenant_id,'other-ready',now(),now()
- FROM integration_connections WHERE id=$2`, other, f.connection)
-	// Future work, recent completions, failed selections on an inactive connection,
-	// and another connection's ready backlog must not make empty polls scan history.
+	disabled := f.addApp(t, "disconnected", integrationstore.ProjectAppSettings{}).ID
+	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, disabled)
+	other := f.addApp(t, "other-ready", integrationstore.ProjectAppSettings{}).ID
+	// Future work, recent completions, failed selections on an inactive app,
+	// and another app's ready backlog must not make empty polls scan history.
 	f.exec(
 		t,
-		`INSERT INTO integration_inbox(project_id,connection_id,receipt_key,payload,state,available_at,completed_at)
+		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,state,available_at,completed_at)
  SELECT $1,CASE WHEN n>24000 THEN $4::uuid WHEN n>16000 THEN $3::uuid ELSE $2::uuid END,'bulk:'||n,'x'::bytea,
  CASE WHEN n<=8000 OR n>24000 THEN 'pending' WHEN n<=16000 THEN 'completed' ELSE 'failed' END,
  CASE WHEN n<=8000 THEN now()+interval '1 day' ELSE now() END,
  CASE WHEN n>8000 AND n<=16000 THEN now() ELSE NULL END
  FROM generate_series(1,32000) n`,
 		f.project,
-		f.connection,
+		f.appID,
 		disabled,
 		other,
 	)
 	f.exec(t, "ANALYZE integration_inbox")
-	f.exec(t, "ANALYZE integration_connections")
+	f.exec(t, "ANALYZE project_apps")
 	for _, name := range []string{
 		"RecoverExpiredIntegrationInboxReceipts", "FailInactiveIntegrationInboxReceipts",
 		"CleanupDeletedIntegrationInboxReceipts",
@@ -245,14 +237,14 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 			assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 100}), 0)
 		})
 	}
-	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxConnections", map[string]any{
+	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxApps", map[string]any{
 		"row_limit": 100,
 	}), 100)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupTerminalIntegrationInboxReceipts", map[string]any{
 		"row_limit": 100, "retention_milliseconds": time.Hour.Milliseconds(),
 	}), 0)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ClaimIntegrationInboxReceipt", map[string]any{
-		"project_id": f.project, "connection_id": f.connection,
+		"project_id": f.project, "app_id": f.appID,
 		"claim_token": uuid.New(), "lease_milliseconds": int64(60000),
 	}), 0)
 	// A single expired lease stays bounded even with thousands of healthy rows.
@@ -262,50 +254,52 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "RecoverExpiredIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
-	f.exec(t, `INSERT INTO integration_inbox(project_id,connection_id,receipt_key,payload)
+	f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload)
  VALUES($1,$2,'inactive','x'::bytea)`, f.project, disabled)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "FailInactiveIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
-	f.exec(t, `UPDATE integration_connections SET deleted_at=now() WHERE id=$1`, disabled)
+	f.exec(t, `UPDATE project_apps SET deleted_at=now() WHERE id=$1`, disabled)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupDeletedIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
 }
 
-func TestInboxInactiveRecoveryBatchesConnectionsAcrossProjects(t *testing.T) {
+func TestInboxInactiveRecoveryBatchesAppsAcrossProjects(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	otherProject := uuid.New()
 	storagefixture.InsertProject(t, f.ctx, f.pool, f.org, otherProject,
 		"Other inbox project", "other-inbox-project", time.Now())
-	// Each project has four inactive connections with retained failures and an
-	// active connection with a large healthy backlog. Arrays are real batches;
-	// a match in either project must not inspect unrelated connections' receipts.
+	// Each project has four inactive apps with retained failures and an
+	// active app with a large healthy backlog. Arrays are real batches;
+	// a match in either project must not inspect unrelated apps' receipts.
 	for _, project := range []uuid.UUID{f.project, otherProject} {
-		for connection := range 5 {
+		for app := range 5 {
 			id := uuid.New()
-			state, inboxState := "disabled", "failed"
-			if connection == 4 {
+			state, inboxState := "disconnected", "failed"
+			if app == 4 {
 				state, inboxState = "active", "pending"
 			}
-			f.exec(t, `INSERT INTO integration_connections
+			f.exec(t, `INSERT INTO project_apps
  (id,org_id,project_id,installed_by_user_id,provider,state,
-  provider_tenant_id,provider_account_ref,created_at,updated_at)
- VALUES($1,$2,$3,$4,'slack',$5,'batch-team',($1::uuid)::text,now(),now())`, id, f.org, project, f.user, state)
-			f.exec(t, `INSERT INTO integration_inbox(project_id,connection_id,receipt_key,payload,state)
+  provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at)
+ VALUES($1,$2,$3,$4,'slack',$5,'batch-team',($1::uuid)::text,'app-'||$7::text,'omnara.slack',
+ (SELECT credential_secret_id FROM project_apps WHERE id=$6),now(),now())`,
+				id, f.org, project, f.user, state, f.appID, strconv.Itoa(app))
+			f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,state)
  SELECT $1,$2,'batch-history:'||n,'x'::bytea,$3 FROM generate_series(1,4000) n`, project, id, inboxState)
 		}
 	}
-	f.exec(t, "ANALYZE integration_connections")
+	f.exec(t, "ANALYZE project_apps")
 	f.exec(t, "ANALYZE integration_inbox")
 	name := "FailInactiveIntegrationInboxReceipts"
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 3}), 0)
-	f.exec(t, `INSERT INTO integration_inbox(project_id,connection_id,receipt_key,payload)
- SELECT project_id,id,'batch-pending','x'::bytea FROM integration_connections WHERE state='disabled'`)
+	f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload)
+ SELECT project_id,id,'batch-pending','x'::bytea FROM project_apps WHERE state='disconnected'`)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 3}), 6)
 	// Both the lateral and outer limit matter: three rows total, across all
-	// projects. Repeated bounded batches must eventually drain every connection.
+	// projects. Repeated bounded batches must eventually drain every app.
 	query, args := bindInboxQueryFile(t, "integration_inbox.sql", name, map[string]any{"row_limit": 3})
 	for _, want := range []int64{3, 3, 2, 0} {
 		result, err := f.pool.Exec(f.ctx, query, args...)

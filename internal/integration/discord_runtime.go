@@ -63,56 +63,56 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 		case <-timer.C:
 			if len(active) < capacity {
 				scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				refs, err := r.Integrations.ListPersistentIntegrationConnections(scanCtx, cursor, 100)
+				refs, err := r.Integrations.ListPersistentApps(scanCtx, cursor, 100)
 				if err != nil {
-					log.Warn("list Discord connections", "error", err)
+					log.Warn("list Discord apps", "error", err)
 				} else {
 					for _, ref := range refs {
-						cursor = ref.ConnectionID
+						cursor = ref.AppID
 						if len(active) >= capacity {
 							break
 						}
-						connection, err := r.Integrations.GetIntegrationConnection(
+						appSetup, err := r.Integrations.GetProjectApp(
 							scanCtx,
 							ref.ProjectID,
-							ref.ConnectionID,
+							ref.AppID,
 						)
 						if err != nil {
 							continue
 						}
 						secret, err := r.Secrets.GetProjectAvailableSecret(
 							scanCtx,
-							connection.OrgID,
-							connection.ProjectID,
-							connection.CredentialSecretID,
+							appSetup.OrgID,
+							appSetup.ProjectID,
+							appSetup.CredentialSecretID,
 						)
 						if err != nil {
-							log.Warn("Discord credential unavailable", "connection_id", connection.ID, "error", err)
+							log.Warn("Discord credential unavailable", "app_id", appSetup.ID, "error", err)
 							continue
 						}
 						var config struct {
 							ShardCount int `json:"shard_count"`
 						}
-						if json.Unmarshal(connection.ProviderConfig, &config) != nil {
+						if json.Unmarshal(appSetup.ProviderConfig, &config) != nil {
 							continue
 						}
 						if config.ShardCount == 0 {
 							config.ShardCount = 1
 						}
 						for shard := 0; shard < config.ShardCount && len(active) < capacity; shard++ {
-							key := connection.ID.String() + ":" + strconv.Itoa(shard)
+							key := appSetup.ID.String() + ":" + strconv.Itoa(shard)
 							if active[key] {
 								continue
 							}
-							revision := integrationstore.RuntimeRevision{
-								ProjectID:           connection.ProjectID,
-								ConnectionID:        connection.ID,
+							revision := integrationstore.AppRuntimeRevision{
+								ProjectID:           appSetup.ProjectID,
+								AppID:               appSetup.ID,
 								Key:                 "discord/shard/" + strconv.Itoa(shard),
-								ConnectionUpdatedAt: connection.UpdatedAt,
+								SetupRevision:       appSetup.SetupRevision,
 								CredentialVersionID: secret.Secret.CurrentVersionID,
 							}
 							started := time.Now()
-							claim, found, err := r.Integrations.ClaimIntegrationRuntime(
+							claim, found, err := r.Integrations.ClaimAppRuntime(
 								scanCtx,
 								revision,
 								discordRuntimeLease,
@@ -120,8 +120,8 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 							if err != nil {
 								log.Warn(
 									"claim Discord shard",
-									"connection_id",
-									connection.ID,
+									"app_id",
+									appSetup.ID,
 									"shard",
 									shard,
 									"error",
@@ -136,7 +136,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 							jobs.Add(1)
 							go func() {
 								defer jobs.Done()
-								r.run(ctx, connection, claim, shard, config.ShardCount, started, log)
+								r.run(ctx, appSetup, claim, shard, config.ShardCount, started, log)
 								done <- key
 							}()
 						}
@@ -154,8 +154,8 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 
 func (r *DiscordRuntime) run(
 	parent context.Context,
-	connection integrationstore.IntegrationConnectionRecord,
-	claim integrationstore.IntegrationRuntimeClaim,
+	appSetup integrationstore.ProjectAppRecord,
+	claim integrationstore.AppRuntimeClaim,
 	shard, count int,
 	claimedAt time.Time,
 	log *slog.Logger,
@@ -175,38 +175,38 @@ func (r *DiscordRuntime) run(
 		failure := ""
 		if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			failure = runErr.Error()
-			log.Warn("Discord shard stopped", "connection_id", connection.ID, "shard", shard, "error", runErr)
+			log.Warn("Discord shard stopped", "app_id", appSetup.ID, "shard", shard, "error", runErr)
 		}
 		if len(failure) > 4000 {
 			failure = failure[:4000]
 		}
 		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
 		defer releaseCancel()
-		if err := r.Integrations.ReleaseIntegrationRuntime(
+		if err := r.Integrations.ReleaseAppRuntime(
 			releaseCtx,
 			claim.Lease,
 			delay,
 			failure,
 		); err != nil &&
-			!errors.Is(err, integrationstore.ErrIntegrationRuntimeLeaseLost) {
-			log.Warn("release Discord shard", "connection_id", connection.ID, "error", err)
+			!errors.Is(err, integrationstore.ErrAppRuntimeLeaseLost) {
+			log.Warn("release Discord shard", "app_id", appSetup.ID, "error", err)
 		}
 	}()
-	runErr = r.connect(ctx, connection, claim, shard, count)
+	runErr = r.connect(ctx, appSetup, claim, shard, count)
 }
 
 func (r *DiscordRuntime) connect(
 	ctx context.Context,
-	connection integrationstore.IntegrationConnectionRecord,
-	claim integrationstore.IntegrationRuntimeClaim,
+	appSetup integrationstore.ProjectAppRecord,
+	claim integrationstore.AppRuntimeClaim,
 	shard, count int,
 ) error {
 	credential, err := r.Secrets.ReadProjectAvailableSecretPayload(
 		ctx,
 		secretstore.ReadProjectAvailableSecretPayloadInput{
-			OrgID:     connection.OrgID,
-			ProjectID: connection.ProjectID,
-			SecretID:  connection.CredentialSecretID,
+			OrgID:     appSetup.OrgID,
+			ProjectID: appSetup.ProjectID,
+			SecretID:  appSetup.CredentialSecretID,
 			Kind:      secrets.KindGeneric,
 		},
 	)
@@ -214,15 +214,15 @@ func (r *DiscordRuntime) connect(
 		return err
 	}
 	if credential.CurrentVersionID != claim.Lease.CredentialVersionID {
-		return integrationstore.ErrIntegrationRuntimeLeaseLost
+		return integrationstore.ErrAppRuntimeLeaseLost
 	}
 	credentials := discord.Credentials{
-		ApplicationID: connection.ProviderTenantID,
-		BotUserID:     connection.ProviderAccountRef,
+		ApplicationID: appSetup.ProviderTenantID,
+		BotUserID:     appSetup.ProviderAccountRef,
 		BotToken:      credential.Payload[secrets.KeyValue],
 	}
 	recheck := func(ctx context.Context) error {
-		return r.Integrations.RenewIntegrationRuntime(ctx, claim.Lease, discordRuntimeLease)
+		return r.Integrations.RenewAppRuntime(ctx, claim.Lease, discordRuntimeLease)
 	}
 	client, err := discord.NewClient(
 		discord.Config{Credentials: credentials, HTTPClient: r.HTTPClient, BeforeRequest: recheck},
@@ -276,19 +276,19 @@ func (r *DiscordRuntime) connect(
 						return err
 					}
 					receipt = &integrationstore.VerifiedIntegrationReceipt{
-						ProjectID:    connection.ProjectID,
-						ConnectionID: connection.ID,
-						ReceiptKey:   "discord:" + event.Message.ID,
-						Payload:      raw,
+						ProjectID:  appSetup.ProjectID,
+						AppID:      appSetup.ID,
+						ReceiptKey: "discord:" + event.Message.ID,
+						Payload:    raw,
 					}
 				}
 			}
-			return r.Integrations.CommitIntegrationRuntime(ctx, claim.Lease, rawCheckpoint, receipt)
+			return r.Integrations.CommitAppRuntime(ctx, claim.Lease, rawCheckpoint, receipt)
 		},
 	)
 	var gatewayError *discord.GatewayError
 	if errors.As(err, &gatewayError) && gatewayError.ResetSession {
-		if resetErr := r.Integrations.CommitIntegrationRuntime(ctx, claim.Lease, nil, nil); resetErr != nil {
+		if resetErr := r.Integrations.CommitAppRuntime(ctx, claim.Lease, nil, nil); resetErr != nil {
 			return resetErr
 		}
 	}
@@ -298,7 +298,7 @@ func (r *DiscordRuntime) connect(
 func (r *DiscordRuntime) heartbeat(
 	ctx context.Context,
 	cancel context.CancelFunc,
-	lease integrationstore.IntegrationRuntimeLease,
+	lease integrationstore.AppRuntimeLease,
 	deadline time.Time,
 ) {
 	delay := discordRuntimeLease / 3
@@ -321,14 +321,14 @@ func (r *DiscordRuntime) heartbeat(
 			return
 		}
 		callCtx, done := context.WithDeadline(ctx, minTime(deadline, started.Add(5*time.Second)))
-		err := r.Integrations.RenewIntegrationRuntime(callCtx, lease, discordRuntimeLease)
+		err := r.Integrations.RenewAppRuntime(callCtx, lease, discordRuntimeLease)
 		done()
 		if err == nil {
 			deadline = started.Add(discordRuntimeLease)
 			delay = discordRuntimeLease / 3
 			continue
 		}
-		if errors.Is(err, integrationstore.ErrIntegrationRuntimeLeaseLost) ||
+		if errors.Is(err, integrationstore.ErrAppRuntimeLeaseLost) ||
 			errors.Is(err, storeerr.ErrUnauthorized) ||
 			errors.Is(err, storeerr.ErrNotFound) {
 			cancel()
@@ -352,7 +352,7 @@ func discordReconnectDelay(err error) time.Duration {
 	case errors.As(err, &apiError):
 		if apiError.Code == discord.PermanentFailure {
 			// A bad credential or setup must not hammer shared provider egress.
-			// Updating the connection or credential bypasses this delay.
+			// Updating the app or credential bypasses this delay.
 			return time.Hour
 		}
 		delay = max(delay, apiError.RetryAfter)

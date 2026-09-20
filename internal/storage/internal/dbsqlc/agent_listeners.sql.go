@@ -58,9 +58,51 @@ func (q *Queries) DeactivateProjectListeners(ctx context.Context, arg Deactivate
 	return err
 }
 
+const hasActiveAgentListener = `-- name: HasActiveAgentListener :one
+SELECT EXISTS (
+    SELECT 1
+    FROM agent_listeners listener
+    JOIN agents agent ON agent.project_id = listener.project_id AND agent.id = listener.agent_id
+    JOIN project_apps app ON app.project_id = listener.project_id AND app.id = listener.app_id
+    WHERE listener.project_id = $1 AND listener.agent_id = $2
+      AND listener.app_id = $3 AND listener.listener_key = $4
+      AND listener.scope_kind = $5 AND listener.scope_ref = $6
+      AND listener.active AND $7::text = ANY(listener.events)
+      AND listener.source_config_id = agent.current_config_id AND agent.state = 'active'
+      AND app.state = 'active' AND app.deleted_at IS NULL
+)
+`
+
+type HasActiveAgentListenerParams struct {
+	ProjectID   uuid.UUID
+	AgentID     uuid.UUID
+	AppID       uuid.UUID
+	ListenerKey string
+	ScopeKind   string
+	ScopeRef    string
+	Event       string
+}
+
+// Recheck one frozen receive address at admission. Origin and tool-call ID are
+// provenance; either a configured or runtime subscription can authorize it.
+func (q *Queries) HasActiveAgentListener(ctx context.Context, arg HasActiveAgentListenerParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasActiveAgentListener,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.AppID,
+		arg.ListenerKey,
+		arg.ScopeKind,
+		arg.ScopeRef,
+		arg.Event,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listActiveAgentListeners = `-- name: ListActiveAgentListeners :many
-SELECT id, project_id, agent_id, connection_id, resource_key, scope_kind, scope_ref, events,
-       source_config_id, tool_call_id, active, created_at, updated_at
+SELECT id, project_id, agent_id, app_id, listener_key, scope_kind, scope_ref, events,
+       source_config_id, origin, tool_call_id, active, created_at, updated_at
 FROM agent_listeners WHERE project_id = $1 AND agent_id = $2 AND active
 ORDER BY id
 `
@@ -83,12 +125,13 @@ func (q *Queries) ListActiveAgentListeners(ctx context.Context, arg ListActiveAg
 			&i.ID,
 			&i.ProjectID,
 			&i.AgentID,
-			&i.ConnectionID,
-			&i.ResourceKey,
+			&i.AppID,
+			&i.ListenerKey,
 			&i.ScopeKind,
 			&i.ScopeRef,
 			&i.Events,
 			&i.SourceConfigID,
+			&i.Origin,
 			&i.ToolCallID,
 			&i.Active,
 			&i.CreatedAt,
@@ -105,25 +148,25 @@ func (q *Queries) ListActiveAgentListeners(ctx context.Context, arg ListActiveAg
 }
 
 const listMatchingAgentListeners = `-- name: ListMatchingAgentListeners :many
-SELECT listener.id, listener.project_id, listener.agent_id, listener.connection_id,
-       listener.resource_key, listener.scope_kind, listener.scope_ref, listener.events,
-       listener.source_config_id, listener.tool_call_id, listener.active, listener.created_at, listener.updated_at
+SELECT listener.id, listener.project_id, listener.agent_id, listener.app_id,
+       listener.listener_key, listener.scope_kind, listener.scope_ref, listener.events,
+       listener.source_config_id, listener.origin, listener.tool_call_id, listener.active, listener.created_at, listener.updated_at
 FROM jsonb_to_recordset($1::jsonb) AS scope(kind text, ref text)
 JOIN agent_listeners listener ON listener.scope_kind = scope.kind AND listener.scope_ref = scope.ref
-JOIN integration_connections connection ON connection.project_id = listener.project_id AND connection.id = listener.connection_id
+JOIN project_apps app ON app.project_id = listener.project_id AND app.id = listener.app_id
 JOIN agents agent ON agent.project_id = listener.project_id AND agent.id = listener.agent_id
-WHERE listener.project_id = $2 AND listener.connection_id = $3
+WHERE listener.project_id = $2 AND listener.app_id = $3
   AND listener.active AND $4::text = ANY(listener.events)
-  AND connection.state = 'active' AND connection.deleted_at IS NULL AND agent.state = 'active'
+  AND app.state = 'active' AND app.deleted_at IS NULL AND agent.state = 'active'
   AND listener.source_config_id = agent.current_config_id
 ORDER BY listener.agent_id, listener.id
 `
 
 type ListMatchingAgentListenersParams struct {
-	Scopes       json.RawMessage
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	Event        string
+	Scopes    json.RawMessage
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	Event     string
 }
 
 // Exact provider conversation and its permitted parent scopes are supplied as a
@@ -133,7 +176,7 @@ func (q *Queries) ListMatchingAgentListeners(ctx context.Context, arg ListMatchi
 	rows, err := q.db.Query(ctx, listMatchingAgentListeners,
 		arg.Scopes,
 		arg.ProjectID,
-		arg.ConnectionID,
+		arg.AppID,
 		arg.Event,
 	)
 	if err != nil {
@@ -147,12 +190,13 @@ func (q *Queries) ListMatchingAgentListeners(ctx context.Context, arg ListMatchi
 			&i.ID,
 			&i.ProjectID,
 			&i.AgentID,
-			&i.ConnectionID,
-			&i.ResourceKey,
+			&i.AppID,
+			&i.ListenerKey,
 			&i.ScopeKind,
 			&i.ScopeRef,
 			&i.Events,
 			&i.SourceConfigID,
+			&i.Origin,
 			&i.ToolCallID,
 			&i.Active,
 			&i.CreatedAt,
@@ -169,25 +213,26 @@ func (q *Queries) ListMatchingAgentListeners(ctx context.Context, arg ListMatchi
 }
 
 const upsertAgentListener = `-- name: UpsertAgentListener :one
-INSERT INTO agent_listeners(project_id, agent_id, connection_id, resource_key, scope_kind, scope_ref, events, source_config_id, tool_call_id)
+INSERT INTO agent_listeners(project_id, agent_id, app_id, listener_key, scope_kind, scope_ref, events, source_config_id, origin, tool_call_id)
 VALUES ($1, $2, $3, $4, $5,
-        $6, $7::text[], $8, $9)
-ON CONFLICT (project_id, agent_id, resource_key, scope_kind, scope_ref, (tool_call_id IS NOT NULL))
-DO UPDATE SET connection_id = EXCLUDED.connection_id, events = EXCLUDED.events,
+        $6, $7::text[], $8, $9, $10)
+ON CONFLICT (project_id, agent_id, app_id, listener_key, scope_kind, scope_ref, origin)
+DO UPDATE SET events = EXCLUDED.events,
               source_config_id = EXCLUDED.source_config_id, tool_call_id = EXCLUDED.tool_call_id, active = true, updated_at = statement_timestamp()
-RETURNING id, project_id, agent_id, connection_id, resource_key, scope_kind, scope_ref, events,
-          source_config_id, tool_call_id, active, created_at, updated_at
+RETURNING id, project_id, agent_id, app_id, listener_key, scope_kind, scope_ref, events,
+          source_config_id, origin, tool_call_id, active, created_at, updated_at
 `
 
 type UpsertAgentListenerParams struct {
 	ProjectID      uuid.UUID
 	AgentID        uuid.UUID
-	ConnectionID   uuid.UUID
-	ResourceKey    string
+	AppID          uuid.UUID
+	ListenerKey    string
 	ScopeKind      string
 	ScopeRef       string
 	Events         []string
 	SourceConfigID uuid.UUID
+	Origin         string
 	ToolCallID     *uuid.UUID
 }
 
@@ -195,12 +240,13 @@ func (q *Queries) UpsertAgentListener(ctx context.Context, arg UpsertAgentListen
 	row := q.db.QueryRow(ctx, upsertAgentListener,
 		arg.ProjectID,
 		arg.AgentID,
-		arg.ConnectionID,
-		arg.ResourceKey,
+		arg.AppID,
+		arg.ListenerKey,
 		arg.ScopeKind,
 		arg.ScopeRef,
 		arg.Events,
 		arg.SourceConfigID,
+		arg.Origin,
 		arg.ToolCallID,
 	)
 	var i AgentListener
@@ -208,12 +254,13 @@ func (q *Queries) UpsertAgentListener(ctx context.Context, arg UpsertAgentListen
 		&i.ID,
 		&i.ProjectID,
 		&i.AgentID,
-		&i.ConnectionID,
-		&i.ResourceKey,
+		&i.AppID,
+		&i.ListenerKey,
 		&i.ScopeKind,
 		&i.ScopeRef,
 		&i.Events,
 		&i.SourceConfigID,
+		&i.Origin,
 		&i.ToolCallID,
 		&i.Active,
 		&i.CreatedAt,

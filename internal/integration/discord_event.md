@@ -1,15 +1,17 @@
 # Discord inbox adapter handoff
 
 Construct `NewDiscordAppInboxProvider(discord.Config{HTTPClient: client}, secrets,
-connections)` and register it as the `"discord"` `AppInboxProvider`. It consumes
+apps)` and register it as the `"discord"` `AppInboxProvider`. It consumes
 the runtime's JSON-encoded `discord.Dispatch`; no envelope or checkpoint change
 is needed. `Expand` and `DownloadFile` match the existing consumer interface.
-Only trusted durable dispatches enter this adapter. Gateway ownership, leases,
-checkpoints and signed interaction callbacks remain with their current owners.
+Only trusted durable dispatches enter this adapter. The receipt's app ID selects
+one saved app, even when independent apps share a physical bot. Gateway sessions,
+receipts and conversation reservations remain app-local; shared IDENTIFY limits
+remain keyed by bot. Gateway ownership, leases, checkpoints and signed interaction callbacks remain with their current owners.
 
-`NormalizeDiscordAppEvent(connection, raw, channel)` is pure. Its channel argument
+`NormalizeDiscordAppEvent(app, raw, channel)` is pure. Its channel argument
 must come from authenticated REST `GetChannel`; expansion performs that lookup.
-The dispatch's guild ID is mandatory and must match REST metadata. Connection
+The dispatch's guild ID is mandatory and must match REST metadata. The saved app's
 `ProviderTenantID` is the App ID, `ProviderAccountRef` is bot user ID, and neither
 is a guild. Metadata includes source channel, parent channel, thread, message ID
 and timestamp without credentials or CDN URLs. Message IDs give stable semantic
@@ -29,14 +31,14 @@ stable future `parent:messageID` scope. After freezing a **nonempty authorized
 plan**, before admitting an input/launch, `AppInboxConsumer` calls:
 
 ```go
-provider.PrepareConversation(ctx, connection, raw, frozenScope, authority)
+provider.PrepareConversation(ctx, app, raw, frozenScope, authority)
 ```
 
 `frozenScope` is `appdefinition.DiscordScope` from the frozen plan.
 `authority(context.Context) error` must revalidate the receipt lease and a live
 recipient/listener/launcher that accepts that exact scope. It runs before every
 HTTP attempt, including the eventual thread POST. The provider independently
-rechecks connection identity/revision, current credential version and project
+rechecks app identity/`SetupRevision`, current credential version and project
 secret availability. A nil authority callback is rejected. Empty plans must not
 invoke this method. An unconditional success callback is not valid worker wiring.
 
@@ -45,18 +47,28 @@ message and reconciles uncertain creation by that immutable ID. Re-running
 preparation does not create another thread. Existing thread replies make no
 provider mutations. There is no stop/delete/archive/join side effect.
 
-For ordinary thread replies, routing must require an exact selected/listening or
-followed thread. A channel-scoped tool resource containing a thread is not by
-itself permission to receive every message in that thread. Parent/guild addresses
-remain useful for explicit mention launchers; keep that separate from ordinary
-reply listener matching in the router/admission checks.
+Ordinary thread replies require an exact subscription under
+`<appName>__thread_messages`, with `Origin=configured` or `Origin=runtime`.
+The listener's config owns event selection and initial `conversations`; a
+confirmed `follow_replies` send or hosted launch can add a runtime conversation.
+A verified root mention can reach a configured channel listener before its thread
+exists, including when the app has no launcher. Removing that listener before
+preparation prevents the thread creation and input. Replies, including mentions
+inside threads, still require an exact thread subscription. A tool with a fixed
+parent channel does not subscribe the agent to child threads. Parent/guild
+addresses also support explicit mention launcher matching.
+Tools and handlers have independent fixed config, with omitted destination fields
+left as runtime arguments; provider credentials remain the access boundary.
+Prompt presentation, runtime messages and signed callbacks resolve the complete
+captured handler destination, retaining any fixed guild alongside channel/thread.
 
 ## Media and credentials
 
 The adapter uses the project's current generic bot-token secret, including org
 grants. It checks `/users/@me` and `/applications/@me` so rotation cannot silently
 substitute a different bot. Every REST/CDN attempt and final expansion publication
-rechecks availability and captured connection/credential revisions. Calls share
+rechecks availability, captured app setup revision and credential version.
+Unrelated launcher/settings edits do not invalidate provider work. Calls share
 one 15-second context and the provider's bounded retry/rate-limit behavior.
 
 Attachments are refreshed by captured message and attachment ID, never fetched
@@ -84,5 +96,6 @@ Primary evidence checked September 18, 2026:
 `discord_event_test.go` uses local HTTP/CDN fixtures and capability fakes to cover
 scope/identity validation, human steering, replay keys, authorization loss before
 mutation and after downloads, single-thread reuse, bounded files, rate limits,
-and the existing consumer's artifact upload/recovery/digest contract. No live
-provider calls, new dependencies, schema/store changes or runtime edits.
+and the existing consumer's artifact upload/recovery/digest contract. Tests use no
+live provider calls. Runtime and signed callback coverage live with their respective
+owners; see [discord/README.md](discord/README.md).

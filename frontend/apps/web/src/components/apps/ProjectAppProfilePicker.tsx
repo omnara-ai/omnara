@@ -1,5 +1,5 @@
 import { useAgentProfiles, useOmnaraClient } from '@omnara/react'
-import type { AgentProfile, IntegrationConnection } from '@omnara/sdk'
+import type { AgentProfile, ProjectApp } from '@omnara/sdk'
 import { getAgentProfileOptions } from '@omnara/sdk/tanstack'
 import { useQueries } from '@tanstack/react-query'
 
@@ -135,22 +135,22 @@ export function ProjectAppProfilePicker({
   )
 }
 
-export function DiscordAppInteractionsSetup({
-  connection,
-}: {
-  connection?: IntegrationConnection
-}) {
+export function DiscordAppInteractionsSetup({ app }: { app?: ProjectApp }) {
   const client = useOmnaraClient()
   const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
   return (
     <p className="text-muted-foreground text-sm">
       Discord needs the application’s public key and a working Interactions Endpoint URL for
-      multiple choices, even with agent questions turned off. In the Discord Developer Portal, set
-      the Interactions Endpoint URL to{' '}
+      multiple profile choices and agent questions. In the Discord Developer Portal, set the
+      Interactions Endpoint URL to{' '}
       <code className="break-all">
-        {apiOrigin}/api/integrations/discord/{connection?.id ?? 'CONNECTION_ID'}/interactions
+        {apiOrigin}/api/integrations/discord/
+        {app?.provider_tenant_id === ''
+          ? 'APPLICATION_ID'
+          : (app?.provider_tenant_id ?? 'APPLICATION_ID')}
+        /interactions
       </code>
-      . Use the connection’s saved public key; changing offered profiles reuses this bot.
+      . Use this app’s saved public key; changing offered profiles reuses this bot.
     </p>
   )
 }

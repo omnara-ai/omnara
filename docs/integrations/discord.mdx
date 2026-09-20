@@ -1,167 +1,108 @@
 ---
 title: Discord
-description: Connect your bot and choose scoped messaging, listeners and approval destinations
+description: Connect your bot and choose messaging tools, listeners and approval destinations
 icon: "discord"
 ---
 
-Use your own Discord bot for [app tools and incoming messages](/integrations/apps).
-A connection identifies the application and bot; guilds, channels and threads
-belong to individual agent scopes.
+Create an Omnara app named, for example, `support` with definition
+`omnara.discord`. It owns the Discord credentials and optional launcher. Tools,
+listeners and the interaction handler are independently selectable in
+[agent configs](/integrations/apps).
 
 ## Connect your bot
 
-1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
-   Record the **Application ID**, the separate **bot User ID**, the bot token,
-   and the application's **Public Key**.
-2. Enable **Message Content Intent**. Omnara requests Guilds, Guild Messages and
-   Message Content through the [Gateway](https://docs.discord.com/developers/events/gateway).
-   This incoming-message flow handles guild conversations, not DMs.
-3. Install the bot in your server. Grant access to the chosen channels, message
-   history, sending messages, creating public threads and sending in threads.
-   Grant Attach Files when agents will upload files.
-4. Store the token as a project-available [generic secret](/organization/secrets),
-   using `material: {"kind":"generic","value":"your-bot-token"}`.
+Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
+Record the Application ID, separate bot User ID, bot token and public key. Enable
+Message Content Intent. Omnara receives guild messages through Gateway; this
+app does not support DMs. Install the bot in your server with permission to read
+history, send messages, create public threads and send in threads. Grant Attach
+Files if agents will upload files.
 
-Create a connection with
-`POST /orgs/{orgID}/projects/{projectID}/integration-connections`:
+Save the token as a project-available [generic secret](/organization/secrets),
+with `material: {"kind":"generic","value":"your-bot-token"}`. Configure the
+saved app through `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
 
 ```json
 {
-  "provider": "discord",
+  "expected_setup_revision": 1,
   "provider_tenant_id": "111111111111111111",
   "provider_account_ref": "222222222222222222",
   "credential_secret_id": "sec_aeaqcaibaeaqcaibaeaqcaibae",
-  "provider_config": {
-    "shard_count": 1
-  }
+  "provider_config": {"shard_count": 1, "public_key": "YOUR_64_CHARACTER_HEX_PUBLIC_KEY"}
 }
 ```
 
-`provider_tenant_id` is the Application ID and `provider_account_ref` is the bot
-User ID. Neither is the guild ID. Replace all example IDs. Keep `shard_count` at
-its default of 1 unless your bot needs a larger Gateway topology.
-Connection creation verifies the token's application and bot IDs with Discord.
-Updating with changed credentials or missing identity observations repeats that
-verification before saving.
+Use the app's current `setup_revision`. `provider_tenant_id` is the Application
+ID and `provider_account_ref` is the bot User ID; neither is the guild ID. Setup
+verifies those identities with Discord. Keep one shard unless the bot requires a
+larger topology. Omit `provider_config` during token rotation to keep the current
+settings. Supplying it replaces the settings, so include every field you intend to retain.
+The public key verifies callbacks; it is not the bot token.
 
-One bot account can serve multiple guilds in the same Omnara project; give each
-app resource its own guild/channel scope. The Discord Application ID and bot
-User ID pair is reserved across the entire Omnara deployment, including while
-the connection is disabled. Connecting that same pair in another project returns
-`409 Conflict`. Separate projects require separate Discord applications and bot
-accounts.
+Each saved app has an independent runtime. Apps can use the same bot credentials,
+including in different projects, but duplicated sessions consume provider capacity.
+Overlapping launch behavior can create duplicate responses. Omnara does not merge
+these independently configured apps.
 
-For interaction callbacks, also save `provider_config.public_key` as the
-application's 64-character hexadecimal Ed25519 public key. It is public
-verification material, not the bot token. Profile selection menus also require
-this key and the signed HTTP endpoint described below, even when agent questions
-stay in the dashboard. A connection used only for messages with a single offered
-profile can omit it. Connection updates replace settings: include the key and shard
-count you intend to retain.
+## Launch from mentions
 
-## Give an agent scoped tools
+Choose profiles and a channel scope in the app's settings. A mention in the
+parent channel creates or reuses the public thread attached to that message. A
+mention already inside a thread uses that thread. One offered profile starts
+immediately; several profiles produce a menu and start only the selected profile.
+Anyone in the conversation can choose. The menu expires after an hour; send
+follow-ups after selecting, because earlier replies may be missed.
 
-Add this fragment to an ordinary [agent config](/agents/configuration). Use your
-connection ID, guild ID, parent channel ID and existing thread ID:
+The launcher derives the agent's tools, listener and interaction handler for the
+thread, preserving existing explicit entries in the profile config. Human messages
+steer the agent and cancel open interactions. Bot and webhook messages are ignored.
+Edit the offered profiles to change future launches; existing agents keep their configs.
+
+## Select capabilities manually
 
 ```yaml
-app_resources:
-  support:
-    definition: omnara.discord
-    connection: iin_aeaqcaibaeaqcaibaeaqcaibae
-    scope:
-      discord:
-        guild_id: "333333333333333333"
-        channel_id: "444444444444444444"
-        thread_id: "555555555555555555"
-    tools:
-      discord_read: {}
-      discord_post_message: {}
+tools:
+  app__support__read:
+    config:
+      guild_id: "333333333333333333"
+      channel_id: "444444444444444444"
+  app__support__post_message:
+    config:
+      guild_id: "333333333333333333"
+      channel_id: "444444444444444444"
+listeners:
+  support__thread_messages:
+    config: {}
 ```
 
-`discord_read` reads a page with optional `before` and `limit`.
-`discord_post_message` accepts `content` and up to 10 `artifact_ids`. Both use a
-`resource` selector when needed. An optional `thread_id` tool argument must stay
-inside the configured scope; it cannot change a fixed thread to another thread.
-Omitting the scope's thread ID permits tools in that channel and its threads.
+`read` supports `before` and `limit`. `post_message` takes `content` and up to 10
+`artifact_ids`. Add a fixed `thread_id` to keep a tool in one thread. Fields not
+fixed in config become model arguments; fixed fields cannot be overridden.
 
-Add `listener: {events: [message]}` to receive human messages in the selected
-thread. A channel scope does not mean every channel message is delivered:
-channel-root intake requires a bot mention. Add `follow: {replies: true}` to
-allow a post with `follow_replies: true` to register replies after success.
-Ordinary model output stays in Omnara unless the agent posts a message.
+The empty listener starts with no subscriptions. A confirmed post with
+`follow_replies: true` adds its conversation. For immediate subscription, put
+addresses containing `guild_id`, `channel_id` and optional `thread_id` into
+`config.conversations`. Channel-root intake requires a bot mention. Removing the
+sending tool does not remove subscriptions; removing the listener removes all of them.
 
-## Configure a mention launcher
+## Questions, approvals and profile menus
 
-This body saves a channel launcher with
-`POST /orgs/{orgID}/projects/{projectID}/apps`. It selects messaging tools and a
-listener; it does not select external question presentation:
+Configure the app's public key, then set the Discord registration's
+**Interactions Endpoint URL** to:
 
-```json
-{
-  "name": "support-bot",
-  "settings": {
-    "resource": {
-      "definition": "omnara.discord",
-      "connection": "iin_aeaqcaibaeaqcaibaeaqcaibae",
-      "tools": {"discord_read": {}, "discord_post_message": {}},
-      "listener": {"events": ["message"]}
-    },
-    "launcher": {
-      "trigger": "mention",
-      "scope_kind": "channel",
-      "scope_ref": "444444444444444444",
-      "slots": [{"key": "assistant", "agent_profile_id": "aprf_aeaqcaibaeaqcaibaeaqcaibae"}]
-    }
-  }
-}
+```text
+https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions
 ```
 
-A profile slot derives an agent config for the triggering thread without editing
-the base profile. A matching mention in a parent channel creates or reuses the
-public thread attached to that message. Mentions inside an existing thread use
-that thread. Human Discord input steers the agent and cancels open interactions;
-bot and webhook messages are ignored.
+Use the numeric Discord Application ID, not Omnara's `app_…` ID. One public
+endpoint can verify callbacks for independently configured apps. Each menu or
+agent interaction captures its owning app, so its answer is routed only there.
+Require successful [signed PING verification](https://docs.discord.com/developers/interactions/receiving-and-responding)
+before offering profile menus or external approvals.
 
-With one profile the agent starts immediately. With several profile slots the
-bot first posts a selection menu inside the request's thread. Anyone in the
-conversation can choose; the chosen profile receives the original message and
-author. No agent is created before that choice. Choose a profile before sending
-follow-up messages; earlier follow-ups may be missed.
-Menus expire after one hour; mention again if a menu expires or its offered
-profile is removed.
-
-Use **Edit settings** on the saved app to change the offered list, or update its
-launcher `slots` through the API. Existing conversations keep their agents.
-Several saved apps can reuse one bot. Overlapping setups for the same bot and
-conversation are misconfiguration; launch and delivery outcomes are unspecified.
-
-## Questions and approvals
-
-The selectable handler is
-`interaction_handler: {definition: omnara.discord.interactions}`. It is independent
-of the listener and send tool, but external answers require a configured public
-key and a working signed HTTP interactions endpoint. Config selection alone is
-not proof that callbacks are reachable.
-
-To enable Discord answers or profile menus:
-
-1. Save the application's public key on the connection. If updating with `PUT`,
-   include the connection identity, credential reference and settings you retain.
-2. In the Discord Developer Portal's **General Information**, set
-   **Interactions Endpoint URL** to
-   `https://YOUR_OMNARA_HOST/api/integrations/discord/CONNECTION_ID/interactions`,
-   replacing `CONNECTION_ID` with that connection's public `iin_…` ID. This route
-   uses the public Omnara host, outside the versioned project API path.
-3. Save and require successful endpoint verification before selecting the
-   Discord handler or offering multiple profiles. [Discord verifies the URL with a signed PING](https://docs.discord.com/developers/interactions/receiving-and-responding).
-
-Questions and approvals can then be answered in Discord or the dashboard.
-Removing the public key or disabling the connection makes the external mirror
-unavailable; the dashboard remains available. Ordinary messages continue over
-Gateway. There is no Gateway fallback for these answers and no automatic
-slash-command registration.
-
-For an independently hosted presenter or router, use the
-[custom integration API journey](/integrations/custom-integrations). For capability
-selection and reusable project settings, see [Composable apps](/integrations/apps).
+Select `interaction_handlers.support.config` in an agent config to expose the
+handler, optionally fixing its destination. The model can choose it with
+`set_interaction_handler`. Questions remain answerable in the dashboard if Discord
+presentation fails. There is no Gateway fallback for interaction answers or
+automatic slash-command registration. A bot used only for messages with one
+profile can omit the public key.

@@ -12,9 +12,13 @@ func (s *Store) IntegrationSetTargetRefGenerator(generator func(string) (string,
 	s.targetRefGenerator = generator
 }
 
-func (s *Store) DeleteIntegrationConnectionOnceForIntegration(
+func (s *Store) DeleteProjectAppOnceForIntegration(
 	ctx context.Context,
-	projectID, connectionID uuid.UUID,
+	projectID, appID uuid.UUID,
 ) error {
-	return s.deleteIntegrationConnectionOnce(ctx, projectID, connectionID)
+	app, err := s.GetProjectApp(ctx, projectID, appID)
+	if err != nil {
+		return err
+	}
+	return s.deleteProjectAppOnce(ctx, app.OrgID, projectID, appID)
 }

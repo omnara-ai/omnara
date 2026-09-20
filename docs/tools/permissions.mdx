@@ -47,10 +47,11 @@ mcp:
 A permission mode applies to every call. Changing it requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
 
 <Note>
-Provider tools such as `slack_post_message` use the ordinary permission modes.
-They also need a scoped [app resource](/integrations/apps); permission alone does
-not grant a destination. The interaction handler can present an approval without
-granted access to the send tool being approved.
+Provider tools such as `app__engineering__post_message` use the ordinary permission modes.
+They use the named project [app](/integrations/apps) and its provider credentials.
+Fixed tool config can restrict the destination; with empty config the model may
+choose any destination those credentials can access. Interaction handlers are
+independent: an agent can request approval in Slack without having a Slack sending tool.
 </Note>
 
 ## What an `always_ask` call looks like

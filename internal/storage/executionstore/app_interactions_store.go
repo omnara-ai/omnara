@@ -5,51 +5,65 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
+	"reflect"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func (s *Store) GetInteractionSelection(
-	ctx context.Context, projectID, agentID uuid.UUID,
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
 ) (InteractionSelection, error) {
-	row, err := s.q.GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
-		ProjectID: projectID, AgentID: agentID,
-	})
+	row, err := s.q.GetInteractionSelection(
+		ctx,
+		dbsqlc.GetInteractionSelectionParams{ProjectID: projectID, AgentID: agentID},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InteractionSelection{}, storeerr.ErrNotFound
 	}
 	return interactionSelectionFromRow(row), err
 }
 
-// SelectInteractionDestinationForOriginTx is called only for a newly accepted
-// explicit-origin input, after deduplication. Replays must skip it. The caller
-// holds the agent lock (or has just inserted the agent). A nil origin preserves
-// selection. This helper never acquires an earlier connection lifecycle gate.
+// SelectInteractionDestinationForOriginTx runs only after deduplication of a new
+// explicit-origin input, under the agent lock. Replays skip it; originless inputs
+// preserve selection. Reads never acquire an earlier app lifecycle gate.
 func (s *Store) SelectInteractionDestinationForOriginTx(
-	ctx context.Context, tx pgx.Tx, projectID, agentID, originTargetID uuid.UUID,
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID, originTargetID uuid.UUID,
 ) (InteractionSelection, error) {
 	q := dbsqlc.New(tx)
 	if originTargetID == uuid.Nil {
-		row, err := q.GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
-			ProjectID: projectID, AgentID: agentID,
-		})
+		row, err := q.GetInteractionSelection(
+			ctx,
+			dbsqlc.GetInteractionSelectionParams{ProjectID: projectID, AgentID: agentID},
+		)
 		return interactionSelectionFromRow(row), err
 	}
-	_, resources, err := loadInteractionResources(ctx, q, projectID, agentID)
+	_, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
 	if err != nil {
 		return InteractionSelection{}, err
 	}
-	target, err := q.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
-		ProjectID: projectID, AgentID: agentID, TargetID: originTargetID,
-	})
+	target, err := q.GetInteractionDestinationTarget(
+		ctx,
+		dbsqlc.GetInteractionDestinationTargetParams{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			TargetID:  originTargetID,
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InteractionSelection{}, storeerr.ErrNotFound
 	}
@@ -57,117 +71,321 @@ func (s *Store) SelectInteractionDestinationForOriginTx(
 		return InteractionSelection{}, err
 	}
 	var selection InteractionSelection
-	if matches := interactionTargetDestinations(resources, target); len(matches) == 1 {
-		selection = InteractionSelection{IntegrationTargetID: originTargetID, ResourceKey: matches[0].ResourceKey}
+	matches := 0
+	for key, handler := range handlers {
+		if target.AppState != string(integrationstore.ProjectAppStateActive) ||
+			handler.appID != target.AppID ||
+			handler.definition.Provider != target.Provider {
+			continue
+		}
+		args, ok := interactionArgsForOrigin(
+			*handler.definition.InteractionHandler,
+			handler.prepared.Config,
+			integrationstore.ConversationAddress{
+				Kind: target.ProviderRefKind,
+				Ref:  target.ProviderRef,
+			},
+		)
+		if !ok {
+			continue
+		}
+		matches++
+		selection = InteractionSelection{
+			IntegrationTargetID: originTargetID,
+			HandlerKey:          key,
+			Args:                args,
+		}
+	}
+	if matches != 1 {
+		selection = InteractionSelection{}
 	}
 	return selection, writeInteractionSelection(ctx, q, projectID, agentID, selection)
 }
 
-// ReconcileInteractionSelectionTx runs after current-config activation while
-// holding the agent lock. It clears revoked choices without selecting a fallback
-// or changing any existing interaction's snapshot. Connection reads do not lock.
+// ReconcileInteractionSelectionTx affects future prompts only. Captured prompts retain their
+// snapshot and separately recheck effective config and live app authority.
 func (s *Store) ReconcileInteractionSelectionTx(
-	ctx context.Context, tx pgx.Tx, projectID, agentID uuid.UUID,
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID uuid.UUID,
 ) (InteractionSelection, error) {
 	q := dbsqlc.New(tx)
-	selection, resources, err := loadInteractionResources(ctx, q, projectID, agentID)
-	if err != nil || selection == (InteractionSelection{}) {
+	selection, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
+	if err != nil || selection.HandlerKey == "" {
 		return selection, err
 	}
-	destination, err := selectedInteractionDestination(ctx, q, projectID, agentID, selection, resources)
+	destination, err := selectedInteractionDestination(
+		ctx,
+		q,
+		projectID,
+		agentID,
+		selection,
+		handlers,
+	)
 	if err != nil || destination != nil {
 		return selection, err
 	}
-	return InteractionSelection{}, writeInteractionSelection(ctx, q, projectID, agentID, InteractionSelection{})
+	return InteractionSelection{}, writeInteractionSelection(
+		ctx,
+		q,
+		projectID,
+		agentID,
+		InteractionSelection{},
+	)
 }
 
-func (s *Store) ListInteractionDestinations(
-	ctx context.Context, projectID, agentID uuid.UUID,
-) (InteractionDestinations, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+func (s *Store) ListInteractionHandlers(
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
+	cursor string,
+	limit int,
+) (agentconfig.InteractionHandlerPage, error) {
+	tx, err := s.pool.BeginTx(
+		ctx,
+		pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
+	)
 	if err != nil {
-		return InteractionDestinations{}, err
+		return agentconfig.InteractionHandlerPage{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	return listInteractionDestinations(ctx, dbsqlc.New(tx), projectID, agentID)
+	return listInteractionHandlers(ctx, dbsqlc.New(tx), projectID, agentID, cursor, limit)
 }
 
-// ListInteractionDestinations is advisory. The command revalidates under the agent lock.
-func (r *ToolCallReader) ListInteractionDestinations(ctx context.Context) (InteractionDestinations, error) {
+// GetSelectedInteractionDestination resolves current routing for runtime messages.
+// Prompt presentation must use its immutable captured destination instead.
+func (s *Store) GetSelectedInteractionDestination(
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
+) (*InteractionDestination, error) {
+	tx, err := s.pool.BeginTx(
+		ctx,
+		pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := dbsqlc.New(tx)
+	selection, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return selectedInteractionDestination(ctx, q, projectID, agentID, selection, handlers)
+}
+
+// ListInteractionHandlers is advisory; selection revalidates authority under the agent lock.
+func (r *ToolCallReader) ListInteractionHandlers(
+	ctx context.Context,
+	cursor string,
+	limit int,
+) (agentconfig.InteractionHandlerPage, error) {
 	t := r.transaction
-	return listInteractionDestinations(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+	return listInteractionHandlers(ctx, t.q, t.input.ProjectID, t.input.AgentID, cursor, limit)
 }
 
-func listInteractionDestinations(
-	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID,
-) (InteractionDestinations, error) {
-	selection, resources, err := loadInteractionResources(ctx, q, projectID, agentID)
-	if err != nil {
-		return InteractionDestinations{}, err
+func listInteractionHandlers(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+	cursor string,
+	limit int,
+) (agentconfig.InteractionHandlerPage, error) {
+	// Reject invalid bounds/cursors before reading app metadata.
+	if _, err := agentconfig.ListInteractionHandlers(nil, nil, cursor, limit); err != nil {
+		return agentconfig.InteractionHandlerPage{}, storeerr.InvalidRequest(err)
 	}
-	targets, err := q.ListInteractionDestinationTargets(ctx, dbsqlc.ListInteractionDestinationTargetsParams{
-		ProjectID: projectID, AgentID: agentID,
-	})
+	selection, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
 	if err != nil {
-		return InteractionDestinations{}, err
+		return agentconfig.InteractionHandlerPage{}, err
 	}
-	result := InteractionDestinations{Current: selection, Destinations: []InteractionDestinationOption{}}
-	for _, target := range targets {
-		matches := interactionTargetDestinations(resources, dbsqlc.GetInteractionDestinationTargetRow(target))
-		for _, destination := range matches {
-			result.Destinations = append(result.Destinations, InteractionDestinationOption{
-				Destination: destination, TargetRef: target.TargetRef, DisplayName: target.DisplayName,
-			})
+	prepared := make(map[string]agentconfig.PreparedAppInteractionHandler, len(handlers))
+	for key, handler := range handlers {
+		prepared[key] = handler.prepared
+	}
+	var current *agentconfig.HandlerSelection
+	destination, err := selectedInteractionDestination(
+		ctx,
+		q,
+		projectID,
+		agentID,
+		selection,
+		handlers,
+	)
+	if err != nil {
+		return agentconfig.InteractionHandlerPage{}, err
+	}
+	if destination != nil {
+		handler := handlers[destination.HandlerKey]
+		scope, err := handler.definition.InteractionHandler.ResolveArgs(
+			destination.Config,
+			destination.Args,
+		)
+		if err != nil {
+			return agentconfig.InteractionHandlerPage{}, err
+		}
+		current = &agentconfig.HandlerSelection{
+			Handler:     destination.HandlerKey,
+			AppID:       handler.prepared.AppID,
+			Args:        destination.Args,
+			Destination: scope,
 		}
 	}
-	return result, nil
+	return agentconfig.ListInteractionHandlers(prepared, current, cursor, limit)
 }
 
-// SetInteractionDestinationForToolCall changes future prompt routing together
-// with the destination tool's completion. Omitting the key requires exactly one
-// eligible handler; the zero selection explicitly chooses the dashboard.
-func SetInteractionDestinationForToolCall(
-	selection InteractionSelection, completion ToolCallCompletionInput,
+// SetInteractionHandlerForToolCall resolves the saved model-call config before
+// locking. Project/app/conversation gates precede the agent lock. Current config
+// is then compared under that lock, so a pending call cannot gain changed hidden
+// settings or a replacement app through a reused handler name.
+func SetInteractionHandlerForToolCall(
+	selection InteractionSelection,
+	completion ToolCallCompletionInput,
 ) ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, t *toolCallTransaction) (any, error) {
-		if err := t.lockForMutation(ctx); err != nil {
+		selected := selection
+		if selected.IntegrationTargetID != uuid.Nil {
+			return nil, storeerr.InvalidRequest(
+				errors.New("handler selection takes args, not a target ID"),
+			)
+		}
+		reader := &ToolCallReader{transaction: t}
+		call, err := reader.GetToolCall(ctx)
+		if err != nil {
 			return nil, err
 		}
-		selected := selection
-		if selected.IntegrationTargetID == uuid.Nil {
-			if selected.ResourceKey != "" {
-				return nil, storeerr.InvalidRequest(errors.New("resource key requires an interaction target"))
-			}
-		} else {
-			_, resources, err := loadInteractionResources(ctx, t.q, t.input.ProjectID, t.input.AgentID)
-			if err != nil {
-				return nil, err
-			}
-			target, err := t.q.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
-				ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, TargetID: selected.IntegrationTargetID,
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, storeerr.ErrNotFound
-			}
-			if err != nil {
-				return nil, err
-			}
-			matches := interactionTargetDestinations(resources, target)
-			if selected.ResourceKey == "" {
-				if len(matches) != 1 {
-					return nil, storeerr.ErrConflict
-				}
-				selected.ResourceKey = matches[0].ResourceKey
-			}
-			found := false
-			for _, match := range matches {
-				found = found || match.ResourceKey == selected.ResourceKey
-			}
+		original, _, err := reader.RuntimeContract(ctx, call.ModelCallContextID)
+		if err != nil {
+			return nil, err
+		}
+		var handler resolvedInteractionHandler
+		var address integrationstore.ConversationAddress
+		if selected.HandlerKey != "" {
+			capability, found := original.InteractionHandlers[selected.HandlerKey]
 			if !found {
 				return nil, storeerr.ErrUnauthorized
 			}
+			project, err := loadProjectTx(ctx, t.q, t.input.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			if err := lifecyclelock.EnterActiveProject(
+				ctx,
+				t.tx,
+				project.OrgID,
+				t.input.ProjectID,
+			); err != nil {
+				return nil, err
+			}
+			if err := integrationstore.LockAppsTx(
+				ctx,
+				t.tx,
+				t.input.ProjectID,
+				[]string{capability.AppID},
+			); err != nil {
+				return nil, err
+			}
+			handlers, err := prepareInteractionHandlers(
+				ctx,
+				t.q,
+				t.input.ProjectID,
+				map[string]agentconfig.AppCapabilityCompiled{selected.HandlerKey: capability},
+			)
+			if err != nil {
+				return nil, err
+			}
+			var ok bool
+			handler, ok = handlers[selected.HandlerKey]
+			if !ok {
+				return nil, storeerr.ErrUnauthorized
+			}
+			if err := validateInteractionObject(
+				selected.Args,
+				InteractionDestinationMaxBytes,
+			); err != nil {
+				return nil, storeerr.InvalidRequest(err)
+			}
+			scope, err := handler.definition.InteractionHandler.ResolveArgs(
+				handler.prepared.Config,
+				selected.Args,
+			)
+			if err != nil {
+				return nil, storeerr.InvalidRequest(err)
+			}
+			kind, ref, err := scope.Conversation()
+			if err != nil {
+				return nil, storeerr.InvalidRequest(err)
+			}
+			address = integrationstore.ConversationAddress{Kind: kind, Ref: ref}
+			selected.Args, err = jsoncanonical.Normalize(selected.Args)
+			if err != nil {
+				return nil, storeerr.InvalidRequest(err)
+			}
+			if err := integrationstore.LockConversationTx(
+				ctx,
+				t.tx,
+				t.input.ProjectID,
+				handler.appID,
+				address,
+			); err != nil {
+				return nil, err
+			}
+		} else {
+			if len(selected.Args) > 0 &&
+				!jsoncanonical.Equal(selected.Args, json.RawMessage(`{}`)) {
+				return nil, storeerr.InvalidRequest(
+					errors.New("dashboard-only selection requires empty args"),
+				)
+			}
+			selected = InteractionSelection{}
 		}
-		if err := writeInteractionSelection(ctx, t.q, t.input.ProjectID, t.input.AgentID, selected); err != nil {
+		if err := t.lockForMutation(ctx); err != nil {
+			return nil, err
+		}
+		_, current, err := loadInteractionContract(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		if !interactionSelectionToolAuthorized(original, current) {
+			return nil, storeerr.ErrUnauthorized
+		}
+		if selected.HandlerKey != "" {
+			// Pure authority comparison uses only the app already gated above. Do not
+			// acquire another app gate if activation replaced the handler's app ID.
+			apps := map[string]agentconfig.AppResolution{
+				handler.prepared.AppID: {
+					AppID:      handler.prepared.AppID,
+					Definition: handler.definition.ID,
+				},
+			}
+			_, err := agentconfig.ResolveInteractionHandlerAuthority(
+				original,
+				current, selected.HandlerKey, apps)
+			if err != nil {
+				return nil, storeerr.ErrUnauthorized
+			}
+			target, err := t.store.integrations.EnsureConversationTargetTx(
+				ctx,
+				t.tx,
+				integrationstore.EnsureConversationTargetInput{
+					ProjectID: t.input.ProjectID,
+					AgentID:   t.input.AgentID,
+					AppID:     handler.appID,
+					Address:   address,
+					Role:      integrationstore.TargetAttribution,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			selected.IntegrationTargetID = target.ID
+		}
+		if err := writeInteractionSelection(
+			ctx,
+			t.q,
+			t.input.ProjectID,
+			t.input.AgentID,
+			selected,
+		); err != nil {
 			return nil, err
 		}
 		if _, err := t.completeToolCall(ctx, completion); err != nil {
@@ -177,43 +395,140 @@ func SetInteractionDestinationForToolCall(
 	})
 }
 
+func interactionSelectionToolAuthorized(original, current agentconfig.RuntimeContract) bool {
+	for _, before := range original.Tools {
+		if before.Name != toolcatalog.ToolNameSetInteractionHandler {
+			continue
+		}
+		for _, after := range current.Tools {
+			if after.Name == before.Name {
+				return after.Permission.Mode != toolpermission.ModeAlwaysDeny &&
+					reflect.DeepEqual(before.Permission, after.Permission)
+			}
+		}
+	}
+	return false
+}
+
 func interactionSelectionFromRow(row dbsqlc.GetInteractionSelectionRow) InteractionSelection {
-	// A target alone is attribution, not a selected interaction handler.
-	if row.ResourceKey == "" || row.IntegrationTargetID == nil {
-		return InteractionSelection{}
+	var args json.RawMessage
+	if row.HandlerArgs != nil {
+		args = *row.HandlerArgs
 	}
 	return InteractionSelection{
-		IntegrationTargetID: storeutil.IDFromPtr(row.IntegrationTargetID), ResourceKey: row.ResourceKey,
+		IntegrationTargetID: storeutil.IDFromPtr(row.IntegrationTargetID),
+		HandlerKey:          row.HandlerKey,
+		Args:                args,
 	}
 }
 
-func loadInteractionResources(
-	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID,
-) (InteractionSelection, map[string]agentconfig.AppResourceCompiled, error) {
-	row, err := q.GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
-		ProjectID: projectID, AgentID: agentID,
-	})
+func loadInteractionContract(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+) (InteractionSelection, agentconfig.RuntimeContract, error) {
+	row, err := q.GetInteractionSelection(
+		ctx,
+		dbsqlc.GetInteractionSelectionParams{ProjectID: projectID, AgentID: agentID},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return InteractionSelection{}, nil, storeerr.ErrNotFound
+		return InteractionSelection{}, agentconfig.RuntimeContract{}, storeerr.ErrNotFound
 	}
 	if err != nil {
-		return InteractionSelection{}, nil, err
+		return InteractionSelection{}, agentconfig.RuntimeContract{}, err
 	}
 	config, err := loadAgentConfigTx(ctx, q, projectID, row.CurrentConfigID)
 	if err != nil {
-		return InteractionSelection{}, nil, err
+		return InteractionSelection{}, agentconfig.RuntimeContract{}, err
 	}
 	contract, err := launchableRuntimeContract(config)
-	return interactionSelectionFromRow(row), contract.AppResources, err
+	return interactionSelectionFromRow(row), contract, err
+}
+
+type resolvedInteractionHandler struct {
+	appID      uuid.UUID
+	definition appdefinition.Definition
+	prepared   agentconfig.PreparedAppInteractionHandler
+}
+
+func loadInteractionHandlers(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+) (InteractionSelection, map[string]resolvedInteractionHandler, error) {
+	selection, contract, err := loadInteractionContract(ctx, q, projectID, agentID)
+	if err != nil {
+		return InteractionSelection{}, nil, err
+	}
+	handlers, err := prepareInteractionHandlers(ctx, q, projectID, contract.InteractionHandlers)
+	return selection, handlers, err
+}
+
+// Read each distinct app once. Missing/disconnected apps omit only their own
+// capability; database failures still propagate rather than hiding outages.
+func prepareInteractionHandlers(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID uuid.UUID,
+	configured map[string]agentconfig.AppCapabilityCompiled,
+) (map[string]resolvedInteractionHandler, error) {
+	apps := map[uuid.UUID]dbsqlc.ProjectApp{}
+	result := map[string]resolvedInteractionHandler{}
+	for key, capability := range configured {
+		id, err := publicid.Decode(publicid.KindProjectApp, capability.AppID)
+		if err != nil {
+			continue
+		}
+		app, loaded := apps[id]
+		if !loaded {
+			app, err = q.GetProjectApp(
+				ctx,
+				dbsqlc.GetProjectAppParams{ProjectID: projectID, ID: id},
+			)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
+			apps[id] = app
+		}
+		if app.State != string(integrationstore.ProjectAppStateActive) {
+			continue
+		}
+		definition, ok := appdefinition.Lookup(app.DefinitionID)
+		if !ok || definition.Provider != app.Provider || definition.InteractionHandler == nil {
+			continue
+		}
+		prepared, err := definition.InteractionHandler.Prepare(capability.Config)
+		if err != nil {
+			continue
+		}
+		result[key] = resolvedInteractionHandler{
+			appID:      id,
+			definition: definition,
+			prepared: agentconfig.PreparedAppInteractionHandler{
+				AppID:                      capability.AppID,
+				PreparedInteractionHandler: prepared,
+			},
+		}
+	}
+	return result, nil
 }
 
 func writeInteractionSelection(
-	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID, selection InteractionSelection,
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+	selection InteractionSelection,
 ) error {
+	var args *json.RawMessage
+	if selection.HandlerKey != "" {
+		args = &selection.Args
+	}
 	changed, err := q.SetInteractionSelection(ctx, dbsqlc.SetInteractionSelectionParams{
-		ProjectID: projectID, AgentID: agentID,
+		ProjectID:   projectID,
+		AgentID:     agentID,
 		TargetID:    storeutil.IDFromNil(selection.IntegrationTargetID),
-		ResourceKey: storeutil.TextFromEmpty(selection.ResourceKey),
+		HandlerKey:  storeutil.TextFromEmpty(selection.HandlerKey),
+		HandlerArgs: args,
 	})
 	if err != nil {
 		return err
@@ -224,51 +539,73 @@ func writeInteractionSelection(
 	return nil
 }
 
-func interactionTargetDestinations(
-	resources map[string]agentconfig.AppResourceCompiled, target dbsqlc.GetInteractionDestinationTargetRow,
-) []InteractionDestination {
-	if target.ConnectionState != string(integrationstore.IntegrationConnectionStateActive) {
-		return nil
-	}
-	return matchingInteractionDestinations(resources, target.ID, target.ConnectionID, target.Provider,
-		integrationstore.ConversationAddress{Kind: target.ProviderRefKind, Ref: target.ProviderRef})
-}
-
 func selectedInteractionDestination(
-	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID,
-	selection InteractionSelection, resources map[string]agentconfig.AppResourceCompiled,
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+	selection InteractionSelection,
+	handlers map[string]resolvedInteractionHandler,
 ) (*InteractionDestination, error) {
-	if selection.ResourceKey == "" || selection.IntegrationTargetID == uuid.Nil {
-		return nil, nil //nolint:nilnil // Dashboard-only selection has no external destination.
+	handler, ok := handlers[selection.HandlerKey]
+	if !ok || selection.IntegrationTargetID == uuid.Nil {
+		return nil, nil //nolint:nilnil // Unavailable selection means dashboard only.
 	}
-	target, err := q.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
-		ProjectID: projectID, AgentID: agentID, TargetID: selection.IntegrationTargetID,
-	})
+	target, err := q.GetInteractionDestinationTarget(
+		ctx,
+		dbsqlc.GetInteractionDestinationTargetParams{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			TargetID:  selection.IntegrationTargetID,
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil //nolint:nilnil // A removed target leaves dashboard-only presentation.
+		return nil, nil //nolint:nilnil // Removed target.
 	}
 	if err != nil {
 		return nil, err
 	}
-	for _, destination := range interactionTargetDestinations(resources, target) {
-		if destination.ResourceKey == selection.ResourceKey {
-			return &destination, nil
-		}
+	if target.AppID != handler.appID ||
+		target.AppState != string(integrationstore.ProjectAppStateActive) ||
+		target.Provider != handler.definition.Provider {
+		return nil, nil //nolint:nilnil // Revoked app.
 	}
-	return nil, nil //nolint:nilnil // Revoked config or connection leaves dashboard-only presentation.
+	destination := &InteractionDestination{
+		HandlerKey:          selection.HandlerKey,
+		AppID:               handler.appID,
+		HandlerDefinition:   handler.definition.ID,
+		Config:              handler.prepared.Config,
+		Args:                selection.Args,
+		IntegrationTargetID: target.ID,
+		Address: integrationstore.ConversationAddress{
+			Kind: target.ProviderRefKind,
+			Ref:  target.ProviderRef,
+		},
+	}
+	if destination.validate() != nil {
+		return nil, nil //nolint:nilerr,nilnil // Invalidated selection falls back to dashboard presentation.
+	}
+	return destination, nil
 }
 
-// captureInteractionDestinationTx is deliberately read-only under the existing
-// agent lock. It must not acquire connection gates after that lock. The snapshot
-// is identity, so presentation and hosted responses recheck live authority.
+// Capture is read-only under the existing agent lock. It must not acquire an
+// earlier app gate; presentation and hosted callbacks recheck live authority.
 func captureInteractionDestinationTx(
-	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID,
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
 ) (json.RawMessage, error) {
-	selection, resources, err := loadInteractionResources(ctx, q, projectID, agentID)
+	selection, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
 	if err != nil {
 		return nil, err
 	}
-	destination, err := selectedInteractionDestination(ctx, q, projectID, agentID, selection, resources)
+	destination, err := selectedInteractionDestination(
+		ctx,
+		q,
+		projectID,
+		agentID,
+		selection,
+		handlers,
+	)
 	if err != nil || destination == nil {
 		return nil, err
 	}
@@ -281,21 +618,31 @@ func captureInteractionDestinationTx(
 
 type ResolveAgentInteractionFromHandlerInput struct {
 	ResolveAgentInteractionInput
-	ConnectionID      uuid.UUID
+	AppID             uuid.UUID
 	HandlerDefinition string
 	Address           integrationstore.ConversationAddress
-	// The verified connection revision is fenced with the actual resolution.
-	SourceConnectionUpdatedAt time.Time
+	// The verified app revision is fenced with the actual resolution.
+	SourceSetupRevision int64
+}
+
+// GetInteractionCallbackAppID identifies the setup that must verify a callback.
+// This is not authorization; resolution rechecks the captured handler and origin.
+func (s *Store) GetInteractionCallbackAppID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	appID, err := s.q.GetInteractionCallbackAppID(ctx, dbsqlc.GetInteractionCallbackAppIDParams{ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, storeerr.ErrNotFound
+	}
+	return appID, err
 }
 
 // GetInteractionForHandlerCallback locates an immutable captured interaction
-// within a verified connection. The result is identity only; resolution still
+// within a verified app. The result is identity only; resolution still
 // goes through ResolveAgentInteractionFromHandler's fenced authority check.
 func (s *Store) GetInteractionForHandlerCallback(
-	ctx context.Context, projectID, connectionID, id uuid.UUID,
+	ctx context.Context, projectID, appID, id uuid.UUID,
 ) (AgentInteractionRecord, error) {
 	agentID, err := s.q.GetInteractionCallbackAgent(ctx, dbsqlc.GetInteractionCallbackAgentParams{
-		ProjectID: projectID, InteractionID: id, ConnectionID: connectionID.String(),
+		ProjectID: projectID, InteractionID: id, AppID: appID.String(),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AgentInteractionRecord{}, storeerr.ErrNotFound
@@ -322,33 +669,51 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 		return AgentInteractionRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	_, destination, err := lockAuthorizedInteractionDestination(ctx, tx, input.ProjectID, input.AgentID, input.ID)
+	_, destination, err := lockAuthorizedInteractionDestination(
+		ctx,
+		tx,
+		input.ProjectID,
+		input.AgentID,
+		input.ID,
+	)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	if !input.SourceConnectionUpdatedAt.IsZero() {
-		connection, err := dbsqlc.New(tx).GetIntegrationConnection(ctx, dbsqlc.GetIntegrationConnectionParams{
-			ProjectID: input.ProjectID, ID: destination.ConnectionID,
+	if input.SourceSetupRevision != 0 {
+		app, err := dbsqlc.New(tx).GetProjectApp(ctx, dbsqlc.GetProjectAppParams{
+			ProjectID: input.ProjectID, ID: destination.AppID,
 		})
 		if err != nil {
 			return AgentInteractionRecord{}, err
 		}
-		if !connection.UpdatedAt.Equal(input.SourceConnectionUpdatedAt) {
+		if app.SetupRevision != input.SourceSetupRevision {
 			return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 		}
 	}
-	if destination.ConnectionID != input.ConnectionID || destination.HandlerDefinition != input.HandlerDefinition ||
+	if destination.AppID != input.AppID ||
+		destination.HandlerDefinition != input.HandlerDefinition ||
 		destination.Address != input.Address ||
 		(input.IntegrationTargetID != uuid.Nil && input.IntegrationTargetID != destination.IntegrationTargetID) {
 		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 	}
 	input.IntegrationTargetID = destination.IntegrationTargetID
 	notifications := s.newTxNotifications()
-	record, err := resolveAgentInteractionTx(ctx, notifications, tx, dbsqlc.New(tx), input.ResolveAgentInteractionInput)
+	record, err := resolveAgentInteractionTx(
+		ctx,
+		notifications,
+		tx,
+		dbsqlc.New(tx),
+		input.ResolveAgentInteractionInput,
+	)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, notifications, "resolve interaction from handler"); err != nil {
+	if err := s.commitTxWithNotifications(
+		ctx,
+		tx,
+		notifications,
+		"resolve interaction from handler",
+	); err != nil {
 		return AgentInteractionRecord{}, err
 	}
 	return record, nil
@@ -396,10 +761,10 @@ func lockAuthorizedInteractionDestination(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, projectID); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
-	// The snapshot is immutable, so its connection can be gated before the
+	// The snapshot is immutable, so its app can be gated before the
 	// agent lock without acquiring additional gates after a config change.
-	if err := q.LockIntegrationConnectionLifecycleShared(ctx, dbsqlc.LockIntegrationConnectionLifecycleSharedParams{
-		ConnectionID: destination.ConnectionID,
+	if err := q.LockProjectAppLifecycleShared(ctx, dbsqlc.LockProjectAppLifecycleSharedParams{
+		AppID: destination.AppID,
 	}); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
@@ -408,18 +773,20 @@ func lockAuthorizedInteractionDestination(
 	}); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
-	_, resources, err := loadInteractionResources(ctx, q, projectID, agentID)
+	_, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
 	if err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
 	selection := InteractionSelection{
-		IntegrationTargetID: destination.IntegrationTargetID, ResourceKey: destination.ResourceKey,
+		IntegrationTargetID: destination.IntegrationTargetID,
+		HandlerKey:          destination.HandlerKey,
+		Args:                destination.Args,
 	}
-	current, err := selectedInteractionDestination(ctx, q, projectID, agentID, selection, resources)
+	current, err := selectedInteractionDestination(ctx, q, projectID, agentID, selection, handlers)
 	if err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
-	if current == nil || *current != *destination {
+	if current == nil || !sameInteractionDestination(*current, *destination) {
 		return AgentInteractionRecord{}, nil, storeerr.ErrUnauthorized
 	}
 	row, err = q.GetAgentInteraction(ctx, params)
@@ -459,7 +826,11 @@ func (s *Store) RecordInteractionPresentationReceipt(
 		}
 		return AgentInteractionRecord{}, err
 	}
-	params := dbsqlc.GetAgentInteractionParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: input.ID}
+	params := dbsqlc.GetAgentInteractionParams{
+		ProjectID: input.ProjectID,
+		AgentID:   input.AgentID,
+		ID:        input.ID,
+	}
 	row, err := q.GetAgentInteraction(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AgentInteractionRecord{}, storeerr.ErrNotFound
@@ -472,7 +843,7 @@ func (s *Store) RecordInteractionPresentationReceipt(
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	if destination == nil || *destination != input.Destination {
+	if destination == nil || !sameInteractionDestination(*destination, input.Destination) {
 		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 	}
 	if len(record.PresentationReceipt) != 0 {
@@ -487,7 +858,10 @@ func (s *Store) RecordInteractionPresentationReceipt(
 	}
 	changed, err := q.RecordAgentInteractionPresentationReceipt(ctx, receiptParams)
 	if err != nil {
-		return AgentInteractionRecord{}, fmt.Errorf("record interaction presentation receipt: %w", err)
+		return AgentInteractionRecord{}, fmt.Errorf(
+			"record interaction presentation receipt: %w",
+			err,
+		)
 	}
 	if changed != 1 {
 		return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict

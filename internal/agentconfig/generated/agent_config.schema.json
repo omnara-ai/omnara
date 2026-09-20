@@ -1,153 +1,10 @@
 {
   "$defs": {
-    "AgentConfigAppMCPSource": {
+    "AgentConfigAppCapabilitySource": {
       "additionalProperties": false,
       "properties": {
-        "auth": {
-          "$ref": "#/$defs/AgentConfigMCPAuthSource"
-        },
-        "default_enabled": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "deferred": {
-          "type": "boolean"
-        },
-        "permission": {
-          "$ref": "#/$defs/ToolPermissionSelection"
-        },
-        "tools": {
-          "additionalProperties": {
-            "$ref": "#/$defs/AgentConfigMCPToolSource"
-          },
-          "propertyNames": {
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
-            "type": "string"
-          },
+        "config": {
           "type": "object"
-        },
-        "url": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "AgentConfigAppResourceSource": {
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "required": [
-            "definition"
-          ],
-          "type": "object"
-        },
-        {
-          "required": [
-            "app_instance"
-          ],
-          "type": "object"
-        }
-      ],
-      "properties": {
-        "app_instance": {
-          "pattern": "^app_[a-z2-7]{26}$",
-          "type": "string"
-        },
-        "connection": {
-          "pattern": "^iin_[a-z2-7]{26}$",
-          "type": "string"
-        },
-        "definition": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "follow": {
-          "$ref": "#/$defs/AppFollow"
-        },
-        "interaction_handler": {
-          "$ref": "#/$defs/AppInteractionHandler"
-        },
-        "listener": {
-          "$ref": "#/$defs/AppListener"
-        },
-        "mcp": {
-          "additionalProperties": {
-            "$ref": "#/$defs/AgentConfigAppMCPSource"
-          },
-          "propertyNames": {
-            "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "scope": {
-          "$ref": "#/$defs/AppScope"
-        },
-        "tools": {
-          "additionalProperties": {
-            "$ref": "#/$defs/AgentConfigAppToolSource"
-          },
-          "propertyNames": {
-            "allOf": [
-              {
-                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-                "type": "string"
-              },
-              {
-                "not": {
-                  "pattern": "^mcp__",
-                  "type": "string"
-                }
-              }
-            ]
-          },
-          "type": "object"
-        }
-      },
-      "type": "object"
-    },
-    "AgentConfigAppToolSource": {
-      "additionalProperties": false,
-      "properties": {
-        "deferred": {
-          "type": "boolean"
-        },
-        "description": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "enabled": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "input_schema": {
-          "$ref": "#/$defs/AgentToolInputSchema"
-        },
-        "permission": {
-          "$ref": "#/$defs/ToolPermissionSelection"
-        },
-        "type": {
-          "enum": [
-            "built_in",
-            "custom"
-          ]
         }
       },
       "type": "object"
@@ -587,6 +444,9 @@
         "type": "object"
       },
       "properties": {
+        "config": {
+          "type": "object"
+        },
         "deferred": {
           "type": "boolean"
         },
@@ -649,147 +509,6 @@
       ],
       "type": "object"
     },
-    "AppDiscordScope": {
-      "additionalProperties": false,
-      "properties": {
-        "channel_id": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        },
-        "guild_id": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        },
-        "thread_id": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        }
-      },
-      "required": [
-        "channel_id"
-      ],
-      "type": "object"
-    },
-    "AppFollow": {
-      "additionalProperties": false,
-      "properties": {
-        "replies": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "replies"
-      ],
-      "type": "object"
-    },
-    "AppGitHubScope": {
-      "additionalProperties": false,
-      "properties": {
-        "pull_request": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "repository_id": {
-          "minimum": 1,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "repository_id",
-        "pull_request"
-      ],
-      "type": "object"
-    },
-    "AppInteractionHandler": {
-      "additionalProperties": false,
-      "properties": {
-        "definition": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        }
-      },
-      "required": [
-        "definition"
-      ],
-      "type": "object"
-    },
-    "AppListener": {
-      "additionalProperties": false,
-      "properties": {
-        "events": {
-          "items": {
-            "minLength": 1,
-            "pattern": "\\S",
-            "type": "string"
-          },
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        }
-      },
-      "required": [
-        "events"
-      ],
-      "type": "object"
-    },
-    "AppScope": {
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "required": [
-            "slack"
-          ],
-          "type": "object"
-        },
-        {
-          "required": [
-            "github"
-          ],
-          "type": "object"
-        },
-        {
-          "required": [
-            "discord"
-          ],
-          "type": "object"
-        }
-      ],
-      "properties": {
-        "discord": {
-          "$ref": "#/$defs/AppDiscordScope"
-        },
-        "github": {
-          "$ref": "#/$defs/AppGitHubScope"
-        },
-        "slack": {
-          "$ref": "#/$defs/AppSlackScope"
-        }
-      },
-      "type": "object"
-    },
-    "AppSlackScope": {
-      "additionalProperties": false,
-      "properties": {
-        "channel_id": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        },
-        "thread_ts": {
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string"
-        }
-      },
-      "required": [
-        "channel_id"
-      ],
-      "type": "object"
-    },
     "ToolPermissionSelection": {
       "additionalProperties": false,
       "properties": {
@@ -810,20 +529,30 @@
   },
   "additionalProperties": false,
   "properties": {
-    "app_resources": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigAppResourceSource"
-      },
-      "propertyNames": {
-        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-        "type": "string"
-      },
-      "type": "object"
-    },
     "instruction": {
       "minLength": 1,
       "pattern": "\\S",
       "type": "string"
+    },
+    "interaction_handlers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfigAppCapabilitySource"
+      },
+      "propertyNames": {
+        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "listeners": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfigAppCapabilitySource"
+      },
+      "propertyNames": {
+        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+        "type": "string"
+      },
+      "type": "object"
     },
     "machine_sources": {
       "anyOf": [
@@ -893,8 +622,17 @@
       "propertyNames": {
         "allOf": [
           {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "maxLength": 64,
+                "pattern": "^app__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$",
+                "type": "string"
+              }
+            ]
           },
           {
             "not": {

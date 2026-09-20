@@ -82,12 +82,13 @@ type AgentListener struct {
 	ID             uuid.UUID
 	ProjectID      uuid.UUID
 	AgentID        uuid.UUID
-	ConnectionID   uuid.UUID
-	ResourceKey    string
+	AppID          uuid.UUID
+	ListenerKey    string
 	ScopeKind      string
 	ScopeRef       string
 	Events         []string
 	SourceConfigID uuid.UUID
+	Origin         string
 	ToolCallID     *uuid.UUID
 	Active         bool
 	CreatedAt      time.Time
@@ -127,7 +128,6 @@ type AgentRuntimeLock struct {
 type AppProfileChoice struct {
 	ID               uuid.UUID
 	ProjectID        uuid.UUID
-	ConnectionID     uuid.UUID
 	AppID            uuid.UUID
 	OwnerReceiptID   uuid.UUID
 	AddressKind      string
@@ -240,7 +240,6 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
-	MaxActiveIntegrationConnectionsPerProject int64
 	MaxActiveProjectAppsPerProject            int64
 	MaxActiveAppListenersPerAgent             int64
 }
@@ -250,30 +249,10 @@ type ExpiredIdlePoolMachineCandidate struct {
 	MachineID uuid.UUID
 }
 
-type IntegrationConnection struct {
-	ID                       uuid.UUID
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	DeletedAt                *time.Time
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-}
-
 type IntegrationInbox struct {
 	ID             uuid.UUID
 	ProjectID      uuid.UUID
-	ConnectionID   uuid.UUID
+	AppID          uuid.UUID
 	ReceiptKey     string
 	Payload        []byte
 	Events         *json.RawMessage
@@ -465,18 +444,27 @@ type ProcessAction struct {
 }
 
 type ProjectApp struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	Name               string
-	DefinitionID       string
-	Settings           json.RawMessage
-	LaunchConnectionID *uuid.UUID
-	LaunchScopeKind    *string
-	LaunchScopeRef     *string
-	Enabled            bool
-	DeletedAt          *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                       uuid.UUID
+	OrgID                    uuid.UUID
+	ProjectID                uuid.UUID
+	InstalledByUserID        *uuid.UUID
+	Provider                 string
+	State                    string
+	ProviderTenantID         *string
+	ProviderAccountRef       *string
+	ProviderAgentDisplayName string
+	CredentialSecretID       *uuid.UUID
+	ProviderConfig           json.RawMessage
+	ProviderIdentity         json.RawMessage
+	ProviderMetadata         json.RawMessage
+	LastOauthFlowID          *uuid.UUID
+	DeletedAt                *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	Name                     string
+	DefinitionID             string
+	Settings                 json.RawMessage
+	SetupRevision            int64
 }
 
 type ProjectMembership struct {

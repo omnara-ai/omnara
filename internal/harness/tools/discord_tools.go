@@ -3,69 +3,48 @@ package tools
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type discordReadInput struct {
-	Resource string `json:"resource,omitempty"`
-	ThreadID string `json:"thread_id,omitempty"`
-	Before   string `json:"before,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
+	Before string `json:"before,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 type discordPostInput struct {
-	Resource      string   `json:"resource,omitempty"`
-	ThreadID      string   `json:"thread_id,omitempty"`
 	Content       string   `json:"content"`
 	ArtifactIDs   []string `json:"artifact_ids,omitempty"`
 	FollowReplies bool     `json:"follow_replies,omitempty"`
 }
 
-func runDiscordTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	record, err := call.Executor.Store.Execution().
-		GetToolCall(ctx, call.Turn.ProjectID, call.Turn.AgentID, call.ToolCallID)
-	if err != nil {
-		return nil, err
+func runDiscordTool(
+	ctx context.Context,
+	call asyncToolContext,
+	record executionstore.ToolCallRecord,
+	access appToolAccess,
+) (asyncPhaseResult, error) {
+	scope := access.Arguments.Destination
+	if scope.Discord == nil {
+		return appToolFailure(errors.New("app tool destination does not match Discord"))
 	}
-	var selector struct {
-		Resource string `json:"resource"`
-		ThreadID string `json:"thread_id"`
-	}
-	if err := json.Unmarshal(call.Call.Input, &selector); err != nil {
-		return appToolFailure(err)
-	}
-	access, err := call.Executor.resolveAppToolAccess(ctx, call.Turn, record, selector.Resource)
-	if err != nil {
-		return appToolFailure(err)
-	}
-	if access.Authority.Original.Scope == nil || access.Authority.Original.Scope.Discord == nil {
-		return appToolFailure(errors.New("discord resource requires a conversation scope"))
-	}
-	address := *access.Authority.Original.Scope.Discord
-	if selector.ThreadID != "" {
-		address.ThreadID = selector.ThreadID
-	}
-	scope := appdefinition.Scope{Discord: &address}
-	if err := scope.Validate(appdefinition.ProviderDiscord); err != nil || !access.Authority.AllowsScope(scope) {
-		return appToolFailure(errors.New("requested Discord conversation is outside the resource scope"))
-	}
+	address := *scope.Discord
+	scope.Discord = &address
 	client, err := discord.NewClient(discord.Config{
 		Credentials: discord.Credentials{
-			ApplicationID: access.Connection.ProviderTenantID,
-			BotUserID:     access.Connection.ProviderAccountRef,
+			ApplicationID: access.App.ProviderTenantID,
+			BotUserID:     access.App.ProviderAccountRef,
 			BotToken:      access.Credential[secrets.KeyValue],
 		},
 		HTTPClient: call.Executor.IntegrationHTTPClient,
 		BeforeRequest: func(ctx context.Context) error {
-			return call.Executor.recheckAppToolAccess(ctx, call.Turn, record, access, scope)
+			return call.Executor.recheckAppToolAccess(ctx, call.Turn, record, access)
 		},
 	})
 	if err != nil {
@@ -75,9 +54,9 @@ func runDiscordTool(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 		return discordToolFailure(err)
 	}
 	providerScope := discord.Scope{GuildID: address.GuildID, ChannelID: address.ChannelID, ThreadID: address.ThreadID}
-	if record.Name == toolcatalog.ToolNameDiscordRead {
+	if access.Authority.Definition.Operation == toolcatalog.AppOperationRead {
 		var input discordReadInput
-		if err := decodeSingleStrictJSON(call.Call.Input, &input, "Discord read"); err != nil {
+		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "Discord read"); err != nil {
 			return appToolFailure(err)
 		}
 		page, err := client.ListMessages(
@@ -92,11 +71,8 @@ func runDiscordTool(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 		return completeAsynchronously(content), err
 	}
 	var input discordPostInput
-	if err := decodeSingleStrictJSON(call.Call.Input, &input, "Discord post"); err != nil {
+	if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "Discord post"); err != nil {
 		return appToolFailure(err)
-	}
-	if input.FollowReplies && !access.Authority.AllowsFollowingReplies() {
-		return appToolFailure(errors.New("resource does not permit following replies"))
 	}
 	if input.FollowReplies {
 		channel, err := client.GetScopedChannel(ctx, providerScope)
@@ -159,7 +135,7 @@ func runDiscordTool(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 	}
 	content, err := structuredToolResultContent(
 		map[string]any{
-			"resource":       access.Authority.ResourceKey,
+			"app":            access.App.Name,
 			"channel_id":     address.ChannelID,
 			"message_id":     message.ID,
 			"thread_id":      address.ThreadID,
@@ -188,19 +164,4 @@ func discordToolFailure(err error) (asyncPhaseResult, error) {
 		return nil, marshalErr
 	}
 	return failAsynchronously(content, err), nil
-}
-
-func discordToolRegistrations() []toolRegistration {
-	return []toolRegistration{
-		{
-			name:            toolcatalog.ToolNameDiscordRead,
-			handler:         toolHandler{Async: runDiscordTool},
-			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:            toolcatalog.ToolNameDiscordPostMessage,
-			handler:         toolHandler{Async: runDiscordTool},
-			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-	}
 }

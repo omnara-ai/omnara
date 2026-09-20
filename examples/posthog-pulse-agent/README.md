@@ -28,6 +28,14 @@ environment variable.)
 
 ## Run it
 
+**SDK compatibility (release pending):** This demo uses the new app API and
+requires a matching `@omnara/sdk` release built from this checkout. Currently
+published `0.1.15` lacks these APIs, and the existing `^0.1.8` range is not
+sufficient. Run the commands below only after that SDK is published and this
+example's minimum dependency range is updated. Do not substitute a raw `file:`
+dependency on the SDK source; it does not support the documented plain-Node
+command.
+
 ```sh
 brew install deno
 
@@ -71,8 +79,9 @@ appears in the config or event log. EU cloud accounts: swap the host for
 
 ## Slack and scheduling (optional)
 
-The demo can create a Slack app for you (set
-`SLACK_APP_CONFIGURATION_TOKEN` in `.env`). Invite the bot to a channel and
+The demo can create a Slack app for you. Set `SLACK_APP_CONFIGURATION_TOKEN`
+and `SLACK_WORKSPACE_ID` (the workspace's `T…` ID) in `.env`, then install the
+app into that workspace. Invite the bot to a channel and
 mention it — the agent delivers the pulse in that thread, and thread replies
 become instructions, so the team can drill into any number right there.
 Without Slack, pulses appear in the console.

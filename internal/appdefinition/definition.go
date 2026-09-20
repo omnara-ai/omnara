@@ -6,42 +6,78 @@ package appdefinition
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 )
 
 const (
-	ProviderSlack       = "slack"
-	ProviderGitHub      = "github"
-	ProviderDiscord     = "discord"
-	Slack               = "omnara.slack"
-	GitHub              = "omnara.github"
-	Discord             = "omnara.discord"
-	SlackInteractions   = "omnara.slack.interactions"
-	DiscordInteractions = "omnara.discord.interactions"
+	ProviderSlack   = "slack"
+	ProviderGitHub  = "github"
+	ProviderDiscord = "discord"
+	Slack           = "omnara.slack"
+	GitHub          = "omnara.github"
+	Discord         = "omnara.discord"
 )
 
+// Definition is the reviewed capability registry for one immutable app kind.
 type Definition struct {
 	ID                 string
 	Provider           string
-	ListenerEvents     []string
-	InteractionHandler string
+	Tools              []string
+	Listeners          map[string]ListenerDefinition
+	InteractionHandler *InteractionHandlerDefinition
 }
 
-// Lookup returns built-in app metadata reviewed and shipped with the server.
-// Project setup configures these definitions; it cannot register new ones.
+// All returns the installed app implementations in stable catalog order.
+func All() []Definition {
+	definitions := make([]Definition, 0, 3)
+	for _, id := range []string{Discord, GitHub, Slack} {
+		definition, _ := Lookup(id)
+		definitions = append(definitions, definition)
+	}
+	return definitions
+}
+
 func Lookup(id string) (Definition, bool) {
+	var d Definition
 	switch id {
 	case Slack:
-		return Definition{id, ProviderSlack, []string{"message"}, SlackInteractions}, true
-	case GitHub:
-		return Definition{id, ProviderGitHub, []string{"discussion_comment", "review_comment", "commit"}, ""}, true
+		d = Definition{
+			ID:       id,
+			Provider: ProviderSlack,
+			Tools:    []string{"read", "post_message"},
+			Listeners: map[string]ListenerDefinition{
+				"thread_messages": {Name: "thread_messages", Provider: ProviderSlack, Events: []string{"message"}},
+			},
+			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
+		}
 	case Discord:
-		return Definition{id, ProviderDiscord, []string{"message"}, DiscordInteractions}, true
+		d = Definition{
+			ID:       id,
+			Provider: ProviderDiscord,
+			Tools:    []string{"read", "post_message"},
+			Listeners: map[string]ListenerDefinition{
+				"thread_messages": {Name: "thread_messages", Provider: ProviderDiscord, Events: []string{"message"}},
+			},
+			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
+		}
+	case GitHub:
+		d = Definition{
+			ID:       id,
+			Provider: ProviderGitHub,
+			Tools:    []string{"read", "discussion_comment", "inline_comment", "reply"},
+			Listeners: map[string]ListenerDefinition{
+				"pull_request": {
+					Name:     "pull_request",
+					Provider: ProviderGitHub,
+					Events:   []string{"discussion_comment", "review_comment", "commit"},
+				},
+			},
+		}
 	default:
 		return Definition{}, false
 	}
+	return d, true
 }
 
 // Scope contains exactly one provider-specific, concrete address. Optional
@@ -66,20 +102,6 @@ type DiscordScope struct {
 	GuildID   string `json:"guild_id,omitempty"`
 	ChannelID string `json:"channel_id"`
 	ThreadID  string `json:"thread_id,omitempty"`
-}
-
-type Listener struct {
-	Events []string `json:"events"`
-}
-
-// Follow permits registering the resulting conversation after a confirmed post.
-// It does not itself subscribe to a channel or imply a tool or interaction handler.
-type Follow struct {
-	Replies bool `json:"replies"`
-}
-
-type InteractionHandler struct {
-	Definition string `json:"definition"`
 }
 
 var (
@@ -130,46 +152,6 @@ func (s Scope) Validate(provider string) error {
 	return fmt.Errorf("scope does not match provider %q", provider)
 }
 
-// ValidateCapabilities checks only the selected capabilities. In particular a
-// handler needs no listener, and a follow policy needs no broad subscription.
-func (d Definition) ValidateCapabilities(
-	scope *Scope,
-	listener *Listener,
-	follow *Follow,
-	handler *InteractionHandler,
-) error {
-	if scope != nil {
-		if err := scope.Validate(d.Provider); err != nil {
-			return err
-		}
-	}
-	if (listener != nil || follow != nil || handler != nil) && scope == nil {
-		return fmt.Errorf("selected listener, follow or interaction handler requires a scope")
-	}
-	return d.ValidateSelection(listener, handler)
-}
-
-// ValidateSelection checks exported receive/presentation capabilities without a
-// concrete scope. Project app templates may obtain their scope from a launcher.
-func (d Definition) ValidateSelection(listener *Listener, handler *InteractionHandler) error {
-	if listener != nil {
-		if len(listener.Events) == 0 {
-			return fmt.Errorf("listener requires at least one event")
-		}
-		seen := map[string]bool{}
-		for _, event := range listener.Events {
-			if seen[event] || !slices.Contains(d.ListenerEvents, event) {
-				return fmt.Errorf("invalid or duplicate listener event %q for %s", event, d.ID)
-			}
-			seen[event] = true
-		}
-	}
-	if handler != nil && (d.InteractionHandler == "" || handler.Definition != d.InteractionHandler) {
-		return fmt.Errorf("interaction handler %q is not supported by %s", handler.Definition, d.ID)
-	}
-	return nil
-}
-
 // Provider returns the selected provider; Validate rejects empty/mixed scopes.
 func (s Scope) Provider() string {
 	switch {
@@ -184,7 +166,7 @@ func (s Scope) Provider() string {
 	}
 }
 
-// Conversation is the canonical address within a connection. Slack preserves
+// Conversation is the canonical address within an app. Slack preserves
 // existing thread (channel:timestamp) and DM addresses. GitHub PR identity uses
 // the immutable repository ID; inline threads are tool arguments within that same PR.
 func (s Scope) Conversation() (kind, key string, err error) {
@@ -214,28 +196,5 @@ func (s Scope) Conversation() (kind, key string, err error) {
 		return "channel", s.Discord.ChannelID, nil
 	default:
 		return "", "", fmt.Errorf("scope must contain a supported provider address")
-	}
-}
-
-// Contains checks only provider scope. Callers must also check connection
-// identity and live authorization. GitHub PRs match exactly;
-// a channel scope may contain its own threads, never a different channel.
-func (s Scope) Contains(child Scope) bool {
-	provider := s.Provider()
-	if s.Validate(provider) != nil || child.Validate(provider) != nil {
-		return false
-	}
-	switch provider {
-	case ProviderSlack:
-		return s.Slack.ChannelID == child.Slack.ChannelID &&
-			(s.Slack.ThreadTS == "" || s.Slack.ThreadTS == child.Slack.ThreadTS)
-	case ProviderDiscord:
-		return s.Discord.ChannelID == child.Discord.ChannelID &&
-			(s.Discord.GuildID == "" || s.Discord.GuildID == child.Discord.GuildID) &&
-			(s.Discord.ThreadID == "" || s.Discord.ThreadID == child.Discord.ThreadID)
-	case ProviderGitHub:
-		return *s.GitHub == *child.GitHub
-	default:
-		return false
 	}
 }

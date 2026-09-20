@@ -12,63 +12,100 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
-func activateInteractionToolHandlers(t *testing.T, ctx context.Context, f integrationToolFixture, keys ...string) {
+func activateInteractionToolHandlers(
+	t *testing.T,
+	ctx context.Context,
+	f integrationToolFixture,
+	keys ...string,
+) executionstore.AgentConfigRecord {
 	t.Helper()
 	source, err := agentconfig.ParseSource(
-		agentconfig.SourceFormat(f.AgentConfig.SourceFormat), []byte(f.AgentConfig.Source),
+		agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
+		[]byte(f.AgentConfig.Source),
 	)
 	require.NoError(t, err)
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, f.Install.ID)
-	require.NoError(t, err)
-	source.AppResources = map[string]agentconfig.AgentConfigAppResourceSource{}
+	source.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{}
 	for _, key := range keys {
-		source.AppResources[key] = agentconfig.AgentConfigAppResourceSource{
-			Definition: appdefinition.Slack, Connection: connection,
-			Scope:              &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123"}},
-			InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
+		if key != f.Install.Name {
+			createSlackToolApp(t, ctx, f.Store, f.User.ID, key, key)
 		}
+		channel := "C123"
 		if f.Install.Provider == appdefinition.ProviderDiscord {
-			resource := source.AppResources[key]
-			resource.Definition = appdefinition.Discord
-			resource.Scope = &appdefinition.Scope{Discord: &appdefinition.DiscordScope{ChannelID: "444"}}
-			resource.InteractionHandler = &appdefinition.InteractionHandler{
-				Definition: appdefinition.DiscordInteractions,
-			}
-			source.AppResources[key] = resource
+			channel = "444"
 		}
-
+		source.InteractionHandlers[key] = agentconfig.AgentConfigAppCapabilitySource{
+			Config: map[string]any{"channel_id": channel},
+		}
 	}
-	raw, err := json.Marshal(source)
+	changed, err := f.Store.Execution().ChangeAgentConfig(ctx, appToolConfigChangeInput(t, f, source))
 	require.NoError(t, err)
-	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{
-		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-			return agentconfig.ResolvedModelSelection{ConfiguredModelID: f.AgentConfig.ConfiguredModelID.String()}, nil
+	return changed.AgentConfig
+}
+
+// Handler-selection calls must originate from a model context whose immutable
+// config already contains the handlers. Launch a fresh fixture agent against
+// that config; never rewrite an existing context to make a stale call succeed.
+func newInteractionToolFixture(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	keys ...string,
+) integrationToolFixture {
+	t.Helper()
+	f := newIntegrationToolFixture(t, ctx, label)
+	config := activateInteractionToolHandlers(t, ctx, f, keys...)
+	actor, err := executionstore.OmnaraActorParams(
+		toolsTestOrgID,
+		toolsTestUserPrincipal(f.User.ID),
+	)
+	require.NoError(t, err)
+	launch, err := f.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      toolsTestProjectID,
+		AgentConfigID:  config.ID,
+		LaunchedBy:     toolsTestUserPrincipal(f.User.ID),
+		IdempotencyKey: "handler-agent-" + label,
+		InitialInput: &executionstore.LaunchInitialInput{
+			Actor:            actor,
+			SemanticEventKey: "handler-input-" + label,
+			ContentBlocks:    json.RawMessage(`[{"type":"text","text":"select a handler"}]`),
 		},
-		ResolveAppConnection: func(id, _ string) (string, error) { return id, nil },
 	})
 	require.NoError(t, err)
-	_, err = f.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			ProjectID: toolsTestProjectID, Source: string(raw), SourceFormat: "json",
-			ConfiguredModelID: f.AgentConfig.ConfiguredModelID, CompiledDefinition: compiled.CanonicalJSON,
-			CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
-		},
-		AgentID: f.Agent.ID, ActorType: "user", ActorID: f.User.ID, IdempotencyKey: uuid.NewString(),
-	})
+	claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, toolsTestClaimInput())
 	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Equal(t, launch.AgentInput.ID, claim.Model.AdmittedInputTurn.Inputs[0].ID)
+	modelCall := claimNormalModelCallForToolsTest(
+		t,
+		ctx,
+		f.Store,
+		toolsTestProjectID,
+		launch.Agent.ID,
+		claim.RuntimeLock,
+		[]uuid.UUID{
+			launch.AgentInput.ID,
+		},
+		config.ID,
+		claim.Model.AdmittedInputTurn.Events[0].Sequence,
+		uuid.Nil,
+	)
+	f.Agent, f.AgentConfig, f.Lock = launch.Agent, config, claim.RuntimeLock
+	f.ModelCallContextID, f.ModelOutputEventID = modelCall.Context.ID, uuid.Nil
+	f.Target = launch.IntegrationTarget
+	return f
 }
 
 func interactionToolTurn(f integrationToolFixture, mode string) Turn {
 	turn := f.turn()
 	turn.Tools = map[string]ToolSpec{}
-	for _, name := range toolcatalog.InteractionDestinationToolNames() {
+	for _, name := range toolcatalog.InteractionHandlerToolNames() {
 		turn.Tools[name] = ToolSpec{Permission: toolpermission.DefaultSelection(mode)}
 	}
 	return turn
@@ -87,7 +124,8 @@ func interactionToolResult(
 	t *testing.T, ctx context.Context, f integrationToolFixture, call model.ToolCall,
 ) map[string]any {
 	t.Helper()
-	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+	record, err := f.Store.Execution().
+		GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
 	return toolResultMapFromTestParts(t, record.ResultContentParts)
@@ -96,55 +134,70 @@ func interactionToolResult(
 func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newIntegrationToolFixture(t, ctx, "interaction-selection")
-	activateInteractionToolHandlers(t, ctx, f, "chat", "overlap")
-	target, err := publicid.Encode(publicid.KindIntegrationTarget, f.Target.ID)
-	require.NoError(t, err)
+	f := newInteractionToolFixture(t, ctx, "interaction-selection", "chat", "overlap")
 	calls := []model.ToolCall{
-		{ID: "list-before", Name: toolcatalog.ToolNameListInteractionDestinations, Input: json.RawMessage(`{}`)},
-		{ID: "set", Name: toolcatalog.ToolNameSetInteractionDestination,
-			Input: json.RawMessage(`{"destination":{"target_id":"` + target + `","resource":"overlap"}}`)},
-		{ID: "list-after", Name: toolcatalog.ToolNameListInteractionDestinations, Input: json.RawMessage(`{}`)},
+		{
+			ID:    "list-before",
+			Name:  toolcatalog.ToolNameListInteractionHandlers,
+			Input: json.RawMessage(`{}`),
+		},
+		{ID: "set", Name: toolcatalog.ToolNameSetInteractionHandler,
+			Input: json.RawMessage(`{"handler":"overlap","args":{"thread_ts":"111.222"}}`)},
+		{
+			ID:    "list-after",
+			Name:  toolcatalog.ToolNameListInteractionHandlers,
+			Input: json.RawMessage(`{"limit":1}`),
+		},
 		{
 			ID:    "clear",
-			Name:  toolcatalog.ToolNameSetInteractionDestination,
-			Input: json.RawMessage(`{"destination":null}`),
+			Name:  toolcatalog.ToolNameSetInteractionHandler,
+			Input: json.RawMessage(`{"handler":null,"args":{}}`),
 		},
 	}
 	f.recordToolCalls(t, ctx, calls, f.Now)
 	turn := interactionToolTurn(f, toolpermission.ModeAlwaysAllow)
 	dispatchInteractionHandler(t, ctx, f, turn, calls[0])
 	before := interactionToolResult(t, ctx, f, calls[0])
-	require.Nil(t, before["current"])
-	options, ok := before["destinations"].([]any)
+	require.Nil(t, before["selection"])
+	options, ok := before["handlers"].([]any)
 	require.True(t, ok)
-	var found int
-	for _, option := range options {
-		choice, ok := option.(map[string]any)
+	require.Len(t, options, 2)
+	for index, key := range []string{"chat", "overlap"} {
+		choice, ok := options[index].(map[string]any)
 		require.True(t, ok)
-		if choice["target_id"] == target {
-			found++
-			require.Contains(t, []string{"chat", "overlap"}, choice["resource"])
-			require.Equal(t, map[string]any{"kind": "thread", "ref": "C123:111.222"}, choice["scope"])
-		}
+		require.Equal(t, key, choice["handler"])
+		require.NotNil(t, choice["input_schema"])
 	}
-	require.Equal(t, 2, found)
 	dispatchInteractionHandler(t, ctx, f, turn, calls[1])
-	selected := map[string]any{"target_id": target, "resource": "overlap"}
-	require.Equal(t, selected, interactionToolResult(t, ctx, f, calls[1])["current"])
-	selection, err := f.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
+	selected := map[string]any{"handler": "overlap", "args": map[string]any{"thread_ts": "111.222"}}
+	require.Equal(t, selected, interactionToolResult(t, ctx, f, calls[1])["selection"])
+	selection, err := f.Store.Execution().
+		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t,
-		executionstore.InteractionSelection{IntegrationTargetID: f.Target.ID, ResourceKey: "overlap"}, selection)
+	require.Equal(t, "overlap", selection.HandlerKey)
+	require.NotEqual(t, uuid.Nil, selection.IntegrationTargetID)
+	require.JSONEq(t, `{"thread_ts":"111.222"}`, string(selection.Args))
 	dispatchInteractionHandler(t, ctx, f, turn, calls[2])
-	require.Equal(t, selected, interactionToolResult(t, ctx, f, calls[2])["current"])
+	page := interactionToolResult(t, ctx, f, calls[2])
+	pageHandlers, ok := page["handlers"].([]any)
+	require.True(t, ok)
+	require.Len(t, pageHandlers, 1)
+	require.NotEmpty(t, page["next_cursor"])
+	pageHandler, ok := pageHandlers[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "chat", pageHandler["handler"])
+	listed, ok := page["selection"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, selected["handler"], listed["handler"])
+	require.Equal(t, selected["args"], listed["args"])
 	dispatchInteractionHandler(t, ctx, f, turn, calls[3])
-	require.Nil(t, interactionToolResult(t, ctx, f, calls[3])["current"])
+	require.Nil(t, interactionToolResult(t, ctx, f, calls[3])["selection"])
 	// Completed-call replay returns the persisted result without restoring old selection.
 	replayed, err := (Executor{Store: f.Store}).Dispatch(ctx, turn, calls[1])
 	require.NoError(t, err)
-	require.Equal(t, selected, toolResultMapFromTestParts(t, replayed.ContentParts)["current"])
-	selection, err = f.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
+	require.Equal(t, selected, toolResultMapFromTestParts(t, replayed.ContentParts)["selection"])
+	selection, err = f.Store.Execution().
+		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{}, selection)
 }
@@ -152,67 +205,99 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 func TestInteractionToolRejectsUnavailableChoiceWithoutMutation(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newIntegrationToolFixture(t, ctx, "interaction-revoked")
-	activateInteractionToolHandlers(t, ctx, f, "chat")
-	target, err := publicid.Encode(publicid.KindIntegrationTarget, f.Target.ID)
-	require.NoError(t, err)
-	call := f.recordToolCall(t, ctx, "set-revoked", toolcatalog.ToolNameSetInteractionDestination,
-		`{"destination":{"target_id":"`+target+`","resource":"chat"}}`, f.Now)
+	f := newInteractionToolFixture(t, ctx, "interaction-revoked", "chat")
+	call := f.recordToolCall(t, ctx, "set-revoked", toolcatalog.ToolNameSetInteractionHandler,
+		`{"handler":"chat","args":{"thread_ts":"111.222"}}`, f.Now)
 	// A choice discovered before config replacement cannot restore removed authority.
 	activateInteractionToolHandlers(t, ctx, f)
 	result, err := (Executor{Store: f.Store}).Dispatch(
 		ctx, interactionToolTurn(f, toolpermission.ModeAlwaysAllow), call,
 	)
 	require.NoError(t, err)
-	require.Contains(t, string(result.ContentParts), "interaction_destination_unavailable")
-	selection, err := f.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
+	require.Contains(t, string(result.ContentParts), "interaction_handler_unavailable")
+	selection, err := f.Store.Execution().
+		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{}, selection)
-	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+	record, err := f.Store.Execution().
+		GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
-	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome, "failed command cannot commit success")
+	require.Equal(
+		t,
+		executionstore.ToolResultOutcomeFailed,
+		record.Outcome,
+		"failed command cannot commit success",
+	)
 }
 
 func TestInteractionToolAlwaysAskUsesOriginalAuthorizationInput(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newIntegrationToolFixture(t, ctx, "interaction-approval")
-	activateInteractionToolHandlers(t, ctx, f, "chat")
-	target, err := publicid.Encode(publicid.KindIntegrationTarget, f.Target.ID)
-	require.NoError(t, err)
-	call := f.recordPendingToolCall(t, ctx, "set-approved", toolcatalog.ToolNameSetInteractionDestination,
-		`{"destination":{"target_id":"`+target+`","resource":"chat"}}`, f.Now)
+	f := newInteractionToolFixture(t, ctx, "interaction-approval", "chat")
+	call := f.recordPendingToolCall(
+		t,
+		ctx,
+		"set-approved",
+		toolcatalog.ToolNameSetInteractionHandler,
+		`{"handler":"chat","args":{"thread_ts":"111.222"}}`,
+		f.Now,
+	)
 	turn := interactionToolTurn(f, toolpermission.ModeAlwaysAsk)
 	permission := turn.Tools[call.Name].Permission
-	descriptor, found := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), permission.Mode)
+	descriptor, found := toolpermission.FindMode(
+		toolpermission.CommonModeDescriptors(),
+		permission.Mode,
+	)
 	require.True(t, found)
 	request, err := genericPermissionChallenge(ctx, Executor{}, turn, call,
 		permissionModeContext{selection: permission, descriptor: descriptor})
 	require.NoError(t, err)
 	permissionInput := executionstore.CreatePermissionInteractionInput{
-		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ToolCallID: f.toolCallID(t, ctx, call.ID),
-		RuntimeLockID: f.Lock.ID, Request: request,
+		ProjectID:     toolsTestProjectID,
+		AgentID:       f.Agent.ID,
+		ToolCallID:    f.toolCallID(t, ctx, call.ID),
+		RuntimeLockID: f.Lock.ID,
+		Request:       request,
 	}
 	interaction, err := f.Store.Execution().CreatePermissionInteraction(ctx, permissionInput)
 	require.NoError(t, err)
-	actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(f.User.ID))
+	actor, err := executionstore.OmnaraActorParams(
+		toolsTestOrgID,
+		toolsTestUserPrincipal(f.User.ID),
+	)
 	require.NoError(t, err)
-	_, err = f.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
-		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ID: interaction.ID, Actor: actor,
-		Resolution: interactionform.Resolution{
-			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
-		},
-	})
+	_, err = f.Store.Execution().
+		ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+			ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ID: interaction.ID, Actor: actor,
+			Resolution: interactionform.Resolution{
+				Answers: []interactionform.Answer{
+					{OptionIndices: []int{toolpermission.AllowOptionIndex}},
+				},
+			},
+		})
 	require.NoError(t, err)
 	changed := call
-	changed.Input = json.RawMessage(`{"destination":null}`)
-	_, err = (Executor{Store: f.Store}).dispatchToolHandler(ctx, turn, changed, f.toolCallID(t, ctx, call.ID),
-		interactionImplementationForTest(t, call.Name).handler)
-	require.ErrorIs(t, err, ErrToolAuthorizationInvalidated, "approval authorizes the exact requested selection")
+	changed.Input = json.RawMessage(`{"handler":null,"args":{}}`)
+	_, err = (Executor{Store: f.Store}).dispatchToolHandler(
+		ctx,
+		turn,
+		changed,
+		f.toolCallID(t, ctx, call.ID),
+		interactionImplementationForTest(t, call.Name).handler,
+	)
+	require.ErrorIs(
+		t,
+		err,
+		ErrToolAuthorizationInvalidated,
+		"approval authorizes the exact requested selection",
+	)
 	dispatchInteractionHandler(t, ctx, f, turn, call)
-	require.Equal(t, map[string]any{"target_id": target, "resource": "chat"},
-		interactionToolResult(t, ctx, f, call)["current"])
+	require.Equal(
+		t,
+		map[string]any{"handler": "chat", "args": map[string]any{"thread_ts": "111.222"}},
+		interactionToolResult(t, ctx, f, call)["selection"],
+	)
 }
 
 // Use the production config reconciliation and origin selector without publishing
@@ -233,6 +318,6 @@ func prepareInteractionPromptFixture(t *testing.T, ctx context.Context, f integr
 	selected, err := f.Store.Execution().
 		SelectInteractionDestinationForOriginTx(ctx, tx, toolsTestProjectID, f.Agent.ID, f.Target.ID)
 	require.NoError(t, err)
-	require.Equal(t, "chat", selected.ResourceKey)
+	require.Equal(t, "chat", selected.HandlerKey)
 	require.NoError(t, tx.Commit(ctx))
 }

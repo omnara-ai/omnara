@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -32,28 +32,23 @@ func TestInboxCleanupWarningAndTerminalRetry(t *testing.T) {
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
-	store := storage.NewStore(pool)
+	store := newMaintenanceInboxStore(t, pool, ids)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	agentID, artifactID, connectionID := uuid.New(), uuid.New(), uuid.New()
+	agentID, artifactID := uuid.New(), uuid.New()
 	_, err := pool.Exec(ctx, `INSERT INTO agents
  (id,org_id,project_id,state,current_config_id,created_at,updated_at)
  VALUES($1,$2,$3,'active',$4,now(),now())`, agentID, ids.OrgID, ids.ProjectID, base.ID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO integration_connections
- (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,
-  provider_account_ref,created_at,updated_at)
- VALUES($1,$2,$3,$4,'slack','active','T123','A123',now(),now())`,
-		connectionID, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID)
-	require.NoError(t, err)
+	appID := createMaintenanceInboxApp(t, store, ids, "slack", appdefinition.Slack).ID
 	inbox := store.Integrations()
 	_, _, err = inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, ReceiptKey: "cleanup",
+		ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "cleanup",
 		Payload: []byte(`{"private":"provider-payload"}`),
 	})
 	require.NoError(t, err)
 	receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, LeaseDuration: time.Minute,
+		ProjectID: ids.ProjectID, AppID: appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)

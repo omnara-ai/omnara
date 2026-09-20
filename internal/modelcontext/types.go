@@ -141,8 +141,8 @@ type InteractionRoutingContext struct {
 	Destination *InteractionDestinationRef `json:"destination"`
 }
 type InteractionDestinationRef struct {
-	Resource string `json:"resource"`
-	TargetID string `json:"target_id"`
+	Handler string          `json:"handler"`
+	Args    json.RawMessage `json:"args"`
 }
 
 type MachinePoolRef struct {

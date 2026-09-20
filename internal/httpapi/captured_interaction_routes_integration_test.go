@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,14 +34,22 @@ import (
 )
 
 type capturedHTTPFixture struct {
-	handler    http.Handler
-	project    publicHTTPProject
-	pool       *pgxpool.Pool
-	connection integrationstore.IntegrationConnectionRecord
-	record     executionstore.AgentInteractionRecord
-	key        ed25519.PrivateKey
-	client     *http.Client
-	dismissed  chan struct{}
+	handler        http.Handler
+	project        publicHTTPProject
+	pool           *pgxpool.Pool
+	app            integrationstore.ProjectAppRecord
+	callbackStatus int
+	signingSecret  string
+	record         executionstore.AgentInteractionRecord
+	key            ed25519.PrivateKey
+	client         *http.Client
+	dismissed      chan struct{}
+}
+
+type capturedHTTPFixtureOptions struct {
+	handlerConfig    map[string]any
+	prepareOnly      bool
+	providerOverride func(http.ResponseWriter, *http.Request) bool
 }
 
 type capturedTestTransport struct {
@@ -63,12 +72,24 @@ func newCapturedHTTPFixtureWithDismiss(
 	t *testing.T,
 	provider, kind string,
 	dismiss http.HandlerFunc,
+	options ...capturedHTTPFixtureOptions,
 ) capturedHTTPFixture {
 	t.Helper()
 	ctx := t.Context()
+	var opts capturedHTTPFixtureOptions
+	if len(options) != 0 {
+		opts = options[0]
+	}
 	dismissed := make(chan struct{}, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if opts.providerOverride != nil && opts.providerOverride(w, r) {
+			return
+		}
 		switch r.URL.Path {
+		case "/api/auth.test":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
+			})
 		case "/api/chat.postMessage":
 			writeJSON(w, 200, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 		case "/api/chat.update":
@@ -141,24 +162,26 @@ func newCapturedHTTPFixtureWithDismiss(
 		Actor:          httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	connection, err := project.Store.Integrations().
-		CreateIntegrationConnection(ctx, integrationstore.SaveIntegrationConnectionInput{
-			OrgID:              project.OrgUUID,
-			ProjectID:          project.ProjectUUID,
-			InstalledByUserID:  project.AdminUserUUID,
-			Provider:           provider,
-			State:              integrationstore.IntegrationConnectionStateActive,
-			ProviderTenantID:   tenant,
-			ProviderAccountRef: account,
-			CredentialSecretID: secret.ID,
-			ProviderConfig:     config,
-			ProviderIdentity:   identity,
-		})
+	app, err := project.Store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", DefinitionID: "omnara." + provider,
+	})
 	require.NoError(t, err)
-	connectionID := testPublicID(t, publicid.KindIntegrationConnection, connection.ID)
-	source := projectAppHTTPSource(map[string]any{"definition": "omnara." + provider, "connection": connectionID,
-		"scope":               map[string]any{provider: map[string]any{"channel_id": ref}},
-		"interaction_handler": map[string]any{"definition": "omnara." + provider + ".interactions"}})
+	app, err = project.Store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
+		InstalledByUserID: project.AdminUserUUID, Provider: provider, ProviderTenantID: tenant, ProviderAccountRef: account,
+		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
+		ProviderConfig: config, ProviderIdentity: identity,
+	})
+	require.NoError(t, err)
+	handlerConfig := map[string]any{"channel_id": ref}
+	for key, value := range opts.handlerConfig {
+		handlerConfig[key] = value
+	}
+	source := map[string]any{
+		"instruction":          "Help with the request.",
+		"model":                map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
+		"interaction_handlers": map[string]any{"support": map[string]any{"config": handlerConfig}},
+	}
 	agentConfig := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -195,16 +218,25 @@ func newCapturedHTTPFixtureWithDismiss(
 	)
 	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 	agentUUID := mustPublicHTTPID(t, publicid.KindAgent, agentID)
-	choices, err := project.Store.Execution().ListInteractionDestinations(ctx, project.ProjectUUID, agentUUID)
+	choices, err := project.Store.Execution().ListInteractionHandlers(ctx, project.ProjectUUID, agentUUID, "", 100)
 	require.NoError(t, err)
-	require.Len(t, choices.Destinations, 1, "handler-only fixed scope must exist without prior input")
+	require.Len(t, choices.Handlers, 1, "fixed handler must be discoverable without prior input")
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
+	address := integrationstore.ConversationAddress{Kind: "channel", Ref: ref}
+	require.NoError(t, integrationstore.LockAppsTx(ctx, tx, project.ProjectUUID, nil, app.ID))
+	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, app.ID, address))
 	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agentUUID)
 	require.NoError(t, err)
+	origin, err := project.Store.Integrations().
+		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: project.ProjectUUID, AgentID: agentUUID, AppID: app.ID,
+			Address: address, Role: integrationstore.TargetAttribution,
+		})
+	require.NoError(t, err)
 	_, err = project.Store.Execution().SelectInteractionDestinationForOriginTx(
-		ctx, tx, project.ProjectUUID, agentUUID, choices.Destinations[0].Destination.IntegrationTargetID,
+		ctx, tx, project.ProjectUUID, agentUUID, origin.ID,
 	)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))
@@ -230,16 +262,25 @@ func newCapturedHTTPFixtureWithDismiss(
 		kind,
 	)
 	presenter := integration.InteractionPresenter{Store: project.Store, HTTPClient: client}
-	require.NoError(t, presenter.Present(ctx, project.ProjectUUID, record.AgentID, record.ID))
+	if !opts.prepareOnly {
+		require.NoError(t, presenter.Present(ctx, project.ProjectUUID, record.AgentID, record.ID))
+	}
 	record, found, err := project.Store.Execution().
 		GetAgentInteraction(ctx, project.ProjectUUID, record.AgentID, record.ID)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.NotEmpty(t, record.PresentationReceipt)
-	return capturedHTTPFixture{handler, project, pool, connection, record, key, client, dismissed}
+	if !opts.prepareOnly {
+		require.NotEmpty(t, record.PresentationReceipt)
+	}
+	return capturedHTTPFixture{
+		handler: handler, project: project, pool: pool, app: app,
+		record: record, key: key, client: client, dismissed: dismissed,
+	}
 }
 
-func (f capturedHTTPFixture) discordRequest(t *testing.T, action string, modal bool, wrongSurface bool) map[string]any {
+func (f capturedHTTPFixture) discordRequest(
+	t *testing.T, action string, modal bool, wrongSurface bool, changes ...func(map[string]any),
+) map[string]any {
 	t.Helper()
 	id, err := discord.EncodeCustomID(
 		discord.CustomID{InteractionID: testPublicID(t, publicid.KindAgentInteraction, f.record.ID), Action: action},
@@ -261,32 +302,44 @@ func (f capturedHTTPFixture) discordRequest(t *testing.T, action string, modal b
 			map[string]any{"components": []any{map[string]any{"custom_id": "q0", "value": value}}},
 		}
 	}
-	body := projectAppHTTPJSON(
-		t,
-		map[string]any{
-			"id":             "600",
-			"application_id": "100",
-			"type":           kind,
-			"channel_id":     channel,
-			"guild_id":       "500",
-			"member":         map[string]any{"user": map[string]any{"id": "700", "username": "participant"}},
-			"message": map[string]any{
-				"id":         "400",
-				"channel_id": channel,
-				"author":     map[string]any{"id": "200"},
-			},
-			"data": data,
+	payload := map[string]any{
+		"id":             "600",
+		"application_id": "100",
+		"type":           kind,
+		"channel_id":     channel,
+		"guild_id":       "500",
+		"member":         map[string]any{"user": map[string]any{"id": "700", "username": "participant"}},
+		"message": map[string]any{
+			"id":         "400",
+			"channel_id": channel,
+			"author":     map[string]any{"id": "200"},
 		},
-	)
+		"data": data,
+	}
+	for _, change := range changes {
+		change(payload)
+	}
+	body := projectAppHTTPJSON(t, payload)
 	timestamp := fmt.Sprint(time.Now().Unix())
 	headers := map[string]string{"Content-Type": "application/json", "X-Signature-Timestamp": timestamp,
 		"X-Signature-Ed25519": hex.EncodeToString(ed25519.Sign(f.key, []byte(timestamp+body)))}
-	path := "/api/integrations/discord/" + testPublicID(
-		t,
-		publicid.KindIntegrationConnection,
-		f.connection.ID,
-	) + "/interactions"
-	return requestJSONWithHeaders(t, f.handler, http.MethodPost, path, body, "", 200, headers)
+	path := "/api/integrations/discord/" + f.app.ProviderTenantID + "/interactions"
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	response := performRequest(f.handler, request)
+	status := f.callbackStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
+	require.Equal(t, status, response.Code, response.Body.String())
+	if status != http.StatusOK {
+		return nil
+	}
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+	return result
 }
 
 func (f capturedHTTPFixture) slackRequest(
@@ -298,7 +351,7 @@ func (f capturedHTTPFixture) slackRequest(
 	destination, err := f.record.CapturedDestination()
 	require.NoError(t, err)
 	body := slackActionFormBody(t, slackActionPayloadInput{
-		Install:             f.connection,
+		Install:             f.app,
 		AgentID:             f.record.AgentID,
 		IntegrationTargetID: destination.IntegrationTargetID,
 		InteractionID:       f.record.ID,
@@ -320,9 +373,17 @@ func (f capturedHTTPFixture) slackRequest(
 	}
 	values.Set("payload", projectAppHTTPJSON(t, payload))
 	body = values.Encode()
-	headers := unitSlackSignedHeaders(body, "signing-secret")
+	secret := f.signingSecret
+	if secret == "" {
+		secret = "signing-secret"
+	}
+	headers := unitSlackSignedHeaders(body, secret)
 	headers["Content-Type"] = "application/x-www-form-urlencoded"
-	return requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationActionsPath, body, "", 200, headers)
+	status := f.callbackStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationActionsPath, body, "", status, headers)
 }
 
 func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
@@ -345,7 +406,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				// Moving the current selection does not reroute an existing prompt.
 				_, err = f.pool.Exec(
 					t.Context(),
-					"UPDATE agents SET integration_target_id=NULL, interaction_resource_key=NULL WHERE id=$1",
+					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",
 					f.record.AgentID,
 				)
 				require.NoError(t, err)
@@ -392,15 +453,19 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
 		t.Run(provider, func(t *testing.T) {
 			f := newCapturedHTTPFixture(t, provider, "question")
-			_, err := f.project.Store.Integrations().DisableIntegrationConnection(
-				t.Context(), integrationstore.DisableIntegrationConnectionInput{
-					ProjectID: f.project.ProjectUUID, ID: f.connection.ID,
-					ExpectedOAuthFlowID: &f.connection.LastOAuthFlowID,
+			_, err := f.project.Store.Integrations().DisconnectProjectApp(
+				t.Context(), integrationstore.DisconnectProjectAppInput{
+					ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
+					ExpectedSetupRevision: &f.app.SetupRevision,
 				},
 			)
 			require.NoError(t, err)
 			if provider == "slack" {
-				require.Equal(t, "ignored", f.slackRequest(t, false)["ok"])
+				f.callbackStatus = http.StatusForbidden
+				f.slackRequest(t, false)
+			} else {
+				f.callbackStatus = http.StatusForbidden
+				f.discordRequest(t, "c0", false, false)
 			}
 			path := f.project.ProjectPath + "/agents/" + testPublicID(
 				t,
@@ -434,7 +499,7 @@ INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, d
 VALUES ($1, 'slack', $2, 'U_OTHER', 'Grace Hopper', now(), now())
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id)
 DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at`,
-		f.project.ProjectUUID, f.connection.ProviderTenantID)
+		f.project.ProjectUUID, f.app.ProviderTenantID)
 	require.NoError(t, err)
 	require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
 	actorID, inputKind := interactionResolvingInput(
@@ -451,7 +516,7 @@ DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.update
 	require.Equal(t, identitystore.ActorProviderSlack, actor.Provider)
 	require.Equal(t, "U_OTHER", actor.ProviderUserID)
 	names, err := f.project.Store.Execution().ListActorDisplayNames(t.Context(), f.project.ProjectUUID,
-		identitystore.ActorProviderSlack, f.connection.ProviderTenantID, []string{"U_OTHER"})
+		identitystore.ActorProviderSlack, f.app.ProviderTenantID, []string{"U_OTHER"})
 	require.NoError(t, err)
 	require.Equal(t, "Grace Hopper", names["U_OTHER"], "retain the stored name over the signed payload name")
 }
@@ -542,11 +607,7 @@ func TestSlackActionsResolvePermissionAsSlackActor(t *testing.T) {
 
 func TestCapturedDiscordEndpointVerifiesPingSignatureAndApplication(t *testing.T) {
 	f := newCapturedHTTPFixture(t, "discord", "question")
-	path := "/api/integrations/discord/" + testPublicID(
-		t,
-		publicid.KindIntegrationConnection,
-		f.connection.ID,
-	) + "/interactions"
+	path := "/api/integrations/discord/" + f.app.ProviderTenantID + "/interactions"
 	for _, test := range []struct {
 		name, application string
 		badSignature      bool
@@ -601,16 +662,18 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.NotNil(t, destination)
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				require.Equal(t, map[string]any{
-					"handler_definition":    "omnara." + provider + ".interactions",
-					"resource_key":          "support",
-					"connection_id":         testPublicID(t, publicid.KindIntegrationConnection, f.connection.ID),
+					"handler_definition":    "omnara." + provider,
+					"config":                map[string]any{"channel_id": destination.Address.Ref},
+					"args":                  map[string]any{},
+					"handler_key":           "support",
+					"app_id":                testPublicID(t, publicid.KindProjectApp, f.app.ID),
 					"integration_target_id": testPublicID(t, publicid.KindIntegrationTarget, destination.IntegrationTargetID),
 					"address":               map[string]any{"kind": destination.Address.Kind, "ref": destination.Address.Ref},
 				}, captured)
 				var receipt map[string]any
 				require.NoError(t, json.Unmarshal(f.record.PresentationReceipt, &receipt))
 				require.Equal(t, receipt, listed["presentation_receipt"])
-				require.NotContains(t, projectAppHTTPJSON(t, listed), f.connection.ID.String())
+				require.NotContains(t, projectAppHTTPJSON(t, listed), f.app.ID.String())
 				require.NotContains(t, projectAppHTTPJSON(t, listed), destination.IntegrationTargetID.String())
 				headers := apiHeaders
 				if surface == "dashboard" {
@@ -626,6 +689,222 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.Equal(t, resolved, read(browserHeaders))
 				assertInteractionResponseAgentInput(t, t.Context(), f.pool, f.project.ProjectUUID, f.record.AgentID, f.record.ID)
 				assertInteractionResponseLedgerEvent(t, t.Context(), f.pool, f.project.ProjectUUID, f.record.AgentID, f.record.ID)
+			})
+		}
+	}
+}
+
+func capturedSiblingApp(t *testing.T, f capturedHTTPFixture) (integrationstore.ProjectAppRecord, ed25519.PrivateKey) {
+	t.Helper()
+	publicKey, key, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	config := json.RawMessage(`{"public_key":"` + hex.EncodeToString(publicKey) + `"}`)
+	material := secrets.Material(secrets.GenericMaterial{Value: "sibling-token"})
+	if f.app.Provider == "slack" {
+		material = secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-sibling", ClientID: "client",
+			ClientSecret: "client-secret", SigningSecret: "sibling-signing-secret"}
+		config = json.RawMessage(`{}`)
+	}
+	secret, _, err := f.project.Store.Secrets().CreateSecret(t.Context(), secretstore.CreateSecretInput{
+		OrgID: f.app.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: f.app.ProjectID,
+		Name: "sibling", Material: material, Actor: httpUserPrincipal(f.project.AdminUserUUID),
+	})
+	require.NoError(t, err)
+	app, err := f.project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
+		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: "sibling", DefinitionID: f.app.DefinitionID,
+	})
+	require.NoError(t, err)
+	app, err = f.project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
+		InstalledByUserID: f.project.AdminUserUUID, Provider: f.app.Provider,
+		ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,
+		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
+		ProviderConfig: config, ProviderIdentity: f.app.ProviderIdentity,
+	})
+	require.NoError(t, err)
+	return app, key
+}
+
+func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{"slack", "discord"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			f := newCapturedHTTPFixture(t, provider, "question")
+			sibling, key := capturedSiblingApp(t, f)
+			forged := f
+			forged.key, forged.signingSecret, forged.callbackStatus = key, "sibling-signing-secret", http.StatusUnauthorized
+			if provider == "slack" {
+				forged.slackRequest(t, false)
+			} else {
+				forged.discordRequest(t, "c0", false, false)
+			}
+			current, found, err := f.project.Store.Execution().
+				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+			if provider == "slack" {
+				require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
+			} else {
+				require.Equal(t, float64(6), f.discordRequest(t, "c0", false, false)["type"])
+			}
+			var targets int
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM integration_targets WHERE app_id=$1`, sibling.ID).Scan(&targets))
+			require.Zero(t, targets)
+		})
+	}
+}
+
+func TestCapturedDiscordPingAcceptsAnyActiveSharedApp(t *testing.T) {
+	t.Parallel()
+	f := newCapturedHTTPFixture(t, "discord", "question")
+	_, key := capturedSiblingApp(t, f)
+	_, err := f.project.Store.Integrations().DisconnectProjectApp(t.Context(), integrationstore.DisconnectProjectAppInput{
+		ProjectID: f.app.ProjectID, AppID: f.app.ID,
+	})
+	require.NoError(t, err)
+	body := `{"id":"600","type":1,"application_id":"100"}`
+	for _, test := range []struct {
+		key    ed25519.PrivateKey
+		status int
+	}{{f.key, http.StatusUnauthorized}, {key, http.StatusOK}} {
+		timestamp := fmt.Sprint(time.Now().Unix())
+		r := httptest.NewRequest(http.MethodPost, "/api/integrations/discord/100/interactions", strings.NewReader(body))
+		r.Header.Set("X-Signature-Timestamp", timestamp)
+		r.Header.Set("X-Signature-Ed25519", hex.EncodeToString(ed25519.Sign(test.key, []byte(timestamp+body))))
+		response := performRequest(f.handler, r)
+		require.Equal(t, test.status, response.Code, response.Body.String())
+		if test.status == http.StatusOK {
+			require.JSONEq(t, `{"type":1}`, response.Body.String())
+		}
+	}
+}
+
+func (f capturedHTTPFixture) runtimeLockID(t *testing.T) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT id FROM agent_runtime_locks WHERE agent_id=$1 AND lease_expires_at > now()`, f.record.AgentID).Scan(&id))
+	return id
+}
+
+func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
+	for _, operation := range []string{"prompt", "runtime"} {
+		t.Run(operation, func(t *testing.T) {
+			var sends atomic.Int32
+			f := newCapturedHTTPFixtureWithDismiss(t, "discord", "question", nil, capturedHTTPFixtureOptions{
+				handlerConfig: map[string]any{"guild_id": "500"}, prepareOnly: true,
+				providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
+					if r.URL.Path == "/api/v10/channels/300" {
+						writeJSON(w, http.StatusOK, map[string]any{"id": "300", "guild_id": "999", "type": 0})
+						return true
+					}
+					if r.Method == http.MethodPost {
+						sends.Add(1)
+					}
+					return false
+				},
+			})
+			p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+			var err error
+			if operation == "prompt" {
+				err = p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+			} else {
+				err = p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
+			}
+			var providerErr *discord.APIError
+			require.ErrorAs(t, err, &providerErr)
+			require.Equal(t, discord.ScopeMismatch, providerErr.Code)
+			require.Zero(t, sends.Load(), "fixed guild must be checked before any provider send")
+			current, found, err := f.project.Store.Execution().
+				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+			require.Empty(t, current.PresentationReceipt)
+		})
+	}
+}
+
+func TestCapturedDiscordCallbackRequiresCapturedGuild(t *testing.T) {
+	f := newCapturedHTTPFixtureWithDismiss(t, "discord", "permission", nil,
+		capturedHTTPFixtureOptions{handlerConfig: map[string]any{"guild_id": "500"}})
+	for _, guild := range []string{"999", ""} {
+		for _, action := range []string{"c0", "t1"} {
+			response := f.discordRequest(t, action, false, false, func(body map[string]any) { body["guild_id"] = guild })
+			require.Equal(t, float64(4), response["type"], "wrong guild cannot resolve or open a modal")
+			current, _, err := f.project.Store.Execution().
+				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+			require.NoError(t, err)
+			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+		}
+	}
+	require.Equal(t, float64(6), f.discordRequest(t, "c0", false, false)["type"])
+}
+
+func TestCapturedSlackRotatedTokenIdentityBeforeProviderIO(t *testing.T) {
+	for _, operation := range []string{"prompt", "dismiss", "runtime"} {
+		for _, identity := range []string{"same", "other_workspace", "other_bot", "non_bot"} {
+			t.Run(operation+"/"+identity, func(t *testing.T) {
+				var rotated atomic.Bool
+				var sends atomic.Int32
+				f := newCapturedHTTPFixtureWithDismiss(t, "slack", "question", nil, capturedHTTPFixtureOptions{
+					prepareOnly: operation != "dismiss",
+					providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
+						if r.URL.Path == "/api/auth.test" && rotated.Load() {
+							assert.Equal(t, "Bearer xoxb-rotated", r.Header.Get("Authorization"))
+							team, user, bot := "T123", "U_BOT", "B123"
+							switch identity {
+							case "other_workspace":
+								team = "TOTHER"
+							case "other_bot":
+								user = "U_OTHER"
+							case "non_bot":
+								bot = ""
+							}
+							writeJSON(w, http.StatusOK, map[string]any{"ok": true, "team_id": team, "user_id": user, "bot_id": bot})
+							return true
+						}
+						if rotated.Load() && (r.URL.Path == "/api/chat.postMessage" || r.URL.Path == "/api/chat.update") {
+							sends.Add(1)
+						}
+						return false
+					},
+				})
+				_, _, err := f.project.Store.Secrets().CreateSecretVersion(t.Context(), secretstore.CreateSecretVersionInput{
+					OrgID: f.app.OrgID, SecretID: f.app.CredentialSecretID,
+					Actor: httpUserPrincipal(f.project.AdminUserUUID),
+					Material: secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-rotated", ClientID: "client",
+						ClientSecret: "client-secret", SigningSecret: "signing-secret"},
+				})
+				require.NoError(t, err)
+				rotated.Store(true)
+				p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+				switch operation {
+				case "prompt":
+					err = p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+				case "dismiss":
+					_, err = f.project.Store.Execution().CancelAgent(t.Context(), executionstore.CancelAgentInput{
+						ProjectID: f.app.ProjectID, AgentID: f.record.AgentID,
+					})
+					require.NoError(t, err)
+					closed, found, readErr := f.project.Store.Execution().
+						GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+					require.NoError(t, readErr)
+					require.True(t, found)
+					err = p.Dismiss(t.Context(), closed)
+				case "runtime":
+					err = p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
+				}
+				if identity == "same" {
+					require.NoError(t, err)
+					require.EqualValues(t, 1, sends.Load())
+				} else {
+					require.Error(t, err)
+					require.Zero(t, sends.Load())
+				}
 			})
 		}
 	}

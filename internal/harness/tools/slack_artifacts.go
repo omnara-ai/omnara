@@ -78,7 +78,7 @@ func (e Executor) sendSlackArtifacts(
 			}
 			return structuredToolResultContent(
 				map[string]any{
-					"resource":   target.TargetRef,
+					"app":        target.TargetRef,
 					"channel_id": target.Channel,
 					"thread_ts":  target.ThreadTS,
 					"file_ids":   ids,

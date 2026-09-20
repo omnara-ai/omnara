@@ -1,74 +1,91 @@
 package agentconfig
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
-	"slices"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-// AppToolAuthority preserves what a historical call meant while requiring the
-// agent's current config to still authorize it. Credentials and connection state
-// are checked separately immediately before provider I/O.
 type AppToolAuthority struct {
-	ResourceKey string
-	Original    AppResourceCompiled
-	Current     AppResourceCompiled
+	Tool       ToolCompiled
+	Definition toolcatalog.AppToolDefinition
 }
 
+// ResolveAppToolAuthority protects a pending call's immutable identity, effective
+// config and permission. Live app state/credentials still gate provider I/O.
 func ResolveAppToolAuthority(
 	original, current RuntimeContract,
-	toolName, resourceKey string,
+	name string,
+	apps map[string]AppResolution,
 ) (AppToolAuthority, error) {
-	if toolcatalog.AppToolProvider(toolName) == "" {
-		return AppToolAuthority{}, fmt.Errorf("%q is not a provider tool", toolName)
+	_, operation, ok := toolcatalog.SplitAppToolName(name)
+	if !ok {
+		return AppToolAuthority{}, fmt.Errorf("invalid app tool %q", name)
 	}
-	findTool := func(contract RuntimeContract) (RuntimeTool, bool) {
-		for _, tool := range contract.Tools {
-			if tool.Name == toolName {
-				return tool, true
-			}
-		}
-		return RuntimeTool{}, false
+	before, was := original.AppTools[name]
+	after, is := current.AppTools[name]
+	if !was || !is || !before.Enabled || !after.Enabled || after.Permission.Mode == toolpermission.ModeAlwaysDeny {
+		return AppToolAuthority{}, fmt.Errorf("app tool %q is unavailable in the original or current config", name)
 	}
-	before, wasAvailable := findTool(original)
-	after, isAvailable := findTool(current)
-	if !wasAvailable || !isAvailable || after.Permission.Mode == toolpermission.ModeAlwaysDeny {
-		return AppToolAuthority{}, fmt.Errorf("app tool %q is unavailable in the original or current config", toolName)
+	if before.AppID != after.AppID || !reflect.DeepEqual(before.Permission, after.Permission) {
+		return AppToolAuthority{}, fmt.Errorf("app tool identity or permission changed; submit a new call")
 	}
-	if !reflect.DeepEqual(before.Permission, after.Permission) {
-		return AppToolAuthority{}, fmt.Errorf("app tool permission changed; submit a new call")
+	definition, err := resolvedDefinition(before.AppID, apps)
+	if err != nil {
+		return AppToolAuthority{}, err
 	}
-	keys := AppToolResources(original.AppResources, toolName)
-	if resourceKey == "" {
-		if len(keys) != 1 {
-			return AppToolAuthority{}, fmt.Errorf(
-				"resource is required when the original call has %d destinations",
-				len(keys),
-			)
-		}
-		resourceKey = keys[0]
+	metadata, ok := toolcatalog.LookupAppTool(definition.ID, operation)
+	if !ok {
+		return AppToolAuthority{}, fmt.Errorf("app does not export operation %q", operation)
 	}
-	if !slices.Contains(keys, resourceKey) ||
-		!slices.Contains(AppToolResources(current.AppResources, toolName), resourceKey) {
-		return AppToolAuthority{}, fmt.Errorf("resource %q does not authorize %s", resourceKey, toolName)
+	first, err := metadata.CanonicalConfig(before.Config)
+	if err != nil {
+		return AppToolAuthority{}, err
 	}
-	prior, next := original.AppResources[resourceKey], current.AppResources[resourceKey]
-	if prior.Definition != next.Definition || prior.ConnectionID != next.ConnectionID {
-		return AppToolAuthority{}, fmt.Errorf("resource %q changed provider identity; submit a new call", resourceKey)
+	second, err := metadata.CanonicalConfig(after.Config)
+	if err != nil {
+		return AppToolAuthority{}, err
 	}
-	return AppToolAuthority{ResourceKey: resourceKey, Original: prior, Current: next}, nil
+	if !bytes.Equal(first, second) {
+		return AppToolAuthority{}, fmt.Errorf("app tool config changed; submit a new call")
+	}
+	before.Config = first
+	return AppToolAuthority{Tool: before, Definition: metadata}, nil
 }
 
-func (a AppToolAuthority) AllowsScope(scope appdefinition.Scope) bool {
-	return a.Original.Scope != nil && a.Current.Scope != nil && a.Original.Scope.Contains(scope) &&
-		a.Current.Scope.Contains(scope)
-}
-
-func (a AppToolAuthority) AllowsFollowingReplies() bool {
-	return a.Original.Follow != nil && a.Original.Follow.Replies &&
-		a.Current.Follow != nil && a.Current.Follow.Replies
+// ResolveInteractionHandlerAuthority applies the same immutable-config rule to
+// pending handler-selection calls and captured prompts. It never resolves a name
+// to a replacement app. ResolveArgs performs selected-handler validation next.
+func ResolveInteractionHandlerAuthority(
+	original, current RuntimeContract,
+	key string,
+	apps map[string]AppResolution,
+) (PreparedAppInteractionHandler, error) {
+	before, was := original.InteractionHandlers[key]
+	after, is := current.InteractionHandlers[key]
+	if !was || !is || before.AppID != after.AppID {
+		return PreparedAppInteractionHandler{}, fmt.Errorf("interaction handler changed or is unavailable")
+	}
+	definition, err := resolvedDefinition(before.AppID, apps)
+	if err != nil {
+		return PreparedAppInteractionHandler{}, err
+	}
+	if definition.InteractionHandler == nil {
+		return PreparedAppInteractionHandler{}, fmt.Errorf("app has no interaction handler")
+	}
+	first, err := definition.InteractionHandler.Prepare(before.Config)
+	if err != nil {
+		return PreparedAppInteractionHandler{}, err
+	}
+	second, err := definition.InteractionHandler.Prepare(after.Config)
+	if err != nil {
+		return PreparedAppInteractionHandler{}, err
+	}
+	if !bytes.Equal(first.Config, second.Config) {
+		return PreparedAppInteractionHandler{}, fmt.Errorf("interaction handler config changed")
+	}
+	return PreparedAppInteractionHandler{AppID: before.AppID, PreparedInteractionHandler: first}, nil
 }

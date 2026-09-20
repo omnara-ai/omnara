@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -22,13 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func slackInboxTestConnection() integrationstore.IntegrationConnectionRecord {
-	return integrationstore.IntegrationConnectionRecord{
+func slackInboxTestApp() integrationstore.ProjectAppRecord {
+	return integrationstore.ProjectAppRecord{
 		ID:                 uuid.New(),
 		OrgID:              uuid.New(),
 		ProjectID:          uuid.New(),
 		CredentialSecretID: uuid.New(),
-		State:              integrationstore.IntegrationConnectionStateActive,
+		State:              integrationstore.ProjectAppStateActive,
 		UpdatedAt:          time.Now(),
 		Provider:           "slack",
 		ProviderTenantID:   "T123",
@@ -56,7 +57,7 @@ func slackInboxTestPayload(t *testing.T, event slack.Event) []byte {
 }
 
 func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
-	connection := slackInboxTestConnection()
+	appSetup := slackInboxTestApp()
 	message := slack.Event{
 		Type:        "message",
 		User:        "U123",
@@ -65,20 +66,20 @@ func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 		Text:        "<@UBOT> please review",
 		TS:          "1.2",
 	}
-	ordinary, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, message))
+	ordinary, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.True(t, ordinary.Event.Mentioned)
 	message.Type = "app_mention"
 	message.ChannelType = ""
-	mention, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, message))
+	mention, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, ordinary.SemanticKey, mention.SemanticKey)
 	require.Equal(t, "slack:message:T123:C123:1.2", mention.SemanticKey)
 	require.Equal(t, ordinary.Event, mention.Event)
 	message.Files = []slack.File{{ID: "F123"}}
-	withFiles, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, message))
+	withFiles, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, ordinary.SemanticKey, withFiles.Sibling.Key)
@@ -88,12 +89,12 @@ func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 	message.Type = "message"
 	message.Text = "ordinary channel root"
 	message.ChannelType = "channel"
-	root, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, message))
+	root, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.False(t, root.Event.MatchesLauncher("mention"))
 	message.ThreadTS = "1.0"
-	reply, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, message))
+	reply, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "1.0", reply.Event.Scope.Slack.ThreadTS)
@@ -102,7 +103,7 @@ func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 	message.Channel = "D123"
 	message.ChannelType = "im"
 	message.ThreadTS = ""
-	dm, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, message))
+	dm, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.True(t, dm.Event.Mentioned)
@@ -113,7 +114,7 @@ func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 }
 
 func TestSlackInboxRejectsIdentityAndIgnoresBotOrMutation(t *testing.T) {
-	connection := slackInboxTestConnection()
+	appSetup := slackInboxTestApp()
 	base := slack.Event{Type: "message", User: "U123", Channel: "C123", TS: "1.2", ChannelType: "channel"}
 	for _, change := range []func(*slack.Event){
 		func(e *slack.Event) { e.User = "UBOT" },
@@ -123,12 +124,12 @@ func TestSlackInboxRejectsIdentityAndIgnoresBotOrMutation(t *testing.T) {
 	} {
 		event := base
 		change(&event)
-		_, ok, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, event))
+		_, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, event))
 		require.NoError(t, err)
 		require.False(t, ok)
 	}
-	connection.ProviderTenantID = "TOTHER"
-	_, _, err := NormalizeSlackAppEvent(connection, slackInboxTestPayload(t, base))
+	appSetup.ProviderTenantID = "TOTHER"
+	_, _, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, base))
 	require.Error(t, err)
 }
 
@@ -149,7 +150,7 @@ func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
 				Channel: tc.channel, ChannelType: tc.channelType, Text: tc.text, ThreadTS: tc.thread,
 				Files: []slack.File{{ID: "F123"}},
 			}
-			normalized, ok, err := NormalizeSlackAppEvent(slackInboxTestConnection(), slackInboxTestPayload(t, event))
+			normalized, ok, err := NormalizeSlackAppEvent(slackInboxTestApp(), slackInboxTestPayload(t, event))
 			require.NoError(t, err)
 			require.True(t, ok)
 			kind, ref, err := normalized.Event.Scope.Conversation()
@@ -164,11 +165,12 @@ func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
 }
 
 type slackInboxTestAccess struct {
-	mu         sync.Mutex
-	connection integrationstore.IntegrationConnectionRecord
-	version    uuid.UUID
-	revoked    bool
-	afterRead  func()
+	mu        sync.Mutex
+	appSetup  integrationstore.ProjectAppRecord
+	version   uuid.UUID
+	token     string
+	revoked   bool
+	afterRead func()
 }
 
 func (s *slackInboxTestAccess) ReadProjectAvailableSecretPayload(
@@ -177,14 +179,18 @@ func (s *slackInboxTestAccess) ReadProjectAvailableSecretPayload(
 ) (secretstore.SecretPayloadRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.revoked || input.OrgID != s.connection.OrgID || input.ProjectID != s.connection.ProjectID ||
-		input.SecretID != s.connection.CredentialSecretID ||
+	if s.revoked || input.OrgID != s.appSetup.OrgID || input.ProjectID != s.appSetup.ProjectID ||
+		input.SecretID != s.appSetup.CredentialSecretID ||
 		input.Kind != secrets.KindSlackAppCredentials {
 		return secretstore.SecretPayloadRecord{}, storeerr.ErrUnauthorized
 	}
+	token := s.token
+	if token == "" {
+		token = "test-token"
+	}
 	payload, err := slack.CredentialPayload(
 		slack.AppCredentials{
-			BotToken:      "test-token",
+			BotToken:      token,
 			ClientID:      "client",
 			ClientSecret:  "client-secret",
 			SigningSecret: "signing-secret",
@@ -218,14 +224,14 @@ func (s *slackInboxTestAccess) GetProjectAvailableSecret(
 	}, nil
 }
 
-func (s *slackInboxTestAccess) GetIntegrationConnection(
+func (s *slackInboxTestAccess) GetProjectApp(
 	context.Context,
 	uuid.UUID,
 	uuid.UUID,
-) (integrationstore.IntegrationConnectionRecord, error) {
+) (integrationstore.ProjectAppRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.connection, nil
+	return s.appSetup, nil
 }
 
 func (s *slackInboxTestAccess) GetConversationDisplayName(
@@ -237,6 +243,8 @@ func (s *slackInboxTestAccess) GetConversationDisplayName(
 func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/auth.test":
+			_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
 		case "/users.info":
 			_, _ = w.Write([]byte(`{"ok":true,"user":{"profile":{"display_name":"Alex"}}}`))
 		case "/conversations.info":
@@ -249,8 +257,8 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	connection := slackInboxTestConnection()
-	access := &slackInboxTestAccess{connection: connection, version: uuid.New()}
+	appSetup := slackInboxTestApp()
+	access := &slackInboxTestAccess{appSetup: appSetup, version: uuid.New()}
 	provider := NewSlackAppInboxProvider(
 		slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()},
 		access,
@@ -258,7 +266,7 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 		nil,
 	)
 	event := slack.Event{Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", Text: "<@UBOT> review"}
-	expanded, err := provider.Expand(t.Context(), connection, slackInboxTestPayload(t, event))
+	expanded, err := provider.Expand(t.Context(), appSetup, slackInboxTestPayload(t, event))
 	require.NoError(t, err)
 	require.Len(t, expanded.Events, 1)
 	input := expanded.Events[0]
@@ -271,14 +279,18 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 }
 
 func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth.test" {
+			_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"ok":true,"user":{"profile":{"display_name":"Alex"}},"channel":{"name":"reviews"}}`))
 	}))
 	defer server.Close()
 	for name, count := range map[string]int{"below": 511, "boundary": 512, "over": 513} {
 		t.Run(name, func(t *testing.T) {
-			connection := slackInboxTestConnection()
-			access := &slackInboxTestAccess{connection: connection, version: uuid.New()}
+			appSetup := slackInboxTestApp()
+			access := &slackInboxTestAccess{appSetup: appSetup, version: uuid.New()}
 			provider := NewSlackAppInboxProvider(
 				slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()},
 				access,
@@ -287,7 +299,7 @@ func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 			)
 			suffix := strings.Repeat("界", count-utf8.RuneCountInString("@Alex "))
 			event := slack.Event{Type: "message", User: "U123", Channel: "C123", TS: "1.2", Text: "<@U123> " + suffix}
-			expanded, err := provider.Expand(t.Context(), connection, slackInboxTestPayload(t, event))
+			expanded, err := provider.Expand(t.Context(), appSetup, slackInboxTestPayload(t, event))
 			require.NoError(t, err)
 			var blocks []struct {
 				Text     string            `json:"text"`
@@ -307,8 +319,8 @@ func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 	}
 }
 
-func TestAppEventsDiscordGuildDiffersFromConnectionApplication(t *testing.T) {
-	connection := integrationstore.IntegrationConnectionRecord{
+func TestAppEventsDiscordGuildDiffersFromAppApplication(t *testing.T) {
+	appSetup := integrationstore.ProjectAppRecord{
 		Provider:           "discord",
 		ProviderTenantID:   "999",
 		ProviderAccountRef: "888",
@@ -324,25 +336,25 @@ func TestAppEventsDiscordGuildDiffersFromConnectionApplication(t *testing.T) {
 		Actor:         executionstore.ActorParams{Provider: "discord", ProviderTenantID: "999", ProviderUserID: "777"},
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
 	}
-	requests, err := prepareAppEvents([]AppEvent{event}, connection)
+	requests, err := prepareAppEvents([]AppEvent{event}, appSetup)
 	require.NoError(t, err)
 	require.Contains(t, requests[0].scopes, integrationstore.ConversationAddress{Kind: "guild", Ref: "123"})
 	event.Actor.ProviderTenantID = "123"
-	_, err = prepareAppEvents([]AppEvent{event}, connection)
+	_, err = prepareAppEvents([]AppEvent{event}, appSetup)
 	require.Error(t, err, "actor tenant remains the bot application, not its event guild")
 }
 
-func TestSlackInboxRechecksConnectionAndGrantedCredentialAfterUnwrap(t *testing.T) {
+func TestSlackInboxRechecksAppSetupAndGrantedCredentialAfterUnwrap(t *testing.T) {
 	for _, change := range []string{"disabled", "reconfigured", "rotated", "grant_revoked"} {
 		t.Run(change, func(t *testing.T) {
-			connection := slackInboxTestConnection()
-			access := &slackInboxTestAccess{connection: connection, version: uuid.New()}
+			appSetup := slackInboxTestApp()
+			access := &slackInboxTestAccess{appSetup: appSetup, version: uuid.New()}
 			access.afterRead = func() {
 				switch change {
 				case "disabled":
-					access.connection.State = "disabled"
+					access.appSetup.State = integrationstore.ProjectAppStateDisconnected
 				case "reconfigured":
-					access.connection.UpdatedAt = access.connection.UpdatedAt.Add(time.Second)
+					access.appSetup.SetupRevision++
 				case "rotated":
 					access.version = uuid.New()
 				case "grant_revoked":
@@ -362,19 +374,23 @@ func TestSlackInboxRechecksConnectionAndGrantedCredentialAfterUnwrap(t *testing.
 				nil,
 			)
 			event := slack.Event{Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", Text: "review"}
-			_, err := provider.Expand(t.Context(), connection, slackInboxTestPayload(t, event))
+			_, err := provider.Expand(t.Context(), appSetup, slackInboxTestPayload(t, event))
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 		})
 	}
 }
 
 func TestSlackInboxRevocationBetweenEnrichmentRequests(t *testing.T) {
-	for _, change := range []string{"connection", "credential", "grant"} {
+	for _, change := range []string{"app", "credential", "grant"} {
 		t.Run(change, func(t *testing.T) {
-			connection := slackInboxTestConnection()
-			access := &slackInboxTestAccess{connection: connection, version: uuid.New()}
+			appSetup := slackInboxTestApp()
+			access := &slackInboxTestAccess{appSetup: appSetup, version: uuid.New()}
 			var calls int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/auth.test" {
+					_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+					return
+				}
 				access.mu.Lock()
 				defer access.mu.Unlock()
 				calls++
@@ -382,8 +398,8 @@ func TestSlackInboxRevocationBetweenEnrichmentRequests(t *testing.T) {
 					t.Error("second request used revoked credentials")
 				}
 				switch change {
-				case "connection":
-					access.connection.State = "disabled"
+				case "app":
+					access.appSetup.State = integrationstore.ProjectAppStateDisconnected
 				case "credential":
 					access.version = uuid.New()
 				case "grant":
@@ -399,11 +415,73 @@ func TestSlackInboxRevocationBetweenEnrichmentRequests(t *testing.T) {
 				nil,
 			)
 			event := slack.Event{Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", Text: "review"}
-			_, err := provider.Expand(t.Context(), connection, slackInboxTestPayload(t, event))
+			_, err := provider.Expand(t.Context(), appSetup, slackInboxTestPayload(t, event))
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized, "best-effort enrichment cannot hide lost authority")
 			access.mu.Lock()
 			require.Equal(t, 1, calls)
 			access.mu.Unlock()
+		})
+	}
+}
+
+func TestSlackInboxSettingsEditPreservesSetupAccess(t *testing.T) {
+	app := slackInboxTestApp()
+	access := &slackInboxTestAccess{appSetup: app, version: uuid.New()}
+	access.afterRead = func() { access.appSetup.UpdatedAt = app.UpdatedAt.Add(time.Hour) }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+	}))
+	t.Cleanup(server.Close)
+	provider := NewSlackAppInboxProvider(
+		slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil)
+	_, _, check, err := provider.requestAccess(t.Context(), app)
+	require.NoError(t, err)
+	require.NoError(t, check(t.Context()))
+}
+
+func TestSlackInboxRotatedTokenMustRetainProviderIdentity(t *testing.T) {
+	for _, identity := range []string{"same", "other_workspace", "other_bot", "non_bot"} {
+		t.Run(identity, func(t *testing.T) {
+			var providerCalls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/auth.test" {
+					team, user, bot := "T123", "UBOT", "B123"
+					if r.Header.Get("Authorization") == "Bearer rotated-token" {
+						switch identity {
+						case "other_workspace":
+							team = "TOTHER"
+						case "other_bot":
+							user = "UOTHER"
+						case "non_bot":
+							bot = ""
+						}
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "team_id": team, "user_id": user, "bot_id": bot})
+					return
+				}
+				providerCalls.Add(1)
+				_, _ = w.Write([]byte(`{"ok":true,"user":{"profile":{"display_name":"Alex"}},"channel":{"name":"help"}}`))
+			}))
+			t.Cleanup(server.Close)
+			app := slackInboxTestApp()
+			access := &slackInboxTestAccess{appSetup: app, version: uuid.New()}
+			provider := NewSlackAppInboxProvider(
+				slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil)
+			payload := slackInboxTestPayload(t, slack.Event{Type: "message", User: "U123", Channel: "C123", TS: "1.2"})
+			_, err := provider.Expand(t.Context(), app, payload)
+			require.NoError(t, err)
+			access.mu.Lock()
+			access.token, access.version = "rotated-token", uuid.New()
+			access.mu.Unlock()
+			providerCalls.Store(0)
+			_, err = provider.Expand(t.Context(), app, payload)
+			if identity == "same" {
+				require.NoError(t, err)
+				require.Positive(t, providerCalls.Load())
+			} else {
+				require.Error(t, err)
+				require.Zero(t, providerCalls.Load(), "mismatched token must not reach enrichment or downloads")
+			}
 		})
 	}
 }

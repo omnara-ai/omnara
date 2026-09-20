@@ -164,7 +164,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		return Bundle{}, err
 	}
 	if hasInteractionHandler(contract) {
-		destinations, err := b.Store.ListInteractionDestinations(ctx, input.ProjectID, input.AgentID)
+		destinations, err := b.Store.ListInteractionHandlers(ctx, input.ProjectID, input.AgentID, "", 1)
 		if err != nil {
 			return Bundle{}, err
 		}
@@ -214,15 +214,6 @@ func HasTool(specs []ToolSpec, name string) bool {
 	return false
 }
 
-func HasAnyTool(specs []ToolSpec, names ...string) bool {
-	for _, name := range names {
-		if HasTool(specs, name) {
-			return true
-		}
-	}
-	return false
-}
-
 func defaultSystemPromptForContract(
 	agentPublicID string,
 	contract agentconfig.RuntimeContract,
@@ -239,8 +230,11 @@ func defaultSystemPromptForContract(
 	if catalog := skillCatalogBlock(skills); catalog != "" {
 		parts = append(parts, catalog)
 	}
-	if resources := appResourcesContent(contract, toolSpecs); resources != "" {
-		parts = append(parts, resources)
+	if len(contract.AppTools) > 0 {
+		parts = append(
+			parts,
+			"Use the app tools to communicate with external participants. Ordinary assistant text stays in Omnara.",
+		)
 	}
 	return strings.Join(parts, "\n\n")
 }

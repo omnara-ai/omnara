@@ -12,7 +12,7 @@ import (
 )
 
 // DeriveAppConfig preserves the base config's pinned identities while resolving
-// only the added resources through the ordinary project-scoped compiler options.
+// only the added capabilities through the ordinary project-scoped compiler options.
 // The caller persists the result with the launch, never in a separate write.
 func DeriveAppConfig(
 	ctx context.Context,
@@ -20,13 +20,15 @@ func DeriveAppConfig(
 	orgID, projectID uuid.UUID,
 	opts agentconfig.CompileOptions,
 	base executionstore.AgentConfigRecord,
-	resources map[string]agentconfig.AgentConfigAppResourceSource,
+	capabilities agentconfig.AppCapabilitiesSource,
 ) (Body, error) {
 	var compiled agentconfig.Compiled
 	if err := json.Unmarshal(base.CompiledDefinition, &compiled); err != nil {
 		return Body{}, fmt.Errorf("decode base compiled agent config: %w", err)
 	}
-	derived, err := agentconfig.DeriveWithAppResources(compiled, resources, options(ctx, store, orgID, projectID, opts))
+	derived, err := agentconfig.DeriveWithAppCapabilities(
+		compiled, capabilities, options(ctx, store, orgID, projectID, opts),
+	)
 	if err != nil {
 		return Body{}, err
 	}

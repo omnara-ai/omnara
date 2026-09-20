@@ -1,18 +1,17 @@
 package integrationstore
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 // ProjectAppSettings is reusable setup. A launcher supplies the concrete event
 // scope when deriving a config; it never mutates the profile's base config.
 type ProjectAppSettings struct {
-	Resource agentconfig.AgentConfigAppResourceSource `json:"resource"`
-	Launcher *AppLauncher                             `json:"launcher,omitempty"`
+	Launcher *AppLauncher `json:"launcher,omitempty"`
 }
 
 type AppLauncher struct {
@@ -31,14 +30,27 @@ type AppLaunchSlot struct {
 }
 
 type ProjectAppRecord struct {
-	ID           uuid.UUID
-	ProjectID    uuid.UUID
-	Name         string
-	DefinitionID string
-	Settings     ProjectAppSettings
-	Enabled      bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                       uuid.UUID
+	OrgID                    uuid.UUID
+	InstalledByUserID        uuid.UUID
+	Provider                 string
+	State                    ProjectAppState
+	ProviderTenantID         string
+	ProviderAccountRef       string
+	ProviderAgentDisplayName string
+	CredentialSecretID       uuid.UUID
+	ProviderConfig           json.RawMessage
+	ProviderIdentity         json.RawMessage
+	ProviderMetadata         json.RawMessage
+	LastOAuthFlowID          uuid.UUID
+	SetupRevision            int64
+	DeletedAt                *time.Time
+	ProjectID                uuid.UUID
+	Name                     string
+	DefinitionID             string
+	Settings                 ProjectAppSettings
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 type SaveProjectAppInput struct {
@@ -47,7 +59,6 @@ type SaveProjectAppInput struct {
 	Name         string
 	DefinitionID string
 	Settings     ProjectAppSettings
-	Enabled      bool
 }
 
 type ListProjectAppsInput struct {

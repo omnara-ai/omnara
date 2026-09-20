@@ -361,13 +361,13 @@ func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 		"invalid initial content": func(input *executionstore.LaunchAgentInput) {
 			input.InitialInput = &executionstore.LaunchInitialInput{ContentBlocks: json.RawMessage(`{}`)}
 		},
-		"missing origin connection": func(input *executionstore.LaunchAgentInput) {
+		"missing origin app": func(input *executionstore.LaunchAgentInput) {
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"losing input"}]`),
 				SemanticEventKey: "losing-event",
 				Origin: &executionstore.LaunchInputOrigin{
-					ConnectionID: testID("missing-concurrent-retry-connection"),
-					Address:      integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
+					AppID:   testID("missing-concurrent-retry-app"),
+					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
 				},
 			}
 		},

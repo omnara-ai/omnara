@@ -17,18 +17,24 @@ import (
 func TestInboxListenerRechecksRevocationAndPreservesReplay(t *testing.T) {
 	t.Parallel()
 	f := newAppActivationFixture(t)
-	resources := map[string]agentconfig.AppResourceCompiled{"chat": f.resource()}
+	resources := map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": f.listener()}
 	definition := f.definition(t, "receive", resources)
 	launch := f.launchInput(uuid.Nil, "listener-admission")
 	launch.DerivedConfig = &definition
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, launch)
 	require.NoError(t, err)
-	slot := inboxInputPlan(agent.Agent.ID, f.connection, "message:listener")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	slot := inboxInputPlan(agent.Agent.ID, f.app, "message:listener")
+	slot.Input.Origin.Address = integrationstore.ConversationAddress{
+		Kind: "thread",
+		Ref:  "C123:1.2",
+	}
 	slot.Listener = &executionstore.InboxListenerAuthority{
 		Event: "message",
 		Alternatives: []executionstore.InboxListenerReference{
-			{ResourceKey: "chat", Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"}},
+			{
+				ListenerKey: "chat__thread_messages",
+				Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
+			},
 		},
 	}
 	receipt := freezeInboxInput(t, f, slot, "listener-receipt", time.Minute)
@@ -93,4 +99,100 @@ func TestInboxListenerRechecksRevocationAndPreservesReplay(t *testing.T) {
 	result, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, revoked.Lease(), "recipient")
 	require.NoError(t, err)
 	require.True(t, result.Created)
+}
+
+func TestInboxListenerAuthorityUsesCurrentKeyedSubscription(t *testing.T) {
+	t.Parallel()
+	for _, change := range []string{"origin", "listener key", "address", "event", "config", "inactive", "app"} {
+		t.Run(change, func(t *testing.T) {
+			t.Parallel()
+			f := newAppActivationFixture(t)
+			definition := f.definition(
+				t,
+				"receive",
+				map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": f.listener()},
+			)
+			launch := f.launchInput(uuid.Nil, "keyed-listener")
+			launch.DerivedConfig = &definition
+			agent, err := f.store.Execution().LaunchAgent(f.ctx, launch)
+			require.NoError(t, err)
+			slot := inboxInputPlan(agent.Agent.ID, f.app, "message:keyed")
+			slot.Input.Origin.Address = integrationstore.ConversationAddress{
+				Kind: "thread",
+				Ref:  "C123:1.2",
+			}
+			slot.Listener = &executionstore.InboxListenerAuthority{
+				Event: "message",
+				Alternatives: []executionstore.InboxListenerReference{
+					{
+						ListenerKey: "missing__thread_messages",
+						Address: integrationstore.ConversationAddress{
+							Kind: "channel",
+							Ref:  "C123",
+						},
+					},
+					{
+						ListenerKey: "chat__thread_messages",
+						Address: integrationstore.ConversationAddress{
+							Kind: "channel",
+							Ref:  "C123",
+						},
+					},
+				},
+			}
+			receipt := freezeInboxInput(t, f, slot, "keyed-listener-receipt", time.Minute)
+			// Change one durable authority fact after freezing the recipient.
+			switch change {
+			case "origin":
+				_, err = f.store.pool.Exec(
+					f.ctx,
+					`UPDATE agent_listeners SET origin='runtime' WHERE agent_id=$1`,
+					agent.Agent.ID,
+				)
+			case "listener key":
+				_, err = f.store.pool.Exec(
+					f.ctx,
+					`UPDATE agent_listeners SET listener_key='replacement__thread_messages' WHERE agent_id=$1`,
+					agent.Agent.ID,
+				)
+			case "address":
+				_, err = f.store.pool.Exec(
+					f.ctx,
+					`UPDATE agent_listeners SET scope_ref='C999' WHERE agent_id=$1`,
+					agent.Agent.ID,
+				)
+			case "event":
+				_, err = f.store.pool.Exec(
+					f.ctx,
+					`UPDATE agent_listeners SET events=ARRAY['reaction'] WHERE agent_id=$1`,
+					agent.Agent.ID,
+				)
+			case "config":
+				_, err = f.store.pool.Exec(
+					f.ctx,
+					`UPDATE agent_listeners SET source_config_id=$2 WHERE agent_id=$1`,
+					agent.Agent.ID,
+					f.profile.CurrentConfig.ID,
+				)
+			case "inactive":
+				_, err = f.store.pool.Exec(
+					f.ctx,
+					`UPDATE agent_listeners SET active=false WHERE agent_id=$1`,
+					agent.Agent.ID,
+				)
+			case "app":
+				_, err = f.store.Integrations().
+					DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
+			}
+			require.NoError(t, err)
+			result, err := f.store.Execution().
+				AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+			if change == "origin" {
+				require.NoError(t, err, "provenance does not pin receive authority")
+				require.True(t, result.Created)
+			} else {
+				require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+			}
+		})
+	}
 }

@@ -1,9 +1,6 @@
-import { useAgentProfileQuery, useIntegrationConnection } from '@omnara/react'
+import { useAgentProfileQuery, useOmnaraClient } from '@omnara/react'
 import type { ProjectApp } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 
 export function ProjectAppSummary({
   orgId,
@@ -14,72 +11,91 @@ export function ProjectAppSummary({
   projectId: string
   app: ProjectApp
 }) {
-  const { resource, launcher } = app.settings
+  const client = useOmnaraClient()
+  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
   return (
     <div className="flex flex-col gap-6 text-sm">
-      <AppConnectionSummary
-        orgId={orgId}
-        projectId={projectId}
-        connectionId={resource.connection}
-      />
-      <AppLauncherSummary orgId={orgId} projectId={projectId} launcher={launcher} />
-      <section className="flex flex-col gap-2" aria-label="Conversation scope">
-        <h2 className="font-medium">Conversation scope</h2>
-        <p>{scopeDescription(resource.scope)}</p>
-        {resource.enabled === false && (
-          <Badge className="self-start" variant="secondary">
-            App capabilities disabled
-          </Badge>
+      <section className="flex flex-col gap-2" aria-label="Account">
+        <h2 className="font-medium">Account</h2>
+        <p>
+          {app.state === 'active' ? app.provider_agent_display_name || 'Connected' : 'Disconnected'}
+        </p>
+        {app.provider_tenant_id && (
+          <p className="text-muted-foreground">
+            {app.provider === 'slack' ? 'Workspace' : 'Application'} {app.provider_tenant_id} ·{' '}
+            {app.provider_account_ref}
+          </p>
+        )}
+        {app.provider === 'github' && (
+          <p>
+            GitHub webhook URL:{' '}
+            <code className="break-all">
+              {apiOrigin}/api/integrations/github/{app.provider_tenant_id || 'APP_ID'}/events
+            </code>
+            . Subscribe to pull requests, issue comments, and pull request review comments.
+          </p>
+        )}
+        {app.provider === 'discord' && (
+          <p>
+            Discord Interactions Endpoint URL:{' '}
+            <code className="break-all">
+              {apiOrigin}/api/integrations/discord/{app.provider_tenant_id || 'APPLICATION_ID'}
+              /interactions
+            </code>
+            .
+          </p>
         )}
       </section>
-      <AppCapabilitiesSummary resource={resource} />
-    </div>
-  )
-}
-
-function AppConnectionSummary({
-  orgId,
-  projectId,
-  connectionId,
-}: {
-  orgId: string
-  projectId: string
-  connectionId?: string
-}) {
-  const connection = useIntegrationConnection(orgId, projectId, connectionId ?? '')
-  return (
-    <section className="flex flex-col gap-2" aria-label="Connection">
-      <h2 className="font-medium">Connection</h2>
-      {connectionId ? (
-        connection.isPending ? (
-          <p>Loading connection…</p>
-        ) : connection.isError ? (
-          <div role="alert" className="flex items-center gap-2">
-            Connection unavailable.
-            <Button size="sm" variant="outline" onClick={() => void connection.refetch()}>
-              Retry
-            </Button>
+      <AppLauncherSummary orgId={orgId} projectId={projectId} launcher={app.settings.launcher} />
+      <section className="flex flex-col gap-2" aria-label="Capabilities">
+        <h2 className="font-medium">Available capabilities</h2>
+        <p className="text-muted-foreground">
+          Select tools, listeners and interaction handlers separately in an agent configuration.
+          Each capability uses this app’s account and credentials.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {Object.entries(app.capabilities.tools).map(([operation, capability]) => (
+            <li key={operation}>
+              <code>
+                app__{app.name}__{operation}
+              </code>
+              {capability.description && (
+                <p className="text-muted-foreground">{capability.description}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+        {Object.keys(app.capabilities.listeners).length > 0 && (
+          <div>
+            <h3 className="font-medium">Listeners</h3>
+            <p className="text-muted-foreground">
+              Select under <code>listeners</code>:
+            </p>
+            <ul className="flex flex-col gap-2">
+              {Object.entries(app.capabilities.listeners).map(([name, capability]) => (
+                <li key={name}>
+                  <code>
+                    {app.name}__{name}
+                  </code>
+                  {capability.description && (
+                    <p className="text-muted-foreground">{capability.description}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
-        ) : (
-          <p className="flex flex-wrap items-center gap-2">
-            {connection.data.provider_agent_display_name || connection.data.id}
-            <Badge variant={connection.data.state === 'active' ? 'outline' : 'secondary'}>
-              {connection.data.state}
-            </Badge>
-          </p>
-        )
-      ) : (
-        <p className="text-muted-foreground">No provider connection.</p>
-      )}
-      <Link
-        className="text-muted-foreground underline underline-offset-2"
-        to="/projects/$projectId/apps"
-        params={{ projectId }}
-        hash="connections"
-      >
-        Manage project connections
-      </Link>
-    </section>
+        )}
+        {app.capabilities.interaction_handler && (
+          <div>
+            <h3 className="font-medium">Interaction handler</h3>
+            <p className="text-muted-foreground">
+              Select under <code>interaction_handlers</code> for questions and approvals:
+            </p>
+            <code>{app.name}</code>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -134,48 +150,6 @@ function AppLauncherSummary({
       )}
     </section>
   )
-}
-
-function AppCapabilitiesSummary({ resource }: { resource: ProjectApp['settings']['resource'] }) {
-  const tools = Object.entries(resource.tools ?? {})
-    .filter(([, tool]) => tool.enabled !== false)
-    .map(([name]) => name)
-  return (
-    <section className="flex flex-col gap-2" aria-label="Capabilities">
-      <h2 className="font-medium">Capabilities</h2>
-      <p>Tools: {tools.length ? tools.join(', ') : 'None'}</p>
-      {resource.mcp && Object.keys(resource.mcp).length > 0 && (
-        <p>MCP servers: {Object.keys(resource.mcp).join(', ')}</p>
-      )}
-      <p>Incoming events: {resource.listener?.events.join(', ') ?? 'None'}</p>
-      <p>
-        Follow replies: {resource.follow?.replies ? 'Allowed when requested by the agent' : 'Off'}
-      </p>
-      <p>
-        Questions and approvals:{' '}
-        {resource.interaction_handler
-          ? 'Available through this app and in the dashboard'
-          : 'Dashboard or another configured destination'}
-      </p>
-      <p className="text-muted-foreground">
-        Agent configurations choose which capabilities to use and where they apply. Changes to this
-        app apply to future configurations and launches.
-      </p>
-    </section>
-  )
-}
-
-function scopeDescription(scope: ProjectApp['settings']['resource']['scope']) {
-  if (scope?.slack) {
-    return `Slack channel ${scope.slack.channel_id}${scope.slack.thread_ts ? ` · thread ${scope.slack.thread_ts}` : ' and its threads'}`
-  }
-  if (scope?.github) {
-    return `GitHub repository ${scope.github.repository_id} · PR #${scope.github.pull_request}`
-  }
-  if (scope?.discord) {
-    return `Discord channel ${scope.discord.channel_id}${scope.discord.thread_id ? ` · thread ${scope.discord.thread_id}` : ' and its threads'}`
-  }
-  return 'Provided by the launcher or selected when adding this app to an agent configuration.'
 }
 
 function AppProfileLink({

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ import (
 
 func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T) {
 	t.Parallel()
-	for _, scope := range []string{"active", "disabled", "connection", "project", "organization"} {
+	for _, scope := range []string{"active", "disconnected", "app", "project", "organization"} {
 		t.Run(scope, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -43,16 +42,16 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 			require.NoError(t, err)
 			require.NotEqual(t, choice.ID, recent.ID)
 			switch scope {
-			case "disabled":
-				f.exec(t, `UPDATE integration_connections SET state='disabled' WHERE id=$1`, f.connection)
-			case "connection":
-				require.NoError(t, f.store.DeleteIntegrationConnection(f.ctx, f.project, f.connection))
+			case "disconnected":
+				f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, f.appID)
+			case "app":
+				require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, f.appID))
 			case "project":
 				f.exec(t, `UPDATE projects SET deleted_at=now() WHERE id=$1`, f.project)
 			case "organization":
 				f.exec(t, `UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.org)
 			}
-			deleted := scope != "active" && scope != "disabled"
+			deleted := scope != "active" && scope != "disconnected"
 			// Deleted-scope cleanup remains bounded and must skip a busy choice.
 			tx, err := f.pool.Begin(f.ctx)
 			require.NoError(t, err)
@@ -65,7 +64,7 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 			require.NoError(t, err)
 			if deleted {
 				require.EqualValues(t, 1, count, "deleted scopes remove fresh payloads without waiting seven days")
-				_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.connection, recent.ID)
+				_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, recent.ID)
 				require.ErrorIs(t, err, storeerr.ErrNotFound)
 			} else {
 				require.Zero(t, count)
@@ -77,11 +76,11 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 			require.NoError(t, err)
 			if deleted {
 				require.EqualValues(t, 1, count, "failed work cannot retain payloads for deleted scopes")
-				_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.connection, choice.ID)
+				_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, choice.ID)
 				require.ErrorIs(t, err, storeerr.ErrNotFound)
 			} else {
 				require.Zero(t, count)
-				require.Equal(t, choice, f.readChoice(t, choice.ID), "live or disabled failed work stays recoverable")
+				require.Equal(t, choice, f.readChoice(t, choice.ID), "live or disconnected failed work stays recoverable")
 			}
 			require.Equal(t, failed, f.read(t, failed.ID), "chooser cleanup leaves inbox recovery data untouched")
 			count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
@@ -100,18 +99,13 @@ func TestAppProfileChoiceCleanupSharesBatchAcrossExpiryAndDeletedScopes(t *testi
 	input.SourceKey = "recent"
 	recent, _, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), input)
 	require.NoError(t, err)
-	deleted := uuid.New()
-	f.exec(t, `INSERT INTO integration_connections
- (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,
-  deleted_at,created_at,updated_at)
- SELECT $1,org_id,project_id,installed_by_user_id,provider,'disabled',provider_tenant_id,
-        ($1::uuid)::text,now(),now(),now()
- FROM integration_connections WHERE id=$2`, deleted, f.connection)
+	deleted := f.addApp(t, "deleted", f.app.Settings).ID
+	require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, deleted))
 	// One deleted row overlaps the expiry path; another is still recent.
 	f.exec(t, `INSERT INTO app_profile_choices
- (project_id,connection_id,app_id,owner_receipt_id,address_kind,address_ref,source_key,event,payload,options,expires_at)
- SELECT project_id,$1,app_id,owner_receipt_id,address_kind,address_ref,source_key,event,payload,options,expires_at
- FROM app_profile_choices WHERE connection_id=$2`, deleted, f.connection)
+ (project_id,app_id,owner_receipt_id,address_kind,address_ref,source_key,event,payload,options,expires_at)
+ SELECT project_id,$1,owner_receipt_id,address_kind,address_ref,source_key,event,payload,options,expires_at
+ FROM app_profile_choices WHERE app_id=$2`, deleted, f.appID)
 	for _, want := range []int64{2, 1, 0} {
 		count, err := f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 2)
 		require.NoError(t, err)

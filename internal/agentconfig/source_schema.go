@@ -26,17 +26,18 @@ const (
 )
 
 type AgentConfigSource struct {
-	Version        string                                  `json:"version,omitempty"`
-	Instruction    string                                  `json:"instruction"`
-	Model          AgentConfigModelSource                  `json:"model"`
-	MachineSources []AgentConfigMachineSource              `json:"machine_sources,omitempty"`
-	Tools          map[string]AgentConfigToolSource        `json:"tools,omitempty"`
-	MCP            map[string]AgentConfigMCPSource         `json:"mcp,omitempty"`
-	AppResources   map[string]AgentConfigAppResourceSource `json:"app_resources,omitempty"`
-	Skills         []string                                `json:"skills,omitempty"`
-	Subagents      map[string]AgentConfigSubagentSource    `json:"subagents,omitempty"`
-	MaxSubagents   *int                                    `json:"max_subagents,omitempty"`
-	MaxDepth       *int                                    `json:"max_depth,omitempty"`
+	Version             string                                    `json:"version,omitempty"`
+	Instruction         string                                    `json:"instruction"`
+	Model               AgentConfigModelSource                    `json:"model"`
+	MachineSources      []AgentConfigMachineSource                `json:"machine_sources,omitempty"`
+	Tools               map[string]AgentConfigToolSource          `json:"tools,omitempty"`
+	MCP                 map[string]AgentConfigMCPSource           `json:"mcp,omitempty"`
+	Listeners           map[string]AgentConfigAppCapabilitySource `json:"listeners,omitempty"`
+	InteractionHandlers map[string]AgentConfigAppCapabilitySource `json:"interaction_handlers,omitempty"`
+	Skills              []string                                  `json:"skills,omitempty"`
+	Subagents           map[string]AgentConfigSubagentSource      `json:"subagents,omitempty"`
+	MaxSubagents        *int                                      `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                      `json:"max_depth,omitempty"`
 }
 
 type AgentConfigModelSource struct {
@@ -68,6 +69,7 @@ type AgentConfigMachineSource struct {
 }
 
 type AgentConfigToolSource struct {
+	Config      map[string]any            `json:"config,omitempty"`
 	Type        string                    `json:"type,omitempty"`
 	Enabled     *bool                     `json:"enabled,omitempty"`
 	Permission  *toolpermission.Selection `json:"permission,omitempty"`
@@ -337,7 +339,13 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 		)),
 		kjsonschema.Prop("tools", kjsonschema.Object(
 			kjsonschema.PropertyNames(kjsonschema.AllOf(
-				kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
+				kjsonschema.AnyOf(
+					kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
+					kjsonschema.String(
+						kjsonschema.Pattern(`^app__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$`),
+						kjsonschema.MaxLength(64),
+					),
+				),
 				kjsonschema.Not(kjsonschema.String(kjsonschema.Pattern(`^`+toolcatalog.MCPRuntimeToolPrefix))),
 			)),
 			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigToolSource")),
@@ -489,6 +497,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Prop("deferred", kjsonschema.Boolean()),
 					kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MinLength(1))),
 					kjsonschema.Prop("input_schema", kjsonschema.Ref("#/$defs/AgentToolInputSchema")),
+					kjsonschema.Prop("config", kjsonschema.Object()),
 					kjsonschema.AdditionalProps(false),
 				)
 				def.If = kjsonschema.Object(

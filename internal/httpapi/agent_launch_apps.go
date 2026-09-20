@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -29,7 +30,17 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 		}
 		input.InitialInput = initial
 	}
-	if body.AppResources == nil || len(*body.AppResources) == 0 {
+	additions := agentconfig.AppCapabilitiesSource{}
+	if body.Tools != nil {
+		additions.Tools = *body.Tools
+	}
+	if body.Listeners != nil {
+		additions.Listeners = *body.Listeners
+	}
+	if body.InteractionHandlers != nil {
+		additions.InteractionHandlers = *body.InteractionHandlers
+	}
+	if len(additions.Tools) == 0 && len(additions.Listeners) == 0 && len(additions.InteractionHandlers) == 0 {
 		return input, nil
 	}
 	if err := s.server.authorizeProject(ctx, project.OrgID, project.ID, identitystore.ProjectActionManage); err != nil {
@@ -43,7 +54,7 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 		return input, apierror.FromCode(openapi.ErrorCodeNotFound, "agent config not found")
 	}
 	derived, err := agentconfigcompile.DeriveAppConfig(
-		ctx, s.server.store, project.OrgID, project.ID, s.server.agentConfigOptions, base, *body.AppResources,
+		ctx, s.server.store, project.OrgID, project.ID, s.server.agentConfigOptions, base, additions,
 	)
 	if err != nil {
 		return input, agentConfigCompileError(err)

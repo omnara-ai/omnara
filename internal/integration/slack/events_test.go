@@ -96,8 +96,8 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread", AppendOnly: true},
 			wantMessage: "one more thing",
 			wantHidden: "This Slack thread may include multiple participants, and not every " +
-				"message is necessarily directed at you. Use your judgment to decide whether to call " +
-				"`slack_post_message` at all.\n\n" +
+				"message is necessarily directed at you. Use your judgment to decide whether to use " +
+				"your Slack messaging tool at all.\n\n" +
 				"<@U123> (Ada) in <#C123>, thread 111.222:\n",
 		},
 		{

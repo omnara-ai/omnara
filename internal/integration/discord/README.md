@@ -7,28 +7,37 @@ selection. All tests use local HTTP/WebSocket fixtures; no live provider calls.
 
 ## Identity and credentials
 
-Use **application ID** as the immutable connection account ID. Keep the separately
-verified **bot user ID** immutable too. Do not infer one from the other.
-`DiscoverIdentity` resolves both during setup using the bot token; optional
-customer-supplied IDs must match. Construct `NewClient` with both verified IDs. `CheckIdentity`
-checks `/applications/@me` and `/users/@me`; Gateway `READY` checks both identities.
-**Guild ID** identifies a server and belongs to scope, never connection identity.
-Token/public-key replacement is a credential revision; replacing either identity
-requires a new connection. Credentials are passed by the caller and never stored.
-The interaction public key is the application's Ed25519 public key, not the bot
-token and not an HMAC secret. Supply it to `NewInteractionHandler`.
+The saved `ProjectAppRecord` stores the physical **application ID** as
+`ProviderTenantID` and the separately verified **bot user ID** as
+`ProviderAccountRef`. Both are immutable after first setup; do not infer one from
+the other. `DiscoverIdentity` resolves both using the bot token and checks optional
+customer-supplied IDs. Construct `NewClient` with both verified IDs.
+`CheckIdentity` checks `/applications/@me` and `/users/@me`; Gateway `READY` checks
+both too. **Guild ID** identifies a server and belongs to the concrete destination,
+never app identity. A different application/bot identity needs another saved app.
+The provider package receives credentials from its caller and never stores them.
 
-Public connection creation calls `DiscoverIdentity` before reserving the globally
-unique application/bot pair. It uses the bot token with documented
+Create metadata first with an immutable app name and definition. Explicit
+`POST /apps/{app_id}/setup` discovers identity with documented
 [`GET /users/@me`](https://docs.discord.com/developers/resources/user#get-current-user)
 and [`GET /applications/@me`](https://docs.discord.com/developers/resources/application#get-current-application),
-checks the bot flag, and requires both IDs to match the configured account.
-The API stores the provider observations with the checked credential version.
-PUT repairs missing facts and re-verifies changed credential references/versions;
-unchanged settings saves preserve observations without provider I/O. A trusted
-storage update checks the source connection revision, current secret version and
-project grant after discovery. No provider I/O runs while storage locks are held.
-The runtime's independent identity checks remain in place.
+checks the bot flag, and persists observations with the checked credential version.
+`ConfigureProjectApp` fences `ExpectedSetupRevision`, credential version and project
+secret access after discovery. No provider I/O runs under storage locks.
+Ordinary launcher/settings edits perform no discovery and do not advance
+`SetupRevision`; reconnect explicitly targets the same app and re-verifies it.
+
+Independent saved apps, including in different projects, may use the same
+physical application/bot. They have separate setup, credentials, inboxes and
+runtime leases. Setup never reserves a globally unique bot identity or discovers
+an app by its credential. Token, public-key and transport changes advance setup
+authority; unrelated metadata edits do not restart sessions.
+
+The interaction public key is the application's Ed25519 key, not the bot token or
+an HMAC secret. Pass it to `NewInteractionHandler`. Tool config fixes destination
+arguments; omitted arguments stay caller-supplied and provider-validated. The bot
+credentials and provider permissions are the access boundary, not a shared
+resource-scope ACL.
 
 `Scope{GuildID, ChannelID, ThreadID}` always separates the parent channel from an
 optional thread. REST verifies the selected channel's guild and the thread's
@@ -78,11 +87,12 @@ func RunShard(context.Context, ShardConfig, *Checkpoint, CommitDispatch) error
 
 The worker must:
 
-1. Own a fenced connection/shard lease. Also prevent competing active runtimes
-   for the same bot/shard when multiple connections can reference that bot.
+1. Own a fenced app/shard lease. Prevent competing workers for that saved app's
+   shard. Independent saved apps may run separate physical sessions for the same
+   bot; do not merge their leases or receipts.
 2. Load credentials and the latest durable checkpoint after acquiring the lease.
-   Checkpoints include application ID, bot ID and shard topology; connection and
-   credential-revision fencing remain the caller's responsibility.
+   Checkpoints include application ID, bot ID and shard topology; app setup and
+   credential-version fencing remain the caller's responsibility.
 3. Fetch `GetGatewayBot` metadata and honor its session start limits. Provide
    `BeforeIdentify` to acquire the bot-wide budget and the
    `shard_id % max_concurrency` bucket permit immediately before IDENTIFY is sent.
@@ -92,7 +102,7 @@ The worker must:
    Include READY/RESUMED and ignored events in checkpoint handling. Do not enqueue
    in memory and return success. Honor the callback context; do not perform slow
    provider work inside this transaction.
-5. Cancel the run on lease loss, disconnect or credential revision. On any exit,
+5. Cancel the run on lease loss, app disconnect, setup change or credential rotation. On any exit,
    dispose of it and reload storage before another run. A callback error is
    returned unchanged; a callback panic becomes a sanitized error. Neither can
    advance the local checkpoint or permit another dispatch.
@@ -126,6 +136,12 @@ once. A fresh run after failed sequence 11 resumes from stored sequence 10.
 user ID**. `MatchesListener` permits a mention in a selected parent or a message
 in one selected/followed thread; it is not a generic whole-channel subscription.
 The caller resolves current channel metadata and live listener authority.
+`<name>__thread_messages` owns configured and runtime subscriptions independently
+of sending tools. An empty listener has no initial conversations. Confirmed
+`follow_replies` sends require that listener in the original and current agent
+config, pinned to the same app. Hosted launch admission adds its conversation as
+a runtime subscription atomically, with no tool-call ID. Removing a sending tool
+does not remove subscriptions; removing their listener does.
 
 The inbox worker calls `EnsureThread` after durable intake. For a parent mention,
 it creates or reuses the source message's single thread. A mention inside a
@@ -134,8 +150,8 @@ message ID; an uncertain create or already-created error is reconciled by GET,
 never a blind POST retry. No archive, unarchive, delete, join or command mutation
 is performed automatically on stop.
 
-Map `discord_read` to `ListMessages`/`GetMessage`, and
-`discord_post_message` to `CreateMessage`. Persist a stable, unique-per-bot logical
+Map `app__<name>__read` to `ListMessages`/`GetMessage`, and
+`app__<name>__post_message` to `CreateMessage`. Persist a stable, unique-per-bot logical
 send nonce (1–25 ASCII token characters). All create attempts use the exact same
 payload with `enforce_nonce=true`, at most three times inside one 15-second budget.
 Discord's deduplication lasts only a few minutes: a final `DeliveryUnknown` is not
@@ -176,33 +192,37 @@ callback fallback or queue of expiring interaction tokens. Discord makes HTTP
 and Gateway interaction delivery mutually exclusive; ordinary messages continue
 through Gateway. See [Discord's transport contract](https://docs.discord.com/developers/interactions/receiving-and-responding#receiving-an-interaction).
 
-The control-plane route is
-`POST /api/integrations/discord/{connection_id}/interactions`, wrapping
-`NewInteractionHandler`. The public connection ID locates the live connection;
-its `provider_config.public_key` verifies the signature and application ID before
-any action is trusted. The URL alone grants no authority. The API adapter is
+The shared control-plane route is
+`POST /api/integrations/discord/{application_id}/interactions`, wrapping
+`NewInteractionHandler`. The path carries the physical Discord application ID,
+not an Omnara app ID. Prompts and profile choices select their single captured
+saved-app owner through indexed metadata lookup. This untrusted lookup only
+selects a candidate: that exact active app's `provider_config.public_key` then
+verifies timestamp, raw body and application identity before any action is trusted.
+Sibling app credentials cannot authorize the callback. PING has no owner, so it
+pages active apps for the physical application and can use any matching valid
+setup with current project credential access. The API adapter is
 [`discord_interaction_routes.go`](../../httpapi/discord_interaction_routes.go).
 
-Every enabled Discord interaction handler requires a configured, valid
-`public_key` (64 hexadecimal characters encoding the application's 32-byte
-Ed25519 key). Activation must reject a handler whose connection lacks the key;
-presentation and callbacks must recheck the live connection. Message-only
-connections may omit it. Removing the key makes existing mirrors unavailable;
+Every configured Discord interaction handler requires a valid `public_key`
+(64 hexadecimal characters encoding the application's 32-byte Ed25519 key).
+Activation checks the app's key; presentation and callbacks recheck live setup.
+Message-only apps may omit it. Removing the key makes hosted mirrors unavailable;
 the dashboard interaction remains open. Any verified participant in the captured
 conversation may answer; there is no separate approver ACL.
 
 ### Endpoint setup
 
-Configure the endpoint for the connection:
+Configure one endpoint for the physical Discord application:
 
 1. Open the customer's application in the Discord Developer Portal. Copy its
-   **Public Key** into the Omnara connection's `provider_config.public_key`.
+   **Public Key** into the saved app's setup `provider_config.public_key`.
 2. Expose the API route at a public HTTPS URL. In the application's **General
    Information** page, set **Interactions Endpoint URL** to
-   `https://<omnara-api-host>/api/integrations/discord/<connection_id>/interactions` and save.
+   `https://<omnara-api-host>/api/integrations/discord/<application_id>/interactions` and save.
 3. Discord validates the endpoint using a signed `PING`. The route must return
    HTTP 200 with JSON `{"type":1}` for a verified ping and reject invalid
-   signatures with HTTP 401. Enable the interaction handler after this succeeds.
+   signatures with HTTP 401. Independent saved apps share this URL and configure their own keys.
 
 These steps follow [Discord's endpoint setup documentation](https://docs.discord.com/developers/interactions/overview#configuring-an-interactions-endpoint-url).
 URL provisioning remains an operator setup step; Omnara does not mutate the
@@ -215,8 +235,10 @@ directly. Slash commands, component actions and modal submissions invoke the
 synchronous intake callback with a two-second context, before acknowledgement.
 Answer callbacks validate the signed message/channel against the captured
 interaction, then call `executionstore.ResolveAgentInteractionFromHandler`.
-That method fences the connection before locking the agent and checks the live
-handler against the original destination identity. Commit the atomic core
+That method fences the app and authenticated `SourceSetupRevision` before
+locking the agent, then checks the live handler against the captured app,
+config/arguments and destination. Profile-choice callbacks similarly verify their
+captured owner and live setup revision before queuing one app-local inbox receipt. Commit the atomic core
 resolution before acknowledging; do not defer resolution to the Gateway inbox.
 The two-second context leaves room for Discord's three-second response deadline.
 The HTTP handler cannot rescue a callback that ignores context. A duplicate

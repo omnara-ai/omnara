@@ -383,7 +383,11 @@ type fakeContextStore struct {
 	messages                   []executionstore.ContextEventRecord
 	toolCalls                  []executionstore.ToolCallRecord
 	completedToolCallWatermark int64
-	interactionDestinations    executionstore.InteractionDestinations
+	interactionHandlers        agentconfig.InteractionHandlerPage
+	interactionHandlerRequests []handlerListRequest
+	appDefinitions             map[string]agentconfig.AppResolution
+	appDefinitionRequests      []appDefinitionRequest
+	appDefinitionsErr          error
 	machinePools               []executionstore.MachinePoolSourceRecord
 	watermark                  int64
 	checkpoints                []executionstore.ContextCheckpointRecord
@@ -503,11 +507,43 @@ func (s *fakeContextStore) ListCompletedToolCallsAtWatermark(
 	return out, nil
 }
 
-func (s *fakeContextStore) ListInteractionDestinations(
-	_ context.Context,
-	_, _ uuid.UUID,
-) (executionstore.InteractionDestinations, error) {
-	return s.interactionDestinations, nil
+type handlerListRequest struct {
+	ProjectID, AgentID uuid.UUID
+	Cursor             string
+	Limit              int
+}
+type appDefinitionRequest struct {
+	ProjectID uuid.UUID
+	IDs       []string
+}
+
+func (s *fakeContextStore) ListInteractionHandlers(
+	_ context.Context, projectID, agentID uuid.UUID, cursor string, limit int,
+) (agentconfig.InteractionHandlerPage, error) {
+	s.interactionHandlerRequests = append(
+		s.interactionHandlerRequests,
+		handlerListRequest{projectID, agentID, cursor, limit},
+	)
+	return s.interactionHandlers, nil
+}
+
+func (s *fakeContextStore) ResolveAppDefinitions(
+	_ context.Context, projectID uuid.UUID, ids []string,
+) (map[string]agentconfig.AppResolution, error) {
+	s.appDefinitionRequests = append(
+		s.appDefinitionRequests,
+		appDefinitionRequest{projectID, append([]string(nil), ids...)},
+	)
+	if s.appDefinitionsErr != nil {
+		return nil, s.appDefinitionsErr
+	}
+	apps := map[string]agentconfig.AppResolution{}
+	for _, id := range ids {
+		if app, ok := s.appDefinitions[id]; ok {
+			apps[id] = app
+		}
+	}
+	return apps, nil
 }
 
 func (s *fakeContextStore) ListMachinePoolSources(
@@ -628,8 +664,8 @@ func TestBuildUsesAgentConfigEnabledToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 3 || bundle.ToolSpecs[1].Name != "run_command" {
-		t.Fatalf("expected run_command and retrieval tools from config, got %+v", bundle.ToolSpecs)
+	if len(bundle.ToolSpecs) != 5 || !HasTool(bundle.ToolSpecs, "run_command") {
+		t.Fatalf("expected run_command, retrieval and interaction handler tools from config, got %+v", bundle.ToolSpecs)
 	}
 }
 
@@ -650,6 +686,11 @@ func TestBuildUsesEffectiveSkillToolConfiguration(t *testing.T) {
 			wantTool:       true,
 			wantCatalog:    true,
 			wantPermission: toolpermission.ModeAlwaysAllow,
+		},
+		{
+			name:       "explicit approval",
+			toolConfig: "tools: {skill: {permission: {mode: always_ask}}}\n",
+			wantTool:   true, wantCatalog: true, wantPermission: toolpermission.ModeAlwaysAsk,
 		},
 		{
 			name: "explicitly disabled",
@@ -714,10 +755,10 @@ skills:
 			if got := HasTool(bundle.ToolSpecs, "skill"); got != test.wantTool {
 				t.Fatalf("skill tool present = %t, want %t", got, test.wantTool)
 			}
-			if test.wantTool && bundle.ToolSpecs[0].Permission.Mode != test.wantPermission {
+			if test.wantTool && requireToolSpec(t, bundle.ToolSpecs, "skill").Permission.Mode != test.wantPermission {
 				t.Fatalf(
 					"skill permission = %q, want %q",
-					bundle.ToolSpecs[0].Permission.Mode,
+					requireToolSpec(t, bundle.ToolSpecs, "skill").Permission.Mode,
 					test.wantPermission,
 				)
 			}
@@ -780,10 +821,10 @@ func TestBuildIncludesReadyMCPToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 3 {
-		t.Fatalf("expected mcp and retrieval tool specs, got %+v", bundle.ToolSpecs)
+	if len(bundle.ToolSpecs) != 5 {
+		t.Fatalf("expected mcp, retrieval and interaction handler tool specs, got %+v", bundle.ToolSpecs)
 	}
-	spec := bundle.ToolSpecs[2]
+	spec := requireToolSpec(t, bundle.ToolSpecs, "mcp__docs__greet")
 	if spec.Name != "mcp__docs__greet" ||
 		spec.Type != toolcatalog.ToolTypeMCP ||
 		spec.Permission.Mode != toolpermission.ModeAlwaysAllow ||
@@ -872,10 +913,10 @@ skills:
 	if err != nil {
 		t.Fatalf("build runtime tool specs: %v", err)
 	}
-	if len(specs) != 3 ||
-		specs[2].Name != "skill" ||
-		specs[2].Permission.Mode != toolpermission.ModeAlwaysAsk ||
-		!strings.Contains(specs[2].Description, "available_skills catalog") {
+	skill := requireToolSpec(t, specs, "skill")
+	if len(specs) != 5 ||
+		skill.Permission.Mode != toolpermission.ModeAlwaysAsk ||
+		!strings.Contains(skill.Description, "available_skills catalog") {
 		t.Fatalf("runtime tool specs = %+v, want one explicit skill tool", specs)
 	}
 }

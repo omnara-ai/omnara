@@ -25,40 +25,94 @@ See the [Omnara docs](https://docs.omnara.com) and the [GitHub repository](https
 
 Apache-2.0
 
-## Project apps and connections
+## Project apps
 
-Connections hold provider identity, configuration, and credentials. Project apps select
-capabilities and launch profiles. Disconnecting a connection affects every app and
-agent using it; removing an app keeps the connection and existing agents.
+Each project app owns its provider identity, credentials, and optional launcher.
+Create a disconnected draft, connect its account, then choose launch settings.
+Names are immutable: 1–32 letters, numbers, or hyphens, starting with a letter.
 
-With an organization and project selected, Slack setup supports either automatic app
-creation or an existing Slack app. Reconnecting preserves saved app settings.
+With an organization and project selected:
 
 ```sh
-omnara profiles slack "$PROFILE_ID" --client-id "$SLACK_CLIENT_ID" \
-  --client-secret "$SLACK_CLIENT_SECRET" --signing-secret "$SLACK_SIGNING_SECRET"
-omnara profiles slack --help
+omnara apps definitions
+omnara apps create --body '{"name":"engineering","definition_id":"omnara.slack","settings":{}}'
+omnara apps list
 ```
 
-For GitHub or Discord, first create a project credential (`secrets create`) and a
-connection (`connections create`). GitHub's tenant is its numeric App ID and account
-is the Installation ID; the credential's App ID must match. Discord's tenant is the
-Application ID and account is the bot User ID, not the guild ID. Its provider config
-accepts `public_key` and `shard_count` (1–4096, default 1).
+Use the returned app ID as `APP_ID`; keep it as `SLACK_APP_ID` for the launcher
+example below. Connect Slack through browser authorization using an existing
+Slack app:
 
 ```sh
-omnara connections create --help
-omnara connections list
-omnara profiles github "$PROFILE_ID" --name review --connection "$CONNECTION_ID" \
-  --repository-id "$REPOSITORY_ID" --tools github_read --tools github_discussion_comment
-omnara profiles discord "$PROFILE_ID" --name support --connection "$CONNECTION_ID" \
-  --channel-id "$CHANNEL_ID" --tools discord_read --tools discord_post_message
-omnara apps list
+omnara apps slack "$APP_ID" --client-id "$SLACK_CLIENT_ID" \
+  --client-secret "$SLACK_CLIENT_SECRET" --signing-secret "$SLACK_SIGNING_SECRET"
+omnara apps slack --help
 omnara apps get "$APP_ID"
 ```
 
-GitHub uses a numeric repository ID. Discord can enable questions and approvals with
-`--interactions` once its public key and interaction endpoint are configured. Both
-flows receive subsequent conversation events by default; use `--no-listen` to opt out.
-`apps update` replaces saved settings; already compiled agent configs retain their
-settings. Use `apps update --help` for the complete request shape.
+`apps slack` also supports automatic Slack app creation with `--app-name` and
+`--app-configuration-token`. Reconnecting preserves the saved launcher settings.
+
+For GitHub or Discord, create a project credential with `secrets create`, or reuse
+an existing credential of the matching provider kind. Read `setup_revision` from
+`apps get` before configuring the app. The server verifies the credentials and
+rejects a stale revision.
+
+```sh
+omnara apps create --body '{"name":"reviewer","definition_id":"omnara.github","settings":{}}'
+# Set APP_ID to this new app's ID and SETUP_REVISION to its current setup_revision.
+omnara apps configure "$APP_ID" --expected-setup-revision "$SETUP_REVISION" \
+  --provider-tenant-id "$GITHUB_APP_ID" --provider-account-ref "$GITHUB_INSTALLATION_ID" \
+  --credential-secret-id "$SECRET_ID"
+omnara apps configure --help
+```
+
+GitHub uses its numeric App ID and Installation ID; the credential's App ID must
+match. Discord uses its Application ID and bot User ID. Configure Discord's
+interaction public key with `--provider-config '{"public_key":"YOUR_64_HEX_PUBLIC_KEY"}'`
+before using a launcher or interaction handler. Discord launchers include a handler by default. Set its
+Interactions Endpoint URL to
+`https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions`.
+The same provider config accepts `shard_count` from 1–4096 (default 1).
+
+`apps update` replaces launcher settings and requires the unchanged app name and
+`definition_id`. For the Slack app above, replace the example workspace and profile
+IDs with your own:
+
+```sh
+omnara apps update "$SLACK_APP_ID" --body '{
+  "name": "engineering",
+  "definition_id": "omnara.slack",
+  "settings": {
+    "launcher": {
+      "trigger": "mention",
+      "scope_kind": "workspace",
+      "scope_ref": "T123",
+      "slots": [{"key": "default", "agent_profile_id": "aprf_aaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+    }
+  }
+}'
+omnara apps profiles "$SLACK_APP_ID" --profile-ids "$PROFILE_ID" --profile-ids "$SECOND_PROFILE_ID"
+```
+
+Slack workspace scopes must match the connected workspace. GitHub launchers can use
+`repository` with a numeric repository ID and `mention` or `pull_request_opened`.
+Discord launchers use `channel` with a numeric channel ID and `mention`.
+`apps profiles` edits offered Slack or Discord profiles while preserving existing
+agent slots. One profile launches immediately; several offer a selection menu.
+
+Select capabilities independently in agent configurations: tools use keys such as
+`app__engineering__post_message`, listeners use `engineering__thread_messages`,
+and interaction handlers use `engineering`. `apps get` and `apps definitions` show
+the capability schemas. A launcher adds its provider's fixed capability bundle to
+future agents; editing settings does not rewrite existing agents.
+
+```sh
+omnara apps disconnect "$APP_ID"
+omnara apps delete "$APP_ID"
+```
+
+Disconnect stops provider access for that app and keeps its setup for reconnecting.
+Delete removes that app and revokes its capabilities. Other apps keep their own
+lifecycle, including apps sharing a credential. Existing agents and history remain
+usable through the dashboard and API.

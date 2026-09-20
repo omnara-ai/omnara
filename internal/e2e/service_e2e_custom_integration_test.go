@@ -31,7 +31,8 @@ func TestServiceE2ECustomIntegrationWorkerJourney(t *testing.T) {
 		http.Error(w, "mock model request failed", status)
 	}
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" || r.Header.Get("Authorization") != "Bearer service-e2e-test-key" {
+		if r.URL.Path != "/responses" ||
+			r.Header.Get("Authorization") != "Bearer service-e2e-test-key" {
 			fail(w, http.StatusBadRequest, "unexpected model request: %s", r.URL.Path)
 			return
 		}
@@ -51,9 +52,19 @@ func TestServiceE2ECustomIntegrationWorkerJourney(t *testing.T) {
 			writeOpenAIMessage(w, fail, "resp_custom_done", finalText)
 		case 3:
 			requests <- body
-			writeOpenAIMessage(w, fail, "resp_customer_reply", "The customer reply has been received.")
+			writeOpenAIMessage(
+				w,
+				fail,
+				"resp_customer_reply",
+				"The customer reply has been received.",
+			)
 		default:
-			fail(w, http.StatusInternalServerError, "unexpected extra model request: %s", mustJSONString(body))
+			fail(
+				w,
+				http.StatusInternalServerError,
+				"unexpected extra model request: %s",
+				mustJSONString(body),
+			)
 		}
 	}))
 	defer model.Close()
@@ -83,7 +94,7 @@ tools:
 `,
 	)
 	// The customer service uses ordinary configuration and public APIs; no app
-	// registration, provider connection or hosted routing is needed.
+	// registration or hosted routing is needed.
 	launchBody := map[string]any{
 		"config": project.configID, "profile": project.agentID,
 		"initial_input": map[string]any{"content_blocks": []any{map[string]any{
@@ -110,9 +121,21 @@ tools:
 		http.StatusOK,
 	)
 	require.Equal(t, agentID, testutil.RequireType[map[string]any](t, replay["agent"])["id"])
-	profile := env.requestJSON(t, ctx, http.MethodGet, project.projectPath+"/agent-profiles/"+project.agentID,
-		nil, "", project.adminToken, http.StatusOK)
-	require.Equal(t, project.configID, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
+	profile := env.requestJSON(
+		t,
+		ctx,
+		http.MethodGet,
+		project.projectPath+"/agent-profiles/"+project.agentID,
+		nil,
+		"",
+		project.adminToken,
+		http.StatusOK,
+	)
+	require.Equal(
+		t,
+		project.configID,
+		testutil.RequireType[map[string]any](t, profile["current_config"])["id"],
+	)
 	worker := env.startWorker(t, ctx, project.projectID,
 		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: model.URL})
 
@@ -133,15 +156,30 @@ tools:
 	first := <-requests // The worker creates the approval after this model request.
 	require.True(t, requestContainsTool(first, toolName), "worker omitted the custom tool")
 	interactionID := testutil.RequireType[string](t, interaction["id"])
-	resolved := env.requestJSON(t, ctx, http.MethodPost, agentPath+"/interactions/"+interactionID+"/resolve",
+	resolved := env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		agentPath+"/interactions/"+interactionID+"/resolve",
 		map[string]any{"answers": []any{map[string]any{"option_indices": []int{0}}}},
-		"", project.adminToken, http.StatusOK)
+		"",
+		project.adminToken,
+		http.StatusOK,
+	)
 	require.Equal(t, "resolved", resolved["state"])
 	require.NotContains(t, resolved, "destination")
 	var toolID string
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
-		listed := env.requestJSON(t, ctx, http.MethodGet, agentPath+"/tool-calls?type=custom&state=ready",
-			nil, "", project.adminToken, http.StatusOK)
+		listed := env.requestJSON(
+			t,
+			ctx,
+			http.MethodGet,
+			agentPath+"/tool-calls?type=custom&state=ready",
+			nil,
+			"",
+			project.adminToken,
+			http.StatusOK,
+		)
 		items := testutil.RequireType[[]any](t, listed["data"])
 		if len(items) != 1 {
 			return false, "waiting for authorized custom call; " + worker.logExcerpt()
@@ -151,15 +189,33 @@ tools:
 		toolID = testutil.RequireType[string](t, call["id"])
 		return true, ""
 	})
-	completed := env.requestJSON(t, ctx, http.MethodPost, agentPath+"/tool-calls/"+toolID+"/result", map[string]any{
-		"outcome": "succeeded", "content_blocks": []any{map[string]any{"type": "text", "text": resultText}},
-	}, "", project.adminToken, http.StatusCreated)
-	require.Equal(t, "completed", testutil.RequireType[map[string]any](t, completed["tool_call"])["state"])
+	completed := env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		agentPath+"/tool-calls/"+toolID+"/result",
+		map[string]any{
+			"outcome":        "succeeded",
+			"content_blocks": []any{map[string]any{"type": "text", "text": resultText}},
+		},
+		"",
+		project.adminToken,
+		http.StatusCreated,
+	)
+	require.Equal(
+		t,
+		"completed",
+		testutil.RequireType[map[string]any](t, completed["tool_call"])["state"],
+	)
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, finalText)
 	second := <-requests // Durable final output proves the continuation was requested.
-	require.True(t, requestContainsToolResult(second, callID, resultText), "continuation omitted the custom result")
+	require.True(
+		t,
+		requestContainsToolResult(second, callID, resultText),
+		"continuation omitted the custom result",
+	)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var locks int
 		if err := env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).
@@ -171,7 +227,9 @@ tools:
 	require.EqualValues(t, 2, requestCount.Load())
 	// Customer-owned routing delivers the next event through the ordinary input API.
 	followup := map[string]any{
-		"content_blocks": []any{map[string]any{"type": "text", "text": "The customer replied: thank you."}},
+		"content_blocks": []any{
+			map[string]any{"type": "text", "text": "The customer replied: thank you."},
+		},
 	}
 	next := env.requestJSON(t, ctx, http.MethodPost, agentPath+"/inputs", followup,
 		"customer-reply-43", project.adminToken, http.StatusCreated)
@@ -179,17 +237,24 @@ tools:
 		"customer-reply-43", project.adminToken, http.StatusOK)
 	require.Equal(t, testutil.RequireType[map[string]any](t, next["agent_input"])["id"],
 		testutil.RequireType[map[string]any](t, repeated["agent_input"])["id"])
-	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, "The customer reply has been received.")
+	waitForAssistantText(
+		t,
+		ctx,
+		env,
+		projectUUID,
+		agentUUID,
+		"The customer reply has been received.",
+	)
 	third := <-requests
 	require.Contains(t, mustJSONString(third), "The customer replied: thank you.")
 	require.EqualValues(t, 3, requestCount.Load())
-	var connections, apps, listeners int
+	var apps, listeners, targets int
 	require.NoError(t, env.db.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM integration_connections WHERE project_id=$1),
   (SELECT count(*) FROM project_apps WHERE project_id=$1),
-  (SELECT count(*) FROM agent_listeners WHERE agent_id=$2)`, projectUUID, agentUUID).
-		Scan(&connections, &apps, &listeners))
-	require.Zero(t, connections)
+  (SELECT count(*) FROM agent_listeners WHERE agent_id=$2),
+  (SELECT count(*) FROM integration_targets WHERE agent_id=$2)`, projectUUID, agentUUID).
+		Scan(&apps, &listeners, &targets))
 	require.Zero(t, apps)
 	require.Zero(t, listeners)
+	require.Zero(t, targets)
 }

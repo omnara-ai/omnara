@@ -6,6 +6,8 @@
 -- +goose StatementBegin
 DO $$
 DECLARE conflicting_config uuid; conflicting_tool text; unfinished_agent uuid;
+        unsupported_install uuid; ambiguous_agent uuid; ambiguous_targets uuid[];
+        policy_config uuid; policy_project uuid; invalid_target uuid; full_project uuid;
 BEGIN
     IF EXISTS (SELECT 1 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp())
        OR EXISTS (SELECT 1 FROM model_call_contexts WHERE state = 'started')
@@ -24,11 +26,91 @@ BEGIN
     END IF;
     SELECT config.id, tool.key INTO conflicting_config, conflicting_tool
     FROM agent_configs config CROSS JOIN LATERAL jsonb_each(coalesce(nullif(config.compiled_definition->'tools','null'::jsonb),'{}'::jsonb)) tool
-    WHERE tool.value->>'type' = 'custom' AND tool.key IN ('slack_read','slack_post_message',
-        'github_read','github_discussion_comment','github_inline_comment','github_reply',
-        'discord_read','discord_post_message','list_interaction_destinations','set_interaction_destination') LIMIT 1;
+    WHERE tool.value->>'type' = 'custom'
+      AND (starts_with(tool.key, 'app__') OR tool.key IN ('list_interaction_handlers','set_interaction_handler'))
+    LIMIT 1;
     IF conflicting_config IS NOT NULL THEN
         RAISE EXCEPTION 'config % custom tool % conflicts with a new app built-in; historical configs require repair before cutover', conflicting_config, conflicting_tool;
+    END IF;
+    SELECT id INTO unsupported_install FROM integration_installs
+    WHERE provider <> 'slack' OR agent_id IS NOT NULL OR agent_profile_id IS NULL
+       OR connection_mode <> 'webhook'
+       OR (state='active' AND deleted_at IS NULL AND credential_secret_id IS NULL) LIMIT 1;
+    IF unsupported_install IS NOT NULL THEN
+        RAISE EXCEPTION 'install % is not a profile-bound Slack webhook setup; review and repair before app cutover', unsupported_install;
+    END IF;
+    -- Frozen released send-policy grammar, matching Go41. Refuse policies that
+    -- cannot be translated while the old table/config contract still exists.
+    SELECT config.id, config.project_id INTO policy_config, policy_project
+    FROM agent_configs config
+    CROSS JOIN LATERAL (SELECT config.compiled_definition->'tools'->'send_integration_message' AS value) policy
+    WHERE policy.value IS NOT NULL AND (
+        jsonb_typeof(policy.value) <> 'object'
+        OR policy.value - ARRAY['enabled','deferred','permission']::text[] <> '{}'::jsonb
+        OR (policy.value ? 'enabled' AND jsonb_typeof(policy.value->'enabled') <> 'boolean')
+        OR (policy.value ? 'deferred' AND jsonb_typeof(policy.value->'deferred') <> 'boolean')
+        OR (policy.value ? 'permission' AND (
+            jsonb_typeof(policy.value->'permission') <> 'object'
+            OR (policy.value->'permission'->>'mode') IS DISTINCT FROM 'always_allow'
+            OR (policy.value->'permission') - ARRAY['mode','parameters']::text[] <> '{}'::jsonb
+            OR (policy.value->'permission' ? 'parameters'
+                AND policy.value->'permission'->'parameters' <> '{}'::jsonb)))
+        OR (policy.value->'enabled' = 'false'::jsonb AND NOT EXISTS (
+            SELECT 1 FROM integration_installs install WHERE install.project_id = config.project_id)))
+    LIMIT 1;
+    IF policy_config IS NOT NULL THEN
+        RAISE EXCEPTION 'project % config % has an unmappable legacy send policy; repair before app cutover', policy_project, policy_config;
+    END IF;
+    SELECT target.agent_id, array_agg(target.id ORDER BY target.id)
+    INTO ambiguous_agent, ambiguous_targets
+    FROM integration_targets target
+    JOIN integration_installs install ON install.id = target.integration_install_id
+    JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id
+    JOIN projects project ON project.id = target.project_id
+    JOIN orgs org ON org.id = project.org_id
+    WHERE target.deleted_at IS NULL AND install.deleted_at IS NULL
+      AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+    GROUP BY target.agent_id, target.integration_install_id HAVING count(*) > 1 LIMIT 1;
+    IF ambiguous_agent IS NOT NULL THEN
+        RAISE EXCEPTION 'agent % has several live targets through one Slack app: %. Review these destinations before cutover; no target has been removed or broadened', ambiguous_agent, ambiguous_targets;
+    END IF;
+    SELECT target.id INTO invalid_target
+    FROM integration_targets target
+    JOIN integration_installs install ON install.id=target.integration_install_id AND install.deleted_at IS NULL
+    JOIN agents agent ON agent.project_id=target.project_id AND agent.id=target.agent_id
+    JOIN projects project ON project.id=target.project_id AND project.deleted_at IS NULL
+    JOIN orgs org ON org.id=project.org_id AND org.deleted_at IS NULL
+    WHERE target.deleted_at IS NULL AND NOT CASE target.provider_ref_kind
+        WHEN 'dm' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+$'
+        WHEN 'channel' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+$'
+        WHEN 'thread' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+:[0-9]+[.][0-9]+$'
+        ELSE false END
+    LIMIT 1;
+    IF invalid_target IS NOT NULL THEN
+        RAISE EXCEPTION 'invalid Slack target %; repair before app cutover', invalid_target;
+    END IF;
+    -- At most one successor config per agent. Reserve this conservative budget
+    -- before renaming; deduplication can reduce the actual number written.
+    WITH successors AS (
+        SELECT agent.project_id, count(DISTINCT agent.id) AS needed
+        FROM agents agent
+        JOIN projects project ON project.id=agent.project_id AND project.deleted_at IS NULL
+        JOIN orgs org ON org.id=project.org_id AND org.deleted_at IS NULL
+        JOIN integration_targets target ON target.project_id=agent.project_id AND target.agent_id=agent.id
+            AND target.deleted_at IS NULL
+        JOIN integration_installs install ON install.id=target.integration_install_id AND install.deleted_at IS NULL
+        GROUP BY agent.project_id
+    ), config_counts AS (
+        SELECT project_id, count(*) AS existing FROM agent_configs GROUP BY project_id
+    )
+    SELECT project.id INTO full_project FROM successors
+    JOIN projects project ON project.id=successors.project_id
+    JOIN config_counts configs ON configs.project_id=project.id
+    LEFT JOIN org_resource_limit_overrides limits ON limits.org_id=project.org_id
+    WHERE configs.existing + successors.needed > coalesce(limits.max_agent_configs_per_project, 10000000)
+    LIMIT 1;
+    IF full_project IS NOT NULL THEN
+        RAISE EXCEPTION 'project % needs additional config quota for Slack successors; raise the existing org override before app cutover', full_project;
     END IF;
 END;
 $$;
@@ -36,11 +118,11 @@ $$;
 
 -- This release uses a coordinated maintenance window. Existing provider account
 -- and conversation identities survive; there is no rolling dual-write path.
-ALTER TABLE integration_installs RENAME TO integration_connections;
-ALTER TABLE integration_targets RENAME COLUMN integration_install_id TO integration_connection_id;
-ALTER INDEX integration_installs_provider_tenant_account_idx RENAME TO integration_connections_provider_tenant_account_idx;
-ALTER INDEX integration_installs_last_oauth_flow_id_idx RENAME TO integration_connections_last_oauth_flow_id_idx;
-ALTER INDEX integration_installs_credential_secret_idx RENAME TO integration_connections_credential_secret_idx;
+ALTER TABLE integration_installs RENAME TO project_apps;
+ALTER TABLE integration_targets RENAME COLUMN integration_install_id TO app_id;
+DROP INDEX integration_installs_provider_tenant_account_idx;
+ALTER INDEX integration_installs_last_oauth_flow_id_idx RENAME TO project_apps_last_oauth_flow_id_idx;
+ALTER INDEX integration_installs_credential_secret_idx RENAME TO project_apps_credential_secret_idx;
 
 ALTER TABLE secrets DROP CONSTRAINT secrets_kind_check;
 ALTER TABLE secrets ADD CONSTRAINT secrets_kind_check
@@ -50,130 +132,129 @@ ALTER TABLE actors DROP CONSTRAINT actors_provider_check;
 ALTER TABLE actors ADD CONSTRAINT actors_provider_check
     CHECK (provider IN ('omnara', 'slack', 'github', 'discord', 'external'));
 
--- App definitions are reviewed code. These rows are reusable project settings,
--- optionally indexed as launchers. Existing agents pin their resolved resources
--- in immutable configs rather than following edits to this row.
-CREATE TABLE project_apps (
-    id uuid PRIMARY KEY DEFAULT uuidv7(),
-    project_id uuid NOT NULL REFERENCES projects(id),
-    name text NOT NULL CHECK (name <> '' AND resource_name_storage_is_valid(name)),
-    definition_id text NOT NULL CHECK (definition_id <> ''),
-    settings jsonb NOT NULL CHECK (jsonb_typeof(settings) = 'object'),
-    launch_connection_id uuid,
-    launch_scope_kind text,
-    launch_scope_ref text,
-    enabled boolean NOT NULL DEFAULT true,
-    deleted_at timestamptz,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    CHECK ((launch_connection_id IS NULL AND launch_scope_kind IS NULL AND launch_scope_ref IS NULL)
-        OR (launch_connection_id IS NOT NULL AND launch_scope_kind IS NOT NULL AND launch_scope_ref IS NOT NULL
-            AND launch_scope_kind <> '' AND launch_scope_ref <> '')),
-    FOREIGN KEY (project_id, launch_connection_id) REFERENCES integration_connections(project_id, id),
-    UNIQUE (project_id, id)
-);
-CREATE UNIQUE INDEX project_apps_name_idx ON project_apps(project_id, name) WHERE deleted_at IS NULL;
-CREATE INDEX project_apps_launch_idx ON project_apps(project_id, launch_connection_id, launch_scope_kind, launch_scope_ref)
-    WHERE enabled AND deleted_at IS NULL AND launch_connection_id IS NOT NULL;
+-- One project-owned app owns setup, credentials and behavior. Preserve install
+-- IDs, so existing conversation and audit references keep the same identity.
+ALTER TABLE project_apps
+    ADD COLUMN name text,
+    ADD COLUMN definition_id text NOT NULL DEFAULT 'omnara.slack' CHECK (definition_id <> ''),
+    ADD COLUMN settings jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(settings) = 'object'),
+    ADD COLUMN setup_revision bigint NOT NULL DEFAULT 1 CHECK (setup_revision > 0),
+    ALTER COLUMN installed_by_user_id DROP NOT NULL,
+    ALTER COLUMN provider_tenant_id DROP NOT NULL,
+    ALTER COLUMN provider_account_ref DROP NOT NULL;
 
--- Capture the old Slack setup once, before removing connection-owned behavior.
--- Go41 fills the encoded public connection reference. Neither service may start
--- between these migrations. Existing conversation targets remain attribution.
--- +goose StatementBegin
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM integration_connections
-               WHERE provider <> 'slack' OR integration_kind <> 'agent_profile'
-                  OR connection_mode <> 'webhook') THEN
-        RAISE EXCEPTION 'unsupported legacy integration setup; resolve before app cutover';
-    END IF;
-END;
-$$;
--- +goose StatementEnd
-INSERT INTO project_apps(project_id, name, definition_id, settings,
-    launch_connection_id, launch_scope_kind, launch_scope_ref, enabled, deleted_at, created_at, updated_at)
-SELECT project_id, 'slack-' || id::text, 'omnara.slack',
-    jsonb_build_object(
-        'resource', jsonb_build_object('definition', 'omnara.slack',
-            'tools', jsonb_build_object('slack_read', '{}'::jsonb, 'slack_post_message', '{}'::jsonb),
-            'listener', jsonb_build_object('events', jsonb_build_array('message')),
-            'interaction_handler', jsonb_build_object('definition', 'omnara.slack.interactions')),
-        'launcher', jsonb_build_object('trigger', 'mention', 'scope_kind', 'workspace',
-            'scope_ref', provider_tenant_id, 'slots', jsonb_build_array(
-                jsonb_strip_nulls(jsonb_build_object('key', 'default',
-                    'agent_profile_id', agent_profile_id, 'agent_id', agent_id))))),
-    id, 'workspace', provider_tenant_id, state = 'active', deleted_at, created_at, updated_at
-FROM integration_connections;
+-- Stable, readable migration names; no hash truncation or collision fallback.
+WITH names AS (
+    SELECT id, row_number() OVER (PARTITION BY project_id ORDER BY (deleted_at IS NOT NULL), created_at, id) AS ordinal
+    FROM project_apps
+)
+UPDATE project_apps app
+SET name = CASE WHEN names.ordinal = 1 THEN 'slack' ELSE 'slack-' || names.ordinal::text END,
+    settings = jsonb_build_object('launcher', jsonb_build_object(
+        'trigger', 'mention', 'scope_kind', 'workspace', 'scope_ref', app.provider_tenant_id,
+        'slots', jsonb_build_array(jsonb_build_object('key', 'default', 'agent_profile_id', app.agent_profile_id))))
+FROM names WHERE names.id = app.id;
 
-ALTER TABLE integration_connections
+ALTER TABLE project_apps
+    ALTER COLUMN name SET NOT NULL,
+    ADD CHECK (name ~ '^[A-Za-z][A-Za-z0-9-]{0,31}$'),
+    ALTER COLUMN definition_id DROP DEFAULT,
     DROP COLUMN agent_profile_id,
     DROP COLUMN agent_id,
     DROP COLUMN integration_kind,
     DROP COLUMN connection_mode;
-ALTER TABLE integration_connections DROP CONSTRAINT integration_installs_provider_check;
-ALTER TABLE integration_connections ADD CONSTRAINT integration_connections_provider_check
+ALTER TABLE project_apps DROP CONSTRAINT integration_installs_state_check;
+-- Legacy deletion clears credentials without changing the active state. Keep
+-- tombstones disconnected; invalid live installs must fail the preflight above.
+UPDATE project_apps SET state = 'disconnected' WHERE state = 'disabled' OR deleted_at IS NOT NULL;
+ALTER TABLE project_apps ADD CONSTRAINT project_apps_state_check CHECK (state IN ('active', 'disconnected'));
+ALTER TABLE project_apps ADD CHECK ((provider_tenant_id IS NULL) = (provider_account_ref IS NULL));
+ALTER TABLE project_apps ADD CHECK (state <> 'active' OR
+    (provider_tenant_id IS NOT NULL AND credential_secret_id IS NOT NULL AND installed_by_user_id IS NOT NULL));
+ALTER TABLE project_apps DROP CONSTRAINT integration_installs_provider_check;
+ALTER TABLE project_apps ADD CONSTRAINT project_apps_provider_check
     CHECK (provider IN ('slack', 'github', 'discord'));
+CREATE UNIQUE INDEX project_apps_name_idx ON project_apps(project_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX project_apps_provider_identity_idx ON project_apps(provider, provider_tenant_id, provider_account_ref)
+    WHERE deleted_at IS NULL AND provider_tenant_id IS NOT NULL;
+CREATE INDEX project_apps_active_provider_idx ON project_apps(provider, id)
+    WHERE state = 'active' AND deleted_at IS NULL;
 
--- The existing global account identity resolves provider callbacks to one project.
+-- +goose StatementBegin
+CREATE FUNCTION project_apps_reject_identity_change() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF (NEW.id, NEW.org_id, NEW.project_id, NEW.name, NEW.definition_id, NEW.provider, NEW.created_at)
+        IS DISTINCT FROM (OLD.id, OLD.org_id, OLD.project_id, OLD.name, OLD.definition_id, OLD.provider, OLD.created_at)
+       OR (OLD.provider_tenant_id IS NOT NULL AND
+           (NEW.provider_tenant_id, NEW.provider_account_ref) IS DISTINCT FROM
+           (OLD.provider_tenant_id, OLD.provider_account_ref)) THEN
+        RAISE EXCEPTION 'project app identity is immutable' USING ERRCODE = '25006';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+CREATE TRIGGER project_apps_identity_immutable BEFORE UPDATE ON project_apps
+FOR EACH ROW EXECUTE FUNCTION project_apps_reject_identity_change();
 
 -- Targets retain attribution and successful selection even after receiving is
 -- disabled. They are neither a provider credential grant nor a subscription.
 ALTER TABLE integration_targets
     ADD COLUMN routing_role text NOT NULL DEFAULT 'attribution'
         CHECK (routing_role IN ('attribution', 'selected', 'followed')),
-    ADD COLUMN app_id uuid,
     ADD COLUMN selection_slot text,
-    ADD FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
-    ADD CHECK ((routing_role = 'selected' AND app_id IS NOT NULL AND selection_slot IS NOT NULL)
-        OR (routing_role <> 'selected' AND app_id IS NULL AND selection_slot IS NULL)),
+    ADD CHECK ((routing_role = 'selected') = (selection_slot IS NOT NULL)),
     ADD CHECK (selection_slot IS NULL OR selection_slot <> '');
 
 DROP INDEX integration_targets_active_provider_ref_idx;
 CREATE UNIQUE INDEX integration_targets_active_agent_address_idx
-    ON integration_targets(project_id, agent_id, integration_connection_id, provider_ref_kind, provider_ref)
+    ON integration_targets(project_id, agent_id, app_id, provider_ref_kind, provider_ref)
     WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX integration_targets_selection_idx
-    ON integration_targets(project_id, integration_connection_id, provider_ref_kind, provider_ref, app_id, selection_slot)
+    ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref, selection_slot)
     WHERE routing_role = 'selected';
 CREATE INDEX integration_targets_conversation_idx
-    ON integration_targets(project_id, integration_connection_id, provider_ref_kind, provider_ref);
+    ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref);
 
--- Config activation materializes receive subscriptions. A confirmed tool send
--- may add an exact follow, retaining its resource authority and tool provenance.
+-- Configured listeners own receive authority. Config activation seeds their
+-- conversations; launches and confirmed sends add runtime subscriptions under
+-- the same listener. A tool call is provenance, not ongoing receive authority.
 CREATE TABLE agent_listeners (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
     agent_id uuid NOT NULL,
-    connection_id uuid NOT NULL,
-    resource_key text NOT NULL CHECK (resource_key <> ''),
+    app_id uuid NOT NULL,
+    listener_key text NOT NULL CHECK (listener_key <> ''),
     scope_kind text NOT NULL CHECK (scope_kind <> ''),
     scope_ref text NOT NULL CHECK (scope_ref <> ''),
     events text[] NOT NULL CHECK (cardinality(events) > 0),
     source_config_id uuid NOT NULL,
+    origin text NOT NULL CHECK (origin IN ('configured', 'runtime')),
     tool_call_id uuid,
     active boolean NOT NULL DEFAULT true,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
-    FOREIGN KEY (project_id, connection_id) REFERENCES integration_connections(project_id, id),
+    CHECK (tool_call_id IS NULL OR origin = 'runtime'),
+    FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
     FOREIGN KEY (project_id, source_config_id) REFERENCES agent_configs(project_id, id),
     FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id)
 );
--- One declared and one confirmed-follow subscription per resource/address.
--- Repeated posts into a followed thread must not consume additional listeners.
-CREATE UNIQUE INDEX agent_listeners_resource_scope_idx
-    ON agent_listeners(project_id, agent_id, resource_key, scope_kind, scope_ref, (tool_call_id IS NOT NULL));
-CREATE INDEX agent_listeners_scope_idx ON agent_listeners(project_id, connection_id, scope_kind, scope_ref)
+-- Declared and runtime subscriptions overlap independently. Launching/following
+-- the same conversation again reuses its runtime subscription.
+CREATE UNIQUE INDEX agent_listeners_scope_origin_idx
+    ON agent_listeners(project_id, agent_id, app_id, listener_key, scope_kind, scope_ref, origin);
+CREATE INDEX agent_listeners_scope_idx ON agent_listeners(project_id, app_id, scope_kind, scope_ref)
     WHERE active;
 CREATE INDEX agent_listeners_agent_idx ON agent_listeners(project_id, agent_id);
 
--- Persistent transports own one bounded unit (a Discord shard today). There is
--- no app-owned runtime: the connection and credential revisions fence its owner.
-CREATE TABLE integration_connection_runtime (
+-- Persistent transports own one bounded unit (a Discord shard today). Only
+-- provider setup and credential changes fence the owner, not launcher edits.
+CREATE TABLE app_runtime (
     project_id uuid NOT NULL,
-    connection_id uuid NOT NULL,
+    app_id uuid NOT NULL,
     runtime_key text NOT NULL CHECK (octet_length(runtime_key) BETWEEN 1 AND 128),
-    connection_updated_at timestamptz NOT NULL,
+    setup_revision bigint NOT NULL,
     credential_version_id uuid NOT NULL REFERENCES secret_versions(id) ON DELETE CASCADE,
     checkpoint jsonb CHECK (jsonb_typeof(checkpoint) = 'object' AND octet_length(checkpoint::text) <= 65536),
     claim_token uuid,
@@ -181,14 +262,11 @@ CREATE TABLE integration_connection_runtime (
     available_at timestamptz NOT NULL DEFAULT now(),
     last_error text CHECK (octet_length(last_error) <= 4096),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (project_id, connection_id, runtime_key),
-    FOREIGN KEY (project_id, connection_id) REFERENCES integration_connections(project_id, id),
+    PRIMARY KEY (project_id, app_id, runtime_key),
+    FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
     CHECK ((claim_token IS NULL) = (claim_expires_at IS NULL))
 );
-CREATE INDEX integration_connection_runtime_credential_idx
-    ON integration_connection_runtime(credential_version_id);
-CREATE INDEX integration_connections_active_provider_idx
-    ON integration_connections(provider, id) WHERE state = 'active' AND deleted_at IS NULL;
+CREATE INDEX app_runtime_credential_idx ON app_runtime(credential_version_id);
 
 -- A provider receipt is durable before acknowledgement. Its frozen plan tracks
 -- independently committed recipient slots; provider I/O never runs in this
@@ -196,7 +274,7 @@ CREATE INDEX integration_connections_active_provider_idx
 CREATE TABLE integration_inbox (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
-    connection_id uuid NOT NULL,
+    app_id uuid NOT NULL,
     receipt_key text NOT NULL CHECK (octet_length(receipt_key) BETWEEN 1 AND 512),
     payload bytea NOT NULL CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
     -- Only trusted app decisions populate normalized events; provider ingress leaves NULL.
@@ -216,8 +294,8 @@ CREATE TABLE integration_inbox (
     CHECK ((state = 'processing') = (claim_token IS NOT NULL AND claim_expires_at IS NOT NULL)),
     CHECK ((claim_token IS NULL) = (claim_expires_at IS NULL)),
     CHECK ((state IN ('completed', 'discarded')) = (completed_at IS NOT NULL)),
-    FOREIGN KEY (project_id, connection_id) REFERENCES integration_connections(project_id, id),
-    UNIQUE (project_id, connection_id, receipt_key)
+    FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
+    UNIQUE (project_id, app_id, receipt_key)
 );
 
 CREATE INDEX integration_inbox_ready_idx ON integration_inbox(available_at, id)
@@ -226,8 +304,8 @@ CREATE INDEX integration_inbox_expired_idx ON integration_inbox(claim_expires_at
     WHERE state = 'processing';
 CREATE INDEX integration_inbox_terminal_idx ON integration_inbox(completed_at, id)
     WHERE state IN ('completed', 'discarded');
-CREATE INDEX integration_inbox_connection_ready_idx
-    ON integration_inbox(project_id, connection_id, available_at, id) WHERE state = 'pending';
+CREATE INDEX integration_inbox_app_ready_idx
+    ON integration_inbox(project_id, app_id, available_at, id) WHERE state = 'pending';
 CREATE INDEX integration_inbox_project_created_idx
     ON integration_inbox(project_id, created_at DESC, id DESC);
 -- The first frozen plan reserves all launch slots for an app/conversation while
@@ -242,7 +320,6 @@ CREATE INDEX integration_inbox_selection_idx ON integration_inbox USING gin
 CREATE TABLE app_profile_choices (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
-    connection_id uuid NOT NULL,
     app_id uuid NOT NULL,
     -- Publication belongs to the creating receipt and reuses its lease/recovery.
     -- Provenance only: receipt retention must not delete or constrain a choice.
@@ -264,23 +341,21 @@ CREATE TABLE app_profile_choices (
     CHECK ((selected_key IS NULL) = (selected_by IS NULL)),
     CHECK ((message_channel_id IS NULL) = (message_id IS NULL)),
     CHECK (selected_key IS NULL OR message_id IS NOT NULL),
-    FOREIGN KEY (project_id, connection_id) REFERENCES integration_connections(project_id, id),
     FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
-    UNIQUE (project_id, connection_id, app_id, source_key)
+    UNIQUE (project_id, app_id, source_key)
 );
 CREATE INDEX app_profile_choices_pending_idx
-    ON app_profile_choices(project_id, connection_id, app_id, address_kind, address_ref, expires_at, id)
+    ON app_profile_choices(project_id, app_id, address_kind, address_ref, expires_at, id)
     WHERE selected_key IS NULL;
 -- Conversation-scoped probes bridge selection to the first frozen inbox plan.
 -- The joined inbox identity determines whether this retained choice is unsettled.
 CREATE INDEX app_profile_choices_selected_conversation_idx
-    ON app_profile_choices(project_id, connection_id, address_kind, address_ref, app_id, id)
+    ON app_profile_choices(project_id, app_id, address_kind, address_ref, id)
     WHERE selected_key IS NOT NULL;
 CREATE INDEX app_profile_choices_expiry_idx ON app_profile_choices(expires_at, id);
 
--- App resources follow the existing organization override mechanism.
+-- App limits follow the existing organization override mechanism.
 ALTER TABLE org_resource_limit_overrides
-    ADD COLUMN max_active_integration_connections_per_project bigint CHECK (max_active_integration_connections_per_project >= 0),
     ADD COLUMN max_active_project_apps_per_project bigint CHECK (max_active_project_apps_per_project >= 0),
     ADD COLUMN max_active_app_listeners_per_agent bigint CHECK (max_active_app_listeners_per_agent >= 0);
 
@@ -301,7 +376,6 @@ SELECT
     20::bigint AS max_active_byo_daemon_tokens_per_machine,
     32::bigint AS max_non_terminal_processes_per_agent,
     1000::bigint AS max_active_cron_triggers_per_project,
-    1000::bigint AS max_active_integration_connections_per_project,
     1000::bigint AS max_active_project_apps_per_project,
     1024::bigint AS max_active_app_listeners_per_agent;
 
@@ -323,7 +397,6 @@ SELECT
     coalesce(overrides.max_active_byo_daemon_tokens_per_machine, defaults.max_active_byo_daemon_tokens_per_machine) AS max_active_byo_daemon_tokens_per_machine,
     coalesce(overrides.max_non_terminal_processes_per_agent, defaults.max_non_terminal_processes_per_agent) AS max_non_terminal_processes_per_agent,
     coalesce(overrides.max_active_cron_triggers_per_project, defaults.max_active_cron_triggers_per_project) AS max_active_cron_triggers_per_project,
-    coalesce(overrides.max_active_integration_connections_per_project, defaults.max_active_integration_connections_per_project) AS max_active_integration_connections_per_project,
     coalesce(overrides.max_active_project_apps_per_project, defaults.max_active_project_apps_per_project) AS max_active_project_apps_per_project,
     coalesce(overrides.max_active_app_listeners_per_agent, defaults.max_active_app_listeners_per_agent) AS max_active_app_listeners_per_agent
 FROM orgs
@@ -331,10 +404,21 @@ CROSS JOIN default_resource_limits AS defaults
 LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.id
 WHERE orgs.deleted_at IS NULL;
 
--- Interaction destinations capture immutable identity, not permission to use a
--- revoked connection. The dashboard interaction remains authoritative.
-ALTER TABLE agents ADD COLUMN interaction_resource_key text
-    CHECK (interaction_resource_key IS NULL OR (interaction_resource_key <> '' AND integration_target_id IS NOT NULL));
+-- Legacy target pointers do not grant handler authority. Keep the attribution
+-- targets: migration 41 derives send successors through their agent_id, not this
+-- mutable selection pointer.
+UPDATE agents SET integration_target_id = NULL WHERE integration_target_id IS NOT NULL;
+
+-- A selection has a handler, arguments and canonical attribution together.
+-- Revoking it never removes the dashboard interaction.
+ALTER TABLE agents
+    ADD COLUMN interaction_handler_key text,
+    ADD COLUMN interaction_handler_args jsonb,
+    ADD CHECK (
+        (integration_target_id IS NULL AND interaction_handler_key IS NULL AND interaction_handler_args IS NULL)
+        OR (integration_target_id IS NOT NULL AND interaction_handler_key IS NOT NULL
+            AND interaction_handler_key <> '' AND interaction_handler_args IS NOT NULL
+            AND jsonb_typeof(interaction_handler_args) = 'object'));
 ALTER TABLE agent_interactions
     ADD COLUMN destination jsonb CHECK (destination IS NULL OR (jsonb_typeof(destination) = 'object' AND octet_length(destination::text) <= 4096)),
     ADD COLUMN presentation_receipt jsonb CHECK (presentation_receipt IS NULL OR (destination IS NOT NULL AND jsonb_typeof(presentation_receipt) = 'object' AND octet_length(presentation_receipt::text) <= 16384)),

@@ -21,7 +21,7 @@ type AppDestination struct {
 
 type Access interface {
 	ValidateAppDestination(context.Context, pgx.Tx, AppDestination) error
-	ClearConnectionTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
+	ClearAppTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
 }
 
 type Store struct {

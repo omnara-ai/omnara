@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -18,8 +17,8 @@ import (
 // CheckInboxConversationAuthority authorizes provider conversation preparation
 // from a frozen, uncommitted recipient. It performs no writes or provider I/O.
 // Call before each provider request; admission still rechecks all authority.
-// Frozen profile selections survive app disable, while profile deletion, config
-// connection revocation and listener removal take effect immediately.
+// Frozen profile selections survive launcher edits. App disconnection, profile
+// deletion, config revocation and listener removal take effect immediately.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -42,8 +41,8 @@ func (s *Store) CheckInboxConversationAuthority(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	var resources map[string]agentconfig.AppResourceCompiled
-	var connections []uuid.UUID
+	var resources []string
+	var apps []uuid.UUID
 	if slots[key].Launch != nil {
 		slot, progress, err := decodeInboxLaunchSlot(snapshot, key)
 		if err != nil {
@@ -52,22 +51,19 @@ func (s *Store) CheckInboxConversationAuthority(
 		if progress.Committed != nil || slot.Selection.Address != address {
 			return storeerr.ErrUnauthorized
 		}
-		resources, err = launchAppResourcesTx(ctx, q, slot.Launch)
+		resources, err = launchAppIDsTx(ctx, q, slot.Launch)
 		if err != nil {
 			return err
 		}
-		for _, resource := range resources {
-			if !resource.Enabled || resource.ConnectionID == "" {
-				continue
-			}
-			id, err := publicid.Decode(publicid.KindIntegrationConnection, resource.ConnectionID)
+		for _, ref := range resources {
+			id, err := publicid.Decode(publicid.KindProjectApp, ref)
 			if err != nil {
 				return err
 			}
-			connections = append(connections, id)
+			apps = append(apps, id)
 		}
 	}
-	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, connections...)
+	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, apps...)
 	if err != nil {
 		return err
 	}
@@ -75,12 +71,12 @@ func (s *Store) CheckInboxConversationAuthority(
 	if !sameJSON(snapshot.Plan, locked.Plan) {
 		return storeerr.ErrIdempotencyConflict
 	}
-	if err := integrationstore.LockAppConnectionsTx(
+	if err := integrationstore.LockAppsTx(
 		ctx,
 		tx,
 		lease.ProjectID,
 		resources,
-		locked.ConnectionID,
+		locked.AppID,
 	); err != nil {
 		return err
 	}
@@ -88,8 +84,7 @@ func (s *Store) CheckInboxConversationAuthority(
 		ctx,
 		tx,
 		lease.ProjectID,
-		resources,
-		AgentInputOrigin{ConnectionID: locked.ConnectionID, Address: address},
+		AgentInputOrigin{AppID: locked.AppID, Address: address},
 	); err != nil {
 		return err
 	}

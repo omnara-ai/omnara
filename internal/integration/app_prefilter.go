@@ -13,10 +13,10 @@ import (
 func (r *AppRouter) freezeEmptyIfUnrouted(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	event AppEvent,
 ) (bool, error) {
-	requests, err := prepareAppEvents([]AppEvent{event}, connection)
+	requests, err := prepareAppEvents([]AppEvent{event}, appSetup)
 	if err != nil {
 		return false, err
 	}
@@ -42,11 +42,9 @@ func (r *AppRouter) freezeEmptyIfUnrouted(
 			if len(candidates.Listeners) > 0 {
 				return nil
 			}
-			for _, app := range candidates.Launchers {
-				if app.Enabled && app.Settings.Launcher != nil &&
-					event.Event.MatchesLauncher(app.Settings.Launcher.Trigger) {
-					return nil
-				}
+			if app := candidates.Launcher; app != nil && app.State == integrationstore.ProjectAppStateActive &&
+				app.Settings.Launcher != nil && event.Event.MatchesLauncher(app.Settings.Launcher.Trigger) {
+				return nil
 			}
 			if err := work.CheckNoUnsettledAppSelection(ctx, request.address); err != nil {
 				return err

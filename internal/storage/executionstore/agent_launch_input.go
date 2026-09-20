@@ -29,9 +29,9 @@ type LaunchInitialInput struct {
 }
 
 type LaunchInputOrigin struct {
-	ConnectionID uuid.UUID                            `json:"connection_id"`
-	Address      integrationstore.ConversationAddress `json:"address"`
-	DisplayName  string                               `json:"display_name,omitempty"`
+	AppID       uuid.UUID                            `json:"app_id"`
+	Address     integrationstore.ConversationAddress `json:"address"`
+	DisplayName string                               `json:"display_name,omitempty"`
 }
 
 // Only fenced inbox admission supplies planned identities and prepared media.
@@ -40,6 +40,7 @@ type launchAdmission struct {
 	AgentID       uuid.UUID
 	AppID         uuid.UUID
 	SelectionSlot string
+	ListenerKey   string
 	Artifacts     []artifactstore.PreparedArtifact
 }
 
@@ -79,9 +80,9 @@ func prepareLaunchInitialInput(input LaunchAgentInput) (*LaunchInitialInput, []C
 	}
 	snapshot.DeliveryMode = prepared.DeliveryMode
 	if origin := snapshot.Origin; origin != nil {
-		if origin.ConnectionID == uuid.Nil || snapshot.SemanticEventKey == "" {
+		if origin.AppID == uuid.Nil || snapshot.SemanticEventKey == "" {
 			return nil, nil, storeerr.InvalidRequest(
-				errors.New("initial origin requires a connection and semantic event key"),
+				errors.New("initial origin requires an app and semantic event key"),
 			)
 		}
 		if err := origin.Address.Validate(); err != nil {
@@ -122,26 +123,46 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	}
 	if origin := initial.Origin; origin != nil {
 		targetInput := integrationstore.EnsureConversationTargetInput{
-			ProjectID: agent.ProjectID, AgentID: agent.ID, ConnectionID: origin.ConnectionID,
+			ProjectID: agent.ProjectID, AgentID: agent.ID, AppID: origin.AppID,
 			Address: origin.Address, DisplayName: origin.DisplayName, Role: integrationstore.TargetAttribution,
 		}
 		if admission != nil {
 			targetInput.Role = integrationstore.TargetSelected
 			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
 		}
+		if admission != nil && admission.ListenerKey != "" {
+			config, err := loadAgentConfigTx(ctx, q, agent.ProjectID, agent.CurrentConfigID)
+			if err != nil {
+				return err
+			}
+			contract, err := launchableRuntimeContract(config)
+			if err != nil {
+				return err
+			}
+			capability, ok := contract.Listeners[admission.ListenerKey]
+			if !ok {
+				return storeerr.ErrUnauthorized
+			}
+			if err := integrationstore.RegisterRuntimeListenerTx(ctx, tx, integrationstore.RegisterRuntimeListenerInput{
+				OrgID: agent.OrgID, ProjectID: agent.ProjectID, AgentID: agent.ID, ConfigID: agent.CurrentConfigID,
+				AppID: origin.AppID, ListenerKey: admission.ListenerKey, Capability: capability, Address: origin.Address,
+			}); err != nil {
+				return err
+			}
+		}
 		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
 		if err != nil {
 			return err
 		}
-		connection, err := s.integrations.GetIntegrationConnectionByIDTx(ctx, tx, origin.ConnectionID)
+		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, origin.AppID)
 		if err != nil {
 			return err
 		}
-		if err := validateVerifiedProviderInputActor(connection, actor); err != nil {
+		if err := validateVerifiedProviderInputActor(app, actor); err != nil {
 			return err
 		}
 		content.IntegrationTargetID = result.IntegrationTarget.ID
-		content.IdempotencyScope = integrationstore.IdempotencyScope(connection)
+		content.IdempotencyScope = integrationstore.IdempotencyScope(app)
 	}
 	if admission != nil {
 		result.Artifacts, err = artifactstore.InsertPreparedArtifactsTx(

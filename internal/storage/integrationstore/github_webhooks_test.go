@@ -12,7 +12,7 @@ func TestGitHubWebhookCredentialLookupRejectsUnboundedHints(t *testing.T) {
 		{"9223372036854775808", 1}, {"123", 0}, {"123", -1}, {"123", GitHubWebhookCredentialLimit + 1},
 	} {
 		// Invalid bounds must fail before reaching a database, even with no store.
-		if _, err := (&Store{}).ListGitHubWebhookCredentialConnections(t.Context(), tc.appID, tc.limit); err == nil {
+		if _, err := (&Store{}).ListGitHubWebhookCredentialApps(t.Context(), tc.appID, tc.limit); err == nil {
 			t.Fatalf("accepted appID=%q limit=%d", tc.appID, tc.limit)
 		}
 	}

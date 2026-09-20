@@ -71,8 +71,8 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 		return fmt.Errorf("transcript tail overlaps checkpoint range")
 	}
 	if routing := bundle.InteractionRouting; routing != nil && routing.Destination != nil {
-		if routing.Destination.Resource == "" || routing.Destination.TargetID == "" {
-			return fmt.Errorf("interaction destination requires resource and target_id")
+		if routing.Destination.Handler == "" || !json.Valid(routing.Destination.Args) {
+			return fmt.Errorf("interaction destination requires a handler and valid arguments")
 		}
 	}
 	seenAvailableMachinePools := map[string]bool{}

@@ -78,7 +78,7 @@ const includedCatalog: ToolCatalog = {
     'create_machine',
     'delete_machine',
     'skill',
-    'slack_post_message',
+    'set_interaction_handler',
     'read_file',
     'search_files',
     ...subagentToolNames,
@@ -481,7 +481,8 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     {
       source_format: 'json',
       source: JSON.stringify({
-        app_resources: {},
+        listeners: {},
+        interaction_handlers: {},
         tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
         mcp: {},
         machine_sources: [],

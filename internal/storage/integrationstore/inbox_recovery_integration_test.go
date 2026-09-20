@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -32,20 +30,17 @@ func freezeRecoverySelection(
 		t,
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1 LIMIT 1`, f.project).Scan(&profileID),
 	)
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, f.connection)
-	require.NoError(t, err)
-	f.exec(t, `UPDATE integration_connections SET provider_tenant_id='T123' WHERE id=$1`, f.connection)
-	store := integrationstore.New(f.pool, executionstore.IntegrationConnectionAccess{})
-	app, err := store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: name, DefinitionID: appdefinition.Slack, Enabled: true,
+	f.exec(t, `UPDATE project_apps SET provider_tenant_id='T123' WHERE id=$1`, f.appID)
+	store := integrationstore.New(f.pool, executionstore.AppAccess{})
+	app, err := store.UpdateProjectApp(f.ctx, f.appID, integrationstore.SaveProjectAppInput{
+		OrgID: f.org, ProjectID: f.project, Name: "inbox-app", DefinitionID: appdefinition.Slack,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{Connection: connection},
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "a", AgentProfileID: &profileID}}},
 		},
 	})
 	require.NoError(t, err)
-	selection := integrationstore.InboxAppSelection{AppID: app.ID, ConnectionID: f.connection,
+	selection := integrationstore.InboxAppSelection{AppID: app.ID,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, Slot: "a"}
 	plan, err := json.Marshal(
 		map[string]any{"a": map[string]any{
@@ -118,17 +113,17 @@ func TestInboxRecoveryDiscardRetainsDedupeAndReleasesSelection(t *testing.T) {
 	require.Equal(t, failed.Progress, discarded.Progress)
 	require.Equal(t, failed.LastError, discarded.LastError)
 	replay, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID:    f.project,
-		ConnectionID: f.connection,
-		ReceiptKey:   receipt.ReceiptKey,
-		Payload:      []byte(`{"changed":true}`),
+		ProjectID:  f.project,
+		AppID:      f.appID,
+		ReceiptKey: receipt.ReceiptKey,
+		Payload:    []byte(`{"changed":true}`),
 	})
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, discarded.ID, replay.ID)
 	require.Equal(t, discarded.Payload, replay.Payload)
 	_, claimed, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.project, ConnectionID: f.connection, LeaseDuration: time.Minute,
+		ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.False(t, claimed)
@@ -199,11 +194,11 @@ func TestInboxRecoveryDiscardRejectsRetainedTargets(t *testing.T) {
 			)
 			require.NoError(t, err)
 			f.exec(t, `INSERT INTO integration_targets
- (project_id,agent_id,integration_connection_id,target_ref,provider_ref_kind,provider_ref,
-  routing_role,app_id,selection_slot,deleted_at,created_at,updated_at)
- VALUES($1,$2,$3,'retained','thread','C123:1.2','selected',$4,'a',
-  CASE WHEN $5 THEN now() ELSE NULL END,now(),now())`,
-				f.project, launch.Agent.ID, f.connection, selection.AppID, retired)
+ (project_id,agent_id,app_id,target_ref,provider_ref_kind,provider_ref,
+  routing_role,selection_slot,deleted_at,created_at,updated_at)
+ VALUES($1,$2,$3,'retained','thread','C123:1.2','selected','a',
+  CASE WHEN $4 THEN now() ELSE NULL END,now(),now())`,
+				f.project, launch.Agent.ID, selection.AppID, retired)
 			require.ErrorIs(
 				t,
 				f.store.DiscardFailedIntegrationInbox(f.ctx, f.project, receipt.ID),
@@ -214,12 +209,12 @@ func TestInboxRecoveryDiscardRejectsRetainedTargets(t *testing.T) {
 	}
 }
 
-func TestInboxRecoveryDisabledConnectionAllowsDiscardOnly(t *testing.T) {
+func TestInboxRecoveryDisconnectedAppAllowsDiscardOnly(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	receipt, _ := freezeRecoverySelection(t, f, "disabled")
 	failed := failRecoverySelection(t, f, receipt)
-	f.exec(t, `UPDATE integration_connections SET state='disabled' WHERE id=$1`, f.connection)
+	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, f.appID)
 	require.ErrorIs(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, receipt.ID), storeerr.ErrUnauthorized)
 	require.Equal(t, failed, f.read(t, receipt.ID))
 	require.ErrorIs(t, f.store.DiscardFailedIntegrationInbox(f.ctx, uuid.New(), receipt.ID), storeerr.ErrNotFound)
@@ -231,29 +226,29 @@ func TestInboxRecoveryConcurrentActionsRespectGateOrder(t *testing.T) {
 	f := newInboxFixture(t)
 	receipt, selection := freezeRecoverySelection(t, f, "concurrent")
 	failed := failRecoverySelection(t, f, receipt)
-	connectionGate, err := f.pool.Begin(f.ctx)
+	appGate, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
-	defer func() { _ = connectionGate.Rollback(f.ctx) }()
-	require.NoError(t, dbsqlc.New(connectionGate).LockIntegrationConnectionLifecycleExclusive(f.ctx,
-		dbsqlc.LockIntegrationConnectionLifecycleExclusiveParams{ConnectionID: f.connection}))
+	defer func() { _ = appGate.Rollback(f.ctx) }()
+	require.NoError(t, dbsqlc.New(appGate).LockProjectAppLifecycleExclusive(f.ctx,
+		dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.appID}))
 	conversationGate, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = conversationGate.Rollback(f.ctx) }()
 	require.NoError(
 		t,
-		integrationstore.LockConversationTx(f.ctx, conversationGate, f.project, f.connection, selection.Address),
+		integrationstore.LockConversationTx(f.ctx, conversationGate, f.project, f.appID, selection.Address),
 	)
 	done := make(chan error, 2)
 	go func() { done <- f.store.RetryFailedIntegrationInbox(f.ctx, f.project, receipt.ID) }()
 	go func() { done <- f.store.DiscardFailedIntegrationInbox(f.ctx, f.project, receipt.ID) }()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationConnectionLifecycleShared", 2)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectAppLifecycleShared", 2)
 	probe, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = probe.Rollback(f.ctx) }()
 	_, err = probe.Exec(f.ctx, `SELECT id FROM integration_inbox WHERE id=$1 FOR UPDATE NOWAIT`, receipt.ID)
-	require.NoError(t, err, "receipt must remain unlocked while connection gate is unavailable")
+	require.NoError(t, err, "receipt must remain unlocked while app gate is unavailable")
 	require.NoError(t, probe.Rollback(f.ctx))
-	require.NoError(t, connectionGate.Commit(f.ctx))
+	require.NoError(t, appGate.Commit(f.ctx))
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockAppConversation", 1)
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationInboxReceipt", 1)
 	require.Equal(t, failed, f.read(t, receipt.ID))
@@ -270,11 +265,13 @@ func TestInboxRecoveryConcurrentActionsRespectGateOrder(t *testing.T) {
 func TestInboxRecoveryProbeFiltersFailedOwnersBeforeLimit(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	first, _ := freezeRecoverySelection(t, f, "failed-one")
-	failRecoverySelection(t, f, first)
-	second, _ := freezeRecoverySelection(t, f, "failed-two")
-	failRecoverySelection(t, f, second)
 	pending, selection := freezeRecoverySelection(t, f, "still-preparing")
+	// Retained failed plans may coexist during explicit recovery. They must be
+	// filtered before LIMIT so the live owner is still found.
+	f.exec(t, `INSERT INTO integration_inbox(id,project_id,app_id,receipt_key,payload,plan,state)
+ SELECT ('00000000-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid,
+        project_id,app_id,'failed-'||n,payload,plan,'failed'
+ FROM integration_inbox CROSS JOIN generate_series(1,2) n WHERE id=$1`, pending.ID)
 	f.accept(t, "follow")
 	follow := f.claim(t)
 	err := f.store.WithIntegrationInboxLease(

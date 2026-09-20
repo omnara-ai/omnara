@@ -60,7 +60,7 @@ func (e Executor) PrepareToolCallPermission(
 	if implemented {
 		inputErr = implementation.validateInput(call.Input)
 	}
-	if inputErr == nil && !implemented && supported {
+	if inputErr == nil && supported && (!implemented || toolcatalog.UsesAppToolNamespace(call.Name)) {
 		schema := spec.InputSchema
 		if len(schema) == 0 {
 			inputErr = fmt.Errorf("tool %q has no runtime input schema", call.Name)

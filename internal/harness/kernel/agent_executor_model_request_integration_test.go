@@ -679,7 +679,7 @@ func TestAgentExecutorCarriesDurableProviderReplayIntoNextTurn(t *testing.T) {
 	}
 
 	bundle, err := (modelcontext.Builder{
-		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts()),
+		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
 	}).Build(
 		ctx,
 		modelcontext.BuildInput{

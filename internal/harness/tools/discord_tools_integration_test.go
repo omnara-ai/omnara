@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -21,14 +23,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func createDiscordToolConnection(
+func createDiscordToolApp(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
 	userID uuid.UUID,
-) integrationstore.IntegrationConnectionRecord {
+) integrationstore.ProjectAppRecord {
 	t.Helper()
-	secret, _, err := store.Secrets().
+	secret, version, err := store.Secrets().
 		CreateSecret(
 			ctx,
 			secretstore.CreateSecretInput{
@@ -41,22 +43,25 @@ func createDiscordToolConnection(
 			},
 		)
 	require.NoError(t, err)
-	connection, err := store.Integrations().
-		CreateIntegrationConnection(
-			ctx,
-			integrationstore.SaveIntegrationConnectionInput{
-				OrgID:              toolsTestOrgID,
-				ProjectID:          toolsTestProjectID,
-				InstalledByUserID:  userID,
-				Provider:           "discord",
-				State:              integrationstore.IntegrationConnectionStateActive,
-				ProviderTenantID:   "111",
-				ProviderAccountRef: "222",
-				CredentialSecretID: secret.ID,
-			},
-		)
+	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", DefinitionID: appdefinition.Discord,
+	})
 	require.NoError(t, err)
-	return connection
+	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+		OrgID:                 toolsTestOrgID,
+		ProjectID:             toolsTestProjectID,
+		AppID:                 app.ID,
+		ExpectedSetupRevision: app.SetupRevision,
+		InstalledByUserID:     userID,
+		Provider:              appdefinition.ProviderDiscord,
+		ProviderTenantID:      "111",
+		ProviderAccountRef:    "222",
+		CredentialSecretID:    secret.ID,
+		CredentialVersionID:   version.ID,
+		ProviderConfig:        json.RawMessage(`{"public_key":"` + strings.Repeat("ab", 32) + `"}`),
+	})
+	require.NoError(t, err)
+	return app
 }
 
 func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
@@ -159,7 +164,14 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 			if scenario == "dm" || scenario == "new-thread-without-guild" {
 				input = `{"content":"hello","follow_replies":true}`
 			}
-			call := f.recordToolCall(t, ctx, "post", toolcatalog.ToolNameDiscordPostMessage, input, f.Now)
+			call := f.recordToolCall(
+				t,
+				ctx,
+				"post",
+				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
+				input,
+				f.Now,
+			)
 			turn := f.turn()
 			turn.Tools[call.Name] = ToolSpec{
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),

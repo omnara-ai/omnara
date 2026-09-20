@@ -1,4 +1,4 @@
-import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
+import type { JsonBody, ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
 import { useState } from 'react'
 
 import {
@@ -25,6 +25,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface BasicTool {
+  config?: Record<string, JsonBody>
   name: string
   enabled?: boolean
   permission: PermissionSelection | null

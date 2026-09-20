@@ -39,7 +39,7 @@ func (s *Store) EnsureAppProfileChoice(
 	if !bytes.Equal(work.record.Payload, input.Payload) || len(work.record.Events) != 0 {
 		return result, false, inboxInvalid("choice source must be the verified provider receipt")
 	}
-	if err := LockConversationTx(ctx, tx, lease.ProjectID, work.record.ConnectionID, input.Address); err != nil {
+	if err := LockConversationTx(ctx, tx, lease.ProjectID, work.record.AppID, input.Address); err != nil {
 		return result, false, err
 	}
 	row, created, err := ensureAppProfileChoiceTx(ctx, work.q, work.record, input)
@@ -63,8 +63,11 @@ func (s *Store) EnsureAppProfileChoice(
 func ensureAppProfileChoiceTx(
 	ctx context.Context, q *dbsqlc.Queries, receipt IntegrationInboxRecord, input EnsureAppProfileChoiceInput,
 ) (dbsqlc.AppProfileChoice, bool, error) {
+	if input.AppID != receipt.AppID {
+		return dbsqlc.AppProfileChoice{}, false, storeerr.ErrUnauthorized
+	}
 	row, err := q.GetAppProfileChoiceBySource(ctx, dbsqlc.GetAppProfileChoiceBySourceParams{
-		ProjectID: receipt.ProjectID, ConnectionID: receipt.ConnectionID, AppID: input.AppID, SourceKey: input.SourceKey,
+		ProjectID: receipt.ProjectID, AppID: receipt.AppID, SourceKey: input.SourceKey,
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return row, false, err
@@ -84,11 +87,11 @@ func ensureAppProfileChoiceTx(
 			(jsoncanonical.Equal(row.Event, input.Event) && bytes.Equal(row.Payload, input.Payload)) {
 			return row, false, nil
 		}
-		if _, err := appProfileChoiceApp(ctx, q, receipt.ProjectID, receipt.ConnectionID, input.AppID); err != nil {
+		if _, err := appProfileChoiceApp(ctx, q, receipt.ProjectID, receipt.AppID); err != nil {
 			return row, false, err
 		}
 		updated, err := q.UpdateAppProfileChoiceSource(ctx, dbsqlc.UpdateAppProfileChoiceSourceParams{
-			ProjectID: receipt.ProjectID, ConnectionID: receipt.ConnectionID, ID: row.ID,
+			ProjectID: receipt.ProjectID, AppID: receipt.AppID, ID: row.ID,
 			SourceKey: input.SourceKey, Event: input.Event, Payload: input.Payload,
 		})
 		if errors.Is(err, pgx.ErrNoRows) { // Expiry never extends or revives the source.
@@ -96,7 +99,7 @@ func ensureAppProfileChoiceTx(
 		}
 		return updated, false, err
 	}
-	app, err := appProfileChoiceApp(ctx, q, receipt.ProjectID, receipt.ConnectionID, input.AppID)
+	app, err := appProfileChoiceApp(ctx, q, receipt.ProjectID, receipt.AppID)
 	if err != nil {
 		return row, false, err
 	}
@@ -104,7 +107,7 @@ func ensureAppProfileChoiceTx(
 		return row, false, err
 	}
 	row, err = q.FindPendingAppProfileChoice(ctx, dbsqlc.FindPendingAppProfileChoiceParams{
-		ProjectID: receipt.ProjectID, ConnectionID: receipt.ConnectionID, AppID: input.AppID,
+		ProjectID: receipt.ProjectID, AppID: receipt.AppID,
 		AddressKind: input.Address.Kind, AddressRef: input.Address.Ref,
 	})
 	if err == nil {
@@ -121,7 +124,7 @@ func ensureAppProfileChoiceTx(
 		return row, false, err
 	}
 	row, err = q.InsertAppProfileChoice(ctx, dbsqlc.InsertAppProfileChoiceParams{
-		ProjectID: receipt.ProjectID, ConnectionID: receipt.ConnectionID, AppID: input.AppID,
+		ProjectID: receipt.ProjectID, AppID: receipt.AppID,
 		OwnerReceiptID: receipt.ID,
 		AddressKind:    input.Address.Kind, AddressRef: input.Address.Ref, SourceKey: input.SourceKey,
 		Event: input.Event, Payload: input.Payload, Options: options,
@@ -135,27 +138,25 @@ func checkProfileChoiceUnsettled(
 	// Routing was only a snapshot. A concurrent admission may have settled this
 	// app before we acquired the conversation gate, including a retired target.
 	targets, err := q.ListConversationSelections(ctx, dbsqlc.ListConversationSelectionsParams{
-		ProjectID: receipt.ProjectID, ConnectionID: receipt.ConnectionID,
+		ProjectID: receipt.ProjectID, AppID: receipt.AppID,
 		Kind: input.Address.Kind, Ref: input.Address.Ref,
 	})
 	if err != nil {
 		return err
 	}
-	for _, target := range targets {
-		if target.AppID != nil && *target.AppID == input.AppID {
-			return ErrAppSelectionSettled
-		}
+	if len(targets) != 0 {
+		return ErrAppSelectionSettled
 	}
 	return nil
 }
 
 func (s *Store) GetAppProfileChoice(
-	ctx context.Context, projectID, connectionID, id uuid.UUID,
+	ctx context.Context, projectID, appID, id uuid.UUID,
 ) (AppProfileChoiceRecord, error) {
-	if projectID == uuid.Nil || connectionID == uuid.Nil || id == uuid.Nil {
-		return AppProfileChoiceRecord{}, inboxInvalid("project, connection and choice are required")
+	if projectID == uuid.Nil || appID == uuid.Nil || id == uuid.Nil {
+		return AppProfileChoiceRecord{}, inboxInvalid("project, app and choice are required")
 	}
-	row, err := getAppProfileChoice(ctx, s.q, projectID, connectionID, id)
+	row, err := getAppProfileChoice(ctx, s.q, projectID, appID, id)
 	if err != nil {
 		return AppProfileChoiceRecord{}, err
 	}
@@ -165,14 +166,14 @@ func (s *Store) GetAppProfileChoice(
 // GetAppProfileChoiceBySource retrieves retained app bookkeeping for exact late
 // siblings. This read grants no launch authority; ordinary admission rechecks it.
 func (s *Store) GetAppProfileChoiceBySource(
-	ctx context.Context, projectID, connectionID, appID uuid.UUID, sourceKey string,
+	ctx context.Context, projectID, appID uuid.UUID, sourceKey string,
 ) (AppProfileChoiceRecord, bool, error) {
-	if projectID == uuid.Nil || connectionID == uuid.Nil || appID == uuid.Nil ||
+	if projectID == uuid.Nil || appID == uuid.Nil ||
 		!choiceText(sourceKey, IntegrationInboxMaxReceiptKeyBytes) {
-		return AppProfileChoiceRecord{}, false, inboxInvalid("project, connection, app and source key are required")
+		return AppProfileChoiceRecord{}, false, inboxInvalid("project, app and source key are required")
 	}
 	row, err := s.q.GetAppProfileChoiceBySource(ctx, dbsqlc.GetAppProfileChoiceBySourceParams{
-		ProjectID: projectID, ConnectionID: connectionID, AppID: appID, SourceKey: sourceKey,
+		ProjectID: projectID, AppID: appID, SourceKey: sourceKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AppProfileChoiceRecord{}, false, nil
@@ -187,7 +188,7 @@ func (s *Store) GetAppProfileChoiceBySource(
 // RecordAppProfileChoiceMessage binds the first confirmed provider message. A
 // duplicate publication cannot replace the identity callbacks must authenticate.
 func (s *Store) RecordAppProfileChoiceMessage(
-	ctx context.Context, projectID, connectionID, id uuid.UUID, channel, message string,
+	ctx context.Context, projectID, appID, id uuid.UUID, channel, message string,
 ) error {
 	if !choiceText(channel, 2048) || !choiceText(message, 2048) {
 		return inboxInvalid("choice message requires a bounded channel and message identity")
@@ -197,7 +198,7 @@ func (s *Store) RecordAppProfileChoiceMessage(
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	row, err := s.lockAppProfileChoice(ctx, tx, projectID, connectionID, id)
+	row, err := s.lockAppProfileChoice(ctx, tx, projectID, appID, id)
 	if err != nil {
 		return err
 	}
@@ -208,7 +209,7 @@ func (s *Store) RecordAppProfileChoiceMessage(
 		return nil
 	}
 	rows, err := dbsqlc.New(tx).RecordAppProfileChoiceMessage(ctx, dbsqlc.RecordAppProfileChoiceMessageParams{
-		ProjectID: projectID, ConnectionID: connectionID, ID: id, MessageChannelID: &channel, MessageID: &message,
+		ProjectID: projectID, AppID: appID, ID: id, MessageChannelID: &channel, MessageID: &message,
 	})
 	if err != nil {
 		return err
@@ -225,7 +226,7 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 	var result AppProfileChoiceRecord
 	if !choiceText(input.Key, 64) || !choiceText(input.ActorID, 2048) ||
 		!choiceText(input.MessageChannelID, 2048) || !choiceText(input.MessageID, 2048) ||
-		input.SourceChoiceUpdatedAt.IsZero() || input.SourceConnectionUpdatedAt.IsZero() {
+		input.SourceChoiceUpdatedAt.IsZero() || input.SourceSetupRevision <= 0 {
 		return result, inboxInvalid("choice requires offered key, actor, message and source revisions")
 	}
 	if err := validateChoiceJSON(input.Events, '[', IntegrationInboxMaxEventsBytes); err != nil {
@@ -237,15 +238,15 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	row, err := s.lockAppProfileChoice(ctx, tx, input.ProjectID, input.ConnectionID, input.ID)
+	row, err := s.lockAppProfileChoice(ctx, tx, input.ProjectID, input.AppID, input.ID)
 	if err != nil {
 		return result, err
 	}
-	connection, err := getIntegrationConnection(ctx, q, input.ProjectID, input.ConnectionID)
+	app, err := getProjectApp(ctx, q, input.ProjectID, input.AppID)
 	if err != nil {
 		return result, err
 	}
-	if !connection.UpdatedAt.Equal(input.SourceConnectionUpdatedAt) || row.MessageID == nil ||
+	if app.SetupRevision != input.SourceSetupRevision || row.MessageID == nil ||
 		*row.MessageID != input.MessageID || *row.MessageChannelID != input.MessageChannelID {
 		return result, storeerr.ErrUnauthorized
 	}
@@ -267,7 +268,7 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 	}
 	// Unknown keys cannot retire a valid menu. Only an authenticated click on
 	// an actually offered option can discover that its setup/profile is stale.
-	app, err := appProfileChoiceApp(ctx, q, input.ProjectID, input.ConnectionID, row.AppID)
+	app, err = appProfileChoiceApp(ctx, q, input.ProjectID, input.AppID)
 	if err == nil {
 		err = validateAppProfileChoiceOptions(ctx, q, app, offered)
 	}
@@ -282,7 +283,7 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 		return result, err
 	}
 	row, err = q.SelectAppProfileChoice(ctx, dbsqlc.SelectAppProfileChoiceParams{
-		ProjectID: input.ProjectID, ConnectionID: input.ConnectionID, ID: input.ID,
+		ProjectID: input.ProjectID, AppID: input.AppID, ID: input.ID,
 		SelectedKey: &input.Key, SelectedBy: &input.ActorID, ExpectedUpdatedAt: input.SourceChoiceUpdatedAt,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -292,7 +293,7 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 		return result, err
 	}
 	_, err = q.InsertAppProfileChoiceInboxReceipt(ctx, dbsqlc.InsertAppProfileChoiceInboxReceiptParams{
-		ProjectID: input.ProjectID, ConnectionID: input.ConnectionID, ReceiptKey: "choice:" + input.ID.String(),
+		ProjectID: input.ProjectID, AppID: input.AppID, ReceiptKey: "choice:" + input.ID.String(),
 		Payload: row.Payload, Events: &input.Events,
 	})
 	// A pre-existing receipt with an unselected choice cannot be a valid replay:
@@ -315,13 +316,13 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 
 // ExpireAppProfileChoice releases an unusable unselected menu, preserving its
 // source replay barrier. A selected choice and its accepted work are unchanged.
-func (s *Store) ExpireAppProfileChoice(ctx context.Context, projectID, connectionID, id uuid.UUID) error {
+func (s *Store) ExpireAppProfileChoice(ctx context.Context, projectID, appID, id uuid.UUID) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	row, err := s.lockAppProfileChoice(ctx, tx, projectID, connectionID, id)
+	row, err := s.lockAppProfileChoice(ctx, tx, projectID, appID, id)
 	if err != nil {
 		return err
 	}
@@ -334,11 +335,11 @@ func commitAppProfileChoiceExpiry(
 ) (AppProfileChoiceRecord, error) {
 	q := dbsqlc.New(tx)
 	if err := q.ExpireAppProfileChoice(ctx, dbsqlc.ExpireAppProfileChoiceParams{
-		ProjectID: row.ProjectID, ConnectionID: row.ConnectionID, ID: row.ID,
+		ProjectID: row.ProjectID, AppID: row.AppID, ID: row.ID,
 	}); err != nil {
 		return AppProfileChoiceRecord{}, err
 	}
-	row, err := getAppProfileChoice(ctx, q, row.ProjectID, row.ConnectionID, row.ID)
+	row, err := getAppProfileChoice(ctx, q, row.ProjectID, row.AppID, row.ID)
 	if err != nil {
 		return AppProfileChoiceRecord{}, err
 	}
@@ -353,31 +354,31 @@ func commitAppProfileChoiceExpiry(
 }
 
 func (s *Store) lockAppProfileChoice(
-	ctx context.Context, tx pgx.Tx, projectID, connectionID, id uuid.UUID,
+	ctx context.Context, tx pgx.Tx, projectID, appID, id uuid.UUID,
 ) (dbsqlc.AppProfileChoice, error) {
-	if projectID == uuid.Nil || connectionID == uuid.Nil || id == uuid.Nil {
-		return dbsqlc.AppProfileChoice{}, inboxInvalid("project, connection and choice are required")
+	if projectID == uuid.Nil || appID == uuid.Nil || id == uuid.Nil {
+		return dbsqlc.AppProfileChoice{}, inboxInvalid("project, app and choice are required")
 	}
-	if err := s.enterInboxConnection(ctx, tx, projectID, connectionID); err != nil {
+	if err := s.enterInboxApp(ctx, tx, projectID, appID); err != nil {
 		return dbsqlc.AppProfileChoice{}, err
 	}
 	q := dbsqlc.New(tx)
-	row, err := getAppProfileChoice(ctx, q, projectID, connectionID, id)
+	row, err := getAppProfileChoice(ctx, q, projectID, appID, id)
 	if err != nil {
 		return row, err
 	}
-	if err := LockConversationTx(ctx, tx, projectID, connectionID,
+	if err := LockConversationTx(ctx, tx, projectID, appID,
 		ConversationAddress{Kind: row.AddressKind, Ref: row.AddressRef}); err != nil {
 		return row, err
 	}
-	return getAppProfileChoice(ctx, q, projectID, connectionID, id)
+	return getAppProfileChoice(ctx, q, projectID, appID, id)
 }
 
 func getAppProfileChoice(
-	ctx context.Context, q *dbsqlc.Queries, projectID, connectionID, id uuid.UUID,
+	ctx context.Context, q *dbsqlc.Queries, projectID, appID, id uuid.UUID,
 ) (dbsqlc.AppProfileChoice, error) {
 	row, err := q.GetAppProfileChoice(ctx, dbsqlc.GetAppProfileChoiceParams{
-		ProjectID: projectID, ConnectionID: connectionID, ID: id,
+		ProjectID: projectID, AppID: appID, ID: id,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = storeerr.ErrNotFound
@@ -386,7 +387,7 @@ func getAppProfileChoice(
 }
 
 func appProfileChoiceApp(
-	ctx context.Context, q *dbsqlc.Queries, projectID, connectionID, appID uuid.UUID,
+	ctx context.Context, q *dbsqlc.Queries, projectID, appID uuid.UUID,
 ) (ProjectAppRecord, error) {
 	row, err := q.GetAppProfileChoiceAppForShare(ctx, dbsqlc.GetAppProfileChoiceAppForShareParams{
 		ProjectID: projectID, ID: appID,
@@ -397,18 +398,23 @@ func appProfileChoiceApp(
 	if err != nil {
 		return ProjectAppRecord{}, err
 	}
-	if !row.Enabled || row.LaunchConnectionID == nil || *row.LaunchConnectionID != connectionID {
+	if ProjectAppState(row.State) != ProjectAppStateActive {
 		return ProjectAppRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	return projectAppRecord(row)
+	app, err := projectAppRecord(row)
+	if err != nil {
+		return ProjectAppRecord{}, err
+	}
+	if app.Settings.Launcher == nil {
+		return ProjectAppRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	return app, nil
 }
 
 func validateAppProfileChoiceOptions(
 	ctx context.Context, q *dbsqlc.Queries, app ProjectAppRecord, options []AppProfileChoiceOption,
 ) error {
-	if app.Settings.Launcher == nil {
-		return storeerr.ErrStateTransitionConflict
-	}
+	// appProfileChoiceApp already checked the live launcher under its row lock.
 	ids := make([]uuid.UUID, 0, len(options))
 	for _, option := range options {
 		found := false
@@ -445,7 +451,7 @@ func validateAppProfileChoiceOptions(
 
 func appProfileChoiceRecord(row dbsqlc.AppProfileChoice) (AppProfileChoiceRecord, error) {
 	r := AppProfileChoiceRecord{
-		ID: row.ID, ProjectID: row.ProjectID, ConnectionID: row.ConnectionID, AppID: row.AppID,
+		ID: row.ID, ProjectID: row.ProjectID, AppID: row.AppID,
 		OwnerReceiptID: row.OwnerReceiptID,
 		Address:        ConversationAddress{Kind: row.AddressKind, Ref: row.AddressRef}, SourceKey: row.SourceKey,
 		Event: row.Event, Payload: row.Payload, SelectedKey: inboxErrorText(row.SelectedKey),
@@ -499,7 +505,7 @@ func validateChoiceJSON(value json.RawMessage, kind byte, limit int) error {
 }
 
 // CleanupAppProfileChoices retains live replay facts and recoverable selected work.
-// Soft-deleted connection, project or organization scopes bypass that retention.
+// Soft-deleted app, project or organization scopes bypass that retention.
 func (s *Store) CleanupAppProfileChoices(ctx context.Context, retention time.Duration, limit int) (int64, error) {
 	if retention < AppProfileChoiceMinRetention {
 		return 0, inboxInvalid("profile choices must be retained for at least seven days beyond expiry")
@@ -510,4 +516,14 @@ func (s *Store) CleanupAppProfileChoices(ctx context.Context, retention time.Dur
 	return s.q.CleanupAppProfileChoices(ctx, dbsqlc.CleanupAppProfileChoicesParams{
 		RetentionMilliseconds: retention.Milliseconds(), RowLimit: int32(limit),
 	})
+}
+
+// GetAppProfileChoiceAppID identifies the setup that must verify a callback.
+// It grants no access to the choice; selection rechecks its app and receipt.
+func (s *Store) GetAppProfileChoiceAppID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	appID, err := s.q.GetAppProfileChoiceAppID(ctx, dbsqlc.GetAppProfileChoiceAppIDParams{ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, storeerr.ErrNotFound
+	}
+	return appID, err
 }

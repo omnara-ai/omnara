@@ -1,0 +1,37 @@
+package slack
+
+import (
+	"context"
+	"errors"
+	"fmt"
+)
+
+// CheckIdentity verifies a live token against the saved workspace and bot user.
+// Secret versions can change independently of app setup; a new token must not
+// silently redirect an existing app to another bot or workspace.
+func CheckIdentity(ctx context.Context, config OAuthConfig, token string, expected Identity) error {
+	if token == "" || expected.WorkspaceID == "" || expected.BotUserID == "" {
+		return errors.New("slack token and expected workspace/bot identity are required")
+	}
+	var response struct {
+		OK     bool   `json:"ok"`
+		Error  string `json:"error"`
+		TeamID string `json:"team_id"`
+		UserID string `json:"user_id"`
+		BotID  string `json:"bot_id"`
+	}
+	result, err := callFormAt(ctx, config.HTTPClient, config.APIURL, token, "auth.test", nil, &response)
+	if err != nil {
+		return err
+	}
+	if result != (APIResult{}) {
+		return fmt.Errorf("slack identity verification: %s", result.Message)
+	}
+	if !response.OK {
+		return fmt.Errorf("slack identity verification: %s", ErrorResult(response.Error).Message)
+	}
+	if response.TeamID != expected.WorkspaceID || response.UserID != expected.BotUserID || response.BotID == "" {
+		return errors.New("slack token does not match the app's workspace and bot identity")
+	}
+	return nil
+}

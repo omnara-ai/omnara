@@ -1,14 +1,12 @@
 import {
   type AppLauncher,
-  type IntegrationConnection,
+  type IntegrationProvider,
   profileAppDiscordKeyStatus,
+  profileAppLauncherScope,
   profileAppProfileUpdate,
-  type ProfileAppProvider,
   profileAppSetup,
-  profileAppTools,
   type ProjectApp,
   type SaveProjectAppRequest,
-  schemas,
 } from '@omnara/sdk'
 import * as z from 'zod'
 
@@ -19,20 +17,16 @@ export interface ProjectAppFormValues {
   scopeKind: string
   scopeRef: string
   trigger: string
-  tools: string[]
-  listen: boolean
-  interactions: boolean
 }
 
 export function projectAppFormValues(
-  provider: ProfileAppProvider,
+  provider: IntegrationProvider,
   app?: ProjectApp,
 ): ProjectAppFormValues {
-  const resource = app?.settings.resource
   const launcher = app?.settings.launcher
   return {
-    name: app?.name ?? { slack: 'Slack', github: 'GitHub', discord: 'Discord' }[provider],
-    launcher: app ? Boolean(launcher) : true,
+    name: app?.name ?? provider,
+    launcher: Boolean(launcher),
     profileIds: [
       ...new Set(
         launcher?.slots.flatMap((slot) =>
@@ -43,13 +37,8 @@ export function projectAppFormValues(
     scopeKind:
       launcher?.scope_kind ??
       (provider === 'slack' ? 'workspace' : provider === 'github' ? 'repository' : 'channel'),
-    scopeRef: launcher?.scope_ref ?? '',
+    scopeRef: launcher?.scope_ref ?? (provider === 'slack' ? (app?.provider_tenant_id ?? '') : ''),
     trigger: launcher?.trigger ?? (provider === 'github' ? 'pull_request_opened' : 'mention'),
-    tools: app
-      ? profileAppTools[provider].filter((tool) => resource?.tools?.[tool] !== undefined)
-      : [...profileAppTools[provider]],
-    listen: app ? Boolean(resource?.listener) : true,
-    interactions: app ? Boolean(resource?.interaction_handler) : provider === 'slack',
   }
 }
 
@@ -62,141 +51,75 @@ export function githubHasAdvancedSlots(launcher?: AppLauncher) {
   )
 }
 
-/** A PUT starts from saved settings, replacing only fields the form actually changes. */
 export function projectAppFormRequest(
-  provider: ProfileAppProvider,
+  provider: IntegrationProvider,
   values: ProjectAppFormValues,
-  connectionId?: string,
   app?: ProjectApp,
-  workspaceId?: string,
 ): SaveProjectAppRequest {
-  if (app && app.settings.resource.definition !== `omnara.${provider}`) {
-    throw new Error('The app provider cannot be changed.')
-  }
   const name = values.name.trim()
-  if (!schemas.zResourceName.safeParse(name).success)
-    throw new Error('Enter an app name of 1–64 characters without invisible or control characters.')
-  const scopeRef =
-    provider === 'slack' &&
-    values.scopeKind === 'workspace' &&
-    app?.settings.launcher?.scope_kind !== 'workspace'
-      ? (workspaceId ?? values.scopeRef)
-      : values.scopeRef
-  if (!app) {
-    return {
-      ...profileAppSetup({
-        ...values,
-        provider,
-        name,
-        connectionId,
-        scopeRef,
-        scopeKind: values.launcher
-          ? z.enum(['workspace', 'channel', 'repository']).parse(values.scopeKind)
-          : undefined,
-        trigger: values.launcher
-          ? z.enum(['mention', 'pull_request_opened']).parse(values.trigger)
-          : undefined,
-      }),
-      enabled: true,
-    }
+  if (!/^[A-Za-z][A-Za-z0-9-]{0,31}$/.test(name))
+    throw new Error('Use 1–32 letters, numbers or hyphens, starting with a letter.')
+  if (app && (app.name !== name || app.provider !== provider))
+    throw new Error('The app name and provider cannot be changed.')
+  const request: SaveProjectAppRequest = {
+    name,
+    definition_id: app?.definition_id ?? `omnara.${provider}`,
+    settings: {},
   }
-  if (connectionId !== app.settings.resource.connection) {
-    throw new Error('The configured connection cannot be changed here.')
-  }
+  if (!values.launcher) return request
+  if (!app) throw new Error('Create and connect this app before choosing launch settings.')
   const initial = projectAppFormValues(provider, app)
-  const resource = { ...app.settings.resource }
-  const settings = { ...app.settings, resource }
-  const selectedTools = new Set(values.tools)
-  const providerTools = new Set(profileAppTools[provider])
-  // Unknown tools and selected tools' policies, schemas and enabled flags are retained.
-  if (
-    initial.tools.length !== values.tools.length ||
-    initial.tools.some((tool) => !selectedTools.has(tool))
-  ) {
-    resource.tools = Object.fromEntries(
-      Object.entries(resource.tools ?? {}).filter(
-        ([tool]) => !providerTools.has(tool) || selectedTools.has(tool),
-      ),
-    )
-    for (const tool of profileAppTools[provider]) {
-      if (selectedTools.has(tool)) resource.tools[tool] ??= {}
-    }
-  }
-  if (values.listen !== initial.listen) {
-    if (values.listen)
-      resource.listener = {
-        events:
-          provider === 'github' ? ['discussion_comment', 'review_comment', 'commit'] : ['message'],
-      }
-    else delete resource.listener
-  }
-  if (values.interactions !== initial.interactions) {
-    if (values.interactions) {
-      if (provider === 'github') throw new Error('GitHub apps do not support interaction handlers.')
-      resource.interaction_handler = { definition: `omnara.${provider}.interactions` }
-    } else delete resource.interaction_handler
-  }
-  if (!values.launcher) delete settings.launcher
-  else if (!app.settings.launcher) {
-    if (!connectionId) throw new Error('A configured connection is required to enable a launcher.')
-    settings.launcher = projectAppFormRequest(
-      provider,
-      values,
-      connectionId,
-      undefined,
-      workspaceId,
-    ).settings.launcher
+  const existing = app.settings.launcher
+  const scopeRef = values.scopeRef.trim()
+  const scopeKind = values.scopeKind
+  const profilesChanged = JSON.stringify(initial.profileIds) !== JSON.stringify(values.profileIds)
+  let slots = existing?.slots
+  if (existing && !profilesChanged) {
+    slots = existing.slots
+  } else if (existing && provider !== 'github') {
+    slots = profileAppProfileUpdate(app, values.profileIds).settings.launcher?.slots
   } else {
-    let launcher = app.settings.launcher
-    const selectedProfiles = new Set(values.profileIds)
-    const profilesChanged =
-      initial.profileIds.length !== values.profileIds.length ||
-      initial.profileIds.some((id) => !selectedProfiles.has(id))
-    if (profilesChanged) {
-      if (provider === 'github') {
-        const slot = launcher.slots[0]
-        if (githubHasAdvancedSlots(launcher) || !slot)
-          throw new Error('Edit advanced GitHub launch slots through the API.')
-        const ids = z
-          .array(schemas.zAgentProfileId)
-          .length(1, 'Choose one profile for GitHub.')
-          .parse(values.profileIds)
-        launcher = { ...launcher, slots: [{ ...slot, agent_profile_id: ids[0] }] }
-      } else {
-        const updated = profileAppProfileUpdate(app, values.profileIds).settings.launcher
-        if (!updated) throw new Error('A launcher is required to edit profiles.')
-        launcher = updated
-      }
-    }
-    settings.launcher = {
-      ...launcher,
-      trigger: values.trigger,
-      scope_kind: values.scopeKind,
-      scope_ref: scopeRef.trim(),
-    }
+    if (provider === 'github' && githubHasAdvancedSlots(existing))
+      throw new Error('Edit advanced GitHub launch slots through the API.')
+    slots = profileAppSetup({
+      provider,
+      name,
+      profileIds: values.profileIds,
+      scopeKind: z.enum(['workspace', 'channel', 'repository']).parse(scopeKind),
+      scopeRef,
+      trigger: z.enum(['mention', 'pull_request_opened']).parse(values.trigger),
+    }).settings.launcher?.slots
+    if (existing?.slots[0] && slots?.[0])
+      slots = [{ ...existing.slots[0], agent_profile_id: slots[0].agent_profile_id }]
   }
-  return { name, enabled: app.enabled, settings }
-}
-
-/** Unchanged Discord setups can be renamed without changing connection credentials. */
-export function projectAppFormDiscordKeyStatus(
-  request?: SaveProjectAppRequest,
-  app?: ProjectApp,
-  providerConfig?: IntegrationConnection['provider_config'],
-) {
-  const status = profileAppDiscordKeyStatus({
-    definition: request?.settings.resource.definition,
-    slots: request?.settings.launcher?.slots ?? [],
-    interactions: Boolean(request?.settings.resource.interaction_handler),
-    providerConfig,
-  })
-  const changed =
-    !app ||
-    JSON.stringify(request?.settings.launcher?.slots) !==
-      JSON.stringify(app.settings.launcher?.slots) ||
-    (Boolean(request?.settings.resource.interaction_handler) &&
-      !app.settings.resource.interaction_handler)
-  return { ...status, missing: changed && status.missing }
+  if (!slots?.length) throw new Error('Choose at least one profile.')
+  // Normal scope edits use the SDK validator. Preserve a saved advanced scope
+  // when only changing its profile choices.
+  if (
+    !existing ||
+    existing.scope_kind !== scopeKind ||
+    existing.scope_ref !== scopeRef ||
+    existing.trigger !== values.trigger
+  ) {
+    profileAppLauncherScope({ provider, scopeKind, scopeRef, trigger: values.trigger })
+  }
+  if (
+    profileAppDiscordKeyStatus({
+      definition: app.definition_id,
+      slots,
+      interactions: false,
+      providerConfig: app.provider_config,
+    }).missing
+  )
+    throw new Error('Configure a valid Discord public key before enabling the launcher.')
+  request.settings.launcher = {
+    ...existing,
+    trigger: values.trigger,
+    scope_kind: scopeKind,
+    scope_ref: scopeRef,
+    slots,
+  }
+  return request
 }
 
 export function projectAppFormError(error: Error) {
@@ -205,29 +128,18 @@ export function projectAppFormError(error: Error) {
     : error.message
 }
 
-/** Render-time validation is pure and uses the same request builder as submission. */
 export function validateProjectAppForm(
-  provider: ProfileAppProvider,
+  provider: IntegrationProvider,
   values: ProjectAppFormValues,
-  connection?: IntegrationConnection,
   app?: ProjectApp,
 ) {
-  let request: SaveProjectAppRequest | undefined
-  let error = ''
   try {
-    request = projectAppFormRequest(
-      provider,
-      values,
-      app?.settings.resource.connection ?? connection?.id,
-      app,
-      connection?.provider_tenant_id,
-    )
+    const request = projectAppFormRequest(provider, values, app)
+    return { error: '', slotCount: request.settings.launcher?.slots.length ?? 0 }
   } catch (cause) {
-    error = cause instanceof Error ? projectAppFormError(cause) : 'Check the app settings.'
-  }
-  return {
-    error,
-    keyStatus: projectAppFormDiscordKeyStatus(request, app, connection?.provider_config),
-    slotCount: request ? (request.settings.launcher?.slots.length ?? 0) : null,
+    return {
+      error: cause instanceof Error ? projectAppFormError(cause) : 'Check the app settings.',
+      slotCount: null,
+    }
   }
 }

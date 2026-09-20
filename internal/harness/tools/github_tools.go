@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -14,94 +13,80 @@ import (
 )
 
 type githubReadInput struct {
-	Resource string `json:"resource,omitempty"`
-	Section  string `json:"section,omitempty"`
-	Page     int    `json:"page,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
+	Section string `json:"section,omitempty"`
+	Page    int    `json:"page,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 type githubDiscussionInput struct {
-	Resource string `json:"resource,omitempty"`
-	Body     string `json:"body"`
+	Body string `json:"body"`
 }
 
 type githubInlineInput struct {
-	Resource string `json:"resource,omitempty"`
 	github.InlineCommentArgs
 }
 
 type githubReplyInput struct {
-	Resource  string `json:"resource,omitempty"`
 	CommentID int64  `json:"comment_id"`
 	Body      string `json:"body"`
 }
 
-func runGitHubTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	record, err := call.Executor.Store.Execution().
-		GetToolCall(ctx, call.Turn.ProjectID, call.Turn.AgentID, call.ToolCallID)
-	if err != nil {
-		return nil, err
+func runGitHubTool(
+	ctx context.Context,
+	call asyncToolContext,
+	record executionstore.ToolCallRecord,
+	access appToolAccess,
+) (asyncPhaseResult, error) {
+	scope := access.Arguments.Destination
+	if scope.GitHub == nil {
+		return appToolFailure(errors.New("app tool destination does not match GitHub"))
 	}
-	var selector struct {
-		Resource string `json:"resource"`
-	}
-	if err := json.Unmarshal(call.Call.Input, &selector); err != nil {
-		return nil, err
-	}
-	access, err := call.Executor.resolveAppToolAccess(ctx, call.Turn, record, selector.Resource)
-	if err != nil {
-		return appToolFailure(err)
-	}
-	if access.Authority.Original.Scope == nil || access.Authority.Original.Scope.GitHub == nil ||
-		!access.Authority.AllowsScope(*access.Authority.Original.Scope) {
-		return appToolFailure(errors.New("GitHub PR scope is no longer available"))
-	}
+	address := *scope.GitHub
 	client, err := call.Executor.githubToolClient(call.Turn, record, access)
 	if err != nil {
 		return appToolFailure(err)
 	}
-	address := access.Authority.Original.Scope.GitHub
-	scope := github.Scope{RepositoryID: address.RepositoryID, PullRequest: address.PullRequest}
+	providerScope := github.Scope{RepositoryID: address.RepositoryID, PullRequest: address.PullRequest}
 	var result any
-	switch record.Name {
-	case toolcatalog.ToolNameGitHubRead:
+	switch access.Authority.Definition.Operation {
+	case toolcatalog.AppOperationRead:
 		var input githubReadInput
-		if err := decodeSingleStrictJSON(call.Call.Input, &input, "GitHub read"); err != nil {
+		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub read"); err != nil {
 			return appToolFailure(err)
 		}
 		options := github.PageOptions{Page: input.Page, PerPage: input.Limit}
 		switch input.Section {
 		case "", "pull_request":
-			result, err = client.GetPullRequest(ctx, scope)
+			result, err = client.GetPullRequest(ctx, providerScope)
 		case "discussion_comments":
-			result, err = client.ListDiscussionComments(ctx, scope, options)
+			result, err = client.ListDiscussionComments(ctx, providerScope, options)
 		case "review_comments":
-			result, err = client.ListReviewComments(ctx, scope, options)
+			result, err = client.ListReviewComments(ctx, providerScope, options)
 		case "files":
-			result, err = client.ListFiles(ctx, scope, options)
+			result, err = client.ListFiles(ctx, providerScope, options)
 		case "diff":
-			result, err = client.GetDiff(ctx, scope)
+			result, err = client.GetDiff(ctx, providerScope)
 		default:
 			return appToolFailure(errors.New("unknown GitHub read section"))
 		}
-	case toolcatalog.ToolNameGitHubDiscussionComment:
+	case toolcatalog.AppOperationDiscussionComment:
 		var input githubDiscussionInput
-		if err := decodeSingleStrictJSON(call.Call.Input, &input, "GitHub discussion comment"); err != nil {
+		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub discussion comment"); err != nil {
 			return appToolFailure(err)
 		}
-		result, err = client.CreateDiscussionComment(ctx, scope, input.Body)
-	case toolcatalog.ToolNameGitHubInlineComment:
+		result, err = client.CreateDiscussionComment(ctx, providerScope, input.Body)
+	case toolcatalog.AppOperationInlineComment:
 		var input githubInlineInput
-		if err := decodeSingleStrictJSON(call.Call.Input, &input, "GitHub inline comment"); err != nil {
+		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub inline comment"); err != nil {
 			return appToolFailure(err)
 		}
-		result, err = client.CreateInlineComment(ctx, scope, input.InlineCommentArgs)
-	case toolcatalog.ToolNameGitHubReply:
+		result, err = client.CreateInlineComment(ctx, providerScope, input.InlineCommentArgs)
+	case toolcatalog.AppOperationReply:
 		var input githubReplyInput
-		if err := decodeSingleStrictJSON(call.Call.Input, &input, "GitHub review reply"); err != nil {
+		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub review reply"); err != nil {
 			return appToolFailure(err)
 		}
-		result, err = client.Reply(ctx, scope, input.CommentID, input.Body)
+		result, err = client.Reply(ctx, providerScope, input.CommentID, input.Body)
 	default:
 		return nil, fmt.Errorf("unsupported GitHub tool %q", record.Name)
 	}
@@ -121,10 +106,10 @@ func (e Executor) githubToolClient(
 	access appToolAccess,
 ) (*github.Client, error) {
 	appID, err := strconv.ParseInt(access.Credential[secrets.KeyAppID], 10, 64)
-	if err != nil || appID <= 0 || access.Connection.ProviderTenantID != strconv.FormatInt(appID, 10) {
-		return nil, errors.New("GitHub app credentials do not match the connection")
+	if err != nil || appID <= 0 || access.App.ProviderTenantID != strconv.FormatInt(appID, 10) {
+		return nil, errors.New("GitHub app credentials do not match the app")
 	}
-	installationID, err := strconv.ParseInt(access.Connection.ProviderAccountRef, 10, 64)
+	installationID, err := strconv.ParseInt(access.App.ProviderAccountRef, 10, 64)
 	if err != nil || installationID <= 0 {
 		return nil, errors.New("GitHub installation identity is invalid")
 	}
@@ -137,7 +122,7 @@ func (e Executor) githubToolClient(
 		InstallationID: installationID,
 		HTTPClient:     e.IntegrationHTTPClient,
 		BeforeRequest: func(ctx context.Context) error {
-			return e.recheckAppToolAccess(ctx, turn, tool, access, *access.Authority.Original.Scope)
+			return e.recheckAppToolAccess(ctx, turn, tool, access)
 		},
 	})
 }
@@ -161,22 +146,4 @@ func appToolFailure(err error) (asyncPhaseResult, error) {
 		return nil, marshalErr
 	}
 	return failAsynchronously(content, err), nil
-}
-
-func githubToolRegistrations() []toolRegistration {
-	var registrations []toolRegistration
-	for _, name := range []string{
-		toolcatalog.ToolNameGitHubRead, toolcatalog.ToolNameGitHubDiscussionComment,
-		toolcatalog.ToolNameGitHubInlineComment, toolcatalog.ToolNameGitHubReply,
-	} {
-		registrations = append(
-			registrations,
-			toolRegistration{
-				name:            name,
-				handler:         toolHandler{Async: runGitHubTool},
-				permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-			},
-		)
-	}
-	return registrations
 }

@@ -26,7 +26,23 @@ func RuntimeContractToolSpecs(
 	if err != nil {
 		return nil, err
 	}
-	for _, tool := range contract.Tools {
+	apps, err := store.ResolveAppDefinitions(ctx, projectID, contract.ReferencedAppIDs())
+	if err != nil {
+		return nil, err
+	}
+	prepared, err := agentconfig.PrepareAppCapabilities(
+		agentconfig.Compiled{
+			Tools:               contract.AppTools,
+			Listeners:           contract.Listeners,
+			InteractionHandlers: contract.InteractionHandlers,
+		},
+		apps,
+	)
+	if err != nil {
+		return nil, err
+	}
+	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared.Tools...)
+	for _, tool := range runtimeTools {
 		if tool.Name == "" {
 			return nil, fmt.Errorf(
 				"agent config for agent %s/%s has unnamed tool",

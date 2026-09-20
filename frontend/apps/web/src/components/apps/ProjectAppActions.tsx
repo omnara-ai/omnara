@@ -1,4 +1,4 @@
-import { useDeleteProjectApp, useUpdateProjectApp } from '@omnara/react'
+import { useDeleteProjectApp, useDisconnectProjectApp } from '@omnara/react'
 import type { ProjectApp } from '@omnara/sdk'
 import { useState } from 'react'
 
@@ -18,10 +18,10 @@ export function ProjectAppActions({
   onEdit?: () => void
   onRemoved: () => void
 }) {
-  const update = useUpdateProjectApp(orgId, projectId)
+  const disconnect = useDisconnectProjectApp(orgId, projectId)
   const remove = useDeleteProjectApp(orgId, projectId)
   const [error, setError] = useState('')
-  const busy = update.isPending || remove.isPending
+  const busy = disconnect.isPending || remove.isPending
   return (
     <div className="flex flex-col items-start gap-2">
       <div className="flex flex-wrap gap-2">
@@ -30,24 +30,29 @@ export function ProjectAppActions({
             Edit settings
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => {
-            setError('')
-            update.mutate(
-              { appID: app.id, name: app.name, enabled: !app.enabled, settings: app.settings },
-              {
+        {app.state === 'active' && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              setError('')
+              if (
+                !window.confirm(
+                  `Disconnect ${app.name}? Its tools, listeners and launcher will lose provider access. Agents and history are kept.`,
+                )
+              )
+                return
+              disconnect.mutate(app.id, {
                 onError: (cause) => {
-                  setError(errorMessage(cause, 'Could not update app.'))
+                  setError(errorMessage(cause, 'Could not disconnect app.'))
                 },
-              },
-            )
-          }}
-        >
-          {app.enabled ? 'Disable app' : 'Enable app'}
-        </Button>
+              })
+            }}
+          >
+            Disconnect app
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -55,7 +60,7 @@ export function ProjectAppActions({
           onClick={() => {
             if (
               !window.confirm(
-                `Remove app ${app.name}? This stops its launcher. Existing agents and the provider connection are kept.`,
+                `Remove app ${app.name}? This revokes its tools, listeners and launcher. Existing agents and history are kept.`,
               )
             )
               return

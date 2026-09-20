@@ -10,10 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -79,7 +77,7 @@ func (s *discardedArtifactCleanupSpy) DeleteUnreferencedPreparedArtifact(
 
 func TestDiscardedAppInboxArtifactCleanup(t *testing.T) {
 	ctx := t.Context()
-	pool, store, ids, connectionID := appWorkerFixture(t)
+	pool, store, ids, appID := appWorkerFixture(t)
 	inbox := store.Integrations()
 	blobs := &discardedAppBlobs{content: make(map[string][]byte)}
 	artifacts := artifactstore.New(pool, blobs)
@@ -128,11 +126,11 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	raw, err := json.Marshal(plan)
 	require.NoError(t, err)
 	receipt, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, ReceiptKey: "discard-files", Payload: []byte(`{}`),
+		ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "discard-files", Payload: []byte(`{}`),
 	})
 	require.NoError(t, err)
 	claimed, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, LeaseDuration: time.Minute,
+		ProjectID: ids.ProjectID, AppID: appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
@@ -151,7 +149,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	require.ErrorIs(t, CleanupDiscardedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID),
 		storeerr.ErrStateTransitionConflict)
 	claimed, found, err = inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, LeaseDuration: time.Minute,
+		ProjectID: ids.ProjectID, AppID: appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
@@ -198,7 +196,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 
 func TestDiscardedAppInboxCleanupProtectsCommittedSlots(t *testing.T) {
 	ctx := t.Context()
-	pool, store, ids, connectionID := appWorkerFixture(t)
+	pool, store, ids, appID := appWorkerFixture(t)
 	inbox := store.Integrations()
 	blobs := &discardedAppBlobs{content: make(map[string][]byte)}
 	artifacts := artifactstore.New(pool, blobs)
@@ -224,19 +222,12 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 		ProjectID: ids.ProjectID, Name: "failed launch", CurrentConfigID: base.ID,
 	})
 	require.NoError(t, err)
-	connectionPublic, err := publicid.Encode(publicid.KindIntegrationConnection, connectionID)
-	require.NoError(t, err)
-	app, err := inbox.CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+	app, err := inbox.UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
 		OrgID:        ids.OrgID,
 		ProjectID:    ids.ProjectID,
-		Name:         "discard launch",
+		Name:         "chat",
 		DefinitionID: appdefinition.Slack,
-		Enabled:      true,
 		Settings: integrationstore.ProjectAppSettings{
-			Resource: agentconfig.AgentConfigAppResourceSource{
-				Definition: appdefinition.Slack,
-				Connection: connectionPublic,
-			},
 			Launcher: &integrationstore.AppLauncher{
 				Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "reviewer", AgentProfileID: &profile.ID}},
@@ -259,7 +250,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{unused.ArtifactID}, Files: []AppPlannedFile{unused},
 			Launch: &executionstore.LaunchAgentInput{ProjectID: ids.ProjectID, AgentConfigID: base.ID},
 			Selection: &integrationstore.InboxAppSelection{
-				AppID: app.ID, ConnectionID: connectionID, Slot: "reviewer",
+				AppID: app.ID, Slot: "reviewer",
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			},
 		},
@@ -267,11 +258,11 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	raw, err := json.Marshal(plan)
 	require.NoError(t, err)
 	receipt, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, ReceiptKey: "partial-files", Payload: []byte(`{}`),
+		ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "partial-files", Payload: []byte(`{}`),
 	})
 	require.NoError(t, err)
 	claimed, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: ids.ProjectID, ConnectionID: connectionID, LeaseDuration: time.Minute,
+		ProjectID: ids.ProjectID, AppID: appID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)

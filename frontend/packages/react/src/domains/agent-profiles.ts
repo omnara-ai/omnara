@@ -88,18 +88,6 @@ export function useCreateAgentProfile(orgID: string, projectID: string) {
   )
 }
 
-export function useCreateSlackSetup(orgID: string, projectID: string, agentProfileID: string) {
-  return useScopedMutation(sdk.createSlackSetup, { orgID, projectID, agentProfileID })
-}
-
-export function useCreateIntegrationOAuthSetup(
-  orgID: string,
-  projectID: string,
-  agentProfileID: string,
-) {
-  return useScopedMutation(sdk.createIntegrationOAuthSetup, { orgID, projectID, agentProfileID })
-}
-
 export function useUpdateAgentProfile(orgID: string, projectID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()

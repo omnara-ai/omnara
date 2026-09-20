@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -45,33 +44,16 @@ func options(
 	base agentconfig.CompileOptions,
 ) agentconfig.CompileOptions {
 	opts := base
-	opts.ResolveAppInstance = func(instanceID string) (agentconfig.AppInstanceResolution, error) {
-		id, err := publicid.Decode(publicid.KindProjectApp, instanceID)
+	opts.ResolveAppName = func(name string) (agentconfig.AppResolution, error) {
+		app, err := store.Integrations().GetProjectAppByName(ctx, projectID, name)
 		if err != nil {
-			return agentconfig.AppInstanceResolution{}, err
+			return agentconfig.AppResolution{}, err
 		}
-		app, err := store.Integrations().GetProjectApp(ctx, projectID, id)
+		id, err := publicid.Encode(publicid.KindProjectApp, app.ID)
 		if err != nil {
-			return agentconfig.AppInstanceResolution{}, err
+			return agentconfig.AppResolution{}, err
 		}
-		if !app.Enabled {
-			return agentconfig.AppInstanceResolution{}, fmt.Errorf("app is disabled: %w", storeerr.ErrUnauthorized)
-		}
-		return agentconfig.AppInstanceResolution{AppInstanceID: instanceID, Resource: app.Settings.Resource}, nil
-	}
-	opts.ResolveAppConnection = func(connectionID, provider string) (string, error) {
-		id, err := publicid.Decode(publicid.KindIntegrationConnection, connectionID)
-		if err != nil {
-			return "", err
-		}
-		connection, err := store.Integrations().GetIntegrationConnection(ctx, projectID, id)
-		if err != nil {
-			return "", err
-		}
-		if connection.Provider != provider || connection.State != integrationstore.IntegrationConnectionStateActive {
-			return "", fmt.Errorf("app connection is unavailable: %w", storeerr.ErrUnauthorized)
-		}
-		return connectionID, nil
+		return agentconfig.AppResolution{AppID: id, Definition: app.DefinitionID}, nil
 	}
 	opts.ValidateSecretID = func(secretID string, expectedKind secrets.Kind) error {
 		decoded, err := publicid.Decode(publicid.KindSecret, secretID)

@@ -1,4 +1,4 @@
-import { type AppResourceSource } from '@omnara/sdk'
+import { type ConfigAppCapabilitySource } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 
@@ -13,6 +13,7 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
+  mcpServerNameError,
   mcpWire,
   permissionWire,
 } from '@/components/agents/agentConfigMcp'
@@ -68,7 +69,8 @@ export interface BasicConfig {
   modelName: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
-  appResources: Record<string, AppResourceSource>
+  listeners: Record<string, ConfigAppCapabilitySource>
+  interactionHandlers: Record<string, ConfigAppCapabilitySource>
   mcpServers: BasicMcpServer[]
   skillIds: string[]
   subagents: BasicSubagent[]
@@ -101,7 +103,8 @@ export const emptyBasicConfig: BasicConfig = {
   modelName: '',
   machineSources: [],
   tools: [],
-  appResources: {},
+  listeners: {},
+  interactionHandlers: {},
   mcpServers: [],
   skillIds: [],
   subagents: [],
@@ -167,7 +170,8 @@ export function useAgentBuilderForm(
     model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
     machineSources: draft.machineSources,
     tools: draft.tools,
-    appResources: draft.appResources,
+    listeners: draft.listeners,
+    interactionHandlers: draft.interactionHandlers,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,
     subagents: draft.subagents,
@@ -245,72 +249,6 @@ function machineSourceValid(source: BasicMachineSource) {
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
-}
-
-export const mcpServerNameMaxLength = 32
-
-const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
-
-export function mcpServerNameError(name: string): string | undefined {
-  if (name === '') return 'Name is required.'
-  if (name.length > mcpServerNameMaxLength) {
-    return `Name cannot exceed ${mcpServerNameMaxLength} characters.`
-  }
-  if (!/^[a-zA-Z]/.test(name)) return 'Name must start with a letter.'
-  if (!mcpServerNamePattern.test(name)) {
-    return 'Name may only contain letters, numbers, and hyphens.'
-  }
-  return undefined
-}
-
-export const mcpRuntimeToolNameMaxLength = 64
-
-export function mcpRuntimeToolName(serverName: string, toolName: string) {
-  return `mcp__${serverName}__${toolName}`
-}
-
-export function mcpToolEnabled(server: BasicMcpServer, toolName: string) {
-  return server.tools.find((tool) => tool.name === toolName)?.enabled ?? server.defaultEnabled
-}
-
-const mcpToolNamePattern = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
-
-export function mcpToolNameAddable(toolName: string) {
-  return mcpToolNamePattern.test(toolName)
-}
-
-export function mcpRuntimeToolNameError(serverName: string, toolName: string): string | undefined {
-  if (toolName === '') return 'Tool name is required.'
-  if (!/^[a-zA-Z]/.test(toolName)) {
-    return `"${toolName}" must start with a letter, but the model only accepts tool names that begin with a letter.`
-  }
-  if (!/^[a-zA-Z0-9_-]*$/.test(toolName)) {
-    return `"${toolName}" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.`
-  }
-  const runtimeName = mcpRuntimeToolName(serverName, toolName)
-  if (runtimeName.length <= mcpRuntimeToolNameMaxLength) return undefined
-  const maxServerNameLength = mcpRuntimeToolNameMaxLength - mcpRuntimeToolName('', toolName).length
-  const prefixed = `"${toolName}" becomes "${runtimeName}" (${runtimeName.length} characters) once the server name is prefixed, but the model only accepts tool names of ${mcpRuntimeToolNameMaxLength} characters or fewer.`
-  return maxServerNameLength >= 1
-    ? `${prefixed} Shorten the server name to ${maxServerNameLength} characters or fewer.`
-    : `${prefixed} The tool name itself is too long to expose under any server name.`
-}
-
-export interface UnexposableMcpTool {
-  name: string
-  error: string
-}
-
-export function unexposableMcpTools(
-  server: BasicMcpServer,
-  discoveredNames: string[],
-): UnexposableMcpTool[] {
-  const names = new Set([...discoveredNames, ...server.tools.map((tool) => tool.name)])
-  return [...names].flatMap((name) => {
-    if (!mcpToolEnabled(server, name)) return []
-    const error = mcpRuntimeToolNameError(server.name, name)
-    return error === undefined ? [] : [{ name, error }]
-  })
 }
 
 function mcpServerValid(server: BasicMcpServer) {
@@ -541,9 +479,10 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
 }
 
 export function toolWire(tool: BasicTool): ToolEntry {
-  const wire: ToolEntry = { type: 'built_in' }
+  const wire: ToolEntry = tool.name.startsWith('app__') ? {} : { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   if (tool.deferred) wire.deferred = true
+  if (tool.config !== undefined) wire.config = tool.config
   return wire
 }

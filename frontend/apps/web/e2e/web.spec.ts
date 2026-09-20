@@ -1,12 +1,18 @@
 import { generateKeyPairSync } from 'node:crypto'
 
-import { schemas, zJsonText } from '@omnara/sdk'
+import { schemas } from '@omnara/sdk'
 import { type Cookie, expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
 import {
+  createAppDraft,
+  expectInteractionToolMenu,
+  expectSlackAuthorization,
+  fillProviderAccount,
   installFailureTracking,
   mockSlackSetupReturn,
+  mockVerifiedAppSetup,
+  readApp,
   requiredEnvironmentVariable,
 } from './fixtures'
 
@@ -229,20 +235,12 @@ test('creates an agent with the Builder', async ({ page }) => {
   await expect(page.getByText('No skills attached', { exact: true })).toHaveCount(0)
   await expect(page.getByText('No MCP servers', { exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Add tools' }).click()
-  await expect(page.getByRole('menuitem', { name: 'skill', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: 'slack_post_message', exact: true })).toHaveCount(
-    0,
-  )
-  await expect(
-    page.getByRole('menuitem', { name: 'set_interaction_destination', exact: true }),
-  ).toHaveCount(0)
-  await page.keyboard.press('Escape')
-
   const agentName = uniqueName('Builder Agent')
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
   await selectConfiguredModel(page)
+
+  await expectInteractionToolMenu(page)
 
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.press('m')
@@ -591,71 +589,32 @@ test('walks a new organization through onboarding to its first chat', async ({ p
 })
 
 for (const provider of ['github', 'discord'] as const) {
-  test(`saves ${provider} credentials, app launcher, and scoped tool preview`, async ({ page }) => {
+  test(`saves ${provider} app-owned setup, launcher, scoped tools and independent lifecycle`, async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
     const failures = installFailureTracking(page, [
       /^page: Canceled$/,
       /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
       /request: .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
       /request: .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
-      // Navigation and successful writes cancel obsolete reads; write responses are checked below.
+      // Navigation and successful writes cancel obsolete reads; writes are checked below.
+      // Full-document navigation also cancels intent-preloaded route chunks.
+      // HTTP failures and import/page errors are still recorded independently.
+      /request: .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
     ])
-    const label = provider === 'github' ? 'GitHub' : 'Discord'
-    const appName = uniqueName(`${label} Browser App`)
-    const profileName = uniqueName(`${label} App Profile`)
+    const appName = `${provider}-browser-${test.info().retry}`
+    const profileName = uniqueName(`${provider} App Profile`)
     await createProfile(page, profileName, 'Answer in the selected conversation.')
     const profilePath = new URL(page.url()).pathname
     const profileId = profilePath.split('/').at(-1)
-    await page.getByRole('link', { name: 'Project apps', exact: true }).click()
-    await page.getByRole('link', { name: 'Add app', exact: true }).click()
-    await page.getByRole('link', { name: `Set up ${label}`, exact: false }).click()
-    if (provider === 'github')
-      await page.getByRole('combobox', { name: 'Offered profiles', exact: true }).click()
-    await page
-      .getByPlaceholder(
-        provider === 'github' ? 'Choose an agent profile…' : 'Search agent profiles…',
-      )
-      .fill(profileName)
-    await page.getByRole('option', { name: profileName, exact: true }).click()
-    await page.keyboard.press('Escape')
-    await page.getByLabel('App setup name', { exact: true }).fill(appName)
-    await page
-      .getByLabel(provider === 'github' ? 'GitHub App ID' : 'Discord Application ID', {
-        exact: true,
-      })
-      .fill('111')
-    await page
-      .getByLabel(provider === 'github' ? 'GitHub Installation ID' : 'Discord bot User ID', {
-        exact: true,
-      })
-      .fill('222')
-    await page
-      .getByLabel(provider === 'github' ? 'Repository ID' : 'Channel ID', { exact: true })
-      .fill('333')
-    // Only the provider verification boundary is a fixture. The secret is
-    // saved first through the real API; the fixture pins verified identity to
-    // that credential, and every app/preview/config request remains real.
-    await page.route('**/integration-connections', async (route) => {
-      if (route.request().method() !== 'POST') return route.continue()
-      const request = schemas.zSaveIntegrationConnectionRequest.parse(
-        route.request().postDataJSON(),
-      )
-      expect(request.provider).toBe(provider)
-      expect(request.credential_secret_id).toMatch(/^sec_[a-z2-7]{26}$/)
-      const seeded = await page.request.post(
-        requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_FIXTURE'),
-        { data: request },
-      )
-      expect(seeded.status()).toBe(200)
-      const { id } = z.object({ id: schemas.zIntegrationConnectionId }).parse(await seeded.json())
-      const response = await page.evaluate(async (path) => {
-        const connection = await fetch(path)
-        if (!connection.ok) throw new Error(`Read fixture connection: ${connection.status}`)
-        return connection.text()
-      }, `${route.request().url()}/${id}`)
-      const connection = zJsonText.pipe(schemas.zIntegrationConnection).parse(response)
-      expect(connection.credential_secret_id).toBe(request.credential_secret_id)
-      await route.fulfill({ status: 201, contentType: 'application/json', body: response })
-    })
+    const { app: draft, apiProjectPath } = await createAppDraft(page, projectID, provider, appName)
+
+    // Only provider verification is replaced. The draft, secret, metadata and
+    // agent configs use the real API; the loopback fixture configures this app.
+    await mockVerifiedAppSetup(page, apiProjectPath, provider)
+    await page.getByRole('button', { name: 'Connect account', exact: true }).click()
+    await fillProviderAccount(page, provider)
     if (provider === 'github') {
       const { privateKey } = generateKeyPairSync('rsa', {
         modulusLength: 2048,
@@ -666,48 +625,73 @@ for (const provider of ['github', 'discord'] as const) {
       await page.getByLabel('Webhook secret').fill('local-github-webhook-secret')
     } else {
       await page.getByLabel('Bot token', { exact: true }).fill('local-discord-token')
-      await page.getByLabel('Interaction public key (optional)').fill('ab'.repeat(32))
-      await page.getByLabel('Gateway shard count').fill('4')
+      await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
+      await page.getByLabel('Gateway shards', { exact: true }).fill('4')
     }
-    const saved = page.waitForResponse(
+    const configured = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
-        new URL(response.url()).pathname.endsWith('/apps'),
+        new URL(response.url()).pathname.endsWith(`/apps/${draft.id}/setup`),
     )
-    await page.getByRole('button', { name: 'Create app', exact: true }).click()
-    const appResponse = await saved
-    expect(appResponse.status()).toBe(201)
-    const app = schemas.zProjectApp.parse(await appResponse.json())
-    const apiProjectPath = appResponse.url().replace(/\/apps$/, '')
-    expect(app.settings.resource.definition).toBe(`omnara.${provider}`)
-    expect(app.settings.launcher?.slots[0]?.agent_profile_id).toBe(profileId)
-    const connectionBody = await page.evaluate(async (path) => {
-      const response = await fetch(path)
-      if (!response.ok) throw new Error(`Read connection failed: ${response.status}`)
-      return response.text()
-    }, `${apiProjectPath}/integration-connections/${app.settings.resource.connection}`)
-    const connection = zJsonText.pipe(schemas.zIntegrationConnection).parse(connectionBody)
-    expect(connection).toMatchObject({
-      provider,
+    await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+    expect((await configured).status()).toBe(200)
+    const app = await readApp(page, apiProjectPath, draft.id)
+    expect(app).toMatchObject({
+      id: draft.id,
+      name: appName,
+      definition_id: `omnara.${provider}`,
       provider_tenant_id: '111',
       provider_account_ref: '222',
       state: 'active',
     })
-    expect(connection.credential_secret_id).toMatch(/^sec_[a-z2-7]{26}$/)
-    expect(JSON.stringify(connection)).not.toContain(
+    const secretID = schemas.zSecretId.parse(app.credential_secret_id)
+    expect(JSON.stringify(app)).not.toContain(
       provider === 'github' ? 'PRIVATE KEY' : 'local-discord-token',
     )
     if (provider === 'discord')
-      expect(connection.provider_config).toEqual({ public_key: 'ab'.repeat(32), shard_count: 4 })
-    await expect(page.getByRole('dialog')).toHaveCount(0)
-    await expect(page.getByText(appName, { exact: true }).first()).toBeVisible()
-    await expect(page).toHaveURL(`/projects/${projectID}/apps/${app.id}`)
+      expect(app.provider_config).toEqual({ public_key: 'ab'.repeat(32), shard_count: 4 })
+    await expect(page.getByLabel('App name', { exact: true })).toHaveAttribute('readonly', '')
+    const launcher = page.getByRole('checkbox', {
+      name:
+        provider === 'github' ? 'Launch agents from GitHub events' : 'Launch agents from mentions',
+      exact: true,
+    })
+    await expect(launcher).not.toBeChecked()
+    await launcher.check()
+    await page
+      .getByLabel(provider === 'github' ? 'Repository ID' : 'Channel ID', { exact: true })
+      .fill('333')
+    if (provider === 'github')
+      await page.getByRole('combobox', { name: 'Offered profiles', exact: true }).click()
+    await page
+      .getByPlaceholder(
+        provider === 'github' ? 'Choose an agent profile…' : 'Search agent profiles…',
+      )
+      .fill(profileName)
+    await page.getByRole('option', { name: profileName, exact: true }).click()
+    if (provider === 'discord')
+      await expect(
+        page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
+      ).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
+    const savedLauncher = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname.endsWith(`/apps/${app.id}`),
+    )
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+    const launched = schemas.zProjectApp.parse(await (await savedLauncher).json())
+    expect(launched.settings.launcher?.slots).toEqual([
+      { key: 'default', agent_profile_id: profileId },
+    ])
+    expect(launched.setup_revision).toBe(app.setup_revision)
     await page.reload()
     await expect(page.getByRole('heading', { name: appName, exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Edit settings', exact: true }).click()
-    const renamed = `${appName} edited`
-    await page.getByLabel('App setup name', { exact: true }).fill(renamed)
+    await expect(page.getByLabel('App name', { exact: true })).toHaveAttribute('readonly', '')
     if (provider === 'github') await page.getByLabel('Launch when').selectOption('mention')
+    else await page.getByLabel('Channel ID', { exact: true }).fill('334')
     const updated = page.waitForResponse(
       (response) =>
         response.request().method() === 'PUT' &&
@@ -715,31 +699,27 @@ for (const provider of ['github', 'discord'] as const) {
     )
     await page.getByRole('button', { name: 'Save changes', exact: true }).click()
     const changedApp = schemas.zProjectApp.parse(await (await updated).json())
-    expect(changedApp.name).toBe(renamed)
-    expect(changedApp.settings.launcher?.slots).toEqual(app.settings.launcher?.slots)
-    if (provider === 'github') expect(changedApp.settings.launcher?.trigger).toBe('mention')
-    await expect(page.getByRole('heading', { name: renamed, exact: true })).toBeVisible()
-    await page.getByRole('link', { name: 'Back to apps', exact: true }).click()
-    await expect(page.getByRole('link').filter({ hasText: renamed })).toBeVisible()
-    if (provider === 'github')
-      await expect(page.getByText(/GitHub App webhook URL:/)).toContainText(
+    expect(changedApp.name).toBe(appName)
+    expect(changedApp.settings.launcher?.slots).toEqual(launched.settings.launcher?.slots)
+    expect(changedApp.setup_revision).toBe(app.setup_revision)
+    if (provider === 'github') {
+      expect(changedApp.settings.launcher?.trigger).toBe('mention')
+      await expect(page.getByText(/GitHub webhook URL:/)).toContainText(
         '/api/integrations/github/111/events',
       )
+    } else expect(changedApp.settings.launcher?.scope_ref).toBe('334')
+
     await page.goto(profilePath)
     await page.getByRole('button', { name: 'YAML', exact: true }).click()
-    const selectedTool = `${provider}_read`
-    const scope =
-      provider === 'github'
-        ? { github: { repository_id: 333, pull_request: 1 } }
-        : { discord: { channel_id: '333' } }
+    const selectedTool = `app__${app.name}__read`
+    const fixedConfig =
+      provider === 'github' ? { repository_id: 333, pull_request: 1 } : { channel_id: '333' }
     await replaceConfigEditor(
       page,
       JSON.stringify({
         instruction: 'Read this conversation.',
         model: { provider_config: providerConfig, name: modelName },
-        app_resources: {
-          conversation: { app_instance: app.id, scope, tools: { [selectedTool]: {} } },
-        },
+        tools: { [selectedTool]: { config: fixedConfig } },
       }),
     )
     const preview = page.waitForResponse(
@@ -756,7 +736,7 @@ for (const provider of ['github', 'discord'] as const) {
       tools.some(
         (tool) =>
           tool.name ===
-          (provider === 'github' ? 'github_discussion_comment' : 'discord_post_message'),
+          `app__${app.name}__${provider === 'github' ? 'discussion_comment' : 'post_message'}`,
       ),
     ).toBe(false)
     await page.getByRole('button', { name: 'Other tools', exact: true }).click()
@@ -769,57 +749,90 @@ for (const provider of ['github', 'discord'] as const) {
     await page.getByRole('button', { name: 'Save revision', exact: true }).click()
     expect((await savedRevision).status()).toBe(200)
     await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled()
+
+    // A second app may select the same secret. Its lifecycle stays independent.
+    const { app: secondary } = await createAppDraft(
+      page,
+      projectID,
+      provider,
+      `${provider}-secondary-${test.info().retry}`,
+    )
+    await page.getByRole('button', { name: 'Connect account', exact: true }).click()
+    await fillProviderAccount(page, provider)
+    await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
+    await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
+    if (provider === 'discord')
+      await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
+    await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(await readApp(page, apiProjectPath, secondary.id)).toMatchObject({
+      state: 'active',
+      credential_secret_id: secretID,
+      settings: {},
+    })
     await page.goto(`/projects/${projectID}/apps/${app.id}`)
-    await page.getByRole('button', { name: 'Disable app', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Enable app', exact: true })).toBeVisible()
+    page.once('dialog', (dialog) => void dialog.accept())
+    const disconnected = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith(`/apps/${app.id}/disconnect`),
+    )
+    await page.getByRole('button', { name: 'Disconnect app', exact: true }).click()
+    const offline = schemas.zProjectApp.parse(await (await disconnected).json())
+    expect(offline.state).toBe('disconnected')
+    expect(offline.setup_revision).toBeGreaterThan(app.setup_revision)
+    expect(offline.settings).toEqual(changedApp.settings)
+    expect((await readApp(page, apiProjectPath, secondary.id)).state).toBe('active')
+    await page.getByRole('button', { name: 'Reconnect account', exact: true }).click()
+    await expect(
+      page.getByLabel(provider === 'github' ? 'GitHub App ID' : 'Discord Application ID', {
+        exact: true,
+      }),
+    ).toHaveAttribute('readonly', '')
+    await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
+    await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
+    await page.getByRole('button', { name: 'Reconnect app', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    const reconnected = await readApp(page, apiProjectPath, app.id)
+    expect(reconnected).toMatchObject({
+      state: 'active',
+      settings: changedApp.settings,
+      id: app.id,
+    })
+    expect(reconnected.setup_revision).toBeGreaterThan(offline.setup_revision)
     page.once('dialog', (dialog) => void dialog.accept())
     await page.getByRole('button', { name: 'Remove app', exact: true }).click()
     await expect(page).toHaveURL(`/projects/${projectID}/apps`)
-    await expect(page.getByRole('link').filter({ hasText: renamed })).toHaveCount(0)
-    await expect(page.getByText(connection.id, { exact: false }).first()).toBeVisible()
-    await page.getByRole('link', { name: 'Add app', exact: true }).click()
-    await page.getByRole('link', { name: `Set up ${label}`, exact: false }).click()
-    await page.getByLabel('Connection', { exact: true }).selectOption(connection.id)
-    await page
-      .getByRole('checkbox', {
-        name:
-          provider === 'github'
-            ? 'Launch agents from GitHub events'
-            : 'Launch agents from mentions',
-        exact: true,
-      })
-      .uncheck()
-    await expect(page.getByText('Offered profiles', { exact: true })).toHaveCount(0)
-    await page.getByLabel('App setup name', { exact: true }).fill(`${label} tools only`)
-    const savedTemplate = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname.endsWith('/apps'),
-    )
-    await page.getByRole('button', { name: 'Create app', exact: true }).click()
-    const templateResponse = await savedTemplate
-    expect(templateResponse.status()).toBe(201)
-    const template = schemas.zProjectApp.parse(await templateResponse.json())
-    expect(template.settings.launcher).toBeUndefined()
-    expect(template.settings.resource.connection).toBe(connection.id)
-    await expect(page).toHaveURL(`/projects/${projectID}/apps/${template.id}`)
+    await expect(page.getByRole('link').filter({ hasText: appName })).toHaveCount(0)
+    expect((await readApp(page, apiProjectPath, secondary.id)).state).toBe('active')
     expect(failures).toEqual([])
   })
 }
 
-test('connects Slack from project Apps without a profile or contacting Slack', async ({ page }) => {
-  const failures = installFailureTracking(page)
+test('connects a saved Slack app and waits for its exact OAuth flow without contacting Slack', async ({
+  page,
+  context,
+}) => {
+  const failures = installFailureTracking(page, [
+    /request: .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+  ])
   await signIn(page, adminEmail, `/projects/${projectID}/apps`)
-  await page.getByRole('link', { name: 'Add app', exact: true }).click()
-  await page.getByRole('link', { name: 'Set up Slack', exact: false }).click()
+  const { app, apiProjectPath } = await createAppDraft(
+    page,
+    projectID,
+    'slack',
+    `slack-browser-${test.info().retry}`,
+  )
   const appPath = new URL(page.url()).pathname
   const browserOrigin = new URL(page.url()).origin
-  await page.getByRole('button', { name: 'Connect a Slack app through OAuth' }).click()
+  await page.getByRole('button', { name: 'Connect account', exact: true }).click()
   await page.getByLabel('Use an existing Slack app').check()
   await page.getByLabel('Client ID', { exact: true }).fill('local-slack-client')
   await page.getByLabel('Client secret', { exact: true }).fill('local-slack-secret')
   await page.getByLabel('Signing secret', { exact: true }).fill('local-slack-signing')
-  await page.route('https://slack.com/**', async (route) => {
+  await context.route('https://slack.com/**', async (route) => {
     await route.fulfill({
       contentType: 'text/html',
       body: '<p>Provider authorization boundary</p>',
@@ -827,46 +840,54 @@ test('connects Slack from project Apps without a profile or contacting Slack', a
   })
   const pending = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname.endsWith('/integration-oauth/setup') &&
+      new URL(response.url()).pathname.endsWith(`/apps/${app.id}/oauth/setup`) &&
       response.request().method() === 'POST',
   )
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
   const response = await pending
   expect(response.status()).toBe(201)
+  const setup = schemas.zIntegrationOAuthSetup.parse(await response.json())
+  expect(setup.app_id).toBe(app.id)
   expect(response.request().postDataJSON()).toMatchObject({
-    provider: 'slack',
     client_id: 'local-slack-client',
     return_to: appPath,
   })
-  await expect(page).toHaveURL(
-    (url) => url.hostname === 'slack.com' && url.pathname === '/oauth/v2/authorize',
-  )
-  const oauth = new URL(page.url())
-  expect(oauth.searchParams.get('client_id')).toBe('local-slack-client')
-  expect(oauth.searchParams.get('state')).toBeTruthy()
-  expect(oauth.searchParams.get('redirect_uri')).toBe(
-    `${browserOrigin}/api/integrations/oauth/callback`,
-  )
-  await expect(page.getByText('Provider authorization boundary')).toBeVisible()
+  expect(response.request().postDataJSON()).not.toHaveProperty('provider')
+  expectSlackAuthorization(setup.oauth_url, browserOrigin)
+  const popup = page.waitForEvent('popup')
+  await page.getByRole('link', { name: 'Authorize in Slack' }).click()
+  const authorization = await popup
+  await expect(authorization.getByText('Provider authorization boundary')).toBeVisible()
+  await authorization.close()
+  await expect(page).toHaveURL(appPath)
 
-  // OAuth callback persistence is exercised with a local Slack server in the Go
-  // integration suite. Here its result is a browser fixture so we can verify
-  // the routed return URL, selection, dialog dismissal and submitted app settings.
-  const projectPath = new URL(response.url()).pathname.replace(/\/integration-oauth\/setup$/, '')
-  const { connection, appID } = await mockSlackSetupReturn(page, projectPath, projectID)
-  await page.goto(
-    `${browserOrigin}${appPath}?integration_oauth=success&integration_connection=${connection.id}`,
+  // Callback persistence is covered against a local Slack server in Go tests.
+  // This fixture exercises app polling, exact-flow matching and callback routing.
+  const projectPath = new URL(apiProjectPath).pathname
+  const fixture = await mockSlackSetupReturn(page, projectPath, app, setup.flow_id)
+  const waiting = await page.waitForResponse(
+    (result) =>
+      result.request().method() === 'GET' &&
+      new URL(result.url()).pathname === `${projectPath}/apps/${app.id}`,
   )
+  const pendingApp = schemas.zProjectApp.parse(await waiting.json())
+  expect(pendingApp.state).toBe('disconnected')
+  expect(pendingApp.setup_revision).toBe(app.setup_revision)
+  expect(pendingApp.last_oauth_flow_id).not.toBe(setup.flow_id)
+  await expect(page.getByRole('link', { name: 'Authorize in Slack' })).toBeVisible()
+  fixture.complete()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByLabel('App name', { exact: true })).toHaveValue(app.name)
+  await expect(
+    page.getByRole('checkbox', { name: 'Launch agents from mentions', exact: true }),
+  ).not.toBeChecked()
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
+  await page.goto(`${browserOrigin}${appPath}?integration_oauth=success&app_id=${app.id}`)
   await expect(page.getByRole('dialog')).toContainText('Slack app connected')
   await page.getByRole('button', { name: 'Got it', exact: true }).click()
-  await expect(page.getByLabel('Connection', { exact: true })).toHaveValue(connection.id)
-  await page.getByRole('checkbox', { name: 'Launch agents from mentions', exact: true }).uncheck()
-  await page.getByLabel('App setup name', { exact: true }).fill('Slack reusable capabilities')
-  await page.getByRole('button', { name: 'Create app', exact: true }).click()
-  await expect(page).toHaveURL(`/projects/${projectID}/apps/${appID}`)
-  await expect(
-    page.getByRole('heading', { name: 'Slack reusable capabilities', exact: true }),
-  ).toBeVisible()
+  await expect(page).toHaveURL(appPath)
+  await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
   expect(failures).toEqual([])
 })
 

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -250,16 +249,7 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
-		"AgentConfigAppResourceSource":         reflect.TypeOf(AgentConfigAppResourceSource{}),
-		"AgentConfigAppToolSource":             reflect.TypeOf(AgentConfigToolSource{}),
-		"AgentConfigAppMCPSource":              reflect.TypeOf(AgentConfigMCPSource{}),
-		"AppScope":                             reflect.TypeOf(appdefinition.Scope{}),
-		"AppSlackScope":                        reflect.TypeOf(appdefinition.SlackScope{}),
-		"AppGitHubScope":                       reflect.TypeOf(appdefinition.GitHubScope{}),
-		"AppDiscordScope":                      reflect.TypeOf(appdefinition.DiscordScope{}),
-		"AppListener":                          reflect.TypeOf(appdefinition.Listener{}),
-		"AppFollow":                            reflect.TypeOf(appdefinition.Follow{}),
-		"AppInteractionHandler":                reflect.TypeOf(appdefinition.InteractionHandler{}),
+		"AgentConfigAppCapabilitySource":       reflect.TypeOf(AgentConfigAppCapabilitySource{}),
 		"AgentConfigModelSource":               reflect.TypeOf(AgentConfigModelSource{}),
 		"AgentConfigMachineSource":             reflect.TypeOf(AgentConfigMachineSource{}),
 		"AgentConfigToolSource":                reflect.TypeOf(AgentConfigToolSource{}),

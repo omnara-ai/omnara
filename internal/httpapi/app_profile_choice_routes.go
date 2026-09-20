@@ -30,7 +30,7 @@ func profileChoiceText(choice integrationstore.AppProfileChoiceRecord) string {
 // are handled before agent interactions, without creating a fake permission.
 func (s *Server) slackProfileChoiceAction(
 	w http.ResponseWriter, r *http.Request,
-	connection integrationstore.IntegrationConnectionRecord, envelope slack.ActionsEnvelope,
+	app integrationstore.ProjectAppRecord, envelope slack.ActionsEnvelope,
 ) bool {
 	matched := false
 	for _, action := range envelope.Actions {
@@ -51,7 +51,7 @@ func (s *Server) slackProfileChoiceAction(
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	choice, err := integration.SelectChatAppProfile(ctx, s.store.Integrations(), connection, id,
+	choice, err := integration.SelectChatAppProfile(ctx, s.store.Integrations(), app, id,
 		selection.Key, envelope.User.ID, envelope.Channel.ID, envelope.Message.TS)
 	text := profileChoiceText(choice)
 	if err != nil {
@@ -65,17 +65,17 @@ func (s *Server) slackProfileChoiceAction(
 	retired := !choice.ExpiresAt.IsZero() && !time.Now().Before(choice.ExpiresAt)
 	if (err == nil || retired) && choice.MessageID != "" && choice.MessageID == envelope.Message.TS &&
 		choice.MessageChannelID == envelope.Channel.ID {
-		s.dismissSlackProfileChoice(ctx, connection, choice, text)
+		s.dismissSlackProfileChoice(ctx, app, choice, text)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "recorded"})
 	return true
 }
 
 func (s *Server) discordProfileChoiceAction(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord, input discord.Interaction,
+	ctx context.Context, app integrationstore.ProjectAppRecord, input discord.Interaction,
 ) (discord.InteractionResponse, error) {
 	selection, err := discord.ProfileChoiceFromInteraction(input)
-	if err != nil || input.Message == nil || input.Message.Author.ID != connection.ProviderAccountRef ||
+	if err != nil || input.Message == nil || input.Message.Author.ID != app.ProviderAccountRef ||
 		input.Message.ChannelID != input.ChannelID {
 		return discordInteractionNotice(unavailableProfileChoice)
 	}
@@ -83,7 +83,7 @@ func (s *Server) discordProfileChoiceAction(
 	if err != nil {
 		return discordInteractionNotice(unavailableProfileChoice)
 	}
-	choice, err := integration.SelectChatAppProfile(ctx, s.store.Integrations(), connection, id,
+	choice, err := integration.SelectChatAppProfile(ctx, s.store.Integrations(), app, id,
 		selection.Key, input.Actor().ID, input.ChannelID, input.Message.ID)
 	text := profileChoiceText(choice)
 	if err != nil {
@@ -109,7 +109,7 @@ func unavailableChoiceError(err error) bool {
 }
 
 func (s *Server) dismissSlackProfileChoice(
-	ctx context.Context, connection integrationstore.IntegrationConnectionRecord,
+	ctx context.Context, app integrationstore.ProjectAppRecord,
 	choice integrationstore.AppProfileChoiceRecord, text string,
 ) {
 	go func() {
@@ -118,7 +118,7 @@ func (s *Server) dismissSlackProfileChoice(
 		provider := integration.NewSlackAppInboxProvider(
 			s.slackOAuth, s.store.Secrets(), s.store.Integrations(), s.store.Execution(),
 		)
-		if err := provider.DismissProfileChoice(ctx, connection, choice, text); err != nil {
+		if err := provider.DismissProfileChoice(ctx, app, choice, text); err != nil {
 			s.log.Warn("profile choice dismissal failed", "choice_id", choice.ID, "error", err)
 		}
 	}()

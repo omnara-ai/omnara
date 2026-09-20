@@ -13,12 +13,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
-	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -495,21 +496,37 @@ func seedListAgentsSlackTarget(
 		"ULISTAGENTSBOT",
 		"signing-secret-list-agents",
 	)
+	base, found, err := store.Execution().GetAgentConfig(ctx, project.ProjectUUID, agent.CurrentConfigID)
+	require.NoError(t, err)
+	require.True(t, found)
+	derived, err := agentconfigcompile.DeriveAppConfig(ctx, store, project.OrgUUID, project.ProjectUUID,
+		agentconfig.CompileOptions{}, base, agentconfig.AppCapabilitiesSource{
+			InteractionHandlers: map[string]agentconfig.AgentConfigAppCapabilitySource{
+				install.Name: {Config: map[string]any{"channel_id": "C0BAK8REEGY"}},
+			},
+		})
+	require.NoError(t, err)
+	_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: derived.CreateInput(project.ProjectUUID),
+		AgentID:                agent.ID, ExpectedCurrentConfigID: base.ID, ActorType: "user", ActorID: project.AdminUserUUID,
+		IdempotencyKey: "list-agents-handler",
+	})
+	require.NoError(t, err)
 	// A verified inbox input creates the attribution target through real admission.
-	_, _, err := store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: project.ProjectUUID, ConnectionID: install.ID,
+	_, _, err = store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: project.ProjectUUID, AppID: install.ID,
 		ReceiptKey: "list-origin", Payload: []byte(`{"verified":true}`),
 	})
 	require.NoError(t, err)
 	receipt, found, err := store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: project.ProjectUUID, ConnectionID: install.ID, LeaseDuration: time.Minute,
+		ProjectID: project.ProjectUUID, AppID: install.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
 	plan, err := json.Marshal(map[string]executionstore.InboxInputSlot{"recipient": {
 		AgentID: agent.ID, Input: executionstore.CreateAgentContentInputInput{
 			Origin: &executionstore.AgentInputOrigin{
-				ConnectionID: install.ID,
+				AppID: install.ID,
 				Address: integrationstore.ConversationAddress{
 					Kind: "thread",
 					Ref:  "C0BAK8REEGY:1783382417.000100",
@@ -524,9 +541,8 @@ func seedListAgentsSlackTarget(
 	require.NoError(t, err)
 	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
 		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
-	admitted, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	_, err = store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
 	require.NoError(t, err)
-	target := admitted.IntegrationTarget
 	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 		ctx,
 		project.ProjectUUID,
@@ -535,15 +551,6 @@ func seedListAgentsSlackTarget(
 		"agent-testing",
 	); err != nil {
 		t.Fatalf("seed Slack conversation display name: %v", err)
-	}
-	if err := storagetest.SeedAgentIntegrationTarget(
-		ctx,
-		pool,
-		project.ProjectUUID,
-		agent.ID,
-		target.ID,
-	); err != nil {
-		t.Fatalf("set Slack integration target: %v", err)
 	}
 	publicAgentID, err := publicid.Encode(publicid.KindAgent, agent.ID)
 	if err != nil {

@@ -3,7 +3,6 @@ package executionstore
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,17 +12,17 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// ConfirmedAppFollow is produced only after a provider confirms the post. It is
-// not a grant: the model request's config and current config must both permit it.
+// ConfirmedAppFollow is produced only after a provider confirms the post. The
+// original config must authorize the send and follow; the live app, listener and
+// agent govern registration. Subsequent sender edits cannot revoke that receipt.
 type ConfirmedAppFollow struct {
-	ResourceKey  string
-	ConnectionID uuid.UUID
-	Scope        appdefinition.Scope
+	ListenerKey string
+	AppID       uuid.UUID
+	Scope       appdefinition.Scope
 }
 
 func (s *Store) CompleteAppPostToolCall(
@@ -53,9 +52,9 @@ func (s *Store) completeAppPostOnce(
 	input CompleteRuntimeToolCallInput,
 	follow ConfirmedAppFollow,
 ) (ToolCallRecord, error) {
-	if follow.ResourceKey == "" || follow.ConnectionID == uuid.Nil || input.Outcome != ToolResultOutcomeSucceeded {
+	if follow.ListenerKey == "" || follow.AppID == uuid.Nil || input.Outcome != ToolResultOutcomeSucceeded {
 		return ToolCallRecord{}, storeerr.InvalidRequest(
-			errors.New("confirmed follow requires a resource, connection and successful post"),
+			errors.New("confirmed follow requires a listener, app and successful post"),
 		)
 	}
 	kind, ref, err := follow.Scope.Conversation()
@@ -85,10 +84,10 @@ func (s *Store) completeAppPostOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ToolCallRecord{}, err
 	}
-	if err := integrationstore.LockAppConnectionsTx(ctx, tx, input.ProjectID, nil, follow.ConnectionID); err != nil {
+	if err := integrationstore.LockAppsTx(ctx, tx, input.ProjectID, nil, follow.AppID); err != nil {
 		return ToolCallRecord{}, err
 	}
-	if err := integrationstore.LockConversationTx(ctx, tx, input.ProjectID, follow.ConnectionID, address); err != nil {
+	if err := integrationstore.LockConversationTx(ctx, tx, input.ProjectID, follow.AppID, address); err != nil {
 		return ToolCallRecord{}, err
 	}
 	if err := lockAgentRuntimeForOwnedMutationTx(
@@ -128,9 +127,6 @@ func (s *Store) registerAppFollowTx(
 	follow ConfirmedAppFollow,
 	address integrationstore.ConversationAddress,
 ) error {
-	if !toolcatalog.AppToolSupportsFollow(tool.Name) {
-		return storeerr.InvalidRequest(errors.New("this tool does not support following replies"))
-	}
 	q := dbsqlc.New(tx)
 	model, err := loadModelCallContextByIDTx(ctx, tx, tool.ProjectID, tool.AgentID, tool.ModelCallContextID)
 	if err != nil {
@@ -156,59 +152,53 @@ func (s *Store) registerAppFollowTx(
 	if err != nil {
 		return err
 	}
-	authority, err := agentconfig.ResolveAppToolAuthority(
-		originalContract,
-		currentContract,
-		tool.Name,
-		follow.ResourceKey,
-	)
+	app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, follow.AppID)
+	if err != nil {
+		return err
+	}
+	appRef, err := publicid.Encode(publicid.KindProjectApp, app.ID)
+	if err != nil {
+		return err
+	}
+	// Provider I/O already checked the current sender. Completion validates the
+	// original send's provenance; the current listener independently owns replies.
+	authority, err := agentconfig.ResolveAppToolAuthority(originalContract, originalContract, tool.Name,
+		map[string]agentconfig.AppResolution{appRef: {AppID: appRef, Definition: app.DefinitionID}})
 	if err != nil {
 		return storeerr.ErrUnauthorized
 	}
-	connectionID, err := publicid.Decode(publicid.KindIntegrationConnection, authority.Original.ConnectionID)
-	if err != nil || connectionID != follow.ConnectionID || !authority.AllowsScope(follow.Scope) ||
-		!authority.AllowsFollowingReplies() {
+	name, _, ok := toolcatalog.SplitAppToolName(tool.Name)
+	if !ok || app.ProjectID != tool.ProjectID || app.Name != name || authority.Definition.FollowListener == "" ||
+		follow.ListenerKey != name+"__"+authority.Definition.FollowListener ||
+		originalContract.Listeners[follow.ListenerKey].AppID != appRef ||
+		currentContract.Listeners[follow.ListenerKey].AppID != appRef {
 		return storeerr.ErrUnauthorized
+	}
+	arguments, err := authority.Definition.ResolveArgs(authority.Tool.Config, tool.Input)
+	if err != nil || !arguments.FollowReplies {
+		return storeerr.ErrUnauthorized
+	}
+	if err := follow.Scope.Validate(app.Provider); err != nil {
+		return storeerr.InvalidRequest(err)
 	}
 	if _, err := s.integrations.EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
-		ProjectID:    tool.ProjectID,
-		AgentID:      tool.AgentID,
-		ConnectionID: follow.ConnectionID,
-		Address:      address,
-		Role:         integrationstore.TargetFollowed,
+		ProjectID: tool.ProjectID,
+		AgentID:   tool.AgentID,
+		AppID:     follow.AppID,
+		Address:   address,
+		Role:      integrationstore.TargetFollowed,
 	}); err != nil {
 		return err
 	}
-	if _, err := q.UpsertAgentListener(ctx, dbsqlc.UpsertAgentListenerParams{
-		ProjectID:      tool.ProjectID,
-		AgentID:        tool.AgentID,
-		ConnectionID:   follow.ConnectionID,
-		ResourceKey:    follow.ResourceKey,
-		ScopeKind:      address.Kind,
-		ScopeRef:       address.Ref,
-		Events:         []string{"message"},
-		SourceConfigID: agent.CurrentConfigID,
-		ToolCallID:     &tool.ID,
-	}); err != nil {
-		return err
-	}
-	limits, err := resourceguard.ResolveLimits(ctx, q, agent.OrgID)
-	if err != nil {
-		return err
-	}
-	count, err := q.CountActiveAgentListeners(
-		ctx,
-		dbsqlc.CountActiveAgentListenersParams{ProjectID: tool.ProjectID, AgentID: tool.AgentID},
-	)
-	if err != nil {
-		return err
-	}
-	if count > limits.MaxActiveAppListenersPerAgent {
-		return fmt.Errorf(
-			"app listeners limit of %d reached: %w",
-			limits.MaxActiveAppListenersPerAgent,
-			storeerr.ErrConflict,
-		)
-	}
-	return nil
+	return integrationstore.RegisterRuntimeListenerTx(ctx, tx, integrationstore.RegisterRuntimeListenerInput{
+		OrgID:       agent.OrgID,
+		ProjectID:   tool.ProjectID,
+		AgentID:     tool.AgentID,
+		ConfigID:    agent.CurrentConfigID,
+		AppID:       follow.AppID,
+		ListenerKey: follow.ListenerKey,
+		Capability:  currentContract.Listeners[follow.ListenerKey],
+		Address:     address,
+		ToolCallID:  &tool.ID,
+	})
 }

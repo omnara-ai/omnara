@@ -34,12 +34,12 @@ type SlackInboxSecrets interface {
 	) (secretstore.ProjectSecretAccessRecord, error)
 }
 
-type SlackInboxConnections interface {
-	GetIntegrationConnection(
+type SlackInboxApps interface {
+	GetProjectApp(
 		context.Context,
 		uuid.UUID,
 		uuid.UUID,
-	) (integrationstore.IntegrationConnectionRecord, error)
+	) (integrationstore.ProjectAppRecord, error)
 	GetConversationDisplayName(
 		context.Context, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress,
 	) (string, error)
@@ -50,50 +50,50 @@ type SlackInboxActors interface {
 }
 
 type SlackAppInboxProvider struct {
-	config      slack.OAuthConfig
-	secrets     SlackInboxSecrets
-	connections SlackInboxConnections
-	actors      SlackInboxActors
+	config  slack.OAuthConfig
+	secrets SlackInboxSecrets
+	apps    SlackInboxApps
+	actors  SlackInboxActors
 }
 
 func NewSlackAppInboxProvider(
 	config slack.OAuthConfig,
 	secrets SlackInboxSecrets,
-	connections SlackInboxConnections,
+	apps SlackInboxApps,
 	actors SlackInboxActors,
 ) *SlackAppInboxProvider {
-	return &SlackAppInboxProvider{config: config, secrets: secrets, connections: connections, actors: actors}
+	return &SlackAppInboxProvider{config: config, secrets: secrets, apps: apps, actors: actors}
 }
 
 // requestAccess resolves project-owned or granted credentials without holding a
 // transaction during key unwrapping or provider I/O. The captured version and
-// connection revision fence every subsequent request, including file hydration.
+// app setup revision fence every subsequent request, including file hydration.
 func (p *SlackAppInboxProvider) requestAccess(
 	ctx context.Context,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 ) (slack.OAuthConfig, string, func(context.Context) error, error) {
-	if p.secrets == nil || p.connections == nil {
-		return slack.OAuthConfig{}, "", nil, fmt.Errorf("slack secret and connection resolvers are required")
+	if p.secrets == nil || p.apps == nil {
+		return slack.OAuthConfig{}, "", nil, fmt.Errorf("slack secret and app resolvers are required")
 	}
-	checkConnection := func(ctx context.Context) error {
-		latest, err := p.connections.GetIntegrationConnection(ctx, connection.ProjectID, connection.ID)
+	checkAppSetup := func(ctx context.Context) error {
+		latest, err := p.apps.GetProjectApp(ctx, appSetup.ProjectID, appSetup.ID)
 		if err != nil {
 			return err
 		}
-		if latest.State != integrationstore.IntegrationConnectionStateActive || latest.Provider != "slack" ||
-			latest.ID != connection.ID || latest.OrgID != connection.OrgID || latest.ProjectID != connection.ProjectID ||
-			latest.CredentialSecretID != connection.CredentialSecretID || !latest.UpdatedAt.Equal(connection.UpdatedAt) {
-			return fmt.Errorf("slack connection changed: %w", storeerr.ErrUnauthorized)
+		if latest.State != integrationstore.ProjectAppStateActive || latest.Provider != "slack" ||
+			latest.ID != appSetup.ID || latest.OrgID != appSetup.OrgID || latest.ProjectID != appSetup.ProjectID ||
+			latest.CredentialSecretID != appSetup.CredentialSecretID || latest.SetupRevision != appSetup.SetupRevision {
+			return fmt.Errorf("slack app setup changed: %w", storeerr.ErrUnauthorized)
 		}
 		return nil
 	}
-	if err := checkConnection(ctx); err != nil {
+	if err := checkAppSetup(ctx); err != nil {
 		return slack.OAuthConfig{}, "", nil, err
 	}
 	record, err := p.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
-		OrgID:     connection.OrgID,
-		ProjectID: connection.ProjectID,
-		SecretID:  connection.CredentialSecretID,
+		OrgID:     appSetup.OrgID,
+		ProjectID: appSetup.ProjectID,
+		SecretID:  appSetup.CredentialSecretID,
 		Kind:      secrets.KindSlackAppCredentials,
 	})
 	if err != nil {
@@ -106,9 +106,9 @@ func (p *SlackAppInboxProvider) requestAccess(
 	check := func(ctx context.Context) error {
 		access, err := p.secrets.GetProjectAvailableSecret(
 			ctx,
-			connection.OrgID,
-			connection.ProjectID,
-			connection.CredentialSecretID,
+			appSetup.OrgID,
+			appSetup.ProjectID,
+			appSetup.CredentialSecretID,
 		)
 		if err != nil {
 			return err
@@ -117,13 +117,22 @@ func (p *SlackAppInboxProvider) requestAccess(
 			access.Secret.CurrentVersionID != record.CurrentVersionID {
 			return fmt.Errorf("slack credential changed: %w", storeerr.ErrUnauthorized)
 		}
-		return checkConnection(ctx)
+		return checkAppSetup(ctx)
 	}
 	if err := check(ctx); err != nil {
 		return slack.OAuthConfig{}, "", nil, err
 	}
 	config := p.config
 	config.HTTPClient = slack.WithRequestCheck(config.HTTPClient, check)
+	identity, err := slack.ParseInstallIdentity(appSetup.ProviderIdentity)
+	if err != nil {
+		return slack.OAuthConfig{}, "", nil, err
+	}
+	if err := slack.CheckIdentity(ctx, config, credentials.BotToken, slack.Identity{
+		AppID: appSetup.ProviderAccountRef, WorkspaceID: appSetup.ProviderTenantID, BotUserID: identity.BotUserID,
+	}); err != nil {
+		return slack.OAuthConfig{}, "", nil, err
+	}
 	return config, credentials.BotToken, check, nil
 }
 
@@ -132,10 +141,10 @@ func (p *SlackAppInboxProvider) requestAccess(
 // Root human messages are listener events, but only mentions trigger a launcher.
 // Both message and app_mention callbacks use the same semantic message identity.
 func NormalizeSlackAppEvent(
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 ) (AppEvent, bool, error) {
-	envelope, identity, ok, err := slackInboxEnvelope(connection, payload)
+	envelope, identity, ok, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil || !ok {
 		return AppEvent{}, ok, err
 	}
@@ -158,10 +167,10 @@ func NormalizeSlackAppEvent(
 			Kind:      "message",
 			Mentioned: mentioned,
 		},
-		SemanticKey: "slack:message:" + connection.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
+		SemanticKey: "slack:message:" + appSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
 		Actor: executionstore.ActorParams{
 			Provider:         "slack",
-			ProviderTenantID: connection.ProviderTenantID,
+			ProviderTenantID: appSetup.ProviderTenantID,
 			ProviderUserID:   event.User,
 		},
 		DeliveryMode:           executionstore.DeliveryModeSteering,
@@ -181,24 +190,24 @@ func NormalizeSlackAppEvent(
 }
 
 func slackInboxEnvelope(
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 ) (slack.EventsEnvelope, slack.InstallIdentity, bool, error) {
-	if connection.Provider != "slack" {
+	if appSetup.Provider != "slack" {
 		return slack.EventsEnvelope{}, slack.InstallIdentity{}, false, storeerr.ErrUnauthorized
 	}
 	envelope, err := slack.DecodeEventsEnvelope(payload)
 	if err != nil {
 		return envelope, slack.InstallIdentity{}, false, err
 	}
-	identity, err := slack.ParseInstallIdentity(connection.ProviderIdentity)
+	identity, err := slack.ParseInstallIdentity(appSetup.ProviderIdentity)
 	if err != nil {
 		return envelope, identity, false, err
 	}
 	if !slack.ValidateEnvelopeIdentity(
 		slack.Identity{
-			AppID:       connection.ProviderAccountRef,
-			WorkspaceID: connection.ProviderTenantID,
+			AppID:       appSetup.ProviderAccountRef,
+			WorkspaceID: appSetup.ProviderTenantID,
 			BotUserID:   identity.BotUserID,
 		},
 		envelope,
@@ -210,8 +219,8 @@ func slackInboxEnvelope(
 	}
 	if !slack.ValidateRuntimeBotAuthorization(
 		slack.Identity{
-			AppID:       connection.ProviderAccountRef,
-			WorkspaceID: connection.ProviderTenantID,
+			AppID:       appSetup.ProviderAccountRef,
+			WorkspaceID: appSetup.ProviderTenantID,
 			BotUserID:   identity.BotUserID,
 		},
 		envelope,
@@ -225,7 +234,7 @@ func slackInboxEnvelope(
 	if event.Subtype != "" && event.Subtype != "file_share" {
 		return envelope, identity, false, nil
 	}
-	if slack.RemoteUserEvent(connection.ProviderTenantID, event) || slack.BotOrSelfEvent(identity.BotUserID, event) {
+	if slack.RemoteUserEvent(appSetup.ProviderTenantID, event) || slack.BotOrSelfEvent(identity.BotUserID, event) {
 		return envelope, identity, false, nil
 	}
 	if event.TS == "" || event.Channel == "" || envelope.EventID == "" {
@@ -254,18 +263,18 @@ func slackMentionsUser(text, user string) bool {
 
 func (p *SlackAppInboxProvider) Expand(
 	ctx context.Context,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 ) (AppInboxExpansion, error) {
-	normalized, ok, err := NormalizeSlackAppEvent(connection, payload)
+	normalized, ok, err := NormalizeSlackAppEvent(appSetup, payload)
 	if err != nil || !ok {
 		return AppInboxExpansion{}, err
 	}
-	envelope, identity, _, err := slackInboxEnvelope(connection, payload)
+	envelope, identity, _, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil {
 		return AppInboxExpansion{}, err
 	}
-	config, token, check, err := p.requestAccess(ctx, connection)
+	config, token, check, err := p.requestAccess(ctx, appSetup)
 	if err != nil {
 		return AppInboxExpansion{}, err
 	}
@@ -288,16 +297,16 @@ func (p *SlackAppInboxProvider) Expand(
 	if p.actors != nil {
 		stored, _ = p.actors.ListActorDisplayNames(
 			enrichCtx,
-			connection.ProjectID,
+			appSetup.ProjectID,
 			"slack",
-			connection.ProviderTenantID,
+			appSetup.ProviderTenantID,
 			slack.ReferencedUserIDs(event, history),
 		)
 	}
-	channelName, _ := p.connections.GetConversationDisplayName(
+	channelName, _ := p.apps.GetConversationDisplayName(
 		enrichCtx,
-		connection.ProjectID,
-		connection.ID,
+		appSetup.ProjectID,
+		appSetup.ID,
 		integrationstore.ConversationAddress{Kind: kind, Ref: ref},
 	)
 	labels, _, _ := slack.ResolveDisplayLabels(
@@ -308,7 +317,7 @@ func (p *SlackAppInboxProvider) Expand(
 			Event:                  event,
 			HistoryMessages:        history,
 			BotUserID:              identity.BotUserID,
-			BotDisplayName:         connection.ProviderAgentDisplayName,
+			BotDisplayName:         appSetup.ProviderAgentDisplayName,
 			StoredUserDisplayNames: stored,
 		},
 	)
@@ -417,11 +426,11 @@ func slackInboxFileOptions() slack.FileDownloadOptions {
 
 func (p *SlackAppInboxProvider) DownloadFile(
 	ctx context.Context,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 	fileID string,
 ) (AppInboxFile, error) {
-	envelope, _, ok, err := slackInboxEnvelope(connection, payload)
+	envelope, _, ok, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil {
 		return AppInboxFile{}, err
 	}
@@ -439,7 +448,7 @@ func (p *SlackAppInboxProvider) DownloadFile(
 	if selected == nil {
 		return AppInboxFile{}, fmt.Errorf("file is not in the captured Slack message")
 	}
-	config, token, check, err := p.requestAccess(ctx, connection)
+	config, token, check, err := p.requestAccess(ctx, appSetup)
 	if err != nil {
 		return AppInboxFile{}, err
 	}
@@ -461,7 +470,7 @@ func (p *SlackAppInboxProvider) DownloadFile(
 // is idempotent, and an unavailable presentation never retries accepted input.
 func (p *SlackAppInboxProvider) acknowledge(
 	ctx context.Context,
-	connection integrationstore.IntegrationConnectionRecord,
+	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 	results []AppSlotAdmission,
 ) error {
@@ -473,13 +482,13 @@ func (p *SlackAppInboxProvider) acknowledge(
 	if !created {
 		return nil
 	}
-	envelope, _, ok, err := slackInboxEnvelope(connection, payload)
+	envelope, _, ok, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil || !ok {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	config, token, _, err := p.requestAccess(ctx, connection)
+	config, token, _, err := p.requestAccess(ctx, appSetup)
 	if err != nil {
 		return err
 	}

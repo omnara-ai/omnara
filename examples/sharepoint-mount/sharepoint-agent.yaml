@@ -23,9 +23,10 @@ instruction: |
     with the docx module.
   Reading files this way is always safe; only writing needs user confirmation.
 
-  When slack_post_message is available through a Slack app resource, the
-  external user only sees messages you send with slack_post_message —
-  use it for every answer or update they should see.
+  When a Slack app launcher provides an app__<app-name>__post_message tool,
+  use it for every answer or update in the conversation that launched you.
+  The external user only sees messages sent with that tool. Otherwise answer
+  directly in the Omnara conversation.
 model:
   provider_config: oai
   name: gpt-5.5
@@ -43,8 +44,3 @@ tools:
   list_machines: {}
   inspect_machine: {}
   ask_question: {}
-  # Policy only: Slack app setup supplies the scoped tool for launched agents.
-  # Agents launched directly need an explicit app_resources attachment to send.
-  slack_post_message:
-    permission:
-      mode: always_allow

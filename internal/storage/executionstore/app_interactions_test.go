@@ -8,100 +8,46 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppInteractionHandlerMatching(t *testing.T) {
+func TestAppInteractionOriginArguments(t *testing.T) {
 	t.Parallel()
-	connectionID, targetID := uuid.New(), uuid.New()
-	connection, err := publicid.Encode(publicid.KindIntegrationConnection, connectionID)
-	require.NoError(t, err)
-	base := agentconfig.AppResourceCompiled{
-		Definition: appdefinition.Slack, Enabled: true, ConnectionID: connection,
-		Scope:              &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123"}},
-		InteractionHandler: &appdefinition.InteractionHandler{Definition: appdefinition.SlackInteractions},
-	}
-	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	for _, test := range []struct {
-		name   string
-		change func(*agentconfig.AppResourceCompiled)
-		count  int
+		name, provider, config, kind, ref, args string
 	}{
-		{"handler only", func(*agentconfig.AppResourceCompiled) {}, 1},
-		{"disabled", func(r *agentconfig.AppResourceCompiled) { r.Enabled = false }, 0},
-		{"listener only", func(r *agentconfig.AppResourceCompiled) {
-			r.InteractionHandler = nil
-			r.Listener = &appdefinition.Listener{Events: []string{"message"}}
-		}, 0},
-		{"other connection", func(r *agentconfig.AppResourceCompiled) {
-			r.ConnectionID, _ = publicid.Encode(publicid.KindIntegrationConnection, uuid.New())
-		}, 0},
-		{"other channel", func(r *agentconfig.AppResourceCompiled) {
-			r.Scope = &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C456"}}
-		}, 0},
-		{"other thread", func(r *agentconfig.AppResourceCompiled) {
-			r.Scope = &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "999.000"}}
-		}, 0},
-		{"wrong handler", func(r *agentconfig.AppResourceCompiled) {
-			r.InteractionHandler = &appdefinition.InteractionHandler{Definition: appdefinition.DiscordInteractions}
-		}, 0},
+		{"flexible Slack", "slack", `{}`, "thread", "C123:111.222", `{"channel_id":"C123","thread_ts":"111.222"}`},
+		{"fixed channel", "slack", `{"channel_id":"C123"}`, "thread", "C123:111.222", `{"thread_ts":"111.222"}`},
+		{"fixed thread", "slack", `{"channel_id":"C123","thread_ts":"111.222"}`, "thread", "C123:111.222", `{}`},
+		{"other channel", "slack", `{"channel_id":"C456"}`, "thread", "C123:111.222", ""},
+		{"other thread", "slack", `{"channel_id":"C123","thread_ts":"999.000"}`, "thread", "C123:111.222", ""},
+		{"fixed thread rejects parent", "slack", `{"channel_id":"C123","thread_ts":"111.222"}`, "channel", "C123", ""},
+		{"DM", "slack", `{}`, "dm", "D123", `{"channel_id":"D123"}`},
+		{"DM kind matters", "slack", `{}`, "channel", "D123", ""},
+		{"prefix is not identity", "slack", `{"channel_id":"C123"}`, "thread", "C1234:111.222", ""},
+		{"malformed thread", "slack", `{}`, "thread", "C123:not-a-timestamp", ""},
+		{"malformed address", "slack", `{}`, "thread", "C123", ""},
+		{"flexible Discord", "discord", `{}`, "thread", "20:30", `{"channel_id":"20","thread_id":"30"}`},
+		{"fixed guild channel", "discord", `{"guild_id":"10","channel_id":"20"}`, "thread", "20:30", `{"thread_id":"30"}`},
+		{"other Discord thread", "discord", `{"channel_id":"20","thread_id":"40"}`, "thread", "20:30", ""},
+		{"Discord has no DM kind", "discord", `{}`, "dm", "20", ""},
+		{"unsupported provider", "github", `{}`, "pull_request", "123#4", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			resource := base
-			test.change(&resource)
-			matches := matchingInteractionDestinations(
-				map[string]agentconfig.AppResourceCompiled{"chat": resource}, targetID, connectionID, "slack", address,
+			handler := appdefinition.InteractionHandlerDefinition{Provider: test.provider}
+			args, ok := interactionArgsForOrigin(
+				handler,
+				json.RawMessage(test.config),
+				integrationstore.ConversationAddress{Kind: test.kind, Ref: test.ref},
 			)
-			require.Len(t, matches, test.count)
-		})
-	}
-	resources := map[string]agentconfig.AppResourceCompiled{"z": base, "a": base}
-	matches := matchingInteractionDestinations(resources, targetID, connectionID, "slack", address)
-	require.Len(t, matches, 2, "overlapping resources remain explicitly selectable")
-	require.Equal(t, "a", matches[0].ResourceKey)
-	require.Equal(t, "z", matches[1].ResourceKey)
-	require.Empty(t, matchingInteractionDestinations(resources, targetID, connectionID, "github", address))
-}
-
-func TestAppInteractionScopeUsesCanonicalProviderAddress(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct {
-		name    string
-		scope   appdefinition.Scope
-		address integrationstore.ConversationAddress
-		want    bool
-	}{
-		{
-			"Slack DM", appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "D123"}},
-			integrationstore.ConversationAddress{Kind: "dm", Ref: "D123"}, true,
-		},
-		{
-			"Slack DM kind matters", appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "D123"}},
-			integrationstore.ConversationAddress{Kind: "channel", Ref: "D123"}, false,
-		},
-		{
-			"Slack prefix is not channel identity", appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123"}},
-			integrationstore.ConversationAddress{Kind: "thread", Ref: "C1234:111.222"}, false,
-		},
-		{
-			"Slack malformed thread", appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123"}},
-			integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:not-a-timestamp"}, false,
-		},
-		{
-			"Discord thread", appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "10", ChannelID: "20"}},
-			integrationstore.ConversationAddress{Kind: "thread", Ref: "20:30"}, true,
-		},
-		{
-			"Discord other thread", appdefinition.Scope{Discord: &appdefinition.DiscordScope{ChannelID: "20", ThreadID: "40"}},
-			integrationstore.ConversationAddress{Kind: "thread", Ref: "20:30"}, false,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, test.want, interactionScopeContains(&test.scope, test.address))
+			require.Equal(t, test.args != "", ok)
+			if ok {
+				require.JSONEq(t, test.args, string(args))
+			}
 		})
 	}
 }
@@ -109,8 +55,14 @@ func TestAppInteractionScopeUsesCanonicalProviderAddress(t *testing.T) {
 func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	t.Parallel()
 	destination := InteractionDestination{
-		HandlerDefinition: appdefinition.SlackInteractions, ResourceKey: "chat",
-		IntegrationTargetID: uuid.New(), ConnectionID: uuid.New(),
+		HandlerDefinition:   appdefinition.Slack,
+		HandlerKey:          "chat",
+		AppID:               uuid.New(),
+		IntegrationTargetID: uuid.New(),
+		Config: json.RawMessage(
+			`{"channel_id":"C123"}`,
+		),
+		Args:    json.RawMessage(`{"thread_ts":"111.222"}`),
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 	}
 	raw, err := json.Marshal(destination)
@@ -122,15 +74,34 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, parsed)
 	for _, raw := range []string{
-		`null`, `[]`, `{}`, `{} {}`, `{"unexpected":true}`, strings.Repeat(" ", InteractionDestinationMaxBytes) + `{}`,
+		`null`, `[]`, `{}`, `{} {}`, `{"unexpected":true}`,
+		strings.Repeat(" ", InteractionDestinationMaxBytes) + `{}`,
 	} {
 		_, err := (AgentInteractionRecord{Destination: json.RawMessage(raw)}).CapturedDestination()
 		require.Error(t, err)
 	}
-	for _, raw := range []string{
-		`null`, `[]`, `{} {}`, `{"id":"bad\u0000id"}`, `{"id":"` + strings.Repeat("x", InteractionReceiptMaxBytes) + `"}`,
+	for _, change := range []func(*InteractionDestination){
+		func(d *InteractionDestination) { d.AppID = uuid.Nil },
+		func(d *InteractionDestination) { d.HandlerKey = "chat__alias" },
+		func(d *InteractionDestination) { d.HandlerDefinition = appdefinition.GitHub },
+		func(d *InteractionDestination) { d.Address.Ref = "C456:111.222" },
+		func(d *InteractionDestination) { d.Config = json.RawMessage(`{"channel_id":"C456"}`) },
+		func(d *InteractionDestination) {
+			d.Args = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
+		},
 	} {
-		require.Error(t, validateInteractionObject(json.RawMessage(raw), InteractionReceiptMaxBytes))
+		changed := destination
+		change(&changed)
+		require.Error(t, changed.validate())
+	}
+	for _, raw := range []string{
+		`null`, `[]`, `{} {}`, `{"id":"bad\u0000id"}`,
+		`{"id":"` + strings.Repeat("x", InteractionReceiptMaxBytes) + `"}`,
+	} {
+		require.Error(
+			t,
+			validateInteractionObject(json.RawMessage(raw), InteractionReceiptMaxBytes),
+		)
 	}
 	require.NoError(
 		t,
@@ -139,4 +110,60 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 			InteractionReceiptMaxBytes,
 		),
 	)
+}
+
+func TestAppInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
+	t.Parallel()
+	original := InteractionDestination{
+		HandlerDefinition:   appdefinition.Slack,
+		HandlerKey:          "chat",
+		AppID:               uuid.New(),
+		IntegrationTargetID: uuid.New(),
+		Config: json.RawMessage(
+			`{"channel_id":"C123"}`,
+		),
+		Args:    json.RawMessage(`{"thread_ts":"111.222"}`),
+		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
+	}
+	equal := original
+	equal.Config = json.RawMessage(`{ "channel_id" : "C123" }`)
+	require.True(t, sameInteractionDestination(original, equal))
+	for _, change := range []func(*InteractionDestination){
+		func(d *InteractionDestination) { d.HandlerKey = "replacement" },
+		func(d *InteractionDestination) { d.AppID = uuid.New() },
+		func(d *InteractionDestination) { d.IntegrationTargetID = uuid.New() },
+		func(d *InteractionDestination) { d.HandlerDefinition = appdefinition.Discord },
+		func(d *InteractionDestination) { d.Config = json.RawMessage(`{}`) },
+		func(d *InteractionDestination) { d.Args = json.RawMessage(`{}`) },
+		func(d *InteractionDestination) { d.Address.Ref = "C123:333.444" },
+	} {
+		changed := original
+		change(&changed)
+		require.False(t, sameInteractionDestination(original, changed))
+	}
+}
+
+func TestAppInteractionPendingSelectionToolPermission(t *testing.T) {
+	t.Parallel()
+	original := agentconfig.RuntimeContract{
+		Tools: []agentconfig.RuntimeTool{
+			{
+				Name:       toolcatalog.ToolNameSetInteractionHandler,
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
+			},
+		},
+	}
+	require.True(t, interactionSelectionToolAuthorized(original, original))
+	require.False(t, interactionSelectionToolAuthorized(original, agentconfig.RuntimeContract{}))
+	for _, mode := range []string{toolpermission.ModeAlwaysDeny, toolpermission.ModeAlwaysAllow} {
+		current := agentconfig.RuntimeContract{
+			Tools: []agentconfig.RuntimeTool{
+				{
+					Name:       toolcatalog.ToolNameSetInteractionHandler,
+					Permission: toolpermission.DefaultSelection(mode),
+				},
+			},
+		}
+		require.False(t, interactionSelectionToolAuthorized(original, current))
+	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // ToolsFromSource previews selected capabilities using the same project-scoped
-// app, connection, and secret resolution as config compilation. It still permits
+// app and secret resolution as config compilation. It still permits
 // incomplete instruction/model fields while editing.
 func ToolsFromSource(
 	ctx context.Context,

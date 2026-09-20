@@ -1,19 +1,19 @@
-import type { ProfileAppProvider, ProjectApp } from '@omnara/sdk'
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useAppDefinitions } from '@omnara/react'
+import type { IntegrationProvider } from '@omnara/sdk'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 
 import { AppCatalog } from '@/components/apps/AppCatalog'
 import { appCatalog } from '@/components/apps/appDefinitions'
-import { ConnectSlackDialog } from '@/components/apps/ConnectSlackDialog'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
-import { SlackOAuthOutcomeDialog } from '@/components/apps/SlackOAuthOutcomeDialog'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 
 export function CreateProjectAppPage() {
   const { provider } = useParams({ strict: false })
   const selected = appCatalog.find((app) => app.provider === provider)
   return (
-    <ProjectPageFrame title={selected ? `Set up ${selected.name}` : 'Add app'}>
+    <ProjectPageFrame title={selected ? `Add ${selected.name}` : 'Add app'}>
       {({ activeOrg, projectId, project }) => {
         if (!project?.access.can_manage)
           return <p role="alert">You don’t have permission to manage apps in this project.</p>
@@ -30,10 +30,10 @@ export function CreateProjectAppPage() {
             <header className="flex flex-col gap-2">
               <h1 className="type-title">Add app</h1>
               <p className="text-muted-foreground text-sm">
-                Choose an app, then connect your account and configure its behavior.
+                Choose an app, name it, then connect your account.
               </p>
             </header>
-            <AppCatalog projectId={projectId} />
+            <AppCatalog orgId={activeOrg.id} projectId={projectId} />
           </>
         )
       }}
@@ -48,17 +48,20 @@ function AppSetup({
 }: {
   orgId: string
   projectId: string
-  provider: ProfileAppProvider
+  provider: IntegrationProvider
 }) {
-  const [connecting, setConnecting] = useState(false)
-  const search = useSearch({
-    from: '/authenticated/onboarded/projects/$projectId/apps/new/$provider',
-  })
+  const query = useAppDefinitions(orgId, projectId)
   const navigate = useNavigate()
   const selected = appCatalog.find((app) => app.provider === provider)
-  function saved(app: ProjectApp) {
-    void navigate({ to: '/projects/$projectId/apps/$appId', params: { projectId, appId: app.id } })
-  }
+  if (query.isPending) return <Spinner className="size-4" />
+  if (query.isError)
+    return (
+      <div role="alert">
+        Could not load app definition. <Button onClick={() => void query.refetch()}>Retry</Button>
+      </div>
+    )
+  if (!query.data.data.some((app) => app.id === `omnara.${provider}`))
+    return <p role="alert">This app is unavailable.</p>
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -69,23 +72,20 @@ function AppSetup({
         >
           Choose another app
         </Link>
-        <h1 className="type-title">Set up {selected?.name}</h1>
+        <h1 className="type-title">Add {selected?.name}</h1>
         <p className="text-muted-foreground text-sm">{selected?.description}</p>
       </header>
       <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
         provider={provider}
-        initialConnectionId={search.integration_connection}
-        onSaved={saved}
-        onConnectSlack={() => {
-          setConnecting(true)
-        }}
+        onSaved={(app) =>
+          void navigate({
+            to: '/projects/$projectId/apps/$appId',
+            params: { projectId, appId: app.id },
+          })
+        }
       />
-      {connecting && (
-        <ConnectSlackDialog open onOpenChange={setConnecting} orgId={orgId} projectId={projectId} />
-      )}
-      <SlackOAuthOutcomeDialog />
     </div>
   )
 }

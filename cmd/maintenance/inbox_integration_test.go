@@ -10,9 +10,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
@@ -27,26 +32,21 @@ func TestInboxCommandsInspectRetryAndDiscardWithoutPayloadDisclosure(t *testing.
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
-	store := storage.NewStore(pool).Integrations()
-	connection := uuid.New()
-	_, err := pool.Exec(ctx, `INSERT INTO integration_connections
- (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,
-  provider_account_ref,created_at,updated_at)
- VALUES($1,$2,$3,$4,'slack','active','T123','A123',now(),now())`,
-		connection, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID)
-	require.NoError(t, err)
+	stores := newMaintenanceInboxStore(t, pool, ids)
+	store := stores.Integrations()
+	app := createMaintenanceInboxApp(t, stores, ids, "slack", appdefinition.Slack).ID
 	var receipts []integrationstore.IntegrationInboxRecord
 	plannedAgent, plannedArtifact := uuid.New(), uuid.New()
 	for _, key := range []string{"one", "two"} {
 		_, _, err := store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-			ProjectID:    ids.ProjectID,
-			ConnectionID: connection,
-			ReceiptKey:   key,
-			Payload:      []byte(`{"token":"private-provider-payload"}`),
+			ProjectID:  ids.ProjectID,
+			AppID:      app,
+			ReceiptKey: key,
+			Payload:    []byte(`{"token":"private-provider-payload"}`),
 		})
 		require.NoError(t, err)
 		receipt, found, err := store.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-			ProjectID: ids.ProjectID, ConnectionID: connection, LeaseDuration: time.Minute,
+			ProjectID: ids.ProjectID, AppID: app, LeaseDuration: time.Minute,
 		})
 		require.NoError(t, err)
 		require.True(t, found)
@@ -130,4 +130,64 @@ func TestInboxCommandsInspectRetryAndDiscardWithoutPayloadDisclosure(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, discarded, unchanged)
 	run("list", "--state", "discarded")
+}
+
+// Maintenance fixtures use ordinary credential/setup methods so active-app
+// checks exercise the same state that ingress and recovery see in production.
+func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixture.ProjectIDs) *storage.Store {
+	t.Helper()
+	wrapper, err := secrets.NewLocalKeyWrapper("maintenance-test", map[string][]byte{
+		"maintenance-test": []byte("0123456789abcdef0123456789abcdef"),
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO org_memberships(org_id,user_id,role,created_at)
+        VALUES($1,$2,'owner',now())`, ids.OrgID, ids.ProviderAdminUserID)
+	require.NoError(t, err)
+	return storage.NewStore(pool, storage.WithSecretKeyWrapper(wrapper))
+}
+
+func createMaintenanceInboxApp(
+	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, name, definitionID string,
+) integrationstore.ProjectAppRecord {
+	t.Helper()
+	ctx := t.Context()
+	input := integrationstore.ConfigureProjectAppInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, InstalledByUserID: ids.ProviderAdminUserID,
+	}
+	var material secrets.Material
+	switch definitionID {
+	case appdefinition.Slack:
+		input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "slack", "T123", "A123"
+		input.OAuthFlowID = uuid.Must(uuid.NewV7())
+		material = secrets.SlackAppCredentialsMaterial{
+			AccessToken:   "xoxb-maintenance",
+			ClientID:      "maintenance",
+			ClientSecret:  "fixture-client",
+			SigningSecret: "fixture-signing",
+		}
+	case appdefinition.GitHub:
+		input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "github", "123", "456"
+		input.CredentialAppID = 123
+		material = secrets.GitHubAppCredentialsMaterial{
+			AppID: "123", PrivateKey: "fixture-key-verified-by-caller", WebhookSecret: "fixture-webhook",
+		}
+	default:
+		t.Fatalf("unsupported maintenance app definition %q", definitionID)
+	}
+	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID: ids.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: ids.ProjectID,
+		Name: name + "-credentials", Actor: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Material: material,
+	})
+	require.NoError(t, err)
+	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, DefinitionID: definitionID,
+	})
+	require.NoError(t, err)
+	input.AppID, input.ExpectedSetupRevision = app.ID, app.SetupRevision
+	input.CredentialSecretID, input.CredentialVersionID = credential.ID, version.ID
+	app, err = store.Integrations().ConfigureProjectApp(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.ProjectAppStateActive, app.State)
+	require.Equal(t, credential.ID, app.CredentialSecretID)
+	return app
 }

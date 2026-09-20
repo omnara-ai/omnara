@@ -312,14 +312,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameToolSearch], err = toolSearchTool(); err != nil {
 		return Catalog{}, err
 	}
-	providerTools, err := appTools()
-	if err != nil {
-		return Catalog{}, err
-	}
-	for _, entry := range providerTools {
-		entries[entry.Name] = entry
-	}
-	interactionTools, err := interactionDestinationTools()
+	interactionTools, err := interactionHandlerTools()
 	if err != nil {
 		return Catalog{}, err
 	}

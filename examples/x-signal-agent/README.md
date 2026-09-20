@@ -21,6 +21,14 @@ bottom and you have your own.
 
 ## Run it
 
+**SDK compatibility (release pending):** This demo uses the new app API and
+requires a matching `@omnara/sdk` release built from this checkout. Currently
+published `0.1.15` lacks these APIs, and the existing `^0.1.8` range is not
+sufficient. Run the commands below only after that SDK is published and this
+example's minimum dependency range is updated. Do not substitute a raw `file:`
+dependency on the SDK source; it does not support the documented plain-Node
+command.
+
 ```sh
 brew install deno
 

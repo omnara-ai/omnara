@@ -38,19 +38,19 @@ const (
 
 // VerifiedIntegrationReceipt is admitted only after provider authentication and
 // account identity validation by the caller. Payload is the exact verified body;
-// the first receipt wins on (project, connection, receipt key), even if a provider
+// the first receipt wins on (project, app, receipt key), even if a provider
 // replay changes transport metadata. No receipt or payload update is exposed.
 type VerifiedIntegrationReceipt struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	ReceiptKey   string
-	Payload      []byte
+	ProjectID  uuid.UUID
+	AppID      uuid.UUID
+	ReceiptKey string
+	Payload    []byte
 }
 
 type IntegrationInboxSummary struct {
 	ID             uuid.UUID
 	ProjectID      uuid.UUID
-	ConnectionID   uuid.UUID
+	AppID          uuid.UUID
 	ReceiptKey     string
 	State          IntegrationInboxState
 	AttemptCount   int
@@ -90,16 +90,16 @@ func (r IntegrationInboxRecord) Lease() IntegrationInboxLease {
 
 type ClaimIntegrationInboxInput struct {
 	ProjectID     uuid.UUID
-	ConnectionID  uuid.UUID
+	AppID         uuid.UUID
 	LeaseDuration time.Duration
 }
 
 type ListIntegrationInboxInput struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
-	State        IntegrationInboxState
-	After        listing.KeysetCursor
-	Limit        int
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	State     IntegrationInboxState
+	After     listing.KeysetCursor
+	Limit     int
 }
 
 type ListIntegrationInboxResult struct {
@@ -108,7 +108,7 @@ type ListIntegrationInboxResult struct {
 	Next     listing.KeysetCursor
 }
 
-type IntegrationInboxConnection struct {
-	ProjectID    uuid.UUID
-	ConnectionID uuid.UUID
+type IntegrationInboxApp struct {
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
 }

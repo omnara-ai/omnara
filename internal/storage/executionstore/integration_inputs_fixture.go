@@ -20,39 +20,39 @@ func (s *Store) GetIntegrationTargetInputByIdempotency(
 	ctx context.Context,
 	input GetIntegrationTargetInputByIdempotencyInput,
 ) (AgentInputRecord, bool, error) {
-	if input.IntegrationConnectionID == uuid.Nil || input.IntegrationTargetID == uuid.Nil ||
+	if input.AppID == uuid.Nil || input.IntegrationTargetID == uuid.Nil ||
 		input.IdempotencyKey == "" {
 		return AgentInputRecord{}, false, errors.New(
-			"integration connection, integration target, and idempotency key are required",
+			"app, integration target, and idempotency key are required",
 		)
 	}
-	install, err := s.integrations.GetIntegrationConnectionByID(ctx, input.IntegrationConnectionID)
+	app, err := s.integrations.GetProjectAppByID(ctx, input.AppID)
 	if err != nil {
 		return AgentInputRecord{}, false, err
 	}
-	target, err := s.integrations.GetIntegrationTarget(ctx, install.ProjectID, input.IntegrationTargetID)
+	target, err := s.integrations.GetIntegrationTarget(ctx, app.ProjectID, input.IntegrationTargetID)
 	if err != nil {
 		return AgentInputRecord{}, false, err
 	}
-	if target.IntegrationConnectionID != install.ID {
+	if target.AppID != app.ID {
 		return AgentInputRecord{}, false, storeerr.ErrConflict
 	}
-	return integrationTargetInputByIdempotency(ctx, s.q, install, target, input.IdempotencyKey)
+	return integrationTargetInputByIdempotency(ctx, s.q, app, target, input.IdempotencyKey)
 }
 
 func integrationTargetInputByIdempotency(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	install integrationstore.IntegrationConnectionRecord,
+	app integrationstore.ProjectAppRecord,
 	target integrationstore.IntegrationTargetRecord,
 	idempotencyKey string,
 ) (AgentInputRecord, bool, error) {
 	row, err := q.GetAgentInputByIdempotency(
 		ctx,
 		dbsqlc.GetAgentInputByIdempotencyParams{
-			ProjectID:           install.ProjectID,
+			ProjectID:           app.ProjectID,
 			AgentID:             target.AgentID,
-			IdempotencyScope:    integrationstore.IdempotencyScope(install),
+			IdempotencyScope:    integrationstore.IdempotencyScope(app),
 			InputIdempotencyKey: idempotencyKey,
 		},
 	)
@@ -70,7 +70,7 @@ func integrationTargetInputByIdempotency(
 }
 
 type GetIntegrationTargetInputByIdempotencyInput struct {
-	IntegrationConnectionID uuid.UUID
-	IntegrationTargetID     uuid.UUID
-	IdempotencyKey          string
+	AppID               uuid.UUID
+	IntegrationTargetID uuid.UUID
+	IdempotencyKey      string
 }
