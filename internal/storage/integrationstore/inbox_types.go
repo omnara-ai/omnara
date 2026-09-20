@@ -73,9 +73,6 @@ type IntegrationInboxRecord struct {
 	IntegrationInboxSummary
 	Source  IntegrationInboxSource
 	Payload []byte
-	// Preparation records scheduled publication evidence before routing is frozen.
-	// Provider receipts never populate it. It is not recipient authority.
-	Preparation json.RawMessage
 	// Events is an optional array normalized and decided by trusted app code.
 	// Raw provider receipts leave this nil and preserve Payload unchanged.
 	Events json.RawMessage

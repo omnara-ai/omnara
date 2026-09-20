@@ -116,7 +116,7 @@ Unauthenticated owner lookup is routing metadata only.
 
 Register `AppInboxProvider` and `AppLaunchWorkflow` implementations in `cmd/worker`.
 Slack/Discord also implement the narrow scheduled conversation provider in
-`app_scheduled.go`: publish/reconcile a root, then ensure its thread after freezing.
+`app_scheduled.go`: publish a root, freeze its launch plan, then ensure its thread.
 The existing cron app-launch target and inbox own scheduling and recovery; do not
 add another scheduler or mutate tool configs after launch.
 Slack/Discord's `ChatAppLauncher` directly selects a sole profile or presents a

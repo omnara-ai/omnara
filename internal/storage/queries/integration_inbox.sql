@@ -4,16 +4,16 @@
 INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload)
 VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload))
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
-RETURNING id, project_id, app_id, receipt_key, payload, source, preparation, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- name: GetIntegrationInboxReceiptByKey :one
-SELECT id, project_id, app_id, receipt_key, payload, source, preparation, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
   AND receipt_key = sqlc.arg(receipt_key);
 
 -- name: GetIntegrationInboxReceipt :one
-SELECT id, project_id, app_id, receipt_key, payload, source, preparation, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
@@ -63,7 +63,7 @@ SET state = 'processing', attempt_count = inbox.attempt_count + 1,
     claim_expires_at = statement_timestamp() + sqlc.arg(lease_milliseconds)::bigint * interval '1 millisecond',
     updated_at = statement_timestamp()
 FROM candidate WHERE inbox.id = candidate.id
-RETURNING inbox.id, inbox.project_id, inbox.app_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.preparation, inbox.events, inbox.plan, inbox.progress, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
+RETURNING inbox.id, inbox.project_id, inbox.app_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.events, inbox.plan, inbox.progress, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
 
 -- Locking and checking are separate statements in Go: time advances while waiting.
 -- name: LockIntegrationInboxReceipt :one
@@ -72,7 +72,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 FOR UPDATE;
 
 -- name: ReadIntegrationInboxLease :one
-SELECT id, project_id, app_id, receipt_key, payload, source, preparation, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
+SELECT id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
@@ -235,15 +235,7 @@ DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates
 
 -- Only the cron handoff uses this query. Raw provider intake cannot set source.
 -- name: InsertScheduledAppLaunchReceipt :one
-INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload, source, preparation)
-VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled_launch', '{}'::jsonb)
+INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload, source)
+VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled_launch')
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
-RETURNING id, project_id, app_id, receipt_key, payload, source, preparation, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
-
--- name: UpdateScheduledLaunchPreparation :execrows
-UPDATE integration_inbox
-SET preparation = sqlc.arg(preparation)::jsonb, updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
-  AND source = 'scheduled_launch' AND plan IS NULL
-  AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
-  AND claim_expires_at > statement_timestamp();
+RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;

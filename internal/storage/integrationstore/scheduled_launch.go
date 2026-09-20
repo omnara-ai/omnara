@@ -106,106 +106,35 @@ func (r IntegrationInboxRecord) ScheduledLaunch() (ScheduledAppLaunch, error) {
 	return launch, launch.validate()
 }
 
-// ScheduledLaunchPreparation records publication attempts and confirmed roots.
-// An attempt without a root is uncertain, even after lease expiry. Only a definite
-// provider rejection permits clearing it. Operator retry never clears evidence.
-type ScheduledLaunchPreparation struct {
-	AttemptedAt *time.Time           `json:"attempted_at,omitempty"`
-	Root        *appdefinition.Scope `json:"root,omitempty"`
-}
-
-func (r IntegrationInboxRecord) ScheduledPreparation() (ScheduledLaunchPreparation, error) {
-	var state ScheduledLaunchPreparation
-	if r.Source != IntegrationInboxSourceScheduledLaunch {
-		return state, storeerr.ErrUnauthorized
-	}
-	if err := json.Unmarshal(r.Preparation, &state); err != nil {
-		return state, err
-	}
-	if state.Root != nil && state.AttemptedAt == nil {
-		return state, inboxInvalid("scheduled root has no publication attempt")
-	}
-	return state, nil
-}
-
-func (w *IntegrationInboxLeaseTx) BeginScheduledPublication(
-	ctx context.Context,
-) (ScheduledLaunchPreparation, bool, error) {
-	if err := w.checkLease(ctx); err != nil {
-		return ScheduledLaunchPreparation{}, false, err
-	}
-	state, err := w.record.ScheduledPreparation()
+// ScheduledRoot reads the confirmed destination from the immutable launch plan.
+// A scheduled receipt authorizes one thread beneath its accepted parent channel.
+func (r IntegrationInboxRecord) ScheduledRoot(provider string, plan json.RawMessage) (appdefinition.Scope, error) {
+	launch, err := r.ScheduledLaunch()
 	if err != nil {
-		return state, false, err
+		return appdefinition.Scope{}, err
 	}
-	if state.AttemptedAt != nil {
-		return state, false, nil
+	var slots map[string]struct {
+		Scope     appdefinition.Scope `json:"scope"`
+		Selection InboxAppSelection   `json:"selection"`
 	}
-	now, err := w.q.DBNow(ctx)
+	if err := json.Unmarshal(plan, &slots); err != nil {
+		return appdefinition.Scope{}, inboxInvalid("invalid scheduled launch plan")
+	}
+	slot, ok := slots["scheduled"]
+	if !ok || len(slots) != 1 || slot.Selection.AppID != r.AppID || slot.Selection.Slot != "scheduled" {
+		return appdefinition.Scope{}, storeerr.ErrUnauthorized
+	}
+	if err := validateScheduledRoot(provider, launch.Destination, slot.Scope); err != nil {
+		return appdefinition.Scope{}, err
+	}
+	kind, ref, err := slot.Scope.Conversation()
 	if err != nil {
-		return state, false, err
+		return appdefinition.Scope{}, err
 	}
-	state.AttemptedAt = &now
-	if err := w.writeScheduledPreparation(ctx, state); err != nil {
-		return state, false, err
+	if slot.Selection.Address != (ConversationAddress{Kind: kind, Ref: ref}) {
+		return appdefinition.Scope{}, storeerr.ErrUnauthorized
 	}
-	return state, true, nil
-}
-
-// RecordScheduledNonDelivery is called only for a definite provider rejection
-// before delivery, never a timeout, 5xx, missing response or negative history lookup.
-func (w *IntegrationInboxLeaseTx) RecordScheduledNonDelivery(ctx context.Context) error {
-	if err := w.checkLease(ctx); err != nil {
-		return err
-	}
-	state, err := w.record.ScheduledPreparation()
-	if err != nil {
-		return err
-	}
-	if state.Root != nil {
-		return storeerr.ErrStateTransitionConflict
-	}
-	return w.writeScheduledPreparation(ctx, ScheduledLaunchPreparation{})
-}
-
-func (w *IntegrationInboxLeaseTx) RecordScheduledRoot(ctx context.Context, root appdefinition.Scope) error {
-	if err := w.checkLease(ctx); err != nil {
-		return err
-	}
-	state, err := w.record.ScheduledPreparation()
-	if err != nil {
-		return err
-	}
-	if state.AttemptedAt == nil {
-		return inboxInvalid("scheduled publication has not started")
-	}
-	launch, err := w.record.ScheduledLaunch()
-	if err != nil {
-		return err
-	}
-	app, err := getProjectApp(ctx, w.q, w.record.ProjectID, w.record.AppID)
-	if err != nil {
-		return err
-	}
-	if err := validateScheduledRoot(app.Provider, launch.Destination, root); err != nil {
-		return err
-	}
-	if state.Root != nil {
-		previous, err := json.Marshal(state.Root)
-		if err != nil {
-			return fmt.Errorf("marshal recorded scheduled root: %w", err)
-		}
-		next, err := json.Marshal(root)
-		if err != nil {
-			return fmt.Errorf("marshal scheduled root: %w", err)
-		}
-		if !jsoncanonical.Equal(previous, next) {
-			return storeerr.ErrIdempotencyConflict
-		}
-		return nil
-	}
-	state.Root = &root
-	return w.writeScheduledPreparation(ctx, state)
+	return slot.Scope, nil
 }
 
 func validateScheduledRoot(provider string, destination json.RawMessage, root appdefinition.Scope) error {
@@ -229,24 +158,4 @@ func validateScheduledRoot(provider string, destination json.RawMessage, root ap
 		}
 	}
 	return inboxInvalid("scheduled root differs from its configured parent")
-}
-
-// Callers refresh the locked receipt before choosing a state transition. The
-// UPDATE fences lease expiry again at the moment of the write.
-func (w *IntegrationInboxLeaseTx) writeScheduledPreparation(
-	ctx context.Context,
-	state ScheduledLaunchPreparation,
-) error {
-	raw, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	rows, err := w.q.UpdateScheduledLaunchPreparation(ctx, dbsqlc.UpdateScheduledLaunchPreparationParams{
-		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token, Preparation: raw,
-	})
-	if err := inboxLeaseMutation("record scheduled publication", rows, err); err != nil {
-		return err
-	}
-	w.record.Preparation = raw
-	return nil
 }

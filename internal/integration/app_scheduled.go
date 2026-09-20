@@ -16,18 +16,16 @@ import (
 
 var ErrScheduledLaunchFailed = errors.New("scheduled app launch failed")
 
-// Publication and thread preparation run outside transactions. A confirmed root
-// is recorded with the frozen plan before EnsureScheduledThread or admission.
+// Publication runs outside transactions. The confirmed root is saved only in
+// the frozen plan, which later thread preparation and admission reuse.
 type scheduledConversationProvider interface {
 	PublishScheduledRoot(
 		context.Context,
 		integrationstore.ProjectAppRecord,
 		integrationstore.ScheduledAppLaunch,
 		uuid.UUID,
-		integrationstore.ScheduledLaunchPreparation,
-		bool,
 		func(context.Context) error,
-	) (appdefinition.Scope, bool, error)
+	) (appdefinition.Scope, error)
 	EnsureScheduledThread(
 		context.Context,
 		integrationstore.ProjectAppRecord,
@@ -64,49 +62,19 @@ func (c *AppInboxConsumer) consumeScheduled(
 		if err := authority(ctx); err != nil {
 			return nil, err
 		}
-		var preparation integrationstore.ScheduledLaunchPreparation
-		var fresh bool
-		err = c.inbox.WithIntegrationInboxLease(ctx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-			var err error
-			preparation, fresh, err = work.BeginScheduledPublication(ctx)
-			return err
-		})
+		root, err := provider.PublishScheduledRoot(ctx, app, launch, receipt.ID, authority)
 		if err != nil {
 			return nil, err
 		}
-		var root appdefinition.Scope
-		if preparation.Root != nil {
-			root = *preparation.Root
-		} else {
-			var notSent bool
-			root, notSent, err = provider.PublishScheduledRoot(ctx, app, launch, receipt.ID, preparation, fresh, authority)
-			if err != nil {
-				if fresh && notSent {
-					recordErr := c.inbox.WithIntegrationInboxLease(
-						ctx,
-						lease,
-						func(work *integrationstore.IntegrationInboxLeaseTx) error {
-							return work.RecordScheduledNonDelivery(ctx)
-						},
-					)
-					err = errors.Join(err, recordErr)
-				}
-				return nil, err
-			}
-		}
-		if _, err := c.router.FreezeScheduledLaunch(ctx, lease, root); err != nil {
-			// Preserve confirmed publication even when derivation/planning fails. If the
-			// lease was lost, the next owner must reconcile, never publish blindly.
-			recordErr := c.inbox.WithIntegrationInboxLease(
-				ctx,
-				lease,
-				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					return work.RecordScheduledRoot(ctx, root)
-				},
-			)
-			return nil, errors.Join(err, recordErr)
-		}
+		freezeErr := c.router.FreezeScheduledLaunch(ctx, lease, root)
 		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		if freezeErr != nil && (err != nil || len(receipt.Plan) == 0) {
+			// A commit may have succeeded despite a lost acknowledgement. Reuse
+			// its plan if visible; otherwise stop so deterministic errors cannot
+			// repost a heading on every retry. Losing the lease or outcome write
+			// can still leave a stray heading on recovery.
+			return nil, fmt.Errorf("%w: save scheduled thread plan: %w", ErrScheduledLaunchFailed, errors.Join(freezeErr, err))
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -151,58 +119,58 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	root appdefinition.Scope,
-) (AppInboxPlan, error) {
+) error {
 	receipt, err := r.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(receipt.Plan) != 0 {
-		return decodeAppInboxPlan(receipt.Plan)
+		return nil
 	}
 	launch, err := receipt.ScheduledLaunch()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	app, err := r.integrations.GetProjectAppByID(ctx, receipt.AppID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if app.ProjectID != receipt.ProjectID || app.State != integrationstore.ProjectAppStateActive {
-		return nil, storeerr.ErrUnauthorized
+		return storeerr.ErrUnauthorized
 	}
 	if _, err := r.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID); err != nil {
-		return nil, err
+		return err
 	}
 	base, found, err := r.execution.GetAgentConfig(ctx, receipt.ProjectID, launch.ConfigID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !found {
-		return nil, storeerr.ErrNotFound
+		return storeerr.ErrNotFound
 	}
 	derived, listener, err := deriveAppLaunch(base, app, root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	actor, err := executionstore.ScheduledInboxActor(app, launch)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	content, err := json.Marshal([]map[string]string{{"type": "text", "text": launch.Message}})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	content, err = appdefinition.AppendInputContext(app.Name, root, content)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	kind, ref, err := root.Conversation()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	agentID, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	key := "scheduled"
 	address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
@@ -223,18 +191,14 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	}}
 	raw, err := json.Marshal(plan)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	err = r.integrations.WithIntegrationInboxLease(ctx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if len(work.Receipt().Plan) != 0 {
-			var err error
-			plan, err = decodeAppInboxPlan(work.Receipt().Plan)
-			return err
-		}
-		if err := work.RecordScheduledRoot(ctx, root); err != nil {
-			return err
-		}
-		return work.FreezePlan(ctx, raw)
-	})
-	return plan, err
+	return r.integrations.WithIntegrationInboxLease(
+		ctx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+			if len(work.Receipt().Plan) != 0 {
+				return nil
+			}
+			return work.FreezePlan(ctx, raw)
+		},
+	)
 }

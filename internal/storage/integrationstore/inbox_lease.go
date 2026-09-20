@@ -82,7 +82,6 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 	r := w.record
 	r.Payload = bytes.Clone(r.Payload)
-	r.Preparation = bytes.Clone(r.Preparation)
 	r.Events = bytes.Clone(r.Events)
 	r.Plan = bytes.Clone(r.Plan)
 	r.Progress = bytes.Clone(r.Progress)

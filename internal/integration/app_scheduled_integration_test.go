@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -22,11 +21,9 @@ import (
 
 type scheduledTestProvider struct {
 	appConsumerProvider
-	posts, reconciles, ensures int
-	root                       appdefinition.Scope
-	publishError               error
-	notSent                    bool
-	ensure                     func(context.Context) error
+	posts, ensures int
+	root           appdefinition.Scope
+	ensure         func(context.Context) error
 }
 
 func (p *scheduledTestProvider) PublishScheduledRoot(
@@ -34,19 +31,13 @@ func (p *scheduledTestProvider) PublishScheduledRoot(
 	_ integrationstore.ProjectAppRecord,
 	_ integrationstore.ScheduledAppLaunch,
 	_ uuid.UUID,
-	_ integrationstore.ScheduledLaunchPreparation,
-	fresh bool,
 	check func(context.Context) error,
-) (appdefinition.Scope, bool, error) {
+) (appdefinition.Scope, error) {
 	if err := check(ctx); err != nil {
-		return appdefinition.Scope{}, true, err
+		return appdefinition.Scope{}, err
 	}
-	if fresh {
-		p.posts++
-	} else {
-		p.reconciles++
-	}
-	return p.root, p.notSent, p.publishError
+	p.posts++
+	return p.root, nil
 }
 func (p *scheduledTestProvider) EnsureScheduledThread(
 	ctx context.Context,
@@ -215,18 +206,20 @@ func TestScheduledLaunchHasFixedCapabilitiesWithoutMentionLauncher(t *testing.T)
 	require.Equal(t, 2, f.provider.posts)
 }
 
-func TestScheduledLaunchRetriesSavedRootAndBlocksEarlyFollowup(t *testing.T) {
+func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 	f := newScheduledJourney(t)
 	receipt := f.fire()
 	f.provider.ensure = func(context.Context) error { return errors.New("thread preparation unavailable") }
-	_, err := f.consumer.Consume(t.Context(), receipt.Lease())
+	worker := NewAppInboxWorker(f.store.Integrations(), f.consumer, AppInboxWorkerOptions{})
+	err := worker.consume(t.Context(), receipt)
 	require.ErrorContains(t, err, "thread preparation unavailable")
 	saved, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.NotEmpty(t, saved.Plan)
-	prep, err := saved.ScheduledPreparation()
+	require.Equal(t, integrationstore.IntegrationInboxPending, saved.State)
+	plan, err := decodeAppInboxPlan(saved.Plan)
 	require.NoError(t, err)
-	require.NotNil(t, prep.Root)
+	require.Equal(t, f.provider.root, plan["scheduled"].Scope)
 	// A plain reply after the reservation cannot freeze as unrouted before launch.
 	follow, _, err := f.store.Integrations().AcceptIntegrationReceipt(
 		t.Context(),
@@ -248,37 +241,31 @@ func TestScheduledLaunchRetriesSavedRootAndBlocksEarlyFollowup(t *testing.T) {
 	_, err = f.consumer.router.freezeEmptyIfUnrouted(t.Context(), claimed.Lease(), app, event)
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
 	f.provider.ensure = nil
-	result, err := f.consumer.Consume(t.Context(), receipt.Lease())
+	_, err = f.pool.Exec(t.Context(),
+		`UPDATE integration_inbox SET available_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
+	require.NoError(t, err)
+	resumed := f.claim()
+	require.Equal(t, receipt.ID, resumed.ID)
+	require.NotEqual(t, receipt.ClaimToken, resumed.ClaimToken)
+	result, err := f.consumer.Consume(t.Context(), resumed.Lease())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
+	require.Equal(t, plan["scheduled"].AgentID, result[0].Launch.Agent.ID)
 	require.Equal(t, 1, f.provider.posts)
 	require.Equal(t, 2, f.provider.ensures)
-}
-
-func TestScheduledPublicationRetryPreservesUncertainty(t *testing.T) {
-	for _, definite := range []bool{false, true} {
-		t.Run(fmt.Sprint(definite), func(t *testing.T) {
-			f := newScheduledJourney(t)
-			receipt := f.fire()
-			f.provider.publishError = errors.New("provider unavailable")
-			f.provider.notSent = definite
-			_, err := f.consumer.Consume(t.Context(), receipt.Lease())
-			require.Error(t, err)
-			saved, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
-			require.NoError(t, err)
-			prep, err := saved.ScheduledPreparation()
-			require.NoError(t, err)
-			require.Equal(t, !definite, prep.AttemptedAt != nil)
-			f.provider.publishError = nil
-			_, err = f.consumer.Consume(t.Context(), receipt.Lease())
-			require.NoError(t, err)
-			if definite {
-				require.Equal(t, 2, f.provider.posts)
-				require.Zero(t, f.provider.reconciles)
-			} else {
-				require.Equal(t, 1, f.provider.posts)
-				require.Equal(t, 1, f.provider.reconciles)
-			}
-		})
-	}
+	after, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, string(saved.Plan), string(after.Plan))
+	require.Equal(t, integrationstore.IntegrationInboxCompleted, after.State)
+	replayed, err := f.consumer.Consume(t.Context(), resumed.Lease())
+	require.NoError(t, err)
+	require.Len(t, replayed, 1)
+	require.False(t, replayed[0].Launch.Created)
+	require.Equal(t, result[0].Launch.Agent.ID, replayed[0].Launch.Agent.ID)
+	var agents int
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
+	require.Equal(t, 1, agents)
+	require.Equal(t, 1, f.provider.posts)
+	require.Equal(t, 2, f.provider.ensures)
 }

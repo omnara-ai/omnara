@@ -35,80 +35,19 @@ func TestInboxCommandValidationAndHelp(t *testing.T) {
 	require.Contains(t, help.String(), "-receipt")
 }
 
-func TestInboxShowPublicationStateWithoutRawDisclosure(t *testing.T) {
+func TestInboxShowDoesNotDiscloseRawContent(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name, preparation, scheduled string
-		source                       integrationstore.IntegrationInboxSource
-	}{
-		{
-			name: "provider", source: integrationstore.IntegrationInboxSourceProvider,
-			preparation: `{"attempted_at":"private-provider-preparation"}`,
-		},
-		{
-			name: "not attempted", source: integrationstore.IntegrationInboxSourceScheduledLaunch,
-			preparation: `{}`, scheduled: `{"root_known":false}`,
-		},
-		{
-			name: "uncertain publication", source: integrationstore.IntegrationInboxSourceScheduledLaunch,
-			preparation: `{"attempted_at":"2026-09-20T09:00:00Z","heading":"private-heading"}`,
-			scheduled:   `{"attempted_at":"2026-09-20T09:00:00Z","root_known":false}`,
-		},
-		{
-			name: "known root", source: integrationstore.IntegrationInboxSourceScheduledLaunch,
-			preparation: `{"attempted_at":"2026-09-20T09:00:00Z",` +
-				`"root":{"slack":{"channel_id":"C-PRIVATE-CHANNEL","thread_ts":"private-root"}},` +
-				`"credentials":"private-credentials","heading":"private-heading"}`,
-			scheduled: `{"attempted_at":"2026-09-20T09:00:00Z","root_known":true}`,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			record := inboxInspectionRecord()
-			record.Source = tc.source
-			record.Preparation = json.RawMessage(tc.preparation)
-			command := inboxCommand{action: "show", projectID: record.ProjectID, receiptID: record.ID}
-			var output bytes.Buffer
-			require.NoError(t, command.run(t.Context(), inboxReadStore{record}, &output))
-			var shown map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(output.Bytes(), &shown))
-			var source integrationstore.IntegrationInboxSource
-			require.NoError(t, json.Unmarshal(shown["source"], &source))
-			require.Equal(t, tc.source, source)
-			if tc.scheduled == "" {
-				require.NotContains(t, shown, "scheduled")
-			} else {
-				require.JSONEq(t, tc.scheduled, string(shown["scheduled"]))
-			}
-			require.JSONEq(t, `[{"key":"slot","prepared":true,"committed":false}]`, string(shown["slots"]))
-			for _, hidden := range []string{
-				"private-payload", "private-config", "private-message", "private-preparation", "private-event",
-				"private-credentials", "private-heading", "C-PRIVATE-CHANNEL", "private-root", "private-provider-preparation",
-			} {
-				require.NotContains(t, output.String(), hidden)
-			}
-			for _, rawField := range []string{"payload", "plan", "progress", "preparation", "events", "credentials"} {
-				require.NotContains(t, shown, rawField)
-			}
-		})
-	}
-}
-
-func TestInboxShowInvalidPublicationStateDoesNotDiscloseRawValues(t *testing.T) {
-	t.Parallel()
-	for _, preparation := range []string{
-		`{"attempted_at":"private-invalid-timestamp"}`,
-		`{"attempted_at":"2026-09-20T09:00:00Z","root":{"slack":{"channel_id":42}}}`,
-		`{"root":{"slack":{"channel_id":"private-channel"}}}`,
-		`{"private-preparation":`,
-	} {
-		record := inboxInspectionRecord()
-		record.Preparation = json.RawMessage(preparation)
-		command := inboxCommand{action: "show", projectID: record.ProjectID, receiptID: record.ID}
-		var output bytes.Buffer
-		err := command.run(t.Context(), inboxReadStore{record}, &output)
-		require.EqualError(t, err, "decode scheduled publication state")
-		require.Empty(t, output.String())
+	record := inboxInspectionRecord()
+	command := inboxCommand{action: "show", projectID: record.ProjectID, receiptID: record.ID}
+	var output bytes.Buffer
+	require.NoError(t, command.run(t.Context(), inboxReadStore{record}, &output))
+	var shown map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(output.Bytes(), &shown))
+	require.JSONEq(t, `"scheduled_launch"`, string(shown["source"]))
+	require.JSONEq(t, `[{"key":"slot","prepared":true,"committed":false}]`, string(shown["slots"]))
+	require.NotContains(t, output.String(), "private-")
+	for _, field := range []string{"payload", "plan", "progress", "events", "credentials"} {
+		require.NotContains(t, shown, field)
 	}
 }
 
@@ -136,10 +75,9 @@ func inboxInspectionRecord() integrationstore.IntegrationInboxRecord {
 			State: integrationstore.IntegrationInboxFailed, AttemptCount: 1,
 			CreatedAt: now, UpdatedAt: now, AvailableAt: now,
 		},
-		Source:      integrationstore.IntegrationInboxSourceScheduledLaunch,
-		Preparation: json.RawMessage(`{}`),
-		Payload:     []byte(`{"token":"private-payload","opening_message":"private-heading"}`),
-		Events:      json.RawMessage(`[{"text":"private-event"}]`),
+		Source:  integrationstore.IntegrationInboxSourceScheduledLaunch,
+		Payload: []byte(`{"token":"private-payload","opening_message":"private-heading"}`),
+		Events:  json.RawMessage(`[{"text":"private-event"}]`),
 		Plan: json.RawMessage(`{"slot":{"launch":{"compiled_config":"private-config"},` +
 			`"input":{"text":"private-message"}}}`),
 		Progress: json.RawMessage(`{"slot":{"prepared":{"private":"private-preparation"}}}`),

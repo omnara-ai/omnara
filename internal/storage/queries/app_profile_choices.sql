@@ -111,7 +111,7 @@ RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, s
 INSERT INTO integration_inbox(project_id, app_id, receipt_key, payload, events)
 VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload), sqlc.arg(events))
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
-RETURNING id, project_id, app_id, receipt_key, payload, source, preparation, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- Retain live source bookkeeping beyond expiry, including work awaiting recovery.
 -- Deleted app/project/org scopes no longer need payloads or replay facts;

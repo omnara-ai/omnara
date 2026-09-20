@@ -267,17 +267,22 @@ cannot populate that discriminator. Mention settings authorize no part of this
 handoff. The diagnostic last_app_receipt_id is an expiring reference, not authority;
 reads must check project, app and source, and never choose an older retained run.
 
-The worker marks publication attempted under the receipt lease before provider
-I/O. A definite rejection can clear that marker; a timeout, HTTP 5xx or missing
-acknowledgement cannot. Slack recovery checks the occurrence marker, retrying
-readback within the inbox budget. Discord uses enforced nonces only for the
-client's bounded send retries; later history fetches do not preserve the nonce.
-An unresolved Discord publication fails the run without another post. A saved
-root still resumes thread creation and launch. Operator retry preserves all
-publication evidence; it cannot turn an uncertain send into a fresh send.
+The worker posts the opening outside transactions, then saves its concrete thread
+in FreezeScheduledLaunch's immutable plan. There is no separate publication-attempt
+record or message-history reconciliation. Definite non-delivery can retry within
+the existing inbox budget. Slack timeouts, server errors and missing acknowledgments
+fail the run; Discord retains its bounded same-nonce send retries and treats a final
+uncertain result as terminal.
 
-A confirmed root is saved with FreezeScheduledLaunch in one transaction whenever
-planning succeeds. If planning fails, save the root alone when the lease permits.
+An observed failure between successful publication and saving the plan is terminal,
+so a deterministic planning error cannot post another heading on every inbox retry.
+If a commit acknowledgement is lost, a visible saved plan is reused. Failures after
+that commit resume from the saved thread. A crash, lease loss or database outage
+before either the plan or terminal outcome is persisted may leave a stray heading
+and permit a replacement on recovery. Explicit operator retry of a failed receipt
+without a plan can also publish again. Atomic admission still creates at most one
+agent per occurrence. This bounded delivery limitation is deliberate.
+
 The frozen selection reserves the conversation before Discord EnsureThread runs.
 Admission then uses the existing config/agent/listener/initial-input transaction.
 Its Omnara cron actor is authorized from the locked scheduled receipt, not a flag

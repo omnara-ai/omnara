@@ -30,14 +30,11 @@ func validateScheduledInboxLaunch(
 	if err != nil {
 		return err
 	}
-	preparation, err := receipt.ScheduledPreparation()
+	root, err := receipt.ScheduledRoot(app.Provider, receipt.Plan)
 	if err != nil {
 		return err
 	}
-	if preparation.Root == nil {
-		return storeerr.ErrUnauthorized
-	}
-	kind, ref, err := preparation.Root.Conversation()
+	kind, ref, err := root.Conversation()
 	if err != nil {
 		return err
 	}
@@ -62,7 +59,7 @@ func validateScheduledInboxLaunch(
 	if err != nil {
 		return err
 	}
-	content, err = appdefinition.AppendInputContext(app.Name, *preparation.Root, content)
+	content, err = appdefinition.AppendInputContext(app.Name, root, content)
 	if err != nil {
 		return err
 	}

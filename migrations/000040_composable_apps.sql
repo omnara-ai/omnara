@@ -278,8 +278,6 @@ CREATE TABLE integration_inbox (
     receipt_key text NOT NULL CHECK (octet_length(receipt_key) BETWEEN 1 AND 512),
     payload bytea NOT NULL CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
     source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled_launch')),
-    preparation jsonb CHECK (jsonb_typeof(preparation) = 'object' AND octet_length(preparation::text) <= 4096),
-    CHECK ((source = 'scheduled_launch') = (preparation IS NOT NULL)),
     CHECK (source = 'provider' OR events IS NULL),
     -- Only trusted app decisions populate normalized events; provider ingress leaves NULL.
     events jsonb CHECK (jsonb_typeof(events) = 'array' AND octet_length(events::text) <= 262144),

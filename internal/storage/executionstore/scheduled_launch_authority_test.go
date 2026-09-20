@@ -40,16 +40,12 @@ func scheduledAuthorityFixture(t *testing.T) (
 	payload, err := json.Marshal(launch)
 	require.NoError(t, err)
 	root := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
-	preparation, err := json.Marshal(
-		integrationstore.ScheduledLaunchPreparation{AttemptedAt: &launch.DueAt, Root: &root},
-	)
-	require.NoError(t, err)
 	receipt := integrationstore.IntegrationInboxRecord{
 		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
 			ID: uuid.New(), ProjectID: app.ProjectID, AppID: app.ID,
 			ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.DueAt.Format(time.RFC3339),
 		},
-		Source: integrationstore.IntegrationInboxSourceScheduledLaunch, Payload: payload, Preparation: preparation,
+		Source: integrationstore.IntegrationInboxSourceScheduledLaunch, Payload: payload,
 	}
 	tenant, err := publicid.Encode(publicid.KindOrganization, app.OrgID)
 	require.NoError(t, err)
@@ -80,6 +76,10 @@ func scheduledAuthorityFixture(t *testing.T) (
 			},
 		},
 	}
+	receipt.Plan, err = json.Marshal(map[string]any{
+		"scheduled": map[string]any{"scope": root, "selection": slot.Selection},
+	})
+	require.NoError(t, err)
 	require.NoError(t, validateScheduledInboxLaunch(receipt, app, slot))
 	return receipt, app, slot
 }
@@ -114,12 +114,8 @@ func TestScheduledLaunchAuthorityRejectsPlanSubstitution(t *testing.T) {
 		{"select another app", func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
 			s.Selection.AppID = uuid.New()
 		}},
-		{"no confirmed root", func(t *testing.T, r *integrationstore.IntegrationInboxRecord, _ *InboxLaunchSlot) {
-			preparation, err := r.ScheduledPreparation()
-			require.NoError(t, err)
-			preparation.Root = nil
-			r.Preparation, err = json.Marshal(preparation)
-			require.NoError(t, err)
+		{"no saved launch plan", func(t *testing.T, r *integrationstore.IntegrationInboxRecord, _ *InboxLaunchSlot) {
+			r.Plan = json.RawMessage(`{}`)
 		}},
 		{"launch another profile", func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
 			s.Launch.ProfileID = uuid.New()

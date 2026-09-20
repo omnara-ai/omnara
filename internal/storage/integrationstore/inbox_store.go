@@ -291,10 +291,7 @@ func inboxErrorText(value *string) string {
 }
 
 func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
-	var plan, events, preparation json.RawMessage
-	if row.Preparation != nil {
-		preparation = *row.Preparation
-	}
+	var plan, events json.RawMessage
 	if row.Events != nil {
 		events = *row.Events
 	}
@@ -308,12 +305,11 @@ func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
 			ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
 			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
 		},
-		Source:      IntegrationInboxSource(row.Source),
-		Preparation: preparation,
-		Payload:     row.Payload,
-		Events:      events,
-		Plan:        plan,
-		Progress:    row.Progress,
-		ClaimToken:  storeutil.IDFromPtr(row.ClaimToken),
+		Source:     IntegrationInboxSource(row.Source),
+		Payload:    row.Payload,
+		Events:     events,
+		Plan:       plan,
+		Progress:   row.Progress,
+		ClaimToken: storeutil.IDFromPtr(row.ClaimToken),
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
@@ -44,25 +43,21 @@ func TestDiscordScheduledRootAndThreadRecovery(t *testing.T) {
 		}
 		return true
 	}
-	now := time.Now()
 	launch := integrationstore.ScheduledAppLaunch{Destination: json.RawMessage(`{"channel_id":"300"}`), OpeningMessage: "Daily update"}
-	prep := integrationstore.ScheduledLaunchPreparation{AttemptedAt: &now}
 	check := func(context.Context) error { return nil }
-	root, notSent, err := provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, prep, true, check)
+	root, err := provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, check)
 	require.NoError(t, err)
-	require.False(t, notSent)
 	require.Equal(t, "500", root.Discord.ThreadID)
 	require.Equal(t, "100", root.Discord.GuildID)
 	require.Zero(t, f.posts, "root publication does not create a thread before the durable plan")
-	prep.Root = &root
-	// Resume thread preparation from the saved address without publishing again.
-	require.NoError(t, provider.EnsureScheduledThread(t.Context(), f.appSetup, *prep.Root, check))
-	require.NoError(t, provider.EnsureScheduledThread(t.Context(), f.appSetup, *prep.Root, check))
+	// A frozen plan supplies this same scope on every thread preparation attempt.
+	require.NoError(t, provider.EnsureScheduledThread(t.Context(), f.appSetup, root, check))
+	require.NoError(t, provider.EnsureScheduledThread(t.Context(), f.appSetup, root, check))
 	require.Equal(t, 1, f.posts, "thread ensure reuses the message's one thread")
-	require.Equal(t, 1, posts, "saved-root recovery never republishes the opening")
+	require.Equal(t, 1, posts, "thread preparation never republishes the opening")
 }
 
-func TestDiscordScheduledUnknownPublicationDoesNotPostOnRetry(t *testing.T) {
+func TestDiscordScheduledUnknownPublicationIsTerminal(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		status    int
@@ -98,26 +93,15 @@ func TestDiscordScheduledUnknownPublicationDoesNotPostOnRetry(t *testing.T) {
 				}
 				return true
 			}
-			now := time.Now()
-			prep := integrationstore.ScheduledLaunchPreparation{AttemptedAt: &now}
 			launch := integrationstore.ScheduledAppLaunch{
 				Destination: json.RawMessage(`{"channel_id":"300"}`), OpeningMessage: "Daily update",
 			}
 			check := func(context.Context) error { return nil }
-			root, notSent, err := provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, prep, true, check)
+			root, err := provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, check)
 			require.ErrorIs(t, err, ErrScheduledLaunchFailed)
 			require.ErrorContains(t, err, "outcome is unknown")
-			require.False(t, notSent, "unknown delivery must preserve the publication attempt")
 			require.Equal(t, appdefinition.Scope{}, root)
 			require.Equal(t, test.wantPosts, posts)
-
-			requests := len(f.requests)
-			_, notSent, err = provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, prep, false, check)
-			require.ErrorIs(t, err, ErrScheduledLaunchFailed)
-			require.ErrorContains(t, err, "outcome is unknown")
-			require.False(t, notSent)
-			require.Equal(t, test.wantPosts, posts, "a resumed worker never republishes an uncertain opening")
-			require.Len(t, f.requests, requests, "resumed uncertainty fails before any provider request")
 		})
 	}
 }

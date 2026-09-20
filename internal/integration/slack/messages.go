@@ -68,7 +68,6 @@ type readbackResponse struct {
 }
 
 type readbackMessage struct {
-	User     string           `json:"user"`
 	Channel  string           `json:"channel"`
 	TS       string           `json:"ts"`
 	Metadata *messageMetadata `json:"metadata"`
@@ -183,19 +182,6 @@ func ReconcileMessage(
 	agentPublicID, providerCallID string,
 	since time.Time,
 ) (string, bool, APIResult, error) {
-	return reconcileMessageAt(ctx, client, defaultAPIURL, target, since, func(message readbackMessage) bool {
-		return messageHasMarker(message, agentPublicID, providerCallID, target.TargetRef)
-	})
-}
-
-func reconcileMessageAt(
-	ctx context.Context,
-	client *http.Client,
-	apiURL string,
-	target MessageTarget,
-	since time.Time,
-	matches func(readbackMessage) bool,
-) (string, bool, APIResult, error) {
 	values := url.Values{
 		"channel":              {target.Channel},
 		"include_all_metadata": {"true"},
@@ -210,7 +196,7 @@ func reconcileMessageAt(
 	}
 	for range readbackMaxPages {
 		var out readbackResponse
-		result, err := callFormAt(ctx, client, apiURL, target.BotToken, method, values, &out)
+		result, err := callFormAt(ctx, client, defaultAPIURL, target.BotToken, method, values, &out)
 		if err != nil {
 			return "", false, APIResult{}, err
 		}
@@ -221,7 +207,7 @@ func reconcileMessageAt(
 			return "", false, ErrorResult(out.Error), nil
 		}
 		for _, message := range out.Messages {
-			if matches(message) {
+			if messageHasMarker(message, agentPublicID, providerCallID, target.TargetRef) {
 				channel := message.Channel
 				if channel == "" {
 					channel = target.Channel

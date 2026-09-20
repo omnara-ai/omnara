@@ -155,7 +155,6 @@ type inboxReceiptView struct {
 	ReceiptKey  string                                  `json:"receipt_key"`
 	State       integrationstore.IntegrationInboxState  `json:"state"`
 	Source      integrationstore.IntegrationInboxSource `json:"source,omitempty"`
-	Scheduled   *inboxScheduledPublicationView          `json:"scheduled,omitempty"`
 	Attempts    int                                     `json:"attempt_count"`
 	CreatedAt   time.Time                               `json:"created_at"`
 	UpdatedAt   time.Time                               `json:"updated_at"`
@@ -163,14 +162,6 @@ type inboxReceiptView struct {
 	TerminalAt  *time.Time                              `json:"terminal_at,omitempty"`
 	LastError   string                                  `json:"last_error,omitempty"`
 	Slots       []inboxSlotView                         `json:"slots,omitempty"`
-}
-
-// An attempt without a known root is uncertain, not proof of non-delivery.
-// A known root confirms publication evidence, not agent launch or report delivery.
-// Expose only these facts; never encode the root address or raw preparation.
-type inboxScheduledPublicationView struct {
-	AttemptedAt *time.Time `json:"attempted_at,omitempty"`
-	RootKnown   bool       `json:"root_known"`
 }
 
 // Deliberately project only identity references and stage presence. Never encode
@@ -237,17 +228,6 @@ func (c inboxCommand) run(ctx context.Context, store inboxOperatorStore, output 
 			return err
 		}
 		view.Source = record.Source
-		if record.Source == integrationstore.IntegrationInboxSourceScheduledLaunch {
-			preparation, err := record.ScheduledPreparation()
-			if err != nil {
-				// Decode errors may echo private preparation values.
-				return errors.New("decode scheduled publication state")
-			}
-			view.Scheduled = &inboxScheduledPublicationView{
-				AttemptedAt: preparation.AttemptedAt,
-				RootKnown:   preparation.Root != nil,
-			}
-		}
 		var slots map[string]inboxSlotView
 		if len(record.Plan) != 0 {
 			if err := json.Unmarshal(record.Plan, &slots); err != nil {

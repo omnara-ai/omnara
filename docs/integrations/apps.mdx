@@ -166,10 +166,15 @@ schedule stops future firings; it does not cancel work already accepted by the
 app. App/profile identities on a schedule are fixed; create another schedule to
 change them.
 
-An opening message can remain if the later agent launch fails. Retries reuse a
-confirmed message. If publication cannot be confirmed, Omnara fails that run
-instead of blindly posting a replacement. Questions and approvals remain
-available in the dashboard if provider delivery fails.
+Each accepted run uses the profile configuration captured when the schedule fired.
+An opening message can remain if the later agent launch fails. Once the thread's
+launch plan is saved, retries reuse that thread. A reported uncertain send or a
+failure saving the plan after publication fails the run. If a crash, lost lease,
+or database outage prevents saving either the plan or the failure, recovery may
+post another opening and leave the earlier heading unused. Explicit operator retry
+of a failed run without a saved plan can also post a replacement. Each occurrence
+still admits at most one agent. Questions and approvals remain available in the
+dashboard if provider delivery fails.
 
 ## Route questions and approvals
 

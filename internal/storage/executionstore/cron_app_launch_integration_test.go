@@ -385,7 +385,7 @@ func TestCronAppLaunchValidationListAndLastRun(t *testing.T) {
 	// A surviving older failure must never replace expired exact diagnostics.
 	_, err = f.store.pool.Exec(
 		f.ctx,
-		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,preparation,state) VALUES ($1,$2,'older',convert_to('{}','UTF8'),'scheduled_launch','{}','failed')`,
+		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state) VALUES ($1,$2,'older',convert_to('{}','UTF8'),'scheduled_launch','failed')`,
 		testProjectID,
 		f.app.ID,
 	)
@@ -409,7 +409,7 @@ func TestCronAppLaunchValidationListAndLastRun(t *testing.T) {
 		if appID != f.app.ID {
 			_, err = f.store.pool.Exec(
 				f.ctx,
-				`UPDATE integration_inbox SET source='scheduled_launch',preparation='{}' WHERE id=$1`,
+				`UPDATE integration_inbox SET source='scheduled_launch' WHERE id=$1`,
 				wrong,
 			)
 			require.NoError(t, err)

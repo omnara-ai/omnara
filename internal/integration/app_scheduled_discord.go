@@ -17,54 +17,46 @@ func (p *DiscordAppInboxProvider) PublishScheduledRoot(
 	app integrationstore.ProjectAppRecord,
 	launch integrationstore.ScheduledAppLaunch,
 	receiptID uuid.UUID,
-	_ integrationstore.ScheduledLaunchPreparation,
-	fresh bool,
 	authority func(context.Context) error,
-) (appdefinition.Scope, bool, error) {
-	// The consumer reuses saved roots without calling this method. Without one,
-	// a resumed attempt cannot recover from history: Discord's nonce is ephemeral.
-	if !fresh {
-		return appdefinition.Scope{}, false, fmt.Errorf(
-			"%w: opening publication outcome is unknown; no replacement sent", ErrScheduledLaunchFailed,
-		)
-	}
+) (appdefinition.Scope, error) {
 	client, _, err := p.requestAccess(ctx, app, authority)
 	if err != nil {
-		return appdefinition.Scope{}, true, err
+		return appdefinition.Scope{}, err
 	}
 	destination, err := appdefinition.ResolveDestination(app.Provider, launch.Destination, nil)
 	if err != nil {
-		return appdefinition.Scope{}, true, err
+		return appdefinition.Scope{}, err
 	}
 	parent := discord.Scope{GuildID: destination.Discord.GuildID, ChannelID: destination.Discord.ChannelID}
 	channel, err := client.GetScopedChannel(ctx, parent)
 	if err != nil {
-		return appdefinition.Scope{}, true, scheduledDiscordError(err)
+		return appdefinition.Scope{}, scheduledDiscordError(err)
 	}
 	if channel.GuildID == "" || (channel.Type != 0 && channel.Type != 5) {
-		return appdefinition.Scope{}, true, fmt.Errorf(
+		return appdefinition.Scope{}, fmt.Errorf(
 			"%w: Discord requires a server text or announcement channel", ErrScheduledLaunchFailed,
 		)
 	}
 	parent.GuildID = channel.GuildID
 	nonce := base64.RawURLEncoding.EncodeToString(receiptID[:])
 	// CreateMessage bounds same-nonce retries to its initial operation. An
-	// uncertain outcome after that operation must not trigger another send.
+	// uncertain outcome is terminal for this run; a crash before recording the
+	// outcome can still replay the send.
 	root, err := client.CreateMessage(ctx, parent, discord.MessageArgs{Content: launch.OpeningMessage, Nonce: nonce})
 	if err != nil {
 		var apiErr *discord.APIError
 		if !errors.As(err, &apiErr) || apiErr.Code != discord.DeliveryUnknown {
-			return appdefinition.Scope{}, true, scheduledDiscordError(err)
+			return appdefinition.Scope{}, scheduledDiscordError(err)
 		}
 	}
 	if err != nil || root.ID == "" {
-		return appdefinition.Scope{}, false, fmt.Errorf(
+		return appdefinition.Scope{}, fmt.Errorf(
 			"%w: opening publication outcome is unknown; no replacement sent", ErrScheduledLaunchFailed,
 		)
 	}
 	return appdefinition.Scope{Discord: &appdefinition.DiscordScope{
 		GuildID: channel.GuildID, ChannelID: channel.ID, ThreadID: root.ID,
-	}}, false, nil
+	}}, nil
 }
 
 func (p *DiscordAppInboxProvider) EnsureScheduledThread(
