@@ -25,7 +25,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -501,15 +500,15 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 	}
 }
 
-func TestSlackActionsResolveQuestionAsSlackActor(t *testing.T) {
+func TestSlackActionsResolveQuestionAsAppActor(t *testing.T) {
 	t.Parallel()
 	f := newCapturedHTTPFixture(t, "slack", "question")
 	_, err := f.pool.Exec(t.Context(), `
 INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
-VALUES ($1, 'slack', $2, 'U_OTHER', 'Grace Hopper', now(), now())
+VALUES ($1, 'app', $2, 'U_OTHER', 'Grace Hopper', now(), now())
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id)
 DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at`,
-		f.project.ProjectUUID, f.app.ProviderTenantID)
+		f.project.ProjectUUID, testPublicID(t, publicid.KindProjectApp, f.app.ID))
 	require.NoError(t, err)
 	require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
 	actorID, inputKind := interactionResolvingInput(
@@ -523,10 +522,10 @@ DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.update
 	require.Equal(t, "interaction_response", inputKind)
 	actor, err := f.project.Store.Execution().GetActor(t.Context(), f.project.ProjectUUID, actorID)
 	require.NoError(t, err)
-	require.Equal(t, identitystore.ActorProviderSlack, actor.Provider)
+	require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
 	require.Equal(t, "U_OTHER", actor.ProviderUserID)
 	names, err := f.project.Store.Execution().ListActorDisplayNames(t.Context(), f.project.ProjectUUID,
-		identitystore.ActorProviderSlack, f.app.ProviderTenantID, []string{"U_OTHER"})
+		executionstore.ActorProviderApp, testPublicID(t, publicid.KindProjectApp, f.app.ID), []string{"U_OTHER"})
 	require.NoError(t, err)
 	require.Equal(t, "Grace Hopper", names["U_OTHER"], "retain the stored name over the signed payload name")
 }
@@ -557,7 +556,7 @@ func TestCapturedSlackRootPromptRemainsValidAfterThreadReply(t *testing.T) {
 	require.Equal(t, "resolved", root["ok"])
 }
 
-func TestSlackActionsResolvePermissionAsSlackActor(t *testing.T) {
+func TestSlackActionsResolvePermissionAsAppActor(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
 	var once sync.Once
@@ -602,7 +601,7 @@ func TestSlackActionsResolvePermissionAsSlackActor(t *testing.T) {
 	)
 	actor, err := f.project.Store.Execution().GetActor(t.Context(), f.project.ProjectUUID, actorID)
 	require.NoError(t, err)
-	require.Equal(t, identitystore.ActorProviderSlack, actor.Provider)
+	require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
 	require.Equal(t, "U_OTHER", actor.ProviderUserID)
 	select {
 	case update := <-updates:

@@ -29,7 +29,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -180,8 +179,11 @@ func TestSlackEventsAppMentionCreatesIntegrationTargetInputAndDedupesMessageEven
 	if err != nil {
 		t.Fatalf("get producer actor: %v", err)
 	}
-	if actor.Provider != identitystore.ActorProviderSlack {
-		t.Fatalf("actor provider = %q, want slack", actor.Provider)
+	if actor.ProviderTenantID != testPublicID(t, publicid.KindProjectApp, fixture.Install.ID) {
+		t.Fatalf("actor namespace = %q, want configured app ID", actor.ProviderTenantID)
+	}
+	if actor.Provider != executionstore.ActorProviderApp {
+		t.Fatalf("actor provider = %q, want app", actor.Provider)
 	}
 	if input.DeliveryMode != executionstore.DeliveryModeSteering {
 		t.Fatalf(
@@ -699,8 +701,8 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 	mentionedNames, err := fixture.Project.Store.Execution().ListActorDisplayNames(
 		ctx,
 		fixture.Project.ProjectUUID,
-		identitystore.ActorProviderSlack,
-		fixture.Install.ProviderTenantID,
+		executionstore.ActorProviderApp,
+		testPublicID(t, publicid.KindProjectApp, fixture.Install.ID),
 		[]string{"U456"},
 	)
 	if err != nil {
@@ -3347,8 +3349,8 @@ func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
 	names, err := fixture.Project.Store.Execution().ListActorDisplayNames(
 		ctx,
 		fixture.Project.ProjectUUID,
-		identitystore.ActorProviderSlack,
-		fixture.Install.ProviderTenantID,
+		executionstore.ActorProviderApp,
+		testPublicID(t, publicid.KindProjectApp, fixture.Install.ID),
 		[]string{"U123"},
 	)
 	if err != nil {

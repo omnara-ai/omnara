@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ActorParams struct {
@@ -22,6 +21,19 @@ type ActorParams struct {
 	ProviderUserID   string
 	DisplayName      *string
 	Metadata         resourcemeta.Metadata
+}
+
+// AppActorParams attributes a sender to one configured app. The app reference is
+// an identity namespace, not a foreign key or a grant of authority.
+func AppActorParams(appID uuid.UUID, userID string, displayName *string) (ActorParams, error) {
+	tenantID, err := publicid.Encode(publicid.KindProjectApp, appID)
+	if err != nil {
+		return ActorParams{}, err
+	}
+	return ActorParams{
+		Provider: ActorProviderApp, ProviderTenantID: tenantID,
+		ProviderUserID: userID, DisplayName: displayName,
+	}, nil
 }
 
 func OmnaraActorParams(orgID uuid.UUID, principal identitystore.PrincipalRecord) (*ActorParams, error) {
@@ -98,17 +110,13 @@ func omnaraActorDisplayNameTx(
 func resolveActorTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
+	projectID uuid.UUID,
 	params *ActorParams,
-	integrationTargetID uuid.UUID,
 ) (uuid.UUID, error) {
 	if projectID == uuid.Nil {
 		return uuid.Nil, errors.New("project id is required for input actor")
 	}
 	if params == nil {
-		if integrationTargetID != uuid.Nil {
-			return uuid.Nil, errors.New("integration target input requires an actor")
-		}
 		return uuid.Nil, nil
 	}
 	var actor ActorRecord
@@ -143,26 +151,6 @@ func resolveActorTx(
 	}
 	if err != nil {
 		return uuid.Nil, err
-	}
-	if integrationTargetID != uuid.Nil {
-		if agentID == uuid.Nil {
-			return uuid.Nil, errors.New("agent is required for integration-target input actor")
-		}
-		matches, err := qtx.ActorMatchesIntegrationTarget(
-			ctx,
-			dbsqlc.ActorMatchesIntegrationTargetParams{
-				ProjectID:           projectID,
-				AgentID:             agentID,
-				IntegrationTargetID: integrationTargetID,
-				ActorID:             actor.ID,
-			},
-		)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("validate integration target actor: %w", err)
-		}
-		if !matches {
-			return uuid.Nil, storeerr.ErrUnauthorized
-		}
 	}
 	return actor.ID, nil
 }

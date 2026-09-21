@@ -23,7 +23,7 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, launch)
 	require.NoError(t, err)
 	original := f.subscriptions(t, agent.Agent.ID)[0]
-	slot := inboxInputPlan(agent.Agent.ID, f.app, "message:subscription")
+	slot := inboxInputPlan(t, agent.Agent.ID, f.app, "message:subscription")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
 		Event: "message", Alternatives: []executionstore.InboxSubscriptionReference{{
@@ -101,7 +101,7 @@ func TestInboxSubscriptionAuthorityUsesLiveTypeAddressEventAndApp(t *testing.T) 
 				Events: []string{"discussion_comment"},
 			}
 			f.attach(t, agent.Agent.ID, attachment)
-			slot := inboxInputPlan(agent.Agent.ID, f.app, "message:keyed")
+			slot := inboxInputPlan(t, agent.Agent.ID, f.app, "message:keyed")
 			slot.Subscription = &executionstore.InboxSubscriptionAuthority{
 				Event: "discussion_comment", Alternatives: []executionstore.InboxSubscriptionReference{
 					{Type: "not_exported", Address: slot.Input.Origin.Address},
@@ -196,7 +196,7 @@ func TestSubagentExplicitSubscriptionReceivesAndArchiveCleansUp(t *testing.T) {
 	attachment := f.attachment()
 	attachment.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`)
 	f.attach(t, child.Agent.ID, attachment)
-	slot := inboxInputPlan(child.Agent.ID, f.app, "message:child")
+	slot := inboxInputPlan(t, child.Agent.ID, f.app, "message:child")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
 		Event: "message", Alternatives: []executionstore.InboxSubscriptionReference{{

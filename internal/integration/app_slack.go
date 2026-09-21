@@ -161,18 +161,18 @@ func NormalizeSlackAppEvent(
 			scope.ThreadTS = event.TS
 		}
 	}
+	appActor, err := executionstore.AppActorParams(appSetup.ID, event.User, nil)
+	if err != nil {
+		return AppEvent{}, false, err
+	}
 	result := AppEvent{
 		Event: appdefinition.Event{
 			Scope:     appdefinition.Scope{Slack: &scope},
 			Kind:      "message",
 			Mentioned: mentioned,
 		},
-		SemanticKey: "slack:message:" + appSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
-		Actor: executionstore.ActorParams{
-			Provider:         "slack",
-			ProviderTenantID: appSetup.ProviderTenantID,
-			ProviderUserID:   event.User,
-		},
+		SemanticKey:            "slack:message:" + appSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
+		Actor:                  appActor,
 		DeliveryMode:           executionstore.DeliveryModeSteering,
 		CancelOpenInteractions: true,
 	}
@@ -298,8 +298,8 @@ func (p *SlackAppInboxProvider) Expand(
 		stored, _ = p.actors.ListActorDisplayNames(
 			enrichCtx,
 			appSetup.ProjectID,
-			"slack",
-			appSetup.ProviderTenantID,
+			normalized.Actor.Provider,
+			normalized.Actor.ProviderTenantID,
 			slack.ReferencedUserIDs(event, history),
 		)
 	}

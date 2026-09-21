@@ -11080,13 +11080,12 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ActorProvider:
       type: string
-      description: omnara for project members, an integration provider such as slack, or external for API-managed actors.
-      enum: [omnara, slack, github, discord, external]
+      description: omnara for Omnara identities, app for hosted app senders, slack for historical Slack identities, or external for API-managed actors.
+      enum: [omnara, slack, app, external]
       x-enum-varnames:
         - ActorProviderOmnara
         - ActorProviderSlack
-        - ActorProviderGitHub
-        - ActorProviderDiscord
+        - ActorProviderApp
         - ActorProviderExternal
     Actor:
       type: object
@@ -11103,8 +11102,10 @@ components:
           $ref: '#/components/schemas/ActorProvider'
         provider_tenant_id:
           type: string
+          description: Identity namespace. For app actors, the configured project app public ID; for historical Slack actors, the workspace ID. Retained for attribution after app deletion.
         provider_user_id:
           type: string
+          description: Stable sender identifier within the actor identity namespace.
         display_name:
           type: string
         metadata:
@@ -11115,7 +11116,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ExternalActorParams:
       type: object
-      description: Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+      description: Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted apps own their own actor identities.
       additionalProperties: false
       required: [provider_user_id]
       properties:

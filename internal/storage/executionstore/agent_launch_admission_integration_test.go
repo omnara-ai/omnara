@@ -32,11 +32,7 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 			`[{"type":"text","text":"First","metadata":{"part":"1"}},{"type":"text","text":"Second"}]`,
 		),
 		Metadata: json.RawMessage(`{"event":"message","timestamp":"123.456"}`),
-		Actor: &executionstore.ActorParams{
-			Provider:         "slack",
-			ProviderTenantID: f.app.ProviderTenantID,
-			ProviderUserID:   "U_INITIAL",
-		},
+		Actor:    mustAppActorParams(t, f.app.ID, "U_INITIAL"),
 		Origin: &executionstore.LaunchInputOrigin{
 			AppID:       f.app.ID,
 			Address:     integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
@@ -91,11 +87,7 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 			input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"test"}]`),
-				Actor: &executionstore.ActorParams{
-					Provider:         "slack",
-					ProviderTenantID: f.app.ProviderTenantID,
-					ProviderUserID:   "U_INITIAL",
-				},
+				Actor:         mustAppActorParams(t, f.app.ID, "U_INITIAL"),
 				Origin: &executionstore.LaunchInputOrigin{
 					AppID:   f.app.ID,
 					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
@@ -257,11 +249,7 @@ func newInboxLaunchFixture(
 				`[{"type":"text","text":"First event"}]`,
 			),
 			Metadata: json.RawMessage(`{"event":"frozen-first"}`),
-			Actor: &executionstore.ActorParams{
-				Provider:         "slack",
-				ProviderTenantID: f.app.ProviderTenantID,
-				ProviderUserID:   "U_LAUNCH",
-			},
+			Actor:    mustAppActorParams(t, f.app.ID, "U_LAUNCH"),
 			Origin: &executionstore.LaunchInputOrigin{
 				AppID:   f.app.ID,
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},

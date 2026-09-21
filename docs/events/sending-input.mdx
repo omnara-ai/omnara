@@ -107,6 +107,13 @@ An **actor** solves this. It's not another kind of account — it's a lightweigh
 
 Omnara reuses an actor when its `provider_tenant_id` and `provider_user_id` match an existing record. You can also pass an actor when [resolving an interaction](/events/interactions) or [stopping current work](/agents/overview#stop-current-work).
 
+Hosted apps record senders with `provider: "app"`, the configured app’s public
+`app_` ID as `provider_tenant_id`, and the sender’s provider ID as
+`provider_user_id`. The same sender is reused within that app; different apps
+have separate actor identities. These are attribution records, not permissions,
+and remain readable after app deletion. Historical Slack actors retain
+`provider: "slack"` and their original workspace-based identities.
+
 Actors belong to a project and can be listed, fetched, or created through the API. Omit `actor` when the request is authenticated as an Omnara user; their account already provides the attribution.
 
 <Info>

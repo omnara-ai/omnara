@@ -379,7 +379,7 @@ func activateLockedAuthorizedAgentConfigTx(
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}
-		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, actorParams, uuid.Nil)
+		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, actorParams)
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}

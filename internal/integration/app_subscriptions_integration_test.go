@@ -50,7 +50,7 @@ func TestAppRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *testing.T) 
 		Event: appdefinition.Event{Kind: "message", Mentioned: true,
 			Scope: appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		SemanticKey: "z:launch", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor: executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor: appTestActor(t, appID, "U123"),
 	}
 	reply := event
 	reply.SemanticKey, reply.Event.Mentioned = "b:reply", false
@@ -128,7 +128,7 @@ func TestAppRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testing.T) {
 			GitHub: &appdefinition.GitHubScope{RepositoryID: 123, PullRequest: 42},
 		}},
 		SemanticKey: "commit:1", ContentBlocks: json.RawMessage(`[{"type":"text","text":"new commit"}]`),
-		Actor: executionstore.ActorParams{Provider: "github", ProviderTenantID: "11", ProviderUserID: "33"},
+		Actor: appTestActor(t, appID, "33"),
 	}
 	capture := func(key string) integrationstore.IntegrationInboxRecord {
 		t.Helper()

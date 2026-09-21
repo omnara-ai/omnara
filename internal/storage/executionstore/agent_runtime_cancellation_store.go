@@ -47,7 +47,7 @@ func (s *Store) CancelAgent(
 	if err := lockAgentWithParentTx(ctx, tx, qtx, input.ProjectID, input.AgentID); err != nil {
 		return CancelAgentResult{}, err
 	}
-	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.Actor)
 	if err != nil {
 		return CancelAgentResult{}, err
 	}

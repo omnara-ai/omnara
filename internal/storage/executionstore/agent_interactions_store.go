@@ -346,9 +346,7 @@ func resolveAgentInteractionTx(
 			ctx,
 			qtx,
 			input.ProjectID,
-			input.AgentID,
 			input.Actor,
-			input.IntegrationTargetID,
 		)
 		if err != nil {
 			return AgentInteractionRecord{}, err

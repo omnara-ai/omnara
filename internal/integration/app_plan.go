@@ -171,9 +171,7 @@ func prepareAppEvents(
 			return nil, fmt.Errorf("events require distinct bounded semantic keys")
 		}
 		seen[event.SemanticKey] = true
-		if event.Event.Scope.Provider() != appSetup.Provider || event.Actor.Provider != appSetup.Provider ||
-			event.Actor.ProviderTenantID != appSetup.ProviderTenantID ||
-			event.Actor.ProviderUserID == "" {
+		if event.Event.Scope.Provider() != appSetup.Provider || event.Actor.ProviderUserID == "" {
 			return nil, storeerr.ErrUnauthorized
 		}
 		account := appSetup.ProviderTenantID

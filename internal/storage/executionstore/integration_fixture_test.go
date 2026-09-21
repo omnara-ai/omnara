@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -346,4 +347,11 @@ func createLaunchTestAgent(
 		t.Fatalf("create launch agent profile: %v", err)
 	}
 	return profile
+}
+
+func mustAppActorParams(t *testing.T, appID uuid.UUID, userID string) *executionstore.ActorParams {
+	t.Helper()
+	actor, err := executionstore.AppActorParams(appID, userID, nil)
+	require.NoError(t, err)
+	return &actor
 }

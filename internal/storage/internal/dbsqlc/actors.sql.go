@@ -13,46 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const actorMatchesIntegrationTarget = `-- name: ActorMatchesIntegrationTarget :one
-SELECT EXISTS (
-  SELECT 1
-  FROM actors actor
-  JOIN integration_targets target
-    ON target.project_id = $1
-   AND target.agent_id = $2
-   AND target.id = $3
-   AND target.deleted_at IS NULL
-  JOIN project_apps install
-    ON install.project_id = target.project_id
-   AND install.id = target.app_id
-   AND install.state = 'active'
-   AND install.deleted_at IS NULL
-  WHERE actor.id = $4
-    AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
-) AS matches
-`
-
-type ActorMatchesIntegrationTargetParams struct {
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	IntegrationTargetID uuid.UUID
-	ActorID             uuid.UUID
-}
-
-func (q *Queries) ActorMatchesIntegrationTarget(ctx context.Context, arg ActorMatchesIntegrationTargetParams) (bool, error) {
-	row := q.db.QueryRow(ctx, actorMatchesIntegrationTarget,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.IntegrationTargetID,
-		arg.ActorID,
-	)
-	var matches bool
-	err := row.Scan(&matches)
-	return matches, err
-}
-
 const getActor = `-- name: GetActor :one
 SELECT id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
 FROM actors

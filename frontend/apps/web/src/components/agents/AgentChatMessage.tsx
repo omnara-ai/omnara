@@ -30,7 +30,8 @@ function ActorLabel({
 
   const displayName = actor.display_name?.trim()
   const provider =
-    actor.provider === 'slack' ? 'Slack' : actor.provider === 'external' ? 'External' : 'Omnara'
+    { omnara: 'Omnara', app: 'App', slack: 'Slack', external: 'External' }[actor.provider] ??
+    actor.provider
   return (
     <MessageHeader>
       {displayName == null || displayName === '' ? actor.provider_user_id : displayName}

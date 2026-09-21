@@ -234,6 +234,7 @@ func (f appInteractionFixture) read(
 }
 
 func (f appInteractionFixture) callback(
+	t *testing.T,
 	record executionstore.AgentInteractionRecord, user string,
 ) executionstore.ResolveAgentInteractionFromHandlerInput {
 	return executionstore.ResolveAgentInteractionFromHandlerInput{
@@ -244,9 +245,7 @@ func (f appInteractionFixture) callback(
 			Resolution: interactionform.Resolution{
 				Answers: []interactionform.Answer{{OptionIndices: []int{0}}},
 			},
-			Actor: &executionstore.ActorParams{
-				Provider: "slack", ProviderTenantID: f.app.ProviderTenantID, ProviderUserID: user,
-			},
+			Actor: mustAppActorParams(t, f.app.ID, user),
 		},
 		AppID: f.app.ID, HandlerDefinition: appdefinition.Slack,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
@@ -302,15 +301,15 @@ func TestAppInteractionsSelectionAndCapturedQuestion(t *testing.T) {
 		GetAgentInteractionForPresentation(f.ctx, testProjectID, f.process.AgentID, question.ID)
 	require.NoError(t, err, "changing selection does not revoke the captured conversation")
 	resolved, err := f.store.Execution().ResolveAgentInteractionFromHandler(
-		f.ctx, f.callback(question, "U_DIFFERENT_PARTICIPANT"),
+		f.ctx, f.callback(t, question, "U_DIFFERENT_PARTICIPANT"),
 	)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.AgentInteractionStateResolved, resolved.State)
 	_, err = f.store.Execution().
-		ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_DIFFERENT_PARTICIPANT"))
+		ResolveAgentInteractionFromHandler(f.ctx, f.callback(t, question, "U_DIFFERENT_PARTICIPANT"))
 	require.NoError(t, err, "same participant and response replay is idempotent")
 	_, err = f.store.Execution().
-		ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_ANOTHER_PARTICIPANT"))
+		ResolveAgentInteractionFromHandler(f.ctx, f.callback(t, question, "U_ANOTHER_PARTICIPANT"))
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	afterResponse, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
@@ -420,12 +419,12 @@ func TestAppInteractionsRevocationPreservesDashboardAndSnapshot(t *testing.T) {
 			)
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 			_, err = f.store.Execution().
-				ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_OTHER"))
+				ResolveAgentInteractionFromHandler(f.ctx, f.callback(t, question, "U_OTHER"))
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 			unchanged := f.read(t, question.ID)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, unchanged.State)
 			require.JSONEq(t, string(question.Destination), string(unchanged.Destination))
-			input := f.callback(question, "U_OTHER").ResolveAgentInteractionInput
+			input := f.callback(t, question, "U_OTHER").ResolveAgentInteractionInput
 			input.Actor = mustOmnaraActorParams(t, f.user.ID)
 			resolved, err := f.store.Execution().ResolveAgentInteraction(f.ctx, input)
 			require.NoError(t, err, "dashboard remains authoritative when mirroring is unavailable")
@@ -446,11 +445,15 @@ func TestAppInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 			v.HandlerDefinition = appdefinition.Discord
 		},
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.IntegrationTargetID = f.b.ID },
+		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Actor = nil },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
-			v.Actor.ProviderTenantID = "OTHER_TEAM"
+			v.Actor.ProviderTenantID = "OTHER_APP"
+		},
+		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
+			v.Actor.Provider = executionstore.ActorProviderExternal
 		},
 	} {
-		input := f.callback(question, "U_OTHER")
+		input := f.callback(t, question, "U_OTHER")
 		change(&input)
 		_, err := f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, input)
 		require.ErrorIs(t, err, storeerr.ErrUnauthorized)
@@ -502,7 +505,7 @@ func TestAppInteractionsIdentityCannotRedirectCapturedPrompt(t *testing.T) {
 			)
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 			_, err = f.store.Execution().
-				ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_OTHER"))
+				ResolveAgentInteractionFromHandler(f.ctx, f.callback(t, question, "U_OTHER"))
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 			require.JSONEq(
 				t,
@@ -558,12 +561,23 @@ func TestAppInteractionsCaptureUsesLockedCurrentSelectionWithoutAppGate(t *testi
 	require.Equal(t, f.b.ID, destination.IntegrationTargetID)
 	require.Equal(t, "other", destination.HandlerKey)
 	require.NoError(t, appGate.Rollback(f.ctx))
-	callback := f.callback(interaction, "U_OTHER_PARTICIPANT")
+	callback := f.callback(t, interaction, "U_OTHER_PARTICIPANT")
 	callback.Address.Ref = f.b.ProviderRef
 	callback.AppID = f.otherApp.ID
+	callback.Actor = mustAppActorParams(t, f.otherApp.ID, "U_OTHER_PARTICIPANT")
 	callback.Resolution.Answers[0].OptionIndices = []int{toolpermission.AllowOptionIndex}
 	_, err = f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, callback)
 	require.NoError(t, err)
+	var provider, tenant, sender string
+	require.NoError(t, f.store.pool.QueryRow(f.ctx, `
+SELECT actor.provider, actor.provider_tenant_id, actor.provider_user_id
+FROM agent_interactions interaction
+JOIN agent_inputs input ON input.id=interaction.resolved_by_input_id
+JOIN actors actor ON actor.id=input.actor_id
+WHERE interaction.id=$1`, interaction.ID).Scan(&provider, &tenant, &sender))
+	require.Equal(t, executionstore.ActorProviderApp, provider)
+	require.Equal(t, callback.Actor.ProviderTenantID, tenant)
+	require.Equal(t, "U_OTHER_PARTICIPANT", sender)
 	tool, err := f.store.Execution().GetToolCall(f.ctx, testProjectID, f.process.AgentID, toolID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateReady, tool.State)
@@ -578,9 +592,10 @@ func TestAppInteractionsCallbackFencesRevocationBeforeAgentLock(t *testing.T) {
 	q := dbsqlc.New(revocation)
 	require.NoError(t, q.LockProjectAppLifecycleExclusive(f.ctx,
 		dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.app.ID}))
+	doneInput := f.callback(t, question, "U_OTHER")
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().
-			ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_OTHER"))
+			ResolveAgentInteractionFromHandler(f.ctx, doneInput)
 	})
 	integrationdb.WaitForNamedLockWaiters(
 		t,
@@ -613,7 +628,7 @@ func TestAppInteractionsCallbackFencesVerifiedSetupRevision(t *testing.T) {
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
 	question := f.question(t)
-	input := f.callback(question, "U_OTHER")
+	input := f.callback(t, question, "U_OTHER")
 	input.SourceSetupRevision = f.app.SetupRevision
 	rotation := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	require.NoError(t, dbsqlc.New(rotation).LockProjectAppLifecycleExclusive(f.ctx,
@@ -738,13 +753,15 @@ func TestAppInteractionsConcurrentParticipantsResolveOnce(t *testing.T) {
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
+	firstInput := f.callback(t, question, "U_FIRST")
 	first := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().
-			ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_FIRST"))
+			ResolveAgentInteractionFromHandler(f.ctx, firstInput)
 	})
+	secondInput := f.callback(t, question, "U_SECOND")
 	second := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().
-			ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_SECOND"))
+			ResolveAgentInteractionFromHandler(f.ctx, secondInput)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 2)
 	require.NoError(t, barrier.Commit(f.ctx))
@@ -790,9 +807,10 @@ func TestAppInteractionsCallbackRechecksConfigAfterAgentLockWait(t *testing.T) {
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
+	doneInput := f.callback(t, question, "U_OTHER")
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().
-			ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_OTHER"))
+			ResolveAgentInteractionFromHandler(f.ctx, doneInput)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
 	_, err = activation.Exec(

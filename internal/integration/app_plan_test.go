@@ -138,7 +138,7 @@ func appPlannerFixture(
 		},
 		SemanticKey:   "message:1",
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-		Actor:         executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor:         appTestActor(t, app.ID, "U123"),
 	}
 	return NewAppRouter(execution, integrations), execution, integrations, app, event
 }
@@ -284,7 +284,6 @@ func TestAppPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 	router, _, integrations, _, event := appPlannerFixture(t)
 	integrations.appSetup.Provider = "discord"
 	integrations.appSetup.ProviderTenantID = "11"
-	event.Actor.Provider, event.Actor.ProviderTenantID = "discord", "11"
 	event.Event.Scope = appdefinition.Scope{
 		Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
 	}
@@ -611,7 +610,7 @@ func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
 				expectedEvents = []string{"commit", "discussion_comment", "review_comment"}
 			}
 			integrations.appSetup = app
-			first.Actor.Provider, first.Actor.ProviderTenantID = provider, app.ProviderTenantID
+			first.Actor = appTestActor(t, app.ID, first.Actor.ProviderUserID)
 			first.SemanticKey = "z:launch"
 			first.Launches = []AppLaunchIntent{{AppID: app.ID, Slot: "a", ProfileID: execution.profile.ID}}
 			reply := first

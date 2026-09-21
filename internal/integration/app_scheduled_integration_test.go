@@ -260,7 +260,7 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 		Event:         appdefinition.Event{Kind: "message", Scope: f.provider.root},
 		SemanticKey:   "reply",
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Also consider this"}]`),
-		Actor:         executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor:         appTestActor(t, app.ID, "U123"),
 	}
 	_, err = f.consumer.router.freezeEmptyIfUnrouted(t.Context(), claimed.Lease(), app, event)
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)

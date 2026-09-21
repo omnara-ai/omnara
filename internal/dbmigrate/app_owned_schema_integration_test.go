@@ -76,3 +76,26 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 		`SELECT deleted_at IS NOT NULL FROM project_apps WHERE id=$1`, second).Scan(&otherDeleted))
 	require.False(t, otherDeleted, "deleting one setup must not delete another setup using the same bot")
 }
+
+func TestAppActorMigrationPreservesLegacySlackAttribution(t *testing.T) {
+	ctx := t.Context()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 39))
+	ids := storagefixture.ProjectIDs{
+		OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
+		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
+	}
+	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
+	id := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO actors
+		(id,project_id,provider,provider_tenant_id,provider_user_id,display_name,created_at,updated_at)
+		VALUES($1,$2,'slack','T_OLD','U_OLD','Historical sender',now(),now())`, id, ids.ProjectID)
+	require.NoError(t, err)
+	var before, after []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(a) FROM actors a WHERE id=$1`, id).Scan(&before))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 41))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(a) FROM actors a WHERE id=$1`, id).Scan(&after))
+	require.JSONEq(t, string(before), string(after), "cutover preserves actor identity and metadata")
+}

@@ -66,7 +66,9 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	want := appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}
 	if *root.Event.Scope.Discord != want || !root.Event.MatchesLauncher("mention") ||
 		root.DeliveryMode != executionstore.DeliveryModeSteering || !root.CancelOpenInteractions ||
-		root.Actor.ProviderTenantID != "11" || root.Actor.ProviderUserID != "33" || *root.Actor.DisplayName != "Alex" {
+		root.Actor.Provider != executionstore.ActorProviderApp ||
+		root.Actor.ProviderTenantID != appTestActor(t, appSetup.ID, "").ProviderTenantID ||
+		root.Actor.ProviderUserID != "33" || *root.Actor.DisplayName != "Alex" {
 		t.Fatalf("normalized mention: %+v", root)
 	}
 	var metadata DiscordEventMetadata

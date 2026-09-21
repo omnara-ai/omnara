@@ -102,15 +102,18 @@ func NormalizeDiscordAppEvent(
 	if name == "" {
 		name = message.Message.Author.ID
 	}
+	appActor, err := executionstore.AppActorParams(appSetup.ID, message.Message.Author.ID, &name)
+	if err != nil {
+		return AppEvent{}, false, err
+	}
 	result := AppEvent{
 		Event: appdefinition.Event{Kind: "message", Mentioned: message.MentionsBot,
 			Scope: appdefinition.Scope{Discord: &appdefinition.DiscordScope{
 				GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID,
 			}}},
-		SemanticKey: "discord:message:" + appSetup.ProviderTenantID + ":" + message.Message.ID,
-		DisplayName: channel.Name,
-		Actor: executionstore.ActorParams{Provider: "discord", ProviderTenantID: appSetup.ProviderTenantID,
-			ProviderUserID: message.Message.Author.ID, DisplayName: &name},
+		SemanticKey:  "discord:message:" + appSetup.ProviderTenantID + ":" + message.Message.ID,
+		DisplayName:  channel.Name,
+		Actor:        appActor,
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
 	}
 	if result.DisplayName == "" {

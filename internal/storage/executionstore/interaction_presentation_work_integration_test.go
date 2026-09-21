@@ -210,7 +210,7 @@ func TestInteractionPresentationWorkEligibilityAndRevocation(t *testing.T) {
 SET presentation_attempted_at=now() WHERE agent_id=$1 AND id=$2`, f.process.AgentID, id)
 		require.True(t, isPgReadOnlySQLTransaction(err), "marker requires a capture and no receipt: %v", err)
 	}
-	_, err = f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, f.callback(questions[2], "U_OTHER"))
+	_, err = f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, f.callback(t, questions[2], "U_OTHER"))
 	require.NoError(t, err)
 	for _, id := range []uuid.UUID{dashboard.ID, questions[0].ID, questions[1].ID, questions[2].ID, uuid.New()} {
 		claimed, err = f.store.Execution().ClaimInteractionPresentation(f.ctx, testProjectID, f.process.AgentID, id)
@@ -287,7 +287,7 @@ VALUES ($1, $2, 'permission', 'open', now(), $3, now())`,
 		require.True(t, isPgReadOnlySQLTransaction(err), "immutable attempt marker %s: %v", update, err)
 	}
 	require.Equal(t, attemptedAt, presentationAttemptForTest(t, f, question.ID))
-	_, err = f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, f.callback(question, "U_OTHER"))
+	_, err = f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, f.callback(t, question, "U_OTHER"))
 	require.NoError(t, err)
 	resolved := f.read(t, question.ID)
 	_, err = f.store.Execution().RecordInteractionPresentationReceipt(f.ctx, receiptForAppInteraction(t, question))

@@ -69,7 +69,7 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedSubscriptionInput(t *testing.
 		Event: appdefinition.Event{Kind: "message", Mentioned: true,
 			Scope: appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor: executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor: appTestActor(t, app.ID, "U123"),
 	}
 	first := capture("first-delivery")
 	plan, err := freezeTestAppEvents(ctx, router, first.Lease(), []AppEvent{event})

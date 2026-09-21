@@ -361,14 +361,15 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`,
 		f.appSetup.ProjectID).Scan(&agents))
 	require.Equal(t, 1, agents)
+	actorTenant := appTestActor(t, f.appSetup.ID, "33").ProviderTenantID
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE input.id=$2),
-		count(*) FILTER (WHERE actor.provider='discord' AND actor.provider_tenant_id=$3 AND actor.provider_user_id='33')
+		count(*) FILTER (WHERE actor.provider='app' AND actor.provider_tenant_id=$3 AND actor.provider_user_id='33')
 		FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id
-		WHERE input.agent_id=$1 AND input.input_kind='content'`, agentID, inputID, f.appSetup.ProviderTenantID).
+		WHERE input.agent_id=$1 AND input.input_kind='content'`, agentID, inputID, actorTenant).
 		Scan(&inputs, &original, &attributed))
 	require.Equal(t, 3, inputs, "one input per unique Discord message on the original agent")
 	require.Equal(t, 1, original, "the committed launch input survives deployment")
-	require.Equal(t, 3, attributed, "all inputs retain provider actor attribution")
+	require.Equal(t, 3, attributed, "all inputs retain app-scoped sender attribution")
 	providerFixture.mu.Lock()
 	posts := providerFixture.posts
 	providerFixture.mu.Unlock()

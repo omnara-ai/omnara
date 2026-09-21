@@ -154,12 +154,16 @@ func (s *Server) applyIntegrationNameUpdate(
 			update.DisplayName,
 		)
 	}
+	actor, err := executionstore.AppActorParams(install.ID, update.UserID, nil)
+	if err != nil {
+		return err
+	}
 	return s.store.Execution().UpdateActorDisplayName(
 		ctx,
 		executionstore.UpdateActorDisplayNameInput{
 			ProjectID:        install.ProjectID,
-			Provider:         install.Provider,
-			ProviderTenantID: install.ProviderTenantID,
+			Provider:         actor.Provider,
+			ProviderTenantID: actor.ProviderTenantID,
 			ProviderUserID:   update.UserID,
 			DisplayName:      update.DisplayName,
 		},

@@ -54,6 +54,7 @@ func (f appInteractionFixture) activation() appActivationFixture {
 }
 
 func inboxInputPlan(
+	t *testing.T,
 	agentID uuid.UUID,
 	app integrationstore.ProjectAppRecord,
 	event string,
@@ -63,11 +64,7 @@ func inboxInputPlan(
 			AppID:   app.ID,
 			Address: integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"},
 		},
-		Actor: &executionstore.ActorParams{
-			Provider:         app.Provider,
-			ProviderTenantID: app.ProviderTenantID,
-			ProviderUserID:   "participant",
-		},
+		Actor:                  mustAppActorParams(t, app.ID, "participant"),
 		ContentBlocks:          json.RawMessage(`[{"type":"text","text":"Please address this review"}]`),
 		Metadata:               json.RawMessage(`{"source":"review"}`),
 		IdempotencyKey:         event,
@@ -185,8 +182,8 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			firstPrompt := createQuestionInteractionForTest(t, f.ctx, f.process, calls[0])
 			f.selectOrigin(t, f.b.ID)
 			secondPrompt := createQuestionInteractionForTest(t, f.ctx, f.process, calls[1])
-			app := inboxInputApp(t, f.activation(), executionstore.ActorProviderGitHub)
-			slot := inboxInputPlan(f.process.AgentID, app, event)
+			app := inboxInputApp(t, f.activation(), appdefinition.ProviderGitHub)
+			slot := inboxInputPlan(t, f.process.AgentID, app, event)
 			receipt := freezeInboxInput(t, f.activation(), slot, "first", time.Minute)
 			before, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
@@ -204,7 +201,8 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			require.Equal(t, app.ID, result.IntegrationTarget.AppID)
 			actor, err := f.store.Execution().GetActor(f.ctx, testProjectID, result.AgentInput.ActorID)
 			require.NoError(t, err)
-			require.Equal(t, "github", actor.Provider)
+			require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
+			require.Equal(t, slot.Input.Actor.ProviderTenantID, actor.ProviderTenantID)
 			after, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(t, before.CurrentConfigID, after.CurrentConfigID)
@@ -269,7 +267,7 @@ func TestInboxInputConcurrentMediaAndCompletedReplay(t *testing.T) {
 	f := newAppActivationFixture(t)
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "existing-recipient"))
 	require.NoError(t, err)
-	slot := withInboxFile(t, inboxInputPlan(agent.Agent.ID, f.app, "message:file"))
+	slot := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.app, "message:file"))
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	first := freezeInboxInput(t, f, slot, "file-one", time.Minute)
 	second := freezeInboxInput(t, f, slot, "file-two", time.Minute)
@@ -319,7 +317,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 	f := newAppInteractionFixture(t)
 	selected := f.selectOrigin(t, f.a.ID)
 	prompt := f.question(t)
-	slot := withInboxFile(t, inboxInputPlan(f.process.AgentID, f.app, "expire-file"))
+	slot := withInboxFile(t, inboxInputPlan(t, f.process.AgentID, f.app, "expire-file"))
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C456:999.888"}
 	receipt := freezeInboxInput(t, f.activation(), slot, "expire", 2*time.Second)
 	prepareInboxInput(t, f.activation(), receipt, slot)
@@ -388,7 +386,7 @@ func TestInboxInputAppGateBeforeReceiptAndAgent(t *testing.T) {
 	f := newAppActivationFixture(t)
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "lock-recipient"))
 	require.NoError(t, err)
-	slot := inboxInputPlan(agent.Agent.ID, f.app, "message:lock")
+	slot := inboxInputPlan(t, agent.Agent.ID, f.app, "message:lock")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	receipt := freezeInboxInput(t, f, slot, "lock-event", time.Minute)
 	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
@@ -420,7 +418,7 @@ func TestInboxInputAppGateBeforeReceiptAndAgent(t *testing.T) {
 func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *testing.T) {
 	t.Parallel()
 	f := newAppInteractionFixture(t)
-	slot := inboxInputPlan(f.process.AgentID, f.otherApp, "handler-origin")
+	slot := inboxInputPlan(t, f.process.AgentID, f.otherApp, "handler-origin")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: f.b.ProviderRef}
 	slot.Input.CancelOpenInteractions = false
 	receipt := freezeInboxInput(t, f.activation(), slot, "handler-origin", time.Minute)
@@ -500,7 +498,7 @@ func TestInboxInputInvalidPreparationOrActorLeavesNoAdmission(t *testing.T) {
 			agent, err := f.store.Execution().
 				LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "invalid-recipient"))
 			require.NoError(t, err)
-			slot := withInboxFile(t, inboxInputPlan(agent.Agent.ID, f.app, "invalid-file"))
+			slot := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.app, "invalid-file"))
 			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 			switch scenario {
 			case "external-actor":
@@ -549,7 +547,7 @@ func TestInboxMessageSiblingsConcurrentAndDelayedFiles(t *testing.T) {
 		t.Run(order, func(t *testing.T) {
 			t.Parallel()
 			f := newAppInteractionFixture(t)
-			base := inboxInputPlan(f.process.AgentID, f.app, "text-callback")
+			base := inboxInputPlan(t, f.process.AgentID, f.app, "text-callback")
 			base.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 			base.Sibling = &executionstore.InboxMessageSibling{Key: "file-callback"}
 			files := withInboxFile(t, base)

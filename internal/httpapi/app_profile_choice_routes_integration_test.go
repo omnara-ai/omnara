@@ -144,8 +144,8 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	source := integration.AppEvent{
 		Event:       appdefinition.Event{Kind: "message", Mentioned: true, Scope: scope},
 		SemanticKey: "source:" + message, ContentBlocks: json.RawMessage(`[{"type":"text","text":"original request"}]`),
-		Actor: executionstore.ActorParams{Provider: f.app.Provider,
-			ProviderTenantID: f.app.ProviderTenantID, ProviderUserID: originalActor},
+		Actor: executionstore.ActorParams{Provider: executionstore.ActorProviderApp,
+			ProviderTenantID: testPublicID(t, publicid.KindProjectApp, f.app.ID), ProviderUserID: originalActor},
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
 	}
 	kind, ref, err := scope.Conversation()

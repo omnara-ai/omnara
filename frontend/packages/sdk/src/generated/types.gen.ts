@@ -2252,16 +2252,22 @@ export type AgentInteraction = {
 };
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * omnara for Omnara identities, app for hosted app senders, slack for historical Slack identities, or external for API-managed actors.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'github' | 'discord' | 'external';
+export type ActorProvider = 'omnara' | 'slack' | 'app' | 'external';
 
 export type Actor = {
     id: ActorId;
     org_id: OrganizationId;
     project_id: ProjectId;
     provider: ActorProvider;
+    /**
+     * Identity namespace. For app actors, the configured project app public ID; for historical Slack actors, the workspace ID. Retained for attribution after app deletion.
+     */
     provider_tenant_id?: string;
+    /**
+     * Stable sender identifier within the actor identity namespace.
+     */
     provider_user_id: string;
     display_name?: string;
     metadata: Metadata;
@@ -2270,7 +2276,7 @@ export type Actor = {
 };
 
 /**
- * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+ * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted apps own their own actor identities.
  */
 export type ExternalActorParams = {
     provider_tenant_id?: string;

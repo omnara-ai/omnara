@@ -200,6 +200,10 @@ func NormalizeGitHubAppEvent(
 	if humanInput && actor.ID != payload.Sender.ID {
 		return AppEvent{}, false, fmt.Errorf("GitHub comment author differs from event sender")
 	}
+	appActor, err := executionstore.AppActorParams(appSetup.ID, strconv.FormatInt(actor.ID, 10), &actor.Login)
+	if err != nil {
+		return AppEvent{}, false, err
+	}
 	result := AppEvent{
 		Event: appdefinition.Event{
 			Scope: appdefinition.Scope{GitHub: &appdefinition.GitHubScope{
@@ -207,12 +211,9 @@ func NormalizeGitHubAppEvent(
 			}},
 			Kind: kind, Mentioned: humanInput && githubMentionsBot(mentionText, identity.BotLogin),
 		},
-		SemanticKey: fmt.Sprintf("github:%d:%s", payload.Repository.ID, key),
-		DisplayName: fmt.Sprintf("%s#%d", payload.Repository.FullName, metadata.PullRequest),
-		Actor: executionstore.ActorParams{
-			Provider: "github", ProviderTenantID: appSetup.ProviderTenantID,
-			ProviderUserID: strconv.FormatInt(actor.ID, 10), DisplayName: &actor.Login,
-		},
+		SemanticKey:  fmt.Sprintf("github:%d:%s", payload.Repository.ID, key),
+		DisplayName:  fmt.Sprintf("%s#%d", payload.Repository.FullName, metadata.PullRequest),
+		Actor:        appActor,
 		DeliveryMode: executionstore.DeliveryModeQueued,
 	}
 	if humanInput {
@@ -222,7 +223,6 @@ func NormalizeGitHubAppEvent(
 	if err := result.Event.Validate(); err != nil {
 		return AppEvent{}, false, err
 	}
-	var err error
 	result.ContentBlocks, err = json.Marshal([]map[string]string{{"type": "text", "text": text}})
 	if err != nil {
 		return AppEvent{}, false, err

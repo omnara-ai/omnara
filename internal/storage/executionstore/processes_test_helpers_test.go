@@ -282,7 +282,7 @@ func mustEnsureOmnaraActor(
 	if err != nil {
 		t.Fatalf("omnara actor params: %v", err)
 	}
-	actorID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, projectID, uuid.Nil, params, uuid.Nil)
+	actorID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, projectID, params)
 	if err != nil {
 		t.Fatalf("ensure omnara actor: %v", err)
 	}

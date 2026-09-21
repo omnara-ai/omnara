@@ -141,7 +141,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 			return err
 		}
 		if admission == nil || !admission.Scheduled {
-			if err := validateVerifiedProviderInputActor(app, actor); err != nil {
+			if err := validateAppInputActor(app.ID, actor); err != nil {
 				return err
 			}
 		}

@@ -240,6 +240,14 @@ func (s *slackInboxTestAccess) GetConversationDisplayName(
 	return "", nil
 }
 
+type slackActorNamesFunc func(context.Context, uuid.UUID, string, string, []string) (map[string]string, error)
+
+func (f slackActorNamesFunc) ListActorDisplayNames(
+	ctx context.Context, projectID uuid.UUID, provider, tenant string, users []string,
+) (map[string]string, error) {
+	return f(ctx, projectID, provider, tenant, users)
+}
+
 func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -275,6 +283,21 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	require.Equal(t, "Alex", *input.Actor.DisplayName)
 	require.Contains(t, string(input.ContentBlocks), "previous context")
 	require.NotContains(t, string(input.Metadata), "test-token")
+
+	// A cached sender skips the live lookup. The cache must use the configured
+	// app identity even when its provider workspace is shared with another app.
+	provider.actors = slackActorNamesFunc(func(
+		_ context.Context, projectID uuid.UUID, source, tenant string, users []string,
+	) (map[string]string, error) {
+		require.Equal(t, appSetup.ProjectID, projectID)
+		require.Equal(t, executionstore.ActorProviderApp, source)
+		require.Equal(t, input.Actor.ProviderTenantID, tenant)
+		require.Contains(t, users, "U123")
+		return map[string]string{"U123": "Cached Alex"}, nil
+	})
+	expanded, err = provider.Expand(t.Context(), appSetup, slackInboxTestPayload(t, event))
+	require.NoError(t, err)
+	require.Equal(t, "Cached Alex", *expanded.Events[0].Actor.DisplayName)
 }
 
 func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
@@ -320,6 +343,7 @@ func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 
 func TestAppEventsDiscordGuildDiffersFromAppApplication(t *testing.T) {
 	appSetup := integrationstore.ProjectAppRecord{
+		ID:                 uuid.New(),
 		Provider:           "discord",
 		ProviderTenantID:   "999",
 		ProviderAccountRef: "888",
@@ -332,15 +356,12 @@ func TestAppEventsDiscordGuildDiffersFromAppApplication(t *testing.T) {
 			Kind: "message",
 		},
 		SemanticKey:   "discord:message:111",
-		Actor:         executionstore.ActorParams{Provider: "discord", ProviderTenantID: "999", ProviderUserID: "777"},
+		Actor:         appTestActor(t, appSetup.ID, "777"),
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
 	}
 	requests, err := prepareAppEvents([]AppEvent{event}, appSetup)
 	require.NoError(t, err)
 	require.Contains(t, requests[0].scopes, integrationstore.ConversationAddress{Kind: "guild", Ref: "123"})
-	event.Actor.ProviderTenantID = "123"
-	_, err = prepareAppEvents([]AppEvent{event}, appSetup)
-	require.Error(t, err, "actor tenant remains the bot application, not its event guild")
 }
 
 func TestSlackInboxRechecksAppSetupAndGrantedCredentialAfterUnwrap(t *testing.T) {
@@ -483,4 +504,11 @@ func TestSlackInboxRotatedTokenMustRetainProviderIdentity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func appTestActor(t *testing.T, appID uuid.UUID, userID string) executionstore.ActorParams {
+	t.Helper()
+	actor, err := executionstore.AppActorParams(appID, userID, nil)
+	require.NoError(t, err)
+	return actor
 }

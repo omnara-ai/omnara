@@ -97,7 +97,9 @@ func TestGitHubNormalizeAppEvents(t *testing.T) {
 			if tc.steering {
 				mode = executionstore.DeliveryModeSteering
 			}
-			if event.DeliveryMode != mode || event.Actor.ProviderUserID != "71" || event.Actor.ProviderTenantID != "123" {
+			if event.DeliveryMode != mode || event.Actor.ProviderUserID != "71" ||
+				event.Actor.Provider != executionstore.ActorProviderApp ||
+				event.Actor.ProviderTenantID != appTestActor(t, appSetup.ID, "").ProviderTenantID {
 				t.Fatalf("delivery/actor: %+v", event)
 			}
 			var blocks []map[string]string

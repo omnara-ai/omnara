@@ -50,6 +50,17 @@ subscriptions; deleting a subscription stops its forwarding. Interaction handler
 remain separate optional capabilities with complete runtime destination arguments,
 independent of the sending context.
 
+## Sender attribution
+
+Construct hosted senders with `executionstore.AppActorParams(app.ID, senderID,
+displayName)`. All providers use `provider=app`; `provider_tenant_id` holds the
+configured app's public ID. Use those same values for actor-name lookups and
+updates. Provider IDs/workspaces remain on the app record, not in the actor type.
+Actors carry attribution, including approval responders; callback verification and
+project authorization are owned by ingress. Historical Slack actors remain readable
+unchanged. App deletion does not remove actor history. Scheduled tasks retain
+Omnara cron attribution, and profile choices preserve the original message sender.
+
 ## Reuse an existing provider
 
 Use an existing definition when its tools, subscriptions and launcher triggers

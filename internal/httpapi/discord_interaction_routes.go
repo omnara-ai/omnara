@@ -276,14 +276,16 @@ func (s *Server) resolveDiscordInteraction(
 	if name == "" {
 		name = actor.Username
 	}
+	appActor, err := executionstore.AppActorParams(app.ID, actor.ID, &name)
+	if err != nil {
+		return discord.InteractionResponse{}, err
+	}
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
 		AppID: app.ID, SourceSetupRevision: app.SetupRevision,
 		HandlerDefinition: appdefinition.Discord, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
 			ProjectID: record.ProjectID, AgentID: record.AgentID, ID: record.ID, Resolution: *resolution,
-			Actor: &executionstore.ActorParams{
-				Provider: appdefinition.ProviderDiscord, ProviderTenantID: app.ProviderTenantID,
-				ProviderUserID: actor.ID, DisplayName: &name},
+			Actor: &appActor,
 		},
 	}
 	resolved, err := s.store.Execution().ResolveAgentInteractionFromHandler(ctx, resolve)

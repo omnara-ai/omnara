@@ -765,7 +765,7 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 	if err != nil {
 		return err
 	}
-	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, child.ID, actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, actor)
 	if err != nil {
 		return err
 	}

@@ -470,7 +470,7 @@ func archiveAgentTx(
 	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	actorID, err := resolveActorTx(ctx, qtx, projectID, agentID, actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, qtx, projectID, actor)
 	if err != nil {
 		return nil, err
 	}

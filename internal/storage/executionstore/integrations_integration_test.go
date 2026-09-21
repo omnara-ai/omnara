@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -24,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProjectAppIdentityRotationAndOAuthReplay(t *testing.T) {
@@ -870,7 +872,7 @@ func TestIntegrationTargetProviderRefReusableAfterTargetDeletion(t *testing.T) {
 	}
 }
 
-func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
+func TestAppActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -898,6 +900,7 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 		{providerAccountRef: "A_IDENTITY_OTHER", providerTenantID: "T_OTHER", targetRef: "D_IDENTITY_OTHER"},
 	}
 	producerIDs := make([]uuid.UUID, 0, len(testCases))
+	appIDs := make([]uuid.UUID, 0, len(testCases))
 	for index, testCase := range testCases {
 		install := mustCreateProjectApp(t, ctx, store, slackProjectAppSetupInput(
 			profile.ID,
@@ -930,14 +933,24 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 			"hello",
 		)
 		producerIDs = append(producerIDs, input.ActorID)
+		appIDs = append(appIDs, install.ID)
+		actor, err := store.Execution().GetActor(ctx, testProjectID, input.ActorID)
+		require.NoError(t, err)
+		appRef, err := publicid.Encode(publicid.KindProjectApp, install.ID)
+		require.NoError(t, err)
+		require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
+		require.Equal(t, appRef, actor.ProviderTenantID)
+		require.Equal(t, "U_SHARED", actor.ProviderUserID)
 	}
-	if producerIDs[0] != producerIDs[1] {
-		t.Fatalf("same Slack identity diverged across installs: %s and %s", producerIDs[0], producerIDs[1])
+	if producerIDs[0] == producerIDs[1] {
+		t.Fatal("same sender must have separate attribution in independent configured apps")
 	}
 	if producerIDs[0] == producerIDs[2] {
 		t.Fatal("same textual Slack user id collided across workspaces")
 	}
 
+	concurrentTenant, err := publicid.Encode(publicid.KindProjectApp, appIDs[0])
+	require.NoError(t, err)
 	const concurrentCalls = 8
 	ids := make(chan uuid.UUID, concurrentCalls)
 	errs := make(chan error, concurrentCalls)
@@ -951,8 +964,8 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 				store.q,
 				executionstore.UpsertActorIdentityInput{
 					ProjectID:        testProjectID,
-					Provider:         integrationstore.IntegrationProviderSlack,
-					ProviderTenantID: "T_CONCURRENT",
+					Provider:         executionstore.ActorProviderApp,
+					ProviderTenantID: concurrentTenant,
 					ProviderUserID:   "U_CONCURRENT",
 					DisplayName:      "Concurrent User",
 				},
@@ -982,8 +995,8 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 	var concurrentRows int
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT count(*) FROM actors WHERE project_id = $1 AND provider = 'slack' AND provider_tenant_id = 'T_CONCURRENT' AND provider_user_id = 'U_CONCURRENT'`,
-		testProjectID,
+		`SELECT count(*) FROM actors WHERE project_id = $1 AND provider = 'app' AND provider_tenant_id = $2 AND provider_user_id = 'U_CONCURRENT'`,
+		testProjectID, concurrentTenant,
 	).Scan(&concurrentRows); err != nil {
 		t.Fatalf("count concurrent actors: %v", err)
 	}
@@ -996,8 +1009,8 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 		store.q,
 		executionstore.UpsertActorIdentityInput{
 			ProjectID:        testProjectID,
-			Provider:         integrationstore.IntegrationProviderSlack,
-			ProviderTenantID: "T_CONCURRENT",
+			Provider:         executionstore.ActorProviderApp,
+			ProviderTenantID: concurrentTenant,
 			ProviderUserID:   "U_CONCURRENT",
 			DisplayName:      "Concurrent User",
 		},
@@ -1010,8 +1023,8 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 		store.q,
 		executionstore.UpsertActorIdentityInput{
 			ProjectID:        testProjectID,
-			Provider:         integrationstore.IntegrationProviderSlack,
-			ProviderTenantID: "T_CONCURRENT",
+			Provider:         executionstore.ActorProviderApp,
+			ProviderTenantID: concurrentTenant,
 			ProviderUserID:   "U_CONCURRENT",
 			DisplayName:      "Concurrent User",
 		},
@@ -1026,6 +1039,14 @@ func TestSlackActorIdentityAcrossAppsAndConcurrency(t *testing.T) {
 			settled.UpdatedAt,
 		)
 	}
+
+	// Deleting the app does not delete historical senders or require a live app
+	// to read the actor referenced by an earlier input.
+	require.NoError(t, store.Integrations().DeleteProjectApp(ctx, testOrgID, testProjectID, appIDs[0]))
+	actor, err := store.Execution().GetActor(ctx, testProjectID, producerIDs[0])
+	require.NoError(t, err)
+	require.Equal(t, "U_SHARED", actor.ProviderUserID)
+	require.Equal(t, concurrentTenant, actor.ProviderTenantID)
 }
 
 func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
@@ -1048,7 +1069,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	)
 
 	install := mustCreateProjectApp(t, ctx, store, installInput)
-	slot := inboxInputPlan(agent.ID, install, "Ev-first")
+	slot := inboxInputPlan(t, agent.ID, install, "Ev-first")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "dm", Ref: "D_FIRST"}
 	slot.Input.Actor.ProviderUserID = "U_SHARED"
 	slot.Input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"first"}]`)
@@ -1061,7 +1082,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 		t.Fatalf("admit first input and target: %v", err)
 	}
 	firstTarget, firstInput := first.IntegrationTarget, first.AgentInput
-	wrongTenant := inboxInputPlan(agent.ID, install, "Ev-wrong-tenant")
+	wrongTenant := inboxInputPlan(t, agent.ID, install, "Ev-wrong-tenant")
 	wrongTenant.Input.Origin.Address = slot.Input.Origin.Address
 	wrongTenant.Input.Actor.ProviderTenantID = "T_WRONG"
 	wrongReceipt := freezeInboxInput(t, fixture, wrongTenant, "wrong-tenant", time.Minute)
@@ -1127,7 +1148,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 		t.Fatalf("replay changed interaction destination to %s", afterReplay.IntegrationTargetID)
 	}
 
-	lateSlot := inboxInputPlan(agent.ID, install, "Ev-disabled-new")
+	lateSlot := inboxInputPlan(t, agent.ID, install, "Ev-disabled-new")
 	lateSlot.Input.Origin.Address = slot.Input.Origin.Address
 	lateReceipt := freezeInboxInput(t, fixture, lateSlot, "disabled-new", time.Minute)
 	if _, err := store.Integrations().DisconnectProjectApp(
@@ -1221,7 +1242,7 @@ func TestIntegrationInputAdmissionSerializesWithAppDisconnectAndDeletion(t *test
 			}
 
 			idempotencyKey := "Ev-input-install-race"
-			slot := inboxInputPlan(agent.ID, install, idempotencyKey)
+			slot := inboxInputPlan(t, agent.ID, install, idempotencyKey)
 			slot.Input.Origin.Address = integrationstore.ConversationAddress{
 				Kind: target.ProviderRefKind,
 				Ref:  target.ProviderRef,
@@ -1375,7 +1396,7 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 			t.Fatalf("public hosted origin: %v", err)
 		}
 	}
-	slot := inboxInputPlan(agent.ID, install, "Ev-verified")
+	slot := inboxInputPlan(t, agent.ID, install, "Ev-verified")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{
 		Kind: target.ProviderRefKind,
 		Ref:  target.ProviderRef,
@@ -1412,7 +1433,7 @@ func prepareIntegrationOrigin(
 	if err != nil {
 		t.Fatalf("load origin app: %v", err)
 	}
-	slot := inboxInputPlan(agentID, app, uuid.NewString())
+	slot := inboxInputPlan(t, agentID, app, uuid.NewString())
 	slot.Input.Origin.Address = address
 	slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 	receipt := freezeInboxInput(t, appActivationFixture{ctx: ctx, store: store}, slot, uuid.NewString(), time.Minute)
@@ -1622,7 +1643,7 @@ func mustCreateIntegrationInput(
 	providerUserID, idempotencyKey, text string,
 ) executionstore.AgentInputRecord {
 	t.Helper()
-	slot := inboxInputPlan(target.AgentID, install, idempotencyKey)
+	slot := inboxInputPlan(t, target.AgentID, install, idempotencyKey)
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{
 		Kind: target.ProviderRefKind,
 		Ref:  target.ProviderRef,

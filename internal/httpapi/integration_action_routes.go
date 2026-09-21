@@ -171,12 +171,16 @@ func (s *Server) resolveIntegrationInteractionAction(
 		return map[string]any{"ok": "invalid", "text": resolutionResult.InvalidReason}, nil
 	}
 	resolution := resolutionResult.Resolution
+	actor, err := executionstore.AppActorParams(install.ID, envelope.User.ID, nil)
+	if err != nil {
+		return nil, err
+	}
 	displayName := ""
 	if names, err := s.store.Execution().ListActorDisplayNames(
 		r.Context(),
 		install.ProjectID,
-		install.Provider,
-		install.ProviderTenantID,
+		actor.Provider,
+		actor.ProviderTenantID,
 		[]string{envelope.User.ID},
 	); err == nil {
 		displayName = names[envelope.User.ID]
@@ -184,20 +188,16 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if displayName == "" {
 		displayName = envelope.User.DisplayName()
 	}
+	actor.DisplayName = &displayName
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
 		AppID: install.ID, SourceSetupRevision: install.SetupRevision,
 		HandlerDefinition: appdefinition.Slack, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
-			ProjectID:  install.ProjectID,
-			AgentID:    agentID,
-			ID:         interactionID,
-			Resolution: resolution,
-			Actor: &executionstore.ActorParams{
-				Provider:         install.Provider,
-				ProviderTenantID: install.ProviderTenantID,
-				ProviderUserID:   envelope.User.ID,
-				DisplayName:      &displayName,
-			},
+			ProjectID:           install.ProjectID,
+			AgentID:             agentID,
+			ID:                  interactionID,
+			Resolution:          resolution,
+			Actor:               &actor,
 			IntegrationTargetID: integrationTargetID,
 		},
 	}

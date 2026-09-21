@@ -692,6 +692,9 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 		(input.IntegrationTargetID != uuid.Nil && input.IntegrationTargetID != destination.IntegrationTargetID) {
 		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 	}
+	if err := validateAppInputActor(destination.AppID, input.Actor); err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	input.IntegrationTargetID = destination.IntegrationTargetID
 	notifications := s.newTxNotifications()
 	record, err := resolveAgentInteractionTx(

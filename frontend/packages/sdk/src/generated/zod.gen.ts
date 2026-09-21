@@ -1635,13 +1635,12 @@ export const zAgentInteractionState = z.enum([
 export const zInteractionPresentationReceipt = z.record(z.string(), z.unknown());
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * omnara for Omnara identities, app for hosted app senders, slack for historical Slack identities, or external for API-managed actors.
  */
 export const zActorProvider = z.enum([
     'omnara',
     'slack',
-    'github',
-    'discord',
+    'app',
     'external'
 ]);
 
@@ -1659,7 +1658,7 @@ export const zActor = z.object({
 });
 
 /**
- * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+ * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted apps own their own actor identities.
  */
 export const zExternalActorParams = z.object({
     provider_tenant_id: z.string().min(1).max(128).optional(),

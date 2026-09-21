@@ -36,10 +36,8 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 		{AppID: f.app.ID, Type: "pull_request", Conversation: json.RawMessage(`{"repository_id":123,"pull_request":42}`), Events: []string{"discussion_comment"}},
 	}
 	launch.InitialInput = &executionstore.LaunchInitialInput{
-		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Review this pull request"}]`),
-		Actor: &executionstore.ActorParams{
-			Provider: "github", ProviderTenantID: f.app.ProviderTenantID, ProviderUserID: "789",
-		},
+		ContentBlocks:    json.RawMessage(`[{"type":"text","text":"Review this pull request"}]`),
+		Actor:            mustAppActorParams(t, f.app.ID, "789"),
 		Origin:           &executionstore.LaunchInputOrigin{AppID: f.app.ID, Address: address},
 		SemanticEventKey: "launch-review",
 	}
@@ -77,7 +75,7 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	// Frozen input must match the live event selection. Config activation
 	// cannot change it, but explicit deletion and reattachment can.
 	freeze := func(event string) integrationstore.IntegrationInboxRecord {
-		input := inboxInputPlan(launched.Agent.ID, f.app, event)
+		input := inboxInputPlan(t, launched.Agent.ID, f.app, event)
 		input.Subscription = &executionstore.InboxSubscriptionAuthority{
 			Event:        event,
 			Alternatives: []executionstore.InboxSubscriptionReference{{Type: "pull_request", Address: address}},

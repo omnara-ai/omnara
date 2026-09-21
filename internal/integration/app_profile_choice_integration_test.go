@@ -94,7 +94,7 @@ func newChoiceJourney(t *testing.T, profileCount int) *choiceJourney {
 			Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"},
 		}},
 		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review my original request"}]`),
-		Actor: executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U_ORIGINAL"},
+		Actor: appTestActor(t, f.app.ID, "U_ORIGINAL"),
 	}
 	f.restart()
 	return f
@@ -191,6 +191,8 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	actor, err := f.store.Execution().GetActor(ctx, f.ids.ProjectID, launch.AgentInput.ActorID)
 	require.NoError(t, err)
 	require.Equal(t, "U_ORIGINAL", actor.ProviderUserID)
+	require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
+	require.Equal(t, f.event.Actor.ProviderTenantID, actor.ProviderTenantID)
 	results, err = f.consumer.Consume(ctx, receipt.Lease())
 	require.NoError(t, err)
 	require.Len(t, results, 1)

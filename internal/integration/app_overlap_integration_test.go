@@ -56,10 +56,11 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 		Event: appdefinition.Event{Kind: "message", Mentioned: true,
 			Scope: appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor: executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor: appTestActor(t, apps[0].ID, "U123"),
 	}
 	agents := map[uuid.UUID]uuid.UUID{}
 	for _, app := range apps {
+		event.Actor = appTestActor(t, app.ID, "U123")
 		receipt := capture(app, "same-physical-delivery")
 		plan, err := freezeTestAppEvents(ctx, router, receipt.Lease(), []AppEvent{event})
 		require.NoError(t, err)
@@ -87,6 +88,7 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 	for _, app := range apps {
 		for _, replay := range []bool{true, false} {
 			next := event
+			next.Actor = appTestActor(t, app.ID, "U123")
 			key := "duplicate-provider-shape"
 			if !replay {
 				key, next.SemanticKey, next.Event.Mentioned = "reply", "slack:message:T123:C123:1.3", false
@@ -119,6 +121,7 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 
 	// A stale frozen policy decision cannot launch a replacement profile.
 	next := event
+	next.Actor = appTestActor(t, apps[0].ID, "U123")
 	next.Event.Scope.Slack = &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "2.1"}
 	next.SemanticKey = "slack:message:T123:C123:2.1"
 	receipt := capture(apps[0], "choice-before-edit")
@@ -202,7 +205,7 @@ func TestAppRouterDirectedSettledIntentWithoutSubscription(t *testing.T) {
 		Event: appdefinition.Event{Kind: "message", Mentioned: true,
 			Scope: appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor: executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor: appTestActor(t, app.ID, "U123"),
 	}
 	initial := capture("initial")
 	plan, err := freezeTestAppEvents(ctx, router, initial.Lease(), []AppEvent{event})

@@ -125,7 +125,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 			`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`,
 		),
 		Files: []AppPlannedFile{{ArtifactID: placeholder, ProviderFileID: "F123"}},
-		Actor: executionstore.ActorParams{Provider: "slack", ProviderTenantID: "T123", ProviderUserID: "U123"},
+		Actor: appTestActor(t, appSetup, "U123"),
 	}
 	plans := make([]AppInboxPlan, 2)
 	failures := make([]error, 2)
@@ -381,11 +381,7 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 				},
 				SemanticKey:   "message:initial",
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-				Actor: executionstore.ActorParams{
-					Provider:         "slack",
-					ProviderTenantID: "T123",
-					ProviderUserID:   "U123",
-				},
+				Actor:         appTestActor(t, appSetup, "U123"),
 			}
 			plan, err := freezeTestAppEvents(ctx, router, owner.Lease(), []AppEvent{event})
 			require.NoError(t, err)

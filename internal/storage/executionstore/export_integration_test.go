@@ -551,11 +551,10 @@ func IntegrationAgentMachineBindingRecordFromSQLC(
 func IntegrationResolveActorTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
+	projectID uuid.UUID,
 	params *ActorParams,
-	integrationTargetID uuid.UUID,
 ) (uuid.UUID, error) {
-	return resolveActorTx(ctx, qtx, projectID, agentID, params, integrationTargetID)
+	return resolveActorTx(ctx, qtx, projectID, params)
 }
 
 func IntegrationGetToolCallTx(

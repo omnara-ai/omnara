@@ -214,9 +214,7 @@ func createAgentContentInputTx(
 		ctx,
 		qtx,
 		input.ProjectID,
-		input.AgentID,
 		input.Actor,
-		uuid.Nil,
 	)
 	if err != nil {
 		return createAgentContentInputTxResult{}, err

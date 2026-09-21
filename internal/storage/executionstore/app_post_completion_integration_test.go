@@ -127,7 +127,7 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
 			// Freeze a reply before a second post reuses this same subscription.
-			slot := inboxInputPlan(launch.Agent.ID, f.app, "message:between-posts")
+			slot := inboxInputPlan(t, launch.Agent.ID, f.app, "message:between-posts")
 			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 			slot.Subscription = &executionstore.InboxSubscriptionAuthority{
 				Event: "message",

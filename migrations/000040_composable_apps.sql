@@ -130,7 +130,7 @@ ALTER TABLE secrets ADD CONSTRAINT secrets_kind_check
 
 ALTER TABLE actors DROP CONSTRAINT actors_provider_check;
 ALTER TABLE actors ADD CONSTRAINT actors_provider_check
-    CHECK (provider IN ('omnara', 'slack', 'github', 'discord', 'external'));
+    CHECK (provider IN ('omnara', 'slack', 'app', 'external'));
 
 -- One project-owned app owns setup, credentials and behavior. Preserve install
 -- IDs, so existing conversation and audit references keep the same identity.

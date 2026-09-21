@@ -78,15 +78,17 @@ func (s *Store) resolveInputOriginTx(
 	return input, app, nil
 }
 
-// This check belongs to verified provider ingress, not the generic actor resolver.
-func validateVerifiedProviderInputActor(
-	app integrationstore.ProjectAppRecord,
-	actor *ActorParams,
-) error {
-	if actor == nil || strings.TrimSpace(actor.Provider) != app.Provider ||
-		strings.TrimSpace(
-			actor.ProviderTenantID,
-		) != app.ProviderTenantID || strings.TrimSpace(actor.ProviderUserID) == "" {
+// App attribution is checked against the already loaded receipt app. This is
+// identity consistency, not an approver ACL or a live actor-to-app relationship.
+func validateAppInputActor(appID uuid.UUID, actor *ActorParams) error {
+	if actor == nil || strings.TrimSpace(actor.ProviderUserID) == "" {
+		return storeerr.ErrUnauthorized
+	}
+	expected, err := AppActorParams(appID, actor.ProviderUserID, nil)
+	if err != nil {
+		return err
+	}
+	if actor.Provider != expected.Provider || actor.ProviderTenantID != expected.ProviderTenantID {
 		return storeerr.ErrUnauthorized
 	}
 	return nil
@@ -116,7 +118,7 @@ func (s *Store) admitOriginContentTx(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := validateVerifiedProviderInputActor(app, input.Actor); err != nil {
+	if err := validateAppInputActor(app.ID, input.Actor); err != nil {
 		return InboxInputResult{}, err
 	}
 	agent, err := loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
