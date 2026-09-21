@@ -171,8 +171,7 @@ tool tests in `internal/harness/tools`.
 From the repository root, run focused tests first, then `make verify`. Storage
 journeys use the local database stack and `go test -tags=integration`. Regenerate
 SQL with `make sqlc-generate`; public contracts with
-`make openapi-generate docs-openapi web-generate`. For source config schema changes,
-first run
-`OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 go test ./internal/agentconfig -run TestGeneratedAgentConfigSourceSchemaIsCurrent`.
+`make openapi-generate docs-openapi web-generate`. OpenAPI generation also refreshes
+the agent config JSON schema and its shared OpenAPI definitions from their source.
 Keep generated output with its source. See the
 [definition guide](../appdefinition/README.md) for config validation checks.

@@ -35,6 +35,10 @@ make docs-openapi
 make web-generate
 ```
 
+`make openapi-generate` also regenerates the agent config JSON schema and the
+shared OpenAPI definitions from the config schema source. To regenerate just
+those schemas, run `make config-schema-generate`.
+
 After changing SQL queries, run:
 
 ```sh

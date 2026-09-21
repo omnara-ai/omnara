@@ -1,4 +1,4 @@
-package openapispec
+package httpapi
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func TestGeneratedSubscriptionRequestsPreserveConversationAndEventSelection(t *t
 
 func TestSubscriptionRequestEventSelectionContract(t *testing.T) {
 	var decoded any
-	require.NoError(t, yaml.Unmarshal(YAML, &decoded))
+	require.NoError(t, yaml.Unmarshal(openapispec.YAML, &decoded))
 	raw, err := json.Marshal(decoded)
 	require.NoError(t, err)
 	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))

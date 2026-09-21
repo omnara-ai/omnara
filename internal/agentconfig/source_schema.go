@@ -299,7 +299,7 @@ func normalizeYAMLValue(value any) (any, error) {
 var compiledSourceSchema = sync.OnceValues(newCompiledSourceSchema)
 
 func newCompiledSourceSchema() (*kjsonschema.Schema, error) {
-	schemaJSON, err := agentConfigSourceJSONSchemaJSON()
+	schemaJSON, err := SourceJSONSchema()
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,8 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 	return nil
 }
 
-func agentConfigSourceJSONSchemaJSON() ([]byte, error) {
+// SourceJSONSchema returns the schema used to validate agent config source.
+func SourceJSONSchema() ([]byte, error) {
 	schemaJSON, err := json.Marshal(agentConfigSourceSchema())
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config JSON schema: %w", err)

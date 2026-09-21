@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -236,7 +234,7 @@ mcp:
 // an extra schema property would be silently dropped on decode, and a
 // missing one would reject valid configs.
 func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
-	schemaJSON, err := agentConfigSourceJSONSchemaJSON()
+	schemaJSON, err := SourceJSONSchema()
 	if err != nil {
 		t.Fatalf("generate source schema: %v", err)
 	}
@@ -374,43 +372,4 @@ machine_sources:
 	if err != nil {
 		t.Fatalf("parse source with raw process env names: %v", err)
 	}
-}
-
-func TestGeneratedAgentConfigSourceSchemaIsCurrent(t *testing.T) {
-	path := filepath.Join("generated", "agent_config.schema.json")
-	expected, err := agentConfigSourceJSONSchemaJSON()
-	if err != nil {
-		t.Fatalf("generate source schema: %v", err)
-	}
-	if os.Getenv("OMNARA_REGEN_AGENT_CONFIG_SCHEMA") == "1" {
-		pretty, err := prettyJSON(expected)
-		if err != nil {
-			t.Fatalf("pretty-print schema: %v", err)
-		}
-		if err := os.WriteFile(path, pretty, 0o644); err != nil {
-			t.Fatalf("write regenerated schema: %v", err)
-		}
-		return
-	}
-	generated, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read generated schema: %v", err)
-	}
-	if string(canonicalizeJSON(generated)) != string(canonicalizeJSON(expected)) {
-		t.Fatal(
-			"generated/agent_config.schema.json is stale; rerun with OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 to refresh it",
-		)
-	}
-}
-
-func prettyJSON(raw []byte) ([]byte, error) {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return nil, err
-	}
-	out, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(out, '\n'), nil
 }

@@ -64,7 +64,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 .PHONY: \
 	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
 	go-modules-check integration-packages-check tagged-packages-check golangci-lint-tagged race-unit \
-	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
+	config-schema-generate openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
@@ -145,11 +145,14 @@ race-machinedaemon:
 race-unit: ## Run internal unit tests with race detection
 	$(GO) test -race -count=1 ./internal/...
 
-openapi-generate:
-	OMNARA_REGEN_APP_OPENAPI=1 $(GO) test ./api/openapi -run TestGeneratedAppCapabilitySchemasAreCurrent
+config-schema-generate: ## Generate agent config and shared OpenAPI schemas
+	$(GO) run ./tools/config-schema
+
+openapi-generate: config-schema-generate
 	$(OAPI_CODEGEN) -config api/openapi/oapi-codegen.yaml api/openapi/openapi.yaml
 
 openapi-check:
+	$(GO) run ./tools/config-schema -check
 	@$(OAPI_CODEGEN) -config api/openapi/oapi-codegen.yaml api/openapi/openapi.yaml; \
 	untracked="$$(git ls-files --others --exclude-standard api/openapi internal/httpapi/openapi)"; \
 	test -z "$$untracked" || { printf 'untracked openapi-owned files:\n%s\n' "$$untracked"; exit 1; }; \

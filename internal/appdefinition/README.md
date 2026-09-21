@@ -66,6 +66,6 @@ independent. The compiler/caller contract is in
 Run the focused checks after a contribution:
 
 ```sh
-OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 go test ./internal/agentconfig -run TestGeneratedAgentConfigSourceSchemaIsCurrent
+make openapi-generate
 go test -race ./internal/appdefinition ./internal/toolcatalog ./internal/agentconfig
 ```
