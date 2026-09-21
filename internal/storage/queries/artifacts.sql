@@ -56,7 +56,7 @@ UNION ALL
  WHERE sqlc.narg(artifact_id)::uuid IS NULL
    AND a.agent_id = sqlc.arg(agent_id)
    AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ sqlc.arg(pattern)::text
- ORDER BY a.id
+ ORDER BY a.id DESC
  LIMIT sqlc.arg(row_limit))
-ORDER BY id
+ORDER BY id DESC
 LIMIT sqlc.arg(row_limit);

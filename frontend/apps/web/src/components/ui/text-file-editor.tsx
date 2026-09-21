@@ -73,8 +73,8 @@ export function TextFileEditor({
       attributes: true,
     })
 
-    const subscription = model.onDidChangeContent(() => {
-      emitChange(model.getValue(undefined, true))
+    const subscription = model.onDidChangeContent((event) => {
+      if (!event.isFlush) emitChange(model.getValue(undefined, true))
     })
 
     return () => {

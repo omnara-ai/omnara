@@ -183,9 +183,9 @@ UNION ALL
  WHERE $3::uuid IS NULL
    AND a.agent_id = $2
    AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ $4::text
- ORDER BY a.id
+ ORDER BY a.id DESC
  LIMIT $1)
-ORDER BY id
+ORDER BY id DESC
 LIMIT $1
 `
 

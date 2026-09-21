@@ -22,7 +22,7 @@ func ValidatePath(value string) error {
 		}
 	}
 	for _, r := range value {
-		if r == '\\' || unicode.IsControl(r) {
+		if r == '\\' || r == '*' || r == '?' || unicode.IsControl(r) {
 			return errors.New("memory path contains an unsupported character")
 		}
 	}

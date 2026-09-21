@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -24,10 +25,11 @@ import (
 )
 
 const searchLineBytes = 256
+const searchInitialBufferBytes = 64 * 1024
+const searchEventBytes = 2 * 1024 * 1024
 const searchStoreBatchSize = 32
 
 var errSearchResultLimit = errors.New("search result limit reached")
-var errSearchOutputLimit = errors.New("search output limit reached")
 
 type searchFilesRequest struct {
 	Path       string   `json:"path"`
@@ -197,10 +199,14 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 	}
 	if errors.Is(err, errSearchResultLimit) {
 		output.result.Truncated = true
-		output.result.IncompleteReason = "search result limit reached; narrow the search"
-	} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errSearchOutputLimit) {
+		if output.result.IncompleteReason == "" {
+			output.result.IncompleteReason = "search result limit reached; narrow the search"
+		}
+	} else if errors.Is(err, context.DeadlineExceeded) {
 		output.result.Truncated = true
-		output.result.IncompleteReason = "search resource limit reached; narrow the search"
+		if output.result.IncompleteReason == "" {
+			output.result.IncompleteReason = "search resource limit reached; narrow the search"
+		}
 	} else if err != nil {
 		return nil, err
 	}
@@ -286,18 +292,32 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start ripgrep: %w", err)
 	}
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
+	reader := bufio.NewReaderSize(stdout, searchInitialBufferBytes)
 	stream := searchStream{output: p, source: source}
-	for scanner.Scan() {
-		if err = stream.consume(scanner.Bytes()); err != nil {
-			break
+	skipping := false
+	for {
+		data, readErr := reader.ReadSlice('\n')
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			if reader.Size() < searchEventBytes {
+				reader = bufio.NewReaderSize(io.MultiReader(bytes.NewReader(data), stdout), searchEventBytes)
+				continue
+			}
+			skipping = true
+			p.result.Truncated = true
+			p.result.IncompleteReason = "oversized search events were skipped; results are incomplete"
+			continue
 		}
-	}
-	if err == nil {
-		err = scanner.Err()
-		if errors.Is(err, bufio.ErrTooLong) {
-			err = errSearchOutputLimit
+		if !skipping && len(data) > 0 {
+			if err = stream.consume(bytes.TrimSuffix(data, []byte{'\n'})); err != nil {
+				break
+			}
+		}
+		skipping = false
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				err = readErr
+			}
+			break
 		}
 	}
 	if err != nil {
@@ -328,6 +348,10 @@ type searchEvent struct {
 		} `json:"lines"`
 		LineNumber   int    `json:"line_number"`
 		BinaryOffset *int64 `json:"binary_offset"`
+		Submatches   []struct {
+			Start int `json:"start"`
+			End   int `json:"end"`
+		} `json:"submatches"`
 	} `json:"data"`
 }
 
@@ -437,7 +461,9 @@ func (s *searchStream) consume(data []byte) error {
 	if event.Type == "end" {
 		if event.Data.BinaryOffset != nil {
 			p.result.Truncated = true
-			p.result.IncompleteReason = "binary data detected; results may be incomplete"
+			if p.result.IncompleteReason == "" {
+				p.result.IncompleteReason = "binary data detected; results may be incomplete"
+			}
 		}
 		return nil
 	}
@@ -453,9 +479,13 @@ func (s *searchStream) consume(data []byte) error {
 		text = string(d.Lines.Bytes)
 	}
 	text = strings.TrimSuffix(text, "\n")
+	var matchStart, matchEnd int
+	if len(d.Submatches) > 0 {
+		matchStart, matchEnd = d.Submatches[0].Start, d.Submatches[0].End
+	}
 	line := searchLine{Path: path, LineNumber: d.LineNumber,
 		EndLine: d.LineNumber + strings.Count(text, "\n"),
-		Text:    textutil.TruncateBytes(strings.ToValidUTF8(text, "�"), searchLineBytes),
+		Text:    searchSnippet(text, matchStart, matchEnd),
 		IsMatch: event.Type == "match"}
 	size := len(line.Path) + len(line.Text) + 64
 	if p.used+size > toolcatalog.FilePageBytes {
@@ -470,4 +500,36 @@ func (s *searchStream) consume(data []byte) error {
 		}
 	}
 	return nil
+}
+
+func searchSnippet(text string, matchStart, matchEnd int) string {
+	matchStart, matchEnd = min(matchStart, len(text)), min(matchEnd, len(text))
+	if !utf8.ValidString(text) {
+		matchStart, matchEnd = len(strings.ToValidUTF8(text[:matchStart], "�")),
+			len(strings.ToValidUTF8(text[:matchEnd], "�"))
+		text = strings.ToValidUTF8(text, "�")
+	}
+	if len(text) > searchLineBytes {
+		const marker = "…"
+		limit := searchLineBytes - 2*len(marker)
+		for matchStart > 0 && matchStart < len(text) && !utf8.RuneStart(text[matchStart]) {
+			matchStart--
+		}
+		matchLength := min(matchEnd-matchStart, limit)
+		start := max(0, matchStart-(limit-matchLength)/2)
+		start = min(start, len(text)-limit)
+		for start < matchStart && !utf8.RuneStart(text[start]) {
+			start++
+		}
+		text = text[start:]
+		snippet := textutil.TruncateBytes(text, limit)
+		if len(snippet) < len(text) {
+			snippet += marker
+		}
+		if start > 0 {
+			snippet = marker + snippet
+		}
+		return snippet
+	}
+	return text
 }

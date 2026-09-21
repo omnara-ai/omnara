@@ -125,7 +125,7 @@ func (s *Store) ListFiles(
 			value := int32(limit + 1 - len(entries))
 			rowLimit = &value
 		}
-		rows, access, queryErr := s.memoryListingStores(ctx, projectID, raw, pattern, rowLimit)
+		rows, access, queryErr := s.memoryListingStores(ctx, projectID, raw, pattern, matcher, rowLimit)
 		if queryErr != nil {
 			return FileListResult{}, queryErr
 		}
@@ -355,7 +355,7 @@ func globFiles(
 }
 
 func (s *Store) memoryListingStores(
-	ctx context.Context, projectID uuid.UUID, raw json.RawMessage, pattern string, limit *int32,
+	ctx context.Context, projectID uuid.UUID, raw json.RawMessage, pattern string, matcher *regexp.Regexp, limit *int32,
 ) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]string, error) {
 	var stores []agentconfig.MemoryStoreCompiled
 	if err := json.Unmarshal(raw, &stores); err != nil {
@@ -384,10 +384,6 @@ func (s *Store) memoryListingStores(
 		}
 	}
 	if limit != nil {
-		matcher, err := CompileFilePattern(pattern)
-		if err != nil {
-			return nil, nil, err
-		}
 		params.RootPattern, params.RowLimit = matcher.String(), limit
 	}
 	rows, err := dbsqlc.New(s.pool).ListAttachedMemoryStores(ctx, params)

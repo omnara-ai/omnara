@@ -132,6 +132,9 @@ func main() {
 	}
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
+	if err := tools.CheckFileToolSupport(ctx); err != nil {
+		log.Warn("file search or scripted edits may be unavailable", "error", err)
+	}
 	store := storage.NewStore(db, storeOpts...)
 	healthErr := metrics.Serve(
 		ctx,

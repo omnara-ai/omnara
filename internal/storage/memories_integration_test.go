@@ -746,15 +746,15 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 		pattern string
 		matches []int
 	}{
-		{"/artifacts/*", []int{0, 1, 2, 3, 4, 5, 6, 7, 8}},
-		{"/artifacts/*.pdf", []int{0, 1, 2, 4, 5, 6}},
-		{"/artifacts/report.pdf", []int{0, 1, 2}},
-		{"/artifacts/name.pdf", []int{4, 5}},
+		{"/artifacts/*", []int{8, 7, 6, 5, 4, 3, 2, 1, 0}},
+		{"/artifacts/*.pdf", []int{6, 5, 4, 2, 1, 0}},
+		{"/artifacts/report.pdf", []int{2, 1, 0}},
+		{"/artifacts/name.pdf", []int{5, 4}},
 		{"/artifacts/*.txt", nil},
 		{"/artifacts/*.TXT", []int{7}},
 		{"/artifacts/résumé?.md", []int{8}},
 		{"/artifacts/missing*", nil},
-		{"/artifacts/**", []int{0, 1, 2, 3, 4, 5, 6, 7, 8}},
+		{"/artifacts/**", []int{8, 7, 6, 5, 4, 3, 2, 1, 0}},
 		{artifactPaths[2], []int{2}},
 	} {
 		t.Run(test.pattern, func(t *testing.T) {
@@ -783,13 +783,15 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 	for _, entry := range combined {
 		gotPaths = append(gotPaths, entry.Path)
 	}
-	wantPaths := append([]string{"/artifacts"}, artifactPaths...)
+	newestFirst := slices.Clone(artifactPaths)
+	slices.Reverse(newestFirst)
+	wantPaths := append([]string{"/artifacts"}, newestFirst...)
 	wantPaths = append(wantPaths, "/memory")
 	if !slices.Equal(gotPaths, wantPaths) {
 		t.Fatalf("combined listing: %v, want %v", gotPaths, wantPaths)
 	}
 	first, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", 1)
-	if err != nil || !first.Truncated || len(first.Entries) != 1 {
+	if err != nil || !first.Truncated || len(first.Entries) != 1 || first.Entries[0].Path != newestFirst[0] {
 		t.Fatalf("truncated artifacts: %+v %v", first, err)
 	}
 	other, err := store.ListFiles(ctx, testProjectID, otherAgentID, "/artifacts/*", 100)

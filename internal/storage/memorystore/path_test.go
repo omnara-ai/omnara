@@ -6,7 +6,10 @@ import (
 )
 
 func TestPathsRejectAmbiguity(t *testing.T) {
-	for _, path := range []string{"", "/a", "a/", "a//b", "a/../b", "a/./b", "a\\b", "a\x00b"} {
+	for _, path := range []string{
+		"", "/a", "a/", "a//b", "a/../b", "a/./b", "a\\b", "a\x00b",
+		"*.md", "what?.md", "nested/*.md", "nested/what?.md", "dir*/note.md", "dir?/note.md",
+	} {
 		if ValidatePath(path) == nil {
 			t.Errorf("accepted %q", path)
 		}

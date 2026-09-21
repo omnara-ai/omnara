@@ -22,7 +22,8 @@ func (s *Store) VisitMemorySearchStores(
 	ctx context.Context, projectID, agentID uuid.UUID, pattern string,
 	visit func(MemorySearchStore) error,
 ) error {
-	if _, err := CompileFilePattern(pattern); err != nil {
+	matcher, err := CompileFilePattern(pattern)
+	if err != nil {
 		return err
 	}
 	raw, err := dbsqlc.New(s.pool).GetAgentMemoryConfig(ctx, dbsqlc.GetAgentMemoryConfigParams{
@@ -31,7 +32,7 @@ func (s *Store) VisitMemorySearchStores(
 	if err != nil {
 		return err
 	}
-	stores, _, err := s.memoryListingStores(ctx, projectID, raw, pattern, nil)
+	stores, _, err := s.memoryListingStores(ctx, projectID, raw, pattern, matcher, nil)
 	if err != nil {
 		return err
 	}

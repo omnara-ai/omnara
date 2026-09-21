@@ -193,6 +193,9 @@ func TestEditFileTextLimits(t *testing.T) {
 		t.Skip("file scripts require Linux confinement")
 	}
 	setupFileExec(t)
+	if err := CheckFileToolSupport(t.Context()); err != nil {
+		t.Fatalf("file tool support: %v", err)
+	}
 	for _, test := range []struct {
 		name, script, input, want string
 		failure                   string
