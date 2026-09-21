@@ -79,6 +79,7 @@ export function installAppFailureTracking(page: Page) {
     /request: .*\/subscriptions\/asub_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
     /request: .*\/apps\/app_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
     /request: .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
+    /request: .*\/cron-triggers\?.* \(net::ERR_ABORTED\)$/,
     // Navigation and successful writes cancel obsolete reads; writes are checked below.
     // Full-document navigation also cancels intent-preloaded route chunks.
     // HTTP failures and import/page errors are still recorded independently.
@@ -86,12 +87,7 @@ export function installAppFailureTracking(page: Page) {
   ])
 }
 
-export async function createAppDraft(
-  page: Page,
-  projectID: string,
-  appType: AppType,
-  name: string,
-) {
+export async function openAppSetup(page: Page, projectID: string, appType: AppType, name: string) {
   const label =
     appType === 'github_pr'
       ? 'GitHub PR review'
@@ -104,31 +100,24 @@ export async function createAppDraft(
   await page.getByRole('link', { name: `Set up ${label}`, exact: false }).click()
   await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
   await page.getByLabel('App name', { exact: true }).fill(name)
-  const saved = page.waitForResponse(
+  await expect(
+    page.getByLabel(
+      appType === 'slack_thread'
+        ? 'App configuration token'
+        : appType === 'github_pr'
+          ? 'GitHub App ID'
+          : 'Discord Application ID',
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+}
+
+export function appCreation(page: Page) {
+  return page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/apps'),
   )
-  await page.getByRole('button', { name: 'Continue to connection', exact: true }).click()
-  const response = await saved
-  expect(response.status()).toBe(201)
-  expect(response.request().postDataJSON()).toEqual({
-    name,
-    app_type: appType,
-    settings: {},
-  })
-  const app = schemas.zProjectApp.parse(await response.json())
-  expect(app.state).toBe('disconnected')
-  expect(app.credential_secret_id).toBeUndefined()
-  await expect(page).toHaveURL(`/projects/${projectID}/apps/${app.id}`)
-  await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
-  await expect(
-    page.getByRole('region', {
-      name: appType === 'slack_thread' ? 'Connect Slack' : 'Connection',
-      exact: true,
-    }),
-  ).toBeVisible()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  return { app, apiProjectPath: response.url().replace(/\/apps$/, '') }
 }
 
 export async function readApp(page: Page, apiProjectPath: string, appID: string) {
@@ -142,7 +131,6 @@ export async function readApp(page: Page, apiProjectPath: string, appID: string)
 
 export async function mockVerifiedAppSetup(
   page: Page,
-  apiProjectPath: string,
   appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
 ) {
   await page.route('**/apps/*/setup', async (route) => {
@@ -158,6 +146,10 @@ export async function mockVerifiedAppSetup(
     )
     expect(seeded.status()).toBe(200)
     expect(z.object({ id: schemas.zProjectAppId }).parse(await seeded.json()).id).toBe(appID)
+    const apiProjectPath = route
+      .request()
+      .url()
+      .slice(0, route.request().url().lastIndexOf('/apps/'))
     const app = await readApp(page, apiProjectPath, appID)
     expect(app.app_type).toBe(appType)
     expect(app.credential_secret_id).toBe(request.credential_secret_id)
@@ -182,18 +174,14 @@ export async function fillProviderAccount(
 
 export async function connectAppWithCredentialRetry(
   page: Page,
-  draft: ProjectApp,
-  apiProjectPath: string,
+  projectID: string,
+  appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
+  name: string,
   failures: string[],
 ) {
-  const appType = draft.app_type
-  if (appType === 'slack_thread') throw new Error('Slack setup requires OAuth')
-  // The saved detail is the setup checkpoint, including after a reload.
-  await page.reload()
-  await expect(page).toHaveURL(`/projects/${draft.project_id}/apps/${draft.id}`)
-  await expect(page.getByRole('region', { name: 'Connection', exact: true })).toBeVisible()
-  // Only provider verification is replaced; the draft and secret use the real API.
-  await mockVerifiedAppSetup(page, apiProjectPath, appType)
+  await openAppSetup(page, projectID, appType, name)
+  // Only provider verification is replaced; creation and credentials use the real API.
+  await mockVerifiedAppSetup(page, appType)
   let credentialCreates = 0
   const trackCredential = (request: Request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/secrets'))
@@ -217,14 +205,14 @@ export async function connectAppWithCredentialRetry(
     await more.click()
     await shards.fill('0')
     await more.click()
-    await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+    await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
     await expect(shards).toBeVisible()
     expect(credentialCreates).toBe(0)
     await shards.fill('4')
     await more.click()
   }
   await page.route(
-    `**/apps/${draft.id}/setup`,
+    '**/apps/*/setup',
     (route) =>
       route.fulfill({
         status: 409,
@@ -236,22 +224,27 @@ export async function connectAppWithCredentialRetry(
     page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
-        new URL(response.url()).pathname.endsWith(`/apps/${draft.id}/setup`),
+        new URL(response.url()).pathname.endsWith('/setup'),
     )
+  const created = appCreation(page)
   const failedSetup = setupResponse()
-  await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+  await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
+  const creation = await created
+  expect(creation.status()).toBe(201)
+  expect(creation.request().postDataJSON()).toEqual({ name, app_type: appType, settings: {} })
+  const draft = schemas.zProjectApp.parse(await creation.json())
+  const apiProjectPath = creation.url().replace(/\/apps$/, '')
   const failed = await failedSetup
   expect(failed.status()).toBe(409)
   await expect(page.getByRole('alert')).toContainText('Verification failed; try again')
   await expect(page.getByText('Credentials saved. Retry reuses the saved secret.')).toBeVisible()
-  await expect(page).toHaveURL(`/projects/${draft.project_id}/apps/${draft.id}`)
+  await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
   expect(failures.splice(0)).toEqual([`response: 409 ${new URL(failed.url()).pathname}`])
   const configured = setupResponse()
-  await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+  await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
   expect((await configured).status()).toBe(200)
-  await expect(page).toHaveURL(`/projects/${draft.project_id}/apps/${draft.id}`)
+  await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Connection', exact: true })).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const app = await readApp(page, apiProjectPath, draft.id)
   expect(app).toMatchObject({
@@ -271,7 +264,7 @@ export async function connectAppWithCredentialRetry(
   expect(JSON.stringify(app)).not.toContain(
     appType === 'github_pr' ? 'PRIVATE KEY' : 'local-discord-token',
   )
-  return app
+  return { app, apiProjectPath }
 }
 
 export function expectSlackAuthorization(oauthURL: string, browserOrigin: string) {

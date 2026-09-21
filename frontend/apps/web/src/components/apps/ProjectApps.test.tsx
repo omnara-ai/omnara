@@ -1,11 +1,12 @@
 /** @vitest-environment happy-dom */
 
-import { getProjectAppQueryKey } from '@omnara/sdk/tanstack'
+import { getProjectAppQueryKey, listAppDefinitionsQueryKey } from '@omnara/sdk/tanstack'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { ProjectAppCreateSetup } from '@/routes/CreateProjectAppPage'
 import { ProjectAppDetail } from '@/routes/ProjectAppPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { appDefinition, fakeId, projectApp } from '@/test/fixtures'
@@ -525,3 +526,48 @@ it.each([401, 403, 404])(
     expect(container.querySelector('[aria-label="Pull requests"]')).toBeNull()
   },
 )
+
+it('keeps creation fields mounted when refreshing app definitions fails', async () => {
+  let failing = false
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: `${projectPath}/app-definitions`,
+      respond: () =>
+        failing
+          ? jsonResponse({ code: 'internal_error', error: 'Temporary failure' }, 500)
+          : Response.json({ data: [appDefinition('discord_thread')] }),
+    },
+  ])
+  const { cache, client } = render(
+    api,
+    <ProjectAppCreateSetup orgId={orgId} projectId={projectId} appType="discord_thread" />,
+  )
+  await waitForUI(() => {
+    expect(container.querySelector('#bot-token')).not.toBeNull()
+  })
+  await enter('App name', 'engineering')
+  await enter('Bot token', 'unsaved-token')
+  failing = true
+  await act(async () => {
+    await cache.invalidateQueries({
+      queryKey: listAppDefinitionsQueryKey({
+        path: { orgID: orgId, projectID: projectId },
+        client,
+      }),
+    })
+  })
+  await waitForUI(() => {
+    expect(container.textContent).toContain('Your setup is kept')
+  })
+  expect(container.querySelector<HTMLInputElement>('#app-name')?.value).toBe('engineering')
+  expect(container.querySelector<HTMLInputElement>('#bot-token')?.value).toBe('unsaved-token')
+  failing = false
+  act(() => {
+    button('Retry refresh').click()
+  })
+  await waitForUI(() => {
+    expect(container.textContent).not.toContain('Your setup is kept')
+  })
+  expect(container.querySelector<HTMLInputElement>('#bot-token')?.value).toBe('unsaved-token')
+})

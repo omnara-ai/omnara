@@ -1,11 +1,14 @@
-import { useAppDefinitions } from '@omnara/react'
-import type { AppType } from '@omnara/sdk'
+import { useAppDefinitions, useProjectApp } from '@omnara/react'
+import type { AppType, ProjectApp } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useState } from 'react'
 
 import { AppCatalog } from '@/components/apps/AppCatalog'
 import { appCatalog } from '@/components/apps/appDefinitions'
 import { AppIcon } from '@/components/apps/AppIcon'
+import { ConnectSlackForm } from '@/components/apps/ConnectSlackForm'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
+import { ProjectAppSetup } from '@/components/apps/ProjectAppSetup'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -35,7 +38,7 @@ export function CreateProjectAppPage() {
           return <p role="alert">You don’t have permission to manage apps in this project.</p>
         if (appType && !selected) return <p role="alert">App not found.</p>
         return selected ? (
-          <AppSetup
+          <ProjectAppCreateSetup
             key={`${projectId}:${selected.appType}`}
             orgId={activeOrg.id}
             projectId={projectId}
@@ -57,7 +60,7 @@ export function CreateProjectAppPage() {
   )
 }
 
-function AppSetup({
+export function ProjectAppCreateSetup({
   orgId,
   projectId,
   appType,
@@ -68,9 +71,18 @@ function AppSetup({
 }) {
   const query = useAppDefinitions(orgId, projectId)
   const navigate = useNavigate()
+  const [connected, setConnected] = useState<ProjectApp>()
+  const connectedQuery = useProjectApp(orgId, projectId, connected?.id ?? '')
+  const savedApp = connectedQuery.data ?? connected
+  const openApp = (app: ProjectApp) =>
+    void navigate({
+      to: '/projects/$projectId/apps/$appId',
+      replace: true,
+      params: { projectId, appId: app.id },
+    })
   const selected = appCatalog.find((app) => app.appType === appType)
   if (query.isPending) return <Spinner className="size-4" />
-  if (query.isError)
+  if (!query.data)
     return (
       <div role="alert">
         Could not load app definition. <Button onClick={() => void query.refetch()}>Retry</Button>
@@ -94,18 +106,45 @@ function AppSetup({
         </div>
         <p className="text-muted-foreground text-sm">{selected?.description}</p>
       </header>
-      <ProjectAppForm
-        orgId={orgId}
-        projectId={projectId}
-        appType={appType}
-        onSaved={(app) =>
-          void navigate({
-            to: '/projects/$projectId/apps/$appId',
-            replace: true,
-            params: { projectId, appId: app.id },
-          })
-        }
-      />
+      {query.isError && (
+        <div role="alert" className="text-sm">
+          Could not refresh the app definition. Your setup is kept.{' '}
+          <Button variant="link" onClick={() => void query.refetch()}>
+            Retry refresh
+          </Button>
+        </div>
+      )}
+      {savedApp ? (
+        <section
+          className="flex flex-col gap-5"
+          aria-label={appType === 'github_pr' ? 'Pull requests' : 'Mentions'}
+        >
+          <p role="status" className="text-sm">
+            Account connected. Choose which agents this app can start. Connection details remain
+            available on the app page.
+          </p>
+          <ProjectAppForm
+            orgId={orgId}
+            projectId={projectId}
+            appType={appType}
+            app={savedApp}
+            onSaved={openApp}
+            onCancel={() => {
+              openApp(savedApp)
+            }}
+            cancelLabel="Skip for now"
+          />
+        </section>
+      ) : appType === 'slack_thread' ? (
+        <ConnectSlackForm orgId={orgId} projectId={projectId} onConnected={setConnected} />
+      ) : (
+        <ProjectAppSetup
+          orgId={orgId}
+          projectId={projectId}
+          appType={appType}
+          onSaved={setConnected}
+        />
+      )}
     </div>
   )
 }

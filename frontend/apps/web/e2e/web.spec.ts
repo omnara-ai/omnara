@@ -3,17 +3,17 @@ import { type Cookie, expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
 import { exerciseDiscordAppSchedule } from './app-schedules'
+import { exerciseSlackAppSetup } from './app-slack'
 import { exerciseAppConversations, stopDisconnectedConversation } from './app-subscriptions'
 import {
+  appCreation,
   connectAppWithCredentialRetry,
-  createAppDraft,
   expectAppCapabilities,
   expectInteractionToolMenu,
-  expectSlackAuthorization,
   fillProviderAccount,
   installAppFailureTracking,
   installFailureTracking,
-  mockSlackSetupReturn,
+  openAppSetup,
   readApp,
   requiredEnvironmentVariable,
 } from './fixtures'
@@ -601,17 +601,25 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     await createProfile(page, profileName, 'Answer in the selected conversation.')
     const profilePath = new URL(page.url()).pathname,
       profileId = schemas.zAgentProfileId.parse(profilePath.split('/').at(-1))
-    const { app: draft, apiProjectPath } = await createAppDraft(page, projectID, appType, appName)
-    const appPath = `/projects/${projectID}/apps/${draft.id}`
+    const { app, apiProjectPath } = await connectAppWithCredentialRetry(
+      page,
+      projectID,
+      appType,
+      appName,
+      failures,
+    )
+    const appPath = `/projects/${projectID}/apps/${app.id}`
     const launch = page.getByRole('region', {
       name: appType === 'github_pr' ? 'Pull requests' : 'Mentions',
       exact: true,
     })
 
-    const app = await connectAppWithCredentialRetry(page, draft, apiProjectPath, failures)
     const secretID = schemas.zSecretId.parse(app.credential_secret_id)
-    if (appType === 'discord_thread')
+    if (appType === 'discord_thread') {
+      await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
+      await launch.getByRole('button', { name: 'Choose profiles', exact: true }).click()
       await exerciseDiscordAppSchedule(page, app, profileId, profileName, apiProjectPath)
+    }
     if (appType === 'github_pr') {
       const launcher = launch.getByRole('checkbox', {
         name: 'Launch agents from GitHub events',
@@ -719,15 +727,17 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     const conversation = await exerciseAppConversations(page, app, profileId, apiProjectPath)
 
     // A second app may select the same secret. Its lifecycle stays independent.
-    const { app: secondary } = await createAppDraft(page, projectID, appType, `${appName}-2`)
+    await openAppSetup(page, projectID, appType, `${appName}-2`)
     await fillProviderAccount(page, appType)
     await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
     await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
     if (appType === 'discord_thread')
       await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
-    await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+    const secondCreation = appCreation(page)
+    await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
+    const secondary = schemas.zProjectApp.parse(await (await secondCreation).json())
     await expect(launch.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
-    await launch.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
     expect(await readApp(page, apiProjectPath, secondary.id)).toMatchObject({
       state: 'active',
       credential_secret_id: secretID,
@@ -788,103 +798,12 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
   })
 }
 
-test('connects a saved Slack app and waits for its exact OAuth flow without contacting Slack', async ({
+test('creates and connects Slack on one page and waits for its exact OAuth flow', async ({
   page,
   context,
 }) => {
-  const failures = installAppFailureTracking(page)
   await signIn(page, adminEmail, `/projects/${projectID}/apps`)
-  const { app, apiProjectPath } = await createAppDraft(
-    page,
-    projectID,
-    'slack_thread',
-    `slack-browser-${test.info().retry}`,
-  )
-  const appPath = `/projects/${projectID}/apps/${app.id}`
-  const browserOrigin = new URL(page.url()).origin
-  await page.getByLabel('Use an existing Slack app').check()
-  await page.getByLabel('Client ID', { exact: true }).fill('local-slack-client')
-  await page.getByLabel('Client secret', { exact: true }).fill('local-slack-secret')
-  await page.getByLabel('Signing secret', { exact: true }).fill('local-slack-signing')
-  await context.route('https://slack.com/**', async (route) => {
-    await route.fulfill({
-      contentType: 'text/html',
-      body: '<p>Provider authorization boundary</p>',
-    })
-  })
-  const pending = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname.endsWith(`/apps/${app.id}/oauth/setup`) &&
-      response.request().method() === 'POST',
-  )
-  await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  const response = await pending
-  expect(response.status()).toBe(201)
-  const setup = schemas.zIntegrationOAuthSetup.parse(await response.json())
-  expect(setup.app_id).toBe(app.id)
-  expect(response.request().postDataJSON()).toMatchObject({
-    client_id: 'local-slack-client',
-    return_to: appPath,
-  })
-  expect(response.request().postDataJSON()).not.toHaveProperty('provider')
-  expectSlackAuthorization(setup.oauth_url, browserOrigin)
-  const popup = page.waitForEvent('popup')
-  await page.getByRole('link', { name: 'Authorize in Slack' }).click()
-  const authorization = await popup
-  await expect(authorization.getByText('Provider authorization boundary')).toBeVisible()
-  await authorization.close()
-  await expect(page).toHaveURL(appPath)
-
-  // Callback persistence is covered against a local Slack server in Go tests.
-  // This fixture exercises app polling, exact-flow matching and callback routing.
-  const projectPath = new URL(apiProjectPath).pathname
-  const fixture = await mockSlackSetupReturn(page, projectPath, app, setup.flow_id)
-  const waiting = await page.waitForResponse(
-    (result) =>
-      result.request().method() === 'GET' &&
-      new URL(result.url()).pathname === `${projectPath}/apps/${app.id}`,
-  )
-  const pendingApp = schemas.zProjectApp.parse(await waiting.json())
-  expect(pendingApp.state).toBe('disconnected')
-  expect(pendingApp.setup_revision).toBe(app.setup_revision)
-  expect(pendingApp.last_oauth_flow_id).not.toBe(setup.flow_id)
-  await expect(page.getByRole('link', { name: 'Authorize in Slack' })).toBeVisible()
-  fixture.complete()
-  const mentions = page.getByRole('region', { name: 'Mentions', exact: true })
-  await expect(
-    mentions.getByRole('combobox', { name: 'Offered profiles', exact: true }),
-  ).toBeVisible()
-  await expect(page).toHaveURL(appPath)
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Connect Slack', exact: true })).toHaveCount(0)
-  await expect(mentions.getByLabel('App name', { exact: true })).toHaveCount(0)
-  await expect(mentions.getByRole('checkbox')).toHaveCount(0)
-  await expect(mentions).toContainText('0/16 selected')
-  const savedSettings = page.waitForResponse(
-    (result) =>
-      result.request().method() === 'PUT' &&
-      new URL(result.url()).pathname === `${projectPath}/apps/${app.id}`,
-  )
-  await mentions.getByRole('button', { name: 'Save changes', exact: true }).click()
-  const saved = await savedSettings
-  expect(saved.status()).toBe(200)
-  const connected = schemas.zProjectApp.parse(await saved.json())
-  expect(connected).toMatchObject({
-    id: app.id,
-    state: 'active',
-    last_oauth_flow_id: setup.flow_id,
-  })
-  expect(connected.settings.launcher).toBeUndefined()
-  await expect(mentions.getByRole('button', { name: 'Choose profiles', exact: true })).toBeVisible()
-  await expectAppCapabilities(page, connected)
-  await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
-  await page.goto(`${browserOrigin}${appPath}?integration_oauth=success&app_id=${app.id}`)
-  await expect(page.getByRole('status').filter({ hasText: 'Account connected.' })).toBeVisible()
-  await expect(mentions.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page).toHaveURL(appPath)
-  await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
-  expect(failures).toEqual([])
+  await exerciseSlackAppSetup(page, context, projectID, `slack-browser-${test.info().retry}`)
 })
 
 test('project viewers can browse apps but cannot open app setup', async ({ page }) => {
@@ -894,8 +813,6 @@ test('project viewers can browse apps but cannot open app setup', async ({ page 
   await expect(page.getByRole('link', { name: 'Add app', exact: true })).toHaveCount(0)
   await page.goto(`/projects/${projectID}/apps/new/github_pr`)
   await expect(page.getByRole('alert')).toContainText('You don’t have permission to manage apps')
-  await expect(
-    page.getByRole('button', { name: 'Continue to connection', exact: true }),
-  ).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create and connect', exact: true })).toHaveCount(0)
   expect(failures).toEqual([])
 })

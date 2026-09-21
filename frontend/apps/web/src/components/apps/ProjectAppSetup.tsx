@@ -1,5 +1,5 @@
 import { useConfigureProjectApp, useCreateSecret } from '@omnara/react'
-import type { ProjectApp } from '@omnara/sdk'
+import type { AppType, ProjectApp } from '@omnara/sdk'
 import { type ReactNode, type SyntheticEvent, useEffect, useId, useRef, useState } from 'react'
 import { z } from 'zod'
 
@@ -9,26 +9,31 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 
 import { projectAppFormError } from './projectAppFormState'
+import { ProjectAppNameField } from './ProjectAppNameField'
 import { ProjectAppPortalSetup } from './ProjectAppPortalSetup'
 import { ProjectAppSetupCredentials } from './ProjectAppSetupCredentials'
 import { submitProjectAppSetup } from './projectAppSetupSubmission'
+import { useProjectAppDraft } from './useProjectAppDraft'
 
 export function ProjectAppSetup({
   orgId,
   projectId,
-  app,
+  app: existing,
+  appType,
   onSaved,
   onCancel,
 }: {
   orgId: string
   projectId: string
-  app: ProjectApp
+  app?: ProjectApp
+  appType: Exclude<AppType, 'slack_thread'>
   onSaved: (app: ProjectApp) => void
   onCancel?: () => void
 }) {
+  const { app, name, setName, ensureApp } = useProjectAppDraft(orgId, projectId, appType, existing)
   const setup = useConfigureProjectApp(orgId, projectId)
   const createSecret = useCreateSecret(orgId)
-  const [newCredential, setNewCredential] = useState(!app.credential_secret_id)
+  const [newCredential, setNewCredential] = useState(!existing?.credential_secret_id)
   const [savedSecret, setSavedSecret] = useState('')
   const [error, setError] = useState('')
   const submitting = useRef(false)
@@ -41,8 +46,8 @@ export function ProjectAppSetup({
   }, [])
   const [busy, setBusy] = useState(false)
   // Mirrors the typed provider ID so the portal URL is only offered once it is real.
-  const [tenant, setTenant] = useState(app.provider_tenant_id)
-  const shards = Number(app.provider_config.shard_count ?? 1)
+  const [tenant, setTenant] = useState(existing?.provider_tenant_id ?? '')
+  const shards = Number(app?.provider_config.shard_count ?? 1)
   const [moreOpen] = useState(shards !== 1)
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -50,9 +55,11 @@ export function ProjectAppSetup({
     submitting.current = true
     setBusy(true)
     setError('')
+    const form = new FormData(event.currentTarget)
     try {
+      const draft = await ensureApp()
       const saved = await submitProjectAppSetup(
-        { form: new FormData(event.currentTarget), projectId, app, savedSecret, newCredential },
+        { form, projectId, app: draft, savedSecret, newCredential },
         {
           createSecret: createSecret.mutateAsync,
           configureApp: setup.mutateAsync,
@@ -69,9 +76,10 @@ export function ProjectAppSetup({
     submitting.current = false
     if (mounted.current) setBusy(false)
   }
-  const github = app.app_type === 'github_pr'
+  const github = appType === 'github_pr'
   const provider = github ? 'GitHub' : 'Discord'
-  const reconnect = Boolean(app.provider_tenant_id)
+  const providerTenant = app?.provider_tenant_id ?? ''
+  const reconnect = Boolean(providerTenant)
   return (
     <form onSubmit={(event) => void submit(event)} autoComplete="off">
       <FieldGroup className="gap-8">
@@ -101,6 +109,14 @@ export function ProjectAppSetup({
           </p>
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-8">
+          {!existing && (
+            <SetupGroup
+              title="Name in Omnara"
+              hint="A permanent name for this app in your project."
+            >
+              <ProjectAppNameField name={name} onChange={setName} saved={app} />
+            </SetupGroup>
+          )}
           <SetupGroup
             title={github ? 'App identity' : 'Bot identity'}
             hint={
@@ -115,12 +131,12 @@ export function ProjectAppSetup({
                   {github ? 'GitHub App ID' : 'Discord Application ID'}
                 </FieldLabel>
                 <Input
-                  key={app.provider_tenant_id}
+                  key={app?.provider_tenant_id ?? ''}
                   id="provider-tenant"
                   name="tenant"
                   inputMode="numeric"
-                  defaultValue={app.provider_tenant_id}
-                  readOnly={Boolean(app.provider_tenant_id || savedSecret)}
+                  defaultValue={app?.provider_tenant_id}
+                  readOnly={Boolean(providerTenant || savedSecret)}
                   required
                   pattern="[1-9][0-9]*"
                   onChange={(event) => {
@@ -133,12 +149,12 @@ export function ProjectAppSetup({
                   {github ? 'Installation ID' : 'Bot User ID'}
                 </FieldLabel>
                 <Input
-                  key={app.provider_account_ref}
+                  key={app?.provider_account_ref ?? ''}
                   id="provider-account"
                   name="account"
                   inputMode="numeric"
-                  defaultValue={app.provider_account_ref}
-                  readOnly={Boolean(app.provider_account_ref)}
+                  defaultValue={app?.provider_account_ref}
+                  readOnly={Boolean(app?.provider_account_ref)}
                   required
                   pattern="[1-9][0-9]*"
                 />
@@ -156,7 +172,9 @@ export function ProjectAppSetup({
             <ProjectAppSetupCredentials
               orgId={orgId}
               projectId={projectId}
-              app={app}
+              appType={appType}
+              name={name}
+              credentialSecretId={app?.credential_secret_id}
               savedSecret={savedSecret}
               newCredential={newCredential}
               onNewCredentialChange={setNewCredential}
@@ -173,7 +191,7 @@ export function ProjectAppSetup({
                   name="publicKey"
                   className="font-mono"
                   spellCheck={false}
-                  defaultValue={z.string().catch('').parse(app.provider_config.public_key)}
+                  defaultValue={z.string().catch('').parse(app?.provider_config.public_key)}
                   pattern="[a-fA-F0-9]{64}"
                   required
                 />
@@ -193,7 +211,7 @@ export function ProjectAppSetup({
           >
             <ProjectAppPortalSetup
               appType={github ? 'github_pr' : 'discord_thread'}
-              providerId={app.provider_tenant_id || tenant}
+              providerId={providerTenant || tenant}
             />
           </SetupGroup>
           <details
@@ -214,7 +232,7 @@ export function ProjectAppSetup({
                 <Input
                   id="provider-display"
                   name="displayName"
-                  defaultValue={app.provider_agent_display_name}
+                  defaultValue={app?.provider_agent_display_name}
                 />
               </Field>
               {!github && (
@@ -249,7 +267,7 @@ export function ProjectAppSetup({
             </Button>
           )}
           <Button type="submit" loading={busy} disabled={busy}>
-            {reconnect ? 'Reconnect app' : 'Connect app'}
+            {!existing ? 'Create and connect' : reconnect ? 'Reconnect app' : 'Connect app'}
           </Button>
         </div>
       </FieldGroup>

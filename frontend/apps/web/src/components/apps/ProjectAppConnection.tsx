@@ -48,6 +48,7 @@ export function ProjectAppConnection({
         orgId={orgId}
         projectId={projectId}
         app={app}
+        appType={app.app_type}
         onSaved={onConnected}
         onCancel={onCancel}
       />

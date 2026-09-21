@@ -1,5 +1,5 @@
 import { useProjectAvailableSecrets } from '@omnara/react'
-import type { ProjectApp } from '@omnara/sdk'
+import type { AppType } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,9 @@ import { AppCredentialFields } from './ProjectAppFormCredentials'
 export function ProjectAppSetupCredentials({
   orgId,
   projectId,
-  app,
+  appType,
+  name,
+  credentialSecretId,
   savedSecret,
   newCredential,
   onNewCredentialChange,
@@ -20,15 +22,17 @@ export function ProjectAppSetupCredentials({
 }: {
   orgId: string
   projectId: string
-  app: ProjectApp
+  appType: AppType
+  name: string
+  credentialSecretId?: string
   savedSecret: string
   newCredential: boolean
   onNewCredentialChange: (value: boolean) => void
   onChooseCredentials: () => void
 }) {
-  const [selectedSecret, setSelectedSecret] = useState(app.credential_secret_id ?? '')
+  const [selectedSecret, setSelectedSecret] = useState(credentialSecretId ?? '')
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
-    filters: { kind: app.app_type === 'github_pr' ? 'github_app_credentials' : 'generic' },
+    filters: { kind: appType === 'github_pr' ? 'github_app_credentials' : 'generic' },
     enabled: !newCredential && !savedSecret,
   })
   const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
@@ -60,11 +64,11 @@ export function ProjectAppSetupCredentials({
                 <Input
                   id="credential-name"
                   name="secretName"
-                  defaultValue={`${app.name}-credentials`}
+                  defaultValue={`${name}-credentials`}
                   required
                 />
               </Field>
-              <AppCredentialFields appType={app.app_type} />
+              <AppCredentialFields appType={appType} />
             </div>
           ) : (
             <Field>
@@ -81,9 +85,9 @@ export function ProjectAppSetupCredentials({
                 className="control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm"
               >
                 <option value="">Choose a credential</option>
-                {app.credential_secret_id &&
-                  !secrets.some((secret) => secret.id === app.credential_secret_id) && (
-                    <option value={app.credential_secret_id}>Current credential</option>
+                {credentialSecretId &&
+                  !secrets.some((secret) => secret.id === credentialSecretId) && (
+                    <option value={credentialSecretId}>Current credential</option>
                   )}
                 {secrets.map((secret) => (
                   <option key={secret.id} value={secret.id}>

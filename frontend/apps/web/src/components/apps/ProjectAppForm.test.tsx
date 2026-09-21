@@ -61,81 +61,85 @@ async function submit() {
   })
 }
 
-it.each(['slack_thread', 'github_pr', 'discord_thread'] as const)(
-  'creates a disconnected %s app before setup',
-  async (appType) => {
+it.each(['App name already exists', 'project apps limit of 64 reached'])(
+  'preserves creation error %s and credentials through retry',
+  async (message) => {
+    let attempts = 0
+    const app = projectApp({ app_type: 'discord_thread', name: 'engineering-2' })
     const api = fakeApi([
       {
         method: 'POST',
         path: path + '/apps',
-        respond: ({ body }) =>
-          Response.json(projectApp(schemas.zSaveProjectAppRequest.parse(body)), {
-            status: 201,
-          }),
+        respond: () =>
+          ++attempts === 1
+            ? jsonResponse({ code: 'conflict', error: message }, 409)
+            : Response.json(app, { status: 201 }),
+      },
+      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+      {
+        method: 'POST',
+        path: `/api/v1/orgs/${orgId}/secrets`,
+        respond: () => jsonResponse({ code: 'invalid_request', error: 'Check credentials' }, 400),
       },
     ])
-    const onSaved = vi.fn()
     render(
       api,
-      <ProjectAppForm orgId={orgId} projectId={projectId} appType={appType} onSaved={onSaved} />,
+      <ProjectAppSetup
+        orgId={orgId}
+        projectId={projectId}
+        appType="discord_thread"
+        onSaved={vi.fn()}
+      />,
     )
+    await enter('Discord Application ID', '111')
+    await enter('Bot User ID', '222')
+    await enter('Bot token', 'token')
+    await enter('Interaction public key', 'ab'.repeat(32))
+    await enter('App name', 'with space')
+    await submit()
+    expect(container.textContent).toContain('1–32')
+    expect(api.requests).toHaveLength(0)
+    await enter('App name', 'engineering')
+    await submit()
+    await waitForUI(() => {
+      expect(container.textContent).toContain(message)
+      expect(container.textContent).toContain('open it from Apps to continue')
+      expect(container.querySelector<HTMLInputElement>('#app-name')?.readOnly).toBe(false)
+    })
     await enter('App name', 'engineering-2')
     await submit()
     await waitForUI(() => {
-      expect(onSaved).toHaveBeenCalledWith(
-        expect.objectContaining({ state: 'disconnected', name: 'engineering-2' }),
-      )
+      expect(container.textContent).toContain('Check credentials')
     })
-    expect(api.requests).toHaveLength(1)
-    expect(api.requests[0]?.body).toEqual({
+    expect(api.requestsTo('POST', path + '/apps').at(-1)?.body).toEqual({
       name: 'engineering-2',
-      app_type: appType,
+      app_type: 'discord_thread',
       settings: {},
     })
+    expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.value).toBe('111')
+    expect(container.querySelector<HTMLInputElement>('#provider-account')?.value).toBe('222')
+    expect(container.querySelector<HTMLInputElement>('#bot-token')?.value).toBe('token')
+    expect(container.querySelector<HTMLInputElement>('#app-name')?.readOnly).toBe(true)
+    expect(
+      [...container.querySelectorAll('a')]
+        .find((link) => link.textContent === 'resume setup from its page')
+        ?.getAttribute('href'),
+    ).toBe(`/projects/${app.project_id}/apps/${app.id}`)
   },
 )
 
-it('validates immutable names before any request and retries duplicate-name errors', async () => {
-  let attempts = 0
-  const api = fakeApi([
-    {
-      method: 'POST',
-      path: path + '/apps',
-      respond: ({ body }) =>
-        ++attempts === 1
-          ? jsonResponse({ code: 'conflict', error: 'App name already exists' }, 409)
-          : Response.json(projectApp({ ...schemas.zSaveProjectAppRequest.parse(body) }), {
-              status: 201,
-            }),
-    },
-  ])
-  const onSaved = vi.fn()
-  render(
-    api,
-    <ProjectAppForm orgId={orgId} projectId={projectId} appType="slack_thread" onSaved={onSaved} />,
-  )
-  await enter('App name', 'with space')
-  await submit()
-  expect(container.textContent).toContain('1–32')
-  expect(api.requests).toHaveLength(0)
-  await enter('App name', 'engineering')
-  await submit()
-  await waitForUI(() => {
-    expect(container.textContent).toContain('App name already exists')
-  })
-  await enter('App name', 'engineering-2')
-  await submit()
-  await waitForUI(() => {
-    expect(onSaved).toHaveBeenCalled()
-  })
-})
-
-it.each(['github_pr', 'discord_thread'] as const)(
-  'retries %s verification using the already-saved credential',
-  async (appType) => {
+it.each([
+  ['github_pr', false],
+  ['discord_thread', false],
+  ['github_pr', true],
+  ['discord_thread', true],
+] as const)(
+  'retries %s setup (creating=%s) using the saved app and credential',
+  async (appType, creating) => {
     const app = projectApp({ app_type: appType })
     let attempts = 0
     const api = fakeApi([
+      { method: 'POST', path: path + '/apps', respond: () => Response.json(app, { status: 201 }) },
       {
         method: 'POST',
         path: `/api/v1/orgs/${orgId}/secrets`,
@@ -175,7 +179,8 @@ it.each(['github_pr', 'discord_thread'] as const)(
       <ProjectAppSetup
         orgId={orgId}
         projectId={projectId}
-        app={app}
+        app={creating ? undefined : app}
+        appType={appType}
         onSaved={onSaved}
         onCancel={vi.fn()}
       />,
@@ -201,7 +206,7 @@ it.each(['github_pr', 'discord_thread'] as const)(
     })
     expect(api.requestsTo('POST', `/api/v1/orgs/${orgId}/secrets`)).toHaveLength(1)
     expect(api.requestsTo('POST', path + '/apps/' + app.id + '/setup')).toHaveLength(2)
-    expect(api.requestsTo('POST', path + '/apps')).toHaveLength(0)
+    expect(api.requestsTo('POST', path + '/apps')).toHaveLength(creating ? 1 : 0)
     expect(api.requestsTo('POST', path + '/apps/' + app.id + '/setup').at(-1)?.body).toMatchObject({
       expected_setup_revision: 1,
       credential_secret_id: fakeId('sec'),
@@ -219,7 +224,7 @@ it.each(['github_pr', 'discord_thread'] as const)(
 
 it('keeps the displayed account and endpoint aligned when another tab connects the app', async () => {
   const app = projectApp({ app_type: 'discord_thread' })
-  const props = { orgId, projectId, onSaved: vi.fn() }
+  const props = { orgId, projectId, appType: 'discord_thread' as const, onSaved: vi.fn() }
   const { rerender } = render(fakeApi([]), <ProjectAppSetup {...props} app={app} />)
   const value = (id: string) => container.querySelector<HTMLInputElement>(`#${id}`)?.value
   expect(value('provider-endpoint')).toBe('')
@@ -259,12 +264,18 @@ it('blocks a stale edit until explicitly reloaded', async () => {
   expect(container.textContent).not.toContain('App changed.')
 })
 
-it('keeps cancellation disabled during creation and ignores completion after unmount', async () => {
+it('keeps cancellation disabled during saving and ignores completion after unmount', async () => {
+  const app = projectApp()
   let release!: (response: Response) => void
   const api = fakeApi([
     {
-      method: 'POST',
-      path: path + '/apps',
+      method: 'GET',
+      path: path + '/agent-profiles',
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    },
+    {
+      method: 'PUT',
+      path: path + '/apps/' + app.id,
       respond: () =>
         new Promise((resolve) => {
           release = resolve
@@ -279,13 +290,14 @@ it('keeps cancellation disabled during creation and ignores completion after unm
       orgId={orgId}
       projectId={projectId}
       appType="slack_thread"
+      app={app}
       onSaved={onSaved}
       onCancel={onCancel}
     />,
   )
   await submit()
   await waitForUI(() => {
-    expect(api.requests).toHaveLength(1)
+    expect(api.requestsTo('PUT', path + '/apps/' + app.id)).toHaveLength(1)
   })
   await waitForUI(() => {
     expect(button('Cancel').disabled).toBe(true)
@@ -302,30 +314,47 @@ it('keeps cancellation disabled during creation and ignores completion after unm
   expect(onSaved).not.toHaveBeenCalled()
 })
 
-it('posts Slack OAuth credentials to the named app and keeps setup failures actionable', async () => {
-  const app = projectApp({ provider_tenant_id: 'T123', provider_account_ref: 'A123' })
-  const api = fakeApi([
-    {
-      method: 'POST',
-      path: path + '/apps/' + app.id + '/oauth/setup',
-      respond: () => jsonResponse({ code: 'conflict', error: 'Try authorization again' }, 409),
-    },
-  ])
-  render(api, <ConnectSlackForm app={app} orgId={orgId} projectId={projectId} />)
-  await enter('Client ID', 'client')
-  await enter('Client secret', 'secret')
-  await enter('Signing secret', 'signature')
-  await submit()
-  await waitForUI(() => {
-    expect(document.body.textContent).toContain('Try authorization again')
-  })
-  expect(api.requests[0]?.body).toEqual({
-    client_id: 'client',
-    client_secret: 'secret',
-    signing_secret: 'signature',
-    return_to: window.location.pathname,
-  })
-})
+it.each([false, true])(
+  'retries Slack authorization with the saved app (creating=%s)',
+  async (creating) => {
+    const app = projectApp(
+      creating ? {} : { provider_tenant_id: 'T123', provider_account_ref: 'A123' },
+    )
+    const api = fakeApi([
+      { method: 'POST', path: path + '/apps', respond: () => Response.json(app, { status: 201 }) },
+      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+      {
+        method: 'POST',
+        path: path + '/apps/' + app.id + '/oauth/setup',
+        respond: () => jsonResponse({ code: 'conflict', error: 'Try authorization again' }, 409),
+      },
+    ])
+    render(
+      api,
+      <ConnectSlackForm app={creating ? undefined : app} orgId={orgId} projectId={projectId} />,
+    )
+    if (creating)
+      act(() => {
+        container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click()
+      })
+    await enter('Client ID', 'client')
+    await enter('Client secret', 'secret')
+    await enter('Signing secret', 'signature')
+    await submit()
+    await waitForUI(() => {
+      expect(document.body.textContent).toContain('Try authorization again')
+    })
+    expect(api.requestsTo('POST', path + '/apps/' + app.id + '/oauth/setup')[0]?.body).toEqual({
+      client_id: 'client',
+      client_secret: 'secret',
+      signing_secret: 'signature',
+      return_to: `/projects/${projectId}/apps/${app.id}`,
+    })
+    await submit()
+    expect(api.requestsTo('POST', path + '/apps')).toHaveLength(creating ? 1 : 0)
+    expect(api.requestsTo('POST', path + '/apps/' + app.id + '/oauth/setup')).toHaveLength(2)
+  },
+)
 
 it('completes OAuth only for the exact app flow, not a previous active flow', async () => {
   const app = projectApp({ provider_tenant_id: 'T123', provider_account_ref: 'A123' })
@@ -423,6 +452,7 @@ it('keeps the reconnect credential selected when its fallback option is replaced
       orgId={orgId}
       projectId={projectId}
       app={app}
+      appType="github_pr"
       onSaved={onSaved}
       onCancel={vi.fn()}
     />,

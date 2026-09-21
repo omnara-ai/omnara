@@ -1,6 +1,8 @@
 import {
   ApiError,
   type ConfigureProjectAppRequest,
+  type CreateIntegrationOAuthSetupRequest,
+  type CreateSlackSetupRequest,
   type ListProjectAppsData,
   type SaveProjectAppRequest,
   sdk,
@@ -121,12 +123,35 @@ export function useAppDefinitions(orgID: string, projectID: string) {
   return useQuery(listAppDefinitionsOptions({ path: { orgID, projectID }, client }))
 }
 
-export function useCreateProjectAppOAuthSetup(orgID: string, projectID: string, appID: string) {
-  return useScopedMutation(sdk.createProjectAppOAuthSetup, { orgID, projectID, appID })
+export function useCreateProjectAppOAuthSetup(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  return useMutation({
+    mutationFn: async ({
+      appID,
+      ...body
+    }: CreateIntegrationOAuthSetupRequest & { appID: string }) => {
+      const { data } = await sdk.createProjectAppOAuthSetup({
+        path: { orgID, projectID, appID },
+        body,
+        client,
+      })
+      return data
+    },
+  })
 }
 
-export function useCreateProjectAppSlackSetup(orgID: string, projectID: string, appID: string) {
-  return useScopedMutation(sdk.createProjectAppSlackSetup, { orgID, projectID, appID })
+export function useCreateProjectAppSlackSetup(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  return useMutation({
+    mutationFn: async ({ appID, ...body }: CreateSlackSetupRequest & { appID: string }) => {
+      const { data } = await sdk.createProjectAppSlackSetup({
+        path: { orgID, projectID, appID },
+        body,
+        client,
+      })
+      return data
+    },
+  })
 }
 
 export function useConfigureProjectApp(orgID: string, projectID: string) {
@@ -191,7 +216,7 @@ export function useProjectAppOAuthCompletion(
   const client = useOmnaraClient()
   return useQuery({
     ...getProjectAppOptions({ path: { orgID, projectID, appID }, client }),
-    enabled: Boolean(flow),
+    enabled: Boolean(flow) && appID !== '',
     refetchInterval: (query) =>
       !flow ||
       Date.now() >= Date.parse(flow.expires_at) ||

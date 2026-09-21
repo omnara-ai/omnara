@@ -26,27 +26,40 @@ import {
   slackAppNameMaxLength,
   slackConnectionFormValid,
 } from './ConnectSlackFormState'
+import { ProjectAppNameField } from './ProjectAppNameField'
 import { SlackAppIconField } from './SlackAppIconField'
 import { slackOAuthErrorDescription } from './slackOAuthErrors'
+import { useProjectAppDraft } from './useProjectAppDraft'
 
 interface SlackConnectionProps {
   orgId: string
   projectId: string
-  app: ProjectApp
+  app?: ProjectApp
   onConnected?: (app: ProjectApp) => void
 }
 
-export function ConnectSlackForm({ orgId, projectId, app, onConnected }: SlackConnectionProps) {
-  const createSlackSetup = useCreateProjectAppSlackSetup(orgId, projectId, app.id)
-  const createOAuthSetup = useCreateProjectAppOAuthSetup(orgId, projectId, app.id)
+export function ConnectSlackForm({
+  orgId,
+  projectId,
+  app: existing,
+  onConnected,
+}: SlackConnectionProps) {
+  const { app, name, setName, ensureApp } = useProjectAppDraft(
+    orgId,
+    projectId,
+    'slack_thread',
+    existing,
+  )
+  const createOAuthSetup = useCreateProjectAppOAuthSetup(orgId, projectId)
+  const createSlackSetup = useCreateProjectAppSlackSetup(orgId, projectId)
   const client = useOmnaraClient()
   const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
-  const reconnect = Boolean(app.provider_tenant_id)
+  const reconnect = Boolean(app?.provider_tenant_id)
   const [existingAppSelected, setExistingAppSelected] = useState(false)
   const existingApp = reconnect || existingAppSelected
   const [pending, setPending] = useState<IntegrationOAuthSetup>()
   const [error, setError] = useState('')
-  const completion = useProjectAppOAuthCompletion(orgId, projectId, app.id, pending)
+  const completion = useProjectAppOAuthCompletion(orgId, projectId, app?.id ?? '', pending)
   const completed =
     completion.data?.state === 'active' && completion.data.last_oauth_flow_id === pending?.flow_id
   const failure = slackSetupFailure(pending, completed, completion.data, completion.error)
@@ -87,24 +100,28 @@ export function ConnectSlackForm({ orgId, projectId, app, onConnected }: SlackCo
       if (!(existingApp ? existingCredentialsValid(value) : slackConnectionFormValid(value))) return
       setError('')
       try {
+        const icon = existingApp ? undefined : await slackAppIconPayload(value.appIcon)
+        const draft = await ensureApp()
+        const returnTo = `/projects/${projectId}/apps/${draft.id}`
         let setup: IntegrationOAuthSetup
         if (existingApp) {
           setup = await createOAuthSetup.mutateAsync({
+            appID: draft.id,
             client_id: value.clientId.trim(),
             client_secret: value.clientSecret.trim(),
             signing_secret: value.signingSecret.trim(),
-            return_to: window.location.pathname,
+            return_to: returnTo,
           })
         } else {
-          const icon = await slackAppIconPayload(value.appIcon)
           setup = await createSlackSetup.mutateAsync({
+            appID: draft.id,
             app_name: value.appName.trim(),
             app_configuration_token: value.appConfigurationToken.trim(),
             icon,
-            return_to: window.location.pathname,
+            return_to: returnTo,
           })
         }
-        if (setup.app_id !== app.id) {
+        if (setup.app_id !== draft.id) {
           setError('Authorization returned a different app. Please try again.')
         } else {
           setPending(setup)
@@ -134,6 +151,15 @@ export function ConnectSlackForm({ orgId, projectId, app, onConnected }: SlackCo
           }}
         >
           <FieldGroup>
+            {!existing && (
+              <form.Subscribe selector={(state) => state.isSubmitting}>
+                {(isSubmitting) => (
+                  <fieldset disabled={isSubmitting}>
+                    <ProjectAppNameField name={name} onChange={setName} saved={app} />
+                  </fieldset>
+                )}
+              </form.Subscribe>
+            )}
             {!reconnect && (
               <label className="flex gap-2 text-sm">
                 <input
@@ -194,7 +220,7 @@ export function ConnectSlackForm({ orgId, projectId, app, onConnected }: SlackCo
                 <form.Field name="appName">
                   {(field) => (
                     <Field>
-                      <FieldLabel htmlFor="slack-app-name">App name</FieldLabel>
+                      <FieldLabel htmlFor="slack-app-name">Name in Slack</FieldLabel>
                       <Input
                         id="slack-app-name"
                         required
@@ -267,7 +293,7 @@ export function ConnectSlackForm({ orgId, projectId, app, onConnected }: SlackCo
               >
                 {([valid, isSubmitting]) => (
                   <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
-                    Continue
+                    {!existing ? 'Create and connect Slack' : 'Continue'}
                   </Button>
                 )}
               </form.Subscribe>
