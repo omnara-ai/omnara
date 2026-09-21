@@ -36,8 +36,9 @@ export function MemoryStoreDialog({
   const update = useUpdateMemoryStore(scope)
   const remove = useDeleteMemoryStore(scope)
   const navigate = useNavigate()
-  const pending = create.isPending || update.isPending || remove.isPending
-  const error = create.error ?? update.error ?? remove.error
+  const saveMutation = store ? update : create
+  const pending = saveMutation.isPending || remove.isPending
+  const error = saveMutation.error ?? remove.error
   function save() {
     remove.reset()
     if (store) update.mutate({ description, read_only: readOnly }, { onSuccess: onClose })
@@ -135,11 +136,7 @@ export function MemoryStoreDialog({
                   Delete store
                 </Button>
               )}
-              <Button
-                type="submit"
-                loading={create.isPending || update.isPending}
-                disabled={pending}
-              >
+              <Button type="submit" loading={saveMutation.isPending} disabled={pending}>
                 {store ? 'Save changes' : 'Create store'}
               </Button>
             </DialogFooter>

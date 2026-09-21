@@ -32,7 +32,7 @@ func TestWriteFileInput(t *testing.T) {
 		{`{"path":"/memory/notes/a.txt","script":"\u0000"}`, false},
 		{`{"path":"/artifacts","content":"x"}`, false},
 		{`{"path":"/memory/notes/../a.txt","content":"x"}`, false},
-		{`{"path":"/memory/notes/*.txt","content":"x"}`, true},
+		{`{"path":"/memory/notes/*.txt","content":"x"}`, false},
 		{`{"path":"/memory/notes/a.txt","content":"x","extra":true}`, false},
 	} {
 		if err := tool.validateInput(json.RawMessage(test.input)); (err == nil) != test.valid {

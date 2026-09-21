@@ -40,9 +40,5 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 	if err != nil {
 		return nil, err
 	}
-	content, err := structuredToolResultContent(result)
-	if err != nil {
-		return nil, err
-	}
-	return completeAsynchronously(content), nil
+	return completeFileTool(result)
 }

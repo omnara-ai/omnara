@@ -301,11 +301,18 @@ func (s *Store) authorizeAttachment(
 	if err = json.Unmarshal(raw, &stores); err != nil {
 		return fmt.Errorf("authorize memory file: %w", err)
 	}
+	allowed := false
 	for _, a := range stores {
-		id, e := publicid.Decode(publicid.KindMemoryStore, a.PublicID)
-		if e == nil && id == storeID && (!write || a.Access == "read_write") {
-			return nil
+		id, err := publicid.Decode(publicid.KindMemoryStore, a.PublicID)
+		if err != nil {
+			return fmt.Errorf("authorize memory file: %w", err)
 		}
+		if id == storeID && (!write || a.Access == "read_write") {
+			allowed = true
+		}
+	}
+	if allowed {
+		return nil
 	}
 	return storeerr.ErrNotFound
 }
