@@ -2,24 +2,9 @@ import type { ProjectApp } from '@omnara/sdk'
 
 import { appTypeLabel } from './appDefinitions'
 import { AppIcon } from './AppIcon'
-import { ProjectAppActions } from './ProjectAppActions'
 
 /** Identity and account state live here, so the page body is only what people configure. */
-export function ProjectAppHeader({
-  orgId,
-  projectId,
-  app,
-  canManage,
-  onReconnect,
-  onRemoved,
-}: {
-  orgId: string
-  projectId: string
-  app: ProjectApp
-  canManage: boolean
-  onReconnect?: () => void
-  onRemoved: () => void
-}) {
+export function ProjectAppHeader({ app }: { app: ProjectApp }) {
   const status =
     app.state === 'active'
       ? app.provider_agent_display_name
@@ -39,15 +24,6 @@ export function ProjectAppHeader({
           </p>
         </div>
       </div>
-      {canManage && (
-        <ProjectAppActions
-          orgId={orgId}
-          projectId={projectId}
-          app={app}
-          onConnect={onReconnect}
-          onRemoved={onRemoved}
-        />
-      )}
     </header>
   )
 }

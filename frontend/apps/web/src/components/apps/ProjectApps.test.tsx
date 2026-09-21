@@ -61,20 +61,9 @@ function render(api: ReturnType<typeof fakeApi>, content: ReactNode) {
 }
 
 async function selectAction(name: string) {
-  act(() => {
-    button('App actions').dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-    )
-  })
-  await waitForUI(() => {
-    expect(document.querySelector('[role="menuitem"]')).not.toBeNull()
-  })
-  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (element) => element.textContent.trim() === name,
-  )
-  if (!item) throw new Error(`Missing app action: ${name}`)
-  act(() => {
-    item.click()
+  await act(async () => {
+    button(name).click()
+    await Promise.resolve()
   })
 }
 
@@ -261,10 +250,10 @@ it.each([true, false])(
     await waitForUI(() => {
       expect(document.body.textContent).toContain('Try again shortly')
     })
-    expect(button('App actions')).toBeDefined()
+    expect(button('Remove app')).toBeDefined()
     await selectAction('Disconnect app')
     await waitForUI(() => {
-      expect(button('Reconnect account')).toBeDefined()
+      expect(container.textContent).toContain('This app is disconnected.')
     })
     expect(api.requestsTo('POST', `${projectPath}/apps/${app.id}/disconnect`)).toHaveLength(2)
     confirm.mockReturnValue(false)
@@ -384,7 +373,7 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
     <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />,
   )
   await waitForUI(() => {
-    expect(button('App actions')).toBeDefined()
+    expect(button('Remove app')).toBeDefined()
   })
   vi.stubGlobal('confirm', () => true)
   delay = true
@@ -397,7 +386,7 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
   })
   await selectAction('Disconnect app')
   await waitForUI(() => {
-    expect(button('Reconnect account')).toBeDefined()
+    expect(container.textContent).toContain('This app is disconnected.')
   })
   await act(async () => {
     release(jsonResponse(z.json().parse(savedApp)))
@@ -447,7 +436,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
   )
   const { cache, client, rerender } = render(api, detail)
   await waitForUI(() => {
-    expect(button('App actions')).toBeDefined()
+    expect(button('Remove app')).toBeDefined()
   })
   let refresh!: Promise<void>
   act(() => {

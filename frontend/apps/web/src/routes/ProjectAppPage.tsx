@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useCallback, useState } from 'react'
 
 import { appCatalog } from '@/components/apps/appDefinitions'
+import { ProjectAppActions } from '@/components/apps/ProjectAppActions'
 import { ProjectAppAdvanced } from '@/components/apps/ProjectAppAdvanced'
 import { ProjectAppConnection } from '@/components/apps/ProjectAppConnection'
 import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
@@ -128,22 +129,7 @@ function ProjectAppSettings({
   return (
     <div className="flex w-full max-w-2xl flex-col gap-10">
       <div className="flex flex-col gap-4">
-        <ProjectAppHeader
-          orgId={orgId}
-          projectId={projectId}
-          app={app}
-          canManage={canManage}
-          onReconnect={
-            canSetUp && app.state === 'active' && !connecting
-              ? () => {
-                  setConnecting(true)
-                }
-              : undefined
-          }
-          onRemoved={() =>
-            void navigate({ to: '/projects/$projectId/apps', params: { projectId } })
-          }
-        />
+        <ProjectAppHeader app={app} />
         {refreshFailed && (
           <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
             Could not refresh this app. Your current edits are kept.
@@ -228,6 +214,23 @@ function ProjectAppSettings({
         hideWhenEmpty={draft}
       />
       {!draft && <ProjectAppAdvanced app={app} />}
+      {canManage && (
+        <ProjectAppActions
+          orgId={orgId}
+          projectId={projectId}
+          app={app}
+          onConnect={
+            canSetUp && app.state === 'active' && !connecting
+              ? () => {
+                  setConnecting(true)
+                }
+              : undefined
+          }
+          onRemoved={() =>
+            void navigate({ to: '/projects/$projectId/apps', params: { projectId } })
+          }
+        />
+      )}
     </div>
   )
 }
