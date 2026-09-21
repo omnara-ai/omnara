@@ -79,7 +79,7 @@ func TestInteractionPresentationWorkConcurrentClaim(t *testing.T) {
 	require.Equal(t, question, f.read(t, question.ID), "claim changes no public interaction field")
 }
 
-func TestInteractionPresentationWorkListBoundAndDefinitions(t *testing.T) {
+func TestInteractionPresentationWorkListBoundAndAppTypes(t *testing.T) {
 	t.Parallel()
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
@@ -99,18 +99,18 @@ func TestInteractionPresentationWorkListBoundAndDefinitions(t *testing.T) {
 INSERT INTO agent_interactions
     (id, agent_id, tool_call_id, interaction_kind, state, request, created_at, destination)
 SELECT $1, agent_id, tool_call_id, 'permission', 'open', '{}', created_at - interval '1 minute',
-       jsonb_set(destination, '{handler_definition}', '"unsupported.interactions"')
+       jsonb_set(destination, '{app_type}', '"unsupported.interactions"')
 FROM agent_interactions WHERE agent_id=$2 AND id=$3`, unsupportedID, f.process.AgentID, want[0].ID)
 	require.NoError(t, err)
-	definitions := []string{appdefinition.Slack, appdefinition.Discord}
-	listed, err := f.store.Execution().ListPendingInteractionPresentations(f.ctx, definitions, 2)
+	appTypes := []string{string(appdefinition.SlackThread), string(appdefinition.DiscordThread)}
+	listed, err := f.store.Execution().ListPendingInteractionPresentations(f.ctx, appTypes, 2)
 	require.NoError(t, err)
 	require.Equal(t, want[:2], listed, "oldest pending rows first")
-	listed, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx, definitions, math.MaxInt)
+	listed, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx, appTypes, math.MaxInt)
 	require.NoError(t, err)
 	require.Equal(t, want[:executionstore.MaxPendingInteractionPresentations], listed)
 	rows, err := dbsqlc.New(f.store.pool).ListPendingInteractionPresentations(f.ctx,
-		dbsqlc.ListPendingInteractionPresentationsParams{Definitions: definitions, BatchLimit: math.MaxInt32})
+		dbsqlc.ListPendingInteractionPresentationsParams{AppTypes: appTypes, BatchLimit: math.MaxInt32})
 	require.NoError(t, err)
 	require.Len(t, rows, executionstore.MaxPendingInteractionPresentations, "SQL independently caps the batch")
 	listed, err = f.store.Execution().
@@ -118,34 +118,34 @@ FROM agent_interactions WHERE agent_id=$2 AND id=$3`, unsupportedID, f.process.A
 	require.NoError(t, err)
 	require.Equal(t, []executionstore.InteractionPresentationReference{{
 		ProjectID: testProjectID, AgentID: f.process.AgentID, ID: unsupportedID,
-	}}, listed, "definitions are caller policy, not hard-coded in storage")
+	}}, listed, "app types are caller policy, not hard-coded in storage")
 	merged := append(listed, want[:executionstore.MaxPendingInteractionPresentations-1]...)
 	listed, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx,
 		[]string{
-			appdefinition.Slack,
+			string(appdefinition.SlackThread),
 			"unsupported.interactions",
-			appdefinition.Slack,
+			string(appdefinition.SlackThread),
 		}, math.MaxInt)
 	require.NoError(t, err)
-	require.Equal(t, merged, listed, "the final merged batch is also capped and duplicate definitions add no rows")
-	for _, definitions := range [][]string{nil, {}, {appdefinition.Discord}} {
-		listed, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx, definitions, 100)
+	require.Equal(t, merged, listed, "the final merged batch is also capped and duplicate app types add no rows")
+	for _, appTypes := range [][]string{nil, {}, {string(appdefinition.DiscordThread)}} {
+		listed, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx, appTypes, 100)
 		require.NoError(t, err)
 		require.Empty(t, listed)
 	}
 	for _, limit := range []int{0, -1} {
-		_, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx, definitions, limit)
+		_, err = f.store.Execution().ListPendingInteractionPresentations(f.ctx, appTypes, limit)
 		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	}
 }
 
-func TestInteractionPresentationWorkMergeDefinitionOrdering(t *testing.T) {
+func TestInteractionPresentationWorkMergeAppTypeOrdering(t *testing.T) {
 	t.Parallel()
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
 	calls := presentationToolBatchForTest(t, f, 6)
 	question := createQuestionInteractionForTest(t, f.ctx, f.process, calls[0])
-	definitions := []string{appdefinition.Slack, appdefinition.Discord}
+	appTypes := []string{string(appdefinition.SlackThread), string(appdefinition.DiscordThread)}
 	refs := make([]executionstore.InteractionPresentationReference, len(calls))
 	for i, call := range calls {
 		refs[i] = executionstore.InteractionPresentationReference{
@@ -153,35 +153,35 @@ func TestInteractionPresentationWorkMergeDefinitionOrdering(t *testing.T) {
 			ID: uuid.MustParse(fmt.Sprintf("00000000-0000-0000-0000-%012d", len(calls)-i)),
 		}
 		// Synthetic captures isolate discovery from provider authorization. Each
-		// timestamp ties across definitions, with IDs ordered opposite insertion.
+		// timestamp ties across app types, with IDs ordered opposite insertion.
 		_, err := f.store.pool.Exec(f.ctx, `
 INSERT INTO agent_interactions
     (id, agent_id, tool_call_id, interaction_kind, state, request, created_at, destination)
 SELECT $1, agent_id, $2, 'permission', 'open', '{}', $3,
-       jsonb_set(destination, '{handler_definition}', to_jsonb($4::text))
+       jsonb_set(destination, '{app_type}', to_jsonb($4::text))
 FROM agent_interactions WHERE agent_id=$5 AND id=$6`,
 			refs[i].ID, call, question.CreatedAt.Add(-time.Hour+time.Duration(i/2)*time.Second),
-			definitions[i%len(definitions)], f.process.AgentID, question.ID)
+			appTypes[i%len(appTypes)], f.process.AgentID, question.ID)
 		require.NoError(t, err)
 	}
 	want := []executionstore.InteractionPresentationReference{
 		refs[1], refs[0], refs[3], refs[2], refs[5], refs[4],
 		{ProjectID: testProjectID, AgentID: f.process.AgentID, ID: question.ID},
 	}
-	for _, definitions := range [][]string{
-		definitions,
-		{definitions[1], definitions[0]},
-		{definitions[1], definitions[0], definitions[1], definitions[0], definitions[1]},
+	for _, appTypes := range [][]string{
+		appTypes,
+		{appTypes[1], appTypes[0]},
+		{appTypes[1], appTypes[0], appTypes[1], appTypes[0], appTypes[1]},
 	} {
 		for _, limit := range []int{1, 4, executionstore.MaxPendingInteractionPresentations} {
-			listed, err := f.store.Execution().ListPendingInteractionPresentations(f.ctx, definitions, limit)
+			listed, err := f.store.Execution().ListPendingInteractionPresentations(f.ctx, appTypes, limit)
 			require.NoError(t, err)
 			require.Equal(
 				t,
 				want[:min(limit, len(want))],
 				listed,
-				"merge orders across definitions by creation time then identity, definitions=%v limit=%d",
-				definitions,
+				"merge orders across app types by creation time then identity, appTypes=%v limit=%d",
+				appTypes,
 				limit,
 			)
 		}
@@ -227,7 +227,7 @@ SET presentation_attempted_at=now() WHERE agent_id=$1 AND id=$2`, f.process.Agen
 	// bounded sweep. The later live-authority check still refuses presentation.
 	f.disable(t)
 	listed, err := f.store.Execution().
-		ListPendingInteractionPresentations(f.ctx, []string{appdefinition.Slack}, 1)
+		ListPendingInteractionPresentations(f.ctx, []string{string(appdefinition.SlackThread)}, 1)
 	require.NoError(t, err)
 	require.Equal(t, []executionstore.InteractionPresentationReference{{
 		ProjectID: testProjectID, AgentID: f.process.AgentID, ID: pending.ID,
@@ -239,7 +239,7 @@ SET presentation_attempted_at=now() WHERE agent_id=$1 AND id=$2`, f.process.Agen
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, pending.ID).State)
 	listed, err = f.store.Execution().
-		ListPendingInteractionPresentations(f.ctx, []string{appdefinition.Slack}, 1)
+		ListPendingInteractionPresentations(f.ctx, []string{string(appdefinition.SlackThread)}, 1)
 	require.NoError(t, err)
 	require.Empty(t, listed)
 }
@@ -378,7 +378,7 @@ func TestInteractionPresentationWorkLiveScopes(t *testing.T) {
 			}
 			require.NoError(t, err)
 			listed, err := f.store.Execution().ListPendingInteractionPresentations(f.ctx,
-				[]string{appdefinition.Slack}, 100)
+				[]string{string(appdefinition.SlackThread)}, 100)
 			require.NoError(t, err)
 			require.Empty(t, listed)
 			claimed, err := f.store.Execution().ClaimInteractionPresentation(f.ctx,
@@ -441,7 +441,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_presentation_claim_commit();`)
 	require.False(t, claimed)
 	require.Nil(t, presentationAttemptForTest(t, f, question.ID))
 	listed, err := f.store.Execution().ListPendingInteractionPresentations(f.ctx,
-		[]string{appdefinition.Slack}, 1)
+		[]string{string(appdefinition.SlackThread)}, 1)
 	require.NoError(t, err)
 	require.Equal(t, []executionstore.InteractionPresentationReference{{
 		ProjectID: testProjectID, AgentID: f.process.AgentID, ID: question.ID,

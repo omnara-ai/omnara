@@ -10,8 +10,8 @@ const githubAddress = z.object({ repository_id: z.number(), pull_request: z.numb
 
 /** Format indexed provider addresses without fetching provider metadata. */
 export function appConversation(app: ProjectApp, subscription: AppSubscription) {
-  switch (app.provider) {
-    case 'slack': {
+  switch (app.app_type) {
+    case 'slack_thread': {
       const address = slackAddress.safeParse(subscription.conversation)
       if (!address.success) break
       const { channel_id, thread_ts } = address.data
@@ -24,7 +24,7 @@ export function appConversation(app: ProjectApp, subscription: AppSubscription) 
           : undefined,
       }
     }
-    case 'discord': {
+    case 'discord_thread': {
       const address = discordAddress.safeParse(subscription.conversation)
       if (!address.success) break
       const { channel_id, thread_id } = address.data
@@ -33,7 +33,7 @@ export function appConversation(app: ProjectApp, subscription: AppSubscription) 
         label: `Channel ${channel_id}${thread_id ? ` · Thread ${thread_id}` : ''}`,
       }
     }
-    case 'github': {
+    case 'github_pr': {
       const address = githubAddress.safeParse(subscription.conversation)
       if (!address.success) break
       // The API supplies a repository ID, not the owner/name needed for a PR URL.

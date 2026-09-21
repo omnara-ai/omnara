@@ -79,7 +79,7 @@ func (e Executor) resolveAppToolScope(
 	if !valid || app.Name != name || app.State != integrationstore.ProjectAppStateActive || app.OrgID != turn.OrgID {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
 	}
-	metadata := map[string]agentconfig.AppResolution{pinned.AppID: {AppID: pinned.AppID, Definition: app.DefinitionID}}
+	metadata := map[string]agentconfig.AppResolution{pinned.AppID: {AppID: pinned.AppID, AppType: app.AppType}}
 	authority, err := agentconfig.ResolveAppToolAuthority(original, current, tool.Name, metadata)
 	if err != nil {
 		return appToolAccess{}, appToolPreparationFailure(fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err))
@@ -159,7 +159,7 @@ func (e Executor) recheckAppToolAccess(
 			return err
 		}
 		ref := access.Authority.Tool.AppID
-		metadata := map[string]agentconfig.AppResolution{ref: {AppID: ref, Definition: access.App.DefinitionID}}
+		metadata := map[string]agentconfig.AppResolution{ref: {AppID: ref, AppType: access.App.AppType}}
 		if _, err := agentconfig.ResolveAppToolAuthority(access.OriginalContract, current, tool.Name, metadata); err != nil {
 			return fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
 		}

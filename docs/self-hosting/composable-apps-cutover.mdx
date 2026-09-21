@@ -22,6 +22,7 @@ fixture tests establish neither production readiness nor a fixed completion time
   Live installations receive deterministic names (`slack`, `slack-2`, …) before
   tombstones. Deleted installations become disconnected. Launcher settings retain
   the installed profile and workspace.
+  Migrated Slack apps use `app_type: slack_thread`.
 - History, attribution targets and provider messages survive. Go41 replaces the
   old global send policy with qualified app tools and replaces
   `set_integration_target` with `set_interaction_handler`. Message text is unchanged.
@@ -41,6 +42,9 @@ The project `/integration-installs` API is replaced by `/apps`; public app IDs
 use `app_` rather than `iin_`. Internal IDs and audit references are preserved.
 Upgrade clients and generated SDKs with the cluster release. There is no separate
 connection API. Apps own credentials, setup and optional launcher settings.
+App records and save requests identify behavior with `app_type`: `slack_thread`,
+`discord_thread` or `github_pr`. The app-definition catalog returns `app_type` and
+`capabilities`. Neither app records nor catalog entries expose a provider classification.
 
 Publish and install the matching generated SDK before running the updated
 standalone examples or switching API clients. The npm SDK releases through
@@ -52,7 +56,8 @@ for the package in their Node runtime.
 New configs select `app__<name>__<operation>` under `tools`, retaining enabled state,
 deferred loading and permissions. `interaction_handlers` maps app names to `{}`.
 Catalog tools and handlers expose static `input_schema`. Captured interaction
-destinations contain complete `args`. See the [OpenAPI contract](/api-reference/openapi.yaml).
+destinations contain the captured `app_type` and complete `args`. See the
+[OpenAPI contract](/api-reference/openapi.yaml).
 
 Hosted and scheduled launches establish one immutable sending context per app and
 agent. Tools may omit destination fields in that context. Slack channel/DM and
@@ -78,8 +83,9 @@ webhook URL change is required. New setup requests use app-scoped
 `/apps/{appID}/oauth/setup` or `/apps/{appID}/slack-setup`. Finish or restart
 in-flight setup through the new app page after cutover.
 
-Actor responses add `github` and `discord`; secrets add `github_app_credentials`.
-Update clients that validate those response enums before enabling new providers.
+App actors use `provider: app`; legacy Slack actor attribution is preserved.
+The released `Agent.integration_target.provider` remains transport-valued
+(`slack`, `discord` or `github`). Secrets add `github_app_credentials`.
 Cron trigger responses can now include an `app_launch` target. Update clients
 that validate or switch on cron target types before creating app schedules.
 

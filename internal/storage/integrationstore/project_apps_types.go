@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
@@ -33,7 +34,7 @@ type ProjectAppRecord struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	InstalledByUserID        uuid.UUID
-	Provider                 string
+	Provider                 string // Derived transport metadata; never persisted as app classification.
 	State                    ProjectAppState
 	ProviderTenantID         string
 	ProviderAccountRef       string
@@ -47,18 +48,18 @@ type ProjectAppRecord struct {
 	DeletedAt                *time.Time
 	ProjectID                uuid.UUID
 	Name                     string
-	DefinitionID             string
+	AppType                  appdefinition.Type
 	Settings                 ProjectAppSettings
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 }
 
 type SaveProjectAppInput struct {
-	OrgID        uuid.UUID
-	ProjectID    uuid.UUID
-	Name         string
-	DefinitionID string
-	Settings     ProjectAppSettings
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+	AppType   appdefinition.Type
+	Settings  ProjectAppSettings
 }
 
 type ListProjectAppsInput struct {

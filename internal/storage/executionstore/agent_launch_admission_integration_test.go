@@ -193,10 +193,10 @@ func newInboxLaunchFixture(
 		slots:                map[string]executionstore.InboxLaunchSlot{},
 	}
 	setup := integrationstore.SaveProjectAppInput{
-		OrgID:        testOrgID,
-		ProjectID:    testProjectID,
-		Name:         f.app.Name,
-		DefinitionID: appdefinition.Slack,
+		OrgID:     testOrgID,
+		ProjectID: testProjectID,
+		Name:      f.app.Name,
+		AppType:   appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123"},
 		},
@@ -539,11 +539,11 @@ func TestInboxLaunchRetainsFrozenMembershipAcrossAppEdit(t *testing.T) {
 			f.ctx,
 			f.app.ID,
 			integrationstore.SaveProjectAppInput{
-				OrgID:        testOrgID,
-				ProjectID:    testProjectID,
-				Name:         f.app.Name,
-				DefinitionID: f.app.DefinitionID,
-				Settings:     settings,
+				OrgID:     testOrgID,
+				ProjectID: testProjectID,
+				Name:      f.app.Name,
+				AppType:   f.app.AppType,
+				Settings:  settings,
 			},
 		)
 	require.NoError(t, err)

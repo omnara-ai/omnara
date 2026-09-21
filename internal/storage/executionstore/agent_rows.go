@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -122,7 +123,7 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
-		Provider:         row.IntegrationTargetProvider,
+		Provider:         appdefinition.ProviderForType(appdefinition.Type(row.IntegrationTargetAppType)),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
 		ProviderRef:      row.IntegrationTargetProviderRef,
 		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
@@ -154,7 +155,7 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
-		Provider:         row.IntegrationTargetProvider,
+		Provider:         appdefinition.ProviderForType(appdefinition.Type(row.IntegrationTargetAppType)),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
 		ProviderRef:      row.IntegrationTargetProviderRef,
 		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
@@ -188,7 +189,7 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
-		Provider:         row.IntegrationTargetProvider,
+		Provider:         appdefinition.ProviderForType(appdefinition.Type(row.IntegrationTargetAppType)),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
 		ProviderRef:      row.IntegrationTargetProviderRef,
 		ProviderRefKind:  row.IntegrationTargetProviderRefKind,

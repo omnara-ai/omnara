@@ -346,11 +346,12 @@ func TestWebE2EVerifiedAppSetupFixture(t *testing.T) {
 		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindOrganization, project.orgID)),
 		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)),
 		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindUser, project.adminUserID)))
-	for _, provider := range []string{"github", "discord"} {
+	for _, test := range []struct{ provider, appType string }{{"github", "github_pr"}, {"discord", "discord_thread"}} {
+		provider := test.provider
 		app := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/apps", map[string]any{
-			"name":          "browser-" + provider,
-			"definition_id": "omnara." + provider,
-			"settings":      map[string]any{},
+			"name":     "browser-" + provider,
+			"app_type": test.appType,
+			"settings": map[string]any{},
 		}, "", project.adminToken, http.StatusCreated)
 		appID := testutil.RequireType[string](t, app["id"])
 		material := map[string]any{"kind": "generic", "value": "local-discord-token"}
@@ -415,7 +416,7 @@ func TestWebE2EVerifiedAppSetupFixture(t *testing.T) {
 			http.StatusOK,
 		)
 		require.Equal(t, "active", configured["state"])
-		require.Equal(t, provider, configured["provider"])
+		require.Equal(t, test.appType, configured["app_type"])
 		require.Equal(t, secret["id"], configured["credential_secret_id"])
 		require.Equal(t, float64(2), configured["setup_revision"])
 		if provider == "discord" {

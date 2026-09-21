@@ -44,7 +44,7 @@ export const appCommandGroups: CommandGroup[] = [
         fn: sdk.listProjectApps,
         path: schemas.zListProjectAppsPath,
         query: schemas.zListProjectAppsQuery,
-        format: formatTable(['id', 'name', 'definition_id', 'state']),
+        format: formatTable(['id', 'name', 'app_type', 'state']),
       }),
       op({
         verb: 'get',

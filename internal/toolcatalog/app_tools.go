@@ -33,8 +33,8 @@ type AppToolDefinition struct {
 // Prepare copies operation properties into a fresh static destination schema.
 var appToolDefinitions = buildAppToolDefinitions()
 
-func LookupAppTool(definition, operation string) (AppToolDefinition, bool) {
-	app, ok := appdefinition.Lookup(definition)
+func LookupAppTool(appType appdefinition.Type, operation string) (AppToolDefinition, bool) {
+	app, ok := appdefinition.Lookup(appType)
 	if !ok || !slices.Contains(app.Tools, operation) {
 		return AppToolDefinition{}, false
 	}

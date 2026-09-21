@@ -82,7 +82,7 @@ func newChoiceJourney(t *testing.T, profileCount int) *choiceJourney {
 		slots = append(slots, integrationstore.AppLaunchSlot{Key: name, AgentProfileID: &profile.ID})
 	}
 	f.app, err = store.Integrations().UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123", Slots: slots,
 		}},
@@ -104,7 +104,9 @@ func (f *choiceJourney) restart() {
 	providers := map[string]AppInboxProvider{"slack": f.provider}
 	router := NewAppRouter(f.store.Execution(), f.store.Integrations())
 	launcher := NewChatAppLauncher(f.store.Integrations(), f.store.Execution(), providers)
-	workflow := NewAppLaunchWorkflow(router, map[string]AppLauncher{appdefinition.Slack: launcher.Decide})
+	workflow := NewAppLaunchWorkflow(router, map[appdefinition.Type]AppLauncher{
+		appdefinition.SlackThread: launcher.Decide,
+	})
 	workflow.OnUnavailable = launcher.NotifyUnavailable
 	f.consumer = NewAppInboxConsumer(router, f.store.Integrations(), &appConsumerUploads{}, providers, nil, workflow)
 }
@@ -116,6 +118,8 @@ func (f *choiceJourney) receive(key string, event AppEvent) []AppSlotAdmission {
 			ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, ReceiptKey: key, Payload: []byte(`{"original":true}`),
 		})
 	require.NoError(f.t, err)
+	// The provider decodes this external sender separately for each owning app.
+	event.Actor = appTestActor(f.t, f.appSetup.ID, event.Actor.ProviderUserID)
 	f.provider.events = []AppEvent{event}
 	receipt := f.claim()
 	results, err := f.consumer.Consume(f.t.Context(), receipt.Lease())
@@ -328,7 +332,7 @@ func TestUnavailableChatSetupDoesNotDropOtherLaunchesOrSubscriptions(t *testing.
 	other := seedIndependentApp(t, f.pool, f.app, "working-setup")
 	unavailable := map[uuid.UUID]bool{f.app.ID: true}
 	router := NewAppRouter(f.store.Execution(), f.store.Integrations())
-	workflow := NewAppLaunchWorkflow(router, map[string]AppLauncher{appdefinition.Slack: func(
+	workflow := NewAppLaunchWorkflow(router, map[appdefinition.Type]AppLauncher{appdefinition.SlackThread: func(
 		ctx context.Context, input AppLaunchContext,
 	) ([]AppLaunchIntent, error) {
 		if unavailable[input.App.ID] {
@@ -409,7 +413,7 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	settings := f.app.Settings
 	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
 	_, err := f.store.Integrations().UpdateProjectApp(t.Context(), f.app.ID, integrationstore.SaveProjectAppInput{
-		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, DefinitionID: f.app.DefinitionID,
+		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, AppType: f.app.AppType,
 		Name: f.app.Name, Settings: settings,
 	})
 	require.NoError(t, err)
@@ -565,7 +569,7 @@ func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 	settings := f.app.Settings
 	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
 	_, err := f.store.Integrations().UpdateProjectApp(ctx, f.app.ID, integrationstore.SaveProjectAppInput{
-		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, DefinitionID: f.app.DefinitionID,
+		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, AppType: f.app.AppType,
 		Name: f.app.Name, Settings: settings,
 	})
 	require.NoError(t, err)
@@ -597,7 +601,7 @@ func TestChatProfileChoiceRetryCannotUseAnotherProfilesSettledAgent(t *testing.T
 		settings := f.app.Settings
 		settings.Launcher.Slots[1].AgentProfileID = &id
 		_, err := f.store.Integrations().UpdateProjectApp(ctx, f.app.ID, integrationstore.SaveProjectAppInput{
-			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, DefinitionID: f.app.DefinitionID,
+			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, AppType: f.app.AppType,
 			Name: f.app.Name, Settings: settings,
 		})
 		require.NoError(t, err)

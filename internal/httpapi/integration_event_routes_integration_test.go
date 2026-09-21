@@ -3893,7 +3893,7 @@ func createSlackHTTPInstall(
 	)
 	app, err := project.Store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID,
-		Name: "slack-" + uuid.NewString()[:8], DefinitionID: appdefinition.Slack,
+		Name: "slack-" + uuid.NewString()[:8], AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "workspace", ScopeRef: workspaceID,
 			Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
@@ -4314,8 +4314,8 @@ func slackJourneyWorker(project publicHTTPProject, config slack.OAuthConfig) *in
 	)
 	providers := map[string]integration.AppInboxProvider{"slack": provider}
 	chatLauncher := integration.NewChatAppLauncher(project.Store.Integrations(), project.Store.Execution(), providers)
-	launchers := integration.NewAppLaunchWorkflow(router, map[string]integration.AppLauncher{
-		appdefinition.Slack: chatLauncher.Decide,
+	launchers := integration.NewAppLaunchWorkflow(router, map[appdefinition.Type]integration.AppLauncher{
+		appdefinition.SlackThread: chatLauncher.Decide,
 	})
 	launchers.OnUnavailable = chatLauncher.NotifyUnavailable
 	consumer := integration.NewAppInboxConsumer(

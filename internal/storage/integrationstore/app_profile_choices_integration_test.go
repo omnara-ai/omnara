@@ -43,7 +43,7 @@ func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 		})
 	require.NoError(t, err)
 	app, err := base.store.UpdateProjectApp(base.ctx, base.appID, integrationstore.SaveProjectAppInput{
-		OrgID: base.org, ProjectID: base.project, Name: "inbox-app", DefinitionID: appdefinition.Slack,
+		OrgID: base.org, ProjectID: base.project, Name: "inbox-app", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{
@@ -314,7 +314,7 @@ func TestAppProfileChoiceSettingsEditPreservesAuthenticatedSetup(t *testing.T) {
 	settings := f.app.Settings
 	settings.Launcher.Slots = settings.Launcher.Slots[:1]
 	updated, err := f.store.UpdateProjectApp(f.ctx, f.app.ID, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, AppType: f.app.AppType,
 		Settings: settings,
 	})
 	require.NoError(t, err)

@@ -236,7 +236,7 @@ func agentInteractionResponseFromRecord(
 			return openapi.AgentInteraction{}, err
 		}
 		response.Destination = &openapi.AgentInteractionDestination{
-			HandlerDefinition:   destination.HandlerDefinition,
+			AppType:             openapi.AppType(destination.AppType),
 			Args:                args,
 			HandlerKey:          destination.HandlerKey,
 			AppId:               appID,

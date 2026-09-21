@@ -33,7 +33,7 @@ func freezeRecoverySelection(
 	f.exec(t, `UPDATE project_apps SET provider_tenant_id='T123' WHERE id=$1`, f.appID)
 	store := integrationstore.New(f.pool, executionstore.AppAccess{})
 	app, err := store.UpdateProjectApp(f.ctx, f.appID, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "inbox-app", DefinitionID: appdefinition.Slack,
+		OrgID: f.org, ProjectID: f.project, Name: "inbox-app", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "a", AgentProfileID: &profileID}}},

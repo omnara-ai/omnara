@@ -73,7 +73,7 @@ export function ProjectAppSetup({
         <fieldset disabled={busy} className="flex flex-col gap-5">
           <Field>
             <FieldLabel htmlFor="provider-tenant">
-              {app.provider === 'github' ? 'GitHub App ID' : 'Discord Application ID'}
+              {app.app_type === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID'}
             </FieldLabel>
             <Input
               id="provider-tenant"
@@ -86,7 +86,7 @@ export function ProjectAppSetup({
           </Field>
           <Field>
             <FieldLabel htmlFor="provider-account">
-              {app.provider === 'github' ? 'Installation ID' : 'Bot User ID'}
+              {app.app_type === 'github_pr' ? 'Installation ID' : 'Bot User ID'}
             </FieldLabel>
             <Input
               id="provider-account"
@@ -122,7 +122,7 @@ export function ProjectAppSetup({
               setNewCredential(false)
             }}
           />
-          {app.provider === 'discord' && (
+          {app.app_type === 'discord_thread' && (
             <>
               <Field>
                 <FieldLabel htmlFor="discord-public-key">Interaction public key</FieldLabel>

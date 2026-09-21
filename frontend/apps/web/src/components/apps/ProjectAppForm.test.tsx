@@ -61,15 +61,15 @@ async function submit() {
   })
 }
 
-it.each(['slack', 'github', 'discord'] as const)(
+it.each(['slack_thread', 'github_pr', 'discord_thread'] as const)(
   'creates a disconnected %s app before setup',
-  async (provider) => {
+  async (appType) => {
     const api = fakeApi([
       {
         method: 'POST',
         path: path + '/apps',
         respond: ({ body }) =>
-          Response.json(projectApp({ provider, ...schemas.zSaveProjectAppRequest.parse(body) }), {
+          Response.json(projectApp(schemas.zSaveProjectAppRequest.parse(body)), {
             status: 201,
           }),
       },
@@ -77,7 +77,7 @@ it.each(['slack', 'github', 'discord'] as const)(
     const onSaved = vi.fn()
     render(
       api,
-      <ProjectAppForm orgId={orgId} projectId={projectId} provider={provider} onSaved={onSaved} />,
+      <ProjectAppForm orgId={orgId} projectId={projectId} appType={appType} onSaved={onSaved} />,
     )
     await enter('App name', 'engineering-2')
     await submit()
@@ -89,7 +89,7 @@ it.each(['slack', 'github', 'discord'] as const)(
     expect(api.requests).toHaveLength(1)
     expect(api.requests[0]?.body).toEqual({
       name: 'engineering-2',
-      definition_id: `omnara.${provider}`,
+      app_type: appType,
       settings: {},
     })
   },
@@ -112,7 +112,7 @@ it('validates immutable names before any request and retries duplicate-name erro
   const onSaved = vi.fn()
   render(
     api,
-    <ProjectAppForm orgId={orgId} projectId={projectId} provider="slack" onSaved={onSaved} />,
+    <ProjectAppForm orgId={orgId} projectId={projectId} appType="slack_thread" onSaved={onSaved} />,
   )
   await enter('App name', 'with space')
   await submit()
@@ -130,10 +130,10 @@ it('validates immutable names before any request and retries duplicate-name erro
   })
 })
 
-it.each(['github', 'discord'] as const)(
+it.each(['github_pr', 'discord_thread'] as const)(
   'retries %s verification using the already-saved credential',
-  async (provider) => {
-    const app = projectApp({ provider })
+  async (appType) => {
+    const app = projectApp({ app_type: appType })
     let attempts = 0
     const api = fakeApi([
       {
@@ -146,7 +146,7 @@ it.each(['github', 'discord'] as const)(
               org_id: orgId,
               name: 'Credentials',
               owner: { kind: 'project', project_id: projectId },
-              kind: provider === 'github' ? 'github_app_credentials' : 'generic',
+              kind: appType === 'github_pr' ? 'github_app_credentials' : 'generic',
               management_kind: 'tenant',
               metadata: {},
               current_version_number: 1,
@@ -180,9 +180,9 @@ it.each(['github', 'discord'] as const)(
         onCancel={vi.fn()}
       />,
     )
-    await enter(provider === 'github' ? 'GitHub App ID' : 'Discord Application ID', '111')
-    await enter(provider === 'github' ? 'Installation ID' : 'Bot User ID', '222')
-    if (provider === 'github') {
+    await enter(appType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', '111')
+    await enter(appType === 'github_pr' ? 'Installation ID' : 'Bot User ID', '222')
+    if (appType === 'github_pr') {
       await enter('RSA private key (PEM)', 'test-key')
       await enter('Webhook secret', 'signature')
     } else {
@@ -212,10 +212,10 @@ it.each(['github', 'discord'] as const)(
 )
 
 it('keeps app names read-only and blocks a stale edit until explicitly reloaded', async () => {
-  const app = projectApp({ provider: 'github' })
+  const app = projectApp({ app_type: 'github_pr' })
   const next = { ...app, updated_at: '2026-09-20T00:00:00Z' }
   const api = fakeApi([])
-  const props = { orgId, projectId, provider: 'github' as const, onSaved: vi.fn() }
+  const props = { orgId, projectId, appType: 'github_pr' as const, onSaved: vi.fn() }
   const { rerender } = render(api, <ProjectAppForm {...props} app={app} />)
   expect(container.querySelector<HTMLInputElement>('#app-name')?.readOnly).toBe(true)
   rerender(<ProjectAppForm {...props} app={next} />)
@@ -247,7 +247,7 @@ it('keeps cancellation disabled during creation and ignores completion after unm
     <ProjectAppForm
       orgId={orgId}
       projectId={projectId}
-      provider="slack"
+      appType="slack_thread"
       onSaved={onSaved}
       onCancel={onCancel}
     />,
@@ -384,7 +384,7 @@ it('completes OAuth only for the exact app flow, not a previous active flow', as
 it('keeps the reconnect credential selected when its fallback option is replaced by fetched secrets', async () => {
   const secretID = fakeId('sec')
   const app = projectApp({
-    provider: 'github',
+    app_type: 'github_pr',
     credential_secret_id: secretID,
     provider_tenant_id: '111',
     provider_account_ref: '222',

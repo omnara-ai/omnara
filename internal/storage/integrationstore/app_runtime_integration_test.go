@@ -5,6 +5,7 @@ package integrationstore_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,10 +14,101 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPersistentAppsMergeTypesAndPageByIdentity(t *testing.T) {
+	t.Parallel()
+	f := newInboxFixture(t)
+	var want, discordIDs []uuid.UUID
+	for i := range 9 {
+		id := uuid.MustParse(fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1))
+		appType := appdefinition.DiscordThread
+		if i%2 == 1 {
+			appType = appdefinition.GitHubPR
+		}
+		if i == 8 {
+			appType = appdefinition.SlackThread
+		}
+		f.exec(t, `INSERT INTO project_apps
+ (id,org_id,project_id,name,app_type,state,installed_by_user_id,credential_secret_id,
+  provider_tenant_id,provider_account_ref,created_at,updated_at)
+ SELECT $1,org_id,project_id,$2,$3,'active',installed_by_user_id,credential_secret_id,
+        provider_tenant_id,provider_account_ref,now(),now()
+ FROM project_apps WHERE id=$4`, id, fmt.Sprintf("runtime-%d", i), string(appType), f.appID)
+		switch i {
+		case 3:
+			f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, id)
+		case 5:
+			f.exec(t, `UPDATE project_apps SET deleted_at=now() WHERE id=$1`, id)
+		case 8:
+			// An active app outside the selected types must not leak into a page.
+		default:
+			want = append(want, id)
+			if appType == appdefinition.DiscordThread {
+				discordIDs = append(discordIDs, id)
+			}
+		}
+	}
+	query := dbsqlc.New(f.pool)
+	// Two real types exercise the query's merge without inventing a registry
+	// entry or claiming that they currently share a persistent transport.
+	for _, appTypes := range [][]string{
+		{"discord_thread", "github_pr"},
+		{"github_pr", "discord_thread", "github_pr"},
+	} {
+		for _, limit := range []int32{1, 3, 4} {
+			var after *uuid.UUID
+			var got []uuid.UUID
+			for page := 0; ; page++ {
+				require.Less(t, page, len(want)+1, "cursor must make progress")
+				rows, err := query.ListPersistentApps(f.ctx, dbsqlc.ListPersistentAppsParams{
+					AppTypes: appTypes, AfterID: after, RowLimit: limit,
+				})
+				require.NoError(t, err)
+				require.LessOrEqual(t, len(rows), int(limit), "the merged page respects the global limit")
+				for _, row := range rows {
+					require.Equal(t, f.project, row.ProjectID)
+					got = append(got, row.ID)
+				}
+				if len(rows) == 0 {
+					break
+				}
+				after = &rows[len(rows)-1].ID
+			}
+			require.Equal(t, want, got, "types=%v page size=%d", appTypes, limit)
+		}
+	}
+	for _, appTypes := range [][]string{nil, {}} {
+		rows, err := query.ListPersistentApps(f.ctx, dbsqlc.ListPersistentAppsParams{AppTypes: appTypes, RowLimit: 3})
+		require.NoError(t, err)
+		require.Empty(t, rows, "an empty transport registration cannot discover apps")
+	}
+	var got []uuid.UUID
+	var after uuid.UUID
+	for page := 0; ; page++ {
+		require.Less(t, page, len(discordIDs)+1)
+		rows, err := f.store.ListPersistentApps(f.ctx, after, 2)
+		require.NoError(t, err)
+		for _, row := range rows {
+			got = append(got, row.AppID)
+		}
+		if len(rows) == 0 {
+			break
+		}
+		after = rows[len(rows)-1].AppID
+	}
+	require.Equal(t, discordIDs, got, "the store supplies the persistent transport's registered types")
+	f.exec(t, `UPDATE projects SET deleted_at=now() WHERE id=$1`, f.project)
+	rows, err := query.ListPersistentApps(f.ctx, dbsqlc.ListPersistentAppsParams{
+		AppTypes: []string{"discord_thread", "github_pr"}, RowLimit: 10,
+	})
+	require.NoError(t, err)
+	require.Empty(t, rows, "deleted projects cannot host persistent runtimes")
+}
 
 func newAppRuntimeFixture(
 	t *testing.T,
@@ -37,7 +129,7 @@ func newAppRuntimeFixture(
 	})
 	require.NoError(t, err)
 	app, err := f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "discord", DefinitionID: appdefinition.Discord,
+		OrgID: f.org, ProjectID: f.project, Name: "discord", AppType: appdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
 	app, err = f.store.ConfigureProjectApp(f.ctx, integrationstore.ConfigureProjectAppInput{
@@ -227,7 +319,7 @@ func TestAppRuntimeSettingsPreserveLeaseCheckpointAndBackoff(t *testing.T) {
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1`, f.project).Scan(&profileID),
 	)
 	updated, err := f.store.UpdateProjectApp(f.ctx, app.ID, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: app.Name, DefinitionID: app.DefinitionID,
+		OrgID: f.org, ProjectID: f.project, Name: app.Name, AppType: app.AppType,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "guild", ScopeRef: "789",
 			Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},

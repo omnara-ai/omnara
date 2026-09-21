@@ -77,7 +77,9 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	tenant, account, scopeKind, scopeRef := "100", "200", "guild", "500"
 	config := json.RawMessage(projectAppHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}))
 	identity := json.RawMessage(`{}`)
+	appType := appdefinition.DiscordThread
 	if provider == appdefinition.ProviderSlack {
+		appType = appdefinition.SlackThread
 		material = secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-test", ClientID: "client",
 			ClientSecret: "client-secret", SigningSecret: "signing-secret"}
 		tenant, account, scopeKind, scopeRef = "T123", "A123", "workspace", "T123"
@@ -89,7 +91,7 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	})
 	require.NoError(t, err)
 	app, err := project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
-		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", DefinitionID: "omnara." + provider,
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
 	})
 	require.NoError(t, err)
 	app, err = project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
@@ -118,7 +120,7 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 		f.options = append(f.options, integrationstore.AppProfileChoiceOption{Key: key, ProfileID: profile.ID, Name: name})
 	}
 	f.app, err = project.Store.Integrations().UpdateProjectApp(t.Context(), app.ID, integrationstore.SaveProjectAppInput{
-		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", DefinitionID: "omnara." + provider,
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: scopeKind, ScopeRef: scopeRef, Slots: slots},
 		},
@@ -419,7 +421,7 @@ func TestAppProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 				_, err := f.project.Store.Integrations().UpdateProjectApp(t.Context(), f.app.ID,
 					integrationstore.SaveProjectAppInput{
 						OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
-						Name: f.app.Name, DefinitionID: f.app.DefinitionID, Settings: settings,
+						Name: f.app.Name, AppType: f.app.AppType, Settings: settings,
 					})
 				require.NoError(t, err)
 			} else {
@@ -462,7 +464,7 @@ func TestAppProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *testing.T) {
 			})
 			require.NoError(t, err)
 			app, err := f.project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
-				OrgID: other.OrgUUID, ProjectID: other.ProjectUUID, Name: "sibling", DefinitionID: f.app.DefinitionID,
+				OrgID: other.OrgUUID, ProjectID: other.ProjectUUID, Name: "sibling", AppType: f.app.AppType,
 			})
 			require.NoError(t, err)
 			app, err = f.project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
@@ -502,7 +504,7 @@ func TestAppProfileChoiceMetadataEditPreservesCallbackAuthority(t *testing.T) {
 			updated, err := f.project.Store.Integrations().
 				UpdateProjectApp(t.Context(), f.app.ID, integrationstore.SaveProjectAppInput{
 					OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: f.app.Name,
-					DefinitionID: f.app.DefinitionID, Settings: settings,
+					AppType: f.app.AppType, Settings: settings,
 				})
 			require.NoError(t, err)
 			require.Equal(t, f.app.SetupRevision, updated.SetupRevision)

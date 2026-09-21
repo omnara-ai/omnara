@@ -15,7 +15,20 @@ can use the ordinary [inputs, custom tools and interaction APIs](/integrations/c
 Open **Apps** under your project, choose **Add app**, and select an app type. Give
 it a unique name, save it, and complete the provider setup. The name follows the
 same rules as an MCP server name: a letter followed by letters, digits or hyphens,
-up to 32 characters. Names cannot be changed after creation.
+up to 32 characters. Names and app types cannot be changed after creation.
+
+The app type identifies its behavior: `slack_thread`, `discord_thread` or
+`github_pr`. Create and update requests use `app_type`, for example:
+
+```json
+{"name":"engineering","app_type":"slack_thread","settings":{}}
+```
+
+`GET /orgs/{orgID}/projects/{projectID}/app-definitions` lists each registered
+`app_type` and its `capabilities`. Saved apps also expose `app_type`; neither
+record includes a provider classification. Code contributors register a precise
+behavior type without an `omnara.` prefix, following the
+[app implementation guide](https://github.com/omnara-ai/omnara/blob/main/internal/integration/CONTRIBUTING.md).
 
 A saved app starts disconnected. Connecting verifies its provider identity and
 saves a reference to encrypted credentials. Add profiles and a launcher when
@@ -82,8 +95,8 @@ checks project ownership, current app status and ordinary
 [tool permission](/tools/permissions). The
 [OpenAPI contract](/api-reference/openapi.yaml) defines the catalog and launch API.
 
-Names are resolved to immutable app IDs when the config is compiled. Deleting an
-app and reusing its name does not redirect old agents. Re-save profiles that should
+Names are resolved to immutable app IDs, not app types, when the config is
+compiled. Deleting an app and reusing its name does not redirect old agents. Re-save profiles that should
 use the replacement app before their launchers run; old pinned references are not
 automatically rebound. Credentials are loaded
 live, so rotation does not require rewriting configs. A pending tool call cannot

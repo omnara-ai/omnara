@@ -41,9 +41,9 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Message: "Accepted user input survives",
 	})
 	require.NoError(t, err)
-	live := createMaintenanceInboxApp(t, store, ids, "live", appdefinition.GitHub).ID
-	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected", appdefinition.GitHub).ID
-	deleted := createMaintenanceInboxApp(t, store, ids, "deleted", appdefinition.GitHub).ID
+	live := createMaintenanceInboxApp(t, store, ids, "live", appdefinition.GitHubPR).ID
+	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected", appdefinition.GitHubPR).ID
+	deleted := createMaintenanceInboxApp(t, store, ids, "deleted", appdefinition.GitHubPR).ID
 	applied, err := store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
 		ProjectID: ids.ProjectID, AppID: disconnected,
 	})
@@ -143,7 +143,7 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
 	store := newMaintenanceInboxStore(t, pool, ids)
-	app := createMaintenanceInboxApp(t, store, ids, "retention-timeout", appdefinition.GitHub).ID
+	app := createMaintenanceInboxApp(t, store, ids, "retention-timeout", appdefinition.GitHubPR).ID
 	_, err := pool.Exec(ctx, `INSERT INTO integration_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'

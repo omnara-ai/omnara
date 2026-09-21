@@ -511,8 +511,8 @@ func deriveAppLaunch(
 	if base.ProjectID != app.ProjectID || app.State != integrationstore.ProjectAppStateActive {
 		return fail(storeerr.ErrUnauthorized)
 	}
-	definition, found := appdefinition.Lookup(app.DefinitionID)
-	if !found || definition.Provider != app.Provider {
+	definition, found := appdefinition.Lookup(app.AppType)
+	if !found {
 		return fail(fmt.Errorf("invalid launcher app definition"))
 	}
 	if err := scope.Validate(app.Provider); err != nil {
@@ -523,7 +523,7 @@ func deriveAppLaunch(
 		return fail(err)
 	}
 	subscriptionType := "thread_messages"
-	if app.DefinitionID == appdefinition.GitHub {
+	if app.AppType == appdefinition.GitHubPR {
 		subscriptionType = "pull_request"
 	}
 	subscription, exists := definition.Subscriptions[subscriptionType]
@@ -543,7 +543,7 @@ func deriveAppLaunch(
 			if name != app.Name {
 				return agentconfig.AppResolution{}, storeerr.ErrUnauthorized
 			}
-			return agentconfig.AppResolution{AppID: instance, Definition: app.DefinitionID}, nil
+			return agentconfig.AppResolution{AppID: instance, AppType: app.AppType}, nil
 		},
 	})
 	if err != nil {

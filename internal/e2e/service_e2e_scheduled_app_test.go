@@ -231,7 +231,7 @@ tools:
 			// The first occurrence needs no mention launcher. Enable one before the
 			// second occurrence to prove the two launch paths coexist on this app.
 			env.requestJSON(t, ctx, http.MethodPut, project.projectPath+"/apps/"+appID, map[string]any{
-				"name": "chat", "definition_id": appdefinition.Slack,
+				"name": "chat", "app_type": appdefinition.SlackThread,
 				"settings": map[string]any{"launcher": map[string]any{
 					"trigger": "mention", "scope_kind": "workspace", "scope_ref": "T123",
 					"slots": []any{map[string]any{"key": "default", "agent_profile_id": profile["id"]}},

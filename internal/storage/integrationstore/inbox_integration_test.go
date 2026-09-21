@@ -57,9 +57,9 @@ func newInboxFixture(t *testing.T) inboxFixture {
 	require.NoError(t, err)
 	appID := uuid.New()
 	_, err = pool.Exec(ctx, `INSERT INTO project_apps
- (id,org_id,project_id,installed_by_user_id,provider,state,
-  provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at)
- VALUES($1,$2,$3,$4,'slack','active','T123','inbox-app','inbox-app','omnara.slack',$5,now(),now())`,
+ (id,org_id,project_id,installed_by_user_id,state,
+  provider_tenant_id,provider_account_ref,name,app_type,credential_secret_id,created_at,updated_at)
+ VALUES($1,$2,$3,$4,'active','T123','inbox-app','inbox-app','slack_thread',$5,now(),now())`,
 		appID, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID, ids.ProviderSecretID)
 	require.NoError(t, err)
 	return inboxFixture{
@@ -90,10 +90,10 @@ func (f inboxFixture) addApp(
 	require.NoError(t, err)
 	id := uuid.New()
 	f.exec(t, `INSERT INTO project_apps
- (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,
-  credential_secret_id,name,definition_id,settings,created_at,updated_at)
- SELECT $1,org_id,project_id,installed_by_user_id,provider,'active',provider_tenant_id,provider_account_ref,
-        credential_secret_id,$2,definition_id,$3,now(),now() FROM project_apps WHERE id=$4`,
+ (id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
+  credential_secret_id,name,app_type,settings,created_at,updated_at)
+ SELECT $1,org_id,project_id,installed_by_user_id,'active',provider_tenant_id,provider_account_ref,
+        credential_secret_id,$2,app_type,$3,now(),now() FROM project_apps WHERE id=$4`,
 		id, name, raw, f.appID)
 	app, err := f.store.GetProjectApp(f.ctx, f.project, id)
 	require.NoError(t, err)

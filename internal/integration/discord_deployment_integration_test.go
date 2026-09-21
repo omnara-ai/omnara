@@ -163,7 +163,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	f.version = version.ID
 	app, err := f.store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
 		OrgID: f.appSetup.OrgID, ProjectID: f.appSetup.ProjectID,
-		Name: "deployment", DefinitionID: f.appSetup.DefinitionID,
+		Name: "deployment", AppType: f.appSetup.AppType,
 	})
 	require.NoError(t, err)
 	f.appSetup, err = f.store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
@@ -191,7 +191,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	require.NoError(t, err)
 	f.appSetup, err = f.store.Integrations().UpdateProjectApp(ctx, f.appSetup.ID, integrationstore.SaveProjectAppInput{
 		OrgID: f.appSetup.OrgID, ProjectID: f.appSetup.ProjectID, Name: f.appSetup.Name,
-		DefinitionID: f.appSetup.DefinitionID,
+		AppType: f.appSetup.AppType,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "guild", ScopeRef: "100",
 			Slots: []integrationstore.AppLaunchSlot{{Key: "helper", AgentProfileID: &profile.ID}},

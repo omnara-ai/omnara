@@ -74,8 +74,7 @@ func (s *Store) SelectInteractionDestinationForOriginTx(
 	matches := 0
 	for key, handler := range handlers {
 		if target.AppState != string(integrationstore.ProjectAppStateActive) ||
-			handler.appID != target.AppID ||
-			handler.definition.Provider != target.Provider {
+			handler.appID != target.AppID {
 			continue
 		}
 		args, ok := interactionArgsForOrigin(
@@ -350,8 +349,8 @@ func SetInteractionHandlerForToolCall(
 			// acquire another app gate if activation replaced the handler's app ID.
 			apps := map[string]agentconfig.AppResolution{
 				handler.prepared.AppID: {
-					AppID:      handler.prepared.AppID,
-					Definition: handler.definition.ID,
+					AppID:   handler.prepared.AppID,
+					AppType: handler.definition.AppType,
 				},
 			}
 			_, err := agentconfig.ResolveInteractionHandlerAuthority(
@@ -490,8 +489,8 @@ func prepareInteractionHandlers(
 		if app.State != string(integrationstore.ProjectAppStateActive) {
 			continue
 		}
-		definition, ok := appdefinition.Lookup(app.DefinitionID)
-		if !ok || definition.Provider != app.Provider || definition.InteractionHandler == nil {
+		definition, ok := appdefinition.Lookup(appdefinition.Type(app.AppType))
+		if !ok || definition.InteractionHandler == nil {
 			continue
 		}
 		prepared, err := definition.InteractionHandler.Prepare()
@@ -562,14 +561,13 @@ func selectedInteractionDestination(
 		return nil, err
 	}
 	if target.AppID != handler.appID ||
-		target.AppState != string(integrationstore.ProjectAppStateActive) ||
-		target.Provider != handler.definition.Provider {
+		target.AppState != string(integrationstore.ProjectAppStateActive) {
 		return nil, nil //nolint:nilnil // Revoked app.
 	}
 	destination := &InteractionDestination{
 		HandlerKey:          selection.HandlerKey,
 		AppID:               handler.appID,
-		HandlerDefinition:   handler.definition.ID,
+		AppType:             handler.definition.AppType,
 		Args:                selection.Args,
 		IntegrationTargetID: target.ID,
 		Address: integrationstore.ConversationAddress{
@@ -614,9 +612,9 @@ func captureInteractionDestinationTx(
 
 type ResolveAgentInteractionFromHandlerInput struct {
 	ResolveAgentInteractionInput
-	AppID             uuid.UUID
-	HandlerDefinition string
-	Address           integrationstore.ConversationAddress
+	AppID   uuid.UUID
+	AppType appdefinition.Type
+	Address integrationstore.ConversationAddress
 	// The verified app revision is fenced with the actual resolution.
 	SourceSetupRevision int64
 }
@@ -687,7 +685,7 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 		}
 	}
 	if destination.AppID != input.AppID ||
-		destination.HandlerDefinition != input.HandlerDefinition ||
+		destination.AppType != input.AppType ||
 		destination.Address != input.Address ||
 		(input.IntegrationTargetID != uuid.Nil && input.IntegrationTargetID != destination.IntegrationTargetID) {
 		return AgentInteractionRecord{}, storeerr.ErrUnauthorized

@@ -60,7 +60,7 @@ func githubHTTPJourneyApp(
 	t *testing.T, handler http.Handler, project publicHTTPProject, secretID, installationID string,
 ) integrationstore.ProjectAppRecord {
 	t.Helper()
-	app := createSetupHTTPApp(t, handler, project, "github-"+installationID, appdefinition.GitHub)
+	app := createSetupHTTPApp(t, handler, project, "github-"+installationID, appdefinition.GitHubPR)
 	body := appSetupHTTPBody("123", installationID)
 	body["credential_secret_id"] = secretID
 	body["expected_setup_revision"] = app.SetupRevision
@@ -110,8 +110,8 @@ func (f githubHTTPJourney) consume(t *testing.T, raw string) []integration.AppSl
 		router, inbox, nil,
 		map[string]integration.AppInboxProvider{"github": integration.GitHubAppInboxProvider{}},
 		nil,
-		integration.NewAppLaunchWorkflow(router, map[string]integration.AppLauncher{
-			appdefinition.GitHub: integration.EverySlotAppLauncher,
+		integration.NewAppLaunchWorkflow(router, map[appdefinition.Type]integration.AppLauncher{
+			appdefinition.GitHubPR: integration.EverySlotAppLauncher,
 		}),
 	)
 	results, err := consumer.Consume(t.Context(), receipt.Lease())
@@ -169,7 +169,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "review-profile", "Review",
 				testutil.RequireType[string](t, config["id"]), f.project.AdminToken, http.StatusCreated)
 			app := map[string]any{
-				"name": f.app.Name, "definition_id": appdefinition.GitHub,
+				"name": f.app.Name, "app_type": appdefinition.GitHubPR,
 				"settings": map[string]any{"launcher": map[string]any{
 					"trigger": trigger, "scope_kind": "repository", "scope_ref": "1001",
 					"slots": []any{map[string]any{"key": "reviewer", "agent_profile_id": profile["id"]}},
@@ -344,7 +344,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	otherSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "other-app-credential", material)
 	otherBody := appSetupHTTPBody("124", "459")
 	otherBody["credential_secret_id"] = otherSecret
-	otherApp := createSetupHTTPApp(t, f.handler, f.project, "other-github", appdefinition.GitHub)
+	otherApp := createSetupHTTPApp(t, f.handler, f.project, "other-github", appdefinition.GitHubPR)
 	otherBody["expected_setup_revision"] = otherApp.SetupRevision
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, otherApp),
 		projectAppHTTPJSON(t, otherBody), "", http.StatusOK, authHeaders(f.project.AdminToken))

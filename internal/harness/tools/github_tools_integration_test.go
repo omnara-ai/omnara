@@ -45,7 +45,7 @@ func createGitHubToolApp(
 	})
 	require.NoError(t, err)
 	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", DefinitionID: appdefinition.GitHub,
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", AppType: appdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
 	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{

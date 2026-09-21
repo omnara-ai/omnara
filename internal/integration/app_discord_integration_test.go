@@ -56,10 +56,10 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 					UpdateProjectApp(
 						ctx, appID,
 						integrationstore.SaveProjectAppInput{
-							OrgID:        ids.OrgID,
-							ProjectID:    ids.ProjectID,
-							Name:         "chat",
-							DefinitionID: appdefinition.Discord,
+							OrgID:     ids.OrgID,
+							ProjectID: ids.ProjectID,
+							Name:      "chat",
+							AppType:   appdefinition.DiscordThread,
 							Settings: integrationstore.ProjectAppSettings{
 								Launcher: &integrationstore.AppLauncher{
 									Trigger:   "mention",

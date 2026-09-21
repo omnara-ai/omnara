@@ -1,4 +1,4 @@
-import { type ProjectApp, schemas, zJsonText } from '@omnara/sdk'
+import { type AppType, type ProjectApp, schemas, zJsonText } from '@omnara/sdk'
 import { expect, type Page } from '@playwright/test'
 import { z } from 'zod'
 
@@ -15,7 +15,7 @@ export async function mockSlackSetupReturn(
   await page.route(`**${projectPath}/apps/${draft.id}`, async (route) => {
     if (route.request().method() === 'PUT') {
       const metadata = schemas.zSaveProjectAppRequest.parse(route.request().postDataJSON())
-      if (metadata.name !== app.name || metadata.definition_id !== app.definition_id)
+      if (metadata.name !== app.name || metadata.app_type !== app.app_type)
         throw new Error('The browser fixture cannot change app identity')
       app = { ...app, ...metadata, updated_at: new Date().toISOString() }
     } else if (route.request().method() !== 'GET') return route.continue()
@@ -87,14 +87,20 @@ export function installAppFailureTracking(page: Page) {
 export async function createAppDraft(
   page: Page,
   projectID: string,
-  provider: 'github' | 'discord' | 'slack',
+  appType: AppType,
   name: string,
 ) {
-  const label = provider === 'github' ? 'GitHub' : provider === 'discord' ? 'Discord' : 'Slack'
+  const label =
+    appType === 'github_pr'
+      ? 'GitHub PR review'
+      : appType === 'discord_thread'
+        ? 'Discord threads'
+        : 'Slack threads'
   const appsPath = `/projects/${projectID}/apps`
   if (new URL(page.url()).pathname !== appsPath) await page.goto(appsPath)
   await page.getByRole('link', { name: 'Add app', exact: true }).click()
   await page.getByRole('link', { name: `Set up ${label}`, exact: false }).click()
+  await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
   await page.getByLabel('App name', { exact: true }).fill(name)
   const saved = page.waitForResponse(
     (response) =>
@@ -105,7 +111,7 @@ export async function createAppDraft(
   expect(response.status()).toBe(201)
   expect(response.request().postDataJSON()).toEqual({
     name,
-    definition_id: `omnara.${provider}`,
+    app_type: appType,
     settings: {},
   })
   const app = schemas.zProjectApp.parse(await response.json())
@@ -130,7 +136,7 @@ export async function readApp(page: Page, apiProjectPath: string, appID: string)
 export async function mockVerifiedAppSetup(
   page: Page,
   apiProjectPath: string,
-  provider: 'github' | 'discord',
+  appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
 ) {
   await page.route('**/apps/*/setup', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
@@ -146,21 +152,24 @@ export async function mockVerifiedAppSetup(
     expect(seeded.status()).toBe(200)
     expect(z.object({ id: schemas.zProjectAppId }).parse(await seeded.json()).id).toBe(appID)
     const app = await readApp(page, apiProjectPath, appID)
-    expect(app.provider).toBe(provider)
+    expect(app.app_type).toBe(appType)
     expect(app.credential_secret_id).toBe(request.credential_secret_id)
     expect(app.setup_revision).toBe(request.expected_setup_revision + 1)
     await route.fulfill({ status: 200, json: app })
   })
 }
 
-export async function fillProviderAccount(page: Page, provider: 'github' | 'discord') {
+export async function fillProviderAccount(
+  page: Page,
+  appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
+) {
   await page
-    .getByLabel(provider === 'github' ? 'GitHub App ID' : 'Discord Application ID', {
+    .getByLabel(appType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', {
       exact: true,
     })
     .fill('111')
   await page
-    .getByLabel(provider === 'github' ? 'Installation ID' : 'Bot User ID', { exact: true })
+    .getByLabel(appType === 'github_pr' ? 'Installation ID' : 'Bot User ID', { exact: true })
     .fill('222')
 }
 
@@ -178,9 +187,9 @@ export function expectSlackAuthorization(oauthURL: string, browserOrigin: string
 export async function expectAppCapabilities(page: Page, app: ProjectApp) {
   const capabilities = page.getByRole('region', { name: 'Capabilities', exact: true })
   await expect(capabilities.getByText(`app__${app.name}__read`, { exact: true })).toBeVisible()
-  const subscription = app.provider === 'github' ? 'pull_request' : 'thread_messages'
+  const subscription = app.app_type === 'github_pr' ? 'pull_request' : 'thread_messages'
   await expect(capabilities.getByText(subscription, { exact: true })).toBeVisible()
-  if (app.provider !== 'github')
+  if (app.app_type !== 'github_pr')
     await expect(capabilities.getByText(app.name, { exact: true })).toBeVisible()
 }
 

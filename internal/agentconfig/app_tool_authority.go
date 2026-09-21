@@ -36,7 +36,7 @@ func ResolveAppToolAuthority(
 	if err != nil {
 		return AppToolAuthority{}, err
 	}
-	metadata, ok := toolcatalog.LookupAppTool(definition.ID, operation)
+	metadata, ok := toolcatalog.LookupAppTool(definition.AppType, operation)
 	if !ok {
 		return AppToolAuthority{}, fmt.Errorf("app does not export operation %q", operation)
 	}

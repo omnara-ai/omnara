@@ -3377,7 +3377,7 @@ export const getProjectApp = <ThrowOnError extends boolean = true>(options: Opti
 /**
  * Update app launcher settings
  *
- * Updates settings while preserving credentials. The request must echo the existing name and definition_id; changing either returns 400. A workspace or installation launcher must match the app's verified provider identity.
+ * Updates settings while preserving credentials. The request must echo the existing name and app_type; changing either returns 400. A workspace or installation launcher must match the app's verified provider identity.
  */
 export const updateProjectApp = <ThrowOnError extends boolean = true>(options: Options<UpdateProjectAppData, ThrowOnError>): RequestResult<UpdateProjectAppResponses, UpdateProjectAppErrors, ThrowOnError> => (options.client ?? client).put<UpdateProjectAppResponses, UpdateProjectAppErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateProjectAppResponse),

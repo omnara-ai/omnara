@@ -3815,7 +3815,7 @@ export const getProjectAppOptions = (options: Options<GetProjectAppData>) => que
 /**
  * Update app launcher settings
  *
- * Updates settings while preserving credentials. The request must echo the existing name and definition_id; changing either returns 400. A workspace or installation launcher must match the app's verified provider identity.
+ * Updates settings while preserving credentials. The request must echo the existing name and app_type; changing either returns 400. A workspace or installation launcher must match the app's verified provider identity.
  */
 export const updateProjectAppMutation = (options?: Partial<Options<UpdateProjectAppData>>): UseMutationOptions<UpdateProjectAppResponse, UpdateProjectAppError, Options<UpdateProjectAppData>> => {
     const mutationOptions: UseMutationOptions<UpdateProjectAppResponse, UpdateProjectAppError, Options<UpdateProjectAppData>> = {

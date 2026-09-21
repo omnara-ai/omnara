@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -43,7 +44,7 @@ func (s *Store) ResolveAppDefinitions(
 			continue
 		}
 		ref := byID[row.ID]
-		result[ref] = agentconfig.AppResolution{AppID: ref, Definition: row.DefinitionID}
+		result[ref] = agentconfig.AppResolution{AppID: ref, AppType: appdefinition.Type(row.AppType)}
 	}
 	return result, nil
 }

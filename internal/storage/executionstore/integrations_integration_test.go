@@ -1602,7 +1602,7 @@ func prepareProjectAppSetup(t *testing.T, ctx context.Context, store *Store,
 	t.Helper()
 	nameID := uuid.New()
 	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: input.OrgID, ProjectID: input.ProjectID, DefinitionID: appdefinition.Slack,
+		OrgID: input.OrgID, ProjectID: input.ProjectID, AppType: appdefinition.SlackThread,
 		Name: "app-" + base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(nameID[:]),
 	})
 	if err != nil {

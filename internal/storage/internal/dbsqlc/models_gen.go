@@ -445,7 +445,6 @@ type ProjectApp struct {
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
 	InstalledByUserID        *uuid.UUID
-	Provider                 string
 	State                    string
 	ProviderTenantID         *string
 	ProviderAccountRef       *string
@@ -459,7 +458,7 @@ type ProjectApp struct {
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 	Name                     string
-	DefinitionID             string
+	AppType                  string
 	Settings                 json.RawMessage
 	SetupRevision            int64
 }

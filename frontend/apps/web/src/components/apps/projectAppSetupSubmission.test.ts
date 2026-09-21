@@ -23,7 +23,7 @@ it.each(['tenant', 'account', 'discord-key', 'shards'] as const)(
       submitProjectAppSetup(
         {
           form,
-          app: projectApp({ provider: 'discord' }),
+          app: projectApp({ app_type: 'discord_thread' }),
           projectId: fakeId('proj'),
           savedSecret: '',
           newCredential: true,
@@ -38,7 +38,7 @@ it.each(['tenant', 'account', 'discord-key', 'shards'] as const)(
 
 it('pins the app ID, revision and original provider identity on reconnect', async () => {
   const app = projectApp({
-    provider: 'github',
+    app_type: 'github_pr',
     provider_tenant_id: '111',
     provider_account_ref: '222',
     setup_revision: 8,

@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-import { appDefinitionLabel, appProvider } from './appDefinitions'
+import { appCatalog, appTypeLabel } from './appDefinitions'
 import { ProjectAppActions } from './ProjectAppActions'
 
 export function ProjectAppHeader({
@@ -26,7 +26,7 @@ export function ProjectAppHeader({
   onEdit: () => void
   onRemoved: () => void
 }) {
-  const provider = appProvider(app.definition_id)
+  const supported = appCatalog.some((definition) => definition.appType === app.app_type)
   return (
     <header className="flex flex-col gap-3">
       <Link
@@ -38,7 +38,7 @@ export function ProjectAppHeader({
       </Link>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="type-title">{app.name}</h1>
-        <Badge variant="outline">{appDefinitionLabel(app.definition_id)}</Badge>
+        <Badge variant="outline">{appTypeLabel(app.app_type)}</Badge>
         <Badge variant={app.state === 'active' ? 'outline' : 'secondary'}>
           {app.state === 'active' ? 'Connected' : 'Disconnected'}
         </Badge>
@@ -50,7 +50,7 @@ export function ProjectAppHeader({
             : 'Setup is unfinished. Ask a project administrator to connect this app.'}
         </p>
       )}
-      {canManage && viewing && provider && (
+      {canManage && viewing && supported && (
         <Button
           className="self-start"
           variant={app.state === 'active' ? 'outline' : 'default'}
@@ -64,7 +64,7 @@ export function ProjectAppHeader({
           orgId={orgId}
           projectId={projectId}
           app={app}
-          onEdit={provider ? onEdit : undefined}
+          onEdit={supported ? onEdit : undefined}
           onRemoved={onRemoved}
         />
       )}

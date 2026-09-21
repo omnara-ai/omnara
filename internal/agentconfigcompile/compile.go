@@ -53,7 +53,7 @@ func options(
 		if err != nil {
 			return agentconfig.AppResolution{}, err
 		}
-		return agentconfig.AppResolution{AppID: id, Definition: app.DefinitionID}, nil
+		return agentconfig.AppResolution{AppID: id, AppType: app.AppType}, nil
 	}
 	opts.ValidateSecretID = func(secretID string, expectedKind secrets.Kind) error {
 		decoded, err := publicid.Decode(publicid.KindSecret, secretID)

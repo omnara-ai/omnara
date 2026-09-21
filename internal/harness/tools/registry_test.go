@@ -199,7 +199,7 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 }
 
 func TestAppMessageArtifactArguments(t *testing.T) {
-	definition, ok := toolcatalog.LookupAppTool(appdefinition.Slack, toolcatalog.AppOperationPostMessage)
+	definition, ok := toolcatalog.LookupAppTool(appdefinition.SlackThread, toolcatalog.AppOperationPostMessage)
 	require.True(t, ok)
 	conversation := &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"}}
 	artifactIDs := make([]string, 21)

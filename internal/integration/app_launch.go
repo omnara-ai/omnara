@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
@@ -25,14 +26,14 @@ type AppLaunchContext struct {
 
 type AppLaunchWorkflow struct {
 	router    *AppRouter
-	launchers map[string]AppLauncher
+	launchers map[appdefinition.Type]AppLauncher
 	// OnUnavailable lets an app update its presentation after a setup edit
 	// invalidates a decided launch. Failure to notify never changes admission.
 	OnUnavailable func(context.Context, integrationstore.ProjectAppRecord, []AppEvent) error
 }
 
-func NewAppLaunchWorkflow(router *AppRouter, launchers map[string]AppLauncher) *AppLaunchWorkflow {
-	registered := make(map[string]AppLauncher, len(launchers))
+func NewAppLaunchWorkflow(router *AppRouter, launchers map[appdefinition.Type]AppLauncher) *AppLaunchWorkflow {
+	registered := make(map[appdefinition.Type]AppLauncher, len(launchers))
 	for id, launcher := range launchers {
 		registered[id] = launcher
 	}
@@ -76,9 +77,9 @@ func (w *AppLaunchWorkflow) Decide(
 		// decisions; callback handoffs skip this stage entirely.
 		event.Launches, event.Directed = nil, false
 		if app := request.candidates.Launcher; app != nil {
-			launcher := w.launchers[app.DefinitionID]
+			launcher := w.launchers[app.AppType]
 			if launcher == nil {
-				return nil, fmt.Errorf("no launcher registered for app %s", app.DefinitionID)
+				return nil, fmt.Errorf("no launcher registered for app %s", app.AppType)
 			}
 			intents, err := launcher(ctx, AppLaunchContext{
 				Receipt: receipt, App: *app,

@@ -218,7 +218,7 @@ func (s *Server) resolveDiscordInteraction(
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
-	if destination == nil || destination.HandlerDefinition != appdefinition.Discord ||
+	if destination == nil || destination.AppType != app.AppType ||
 		destination.AppID != app.ID {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
@@ -282,7 +282,7 @@ func (s *Server) resolveDiscordInteraction(
 	}
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
 		AppID: app.ID, SourceSetupRevision: app.SetupRevision,
-		HandlerDefinition: appdefinition.Discord, Address: destination.Address,
+		AppType: app.AppType, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
 			ProjectID: record.ProjectID, AgentID: record.AgentID, ID: record.ID, Resolution: *resolution,
 			Actor: &appActor,

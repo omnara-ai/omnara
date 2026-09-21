@@ -34,7 +34,8 @@ func createSetupHTTPApp(
 	t *testing.T,
 	handler http.Handler,
 	project publicHTTPProject,
-	name, definition string,
+	name string,
+	appType appdefinition.Type,
 ) integrationstore.ProjectAppRecord {
 	t.Helper()
 	response := requestJSONWithHeaders(
@@ -44,7 +45,7 @@ func createSetupHTTPApp(
 		project.ProjectPath+"/apps",
 		projectAppHTTPJSON(
 			t,
-			map[string]any{"name": name, "definition_id": definition, "settings": map[string]any{}},
+			map[string]any{"name": name, "app_type": appType, "settings": map[string]any{}},
 		),
 		"",
 		http.StatusCreated,
@@ -82,7 +83,7 @@ func TestProjectAppCredentialSetupAndDisconnectAuthorization(t *testing.T) {
 		WithDiscordClientConfig(appSetupDiscordConfig(t)),
 	)
 	project := bootstrapPublicHTTPProject(t, handler, "app-setup-auth")
-	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.Discord)
+	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 	body := appSetupDiscordBody(t, handler, project, "111")
 	path := appSetupPath(t, project, app)
 	encoded := projectAppHTTPJSON(t, body)
@@ -215,7 +216,7 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 		WithDiscordClientConfig(appSetupDiscordConfig(t)),
 	)
 	project := bootstrapPublicHTTPProject(t, handler, "app-setup-validation")
-	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.Discord)
+	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 	body := appSetupDiscordBody(t, handler, project, "111")
 	path := appSetupPath(t, project, app)
 	for _, config := range []map[string]any{
@@ -281,7 +282,7 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	// Slack can only establish or rotate credentials through its verified OAuth exchange.
-	slackApp := createSetupHTTPApp(t, handler, project, "slack", appdefinition.Slack)
+	slackApp := createSetupHTTPApp(t, handler, project, "slack", appdefinition.SlackThread)
 	body["expected_setup_revision"] = slackApp.SetupRevision
 	rejected := requestJSONWithHeaders(
 		t,
@@ -295,7 +296,7 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 	)
 	require.Contains(t, projectAppHTTPJSON(t, rejected), "OAuth")
 	// Reusing the same physical bot is independent setup, not an upsert.
-	duplicate := createSetupHTTPApp(t, handler, project, "another-discord", appdefinition.Discord)
+	duplicate := createSetupHTTPApp(t, handler, project, "another-discord", appdefinition.DiscordThread)
 	body["expected_setup_revision"], body["provider_account_ref"] = duplicate.SetupRevision, "111"
 	created := requestJSONWithHeaders(
 		t,
@@ -317,7 +318,7 @@ func TestProjectAppSetupCredentialScopeAndKind(t *testing.T) {
 		WithDiscordClientConfig(appSetupDiscordConfig(t)),
 	)
 	project := bootstrapPublicHTTPProject(t, handler, "app-credential-scope")
-	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.Discord)
+	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 	other := projectAppHTTPSecondProject(t, handler, project)
 	foreign := bootstrapPublicHTTPProject(t, handler, "app-credential-foreign")
 	for _, owner := range []publicHTTPProject{other, foreign} {
@@ -398,10 +399,10 @@ func createSlackHTTPApp(
 	require.NoError(t, err)
 	app, err := project.Store.Integrations().
 		CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-			OrgID:        project.OrgUUID,
-			ProjectID:    project.ProjectUUID,
-			Name:         "slack-" + uuid.NewString()[:8],
-			DefinitionID: appdefinition.Slack,
+			OrgID:     project.OrgUUID,
+			ProjectID: project.ProjectUUID,
+			Name:      "slack-" + uuid.NewString()[:8],
+			AppType:   appdefinition.SlackThread,
 		})
 	require.NoError(t, err)
 	app, err = project.Store.Integrations().

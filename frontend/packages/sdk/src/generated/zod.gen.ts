@@ -610,10 +610,13 @@ export const zCreateIntegrationOAuthSetupRequest = z.object({
     return_to: z.string().optional()
 });
 
-export const zIntegrationProvider = z.enum([
-    'slack',
-    'github',
-    'discord'
+/**
+ * Registered app implementation; independent of the saved app's name and immutable ID.
+ */
+export const zAppType = z.enum([
+    'slack_thread',
+    'discord_thread',
+    'github_pr'
 ]);
 
 /**
@@ -2731,7 +2734,7 @@ export const zListCronTriggersResponse = z.object({
  * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
  */
 export const zAgentInteractionDestination = z.object({
-    handler_definition: z.string(),
+    app_type: zAppType,
     handler_key: z.string(),
     app_id: zProjectAppId,
     args: z.record(z.string(), z.unknown()),
@@ -2809,11 +2812,11 @@ export const zConfigToolSource = z.object({
 export const zProjectAppName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/);
 
 /**
- * Creates a disconnected app, or updates its launcher settings. Name and definition_id are immutable. Configure credentials through this app's setup endpoints.
+ * Creates a disconnected app, or updates its launcher settings. Name and app_type are immutable. Configure credentials through this app's setup endpoints.
  */
 export const zSaveProjectAppRequest = z.object({
     name: zProjectAppName,
-    definition_id: z.string().min(1),
+    app_type: zAppType,
     settings: zProjectAppSettings
 });
 
@@ -2900,8 +2903,7 @@ export const zProjectApp = z.object({
     id: zProjectAppId,
     project_id: zProjectId,
     name: zProjectAppName,
-    definition_id: z.string(),
-    provider: zIntegrationProvider,
+    app_type: zAppType,
     state: zProjectAppState,
     setup_revision: z.int().gte(1),
     last_oauth_flow_id: zIntegrationOAuthFlowId.optional(),
@@ -2922,8 +2924,7 @@ export const zListProjectAppsResponse = z.object({
 });
 
 export const zAppDefinition = z.object({
-    id: z.string(),
-    provider: zIntegrationProvider,
+    app_type: zAppType,
     capabilities: zAppCapabilities
 });
 

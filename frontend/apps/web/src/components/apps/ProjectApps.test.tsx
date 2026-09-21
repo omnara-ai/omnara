@@ -17,10 +17,11 @@ import { z } from 'zod'
 
 import { ProjectAppDetail } from '@/routes/ProjectAppPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { fakeId, projectApp } from '@/test/fixtures'
+import { appDefinition, fakeId, projectApp } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, waitForUI } from '@/test/secret-editor'
 
+import { AppCatalog } from './AppCatalog'
 import { ProjectAppActions } from './ProjectAppActions'
 import { ProjectAppsList } from './ProjectAppsList'
 import { ProjectAppSummary } from './ProjectAppSummary'
@@ -29,7 +30,7 @@ const orgId = fakeId('org'),
   projectId = fakeId('proj')
 const projectPath = `/api/v1/orgs/${orgId}/projects/${projectId}`
 const savedApp = projectApp({
-  provider: 'github',
+  app_type: 'github_pr',
   name: 'reviewer',
   state: 'active',
   provider_tenant_id: '111',
@@ -81,6 +82,33 @@ function render(api: ReturnType<typeof fakeApi>, content: ReactNode) {
   rerender(content)
   return { cache, client, rerender }
 }
+
+it('links every catalog entry by its exact app type', async () => {
+  const definitions = [
+    appDefinition('slack_thread'),
+    appDefinition('discord_thread'),
+    appDefinition('github_pr'),
+  ]
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: `${projectPath}/app-definitions`,
+      respond: () => Response.json({ data: definitions }),
+    },
+  ])
+  render(api, <AppCatalog orgId={orgId} projectId={projectId} />)
+  await waitForUI(() => {
+    expect(container.querySelectorAll('a')).toHaveLength(definitions.length)
+  })
+  expect([...container.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toEqual(
+    definitions.map((definition) => `/projects/${projectId}/apps/new/${definition.app_type}`),
+  )
+  expect([...container.querySelectorAll('h2')].map((heading) => heading.textContent)).toEqual([
+    'Slack threads',
+    'Discord threads',
+    'GitHub PR review',
+  ])
+})
 
 it('lists apps without a profile, retries a failed page and retains previously loaded apps', async () => {
   let secondAttempts = 0
@@ -239,17 +267,17 @@ it.each([true, false])(
   },
 )
 
-it.each(['slack', 'discord', 'github'] as const)(
+it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
   'shows usable %s capability keys from the app',
-  (provider) => {
-    const app = projectApp({ provider, name: 'customer-support' })
+  (appType) => {
+    const app = projectApp({ app_type: appType, name: 'customer-support' })
     render(fakeApi([]), <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />)
     const section = container.querySelector('[aria-label="Capabilities"]')
     const keys = [...(section?.querySelectorAll('code') ?? [])].map((code) => code.textContent)
     expect(keys).toContain('app__customer-support__read')
     expect(section?.textContent).toContain('Subscription types')
-    expect(keys).toContain(provider === 'github' ? 'pull_request' : 'thread_messages')
-    if (provider === 'github') {
+    expect(keys).toContain(appType === 'github_pr' ? 'pull_request' : 'thread_messages')
+    if (appType === 'github_pr') {
       expect(keys).not.toContain('interaction_handlers')
       expect(keys).not.toContain('customer-support')
     } else {

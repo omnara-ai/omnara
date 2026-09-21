@@ -288,9 +288,9 @@ func TestInboxInactiveRecoveryBatchesAppsAcrossProjects(t *testing.T) {
 				state, inboxState = "active", "pending"
 			}
 			f.exec(t, `INSERT INTO project_apps
- (id,org_id,project_id,installed_by_user_id,provider,state,
-  provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at)
- VALUES($1,$2,$3,$4,'slack',$5,'batch-team',($1::uuid)::text,'app-'||$7::text,'omnara.slack',
+ (id,org_id,project_id,installed_by_user_id,state,
+  provider_tenant_id,provider_account_ref,name,app_type,credential_secret_id,created_at,updated_at)
+ VALUES($1,$2,$3,$4,$5,'batch-team',($1::uuid)::text,'app-'||$7::text,'slack_thread',
  (SELECT credential_secret_id FROM project_apps WHERE id=$6),now(),now())`,
 				id, f.org, project, f.user, state, f.appID, strconv.Itoa(app))
 			f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,state)

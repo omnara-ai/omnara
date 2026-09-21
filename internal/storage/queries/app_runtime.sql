@@ -1,14 +1,24 @@
 -- Only actual hosted persistent transports are enumerated. Cursor scanning keeps
 -- a busy prefix owned by other workers from hiding apps later in the set.
 -- name: ListPersistentApps :many
-SELECT app.id, app.project_id
-FROM project_apps app
-JOIN projects project ON project.id = app.project_id
-JOIN orgs org ON org.id = project.org_id
-WHERE app.provider = 'discord' AND app.state = 'active' AND app.deleted_at IS NULL
-  AND project.deleted_at IS NULL AND org.deleted_at IS NULL
-  AND (sqlc.narg(after_id)::uuid IS NULL OR app.id > sqlc.narg(after_id)::uuid)
-ORDER BY app.id
+WITH app_types AS (
+    SELECT DISTINCT unnest(sqlc.arg(app_types)::text[]) AS app_type
+)
+SELECT page.id, page.project_id
+FROM app_types
+CROSS JOIN LATERAL (
+    -- Limit each ordered type scan before merging the cursor's next page.
+    SELECT app.id, app.project_id
+    FROM project_apps app
+    JOIN projects project ON project.id = app.project_id
+    JOIN orgs org ON org.id = project.org_id
+    WHERE app.app_type = app_types.app_type AND app.state = 'active' AND app.deleted_at IS NULL
+      AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+      AND (sqlc.narg(after_id)::uuid IS NULL OR app.id > sqlc.narg(after_id)::uuid)
+    ORDER BY app.id
+    LIMIT sqlc.arg(row_limit)
+) page
+ORDER BY page.id
 LIMIT sqlc.arg(row_limit);
 
 -- This unlocked hint avoids contending with the owner's heartbeat on every

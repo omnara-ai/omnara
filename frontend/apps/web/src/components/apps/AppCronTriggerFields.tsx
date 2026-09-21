@@ -20,7 +20,7 @@ export function AppCronTriggerFields({
   editing: boolean
 }) {
   const app = useProjectApp(orgId, projectId, value.app_id)
-  const provider = app.data?.provider
+  const appType = app.data?.app_type
   return (
     <>
       <ProjectAppProfilePicker
@@ -49,13 +49,13 @@ export function AppCronTriggerFields({
           id="cron-trigger-channel"
           required
           pattern={
-            provider === 'slack'
+            appType === 'slack_thread'
               ? '[CG][A-Z0-9]+'
-              : provider === 'discord'
+              : appType === 'discord_thread'
                 ? '[1-9][0-9]*'
                 : undefined
           }
-          placeholder={provider === 'slack' ? 'C0123456789' : 'Channel ID'}
+          placeholder={appType === 'slack_thread' ? 'C0123456789' : 'Channel ID'}
           value={value.destination.channel_id}
           onChange={(event) => {
             onChange({
@@ -65,14 +65,14 @@ export function AppCronTriggerFields({
           }}
         />
         <FieldDescription>
-          {provider === 'slack'
+          {appType === 'slack_thread'
             ? 'Use a Slack channel ID beginning with C or G, not a DM or thread. The bot must have access.'
-            : provider === 'discord'
+            : appType === 'discord_thread'
               ? 'Use a Discord text or announcement channel ID, not a thread. The bot must have access.'
               : 'Use a channel the bot can access; each run creates a new thread.'}
         </FieldDescription>
       </Field>
-      {provider === 'discord' && (
+      {appType === 'discord_thread' && (
         <Field>
           <FieldLabel htmlFor="cron-trigger-guild">Server ID (optional)</FieldLabel>
           <Input

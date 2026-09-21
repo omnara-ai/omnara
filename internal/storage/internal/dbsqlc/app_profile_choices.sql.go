@@ -240,7 +240,7 @@ func (q *Queries) GetAppProfileChoice(ctx context.Context, arg GetAppProfileChoi
 }
 
 const getAppProfileChoiceAppForShare = `-- name: GetAppProfileChoiceAppForShare :one
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR SHARE
@@ -261,7 +261,6 @@ func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetApp
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -275,7 +274,7 @@ func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetApp
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)

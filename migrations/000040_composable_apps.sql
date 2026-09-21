@@ -136,7 +136,8 @@ ALTER TABLE actors ADD CONSTRAINT actors_provider_check
 -- IDs, so existing conversation and audit references keep the same identity.
 ALTER TABLE project_apps
     ADD COLUMN name text,
-    ADD COLUMN definition_id text NOT NULL DEFAULT 'omnara.slack' CHECK (definition_id <> ''),
+    ADD COLUMN app_type text NOT NULL DEFAULT 'slack_thread'
+        CHECK (app_type IN ('slack_thread', 'discord_thread', 'github_pr')),
     ADD COLUMN settings jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(settings) = 'object'),
     ADD COLUMN setup_revision bigint NOT NULL DEFAULT 1 CHECK (setup_revision > 0),
     ALTER COLUMN installed_by_user_id DROP NOT NULL,
@@ -158,7 +159,7 @@ FROM names WHERE names.id = app.id;
 ALTER TABLE project_apps
     ALTER COLUMN name SET NOT NULL,
     ADD CHECK (name ~ '^[A-Za-z][A-Za-z0-9-]{0,31}$'),
-    ALTER COLUMN definition_id DROP DEFAULT,
+    ALTER COLUMN app_type DROP DEFAULT,
     DROP COLUMN agent_profile_id,
     DROP COLUMN agent_id,
     DROP COLUMN integration_kind,
@@ -171,20 +172,18 @@ ALTER TABLE project_apps ADD CONSTRAINT project_apps_state_check CHECK (state IN
 ALTER TABLE project_apps ADD CHECK ((provider_tenant_id IS NULL) = (provider_account_ref IS NULL));
 ALTER TABLE project_apps ADD CHECK (state <> 'active' OR
     (provider_tenant_id IS NOT NULL AND credential_secret_id IS NOT NULL AND installed_by_user_id IS NOT NULL));
-ALTER TABLE project_apps DROP CONSTRAINT integration_installs_provider_check;
-ALTER TABLE project_apps ADD CONSTRAINT project_apps_provider_check
-    CHECK (provider IN ('slack', 'github', 'discord'));
+ALTER TABLE project_apps DROP COLUMN provider;
 CREATE UNIQUE INDEX project_apps_name_idx ON project_apps(project_id, name) WHERE deleted_at IS NULL;
-CREATE INDEX project_apps_provider_identity_idx ON project_apps(provider, provider_tenant_id, provider_account_ref)
+CREATE INDEX project_apps_type_identity_idx ON project_apps(app_type, provider_tenant_id, provider_account_ref)
     WHERE deleted_at IS NULL AND provider_tenant_id IS NOT NULL;
-CREATE INDEX project_apps_active_provider_idx ON project_apps(provider, id)
+CREATE INDEX project_apps_active_type_idx ON project_apps(app_type, id)
     WHERE state = 'active' AND deleted_at IS NULL;
 
 -- +goose StatementBegin
 CREATE FUNCTION project_apps_reject_identity_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    IF (NEW.id, NEW.org_id, NEW.project_id, NEW.name, NEW.definition_id, NEW.provider, NEW.created_at)
-        IS DISTINCT FROM (OLD.id, OLD.org_id, OLD.project_id, OLD.name, OLD.definition_id, OLD.provider, OLD.created_at)
+    IF (NEW.id, NEW.org_id, NEW.project_id, NEW.name, NEW.app_type, NEW.created_at)
+        IS DISTINCT FROM (OLD.id, OLD.org_id, OLD.project_id, OLD.name, OLD.app_type, OLD.created_at)
        OR (OLD.provider_tenant_id IS NOT NULL AND
            (NEW.provider_tenant_id, NEW.provider_account_ref) IS DISTINCT FROM
            (OLD.provider_tenant_id, OLD.provider_account_ref)) THEN
@@ -445,9 +444,9 @@ ALTER TABLE agent_interactions
         CHECK (presentation_attempted_at IS NULL OR destination IS NOT NULL);
 
 -- Only unattempted captured interactions need discovery. The caller supplies
--- supported handler definitions; provider policy does not belong in this index.
+-- supported app types; provider policy does not belong in this index.
 CREATE INDEX agent_interactions_pending_presentation_idx
-    ON agent_interactions ((destination ->> 'handler_definition'), created_at, agent_id, id)
+    ON agent_interactions ((destination ->> 'app_type'), created_at, agent_id, id)
     WHERE state = 'open' AND destination IS NOT NULL
       AND presentation_attempted_at IS NULL AND presentation_receipt IS NULL;
 

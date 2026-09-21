@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -163,8 +164,11 @@ func newCapturedHTTPFixtureWithDismiss(
 		Actor:          httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
+	appTypes := appdefinition.AppTypesForProvider(provider)
+	require.Len(t, appTypes, 1)
+	appType := appdefinition.Type(appTypes[0])
 	app, err := project.Store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", DefinitionID: "omnara." + provider,
+		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
 	})
 	require.NoError(t, err)
 	app, err = project.Store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
@@ -671,7 +675,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.NotNil(t, destination)
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				require.Equal(t, map[string]any{
-					"handler_definition":    "omnara." + provider,
+					"app_type":              string(f.app.AppType),
 					"args":                  map[string]any{"channel_id": destination.Address.Ref},
 					"handler_key":           "support",
 					"app_id":                testPublicID(t, publicid.KindProjectApp, f.app.ID),
@@ -719,7 +723,7 @@ func capturedSiblingApp(t *testing.T, f capturedHTTPFixture) (integrationstore.P
 	})
 	require.NoError(t, err)
 	app, err := f.project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
-		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: "sibling", DefinitionID: f.app.DefinitionID,
+		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: "sibling", AppType: f.app.AppType,
 	})
 	require.NoError(t, err)
 	app, err = f.project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{

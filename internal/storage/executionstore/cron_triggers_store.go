@@ -938,7 +938,7 @@ func validateCronAppLaunchTarget(target *CronTriggerTarget, app integrationstore
 	if target.AppLaunch == nil || target.AppLaunch.ProfileID == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("app launch profile is required"))
 	}
-	if app.DefinitionID != appdefinition.Slack && app.DefinitionID != appdefinition.Discord {
+	if app.AppType != appdefinition.SlackThread && app.AppType != appdefinition.DiscordThread {
 		return storeerr.InvalidRequest(errors.New("scheduled launches require a built-in Slack or Discord app"))
 	}
 	canonical, err := appdefinition.CanonicalScheduledDestination(app.Provider, target.AppLaunch.Destination)

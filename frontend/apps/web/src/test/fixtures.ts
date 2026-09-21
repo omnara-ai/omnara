@@ -121,16 +121,15 @@ export function orgInvitation(overrides: Partial<OrgInvitation> = {}): OrgInvita
   }
 }
 
-export function appDefinition(provider: AppDefinition['provider'] = 'slack'): AppDefinition {
+export function appDefinition(appType: AppDefinition['app_type'] = 'slack_thread'): AppDefinition {
   const capability = {
     input_schema: { type: 'object', properties: {} },
   }
   const definition: AppDefinition = {
-    id: `omnara.${provider}`,
-    provider,
+    app_type: appType,
     capabilities: {
       tools:
-        provider === 'github'
+        appType === 'github_pr'
           ? {
               read: capability,
               discussion_comment: capability,
@@ -139,28 +138,27 @@ export function appDefinition(provider: AppDefinition['provider'] = 'slack'): Ap
             }
           : { read: capability, post_message: capability },
       subscriptions: {
-        [provider === 'github' ? 'pull_request' : 'thread_messages']: {
+        [appType === 'github_pr' ? 'pull_request' : 'thread_messages']: {
           conversation_schema: { type: 'object', properties: {} },
           events:
-            provider === 'github'
+            appType === 'github_pr'
               ? ['discussion_comment', 'review_comment', 'commit']
               : ['message'],
         },
       },
     },
   }
-  if (provider !== 'github') definition.capabilities.interaction_handler = capability
+  if (appType !== 'github_pr') definition.capabilities.interaction_handler = capability
   return definition
 }
 
 export function projectApp(overrides: Partial<ProjectApp> = {}): ProjectApp {
-  const definition = appDefinition(overrides.provider)
+  const definition = appDefinition(overrides.app_type)
   return {
     id: fakeId('app'),
     project_id: fakeId('proj'),
     name: 'engineering',
-    definition_id: definition.id,
-    provider: definition.provider,
+    app_type: definition.app_type,
     state: 'disconnected',
     setup_revision: 1,
     settings: {},

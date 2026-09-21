@@ -16,9 +16,12 @@ type AppCapabilityCompiled struct {
 	AppID string `json:"app_id"`
 }
 
-// AppResolution supplies compile/preparation metadata. Definition is never persisted in a
+// AppResolution supplies compile/preparation metadata. AppType is never persisted in a
 // compiled capability. The resolver must enforce project ownership and app state.
-type AppResolution struct{ AppID, Definition string }
+type AppResolution struct {
+	AppID   string
+	AppType appdefinition.Type
+}
 
 func cacheAppResolver(opts CompileOptions) CompileOptions {
 	resolve := opts.ResolveAppName
@@ -37,8 +40,8 @@ func cacheAppResolver(opts CompileOptions) CompileOptions {
 		if _, err := publicid.Decode(publicid.KindProjectApp, app.AppID); err != nil {
 			return AppResolution{}, fmt.Errorf("invalid app ID: %w", err)
 		}
-		if _, ok := appdefinition.Lookup(app.Definition); !ok {
-			return AppResolution{}, fmt.Errorf("unknown app definition %q", app.Definition)
+		if _, ok := appdefinition.Lookup(app.AppType); !ok {
+			return AppResolution{}, fmt.Errorf("unknown app type %q", app.AppType)
 		}
 		cache[name] = app
 		return app, nil
@@ -61,7 +64,7 @@ func compileAppTool(name string, source AgentConfigToolSource, opts CompileOptio
 	if err != nil {
 		return ToolCompiled{}, issueOr(jsonPointer("tools", name), err)
 	}
-	definition, ok := toolcatalog.LookupAppTool(app.Definition, operation)
+	definition, ok := toolcatalog.LookupAppTool(app.AppType, operation)
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "app does not export operation %q", operation)
 	}
@@ -97,7 +100,7 @@ func compileAppCapabilities(source AgentConfigSource, opts CompileOptions, compi
 		if err != nil {
 			return issueOr(jsonPointer(field, name), err)
 		}
-		definition, _ := appdefinition.Lookup(app.Definition)
+		definition, _ := appdefinition.Lookup(app.AppType)
 		if definition.InteractionHandler == nil {
 			return issuef(jsonPointer(field, name), "app does not export an interaction handler")
 		}

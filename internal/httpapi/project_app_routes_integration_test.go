@@ -23,8 +23,8 @@ func projectAppHTTPJSON(t *testing.T, value any) string {
 	return string(raw)
 }
 
-func projectAppHTTPBody(name, definition string) map[string]any {
-	return map[string]any{"name": name, "definition_id": definition, "settings": map[string]any{}}
+func projectAppHTTPBody(name, appType string) map[string]any {
+	return map[string]any{"name": name, "app_type": appType, "settings": map[string]any{}}
 }
 
 func projectAppHTTPSource(capabilities map[string]any) map[string]any {
@@ -56,7 +56,7 @@ func TestProjectAppHTTPCRUDAndPagination(t *testing.T) {
 	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
 	project := bootstrapPublicHTTPProject(t, handler, "app-crud")
 	headers, path := authHeaders(project.AdminToken), project.ProjectPath+"/apps"
-	body := projectAppHTTPBody("Alpha", "omnara.slack")
+	body := projectAppHTTPBody("Alpha", "slack_thread")
 	create := func(status int) map[string]any {
 		t.Helper()
 		return requestJSONWithHeaders(t, handler, http.MethodPost, path,
@@ -67,7 +67,7 @@ func TestProjectAppHTTPCRUDAndPagination(t *testing.T) {
 	mustPublicHTTPID(t, publicid.KindProjectApp, alphaID)
 	require.Equal(t, project.ProjectID, alpha["project_id"])
 	require.Equal(t, "disconnected", alpha["state"])
-	require.Equal(t, "slack", alpha["provider"])
+	require.Equal(t, "slack_thread", alpha["app_type"])
 	require.Equal(t, body["settings"], alpha["settings"])
 	for _, key := range []string{"created_at", "updated_at"} {
 		_, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, alpha[key]))
@@ -92,12 +92,12 @@ func TestProjectAppHTTPCRUDAndPagination(t *testing.T) {
 	require.Len(t, testutil.RequireType[[]any](t, last["data"]), 1)
 	require.Nil(t, last["next_cursor"])
 	for _, edit := range []map[string]any{
-		projectAppHTTPBody("Renamed", "omnara.slack"), projectAppHTTPBody("Alpha", "omnara.discord"),
+		projectAppHTTPBody("Renamed", "slack_thread"), projectAppHTTPBody("Alpha", "discord_thread"),
 	} {
 		requestJSONWithHeaders(t, handler, http.MethodPut, path+"/"+alphaID,
 			projectAppHTTPJSON(t, edit), "", http.StatusBadRequest, headers)
 	}
-	body = projectAppHTTPBody("Alpha", "omnara.slack")
+	body = projectAppHTTPBody("Alpha", "slack_thread")
 	updated := requestJSONWithHeaders(t, handler, http.MethodPut, path+"/"+alphaID,
 		projectAppHTTPJSON(t, body), "", http.StatusOK, headers)
 	require.Equal(t, alpha["setup_revision"], updated["setup_revision"], "metadata edits do not restart provider sessions")
@@ -115,7 +115,7 @@ func TestProjectAppHTTPManagementAuthorizationAndIsolation(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "app-auth")
 	path := project.ProjectPath + "/apps"
-	body := projectAppHTTPJSON(t, projectAppHTTPBody("Managed", "omnara.slack"))
+	body := projectAppHTTPJSON(t, projectAppHTTPBody("Managed", "slack_thread"))
 	app := requestJSONWithHeaders(t, handler, http.MethodPost, path, body, "",
 		http.StatusCreated, authHeaders(project.AdminToken))
 	id := testutil.RequireType[string](t, app["id"])
@@ -166,12 +166,21 @@ func TestProjectAppHTTPCatalogAndValidation(t *testing.T) {
 		"", "", http.StatusOK, headers)
 	definitions := testutil.RequireType[[]any](t, catalog["data"])
 	require.Len(t, definitions, 3)
+	var appTypes []string
+	for _, value := range definitions {
+		definition := testutil.RequireType[map[string]any](t, value)
+		appTypes = append(appTypes, testutil.RequireType[string](t, definition["app_type"]))
+		require.Contains(t, definition, "capabilities")
+	}
+	require.ElementsMatch(t, []string{"slack_thread", "discord_thread", "github_pr"}, appTypes)
 	for _, name := range []string{"", "space name", "a__b", "1bot", "abcdefghijklmnopqrstuvwxyz1234567"} {
 		requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
-			projectAppHTTPJSON(t, projectAppHTTPBody(name, "omnara.slack")), "", http.StatusBadRequest, headers)
+			projectAppHTTPJSON(t, projectAppHTTPBody(name, "slack_thread")), "", http.StatusBadRequest, headers)
 	}
-	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
-		projectAppHTTPJSON(t, projectAppHTTPBody("unknown", "customer.external")), "", http.StatusBadRequest, headers)
+	for _, unknown := range []string{"", "slack", "slack_unregistered", "customer.external"} {
+		requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
+			projectAppHTTPJSON(t, projectAppHTTPBody("unknown", unknown)), "", http.StatusBadRequest, headers)
+	}
 }
 
 func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
@@ -199,7 +208,7 @@ func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
 	requestJSONWithHeaders(t, handler, http.MethodDelete, project.ProjectPath+"/apps/"+appID,
 		"", "", http.StatusNoContent, authHeaders(project.AdminToken))
 	replacement := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
-		projectAppHTTPJSON(t, projectAppHTTPBody(app.Name, "omnara.slack")), "",
+		projectAppHTTPJSON(t, projectAppHTTPBody(app.Name, "slack_thread")), "",
 		http.StatusCreated, authHeaders(project.AdminToken))
 	require.NotEqual(t, appID, replacement["id"])
 	after, found, err := project.Store.Execution().GetAgentConfig(ctx, project.ProjectUUID, configID)
@@ -225,7 +234,7 @@ func TestProjectAppHTTPLauncherReferencesAreProjectScoped(t *testing.T) {
 	}{
 		{foreign["id"], http.StatusNotFound}, {own["id"], http.StatusCreated},
 	} {
-		body := projectAppHTTPBody("reviewer", "omnara.slack")
+		body := projectAppHTTPBody("reviewer", "slack_thread")
 		body["settings"] = map[string]any{"launcher": map[string]any{
 			"trigger": "mention", "scope_kind": "workspace", "scope_ref": "T123",
 			"slots": []any{map[string]any{"key": "default", "agent_profile_id": tc.profile}},

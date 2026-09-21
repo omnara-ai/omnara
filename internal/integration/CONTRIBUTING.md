@@ -7,7 +7,7 @@ APIs, described in [Custom integrations](../../docs/integrations/custom-integrat
 
 ## App identity and capabilities
 
-A saved `ProjectAppRecord` owns its immutable name and definition, verified provider
+A saved `ProjectAppRecord` owns its immutable name and app type, verified provider
 identity, credential reference, setup revision, state and optional launcher.
 Create the metadata first, then explicitly configure that app. Setup verifies
 `ExpectedSetupRevision`, the observed credential version and current project
@@ -32,7 +32,7 @@ interaction_handlers:
 ```
 
 Compilation resolves the immutable name to a public project-app ID. Runtime lookup
-uses that pinned app's registered definition; name reuse cannot retarget it.
+uses that pinned app's registered type; name reuse cannot retarget it.
 Tool schemas are static. Hosted launch admission saves one immutable sending
 conversation per agent/app on its target. Calls can omit that destination or
 supply matching fields; a channel context permits threads inside that channel,
@@ -64,8 +64,8 @@ Omnara cron attribution, and profile choices preserve the original message sende
 ## Reuse an existing provider
 
 Use an existing definition when its tools, subscriptions and launcher triggers
-express the behavior. Slack and Discord use `omnara.slack` and `omnara.discord`; GitHub
-mention and PR-open launchers use `omnara.github`. Different profiles or destinations
+express the behavior. Slack and Discord use `slack_thread` and `discord_thread`; GitHub
+mention and PR-open launchers use `github_pr`. Different profiles or destinations
 normally need saved apps/config examples and journey tests, not another endpoint,
 table, scheduler or app definition.
 
@@ -97,10 +97,15 @@ the public catalog and config schemas; do not create per-capability catalog rows
 | App identity, subscriptions, choices, inbox and runtime leases | `internal/storage/integrationstore` |
 | Atomic agent launch/input admission and interaction resolution | `internal/storage/executionstore` |
 
-A new provider extends the closed provider domain in storage, migrations and
-OpenAPI, plus setup clients where supported. Update the relevant owners and
-regenerate contracts. Provider packages own protocol details; they do not own
-agent launches, durable routing or product transactions.
+Register a new app type in `internal/appdefinition`, add its PostgreSQL
+`project_apps.app_type` constraint value and OpenAPI `AppType` enum value, and
+regenerate contracts. Use `slack_thread`, `discord_thread` and `github_pr` as
+examples. Saved apps store only that type; the registry declares the transport
+used by its implementation. Discovery derives the transport's supported types
+with `AppTypesForProvider`, so two app types can reuse one provider without
+another stored classification. Add setup and provider clients only when needed.
+Provider packages own protocol details; they do not own agent launches, durable
+routing or product transactions.
 
 Ordinary webhook intake pages active apps by provider identity. Each verifies its
 own credentials and durably accepts its app-local receipt before success. Known

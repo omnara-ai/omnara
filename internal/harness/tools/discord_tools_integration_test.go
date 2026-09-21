@@ -44,7 +44,7 @@ func createDiscordToolApp(
 		)
 	require.NoError(t, err)
 	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", DefinitionID: appdefinition.Discord,
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", AppType: appdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
 	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{

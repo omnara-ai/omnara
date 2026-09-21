@@ -810,33 +810,37 @@ tools:
 					),
 			)
 			require.Contains(t, string(setup), profileID.String())
-			var name, secondName, secondState string
+			var name, appType, secondName, secondType, secondState string
 			var preservedCredential uuid.UUID
 			require.NoError(
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT name,credential_secret_id FROM project_apps WHERE id=$1`,
+					`SELECT name,app_type,credential_secret_id FROM project_apps WHERE id=$1`,
 					appID,
 				).Scan(
 					&name,
+					&appType,
 					&preservedCredential,
 				),
 			)
 			require.Equal(t, "slack", name)
+			require.Equal(t, "slack_thread", appType)
 			require.Equal(t, credentialID, preservedCredential)
 			require.NoError(
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT name,state FROM project_apps WHERE id=$1`,
+					`SELECT name,app_type,state FROM project_apps WHERE id=$1`,
 					secondAppID,
 				).Scan(
 					&secondName,
+					&secondType,
 					&secondState,
 				),
 			)
 			require.Equal(t, "slack-2", secondName)
+			require.Equal(t, "slack_thread", secondType)
 			require.Equal(t, "disconnected", secondState)
 			var oldCompiled []byte
 			var migratedSource, migratedFormat, migratedSourceHash sql.NullString
@@ -868,7 +872,7 @@ tools:
 				},
 			}, agentconfig.CompileOptions{ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
 				require.Equal(t, "slack", name)
-				return agentconfig.AppResolution{AppID: encodedAppID, Definition: appdefinition.Slack}, nil
+				return agentconfig.AppResolution{AppID: encodedAppID, AppType: appdefinition.SlackThread}, nil
 			}})
 			require.NoError(t, err)
 			if sendingEnabled {

@@ -71,7 +71,7 @@ func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 			)
 			body := appSetupHTTPBody("123", "456")
 			body["credential_secret_id"] = secretID
-			app := createSetupHTTPApp(t, handler, project, "github", appdefinition.GitHub)
+			app := createSetupHTTPApp(t, handler, project, "github", appdefinition.GitHubPR)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
 				appSetupPath(t, project, app), projectAppHTTPJSON(t, body),
 				"", tc.want, authHeaders(project.AdminToken))
@@ -233,7 +233,7 @@ func newGitHubSetupJourney(t *testing.T, seed string, options ...Option) githubS
 			),
 		},
 	)
-	app := createSetupHTTPApp(t, handler, project, "github", appdefinition.GitHub)
+	app := createSetupHTTPApp(t, handler, project, "github", appdefinition.GitHubPR)
 	body := appSetupHTTPBody("123", "456")
 	body["credential_secret_id"] = secretID
 	requestJSONWithHeaders(

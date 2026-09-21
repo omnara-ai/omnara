@@ -22,18 +22,18 @@ type InteractionPresentationReference struct {
 }
 
 // ListPendingInteractionPresentations discovers unattempted captured interactions
-// on live scopes. The presenter supplies its supported handler definitions. No
+// on live scopes. The presenter supplies its supported app types. No
 // connection/config authority filter is applied: claiming revoked destinations
 // must remove them from pending work before presentation revalidates authority.
 func (s *Store) ListPendingInteractionPresentations(
-	ctx context.Context, definitions []string, limit int,
+	ctx context.Context, appTypes []string, limit int,
 ) ([]InteractionPresentationReference, error) {
 	if limit <= 0 {
 		return nil, storeerr.InvalidRequest(errors.New("presentation limit must be positive"))
 	}
 	limit = min(limit, MaxPendingInteractionPresentations)
 	rows, err := s.q.ListPendingInteractionPresentations(ctx, dbsqlc.ListPendingInteractionPresentationsParams{
-		Definitions: definitions, BatchLimit: int32(limit),
+		AppTypes: appTypes, BatchLimit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pending interaction presentations: %w", err)

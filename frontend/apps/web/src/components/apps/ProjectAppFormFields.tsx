@@ -1,4 +1,4 @@
-import { type IntegrationProvider, type ProjectApp } from '@omnara/sdk'
+import { type AppType, type ProjectApp } from '@omnara/sdk'
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -7,16 +7,16 @@ import { githubHasAdvancedSlots, type ProjectAppFormValues } from './projectAppF
 import { ProjectAppProfilePicker } from './ProjectAppProfilePicker'
 
 const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
-const launcherScopeKinds: Record<IntegrationProvider, readonly string[]> = {
-  slack: ['workspace', 'channel'],
-  github: ['repository'],
-  discord: ['channel'],
+const launcherScopeKinds: Record<AppType, readonly string[]> = {
+  slack_thread: ['workspace', 'channel'],
+  github_pr: ['repository'],
+  discord_thread: ['channel'],
 }
 
 interface LauncherFieldsProps {
   orgId: string
   projectId: string
-  provider: IntegrationProvider
+  appType: AppType
   app?: ProjectApp
   values: ProjectAppFormValues
   onChange: (patch: Partial<ProjectAppFormValues>) => void
@@ -26,7 +26,7 @@ interface LauncherFieldsProps {
 }
 
 export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
-  const { values, onChange, provider, app } = props
+  const { values, onChange, appType, app } = props
   return (
     <Field>
       <label className="flex gap-2 text-sm font-medium">
@@ -38,12 +38,12 @@ export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
             onChange({ launcher: event.target.checked })
           }}
         />
-        Launch agents from {provider === 'github' ? 'GitHub events' : 'mentions'}
+        Launch agents from {appType === 'github_pr' ? 'GitHub events' : 'mentions'}
       </label>
       <FieldDescription>
         {values.launcher
           ? 'Choose when to launch and which profiles to use. Changes apply to future launches.'
-          : provider === 'github'
+          : appType === 'github_pr'
             ? 'This event launcher is off.'
             : 'Mention launches are off. Schedules are managed separately.'}
         {app?.settings.launcher &&
@@ -52,11 +52,11 @@ export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
       </FieldDescription>
       {values.launcher && (
         <>
-          {provider === 'github' && (
+          {appType === 'github_pr' && (
             <GitHubLaunchTrigger value={values.trigger} onChange={onChange} />
           )}
           <ProjectAppLauncherScopeFields
-            provider={provider}
+            appType={appType}
             app={app}
             values={values}
             onChange={onChange}
@@ -99,13 +99,13 @@ function GitHubLaunchTrigger({
 }
 
 function ProjectAppLauncherScopeFields({
-  provider,
+  appType,
   app,
   values,
   onChange,
   workspaceId,
-}: Pick<LauncherFieldsProps, 'provider' | 'app' | 'values' | 'onChange' | 'workspaceId'>) {
-  if (!launcherScopeKinds[provider].includes(values.scopeKind))
+}: Pick<LauncherFieldsProps, 'appType' | 'app' | 'values' | 'onChange' | 'workspaceId'>) {
+  if (!launcherScopeKinds[appType].includes(values.scopeKind))
     return (
       <FieldDescription>
         Saved launcher scope: {values.scopeKind} / {values.scopeRef}. This advanced scope is kept
@@ -115,7 +115,7 @@ function ProjectAppLauncherScopeFields({
   const launcher = app?.settings.launcher
   return (
     <>
-      {provider === 'slack' && (
+      {appType === 'slack_thread' && (
         <Field>
           <FieldLabel htmlFor="app-launch-scope">Launch in</FieldLabel>
           <select
@@ -149,7 +149,7 @@ function ProjectAppLauncherScopeFields({
       ) : (
         <Field>
           <FieldLabel htmlFor="launcher-scope">
-            {provider === 'github' ? 'Repository ID' : 'Channel ID'}
+            {appType === 'github_pr' ? 'Repository ID' : 'Channel ID'}
           </FieldLabel>
           <Input
             id="launcher-scope"
@@ -158,11 +158,11 @@ function ProjectAppLauncherScopeFields({
             onChange={(event) => {
               onChange({ scopeRef: event.target.value })
             }}
-            pattern={provider === 'slack' ? '[CG][A-Z0-9]+' : '[1-9][0-9]*'}
+            pattern={appType === 'slack_thread' ? '[CG][A-Z0-9]+' : '[1-9][0-9]*'}
             required
           />
           <FieldDescription>
-            {provider === 'github'
+            {appType === 'github_pr'
               ? 'Use the numeric repository ID, not owner/repository.'
               : 'The bot must have access to this channel.'}
           </FieldDescription>
@@ -175,7 +175,7 @@ function ProjectAppLauncherScopeFields({
 function ProjectAppLaunchProfiles({
   orgId,
   projectId,
-  provider,
+  appType,
   app,
   values,
   onChange,
@@ -183,7 +183,7 @@ function ProjectAppLaunchProfiles({
   slotCount,
 }: LauncherFieldsProps) {
   const launcher = app?.settings.launcher
-  if (provider === 'github' && githubHasAdvancedSlots(launcher))
+  if (appType === 'github_pr' && githubHasAdvancedSlots(launcher))
     return (
       <FieldDescription>
         This GitHub launcher has {launcher?.slots.length} saved launch slots. Their names, profiles
@@ -201,7 +201,7 @@ function ProjectAppLaunchProfiles({
         onChange={(profiles) => {
           onChange({ profileIds: profiles.map((profile) => profile.id) })
         }}
-        single={provider === 'github'}
+        single={appType === 'github_pr'}
         disabled={disabled}
         slotCount={slotCount}
       />

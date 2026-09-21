@@ -157,7 +157,7 @@ model:
 	app, err := fixture.Store.Integrations().
 		CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
 			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
-			Name: "implicit", DefinitionID: appdefinition.Slack,
+			Name: "implicit", AppType: appdefinition.SlackThread,
 		})
 	require.NoError(t, err)
 	install, err := fixture.Store.Integrations().
@@ -176,6 +176,8 @@ model:
 			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
 		})
 	require.NoError(t, err)
+	actor, err := executionstore.AppActorParams(install.ID, "U_FIXTURE", nil)
+	require.NoError(t, err)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -187,11 +189,7 @@ model:
 			InitialInput: &executionstore.LaunchInitialInput{
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"hello"}]`),
 				SemanticEventKey: "kernel-origin",
-				Actor: &executionstore.ActorParams{
-					Provider:         "slack",
-					ProviderTenantID: install.ProviderTenantID,
-					ProviderUserID:   "U_FIXTURE",
-				},
+				Actor:            &actor,
 				Origin: &executionstore.LaunchInputOrigin{
 					AppID: install.ID,
 					Address: integrationstore.ConversationAddress{
@@ -472,7 +470,7 @@ func attachKernelSlackHandler(
 	app, err := fixture.Store.Integrations().
 		CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
 			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
-			Name: handlerKey, DefinitionID: appdefinition.Slack,
+			Name: handlerKey, AppType: appdefinition.SlackThread,
 		})
 	require.NoError(t, err)
 	install, err := fixture.Store.Integrations().
@@ -519,8 +517,8 @@ func attachKernelSlackHandler(
 			ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
 				require.Equal(t, install.Name, name)
 				return agentconfig.AppResolution{
-					AppID:      appID,
-					Definition: install.DefinitionID,
+					AppID:   appID,
+					AppType: install.AppType,
 				}, nil
 			},
 		},

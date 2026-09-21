@@ -2,7 +2,7 @@
 
 App capabilities reference a saved project app by immutable name in source and
 by public `app_…` ID in compiled configs. A project-scoped `ResolveAppName` returns
-`AppResolution{AppID, Definition}`. The compiler resolves each distinct name once;
+`AppResolution{AppID, AppType}`. The compiler resolves each distinct name once;
 it persists pinned `AppID` values and tool policy, never definition metadata or
 credentials. Public IDs use `publicid.KindProjectApp`.
 
@@ -60,14 +60,14 @@ PrepareAppTools(compiled Compiled, apps map[string]AppResolution) ([]RuntimeTool
 ```
 
 `apps` is keyed by pinned public app ID; each value contains the same `AppID` and
-its immutable `Definition`. The result contains only prepared tools; unavailable
+its immutable `AppType`. The result contains only prepared tools; unavailable
 app capabilities are omitted. Structural errors still fail preparation. Merge
 these tools with the ordinary runtime tools before model exposure. `RuntimeTool`
 contains model-facing schema and policy, without app IDs.
 Handlers are prepared independently during listing and selection. Credentials
 are resolved separately, live, immediately before provider execution.
 
-`toolcatalog.LookupAppTool(definition, operation)` returns provider metadata.
+`toolcatalog.LookupAppTool(appType, operation)` returns provider metadata.
 `Prepare(qualifiedName)` creates a static catalog entry: destination fields are
 optional, and operation-specific action requirements always apply.
 `ResolveArgs(raw, context *appdefinition.Scope)` validates the schema and returns

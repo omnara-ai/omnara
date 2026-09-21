@@ -18,7 +18,7 @@ func TestAppSetupNameConflictAndMalformedID(t *testing.T) {
 	t.Parallel()
 	f := newProjectSlackOAuthFixture(t, nil)
 	conflict := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/apps",
-		`{"name":"slack","definition_id":"omnara.slack","settings":{}}`, "", http.StatusConflict,
+		`{"name":"slack","app_type":"slack_thread","settings":{}}`, "", http.StatusConflict,
 		authHeaders(f.project.AdminToken))
 	require.Equal(t, "conflict", conflict["code"])
 	require.Equal(t, `conflict: an app named "slack" already exists in this project; choose a different name`,

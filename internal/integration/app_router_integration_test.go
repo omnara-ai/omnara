@@ -60,7 +60,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	appSetup := uuid.Must(uuid.NewV7())
 	_, err = pool.Exec(
 		ctx,
-		`INSERT INTO project_apps(id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'slack','active','T123','app-router','chat','omnara.slack',$5,now(),now())`,
+		`INSERT INTO project_apps(id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,name,app_type,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'active','T123','app-router','chat','slack_thread',$5,now(),now())`,
 		appSetup,
 		ids.OrgID,
 		ids.ProjectID,
@@ -69,10 +69,10 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	)
 	require.NoError(t, err)
 	setup := integrationstore.SaveProjectAppInput{
-		OrgID:        ids.OrgID,
-		ProjectID:    ids.ProjectID,
-		Name:         "chat",
-		DefinitionID: appdefinition.Slack,
+		OrgID:     ids.OrgID,
+		ProjectID: ids.ProjectID,
+		Name:      "chat",
+		AppType:   appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{
 				Trigger:   "mention",
@@ -329,10 +329,10 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 			_, err = inbox.UpdateProjectApp(
 				ctx, appSetup,
 				integrationstore.SaveProjectAppInput{
-					OrgID:        ids.OrgID,
-					ProjectID:    ids.ProjectID,
-					Name:         "chat",
-					DefinitionID: appdefinition.Slack,
+					OrgID:     ids.OrgID,
+					ProjectID: ids.ProjectID,
+					Name:      "chat",
+					AppType:   appdefinition.SlackThread,
 					Settings: integrationstore.ProjectAppSettings{
 						Launcher: &integrationstore.AppLauncher{
 							Trigger:   "mention",

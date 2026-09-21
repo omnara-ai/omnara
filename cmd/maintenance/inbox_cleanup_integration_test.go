@@ -40,7 +40,7 @@ func TestInboxCleanupWarningAndTerminalRetry(t *testing.T) {
  (id,org_id,project_id,state,current_config_id,created_at,updated_at)
  VALUES($1,$2,$3,'active',$4,now(),now())`, agentID, ids.OrgID, ids.ProjectID, base.ID)
 	require.NoError(t, err)
-	appID := createMaintenanceInboxApp(t, store, ids, "slack", appdefinition.Slack).ID
+	appID := createMaintenanceInboxApp(t, store, ids, "slack", appdefinition.SlackThread).ID
 	inbox := store.Integrations()
 	_, _, err = inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "cleanup",

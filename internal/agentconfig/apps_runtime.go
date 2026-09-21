@@ -76,9 +76,9 @@ func resolvedDefinition(appID string, apps map[string]AppResolution) (appdefinit
 	if !ok || app.AppID != appID {
 		return appdefinition.Definition{}, fmt.Errorf("app %q is unavailable", appID)
 	}
-	definition, ok := appdefinition.Lookup(app.Definition)
+	definition, ok := appdefinition.Lookup(app.AppType)
 	if !ok {
-		return appdefinition.Definition{}, fmt.Errorf("unknown app definition %q", app.Definition)
+		return appdefinition.Definition{}, fmt.Errorf("unknown app type %q", app.AppType)
 	}
 	return definition, nil
 }
@@ -101,7 +101,7 @@ func PrepareAppTools(compiled Compiled, apps map[string]AppResolution) ([]Runtim
 			continue
 		}
 		_, operation, _ := toolcatalog.SplitAppToolName(key)
-		metadata, ok := toolcatalog.LookupAppTool(definition.ID, operation)
+		metadata, ok := toolcatalog.LookupAppTool(definition.AppType, operation)
 		if !ok {
 			continue
 		}

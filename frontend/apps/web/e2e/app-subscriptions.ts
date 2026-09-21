@@ -1,5 +1,6 @@
 import {
   type AppSubscription,
+  type AppType,
   type CreateAgentRequest,
   type CreateAppSubscriptionRequest,
   type ProjectApp,
@@ -45,9 +46,9 @@ export async function exerciseAppConversations(
   const profileResponse = await request(page, `${apiProjectPath}/agent-profiles/${profileId}`)
   expect(profileResponse.status).toBe(200)
   const profile = zJsonText.pipe(schemas.zAgentProfile).parse(profileResponse.body)
-  const type = app.provider === 'github' ? 'pull_request' : 'thread_messages'
+  const type = app.app_type === 'github_pr' ? 'pull_request' : 'thread_messages'
   const conversation =
-    app.provider === 'github'
+    app.app_type === 'github_pr'
       ? { repository_id: 333, pull_request: 1 }
       : { channel_id: '333333333333333333', thread_id: '444444444444444444' }
   // No input: the agent stays idle, and this journey performs no provider I/O.
@@ -71,7 +72,7 @@ export async function exerciseAppConversations(
     agent_id: agent.id,
     type,
     conversation:
-      app.provider === 'github'
+      app.app_type === 'github_pr'
         ? { repository_id: 333, pull_request: 2 }
         : {
             guild_id: '111111111111111111',
@@ -90,7 +91,7 @@ export async function exerciseAppConversations(
     'href',
     `/projects/${app.project_id}/agents/${agent.id}/events`,
   )
-  await auditConversationLayout(page, app.provider, 'connected')
+  await auditConversationLayout(page, app.app_type, 'connected')
   await stopConversation(page, app, first, apiProjectPath)
   await expect(section.getByRole('listitem')).toHaveCount(1)
   return second
@@ -104,7 +105,7 @@ async function stopConversation(
 ) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
   let label: string
-  if (app.provider === 'github') {
+  if (app.app_type === 'github_pr') {
     const address = z
       .object({ repository_id: z.number(), pull_request: z.number() })
       .parse(subscription.conversation)
@@ -141,16 +142,12 @@ export async function stopDisconnectedConversation(
 ) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
   await expect(section).toContainText('Forwarding is paused')
-  await auditConversationLayout(page, app.provider, 'disconnected')
+  await auditConversationLayout(page, app.app_type, 'disconnected')
   await stopConversation(page, app, subscription, apiProjectPath)
   await expect(section).toContainText('No conversations yet.')
 }
 
-async function auditConversationLayout(
-  page: Page,
-  provider: ProjectApp['provider'],
-  state: string,
-) {
+async function auditConversationLayout(page: Page, appType: AppType, state: string) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
   const viewport = page.viewportSize()
   if (!viewport) throw new Error('Browser audit requires a fixed viewport')
@@ -160,7 +157,7 @@ async function auditConversationLayout(
       .poll(() => section.evaluate((element) => element.scrollWidth <= element.clientWidth))
       .toBe(true)
     await expect(section.getByRole('button', { name: /^Stop forwarding/ }).first()).toBeVisible()
-    const name = `${provider}-${state}-conversations-${width}`
+    const name = `${appType}-${state}-conversations-${width}`
     const path = test.info().outputPath(`${name}.png`)
     await section.screenshot({ path })
     await test.info().attach(name, { path, contentType: 'image/png' })

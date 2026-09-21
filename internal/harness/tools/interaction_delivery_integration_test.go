@@ -199,7 +199,7 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 			require.Equal(t, want, posts.Load())
 			pending, err := f.Store.Execution().ListPendingInteractionPresentations(
 				ctx,
-				[]string{appdefinition.Slack},
+				[]string{string(appdefinition.SlackThread)},
 				10,
 			)
 			require.NoError(t, err)

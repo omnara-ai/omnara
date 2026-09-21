@@ -122,7 +122,7 @@ func TestInboxSubscriptionAuthorityUsesLiveTypeAddressEventAndApp(t *testing.T) 
 					attachment.Events = []string{"review_comment"}
 				case "other app":
 					other, err := f.store.Integrations().CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-						OrgID: testOrgID, ProjectID: testProjectID, Name: "another-app", DefinitionID: f.app.DefinitionID,
+						OrgID: testOrgID, ProjectID: testProjectID, Name: "another-app", AppType: f.app.AppType,
 					})
 					require.NoError(t, err)
 					secret, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, f.app.CredentialSecretID)

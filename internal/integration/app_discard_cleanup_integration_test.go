@@ -223,10 +223,10 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	})
 	require.NoError(t, err)
 	app, err := inbox.UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
-		OrgID:        ids.OrgID,
-		ProjectID:    ids.ProjectID,
-		Name:         "chat",
-		DefinitionID: appdefinition.Slack,
+		OrgID:     ids.OrgID,
+		ProjectID: ids.ProjectID,
+		Name:      "chat",
+		AppType:   appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{
 				Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",

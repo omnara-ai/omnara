@@ -53,7 +53,7 @@ function render(api: FakeApi, node: ReactNode) {
 }
 function Catalog() {
   const query = useAppDefinitions(orgID, projectID)
-  return <div>{query.data?.data.map((definition) => definition.id).join(',')}</div>
+  return <div>{query.data?.data.map((definition) => definition.app_type).join(',')}</div>
 }
 it('loads the registry through the project-scoped catalog hook', async () => {
   const api = fakeApi([
@@ -65,7 +65,7 @@ it('loads the registry through the project-scoped catalog hook', async () => {
   ])
   render(api, <Catalog />)
   await waitForUI(() => {
-    expect(container.textContent).toContain('omnara.slack')
+    expect(container.textContent).toContain('slack_thread')
   })
   expect(api.requestsTo('GET', path + '/app-definitions')).toHaveLength(1)
 })

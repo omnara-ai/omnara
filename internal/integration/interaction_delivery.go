@@ -37,8 +37,14 @@ func (p InteractionPresenter) Enqueue(
 // atomically claims when it actually runs, so immediate delivery and replicas
 // can safely race. An attempted but unconfirmed send is never automatically reposted.
 func (p InteractionPresenter) EnqueuePending(ctx context.Context, runner interactionRunner) error {
+	var appTypes []string
+	for _, definition := range appdefinition.All() {
+		if definition.InteractionHandler != nil {
+			appTypes = append(appTypes, string(definition.AppType))
+		}
+	}
 	pending, err := p.Store.Execution().ListPendingInteractionPresentations(ctx,
-		[]string{appdefinition.Slack, appdefinition.Discord},
+		appTypes,
 		executionstore.MaxPendingInteractionPresentations)
 	if err != nil {
 		return err

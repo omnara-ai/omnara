@@ -1,5 +1,5 @@
 import { useCreateProjectApp, useUpdateProjectApp } from '@omnara/react'
-import type { IntegrationProvider, ProjectApp } from '@omnara/sdk'
+import type { AppType, ProjectApp } from '@omnara/sdk'
 import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,7 @@ import {
 export interface ProjectAppFormProps {
   orgId: string
   projectId: string
-  provider: IntegrationProvider
+  appType: AppType
   app?: ProjectApp
   onSaved: (app: ProjectApp) => void
   onCancel?: () => void
@@ -45,7 +45,7 @@ export function ProjectAppForm(props: ProjectAppFormProps) {
 function ProjectAppFormEditor({
   orgId,
   projectId,
-  provider,
+  appType,
   app,
   onSaved,
   onCancel,
@@ -54,7 +54,7 @@ function ProjectAppFormEditor({
 }: ProjectAppFormProps & { stale: boolean; onReload: () => void }) {
   const create = useCreateProjectApp(orgId, projectId)
   const update = useUpdateProjectApp(orgId, projectId)
-  const [values, setValues] = useState(() => projectAppFormValues(provider, app))
+  const [values, setValues] = useState(() => projectAppFormValues(appType, app))
   const [error, setError] = useState('')
   const submitting = useRef(false)
   const mounted = useRef(true)
@@ -65,7 +65,7 @@ function ProjectAppFormEditor({
     }
   }, [])
   const busy = create.isPending || update.isPending
-  const validation = validateProjectAppForm(provider, values, app)
+  const validation = validateProjectAppForm(appType, values, app)
   function change(patch: Partial<ProjectAppFormValues>) {
     setValues((previous) => ({ ...previous, ...patch }))
   }
@@ -75,7 +75,7 @@ function ProjectAppFormEditor({
     submitting.current = true
     setError('')
     try {
-      const request = projectAppFormRequest(provider, values, app)
+      const request = projectAppFormRequest(appType, values, app)
       let saved: ProjectApp
       if (app) saved = await update.mutateAsync({ appID: app.id, ...request })
       else saved = await create.mutateAsync(request)
@@ -121,7 +121,7 @@ function ProjectAppFormEditor({
             <ProjectAppLauncherFields
               orgId={orgId}
               projectId={projectId}
-              provider={provider}
+              appType={appType}
               app={app}
               values={values}
               onChange={change}

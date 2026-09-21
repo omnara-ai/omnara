@@ -36,7 +36,7 @@ func inboxInputApp(t *testing.T, f appActivationFixture, provider string) integr
 	})
 	require.NoError(t, err)
 	app, err := f.store.Integrations().CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: testOrgID, ProjectID: testProjectID, Name: "github", DefinitionID: appdefinition.GitHub,
+		OrgID: testOrgID, ProjectID: testProjectID, Name: "github", AppType: appdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
 	app, err = f.store.Integrations().ConfigureProjectApp(f.ctx, integrationstore.ConfigureProjectAppInput{

@@ -200,7 +200,7 @@ func seedServiceSlackApp(
 ) integrationstore.ProjectAppRecord {
 	t.Helper()
 	created := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/apps",
-		map[string]any{"name": "chat", "definition_id": appdefinition.Slack, "settings": map[string]any{}},
+		map[string]any{"name": "chat", "app_type": appdefinition.SlackThread, "settings": map[string]any{}},
 		"", project.adminToken, http.StatusCreated)
 	appID, err := publicid.Decode(publicid.KindProjectApp, testutil.RequireType[string](t, created["id"]))
 	require.NoError(t, err)
@@ -252,8 +252,8 @@ func startServiceSlackWorkers(
 			store.Secrets(), store.Integrations(), store.Execution()),
 	}
 	launcher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), providers)
-	launches := integration.NewAppLaunchWorkflow(router, map[string]integration.AppLauncher{
-		appdefinition.Slack: launcher.Decide,
+	launches := integration.NewAppLaunchWorkflow(router, map[appdefinition.Type]integration.AppLauncher{
+		appdefinition.SlackThread: launcher.Decide,
 	})
 	consumer := integration.NewAppInboxConsumer(router, store.Integrations(), store.Artifacts(), providers,
 		integration.InteractionPresenter{Store: store, HTTPClient: client}, launches)

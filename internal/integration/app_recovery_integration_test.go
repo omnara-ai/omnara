@@ -44,7 +44,7 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedSubscriptionInput(t *testing.
 	}
 	profile := createProfile("first")
 	setup := integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "review", AgentProfileID: &profile.ID}}},

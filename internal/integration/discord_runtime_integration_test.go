@@ -79,7 +79,7 @@ func newDiscordRuntimeFixture(t *testing.T, shards int) discordRuntimeFixture {
 		)
 	require.NoError(t, err)
 	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "discord", DefinitionID: appdefinition.Discord,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "discord", AppType: appdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
 	appSetup, err := store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
@@ -109,7 +109,7 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	require.True(t, found)
 	updated, err := store.Integrations().UpdateProjectApp(ctx, appSetup.ID, integrationstore.SaveProjectAppInput{
 		OrgID: appSetup.OrgID, ProjectID: appSetup.ProjectID, Name: appSetup.Name,
-		DefinitionID: appSetup.DefinitionID, Settings: appSetup.Settings,
+		AppType: appSetup.AppType, Settings: appSetup.Settings,
 	})
 	require.NoError(t, err)
 	require.Equal(t, appSetup.SetupRevision, updated.SetupRevision)
@@ -372,7 +372,7 @@ func TestDiscordRuntimeScanPassesOwnedPageAndWraps(t *testing.T) {
 	for i := range 100 {
 		app, err := f.store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
 			OrgID: f.appSetup.OrgID, ProjectID: f.appSetup.ProjectID,
-			Name: fmt.Sprintf("discord-%d", i), DefinitionID: appdefinition.Discord,
+			Name: fmt.Sprintf("discord-%d", i), AppType: appdefinition.DiscordThread,
 		})
 		require.NoError(t, err)
 		appSetup, err := f.store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{

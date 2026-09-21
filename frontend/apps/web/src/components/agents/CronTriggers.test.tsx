@@ -153,10 +153,10 @@ async function chooseProfile() {
   })
 }
 
-it.each(['slack', 'discord'] as const)(
+it.each(['slack_thread', 'discord_thread'] as const)(
   'creates a %s app schedule without a mention launcher',
-  async (provider) => {
-    const app = projectApp({ provider, state: 'active' })
+  async (appType) => {
+    const app = projectApp({ app_type: appType, state: 'active' })
     let schedules: CronTrigger[] = []
     const api = fakeApi([
       ...profileRoutes,
@@ -191,8 +191,8 @@ it.each(['slack', 'discord'] as const)(
     await enter('Name', 'morning-report')
     await enter('Cron expression', '0 9 * * 1-5')
     await enter('Task message', 'Summarize yesterday’s progress.')
-    await enter('Channel ID', provider === 'slack' ? 'G123' : '123456789')
-    if (provider === 'discord') await enter('Server ID (optional)', '987654321')
+    await enter('Channel ID', appType === 'slack_thread' ? 'G123' : '123456789')
+    if (appType === 'discord_thread') await enter('Server ID (optional)', '987654321')
     expect(button('Create schedule').disabled).toBe(true)
     await chooseProfile()
     await submit()
@@ -206,7 +206,7 @@ it.each(['slack', 'discord'] as const)(
         app_id: app.id,
         agent_profile_id: profile.id,
         destination:
-          provider === 'slack'
+          appType === 'slack_thread'
             ? { channel_id: 'G123' }
             : { channel_id: '123456789', guild_id: '987654321' },
         opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
@@ -258,10 +258,10 @@ it('keeps mentions and schedules available together without changing the launche
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
-it.each(['github', 'custom'] as const)(
+it.each(['github_pr', 'future_app'] as const)(
   'does not offer schedules for %s apps',
-  async (definition) => {
-    const app = projectApp({ provider: 'github', definition_id: `omnara.${definition}` })
+  async (appType) => {
+    const app = { ...projectApp({ app_type: 'github_pr' }), app_type: appType }
     const api = fakeApi([
       { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
     ])
@@ -275,7 +275,7 @@ it.each(['github', 'custom'] as const)(
 )
 
 it('edits destination and heading while keeping the saved app and profile immutable', async () => {
-  const app = projectApp({ provider: 'discord', state: 'active' })
+  const app = projectApp({ app_type: 'discord_thread', state: 'active' })
   const saved = trigger({
     target: { ...appTarget, destination: { channel_id: '123', guild_id: '456' } },
   })

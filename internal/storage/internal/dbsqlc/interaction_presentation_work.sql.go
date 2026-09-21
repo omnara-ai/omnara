@@ -44,13 +44,13 @@ func (q *Queries) ClaimInteractionPresentation(ctx context.Context, arg ClaimInt
 }
 
 const listPendingInteractionPresentations = `-- name: ListPendingInteractionPresentations :many
-WITH definitions AS (
-    SELECT DISTINCT unnest($2::text[]) AS handler_definition
+WITH app_types AS (
+    SELECT DISTINCT unnest($2::text[]) AS app_type
 )
 SELECT pending.project_id, pending.agent_id, pending.id
-FROM definitions
+FROM app_types
 CROSS JOIN LATERAL (
-    -- Each definition uses the pending index's equality prefix and ordering.
+    -- Each app type uses the pending index's equality prefix and ordering.
     -- Only this bounded set participates in the final oldest-first merge.
     SELECT agent.project_id, interaction.agent_id, interaction.id, interaction.created_at
     FROM agent_interactions interaction
@@ -61,7 +61,7 @@ CROSS JOIN LATERAL (
       AND interaction.destination IS NOT NULL
       AND interaction.presentation_attempted_at IS NULL
       AND interaction.presentation_receipt IS NULL
-      AND interaction.destination ->> 'handler_definition' = definitions.handler_definition
+      AND interaction.destination ->> 'app_type' = app_types.app_type
       AND agent.state = 'active'
       AND project.deleted_at IS NULL AND org.deleted_at IS NULL
     ORDER BY interaction.created_at, interaction.agent_id, interaction.id
@@ -72,8 +72,8 @@ LIMIT least(greatest($1::integer, 1), 100)
 `
 
 type ListPendingInteractionPresentationsParams struct {
-	BatchLimit  int32
-	Definitions []string
+	BatchLimit int32
+	AppTypes   []string
 }
 
 type ListPendingInteractionPresentationsRow struct {
@@ -83,7 +83,7 @@ type ListPendingInteractionPresentationsRow struct {
 }
 
 func (q *Queries) ListPendingInteractionPresentations(ctx context.Context, arg ListPendingInteractionPresentationsParams) ([]ListPendingInteractionPresentationsRow, error) {
-	rows, err := q.db.Query(ctx, listPendingInteractionPresentations, arg.BatchLimit, arg.Definitions)
+	rows, err := q.db.Query(ctx, listPendingInteractionPresentations, arg.BatchLimit, arg.AppTypes)
 	if err != nil {
 		return nil, err
 	}

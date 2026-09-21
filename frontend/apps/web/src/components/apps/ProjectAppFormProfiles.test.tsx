@@ -159,7 +159,7 @@ it('keeps off-page and existing-agent slots and retries a failed profile save', 
       orgId={orgId}
       projectId={projectId}
       app={mixedApp}
-      provider="slack"
+      appType="slack_thread"
       onSaved={closed}
     />,
   )
@@ -188,7 +188,7 @@ it('keeps off-page and existing-agent slots and retries a failed profile save', 
   expect(updates[0]?.body).toEqual(updates[1]?.body)
   expect(updates[1]?.body).toEqual({
     name: mixedApp.name,
-    definition_id: mixedApp.definition_id,
+    app_type: mixedApp.app_type,
     settings: {
       ...mixedApp.settings,
       launcher: {
@@ -247,7 +247,7 @@ it.each(['retry', 'remove'] as const)(
         orgId={orgId}
         projectId={projectId}
         app={mixedApp}
-        provider="slack"
+        appType="slack_thread"
         onSaved={closed}
       />,
     )
@@ -296,8 +296,7 @@ it.each([1, 15])(
   async (existingCount) => {
     const app: ProjectApp = {
       ...mixedApp,
-      definition_id: 'omnara.discord',
-      provider: 'discord',
+      app_type: 'discord_thread',
       provider_config: { public_key: 'ab'.repeat(32) },
       settings: {
         launcher: {
@@ -335,7 +334,7 @@ it.each([1, 15])(
         orgId={orgId}
         projectId={projectId}
         app={app}
-        provider="discord"
+        appType="discord_thread"
         onSaved={closed}
       />,
     )
@@ -364,7 +363,7 @@ it.each([1, 15])(
     })
     expect(api.requestsTo('PUT', path + '/apps/' + app.id)[0]?.body).toEqual({
       name: app.name,
-      definition_id: app.definition_id,
+      app_type: app.app_type,
       settings: app.settings,
     })
   },
@@ -373,8 +372,7 @@ it.each([1, 15])(
 it('requires a public key for even one Discord launch profile', async () => {
   const app = {
     ...mixedApp,
-    definition_id: 'omnara.discord',
-    provider: 'discord' as const,
+    app_type: 'discord_thread' as const,
     settings: {
       launcher: {
         trigger: 'mention',
@@ -398,7 +396,7 @@ it('requires a public key for even one Discord launch profile', async () => {
       orgId={orgId}
       projectId={projectId}
       app={app}
-      provider="discord"
+      appType="discord_thread"
       onSaved={vi.fn()}
     />,
   )
@@ -437,7 +435,7 @@ it.each(['saved channel', 'new launcher'] as const)(
       <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
-        provider="slack"
+        appType="slack_thread"
         app={app}
         onSaved={onSaved}
       />,

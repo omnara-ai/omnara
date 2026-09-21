@@ -16,25 +16,25 @@ func (s strictOpenAPIServer) ListAppDefinitions(
 ) (openapi.ListAppDefinitionsResponseObject, error) {
 	data := make([]openapi.AppDefinition, 0)
 	for _, definition := range appdefinition.All() {
-		capabilities, err := appCapabilitiesResponse(definition.ID)
+		capabilities, err := appCapabilitiesResponse(definition.AppType)
 		if err != nil {
 			return nil, err
 		}
 		data = append(data, openapi.AppDefinition{
-			Id: definition.ID, Provider: openapi.IntegrationProvider(definition.Provider), Capabilities: capabilities,
+			AppType: openapi.AppType(definition.AppType), Capabilities: capabilities,
 		})
 	}
 	return openapi.ListAppDefinitions200JSONResponse{Data: data}, nil
 }
 
-func appCapabilitiesResponse(id string) (openapi.AppCapabilities, error) {
+func appCapabilitiesResponse(id appdefinition.Type) (openapi.AppCapabilities, error) {
 	result := openapi.AppCapabilities{
 		Tools:         make(map[string]openapi.AppCapabilityDefinition),
 		Subscriptions: make(map[string]openapi.AppSubscriptionDefinition),
 	}
 	definition, ok := appdefinition.Lookup(id)
 	if !ok {
-		return result, fmt.Errorf("unknown app definition %q", id)
+		return result, fmt.Errorf("unknown app type %q", id)
 	}
 	for _, operation := range definition.Tools {
 		tool, ok := toolcatalog.LookupAppTool(id, operation)

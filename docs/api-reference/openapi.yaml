@@ -6847,7 +6847,7 @@ paths:
       operationId: updateProjectApp
       tags: [Integrations]
       summary: Update app launcher settings
-      description: Updates settings while preserving credentials. The request must echo the existing name and definition_id; changing either returns 400. A workspace or installation launcher must match the app's verified provider identity.
+      description: Updates settings while preserving credentials. The request must echo the existing name and app_type; changing either returns 400. A workspace or installation launcher must match the app's verified provider identity.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -8716,10 +8716,11 @@ components:
           minLength: 1
         return_to:
           type: string
-    IntegrationProvider:
+    AppType:
       type: string
-      enum: [slack, github, discord]
-      x-enum-varnames: [IntegrationProviderSlack, IntegrationProviderGitHub, IntegrationProviderDiscord]
+      description: Registered app implementation; independent of the saved app's name and immutable ID.
+      enum: [slack_thread, discord_thread, github_pr]
+      x-enum-varnames: [AppTypeSlackThread, AppTypeDiscordThread, AppTypeGitHubPR]
     AppProviderDisplayName:
       type: string
       maxLength: 512
@@ -11013,11 +11014,11 @@ components:
     AgentInteractionDestination:
       type: object
       additionalProperties: false
-      required: [handler_definition, handler_key, app_id, args, integration_target_id, address]
+      required: [app_type, handler_key, app_id, args, integration_target_id, address]
       description: Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
       properties:
-        handler_definition:
-          type: string
+        app_type:
+          $ref: '#/components/schemas/AppType'
         handler_key:
           type: string
         app_id:
@@ -13367,20 +13368,19 @@ components:
     SaveProjectAppRequest:
       type: object
       additionalProperties: false
-      required: [name, definition_id, settings]
-      description: Creates a disconnected app, or updates its launcher settings. Name and definition_id are immutable. Configure credentials through this app's setup endpoints.
+      required: [name, app_type, settings]
+      description: Creates a disconnected app, or updates its launcher settings. Name and app_type are immutable. Configure credentials through this app's setup endpoints.
       properties:
         name:
           $ref: '#/components/schemas/ProjectAppName'
-        definition_id:
-          type: string
-          minLength: 1
+        app_type:
+          $ref: '#/components/schemas/AppType'
         settings:
           $ref: '#/components/schemas/ProjectAppSettings'
     ProjectApp:
       type: object
       additionalProperties: false
-      required: [id, project_id, name, definition_id, provider, state, setup_revision, settings, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
+      required: [id, project_id, name, app_type, state, setup_revision, settings, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ProjectAppID'
@@ -13388,10 +13388,8 @@ components:
           $ref: '#/components/schemas/ProjectID'
         name:
           $ref: '#/components/schemas/ProjectAppName'
-        definition_id:
-          type: string
-        provider:
-          $ref: '#/components/schemas/IntegrationProvider'
+        app_type:
+          $ref: '#/components/schemas/AppType'
         state:
           $ref: '#/components/schemas/ProjectAppState'
         setup_revision:
@@ -13679,12 +13677,10 @@ components:
     AppDefinition:
       type: object
       additionalProperties: false
-      required: [id, provider, capabilities]
+      required: [app_type, capabilities]
       properties:
-        id:
-          type: string
-        provider:
-          $ref: '#/components/schemas/IntegrationProvider'
+        app_type:
+          $ref: '#/components/schemas/AppType'
         capabilities:
           $ref: '#/components/schemas/AppCapabilities'
     ListAppDefinitionsResponse:

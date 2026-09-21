@@ -161,7 +161,7 @@ const projectAppCatalogRoute = createRoute({
 
 const createProjectAppRoute = createRoute({
   getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/apps/new/$provider',
+  path: '/projects/$projectId/apps/new/$appType',
   component: lazyRouteComponent(
     () => import('@/routes/CreateProjectAppPage'),
     'CreateProjectAppPage',

@@ -135,20 +135,31 @@ func (q *Queries) ClaimAppRuntime(ctx context.Context, arg ClaimAppRuntimeParams
 }
 
 const listPersistentApps = `-- name: ListPersistentApps :many
-SELECT app.id, app.project_id
-FROM project_apps app
-JOIN projects project ON project.id = app.project_id
-JOIN orgs org ON org.id = project.org_id
-WHERE app.provider = 'discord' AND app.state = 'active' AND app.deleted_at IS NULL
-  AND project.deleted_at IS NULL AND org.deleted_at IS NULL
-  AND ($1::uuid IS NULL OR app.id > $1::uuid)
-ORDER BY app.id
+WITH app_types AS (
+    SELECT DISTINCT unnest($3::text[]) AS app_type
+)
+SELECT page.id, page.project_id
+FROM app_types
+CROSS JOIN LATERAL (
+    -- Limit each ordered type scan before merging the cursor's next page.
+    SELECT app.id, app.project_id
+    FROM project_apps app
+    JOIN projects project ON project.id = app.project_id
+    JOIN orgs org ON org.id = project.org_id
+    WHERE app.app_type = app_types.app_type AND app.state = 'active' AND app.deleted_at IS NULL
+      AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+      AND ($1::uuid IS NULL OR app.id > $1::uuid)
+    ORDER BY app.id
+    LIMIT $2
+) page
+ORDER BY page.id
 LIMIT $2
 `
 
 type ListPersistentAppsParams struct {
 	AfterID  *uuid.UUID
 	RowLimit int32
+	AppTypes []string
 }
 
 type ListPersistentAppsRow struct {
@@ -159,7 +170,7 @@ type ListPersistentAppsRow struct {
 // Only actual hosted persistent transports are enumerated. Cursor scanning keeps
 // a busy prefix owned by other workers from hiding apps later in the set.
 func (q *Queries) ListPersistentApps(ctx context.Context, arg ListPersistentAppsParams) ([]ListPersistentAppsRow, error) {
-	rows, err := q.db.Query(ctx, listPersistentApps, arg.AfterID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listPersistentApps, arg.AfterID, arg.RowLimit, arg.AppTypes)
 	if err != nil {
 		return nil, err
 	}

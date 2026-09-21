@@ -20,7 +20,7 @@ func appContextFixture(t *testing.T, source string) (*fakeContextStore, string) 
 	t.Helper()
 	appID, err := publicid.Encode(publicid.KindProjectApp, testIDN(940))
 	require.NoError(t, err)
-	apps := map[string]agentconfig.AppResolution{appID: {AppID: appID, Definition: appdefinition.Slack}}
+	apps := map[string]agentconfig.AppResolution{appID: {AppID: appID, AppType: appdefinition.SlackThread}}
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
 instruction: Help the user.
 model:
@@ -107,7 +107,9 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 			if state == "recreated name" {
 				replacement, err := publicid.Encode(publicid.KindProjectApp, testIDN(942))
 				require.NoError(t, err)
-				store.appDefinitions[replacement] = agentconfig.AppResolution{AppID: replacement, Definition: appdefinition.Slack}
+				store.appDefinitions[replacement] = agentconfig.AppResolution{
+					AppID: replacement, AppType: appdefinition.SlackThread,
+				}
 			}
 			bundle := buildAppContext(t, store)
 			require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"))

@@ -30,7 +30,7 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 	})
 	require.NoError(t, err)
 	app, err := inbox.UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123",
 			Slots: []integrationstore.AppLaunchSlot{{Key: "reviewer", AgentProfileID: &profile.ID}},
@@ -135,7 +135,7 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 	settings.Launcher.Slots[0].AgentProfileID = &replacement.ID
 	_, err = inbox.UpdateProjectApp(ctx, apps[0].ID, integrationstore.SaveProjectAppInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: apps[0].Name,
-		DefinitionID: apps[0].DefinitionID, Settings: settings,
+		AppType: apps[0].AppType, Settings: settings,
 	})
 	require.NoError(t, err)
 	_, err = router.Freeze(ctx, receipt.Lease(), decided)
@@ -179,7 +179,7 @@ func TestAppRouterDirectedSettledIntentWithoutSubscription(t *testing.T) {
 	})
 	require.NoError(t, err)
 	app, err := inbox.UpdateProjectApp(ctx, appSetup, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{
 				Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123",

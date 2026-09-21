@@ -3,7 +3,7 @@ import { ApiError, type ProjectApp } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { appProvider } from '@/components/apps/appDefinitions'
+import { appCatalog } from '@/components/apps/appDefinitions'
 import { ConnectSlackDialog } from '@/components/apps/ConnectSlackDialog'
 import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
@@ -90,7 +90,8 @@ function ProjectAppSettings({
   const [editing, setEditing] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const navigate = useNavigate()
-  const provider = appProvider(app.definition_id)
+  const appType = app.app_type
+  const supported = appCatalog.some((definition) => definition.appType === appType)
   const viewing = !editing && !connecting
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -117,9 +118,9 @@ function ProjectAppSettings({
         </div>
       )}
       {connecting &&
-        provider &&
+        supported &&
         canManage &&
-        (provider === 'slack' ? (
+        (appType === 'slack_thread' ? (
           <ConnectSlackDialog
             open
             app={app}
@@ -144,7 +145,7 @@ function ProjectAppSettings({
             }}
           />
         ))}
-      {editing && provider && canManage ? (
+      {editing && supported && canManage ? (
         <>
           <p className="text-muted-foreground text-sm">
             Changes apply to future launches and configurations. Existing agents keep their current
@@ -153,7 +154,7 @@ function ProjectAppSettings({
           <ProjectAppForm
             orgId={orgId}
             projectId={projectId}
-            provider={provider}
+            appType={appType}
             app={app}
             onSaved={() => {
               setEditing(false)
@@ -174,7 +175,7 @@ function ProjectAppSettings({
           canManage={canManage}
         />
       )}
-      {viewing && (provider === 'slack' || provider === 'discord') && (
+      {viewing && (appType === 'slack_thread' || appType === 'discord_thread') && (
         <ProjectAppSchedules orgId={orgId} projectId={projectId} app={app} canManage={canManage} />
       )}
       <SlackOAuthOutcomeDialog />

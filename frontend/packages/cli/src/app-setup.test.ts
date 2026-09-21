@@ -1,4 +1,4 @@
-import { createOmnaraClient, type JsonBody, schemas } from '@omnara/sdk'
+import { type AppType, createOmnaraClient, type JsonBody, schemas } from '@omnara/sdk'
 import { expect, it, vi } from 'vitest'
 import * as z from 'zod'
 
@@ -19,12 +19,11 @@ const report = () => ({
 })
 const json = (value: JsonBody, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
-const app = (provider: string) => ({
+const app = (appType: AppType) => ({
   id: path.appID,
   project_id: path.projectID,
   name: 'support',
-  definition_id: `omnara.${provider}`,
-  provider,
+  app_type: appType,
   state: 'active',
   setup_revision: 2,
   settings: {},
@@ -37,17 +36,17 @@ const app = (provider: string) => ({
   updated_at: now,
 })
 
-it.each(['slack', 'discord'])(
+it.each(['slack_thread', 'discord_thread'] as const)(
   'edits %s profile choices without touching credentials or existing-agent slots',
-  async (provider) => {
+  async (appType) => {
     const second = `aprf_${'b'.repeat(26)}`
     const saved = {
-      ...app(provider),
+      ...app(appType),
       settings: {
         launcher: {
           trigger: 'mention',
-          scope_kind: provider === 'slack' ? 'workspace' : 'channel',
-          scope_ref: provider === 'slack' ? 'T123' : '333',
+          scope_kind: appType === 'slack_thread' ? 'workspace' : 'channel',
+          scope_ref: appType === 'slack_thread' ? 'T123' : '333',
           slots: [
             { key: 'original', agent_profile_id: id('aprf') },
             { key: 'continue', agent_id: id('agt') },
@@ -63,7 +62,7 @@ it.each(['slack', 'discord'])(
         requests.push(request)
         if (request.method === 'GET') return json(z.json().parse(saved))
         const body = schemas.zSaveProjectAppRequest.parse(await request.clone().json())
-        expect(body).toMatchObject({ name: saved.name, definition_id: saved.definition_id })
+        expect(body).toMatchObject({ name: saved.name, app_type: saved.app_type })
         expect(body.settings.launcher?.slots).toEqual([
           { key: 'original', agent_profile_id: id('aprf') },
           { key: 'continue', agent_id: id('agt') },
@@ -119,7 +118,7 @@ it('Slack waits for this app and the exact OAuth flow', async () => {
       }
       reads++
       return json({
-        ...app('slack'),
+        ...app('slack_thread'),
         last_oauth_flow_id: reads === 1 ? `ioaf_${'b'.repeat(26)}` : id('ioaf'),
       })
     },

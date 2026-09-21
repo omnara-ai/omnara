@@ -22,11 +22,11 @@ export function ProjectAppSummary({
         </p>
         {app.provider_tenant_id && (
           <p className="text-muted-foreground">
-            {app.provider === 'slack' ? 'Workspace' : 'Application'} {app.provider_tenant_id} ·{' '}
-            {app.provider_account_ref}
+            {app.app_type === 'slack_thread' ? 'Workspace' : 'Application'} {app.provider_tenant_id}{' '}
+            · {app.provider_account_ref}
           </p>
         )}
-        {app.provider === 'github' && (
+        {app.app_type === 'github_pr' && (
           <p>
             GitHub webhook URL:{' '}
             <code className="break-all">
@@ -35,7 +35,7 @@ export function ProjectAppSummary({
             . Subscribe to pull requests, issue comments, and pull request review comments.
           </p>
         )}
-        {app.provider === 'discord' && (
+        {app.app_type === 'discord_thread' && (
           <p>
             Discord Interactions Endpoint URL:{' '}
             <code className="break-all">

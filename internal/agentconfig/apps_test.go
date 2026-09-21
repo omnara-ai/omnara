@@ -19,7 +19,7 @@ func appTestOptions(t *testing.T) (CompileOptions, map[string]AppResolution) {
 	t.Helper()
 	id, err := publicid.Encode(publicid.KindProjectApp, publicidTestID(120))
 	require.NoError(t, err)
-	app := AppResolution{AppID: id, Definition: appdefinition.Slack}
+	app := AppResolution{AppID: id, AppType: appdefinition.SlackThread}
 	return CompileOptions{ResolveAppName: func(name string) (AppResolution, error) {
 		if name != "engineering-team" {
 			return AppResolution{}, fmt.Errorf("app %s is unavailable", name)
@@ -90,7 +90,7 @@ func TestAppSourceValidation(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "ResolveAppName")
 	opts.ResolveAppName = func(string) (AppResolution, error) {
-		return AppResolution{AppID: "invalid", Definition: appdefinition.Slack}, nil
+		return AppResolution{AppID: "invalid", AppType: appdefinition.SlackThread}, nil
 	}
 	_, err = Compile(
 		SourceFormatYAML,
@@ -288,7 +288,7 @@ func TestReferencedAppIDsExcludeDisabledToolsOnly(t *testing.T) {
 	for index, name := range []string{"disabled", "shared", "enabled", "denied", "handler"} {
 		id, err := publicid.Encode(publicid.KindProjectApp, publicidTestID(130+index))
 		require.NoError(t, err)
-		apps[name] = AppResolution{AppID: id, Definition: appdefinition.Slack}
+		apps[name] = AppResolution{AppID: id, AppType: appdefinition.SlackThread}
 	}
 	opts := CompileOptions{ResolveAppName: func(name string) (AppResolution, error) {
 		app, ok := apps[name]

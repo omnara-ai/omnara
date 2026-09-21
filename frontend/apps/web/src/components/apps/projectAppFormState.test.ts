@@ -9,7 +9,12 @@ import { slackOAuthErrorDescription } from './SlackOAuthOutcomeDialogState'
 const profileId = fakeId('aprf'),
   second = `aprf_${'b'.repeat(26)}`
 const app = projectApp({
-  ...profileAppSetup({ name: 'shared-slack', provider: 'slack', scopeRef: 'T123', profileId }),
+  ...profileAppSetup({
+    name: 'shared-slack',
+    appType: 'slack_thread',
+    scopeRef: 'T123',
+    profileId,
+  }),
   state: 'active',
   provider_tenant_id: 'T123',
 })
@@ -31,38 +36,42 @@ const advanced = {
 
 describe('app metadata form', () => {
   it('creates a draft before configuring credentials or launching agents', () => {
-    expect(projectAppFormValues('slack')).toMatchObject({ launcher: false, profileIds: [] })
-    expect(projectAppFormRequest('slack', projectAppFormValues('slack'))).toEqual({
-      name: 'slack',
-      definition_id: 'omnara.slack',
+    expect(projectAppFormValues('slack_thread')).toMatchObject({ launcher: false, profileIds: [] })
+    expect(projectAppFormRequest('slack_thread', projectAppFormValues('slack_thread'))).toEqual({
+      name: 'slack-thread',
+      app_type: 'slack_thread',
       settings: {},
     })
   })
   it('preserves an advanced launcher and immutable identity without mutating the app', () => {
     const before = structuredClone(advanced)
     expect(
-      projectAppFormRequest('slack', projectAppFormValues('slack', advanced), advanced),
+      projectAppFormRequest(
+        'slack_thread',
+        projectAppFormValues('slack_thread', advanced),
+        advanced,
+      ),
     ).toEqual({
       name: advanced.name,
-      definition_id: advanced.definition_id,
+      app_type: advanced.app_type,
       settings: advanced.settings,
     })
     expect(() =>
       projectAppFormRequest(
-        'slack',
-        { ...projectAppFormValues('slack', app), name: 'renamed' },
+        'slack_thread',
+        { ...projectAppFormValues('slack_thread', app), name: 'renamed' },
         app,
       ),
     ).toThrow(/cannot be changed/)
     expect(() =>
-      projectAppFormRequest('discord', projectAppFormValues('discord', app), app),
-    ).toThrow(/provider/)
+      projectAppFormRequest('discord_thread', projectAppFormValues('discord_thread', app), app),
+    ).toThrow(/type/)
     expect(advanced).toEqual(before)
   })
   it('keeps named, repeated and existing-agent slots when editing profiles', () => {
     const result = projectAppFormRequest(
-      'slack',
-      { ...projectAppFormValues('slack', advanced), profileIds: [profileId, second] },
+      'slack_thread',
+      { ...projectAppFormValues('slack_thread', advanced), profileIds: [profileId, second] },
       advanced,
     )
     expect(result.settings.launcher?.slots).toEqual([
@@ -71,15 +80,15 @@ describe('app metadata form', () => {
     ])
     expect(
       projectAppFormRequest(
-        'slack',
-        { ...projectAppFormValues('slack', advanced), profileIds: [] },
+        'slack_thread',
+        { ...projectAppFormValues('slack_thread', advanced), profileIds: [] },
         advanced,
       ).settings.launcher?.slots,
     ).toEqual([advanced.settings.launcher.slots[2]])
     expect(() =>
       projectAppFormRequest(
-        'slack',
-        { ...projectAppFormValues('slack', app), profileIds: [] },
+        'slack_thread',
+        { ...projectAppFormValues('slack_thread', app), profileIds: [] },
         app,
       ),
     ).toThrow(/profile/)
@@ -87,22 +96,22 @@ describe('app metadata form', () => {
   it('adds or removes only the launcher', () => {
     const draft = { ...app, settings: {} }
     const request = projectAppFormRequest(
-      'slack',
-      { ...projectAppFormValues('slack', draft), launcher: true, profileIds: [profileId] },
+      'slack_thread',
+      { ...projectAppFormValues('slack_thread', draft), launcher: true, profileIds: [profileId] },
       draft,
     )
     expect(request.settings).toEqual(app.settings)
     expect(
       projectAppFormRequest(
-        'slack',
-        { ...projectAppFormValues('slack', app), launcher: false },
+        'slack_thread',
+        { ...projectAppFormValues('slack_thread', app), launcher: false },
         app,
       ).settings,
     ).toEqual({})
   })
   it('retains a GitHub slot key when changing its profile', () => {
     const github = projectApp({
-      provider: 'github',
+      app_type: 'github_pr',
       settings: {
         launcher: {
           trigger: 'mention',
@@ -113,9 +122,9 @@ describe('app metadata form', () => {
       },
     })
     const request = projectAppFormRequest(
-      'github',
+      'github_pr',
       {
-        ...projectAppFormValues('github', github),
+        ...projectAppFormValues('github_pr', github),
         profileIds: [second],
         trigger: 'pull_request_opened',
       },
@@ -139,32 +148,38 @@ describe('app metadata form', () => {
         },
       },
     })
-    const values = projectAppFormValues('slack', fixed)
+    const values = projectAppFormValues('slack_thread', fixed)
     expect(
-      projectAppFormRequest('slack', { ...values, scopeKind: 'channel', scopeRef: ' C456 ' }, fixed)
-        .settings.launcher,
+      projectAppFormRequest(
+        'slack_thread',
+        { ...values, scopeKind: 'channel', scopeRef: ' C456 ' },
+        fixed,
+      ).settings.launcher,
     ).toEqual({ ...fixed.settings.launcher, scope_kind: 'channel', scope_ref: 'C456' })
     expect(() =>
-      projectAppFormRequest('slack', { ...values, scopeKind: 'channel' }, fixed),
+      projectAppFormRequest('slack_thread', { ...values, scopeKind: 'channel' }, fixed),
     ).toThrow(/channel ID/)
     expect(() =>
-      projectAppFormRequest('slack', { ...values, trigger: 'pull_request_opened' }, fixed),
+      projectAppFormRequest('slack_thread', { ...values, trigger: 'pull_request_opened' }, fixed),
     ).toThrow(/trigger/)
   })
 
   it('reports readable name, scope and Discord key errors', () => {
     expect(() =>
-      projectAppFormRequest('slack', { ...projectAppFormValues('slack'), name: 'not valid' }),
+      projectAppFormRequest('slack_thread', {
+        ...projectAppFormValues('slack_thread'),
+        name: 'not valid',
+      }),
     ).toThrow(/1–32/)
     expect(() =>
       projectAppFormRequest(
-        'slack',
-        { ...projectAppFormValues('slack', app), scopeKind: 'channel', scopeRef: 'invalid' },
+        'slack_thread',
+        { ...projectAppFormValues('slack_thread', app), scopeKind: 'channel', scopeRef: 'invalid' },
         app,
       ),
     ).toThrow(/Slack channel ID/)
     const discord = projectApp({
-      provider: 'discord',
+      app_type: 'discord_thread',
       settings: {
         launcher: {
           trigger: 'mention',
@@ -175,7 +190,11 @@ describe('app metadata form', () => {
       },
     })
     expect(() =>
-      projectAppFormRequest('discord', projectAppFormValues('discord', discord), discord),
+      projectAppFormRequest(
+        'discord_thread',
+        projectAppFormValues('discord_thread', discord),
+        discord,
+      ),
     ).toThrow(/Discord public key/)
     expect(slackOAuthErrorDescription('setup_save_failed')).not.toMatch(/already connected/i)
   })

@@ -155,7 +155,7 @@ func (s *Store) registerAppFollowTx(
 	// Provider I/O already checked the current sender. Completion validates the
 	// original send's provenance; future tool edits do not revoke a confirmed post.
 	authority, err := agentconfig.ResolveAppToolAuthority(originalContract, originalContract, tool.Name,
-		map[string]agentconfig.AppResolution{appRef: {AppID: appRef, Definition: app.DefinitionID}})
+		map[string]agentconfig.AppResolution{appRef: {AppID: appRef, AppType: app.AppType}})
 	if err != nil {
 		return storeerr.ErrUnauthorized
 	}

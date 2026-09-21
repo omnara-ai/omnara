@@ -30,8 +30,8 @@ func TestAppLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 			event.Directed = true
 			event.Launches = []AppLaunchIntent{{AppID: uuid.New(), AgentID: uuid.New()}}
 			calls := 0
-			workflow := NewAppLaunchWorkflow(f.consumer.router, map[string]AppLauncher{
-				appdefinition.Slack: func(_ context.Context, input AppLaunchContext) ([]AppLaunchIntent, error) {
+			workflow := NewAppLaunchWorkflow(f.consumer.router, map[appdefinition.Type]AppLauncher{
+				appdefinition.SlackThread: func(_ context.Context, input AppLaunchContext) ([]AppLaunchIntent, error) {
 					calls++
 					require.Equal(t, f.app.ID, input.App.ID)
 					if test.foreignLauncher {

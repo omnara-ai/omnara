@@ -53,7 +53,7 @@ func (q *Queries) GetInteractionCallbackAppID(ctx context.Context, arg GetIntera
 const getInteractionDestinationTarget = `-- name: GetInteractionDestinationTarget :one
 SELECT target.id, target.app_id AS app_id,
        target.provider_ref_kind, target.provider_ref, target.display_name,
-       app.provider, app.state AS app_state
+       app.state AS app_state
 FROM integration_targets target
 JOIN project_apps app
   ON app.project_id = target.project_id AND app.id = target.app_id
@@ -74,7 +74,6 @@ type GetInteractionDestinationTargetRow struct {
 	ProviderRefKind string
 	ProviderRef     string
 	DisplayName     string
-	Provider        string
 	AppState        string
 }
 
@@ -87,7 +86,6 @@ func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetIn
 		&i.ProviderRefKind,
 		&i.ProviderRef,
 		&i.DisplayName,
-		&i.Provider,
 		&i.AppState,
 	)
 	return i, err

@@ -182,7 +182,7 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 	t.Cleanup(provider.Close)
 	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "channel-subscription")
 	app, err := f.Project.Store.Integrations().UpdateProjectApp(ctx, f.Install.ID, integrationstore.SaveProjectAppInput{
-		OrgID: f.Install.OrgID, ProjectID: f.Install.ProjectID, Name: f.Install.Name, DefinitionID: f.Install.DefinitionID,
+		OrgID: f.Install.OrgID, ProjectID: f.Install.ProjectID, Name: f.Install.Name, AppType: f.Install.AppType,
 	})
 	require.NoError(t, err)
 	require.Nil(t, app.Settings.Launcher)

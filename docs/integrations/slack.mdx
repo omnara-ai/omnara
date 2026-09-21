@@ -13,7 +13,7 @@ can be used independently; see [Apps](/integrations/apps).
 
 ## Connect Slack
 
-Save an app with definition `omnara.slack` and a name such as `engineering`.
+Save an app with app type `slack_thread` and a name such as `engineering`.
 Connect an existing Slack app, or let Omnara create the Slack registration using
 an app configuration token from [Slack's app settings](https://api.slack.com/apps).
 The bot token obtained through OAuth represents the bot's access to that workspace;
@@ -22,7 +22,7 @@ it is different from the configuration token used to create the registration.
 With the CLI or API, create the Omnara app first:
 
 ```json
-{"name":"engineering","definition_id":"omnara.slack","settings":{}}
+{"name":"engineering","app_type":"slack_thread","settings":{}}
 ```
 
 Submit that body to `POST /orgs/{orgID}/projects/{projectID}/apps`, then use its

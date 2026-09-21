@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
@@ -67,7 +68,10 @@ func (s *Store) ListPersistentApps(
 	}
 	rows, err := s.q.ListPersistentApps(
 		ctx,
-		dbsqlc.ListPersistentAppsParams{AfterID: storeutil.IDFromNil(after), RowLimit: int32(limit)},
+		dbsqlc.ListPersistentAppsParams{
+			AppTypes: appdefinition.AppTypesForProvider(appdefinition.ProviderDiscord),
+			AfterID:  storeutil.IDFromNil(after), RowLimit: int32(limit),
+		},
 	)
 	if err != nil {
 		return nil, err

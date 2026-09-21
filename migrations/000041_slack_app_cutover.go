@@ -62,7 +62,7 @@ func (app slackCutoverApp) publicID() (string, error) {
 
 func slackCutoverApps(ctx context.Context, tx *sql.Tx) (map[string][]slackCutoverApp, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT project_id::text,id::text,name,deleted_at IS NOT NULL FROM project_apps
-		WHERE definition_id='omnara.slack' ORDER BY project_id,created_at,id`)
+		WHERE app_type='slack_thread' ORDER BY project_id,created_at,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +497,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 		JOIN integration_targets target ON target.project_id=agent.project_id AND target.agent_id=agent.id
 		  AND target.deleted_at IS NULL
 		JOIN project_apps app ON app.project_id=target.project_id
-		  AND app.id=target.app_id AND app.definition_id='omnara.slack'
+		  AND app.id=target.app_id AND app.app_type='slack_thread'
 		  AND app.deleted_at IS NULL
 		ORDER BY agent.id, target.id`)
 	if err != nil {

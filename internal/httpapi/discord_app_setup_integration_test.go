@@ -104,7 +104,7 @@ func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 				map[string]any{"kind": "generic", "value": "private-discord-token"})
 			body := appSetupHTTPBody("111", "222")
 			body["credential_secret_id"] = secretID
-			app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.Discord)
+			app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
 				appSetupPath(t, project, app), projectAppHTTPJSON(t, body),
 				"", tc.want, authHeaders(project.AdminToken))
@@ -182,7 +182,7 @@ func configureDiscordHTTPApp(
 	t *testing.T, handler http.Handler, project publicHTTPProject, body map[string]any,
 ) integrationstore.ProjectAppRecord {
 	t.Helper()
-	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.Discord)
+	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 	requestJSONWithHeaders(
 		t,
 		handler,

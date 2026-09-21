@@ -31,7 +31,7 @@ WHERE agents.project_id = sqlc.arg(project_id) AND agents.id = sqlc.arg(agent_id
 -- name: GetInteractionDestinationTarget :one
 SELECT target.id, target.app_id AS app_id,
        target.provider_ref_kind, target.provider_ref, target.display_name,
-       app.provider, app.state AS app_state
+       app.state AS app_state
 FROM integration_targets target
 JOIN project_apps app
   ON app.project_id = target.project_id AND app.id = target.app_id

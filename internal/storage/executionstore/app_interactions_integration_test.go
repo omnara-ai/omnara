@@ -117,7 +117,7 @@ func (f appInteractionFixture) createApp(
 	secret, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, credential)
 	require.NoError(t, err)
 	app, err := f.store.Integrations().CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: testOrgID, ProjectID: testProjectID, Name: name, DefinitionID: appdefinition.Slack,
+		OrgID: testOrgID, ProjectID: testProjectID, Name: name, AppType: appdefinition.SlackThread,
 	})
 	require.NoError(t, err)
 	app, err = f.store.Integrations().
@@ -247,7 +247,7 @@ func (f appInteractionFixture) callback(
 			},
 			Actor: mustAppActorParams(t, f.app.ID, user),
 		},
-		AppID: f.app.ID, HandlerDefinition: appdefinition.Slack,
+		AppID: f.app.ID, AppType: appdefinition.SlackThread,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
 	}
 }
@@ -442,7 +442,7 @@ func TestAppInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.AppID = uuid.New() },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Address.Ref = f.b.ProviderRef },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
-			v.HandlerDefinition = appdefinition.Discord
+			v.AppType = appdefinition.DiscordThread
 		},
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.IntegrationTargetID = f.b.ID },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Actor = nil },

@@ -2,9 +2,16 @@
 
 Apps are reviewed code contributions shipped with Omnara. `Lookup` in
 [`definition.go`](definition.go) describes Slack, GitHub and Discord. Saved project
-apps own setup and credentials and reference one immutable definition. This
+apps own setup and credentials and reference one immutable `app_type`. This
 package contains pure metadata, concrete address validation and provider addresses;
 it performs no storage reads or provider I/O.
+
+`Type` identifies the registered implementation: `slack_thread`, `discord_thread`
+or `github_pr`. PostgreSQL and OpenAPI enforce the same closed set. `Definition`
+keeps the transport association in code; saved app rows do not store a provider
+classification. `AppTypesForProvider` supplies indexed ingress/runtime discovery
+without inferring a transport from the type's name. Compiled agent capabilities
+still pin only the app instance ID.
 
 A definition exports operation names, named `SubscriptionDefinition` entries and at
 most one `InteractionHandlerDefinition`. GitHub has no interaction handler.

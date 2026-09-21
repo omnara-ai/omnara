@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -496,6 +497,7 @@ func seedListAgentsSlackTarget(
 		"ULISTAGENTSBOT",
 		"signing-secret-list-agents",
 	)
+	require.Equal(t, appdefinition.SlackThread, install.AppType)
 	base, found, err := store.Execution().GetAgentConfig(ctx, project.ProjectUUID, agent.CurrentConfigID)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -523,6 +525,8 @@ func seedListAgentsSlackTarget(
 	})
 	require.NoError(t, err)
 	require.True(t, found)
+	actor, err := executionstore.AppActorParams(install.ID, "ULISTINPUT", nil)
+	require.NoError(t, err)
 	plan, err := json.Marshal(map[string]executionstore.InboxInputSlot{"recipient": {
 		AgentID: agent.ID, Input: executionstore.CreateAgentContentInputInput{
 			Origin: &executionstore.AgentInputOrigin{
@@ -532,9 +536,7 @@ func seedListAgentsSlackTarget(
 					Ref:  "C0BAK8REEGY:1783382417.000100",
 				},
 			},
-			Actor: &executionstore.ActorParams{
-				Provider: "slack", ProviderTenantID: install.ProviderTenantID, ProviderUserID: "ULISTINPUT",
-			},
+			Actor:         &actor,
 			ContentBlocks: json.RawMessage(`[{"type":"text","text":"list origin"}]`), IdempotencyKey: "list-origin",
 		},
 	}})
@@ -577,6 +579,8 @@ func assertListAgentsIntegrationTarget(
 	if !ok {
 		t.Fatalf("integration target has unexpected shape: %+v", raw)
 	}
+	// Released clients interpret this field as a transport, even though the
+	// saved app and its catalog entry now expose app_type.
 	if got := target["provider"]; got != provider {
 		t.Fatalf("integration target provider = %v, want %q", got, provider)
 	}

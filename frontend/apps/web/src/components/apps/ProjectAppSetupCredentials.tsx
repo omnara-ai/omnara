@@ -28,7 +28,7 @@ export function ProjectAppSetupCredentials({
 }) {
   const [selectedSecret, setSelectedSecret] = useState(app.credential_secret_id ?? '')
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
-    filters: { kind: app.provider === 'github' ? 'github_app_credentials' : 'generic' },
+    filters: { kind: app.app_type === 'github_pr' ? 'github_app_credentials' : 'generic' },
     enabled: !newCredential && !savedSecret,
   })
   const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
@@ -64,7 +64,7 @@ export function ProjectAppSetupCredentials({
                   required
                 />
               </Field>
-              <AppCredentialFields provider={app.provider} />
+              <AppCredentialFields appType={app.app_type} />
             </>
           ) : (
             <Field>

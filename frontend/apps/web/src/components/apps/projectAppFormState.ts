@@ -1,6 +1,6 @@
 import {
   type AppLauncher,
-  type IntegrationProvider,
+  type AppType,
   profileAppDiscordKeyStatus,
   profileAppLauncherScope,
   profileAppProfileUpdate,
@@ -19,13 +19,10 @@ export interface ProjectAppFormValues {
   trigger: string
 }
 
-export function projectAppFormValues(
-  provider: IntegrationProvider,
-  app?: ProjectApp,
-): ProjectAppFormValues {
+export function projectAppFormValues(appType: AppType, app?: ProjectApp): ProjectAppFormValues {
   const launcher = app?.settings.launcher
   return {
-    name: app?.name ?? provider,
+    name: app?.name ?? appType.replaceAll('_', '-'),
     launcher: Boolean(launcher),
     profileIds: [
       ...new Set(
@@ -36,9 +33,14 @@ export function projectAppFormValues(
     ],
     scopeKind:
       launcher?.scope_kind ??
-      (provider === 'slack' ? 'workspace' : provider === 'github' ? 'repository' : 'channel'),
-    scopeRef: launcher?.scope_ref ?? (provider === 'slack' ? (app?.provider_tenant_id ?? '') : ''),
-    trigger: launcher?.trigger ?? (provider === 'github' ? 'pull_request_opened' : 'mention'),
+      (appType === 'slack_thread'
+        ? 'workspace'
+        : appType === 'github_pr'
+          ? 'repository'
+          : 'channel'),
+    scopeRef:
+      launcher?.scope_ref ?? (appType === 'slack_thread' ? (app?.provider_tenant_id ?? '') : ''),
+    trigger: launcher?.trigger ?? (appType === 'github_pr' ? 'pull_request_opened' : 'mention'),
   }
 }
 
@@ -52,23 +54,23 @@ export function githubHasAdvancedSlots(launcher?: AppLauncher) {
 }
 
 export function projectAppFormRequest(
-  provider: IntegrationProvider,
+  appType: AppType,
   values: ProjectAppFormValues,
   app?: ProjectApp,
 ): SaveProjectAppRequest {
   const name = values.name.trim()
   if (!/^[A-Za-z][A-Za-z0-9-]{0,31}$/.test(name))
     throw new Error('Use 1–32 letters, numbers or hyphens, starting with a letter.')
-  if (app && (app.name !== name || app.provider !== provider))
-    throw new Error('The app name and provider cannot be changed.')
+  if (app && (app.name !== name || app.app_type !== appType))
+    throw new Error('The app name and type cannot be changed.')
   const request: SaveProjectAppRequest = {
     name,
-    definition_id: app?.definition_id ?? `omnara.${provider}`,
+    app_type: app?.app_type ?? appType,
     settings: {},
   }
   if (!values.launcher) return request
   if (!app) throw new Error('Create and connect this app before choosing launch settings.')
-  const initial = projectAppFormValues(provider, app)
+  const initial = projectAppFormValues(appType, app)
   const existing = app.settings.launcher
   const scopeRef = values.scopeRef.trim()
   const scopeKind = values.scopeKind
@@ -76,13 +78,13 @@ export function projectAppFormRequest(
   let slots = existing?.slots
   if (existing && !profilesChanged) {
     slots = existing.slots
-  } else if (existing && provider !== 'github') {
+  } else if (existing && appType !== 'github_pr') {
     slots = profileAppProfileUpdate(app, values.profileIds).settings.launcher?.slots
   } else {
-    if (provider === 'github' && githubHasAdvancedSlots(existing))
+    if (appType === 'github_pr' && githubHasAdvancedSlots(existing))
       throw new Error('Edit advanced GitHub launch slots through the API.')
     slots = profileAppSetup({
-      provider,
+      appType,
       name,
       profileIds: values.profileIds,
       scopeKind: z.enum(['workspace', 'channel', 'repository']).parse(scopeKind),
@@ -101,11 +103,11 @@ export function projectAppFormRequest(
     existing.scope_ref !== scopeRef ||
     existing.trigger !== values.trigger
   ) {
-    profileAppLauncherScope({ provider, scopeKind, scopeRef, trigger: values.trigger })
+    profileAppLauncherScope({ appType, scopeKind, scopeRef, trigger: values.trigger })
   }
   if (
     profileAppDiscordKeyStatus({
-      definition: app.definition_id,
+      appType: app.app_type,
       slots,
       interactions: false,
       providerConfig: app.provider_config,
@@ -129,12 +131,12 @@ export function projectAppFormError(error: Error) {
 }
 
 export function validateProjectAppForm(
-  provider: IntegrationProvider,
+  appType: AppType,
   values: ProjectAppFormValues,
   app?: ProjectApp,
 ) {
   try {
-    const request = projectAppFormRequest(provider, values, app)
+    const request = projectAppFormRequest(appType, values, app)
     return { error: '', slotCount: request.settings.launcher?.slots.length ?? 0 }
   } catch (cause) {
     return {

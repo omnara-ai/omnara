@@ -84,16 +84,14 @@ func (s *Store) saveProjectApp(ctx context.Context, id uuid.UUID, input SaveProj
 				storeerr.ErrConflict,
 			)
 		}
-		definition, _ := appdefinition.Lookup(input.DefinitionID)
 		row, err = q.InsertProjectApp(
 			ctx,
 			dbsqlc.InsertProjectAppParams{
-				OrgID:        input.OrgID,
-				ProjectID:    input.ProjectID,
-				Name:         input.Name,
-				DefinitionID: input.DefinitionID,
-				Provider:     definition.Provider,
-				Settings:     settings,
+				OrgID:     input.OrgID,
+				ProjectID: input.ProjectID,
+				Name:      input.Name,
+				AppType:   string(input.AppType),
+				Settings:  settings,
 			},
 		)
 	} else {
@@ -104,11 +102,12 @@ func (s *Store) saveProjectApp(ctx context.Context, id uuid.UUID, input SaveProj
 		if lockErr != nil {
 			return ProjectAppRecord{}, lockErr
 		}
-		if current.Name != input.Name || current.DefinitionID != input.DefinitionID {
-			return ProjectAppRecord{}, storeerr.InvalidRequest(errors.New("app name and definition are immutable"))
+		if current.Name != input.Name || current.AppType != string(input.AppType) {
+			return ProjectAppRecord{}, storeerr.InvalidRequest(errors.New("app name and type are immutable"))
 		}
 		if current.ProviderTenantID != nil && current.ProviderAccountRef != nil {
-			if err := validateLauncherProviderScope(input.Settings.Launcher, current.Provider,
+			provider := appdefinition.ProviderForType(input.AppType)
+			if err := validateLauncherProviderScope(input.Settings.Launcher, provider,
 				*current.ProviderTenantID, *current.ProviderAccountRef); err != nil {
 				return ProjectAppRecord{}, storeerr.InvalidRequest(err)
 			}
@@ -181,14 +180,18 @@ func getProjectAppByID(ctx context.Context, q *dbsqlc.Queries, id uuid.UUID) (Pr
 }
 
 func projectAppRecord(row dbsqlc.ProjectApp) (ProjectAppRecord, error) {
+	definition, ok := appdefinition.Lookup(appdefinition.Type(row.AppType))
+	if !ok {
+		return ProjectAppRecord{}, fmt.Errorf("app %s has unregistered type %q", row.ID, row.AppType)
+	}
 	record := ProjectAppRecord{
 		ID:                       row.ID,
 		OrgID:                    row.OrgID,
 		ProjectID:                row.ProjectID,
 		InstalledByUserID:        storeutil.IDFromPtr(row.InstalledByUserID),
 		Name:                     row.Name,
-		DefinitionID:             row.DefinitionID,
-		Provider:                 row.Provider,
+		AppType:                  definition.AppType,
+		Provider:                 definition.Provider,
 		State:                    ProjectAppState(row.State),
 		SetupRevision:            row.SetupRevision,
 		ProviderTenantID:         "",
@@ -222,9 +225,9 @@ func normalizeProjectApp(input SaveProjectAppInput) (SaveProjectAppInput, error)
 	if err := toolcatalog.ValidateAppName(input.Name); err != nil {
 		return input, err
 	}
-	definition, ok := appdefinition.Lookup(input.DefinitionID)
+	definition, ok := appdefinition.Lookup(input.AppType)
 	if !ok {
-		return input, errors.New("unknown app definition")
+		return input, errors.New("unknown app type")
 	}
 	launcher := input.Settings.Launcher
 	if launcher == nil {
@@ -376,7 +379,7 @@ func (s *Store) listProjectAppsByProviderIdentity(
 	includeDisconnected bool,
 ) ([]ProjectAppRecord, error) {
 	rows, err := s.q.ListProjectAppsByProviderIdentity(ctx, dbsqlc.ListProjectAppsByProviderIdentityParams{
-		Provider: provider, ProviderTenantID: &tenant, ProviderAccountRef: account,
+		AppTypes: appdefinition.AppTypesForProvider(provider), ProviderTenantID: &tenant, ProviderAccountRef: account,
 		AfterID: storeutil.IDFromNil(after), RowLimit: int32(limit),
 		IncludeDisconnected: includeDisconnected,
 	})

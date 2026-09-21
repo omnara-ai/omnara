@@ -31,6 +31,5 @@ export {
   profileAppDiscordKeyStatus,
   profileAppLauncherScope,
   profileAppProfileUpdate,
-  type ProfileAppProvider,
   profileAppSetup,
 } from './profile-app'

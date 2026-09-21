@@ -19,6 +19,11 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
+	var appTypeHasDefault bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT column_default IS NOT NULL
+        FROM information_schema.columns WHERE table_schema='public'
+            AND table_name='project_apps' AND column_name='app_type'`).Scan(&appTypeHasDefault))
+	require.False(t, appTypeHasDefault, "the legacy backfill must not silently type new apps")
 	var obsolete bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT
         EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
@@ -37,8 +42,8 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 		t.Helper()
 		var id uuid.UUID
 		err := pool.QueryRow(ctx, `INSERT INTO project_apps
-			(org_id,project_id,name,definition_id,provider,state,created_at,updated_at)
-			VALUES ($1,$2,$3,'omnara.slack','slack','disconnected',now(),now()) RETURNING id`,
+			(org_id,project_id,name,app_type,state,created_at,updated_at)
+			VALUES ($1,$2,$3,'slack_thread','disconnected',now(),now()) RETURNING id`,
 			ids.OrgID, ids.ProjectID, name).Scan(&id)
 		require.NoError(t, err)
 		return id
@@ -53,7 +58,7 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 	}
 	for _, statement := range []string{
 		`UPDATE project_apps SET name='renamed' WHERE id=$1`,
-		`UPDATE project_apps SET definition_id='omnara.discord' WHERE id=$1`,
+		`UPDATE project_apps SET app_type='discord_thread' WHERE id=$1`,
 		`UPDATE project_apps SET provider_tenant_id='T456' WHERE id=$1`,
 		`UPDATE project_apps SET provider_account_ref=NULL,provider_tenant_id=NULL WHERE id=$1`,
 	} {

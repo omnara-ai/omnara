@@ -35,7 +35,7 @@ With an organization and project selected:
 
 ```sh
 omnara apps definitions
-omnara apps create --body '{"name":"engineering","definition_id":"omnara.slack","settings":{}}'
+omnara apps create --body '{"name":"engineering","app_type":"slack_thread","settings":{}}'
 omnara apps list
 ```
 
@@ -59,7 +59,7 @@ an existing credential of the matching provider kind. Read `setup_revision` from
 rejects a stale revision.
 
 ```sh
-omnara apps create --body '{"name":"reviewer","definition_id":"omnara.github","settings":{}}'
+omnara apps create --body '{"name":"reviewer","app_type":"github_pr","settings":{}}'
 # Set APP_ID to this new app's ID and SETUP_REVISION to its current setup_revision.
 omnara apps configure "$APP_ID" --expected-setup-revision "$SETUP_REVISION" \
   --provider-tenant-id "$GITHUB_APP_ID" --provider-account-ref "$GITHUB_INSTALLATION_ID" \
@@ -76,13 +76,13 @@ Interactions Endpoint URL to
 The same provider config accepts `shard_count` from 1–4096 (default 1).
 
 `apps update` replaces launcher settings and requires the unchanged app name and
-`definition_id`. For the Slack app above, replace the example workspace and profile
+`app_type`. For the Slack app above, replace the example workspace and profile
 IDs with your own:
 
 ```sh
 omnara apps update "$SLACK_APP_ID" --body '{
   "name": "engineering",
-  "definition_id": "omnara.slack",
+  "app_type": "slack_thread",
   "settings": {
     "launcher": {
       "trigger": "mention",

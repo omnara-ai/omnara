@@ -34,7 +34,7 @@ func TestInboxCommandsInspectRetryAndDiscardWithoutPayloadDisclosure(t *testing.
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
 	stores := newMaintenanceInboxStore(t, pool, ids)
 	store := stores.Integrations()
-	app := createMaintenanceInboxApp(t, stores, ids, "slack", appdefinition.Slack).ID
+	app := createMaintenanceInboxApp(t, stores, ids, "slack", appdefinition.SlackThread).ID
 	var receipts []integrationstore.IntegrationInboxRecord
 	plannedAgent, plannedArtifact := uuid.New(), uuid.New()
 	for _, key := range []string{"one", "two"} {
@@ -147,7 +147,7 @@ func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixtu
 }
 
 func createMaintenanceInboxApp(
-	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, name, definitionID string,
+	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, name string, appType appdefinition.Type,
 ) integrationstore.ProjectAppRecord {
 	t.Helper()
 	ctx := t.Context()
@@ -155,8 +155,8 @@ func createMaintenanceInboxApp(
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, InstalledByUserID: ids.ProviderAdminUserID,
 	}
 	var material secrets.Material
-	switch definitionID {
-	case appdefinition.Slack:
+	switch appType {
+	case appdefinition.SlackThread:
 		input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "slack", "T123", "A123"
 		input.OAuthFlowID = uuid.Must(uuid.NewV7())
 		material = secrets.SlackAppCredentialsMaterial{
@@ -165,14 +165,14 @@ func createMaintenanceInboxApp(
 			ClientSecret:  "fixture-client",
 			SigningSecret: "fixture-signing",
 		}
-	case appdefinition.GitHub:
+	case appdefinition.GitHubPR:
 		input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "github", "123", "456"
 		input.CredentialAppID = 123
 		material = secrets.GitHubAppCredentialsMaterial{
 			AppID: "123", PrivateKey: "fixture-key-verified-by-caller", WebhookSecret: "fixture-webhook",
 		}
 	default:
-		t.Fatalf("unsupported maintenance app definition %q", definitionID)
+		t.Fatalf("unsupported maintenance app type %q", appType)
 	}
 	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID: ids.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: ids.ProjectID,
@@ -180,7 +180,7 @@ func createMaintenanceInboxApp(
 	})
 	require.NoError(t, err)
 	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, DefinitionID: definitionID,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, AppType: appType,
 	})
 	require.NoError(t, err)
 	input.AppID, input.ExpectedSetupRevision = app.ID, app.SetupRevision

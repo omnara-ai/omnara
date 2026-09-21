@@ -156,7 +156,7 @@ func newProjectSlackOAuthFixture(
 		}),
 	)
 	f.project = bootstrapPublicHTTPProject(t, f.handler, "project-slack")
-	f.app = createSetupHTTPApp(t, f.handler, f.project, "slack", appdefinition.Slack)
+	f.app = createSetupHTTPApp(t, f.handler, f.project, "slack", appdefinition.SlackThread)
 	return f
 }
 
@@ -396,7 +396,7 @@ func TestProjectSlackOAuthStaleDeletionAndNameReuse(t *testing.T) {
 		f.project.Store.Integrations().
 			DeleteProjectApp(t.Context(), f.project.OrgUUID, f.project.ProjectUUID, first.ID),
 	)
-	replacement := createSetupHTTPApp(t, f.handler, f.project, "slack", appdefinition.Slack)
+	replacement := createSetupHTTPApp(t, f.handler, f.project, "slack", appdefinition.SlackThread)
 	require.NotEqual(t, first.ID, replacement.ID)
 	f.assertFailure(t, projectSlackCallback(f.handler, token, "deleted", f.project.AdminSession),
 		"app_deleted")
@@ -521,7 +521,7 @@ func TestProjectSlackOAuthIndependentAppsAndReconnect(t *testing.T) {
 	first := f.complete(t, token, "first")
 	// A second project may independently own another setup of the same physical bot.
 	other := bootstrapPublicHTTPProject(t, f.handler, "other-slack")
-	otherApp := createSetupHTTPApp(t, f.handler, other, "slack", appdefinition.Slack)
+	otherApp := createSetupHTTPApp(t, f.handler, other, "slack", appdefinition.SlackThread)
 	otherRef := testPublicID(t, publicid.KindProjectApp, otherApp.ID)
 	path, body := projectSlackSetupRequest(t, other, otherRef, false)
 	setup := requestJSONWithHeaders(

@@ -28,14 +28,15 @@ export async function submitProjectAppSetup(
       .string()
       .parse(form.get(key) ?? '')
       .trim()
-  if (app.provider === 'slack') throw new Error('Use Slack authorization to connect this app.')
+  if (app.app_type === 'slack_thread')
+    throw new Error('Use Slack authorization to connect this app.')
   const tenant = app.provider_tenant_id || value('tenant')
   const account = app.provider_account_ref || value('account')
   const identity = z.string().regex(/^[1-9][0-9]*$/, 'Enter a positive numeric provider ID.')
   identity.parse(tenant)
   identity.parse(account)
   const providerConfig: ConfigureProjectAppRequest['provider_config'] = {}
-  if (app.provider === 'discord') {
+  if (app.app_type === 'discord_thread') {
     providerConfig.shard_count = z.coerce.number().int().min(1).max(4096).parse(value('shards'))
     // The normal Discord launcher includes an interaction handler. A public key
     // is part of the guided setup, not a separate capabilities switch.
@@ -50,7 +51,7 @@ export async function submitProjectAppSetup(
       owner: { kind: 'project', project_id: input.projectId },
       name: value('secretName'),
       material:
-        app.provider === 'github'
+        app.app_type === 'github_pr'
           ? {
               kind: 'github_app_credentials',
               app_id: tenant,

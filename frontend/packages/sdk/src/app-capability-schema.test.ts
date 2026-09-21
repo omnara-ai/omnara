@@ -44,7 +44,7 @@ describe('generated app capability contracts', () => {
 
   it('preserves complete captured handler arguments', () => {
     const destination = {
-      handler_definition: 'omnara.slack',
+      app_type: 'slack_thread',
       handler_key: 'support',
       app_id: `app_${'a'.repeat(26)}`,
       integration_target_id: `itgt_${'a'.repeat(26)}`,

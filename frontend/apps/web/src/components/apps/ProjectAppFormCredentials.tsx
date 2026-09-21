@@ -1,11 +1,11 @@
-import type { ProfileAppProvider } from '@omnara/sdk'
+import type { AppType } from '@omnara/sdk'
 
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
-export function AppCredentialFields({ provider }: { provider: ProfileAppProvider }) {
-  if (provider === 'github') {
+export function AppCredentialFields({ appType }: { appType: AppType }) {
+  if (appType === 'github_pr') {
     return (
       <>
         <Field>

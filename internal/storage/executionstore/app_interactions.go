@@ -32,7 +32,7 @@ type InteractionSelection struct {
 // InteractionDestination is immutable per prompt. Current handler availability and
 // live app state must still authorize presentation and provider responses.
 type InteractionDestination struct {
-	HandlerDefinition   string                               `json:"handler_definition"`
+	AppType             appdefinition.Type                   `json:"app_type"`
 	HandlerKey          string                               `json:"handler_key"`
 	AppID               uuid.UUID                            `json:"app_id"`
 	Args                json.RawMessage                      `json:"args"`
@@ -68,7 +68,7 @@ func (d InteractionDestination) validate() error {
 		toolcatalog.ValidateAppName(d.HandlerKey) != nil {
 		return errors.New("interaction destination requires target, app and handler key")
 	}
-	definition, ok := appdefinition.Lookup(d.HandlerDefinition)
+	definition, ok := appdefinition.Lookup(d.AppType)
 	if !ok || definition.InteractionHandler == nil {
 		return errors.New("interaction destination requires an app handler definition")
 	}
@@ -90,7 +90,7 @@ func (d InteractionDestination) validate() error {
 }
 
 func sameInteractionDestination(a, b InteractionDestination) bool {
-	return a.HandlerDefinition == b.HandlerDefinition && a.HandlerKey == b.HandlerKey &&
+	return a.AppType == b.AppType && a.HandlerKey == b.HandlerKey &&
 		a.AppID == b.AppID && a.IntegrationTargetID == b.IntegrationTargetID && a.Address == b.Address &&
 		jsoncanonical.Equal(a.Args, b.Args)
 }

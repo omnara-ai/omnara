@@ -42,7 +42,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type ProjectApp } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type ProjectApp, type SaveProjectAppRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -307,14 +307,14 @@ if (slackAppConfigurationToken) {
     cursor = apps.next_cursor ?? undefined
   } while (!existingApp && cursor)
 
-  if (existingApp && existingApp.definition_id !== 'omnara.slack') {
-    throw new Error(`${appName} already belongs to another app definition; choose a different name`)
+  if (existingApp && existingApp.app_type !== 'slack_thread') {
+    throw new Error(`${appName} already belongs to another app type; choose a different name`)
   }
   // The app owns its launcher profile. Launching from Slack supplies the
   // namespaced tools, app-owned thread subscription, and interaction handler to the agent.
-  const body = {
+  const body: SaveProjectAppRequest = {
     name: appName,
-    definition_id: 'omnara.slack',
+    app_type: 'slack_thread',
     settings: {
       launcher: {
         trigger: 'mention',

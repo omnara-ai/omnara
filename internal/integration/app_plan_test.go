@@ -77,7 +77,7 @@ func appPlannerFixture(
 	require.NoError(t, err)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{
 		ResolveAppName: func(string) (agentconfig.AppResolution, error) {
-			return agentconfig.AppResolution{AppID: publicApp, Definition: appdefinition.Slack}, nil
+			return agentconfig.AppResolution{AppID: publicApp, AppType: appdefinition.SlackThread}, nil
 		},
 	})
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func appPlannerFixture(
 	integrations := &appPlanIntegrations{
 		appSetup: integrationstore.ProjectAppRecord{
 			ID:   appID,
-			Name: "chat", DefinitionID: appdefinition.Slack,
+			Name: "chat", AppType: appdefinition.SlackThread,
 			OrgID:             org,
 			ProjectID:         project,
 			Provider:          "slack",
@@ -522,22 +522,23 @@ func TestAppLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 
 func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 	for _, test := range []struct {
-		definition, provider, subscriptionType string
-		scope                                  appdefinition.Scope
-		address                                string
+		appType                    appdefinition.Type
+		provider, subscriptionType string
+		scope                      appdefinition.Scope
+		address                    string
 	}{
 		{
-			appdefinition.Slack, "slack", "thread_messages",
+			appdefinition.SlackThread, "slack", "thread_messages",
 			appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
 			`{"channel_id":"C123","thread_ts":"1.2"}`,
 		},
 		{
-			appdefinition.Discord, "discord", "thread_messages",
+			appdefinition.DiscordThread, "discord", "thread_messages",
 			appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}},
 			`{"guild_id":"100","channel_id":"300","thread_id":"500"}`,
 		},
 		{
-			appdefinition.GitHub, "github", "pull_request",
+			appdefinition.GitHubPR, "github", "pull_request",
 			appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 9007199254740993, PullRequest: 42}},
 			`{"repository_id":9007199254740993,"pull_request":42}`,
 		},
@@ -545,13 +546,13 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 		t.Run(test.provider, func(t *testing.T) {
 			_, execution, _, app, _ := appPlannerFixture(t)
 			base := execution.profile.CurrentConfig
-			app.Provider, app.DefinitionID, app.Name = test.provider, test.definition, "receiver"
+			app.Provider, app.AppType, app.Name = test.provider, test.appType, "receiver"
 			derived, subscription, err := deriveAppLaunch(base, app, test.scope)
 			require.NoError(t, err)
 			require.Equal(t, test.subscriptionType, subscription.Type)
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
-			definition, _ := appdefinition.Lookup(app.DefinitionID)
+			definition, _ := appdefinition.Lookup(app.AppType)
 			for _, operation := range definition.Tools {
 				ref, err := publicid.Encode(publicid.KindProjectApp, app.ID)
 				require.NoError(t, err)
@@ -593,7 +594,7 @@ func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
 			otherScope := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.3"}}
 			switch provider {
 			case appdefinition.ProviderDiscord:
-				app.Provider, app.DefinitionID, app.ProviderTenantID = provider, appdefinition.Discord, "11"
+				app.Provider, app.AppType, app.ProviderTenantID = provider, appdefinition.DiscordThread, "11"
 				first.Event.Scope = appdefinition.Scope{
 					Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
 				}
@@ -601,7 +602,7 @@ func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
 					Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "501"},
 				}
 			case appdefinition.ProviderGitHub:
-				app.Provider, app.DefinitionID = provider, appdefinition.GitHub
+				app.Provider, app.AppType = provider, appdefinition.GitHubPR
 				app.ProviderTenantID, app.ProviderAccountRef = "11", "22"
 				first.Event.Scope = appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 123, PullRequest: 42}}
 				otherScope = appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 123, PullRequest: 43}}
@@ -681,7 +682,7 @@ func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
 			// A changed current profile or definition cannot rebuild resolved events
 			// or media identities on retry. The nil store methods catch replanning.
 			execution.profile.CurrentConfig = executionstore.AgentConfigRecord{}
-			integrations.appSetup.DefinitionID = "no-longer-available"
+			integrations.appSetup.AppType = "no-longer-available"
 			replayed, err := router.Freeze(t.Context(), integrations.receipt.Lease(), []AppEvent{other})
 			require.NoError(t, err)
 			replayedJSON, err := json.Marshal(replayed)

@@ -831,7 +831,10 @@ export type CreateIntegrationOAuthSetupRequest = {
     return_to?: string;
 };
 
-export type IntegrationProvider = 'slack' | 'github' | 'discord';
+/**
+ * Registered app implementation; independent of the saved app's name and immutable ID.
+ */
+export type AppType = 'slack_thread' | 'discord_thread' | 'github_pr';
 
 /**
  * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
@@ -2196,7 +2199,7 @@ export type ResolveAgentInteractionRequest = {
  * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
  */
 export type AgentInteractionDestination = {
-    handler_definition: string;
+    app_type: AppType;
     handler_key: string;
     app_id: ProjectAppId;
     /**
@@ -3420,11 +3423,11 @@ export type ProjectAppSettings = {
 };
 
 /**
- * Creates a disconnected app, or updates its launcher settings. Name and definition_id are immutable. Configure credentials through this app's setup endpoints.
+ * Creates a disconnected app, or updates its launcher settings. Name and app_type are immutable. Configure credentials through this app's setup endpoints.
  */
 export type SaveProjectAppRequest = {
     name: ProjectAppName;
-    definition_id: string;
+    app_type: AppType;
     settings: ProjectAppSettings;
 };
 
@@ -3432,8 +3435,7 @@ export type ProjectApp = {
     id: ProjectAppId;
     project_id: ProjectId;
     name: ProjectAppName;
-    definition_id: string;
-    provider: IntegrationProvider;
+    app_type: AppType;
     state: ProjectAppState;
     /**
      * Credential and transport revision. Launcher edits leave this value unchanged.
@@ -3603,8 +3605,7 @@ export type AppCapabilities = {
 };
 
 export type AppDefinition = {
-    id: string;
-    provider: IntegrationProvider;
+    app_type: AppType;
     capabilities: AppCapabilities;
 };
 

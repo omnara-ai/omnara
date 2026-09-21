@@ -45,7 +45,7 @@ func TestAppInteractionOriginArguments(t *testing.T) {
 func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	t.Parallel()
 	destination := InteractionDestination{
-		HandlerDefinition:   appdefinition.Slack,
+		AppType:             appdefinition.SlackThread,
 		HandlerKey:          "chat",
 		AppID:               uuid.New(),
 		IntegrationTargetID: uuid.New(),
@@ -70,7 +70,9 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	for _, change := range []func(*InteractionDestination){
 		func(d *InteractionDestination) { d.AppID = uuid.Nil },
 		func(d *InteractionDestination) { d.HandlerKey = "chat__alias" },
-		func(d *InteractionDestination) { d.HandlerDefinition = appdefinition.GitHub },
+		func(d *InteractionDestination) { d.AppType = appdefinition.GitHubPR },
+		func(d *InteractionDestination) { d.AppType = "slack_unregistered" },
+		func(d *InteractionDestination) { d.AppType = "" },
 		func(d *InteractionDestination) { d.Address.Ref = "C456:111.222" },
 		func(d *InteractionDestination) {
 			d.Args = json.RawMessage(`{"channel_id":"C456","thread_ts":"111.222"}`)
@@ -104,7 +106,7 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 func TestAppInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
 	t.Parallel()
 	original := InteractionDestination{
-		HandlerDefinition:   appdefinition.Slack,
+		AppType:             appdefinition.SlackThread,
 		HandlerKey:          "chat",
 		AppID:               uuid.New(),
 		IntegrationTargetID: uuid.New(),
@@ -118,7 +120,7 @@ func TestAppInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
 		func(d *InteractionDestination) { d.HandlerKey = "replacement" },
 		func(d *InteractionDestination) { d.AppID = uuid.New() },
 		func(d *InteractionDestination) { d.IntegrationTargetID = uuid.New() },
-		func(d *InteractionDestination) { d.HandlerDefinition = appdefinition.Discord },
+		func(d *InteractionDestination) { d.AppType = appdefinition.DiscordThread },
 		func(d *InteractionDestination) { d.Args = json.RawMessage(`{}`) },
 		func(d *InteractionDestination) { d.Address.Ref = "C123:333.444" },
 	} {

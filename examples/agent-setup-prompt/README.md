@@ -67,7 +67,7 @@ and retry — don't skip ahead.
 5. If I chose Slack: ask for the Slack workspace ID (T…) and an app
    configuration token from https://api.slack.com/apps (under "Your App
    Configuration Tokens"). Create a project app with an immutable name
-   such as "team-chat", definition_id "omnara.slack", and
+   such as "team-chat", app_type "slack_thread", and
    settings.launcher {trigger: "mention", scope_kind: "workspace",
    scope_ref: <workspace ID>, slots: [{key: "default",
    agent_profile_id: <profile ID>}]}. Use the returned app ID with

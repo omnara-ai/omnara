@@ -115,10 +115,10 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	for i := 1; i < 16; i++ {
 		id := uuid.Must(uuid.NewV7())
 		_, err := pool.Exec(ctx, `INSERT INTO project_apps
- (id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,
-  name,definition_id,credential_secret_id,created_at,updated_at)
- SELECT $2,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,
-  $3,definition_id,credential_secret_id,now(),now() FROM project_apps WHERE id=$1`,
+ (id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
+  name,app_type,credential_secret_id,created_at,updated_at)
+ SELECT $2,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
+  $3,app_type,credential_secret_id,now(),now() FROM project_apps WHERE id=$1`,
 			firstApp, id, fmt.Sprintf("load-%d", i))
 		require.NoError(t, err)
 		apps = append(apps, id)

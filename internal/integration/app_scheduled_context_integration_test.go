@@ -22,6 +22,8 @@ func TestScheduledLaunchPreservesToolsAndSavesReplyContext(t *testing.T) {
 			require.True(t, found)
 			appID, err := publicid.Encode(publicid.KindProjectApp, f.appID)
 			require.NoError(t, err)
+			app, err := f.store.Integrations().GetProjectApp(t.Context(), f.ids.ProjectID, f.appID)
+			require.NoError(t, err)
 			source := base.Source + `
 tools:
   app__chat__read: {}
@@ -32,7 +34,7 @@ tools:
 					return agentconfig.ResolvedModelSelection{ConfiguredModelID: base.ConfiguredModelID.String()}, nil
 				},
 				ResolveAppName: func(string) (agentconfig.AppResolution, error) {
-					return agentconfig.AppResolution{AppID: appID, Definition: "omnara." + provider}, nil
+					return agentconfig.AppResolution{AppID: appID, AppType: app.AppType}, nil
 				},
 			})
 			require.NoError(t, err)

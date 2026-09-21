@@ -10,18 +10,20 @@ import (
 	"strings"
 )
 
+type Type string
+
 const (
-	ProviderSlack   = "slack"
-	ProviderGitHub  = "github"
-	ProviderDiscord = "discord"
-	Slack           = "omnara.slack"
-	GitHub          = "omnara.github"
-	Discord         = "omnara.discord"
+	ProviderSlack        = "slack"
+	ProviderGitHub       = "github"
+	ProviderDiscord      = "discord"
+	SlackThread     Type = "slack_thread"
+	GitHubPR        Type = "github_pr"
+	DiscordThread   Type = "discord_thread"
 )
 
 // Definition is the reviewed capability registry for one immutable app kind.
 type Definition struct {
-	ID                 string
+	AppType            Type
 	Provider           string
 	Tools              []string
 	Subscriptions      map[string]SubscriptionDefinition
@@ -31,19 +33,19 @@ type Definition struct {
 // All returns the installed app implementations in stable catalog order.
 func All() []Definition {
 	definitions := make([]Definition, 0, 3)
-	for _, id := range []string{Discord, GitHub, Slack} {
+	for _, id := range []Type{DiscordThread, GitHubPR, SlackThread} {
 		definition, _ := Lookup(id)
 		definitions = append(definitions, definition)
 	}
 	return definitions
 }
 
-func Lookup(id string) (Definition, bool) {
+func Lookup(id Type) (Definition, bool) {
 	var d Definition
 	switch id {
-	case Slack:
+	case SlackThread:
 		d = Definition{
-			ID:       id,
+			AppType:  id,
 			Provider: ProviderSlack,
 			Tools:    []string{"read", "post_message"},
 			Subscriptions: map[string]SubscriptionDefinition{
@@ -51,9 +53,9 @@ func Lookup(id string) (Definition, bool) {
 			},
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
 		}
-	case Discord:
+	case DiscordThread:
 		d = Definition{
-			ID:       id,
+			AppType:  id,
 			Provider: ProviderDiscord,
 			Tools:    []string{"read", "post_message"},
 			Subscriptions: map[string]SubscriptionDefinition{
@@ -61,9 +63,9 @@ func Lookup(id string) (Definition, bool) {
 			},
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
 		}
-	case GitHub:
+	case GitHubPR:
 		d = Definition{
-			ID:       id,
+			AppType:  id,
 			Provider: ProviderGitHub,
 			Tools:    []string{"read", "discussion_comment", "inline_comment", "reply"},
 			Subscriptions: map[string]SubscriptionDefinition{
@@ -78,6 +80,24 @@ func Lookup(id string) (Definition, bool) {
 		return Definition{}, false
 	}
 	return d, true
+}
+
+// AppTypesForProvider supplies indexed discovery with the types that share a
+// transport. The association comes from registration, never the type's spelling.
+func AppTypesForProvider(provider string) []string {
+	var types []string
+	for _, definition := range All() {
+		if definition.Provider == provider {
+			types = append(types, string(definition.AppType))
+		}
+	}
+	return types
+}
+
+// ProviderForType returns the registered transport, or empty for an unknown type.
+func ProviderForType(appType Type) string {
+	definition, _ := Lookup(appType)
+	return definition.Provider
 }
 
 // Scope contains exactly one provider-specific, concrete address. Optional

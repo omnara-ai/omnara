@@ -320,8 +320,8 @@ func assertSlackTombstoneSourceResave(
 	}
 	var replacementID uuid.UUID
 	require.NoError(t, db.QueryRowContext(ctx,
-		`INSERT INTO project_apps(org_id,project_id,name,definition_id,provider,state,created_at,updated_at)
-        VALUES($1,$2,$3,'omnara.slack','slack','disconnected',now(),now()) RETURNING id`,
+		`INSERT INTO project_apps(org_id,project_id,name,app_type,state,created_at,updated_at)
+        VALUES($1,$2,$3,'slack_thread','disconnected',now(),now()) RETURNING id`,
 		ids.OrgID, ids.ProjectID, reusedName).Scan(
 		&replacementID,
 	))

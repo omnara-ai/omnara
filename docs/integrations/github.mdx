@@ -28,7 +28,7 @@ or [Discord](/integrations/discord) interaction handler; GitHub has no interacti
 }
 ```
 
-Create an Omnara app named `reviews` with definition `omnara.github`, then
+Create an Omnara app named `reviews` with app type `github_pr`, then
 configure it at `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
 
 ```json
@@ -115,7 +115,7 @@ For PR-open launches, this is the project app body for
 ```json
 {
   "name": "reviews",
-  "definition_id": "omnara.github",
+  "app_type": "github_pr",
   "settings": {
     "launcher": {
       "trigger": "pull_request_opened",

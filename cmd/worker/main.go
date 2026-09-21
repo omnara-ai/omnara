@@ -273,10 +273,10 @@ func main() {
 		"github": integration.GitHubAppInboxProvider{},
 	}
 	chatLauncher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), appProviders)
-	appLaunchers := integration.NewAppLaunchWorkflow(appRouter, map[string]integration.AppLauncher{
-		appdefinition.Slack:   chatLauncher.Decide,
-		appdefinition.Discord: chatLauncher.Decide,
-		appdefinition.GitHub:  integration.EverySlotAppLauncher,
+	appLaunchers := integration.NewAppLaunchWorkflow(appRouter, map[appdefinition.Type]integration.AppLauncher{
+		appdefinition.SlackThread:   chatLauncher.Decide,
+		appdefinition.DiscordThread: chatLauncher.Decide,
+		appdefinition.GitHubPR:      integration.EverySlotAppLauncher,
 	})
 	appLaunchers.OnUnavailable = chatLauncher.NotifyUnavailable
 	appConsumer := integration.NewAppInboxConsumer(

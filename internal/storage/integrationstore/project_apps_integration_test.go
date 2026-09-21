@@ -32,7 +32,7 @@ func TestProjectAppReferencesAndLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	input := integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "thread-bot", DefinitionID: appdefinition.Slack,
+		OrgID: f.org, ProjectID: f.project, Name: "thread-bot", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{
 			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 				Slots: []integrationstore.AppLaunchSlot{{Key: "reviewer", AgentProfileID: &profile.ID}}},
@@ -40,7 +40,9 @@ func TestProjectAppReferencesAndLifecycle(t *testing.T) {
 	}
 	app, err := s.CreateProjectApp(f.ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, appdefinition.Slack, app.DefinitionID)
+	require.Equal(t, appdefinition.SlackThread, app.AppType)
+	require.Equal(t, "integration:slack:"+app.ID.String(), integrationstore.IdempotencyScope(app),
+		"released idempotency keys retain the transport namespace")
 	require.Equal(t, integrationstore.ProjectAppStateDisconnected, app.State)
 	require.EqualValues(t, 1, app.SetupRevision)
 	require.ErrorIs(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID), storeerr.ErrConflict)
@@ -71,10 +73,10 @@ func TestProjectAppIndependentCapabilitiesAndPagination(t *testing.T) {
 	f := newInboxFixture(t)
 	s := integrationstore.New(f.pool, executionstore.AppAccess{})
 	input := integrationstore.SaveProjectAppInput{
-		OrgID:        f.org,
-		ProjectID:    f.project,
-		Name:         "slack-settings",
-		DefinitionID: appdefinition.Slack,
+		OrgID:     f.org,
+		ProjectID: f.project,
+		Name:      "slack-settings",
+		AppType:   appdefinition.SlackThread,
 	}
 	first, err := s.CreateProjectApp(f.ctx, input)
 	require.NoError(t, err) // Reusable setup need not enable a launcher or listener.

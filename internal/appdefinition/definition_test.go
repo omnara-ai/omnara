@@ -10,15 +10,19 @@ import (
 )
 
 func TestRegistryAndTypedDestinations(t *testing.T) {
-	for _, test := range []struct{ id, provider, args, kind, key string }{
-		{Slack, ProviderSlack, `{"channel_id":"C123","thread_ts":"111.222"}`, "thread", "C123:111.222"},
-		{GitHub, ProviderGitHub, `{"repository_id":9007199254740993,"pull_request":42}`,
+	for _, test := range []struct {
+		appType                   Type
+		provider, args, kind, key string
+	}{
+		{SlackThread, ProviderSlack, `{"channel_id":"C123","thread_ts":"111.222"}`, "thread", "C123:111.222"},
+		{GitHubPR, ProviderGitHub, `{"repository_id":9007199254740993,"pull_request":42}`,
 			"pull_request", "9007199254740993#42"},
-		{Discord, ProviderDiscord, `{"guild_id":"123","channel_id":"456","thread_id":"789"}`, "thread", "456:789"},
+		{DiscordThread, ProviderDiscord, `{"guild_id":"123","channel_id":"456","thread_id":"789"}`, "thread", "456:789"},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
-			definition, ok := Lookup(test.id)
+			definition, ok := Lookup(test.appType)
 			require.True(t, ok)
+			require.Equal(t, test.appType, definition.AppType)
 			require.Equal(t, test.provider, definition.Provider)
 			scope, err := ResolveDestination(test.provider, json.RawMessage(test.args))
 			require.NoError(t, err)
@@ -34,19 +38,50 @@ func TestRegistryAndTypedDestinations(t *testing.T) {
 	}
 }
 
+func TestAppTypesPartitionRegisteredTransports(t *testing.T) {
+	seen := map[Type]bool{}
+	for _, provider := range []string{ProviderSlack, ProviderDiscord, ProviderGitHub} {
+		appTypes := AppTypesForProvider(provider)
+		require.NotEmpty(t, appTypes)
+		for _, value := range appTypes {
+			appType := Type(value)
+			require.False(t, seen[appType], "each app type belongs to exactly one transport")
+			seen[appType] = true
+			definition, ok := Lookup(appType)
+			require.True(t, ok)
+			require.Equal(t, appType, definition.AppType)
+			require.Equal(t, provider, definition.Provider)
+			require.Equal(t, provider, ProviderForType(appType))
+		}
+	}
+	require.Len(t, seen, len(All()))
+	for _, definition := range All() {
+		require.True(t, seen[definition.AppType], "registered types must be discoverable")
+	}
+	for _, unknown := range []Type{"", "slack", "slack_unregistered", "discord_unregistered", "github_unregistered"} {
+		_, ok := Lookup(unknown)
+		require.False(t, ok)
+		require.Empty(t, ProviderForType(unknown), "a transport prefix grants no authority")
+	}
+	for _, unknown := range []string{"", "unknown", "slack_thread", "discord_thread", "github_pr"} {
+		require.Empty(t, AppTypesForProvider(unknown), "discovery accepts transport names only")
+	}
+}
+
 func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
 	for _, test := range []struct {
-		id, name, conversation, kind, ref string
+		appType                       Type
+		name, conversation, kind, ref string
 	}{
-		{Slack, "thread_messages", `{"channel_id":"C123","thread_ts":"1.2"}`, "thread", "C123:1.2"},
-		{Slack, "thread_messages", `{"channel_id":"D123"}`, "dm", "D123"},
-		{Slack, "thread_messages", `{"channel_id":"C123"}`, "channel", "C123"},
-		{Discord, "thread_messages", `{"channel_id":"123","thread_id":"456"}`, "thread", "123:456"},
-		{Discord, "thread_messages", `{"channel_id":"123"}`, "channel", "123"},
-		{GitHub, "pull_request", `{"repository_id":123,"pull_request":42}`, "pull_request", "123#42"},
+		{SlackThread, "thread_messages", `{"channel_id":"C123","thread_ts":"1.2"}`, "thread", "C123:1.2"},
+		{SlackThread, "thread_messages", `{"channel_id":"D123"}`, "dm", "D123"},
+		{SlackThread, "thread_messages", `{"channel_id":"C123"}`, "channel", "C123"},
+		{DiscordThread, "thread_messages", `{"channel_id":"123","thread_id":"456"}`, "thread", "123:456"},
+		{DiscordThread, "thread_messages", `{"channel_id":"123"}`, "channel", "123"},
+		{GitHubPR, "pull_request", `{"repository_id":123,"pull_request":42}`, "pull_request", "123#42"},
 	} {
-		t.Run(test.id+"/"+test.kind, func(t *testing.T) {
-			d, _ := Lookup(test.id)
+		t.Run(string(test.appType)+"/"+test.kind, func(t *testing.T) {
+			d, _ := Lookup(test.appType)
 			subscription := d.Subscriptions[test.name]
 			schema, err := subscription.ConversationSchema()
 			require.NoError(t, err)
@@ -88,7 +123,7 @@ func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
 }
 
 func TestSubscriptionEventSelectionIsCanonicalAndOwned(t *testing.T) {
-	d, _ := Lookup(GitHub)
+	d, _ := Lookup(GitHubPR)
 	subscription := d.Subscriptions["pull_request"]
 	events := []string{"review_comment", "commit"}
 	prepared, err := subscription.Prepare([]byte(`{"repository_id":123,"pull_request":42}`), events)
@@ -139,14 +174,17 @@ func TestParseConversationRejectsParentAndMismatchedAddresses(t *testing.T) {
 }
 
 func TestInteractionHandlersRequireCompleteIndependentDestinations(t *testing.T) {
-	for _, test := range []struct{ id, args string }{
-		{Slack, `{"channel_id":"C123","thread_ts":"1.2"}`},
-		{Slack, `{"channel_id":"C456"}`},
-		{Discord, `{"channel_id":"123","thread_id":"456"}`},
-		{Discord, `{"guild_id":"789","channel_id":"123"}`},
+	for _, test := range []struct {
+		appType Type
+		args    string
+	}{
+		{SlackThread, `{"channel_id":"C123","thread_ts":"1.2"}`},
+		{SlackThread, `{"channel_id":"C456"}`},
+		{DiscordThread, `{"channel_id":"123","thread_id":"456"}`},
+		{DiscordThread, `{"guild_id":"789","channel_id":"123"}`},
 	} {
-		t.Run(test.id+test.args, func(t *testing.T) {
-			d, _ := Lookup(test.id)
+		t.Run(string(test.appType)+test.args, func(t *testing.T) {
+			d, _ := Lookup(test.appType)
 			prepared, err := d.InteractionHandler.Prepare()
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(prepared.InputSchema, []byte(test.args)))
@@ -164,7 +202,7 @@ func TestInteractionHandlersRequireCompleteIndependentDestinations(t *testing.T)
 			require.Equal(t, destination, resolved)
 		})
 	}
-	github, _ := Lookup(GitHub)
+	github, _ := Lookup(GitHubPR)
 	require.Nil(t, github.InteractionHandler)
 }
 

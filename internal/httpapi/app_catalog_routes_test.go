@@ -19,21 +19,21 @@ func TestAppCatalogStaticArgumentSchemas(t *testing.T) {
 	toolCount := 0
 	for _, definition := range catalog.Data {
 		toolCount += len(definition.Capabilities.Tools)
-		t.Run(definition.Id, func(t *testing.T) {
+		t.Run(string(definition.AppType), func(t *testing.T) {
 			var destination json.RawMessage
 			var destinationFields []string
-			switch definition.Id {
-			case appdefinition.Slack:
+			switch appdefinition.Type(definition.AppType) {
+			case appdefinition.SlackThread:
 				destination = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
 				destinationFields = []string{"channel_id", "thread_ts"}
-			case appdefinition.Discord:
+			case appdefinition.DiscordThread:
 				destination = json.RawMessage(`{"channel_id":"123","thread_id":"456","guild_id":"789"}`)
 				destinationFields = []string{"channel_id", "thread_id", "guild_id"}
-			case appdefinition.GitHub:
+			case appdefinition.GitHubPR:
 				destination = json.RawMessage(`{"repository_id":9007199254740993,"pull_request":42}`)
 				destinationFields = []string{"repository_id", "pull_request"}
 			default:
-				t.Fatalf("unexpected app %q", definition.Id)
+				t.Fatalf("unexpected app %q", definition.AppType)
 			}
 			for operation, tool := range definition.Capabilities.Tools {
 				require.NotEmpty(t, tool.Description)
@@ -57,7 +57,7 @@ func TestAppCatalogStaticArgumentSchemas(t *testing.T) {
 				require.Error(t, jsonschema.Validate(schema, json.RawMessage(`{}`)))
 				require.NotEmpty(t, subscription.Events)
 			}
-			if definition.Id == appdefinition.GitHub {
+			if appdefinition.Type(definition.AppType) == appdefinition.GitHubPR {
 				require.Nil(t, definition.Capabilities.InteractionHandler)
 				return
 			}

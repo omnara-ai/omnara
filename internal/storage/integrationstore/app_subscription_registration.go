@@ -178,7 +178,7 @@ func subscriptionDefinition(
 	if app.State != ProjectAppStateActive {
 		return app, appdefinition.SubscriptionDefinition{}, storeerr.ErrUnauthorized
 	}
-	definition, found := appdefinition.Lookup(app.DefinitionID)
+	definition, found := appdefinition.Lookup(app.AppType)
 	subscription, exported := definition.Subscriptions[subscriptionType]
 	if !found || !exported {
 		return app, subscription, storeerr.InvalidRequest(errors.New("app does not export this subscription type"))

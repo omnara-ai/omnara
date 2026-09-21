@@ -125,7 +125,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 	}
 	if destination == nil || destination.AppID != install.ID ||
 		destination.IntegrationTargetID != integrationTargetID ||
-		destination.HandlerDefinition != appdefinition.Slack {
+		destination.AppType != install.AppType {
 		return nil, storeerr.ErrUnauthorized
 	}
 	var receipt integration.InteractionReceipt
@@ -191,7 +191,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 	actor.DisplayName = &displayName
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
 		AppID: install.ID, SourceSetupRevision: install.SetupRevision,
-		HandlerDefinition: appdefinition.Slack, Address: destination.Address,
+		AppType: install.AppType, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
 			ProjectID:           install.ProjectID,
 			AgentID:             agentID,

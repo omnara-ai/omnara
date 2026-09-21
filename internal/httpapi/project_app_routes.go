@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -147,7 +148,7 @@ func parseProjectAppRequest(
 		)
 	}
 	input := integrationstore.SaveProjectAppInput{
-		OrgID: orgID, ProjectID: projectID, Name: body.Name, DefinitionID: body.DefinitionId,
+		OrgID: orgID, ProjectID: projectID, Name: body.Name, AppType: appdefinition.Type(body.AppType),
 	}
 	if source := body.Settings.Launcher; source != nil {
 		launcher := &integrationstore.AppLauncher{
@@ -188,8 +189,8 @@ func projectAppResponse(app integrationstore.ProjectAppRecord) (openapi.ProjectA
 		return openapi.ProjectApp{}, err
 	}
 	response := openapi.ProjectApp{
-		Id: id, ProjectId: projectID, Name: app.Name, DefinitionId: app.DefinitionID,
-		Provider: openapi.IntegrationProvider(app.Provider), State: openapi.ProjectAppState(app.State),
+		Id: id, ProjectId: projectID, Name: app.Name, AppType: openapi.AppType(app.AppType),
+		State:         openapi.ProjectAppState(app.State),
 		SetupRevision: app.SetupRevision, ProviderTenantId: app.ProviderTenantID,
 		ProviderAccountRef: app.ProviderAccountRef, ProviderAgentDisplayName: app.ProviderAgentDisplayName,
 		CreatedAt: app.CreatedAt, UpdatedAt: app.UpdatedAt,
@@ -205,7 +206,7 @@ func projectAppResponse(app integrationstore.ProjectAppRecord) (openapi.ProjectA
 	if err != nil {
 		return openapi.ProjectApp{}, err
 	}
-	response.Capabilities, err = appCapabilitiesResponse(app.DefinitionID)
+	response.Capabilities, err = appCapabilitiesResponse(app.AppType)
 	if err != nil {
 		return openapi.ProjectApp{}, err
 	}

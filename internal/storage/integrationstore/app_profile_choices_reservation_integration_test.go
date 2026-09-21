@@ -66,7 +66,7 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 
 			// Reducing a setup to one profile must not bypass the accepted choice.
 			setup := integrationstore.SaveProjectAppInput{
-				OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+				OrgID: f.org, ProjectID: f.project, Name: f.app.Name, AppType: f.app.AppType,
 				Settings: f.app.Settings,
 			}
 			setup.Settings.Launcher.Slots = setup.Settings.Launcher.Slots[1:]
@@ -351,7 +351,7 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	choice := f.menu(t)
 	click := f.chooseInput(t, choice, "support")
 	setup := integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+		OrgID: f.org, ProjectID: f.project, Name: f.app.Name, AppType: f.app.AppType,
 		Settings: f.app.Settings,
 	}
 	setup.Settings.Launcher.Slots[0].AgentProfileID = &f.input.Options[1].ProfileID

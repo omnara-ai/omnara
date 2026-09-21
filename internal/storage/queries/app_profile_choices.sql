@@ -1,7 +1,7 @@
 -- Callers hold the active project/app gates and conversation lock. The
 -- shared app row fences edits without taking a profile lock in reverse order.
 -- name: GetAppProfileChoiceAppForShare :one
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR SHARE;

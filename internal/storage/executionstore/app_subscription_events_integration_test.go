@@ -19,7 +19,7 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	f := newAppActivationFixture(t)
 	f.app = inboxInputApp(t, f, "github")
 	_, err := f.store.Integrations().UpdateProjectApp(f.ctx, f.app.ID, integrationstore.SaveProjectAppInput{
-		OrgID: testOrgID, ProjectID: testProjectID, Name: f.app.Name, DefinitionID: f.app.DefinitionID,
+		OrgID: testOrgID, ProjectID: testProjectID, Name: f.app.Name, AppType: f.app.AppType,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "installation", ScopeRef: f.app.ProviderAccountRef,
 			Slots: []integrationstore.AppLaunchSlot{{Key: "review", AgentProfileID: &f.profile.ID}},

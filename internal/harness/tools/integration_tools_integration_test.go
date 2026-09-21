@@ -938,9 +938,9 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		address = integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#7"}
 	}
 	origin := &executionstore.LaunchInputOrigin{AppID: install.ID, Address: address}
-	actor := &executionstore.ActorParams{
-		Provider: install.Provider, ProviderTenantID: install.ProviderTenantID, ProviderUserID: "U_FIXTURE",
-	}
+	appActor, err := executionstore.AppActorParams(install.ID, "U_FIXTURE", nil)
+	require.NoError(t, err)
+	actor := &appActor
 	if fixtureOptions.withToolContext {
 		// Context is inserted once below. Ordinary attribution must never be
 		// promoted to context or implicitly restrict a model's destinations.
@@ -1006,7 +1006,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	appID, err := publicid.Encode(publicid.KindProjectApp, install.ID)
 	require.NoError(t, err)
 	prepared, err := agentconfig.PrepareAppTools(compiled, map[string]agentconfig.AppResolution{
-		appID: {AppID: appID, Definition: install.DefinitionID},
+		appID: {AppID: appID, AppType: install.AppType},
 	})
 	require.NoError(t, err)
 	appTools := map[string]ToolSpec{}
@@ -1386,7 +1386,7 @@ func resolveToolsAppName(ctx context.Context, store *storage.Store, name string)
 			continue
 		}
 		ref, err := publicid.Encode(publicid.KindProjectApp, app.ID)
-		return agentconfig.AppResolution{AppID: ref, Definition: app.DefinitionID}, err
+		return agentconfig.AppResolution{AppID: ref, AppType: app.AppType}, err
 	}
 	return agentconfig.AppResolution{}, storeerr.ErrNotFound
 }
@@ -1410,7 +1410,7 @@ func createSlackToolApp(
 	})
 	require.NoError(t, err)
 	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: name, DefinitionID: appdefinition.Slack,
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: name, AppType: appdefinition.SlackThread,
 	})
 	require.NoError(t, err)
 	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{

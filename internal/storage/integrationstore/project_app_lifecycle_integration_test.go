@@ -41,7 +41,7 @@ func projectAppSetupFixture(
 	})
 	require.NoError(t, err)
 	app, err := f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "setup", DefinitionID: appdefinition.Slack,
+		OrgID: f.org, ProjectID: f.project, Name: "setup", AppType: appdefinition.SlackThread,
 	})
 	require.NoError(t, err)
 	return f, secretStore, integrationstore.ConfigureProjectAppInput{
@@ -54,7 +54,7 @@ func projectAppSetupFixture(
 
 func projectAppMetadata(app integrationstore.ProjectAppRecord) integrationstore.SaveProjectAppInput {
 	return integrationstore.SaveProjectAppInput{
-		OrgID: app.OrgID, ProjectID: app.ProjectID, Name: app.Name, DefinitionID: app.DefinitionID, Settings: app.Settings,
+		OrgID: app.OrgID, ProjectID: app.ProjectID, Name: app.Name, AppType: app.AppType, Settings: app.Settings,
 	}
 }
 
@@ -78,7 +78,7 @@ func TestProjectAppSetupLifecycleAndOwnership(t *testing.T) {
 	_, err = f.store.ConfigureProjectApp(f.ctx, foreign)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	other, err := f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: second, Name: created.Name, DefinitionID: created.DefinitionID,
+		OrgID: f.org, ProjectID: second, Name: created.Name, AppType: created.AppType,
 	})
 	require.NoError(t, err)
 	_, err = secretStore.CreateSecretGrant(f.ctx, secretstore.CreateSecretGrantInput{
@@ -134,22 +134,35 @@ func TestProjectAppSetupLifecycleAndOwnership(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestProjectAppProviderConstraints(t *testing.T) {
+func TestProjectAppTypeConstraints(t *testing.T) {
 	t.Parallel()
 	f, _, input := projectAppSetupFixture(t)
-	_, err := f.pool.Exec(f.ctx, `UPDATE project_apps SET provider='discord' WHERE id=$1`, input.AppID)
+	app, err := f.store.GetProjectApp(f.ctx, f.project, input.AppID)
+	require.NoError(t, err)
+	require.Equal(t, appdefinition.SlackThread, app.AppType)
+	require.Equal(t, integrationstore.IntegrationProviderSlack, app.Provider)
+	metadata := projectAppMetadata(app)
+	metadata.AppType = appdefinition.DiscordThread
+	_, err = f.store.UpdateProjectApp(f.ctx, app.ID, metadata)
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	_, err = f.pool.Exec(f.ctx, `UPDATE project_apps SET app_type='discord_thread' WHERE id=$1`, input.AppID)
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
-	require.Equal(t, "25006", pgErr.Code, "the database also prevents changing the saved app provider")
-	_, err = f.pool.Exec(
-		f.ctx,
-		`INSERT INTO project_apps(org_id,project_id,name,definition_id,provider,state,created_at,updated_at)
-        VALUES($1,$2,'invalid','omnara.slack','unknown','disconnected',now(),now())`,
-		f.org,
-		f.project,
-	)
-	require.ErrorAs(t, err, &pgErr)
-	require.Equal(t, "23514", pgErr.Code, "unknown providers cannot be persisted")
+	require.Equal(t, "25006", pgErr.Code, "the database also prevents changing the saved app type")
+	for _, unknown := range []appdefinition.Type{"", "unknown", "slack", "slack_unregistered"} {
+		metadata.AppType = unknown
+		metadata.Name = "invalid"
+		_, err = f.store.CreateProjectApp(f.ctx, metadata)
+		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+		_, err = f.pool.Exec(f.ctx,
+			`INSERT INTO project_apps(org_id,project_id,name,app_type,state,created_at,updated_at)
+        VALUES($1,$2,'invalid',$3,'disconnected',now(),now())`, f.org, f.project, string(unknown))
+		require.ErrorAs(t, err, &pgErr)
+		require.Equal(t, "23514", pgErr.Code, "unknown app types cannot be persisted")
+	}
+	unchanged, err := f.store.GetProjectApp(f.ctx, f.project, app.ID)
+	require.NoError(t, err)
+	require.Equal(t, app, unchanged, "rejected identity changes preserve setup")
 }
 
 func TestProjectAppCredentialAuthorizationAndRotation(t *testing.T) {
@@ -169,7 +182,7 @@ func TestProjectAppCredentialAuthorizationAndRotation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	app, err := f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "github", DefinitionID: appdefinition.GitHub,
+		OrgID: f.org, ProjectID: f.project, Name: "github", AppType: appdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
 	input.AppID, input.ExpectedSetupRevision = app.ID, app.SetupRevision
@@ -298,7 +311,7 @@ func TestProjectAppOAuthReplayCannotRecreateDeletedApp(t *testing.T) {
 	_, err = f.store.ConfigureProjectApp(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	other, err := f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "other", DefinitionID: appdefinition.Slack,
+		OrgID: f.org, ProjectID: f.project, Name: "other", AppType: appdefinition.SlackThread,
 	})
 	require.NoError(t, err)
 	replay := input

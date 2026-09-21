@@ -30,7 +30,7 @@ func TestAppRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *testing.T) 
 	})
 	require.NoError(t, err)
 	_, err = store.Integrations().UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", DefinitionID: appdefinition.Slack,
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123",
 			Slots: []integrationstore.AppLaunchSlot{{Key: "review", AgentProfileID: &profile.ID}},

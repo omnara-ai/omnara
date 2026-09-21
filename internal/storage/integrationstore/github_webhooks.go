@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -31,7 +32,7 @@ func (s *Store) ListGitHubWebhookCredentialApps(
 		))
 	}
 	rows, err := s.q.ListGitHubWebhookCredentialApps(ctx, dbsqlc.ListGitHubWebhookCredentialAppsParams{
-		GithubAppID: appID, RowLimit: int32(limit),
+		AppTypes: appdefinition.AppTypesForProvider(appdefinition.ProviderGitHub), GithubAppID: appID, RowLimit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list GitHub webhook credential apps: %w", err)

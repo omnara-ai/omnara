@@ -47,7 +47,7 @@ SET installed_by_user_id = $1,
     state = 'active', setup_revision = setup_revision + 1, updated_at = statement_timestamp()
 WHERE project_id = $10 AND id = $11 AND deleted_at IS NULL
   AND setup_revision = $12
-RETURNING id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+RETURNING id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 `
 
 type ConfigureProjectAppParams struct {
@@ -89,7 +89,6 @@ func (q *Queries) ConfigureProjectApp(ctx context.Context, arg ConfigureProjectA
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -103,7 +102,7 @@ func (q *Queries) ConfigureProjectApp(ctx context.Context, arg ConfigureProjectA
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)
@@ -184,7 +183,7 @@ func (q *Queries) DisconnectProjectApp(ctx context.Context, arg DisconnectProjec
 }
 
 const getProjectApp = `-- name: GetProjectApp :one
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 `
@@ -202,7 +201,6 @@ func (q *Queries) GetProjectApp(ctx context.Context, arg GetProjectAppParams) (P
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -216,7 +214,7 @@ func (q *Queries) GetProjectApp(ctx context.Context, arg GetProjectAppParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)
@@ -224,7 +222,7 @@ func (q *Queries) GetProjectApp(ctx context.Context, arg GetProjectAppParams) (P
 }
 
 const getProjectAppByID = `-- name: GetProjectAppByID :one
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -241,7 +239,6 @@ func (q *Queries) GetProjectAppByID(ctx context.Context, arg GetProjectAppByIDPa
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -255,7 +252,7 @@ func (q *Queries) GetProjectAppByID(ctx context.Context, arg GetProjectAppByIDPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)
@@ -263,7 +260,7 @@ func (q *Queries) GetProjectAppByID(ctx context.Context, arg GetProjectAppByIDPa
 }
 
 const getProjectAppByName = `-- name: GetProjectAppByName :one
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL
 `
@@ -281,7 +278,6 @@ func (q *Queries) GetProjectAppByName(ctx context.Context, arg GetProjectAppByNa
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -295,7 +291,7 @@ func (q *Queries) GetProjectAppByName(ctx context.Context, arg GetProjectAppByNa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)
@@ -303,19 +299,18 @@ func (q *Queries) GetProjectAppByName(ctx context.Context, arg GetProjectAppByNa
 }
 
 const insertProjectApp = `-- name: InsertProjectApp :one
-INSERT INTO project_apps(org_id, project_id, name, definition_id, provider, settings, state, created_at, updated_at)
+INSERT INTO project_apps(org_id, project_id, name, app_type, settings, state, created_at, updated_at)
 VALUES ($1, $2, $3, $4,
-        $5, $6, 'disconnected', statement_timestamp(), statement_timestamp())
-RETURNING id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+        $5, 'disconnected', statement_timestamp(), statement_timestamp())
+RETURNING id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 `
 
 type InsertProjectAppParams struct {
-	OrgID        uuid.UUID
-	ProjectID    uuid.UUID
-	Name         string
-	DefinitionID string
-	Provider     string
-	Settings     json.RawMessage
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+	AppType   string
+	Settings  json.RawMessage
 }
 
 // Apps own credentials and behavior. Metadata writes never change setup_revision.
@@ -324,8 +319,7 @@ func (q *Queries) InsertProjectApp(ctx context.Context, arg InsertProjectAppPara
 		arg.OrgID,
 		arg.ProjectID,
 		arg.Name,
-		arg.DefinitionID,
-		arg.Provider,
+		arg.AppType,
 		arg.Settings,
 	)
 	var i ProjectApp
@@ -334,7 +328,6 @@ func (q *Queries) InsertProjectApp(ctx context.Context, arg InsertProjectAppPara
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -348,7 +341,7 @@ func (q *Queries) InsertProjectApp(ctx context.Context, arg InsertProjectAppPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)
@@ -373,7 +366,7 @@ func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg Integrat
 }
 
 const listProjectAppMetadataByIDs = `-- name: ListProjectAppMetadataByIDs :many
-SELECT id, project_id, name, definition_id, provider, state, deleted_at
+SELECT id, project_id, name, app_type, state, deleted_at
 FROM project_apps
 WHERE project_id = $1 AND id = ANY($2::uuid[])
 ORDER BY id
@@ -385,13 +378,12 @@ type ListProjectAppMetadataByIDsParams struct {
 }
 
 type ListProjectAppMetadataByIDsRow struct {
-	ID           uuid.UUID
-	ProjectID    uuid.UUID
-	Name         string
-	DefinitionID string
-	Provider     string
-	State        string
-	DeletedAt    *time.Time
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+	AppType   string
+	State     string
+	DeletedAt *time.Time
 }
 
 // Metadata keeps stored configs interpretable after app deletion. These reads
@@ -409,8 +401,7 @@ func (q *Queries) ListProjectAppMetadataByIDs(ctx context.Context, arg ListProje
 			&i.ID,
 			&i.ProjectID,
 			&i.Name,
-			&i.DefinitionID,
-			&i.Provider,
+			&i.AppType,
 			&i.State,
 			&i.DeletedAt,
 		); err != nil {
@@ -425,7 +416,7 @@ func (q *Queries) ListProjectAppMetadataByIDs(ctx context.Context, arg ListProje
 }
 
 const listProjectApps = `-- name: ListProjectApps :many
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND deleted_at IS NULL
   AND ($2::text = '' OR name ILIKE $2::text ESCAPE '\')
@@ -464,7 +455,6 @@ func (q *Queries) ListProjectApps(ctx context.Context, arg ListProjectAppsParams
 			&i.OrgID,
 			&i.ProjectID,
 			&i.InstalledByUserID,
-			&i.Provider,
 			&i.State,
 			&i.ProviderTenantID,
 			&i.ProviderAccountRef,
@@ -478,7 +468,7 @@ func (q *Queries) ListProjectApps(ctx context.Context, arg ListProjectAppsParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Name,
-			&i.DefinitionID,
+			&i.AppType,
 			&i.Settings,
 			&i.SetupRevision,
 		); err != nil {
@@ -493,11 +483,11 @@ func (q *Queries) ListProjectApps(ctx context.Context, arg ListProjectAppsParams
 }
 
 const listProjectAppsByProviderIdentity = `-- name: ListProjectAppsByProviderIdentity :many
-SELECT app.id, app.org_id, app.project_id, app.installed_by_user_id, app.provider, app.state, app.provider_tenant_id, app.provider_account_ref, app.provider_agent_display_name, app.credential_secret_id, app.provider_config, app.provider_identity, app.provider_metadata, app.last_oauth_flow_id, app.deleted_at, app.created_at, app.updated_at, app.name, app.definition_id, app.settings, app.setup_revision
+SELECT app.id, app.org_id, app.project_id, app.installed_by_user_id, app.state, app.provider_tenant_id, app.provider_account_ref, app.provider_agent_display_name, app.credential_secret_id, app.provider_config, app.provider_identity, app.provider_metadata, app.last_oauth_flow_id, app.deleted_at, app.created_at, app.updated_at, app.name, app.app_type, app.settings, app.setup_revision
 FROM project_apps app
 JOIN projects project ON project.id = app.project_id
 JOIN orgs org ON org.id = app.org_id
-WHERE app.provider = $1 AND app.provider_tenant_id = $2
+WHERE app.app_type = ANY($1::text[]) AND app.provider_tenant_id = $2
   AND ($3::text IS NULL OR app.provider_account_ref = $3::text)
   AND (app.state = 'active' OR ($4::boolean
     AND app.state = 'disconnected' AND app.credential_secret_id IS NOT NULL))
@@ -508,7 +498,7 @@ ORDER BY app.id LIMIT $6
 `
 
 type ListProjectAppsByProviderIdentityParams struct {
-	Provider            string
+	AppTypes            []string
 	ProviderTenantID    *string
 	ProviderAccountRef  *string
 	IncludeDisconnected bool
@@ -520,7 +510,7 @@ type ListProjectAppsByProviderIdentityParams struct {
 // Iterate all pages; a truncated fanout must never be acknowledged as complete.
 func (q *Queries) ListProjectAppsByProviderIdentity(ctx context.Context, arg ListProjectAppsByProviderIdentityParams) ([]ProjectApp, error) {
 	rows, err := q.db.Query(ctx, listProjectAppsByProviderIdentity,
-		arg.Provider,
+		arg.AppTypes,
 		arg.ProviderTenantID,
 		arg.ProviderAccountRef,
 		arg.IncludeDisconnected,
@@ -539,7 +529,6 @@ func (q *Queries) ListProjectAppsByProviderIdentity(ctx context.Context, arg Lis
 			&i.OrgID,
 			&i.ProjectID,
 			&i.InstalledByUserID,
-			&i.Provider,
 			&i.State,
 			&i.ProviderTenantID,
 			&i.ProviderAccountRef,
@@ -553,7 +542,7 @@ func (q *Queries) ListProjectAppsByProviderIdentity(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Name,
-			&i.DefinitionID,
+			&i.AppType,
 			&i.Settings,
 			&i.SetupRevision,
 		); err != nil {
@@ -568,7 +557,7 @@ func (q *Queries) ListProjectAppsByProviderIdentity(ctx context.Context, arg Lis
 }
 
 const lockProjectApp = `-- name: LockProjectApp :one
-SELECT id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR UPDATE
@@ -587,7 +576,6 @@ func (q *Queries) LockProjectApp(ctx context.Context, arg LockProjectAppParams) 
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -601,7 +589,7 @@ func (q *Queries) LockProjectApp(ctx context.Context, arg LockProjectAppParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)
@@ -639,7 +627,7 @@ func (q *Queries) LockProjectAppLifecycleShared(ctx context.Context, arg LockPro
 const updateProjectAppSettings = `-- name: UpdateProjectAppSettings :one
 UPDATE project_apps SET settings = $1, updated_at = statement_timestamp()
 WHERE project_id = $2 AND id = $3 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, installed_by_user_id, provider, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, definition_id, settings, setup_revision
+RETURNING id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 `
 
 type UpdateProjectAppSettingsParams struct {
@@ -656,7 +644,6 @@ func (q *Queries) UpdateProjectAppSettings(ctx context.Context, arg UpdateProjec
 		&i.OrgID,
 		&i.ProjectID,
 		&i.InstalledByUserID,
-		&i.Provider,
 		&i.State,
 		&i.ProviderTenantID,
 		&i.ProviderAccountRef,
@@ -670,7 +657,7 @@ func (q *Queries) UpdateProjectAppSettings(ctx context.Context, arg UpdateProjec
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Name,
-		&i.DefinitionID,
+		&i.AppType,
 		&i.Settings,
 		&i.SetupRevision,
 	)

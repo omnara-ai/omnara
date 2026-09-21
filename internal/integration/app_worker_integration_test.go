@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -42,14 +43,16 @@ func appProviderFixture(
 	storagefixture.SeedProject(t, t.Context(), pool, ids, time.Now())
 	store := storage.NewStore(pool)
 	appSetup := uuid.Must(uuid.NewV7())
+	appTypes := appdefinition.AppTypesForProvider(provider)
+	require.Len(t, appTypes, 1, "fixture requires an explicit registered type for this transport")
 	_, err := pool.Exec(
 		t.Context(),
-		`INSERT INTO project_apps(id,org_id,project_id,installed_by_user_id,provider,state,provider_tenant_id,provider_account_ref,name,definition_id,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,$6,'active',$7,$8,'chat',$9,$5,now(),now())`,
+		`INSERT INTO project_apps(id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,name,app_type,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'active',$6,$7,'chat',$8,$5,now(),now())`,
 		appSetup,
 		ids.OrgID,
 		ids.ProjectID,
 		ids.ProviderAdminUserID,
-		ids.ProviderSecretID, provider, tenant, account, "omnara."+provider,
+		ids.ProviderSecretID, tenant, account, appTypes[0],
 	)
 	require.NoError(t, err)
 	return pool, store, ids, appSetup
@@ -283,10 +286,10 @@ func seedIndependentApp(
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	_, err := pool.Exec(t.Context(), `INSERT INTO project_apps
-		(id,org_id,project_id,name,definition_id,settings,installed_by_user_id,provider,state,
+		(id,org_id,project_id,name,app_type,settings,installed_by_user_id,state,
 		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
 		 provider_metadata,setup_revision,created_at,updated_at)
-		SELECT $2,org_id,project_id,$3,definition_id,settings,installed_by_user_id,provider,state,
+		SELECT $2,org_id,project_id,$3,app_type,settings,installed_by_user_id,state,
 		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
 		 provider_metadata,setup_revision,now(),now()
 		FROM project_apps WHERE id=$1`, template.ID, id, name)

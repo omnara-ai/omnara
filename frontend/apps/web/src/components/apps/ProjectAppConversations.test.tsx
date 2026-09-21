@@ -173,28 +173,28 @@ it('keeps earlier conversations while retrying the next cursor, with links and a
 
 it.each([
   {
-    provider: 'discord',
+    appType: 'discord_thread',
     conversation: { channel_id: '444444444444444444' },
     label: 'Channel 444444444444444444',
   },
   {
-    provider: 'discord',
+    appType: 'discord_thread',
     conversation: { channel_id: '444444444444444444', thread_id: '555555555555555555' },
     label: 'Channel 444444444444444444 · Thread 555555555555555555',
   },
   {
-    provider: 'github',
+    appType: 'github_pr',
     conversation: { repository_id: 123, pull_request: 42 },
     label: 'Repository 123 · PR #42',
   },
 ] as const)(
-  'shows a canonical $provider address without an invented link or mutation controls',
-  async ({ provider, conversation, label }) => {
+  'shows a canonical $appType address without an invented link or mutation controls',
+  async ({ appType, conversation, label }) => {
     const row = { ...subscription, conversation }
     const api = fakeApi([
       { method: 'GET', path, respond: () => Response.json({ data: [row], next_cursor: null }) },
     ])
-    render(api, conversations(projectApp({ provider }), false))
+    render(api, conversations(projectApp({ app_type: appType }), false))
     await waitForUI(() => {
       expect(container.textContent).toContain(label)
     })

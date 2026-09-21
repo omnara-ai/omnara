@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
-import { appDefinitionLabel } from './appDefinitions'
+import { appTypeLabel } from './appDefinitions'
 
 export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId: string }) {
   const query = useProjectApps(orgId, projectId)
@@ -47,7 +47,7 @@ export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">{appDefinitionLabel(app.definition_id)}</Badge>
+                  <Badge variant="outline">{appTypeLabel(app.app_type)}</Badge>
                   <Badge variant={app.state === 'active' ? 'outline' : 'secondary'}>
                     {app.state === 'active' ? 'Connected' : 'Disconnected'}
                   </Badge>

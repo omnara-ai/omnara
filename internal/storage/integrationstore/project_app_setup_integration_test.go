@@ -28,7 +28,7 @@ func slackSetupFixture(
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1`, f.project).Scan(&profileID),
 	)
 	return f, input, integrationstore.SaveProjectAppInput{
-		OrgID: f.org, ProjectID: f.project, Name: "setup", DefinitionID: appdefinition.Slack,
+		OrgID: f.org, ProjectID: f.project, Name: "setup", AppType: appdefinition.SlackThread,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
 			Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
@@ -184,7 +184,7 @@ func TestProjectAppLauncherMatchesVerifiedProviderAccount(t *testing.T) {
 				})
 				require.NoError(t, err)
 				app, err = f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
-					OrgID: f.org, ProjectID: f.project, Name: "github-launcher", DefinitionID: appdefinition.GitHub,
+					OrgID: f.org, ProjectID: f.project, Name: "github-launcher", AppType: appdefinition.GitHubPR,
 				})
 				require.NoError(t, err)
 				setup.AppID, setup.ExpectedSetupRevision = app.ID, app.SetupRevision

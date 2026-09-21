@@ -46,7 +46,7 @@ func TestAppOAuthScopeAndInputValidation(t *testing.T) {
 			authHeaders(f.project.AdminToken),
 		)
 	}
-	other := createSetupHTTPApp(t, f.handler, f.project, "github", appdefinition.GitHub)
+	other := createSetupHTTPApp(t, f.handler, f.project, "github", appdefinition.GitHubPR)
 	requestJSONWithHeaders(
 		t,
 		f.handler,
@@ -332,8 +332,8 @@ func completeSlackOAuthInstall(
 		http.MethodPost,
 		project.ProjectPath+"/apps",
 		projectAppHTTPJSON(t, map[string]any{
-			"name":          "slack-" + uuid.NewString()[:8],
-			"definition_id": appdefinition.Slack,
+			"name":     "slack-" + uuid.NewString()[:8],
+			"app_type": appdefinition.SlackThread,
 			"settings": map[string]any{
 				"launcher": map[string]any{
 					"trigger":    "mention",

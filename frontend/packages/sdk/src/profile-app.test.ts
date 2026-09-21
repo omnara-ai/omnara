@@ -13,12 +13,12 @@ const third = `aprf_${'c'.repeat(26)}`
 const base = { name: 'reviewer', profileId: first }
 
 describe('app metadata setup', () => {
-  it.each(['slack', 'github', 'discord'] as const)(
+  it.each(['slack_thread', 'github_pr', 'discord_thread'] as const)(
     'creates a %s draft without capability or credential defaults',
-    (provider) => {
-      expect(profileAppSetup({ name: 'engineering-2', provider, launcher: false })).toEqual({
+    (appType) => {
+      expect(profileAppSetup({ name: 'engineering-2', appType, launcher: false })).toEqual({
         name: 'engineering-2',
-        definition_id: `omnara.${provider}`,
+        app_type: appType,
         settings: {},
       })
     },
@@ -26,15 +26,15 @@ describe('app metadata setup', () => {
   it.each(['', '1app', 'with space', 'under_score', 'a'.repeat(33), '\u200b'])(
     'rejects invalid immutable name %s',
     (name) => {
-      expect(() => profileAppSetup({ name, provider: 'slack', launcher: false })).toThrow()
+      expect(() => profileAppSetup({ name, appType: 'slack_thread', launcher: false })).toThrow()
     },
   )
   it('keeps large repository IDs as decimal strings and saves only launcher settings', () => {
     expect(
-      profileAppSetup({ ...base, provider: 'github', scopeRef: '9223372036854775807' }),
+      profileAppSetup({ ...base, appType: 'github_pr', scopeRef: '9223372036854775807' }),
     ).toEqual({
       name: base.name,
-      definition_id: 'omnara.github',
+      app_type: 'github_pr',
       settings: {
         launcher: {
           trigger: 'pull_request_opened',
@@ -48,17 +48,17 @@ describe('app metadata setup', () => {
   it.each(['owner/repo', '01', '0', '9223372036854775808'])(
     'rejects invalid repository ID %s',
     (scopeRef) => {
-      expect(() => profileAppSetup({ ...base, provider: 'github', scopeRef })).toThrow()
+      expect(() => profileAppSetup({ ...base, appType: 'github_pr', scopeRef })).toThrow()
     },
   )
-  it.each(['slack', 'discord'] as const)(
+  it.each(['slack_thread', 'discord_thread'] as const)(
     'offers multiple profiles through one %s app',
-    (provider) => {
+    (appType) => {
       const app = profileAppSetup({
         ...base,
-        provider,
+        appType,
         profileIds: [first, second],
-        scopeRef: provider === 'slack' ? 'T123' : '18446744073709551615',
+        scopeRef: appType === 'slack_thread' ? 'T123' : '18446744073709551615',
       })
       expect(app.settings.launcher?.slots).toEqual([
         { key: 'default', agent_profile_id: first },
@@ -75,13 +75,13 @@ describe('app metadata setup', () => {
       Array.from({ length: 17 }, (_, i) => `aprf_${String.fromCharCode(97 + i).repeat(26)}`),
     ]) {
       expect(() =>
-        profileAppSetup({ ...base, provider: 'slack', scopeRef: 'T123', profileIds }),
+        profileAppSetup({ ...base, appType: 'slack_thread', scopeRef: 'T123', profileIds }),
       ).toThrow()
     }
     expect(
       profileAppSetup({
         ...base,
-        provider: 'slack',
+        appType: 'slack_thread',
         scopeRef: 'T123',
         profileIds: Array.from(
           { length: 16 },
@@ -92,26 +92,26 @@ describe('app metadata setup', () => {
   })
   it('supports Slack channels and GitHub mentions', () => {
     expect(
-      profileAppSetup({ ...base, provider: 'slack', scopeKind: 'channel', scopeRef: 'C123' })
+      profileAppSetup({ ...base, appType: 'slack_thread', scopeKind: 'channel', scopeRef: 'C123' })
         .settings.launcher,
     ).toMatchObject({ scope_kind: 'channel', scope_ref: 'C123', trigger: 'mention' })
     expect(
-      profileAppSetup({ ...base, provider: 'github', scopeRef: '123', trigger: 'mention' }).settings
-        .launcher?.trigger,
+      profileAppSetup({ ...base, appType: 'github_pr', scopeRef: '123', trigger: 'mention' })
+        .settings.launcher?.trigger,
     ).toBe('mention')
     expect(() =>
-      profileAppSetup({ ...base, provider: 'github', scopeRef: '123', scopeKind: 'channel' }),
+      profileAppSetup({ ...base, appType: 'github_pr', scopeRef: '123', scopeKind: 'channel' }),
     ).toThrow(/scope/)
     expect(() =>
       profileAppSetup({
         ...base,
-        provider: 'discord',
+        appType: 'discord_thread',
         scopeRef: '123',
         trigger: 'pull_request_opened',
       }),
     ).toThrow(/trigger/)
     expect(() =>
-      profileAppSetup({ ...base, provider: 'slack', scopeRef: 'T123', scopeKind: 'channel' }),
+      profileAppSetup({ ...base, appType: 'slack_thread', scopeRef: 'T123', scopeKind: 'channel' }),
     ).toThrow(/channel ID/)
   })
 })
@@ -119,20 +119,24 @@ describe('app metadata setup', () => {
 describe('guided launcher scope editing', () => {
   it('validates guided scope edits without requiring profile IDs', () => {
     expect(
-      profileAppLauncherScope({ provider: 'slack', scopeKind: 'channel', scopeRef: ' C123 ' }),
+      profileAppLauncherScope({
+        appType: 'slack_thread',
+        scopeKind: 'channel',
+        scopeRef: ' C123 ',
+      }),
     ).toEqual({
       scope_kind: 'channel',
       scope_ref: 'C123',
       trigger: 'mention',
     })
     expect(() =>
-      profileAppLauncherScope({ provider: 'discord', scopeRef: '18446744073709551616' }),
+      profileAppLauncherScope({ appType: 'discord_thread', scopeRef: '18446744073709551616' }),
     ).toThrow(/too large/)
     expect(() =>
-      profileAppLauncherScope({ provider: 'slack', scopeRef: 'T123', trigger: 'typo' }),
+      profileAppLauncherScope({ appType: 'slack_thread', scopeRef: 'T123', trigger: 'typo' }),
     ).toThrow(/trigger/)
     expect(() =>
-      profileAppLauncherScope({ provider: 'github', scopeKind: 'channel', scopeRef: '123' }),
+      profileAppLauncherScope({ appType: 'github_pr', scopeKind: 'channel', scopeRef: '123' }),
     ).toThrow(/scope/)
   })
 })
@@ -140,7 +144,7 @@ describe('guided launcher scope editing', () => {
 describe('profile list editing', () => {
   const app = {
     name: 'shared-bot',
-    definition_id: 'omnara.slack',
+    app_type: 'slack_thread' as const,
     settings: {
       launcher: {
         trigger: 'mention',
@@ -205,9 +209,9 @@ describe('profile list editing', () => {
     }
     expect(() => profileAppProfileUpdate(full, [first])).toThrow(/16 slots/)
     expect(profileAppProfileUpdate(full, []).settings.launcher?.slots).toHaveLength(16)
-    expect(() =>
-      profileAppProfileUpdate({ ...app, definition_id: 'omnara.github' }, [first]),
-    ).toThrow(/Slack or Discord/)
+    expect(() => profileAppProfileUpdate({ ...app, app_type: 'github_pr' }, [first])).toThrow(
+      /Slack or Discord/,
+    )
   })
 })
 
@@ -218,11 +222,11 @@ describe('Discord interaction key', () => {
     [{ agent_profile_id: first }, { agent_profile_id: second }],
   ])('requires a public key for every Discord launcher', (...slots) => {
     expect(
-      profileAppDiscordKeyStatus({ definition: 'omnara.discord', slots, interactions: false }),
+      profileAppDiscordKeyStatus({ appType: 'discord_thread', slots, interactions: false }),
     ).toMatchObject({ required: true, missing: true })
   })
   it('supports independent handler configuration and validates exactly 64 hex characters', () => {
-    const input = { definition: 'omnara.discord', slots: [], interactions: true }
+    const input = { appType: 'discord_thread' as const, slots: [], interactions: true }
     for (const public_key of ['ab'.repeat(32), 'AB'.repeat(32)])
       expect(profileAppDiscordKeyStatus({ ...input, providerConfig: { public_key } }).missing).toBe(
         false,
@@ -239,9 +243,7 @@ describe('Discord interaction key', () => {
       expect(profileAppDiscordKeyStatus({ ...input, providerConfig: { public_key } }).missing).toBe(
         true,
       )
-    expect(profileAppDiscordKeyStatus({ ...input, definition: 'omnara.slack' }).required).toBe(
-      false,
-    )
+    expect(profileAppDiscordKeyStatus({ ...input, appType: 'slack_thread' }).required).toBe(false)
     expect(profileAppDiscordKeyStatus({ ...input, interactions: false }).required).toBe(false)
   })
 })

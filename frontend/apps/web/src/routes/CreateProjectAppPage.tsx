@@ -1,5 +1,5 @@
 import { useAppDefinitions } from '@omnara/react'
-import type { IntegrationProvider } from '@omnara/sdk'
+import type { AppType } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 
 import { AppCatalog } from '@/components/apps/AppCatalog'
@@ -10,20 +10,20 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 export function CreateProjectAppPage() {
-  const { provider } = useParams({ strict: false })
-  const selected = appCatalog.find((app) => app.provider === provider)
+  const { appType } = useParams({ strict: false })
+  const selected = appCatalog.find((app) => app.appType === appType)
   return (
     <ProjectPageFrame title={selected ? `Add ${selected.name}` : 'Add app'}>
       {({ activeOrg, projectId, project }) => {
         if (!project?.access.can_manage)
           return <p role="alert">You don’t have permission to manage apps in this project.</p>
-        if (provider && !selected) return <p role="alert">App not found.</p>
+        if (appType && !selected) return <p role="alert">App not found.</p>
         return selected ? (
           <AppSetup
-            key={`${projectId}:${selected.provider}`}
+            key={`${projectId}:${selected.appType}`}
             orgId={activeOrg.id}
             projectId={projectId}
-            provider={selected.provider}
+            appType={selected.appType}
           />
         ) : (
           <>
@@ -44,15 +44,15 @@ export function CreateProjectAppPage() {
 function AppSetup({
   orgId,
   projectId,
-  provider,
+  appType,
 }: {
   orgId: string
   projectId: string
-  provider: IntegrationProvider
+  appType: AppType
 }) {
   const query = useAppDefinitions(orgId, projectId)
   const navigate = useNavigate()
-  const selected = appCatalog.find((app) => app.provider === provider)
+  const selected = appCatalog.find((app) => app.appType === appType)
   if (query.isPending) return <Spinner className="size-4" />
   if (query.isError)
     return (
@@ -60,7 +60,7 @@ function AppSetup({
         Could not load app definition. <Button onClick={() => void query.refetch()}>Retry</Button>
       </div>
     )
-  if (!query.data.data.some((app) => app.id === `omnara.${provider}`))
+  if (!query.data.data.some((app) => app.app_type === appType))
     return <p role="alert">This app is unavailable.</p>
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -78,7 +78,7 @@ function AppSetup({
       <ProjectAppForm
         orgId={orgId}
         projectId={projectId}
-        provider={provider}
+        appType={appType}
         onSaved={(app) =>
           void navigate({
             to: '/projects/$projectId/apps/$appId',
