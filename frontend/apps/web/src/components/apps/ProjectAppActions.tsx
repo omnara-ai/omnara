@@ -92,7 +92,7 @@ export function RemoveProjectAppButton({
         onClick={() => {
           if (
             !window.confirm(
-              `Remove app ${app.name}? This deletes its schedules and subscriptions and revokes its tools and launcher. Existing agents and history are kept.`,
+              `Delete app ${app.name}? This deletes its schedules and subscriptions and revokes its tools and launcher. Existing agents and history are kept.`,
             )
           )
             return
@@ -100,12 +100,12 @@ export function RemoveProjectAppButton({
           remove.mutate(app.id, {
             onSuccess: onRemoved,
             onError: (cause) => {
-              setError(errorMessage(cause, 'Could not remove app.'))
+              setError(errorMessage(cause, 'Could not delete app.'))
             },
           })
         }}
       >
-        Remove app
+        Delete app
       </Button>
       {error && (
         <p role="alert" className="text-destructive text-sm">

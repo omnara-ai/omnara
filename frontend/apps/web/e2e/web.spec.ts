@@ -789,7 +789,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     })
     expect(reconnected.setup_revision).toBeGreaterThan(offline.setup_revision)
     page.once('dialog', (dialog) => void dialog.accept())
-    await page.getByRole('button', { name: 'Remove app', exact: true }).click()
+    await page.getByRole('button', { name: 'Delete app', exact: true }).click()
     await expect(page).toHaveURL(`/projects/${projectID}/apps`)
     await expect(page.locator(`a[href="${appPath}"]`)).toHaveCount(0)
     expect((await readApp(page, apiProjectPath, secondary.id)).state).toBe('active')

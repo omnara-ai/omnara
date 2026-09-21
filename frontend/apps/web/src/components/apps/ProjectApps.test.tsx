@@ -267,7 +267,7 @@ it.each([true, false])(
     await waitForUI(() => {
       expect(document.body.textContent).toContain('Try again shortly')
     })
-    expect(button('Remove app')).toBeDefined()
+    expect(button('Delete app')).toBeDefined()
     await selectAction('Disconnect app')
     await waitForUI(() => {
       expect(container.textContent).toContain('This app is disconnected.')
@@ -275,7 +275,7 @@ it.each([true, false])(
     expect(api.requestsTo('POST', `${projectPath}/apps/${app.id}/disconnect`)).toHaveLength(2)
     confirm.mockReturnValue(false)
     act(() => {
-      button('Remove app').click()
+      button('Delete app').click()
     })
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('This deletes its schedules'))
     expect(api.requestsTo('DELETE', `${projectPath}/apps/${app.id}`)).toHaveLength(0)
@@ -392,7 +392,7 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
     <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />,
   )
   await waitForUI(() => {
-    expect(button('Remove app')).toBeDefined()
+    expect(button('Delete app')).toBeDefined()
   })
   vi.stubGlobal('confirm', () => true)
   delay = true
@@ -444,17 +444,17 @@ it('waits for disconnect to settle before removal and keeps the app cache delete
     client,
   })
   await waitForUI(() => {
-    expect(button('Remove app').disabled).toBe(false)
+    expect(button('Delete app').disabled).toBe(false)
   })
   vi.stubGlobal('confirm', () => true)
   await selectAction('Disconnect app')
   await waitForUI(() => {
     expect(api.requestsTo('POST', `${detailPath}/disconnect`)).toHaveLength(1)
-    expect(button('Remove app').disabled).toBe(true)
+    expect(button('Delete app').disabled).toBe(true)
     expect(button('App actions').disabled).toBe(true)
   })
   await act(async () => {
-    button('Remove app').click()
+    button('Delete app').click()
     await Promise.resolve()
   })
   expect(api.requestsTo('DELETE', detailPath)).toHaveLength(0)
@@ -469,7 +469,7 @@ it('waits for disconnect to settle before removal and keeps the app cache delete
     await pending
   })
   await waitForUI(() => {
-    expect(button('Remove app').disabled).toBe(false)
+    expect(button('Delete app').disabled).toBe(false)
     expect(cache.getQueryData(queryKey)).toMatchObject({ state: 'disconnected' })
   })
   const removed = vi.fn(() => {
@@ -477,7 +477,7 @@ it('waits for disconnect to settle before removal and keeps the app cache delete
   })
   rerender(<RemoveApp onRemoved={removed} />)
   act(() => {
-    button('Remove app').click()
+    button('Delete app').click()
   })
   await waitForUI(() => {
     expect(removed).toHaveBeenCalledOnce()
@@ -523,7 +523,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
   )
   const { cache, client, rerender } = render(api, detail)
   await waitForUI(() => {
-    expect(button('Remove app')).toBeDefined()
+    expect(button('Delete app')).toBeDefined()
   })
   let refresh!: Promise<void>
   act(() => {
@@ -541,7 +541,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
   )
   vi.stubGlobal('confirm', () => true)
   act(() => {
-    button('Remove app').click()
+    button('Delete app').click()
   })
   const queryKey = getProjectAppQueryKey({
     path: { orgID: orgId, projectID: projectId, appID: savedApp.id },
@@ -562,7 +562,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
   })
   expect(reads).toBe(3)
   expect(container.querySelector('[aria-label="Pull requests"]')).toBeNull()
-  expect(container.textContent).not.toContain('Remove app')
+  expect(container.textContent).not.toContain('Delete app')
 })
 
 it.each([401, 403, 404])(
