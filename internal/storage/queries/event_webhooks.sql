@@ -1,7 +1,8 @@
 -- name: GetAgentEventWebhookTarget :one
 SELECT agent.project_id, project.org_id,
        coalesce(config.compiled_definition->'event_webhook'->>'url', '')::text AS url,
-       coalesce(config.compiled_definition->'event_webhook'->>'signing_secret_id', '')::text AS signing_secret_id,
+       coalesce((config.compiled_definition->'event_webhook'->>'signing_secret_id')::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS signing_secret_id,
        coalesce(config.compiled_definition->'event_webhook'->'events', '[]'::jsonb)::jsonb AS events
 FROM agents agent
 JOIN agent_configs config ON config.id = agent.current_config_id AND config.project_id = agent.project_id

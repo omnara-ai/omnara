@@ -1192,12 +1192,19 @@ export type CompiledAgentConfig = {
     mcp?: {
         [key: string]: CompiledMcpServer;
     };
+    event_webhook?: CompiledEventWebhook;
     skills?: Array<CompiledSkill>;
     subagents?: {
         [key: string]: CompiledSubagent;
     };
     max_subagents?: number;
     max_depth?: number;
+};
+
+export type CompiledEventWebhook = {
+    url: string;
+    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
+    signing_secret_id?: SecretId;
 };
 
 export type CompiledAgentModel = {
@@ -1283,8 +1290,7 @@ export type CompiledSubagent = {
 };
 
 export type CompiledSubagentModel = {
-    provider_config?: ResourceName;
-    name?: ResourceName;
+    configured_model_id?: ConfiguredModelId;
     context_window_tokens?: number;
     default_max_output_tokens?: number;
     cache_retention?: string;

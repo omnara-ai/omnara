@@ -105,23 +105,9 @@ func options(
 	return opts
 }
 
-type ModelReads interface {
-	GetConfiguredModel(ctx context.Context, orgID, id uuid.UUID) (modelstore.ConfiguredModelRecord, error)
-	GetConfiguredModelByName(
-		ctx context.Context, orgID, providerConfigID uuid.UUID, name string,
-	) (modelstore.ConfiguredModelRecord, error)
-	GetModelProviderConfig(ctx context.Context, orgID, id uuid.UUID) (modelstore.ModelProviderConfigRecord, error)
-	GetModelProviderConfigByName(
-		ctx context.Context, orgID uuid.UUID, name string,
-	) (modelstore.ModelProviderConfigRecord, error)
-	GetActiveProjectModelGrantForConfiguredModel(
-		ctx context.Context, orgID, projectID, configuredModelID uuid.UUID,
-	) (modelstore.ProjectModelGrantRecord, error)
-}
-
 func resolveGrantedModel(
 	ctx context.Context,
-	models ModelReads,
+	models *modelstore.Store,
 	orgID, projectID uuid.UUID,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	configuredModelName string,
@@ -181,65 +167,16 @@ func resolveGrantedModel(
 	}, nil
 }
 
-// SubagentModelResolver resolves a subagent's model override against the
-// organization's configured models and the project's grants through the
-// given reads, so callers inside a transaction can keep resolution on their
-// own connection.
-func SubagentModelResolver(
-	ctx context.Context,
-	models ModelReads,
-	orgID, projectID uuid.UUID,
-) agentconfig.SubagentModelResolver {
-	return func(
-		baseConfiguredModelID uuid.UUID,
-		override agentconfig.SubagentModelCompiled,
-	) (agentconfig.ResolvedModelSelection, error) {
-		baseModel, err := models.GetConfiguredModel(ctx, orgID, baseConfiguredModelID)
-		if err != nil {
-			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base configured model: %w", err)
-		}
-		var providerConfig modelstore.ModelProviderConfigRecord
-		if override.ProviderConfig != "" {
-			providerConfig, err = models.GetModelProviderConfigByName(ctx, orgID, override.ProviderConfig)
-			if err != nil {
-				if storeerr.IsNotFound(err) {
-					return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
-						"/model/provider_config",
-						fmt.Errorf(
-							"model provider config %q was not found: %w", override.ProviderConfig, storeerr.ErrNotFound,
-						),
-					)
-				}
-				return agentconfig.ResolvedModelSelection{}, err
-			}
-		} else {
-			providerConfig, err = models.GetModelProviderConfig(ctx, orgID, baseModel.ModelProviderConfigID)
-			if err != nil {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base model provider config: %w", err)
-			}
-		}
-		configuredModelName := override.Name
-		if configuredModelName == "" {
-			configuredModelName = baseModel.Name
-		}
-		return resolveGrantedModel(ctx, models, orgID, projectID, providerConfig, configuredModelName)
-	}
-}
-
 func DeriveSubagentConfig(
 	base executionstore.AgentConfigRecord,
 	subagent agentconfig.SubagentCompiled,
 	depth agentconfig.SubagentDepth,
-	resolveModel agentconfig.SubagentModelResolver,
 ) (Body, error) {
 	var baseCompiled agentconfig.Compiled
 	if err := json.Unmarshal(base.CompiledDefinition, &baseCompiled); err != nil {
 		return Body{}, fmt.Errorf("decode base compiled agent config: %w", err)
 	}
-	child, err := agentconfig.SubagentCompiledFrom(baseCompiled, subagent, depth, resolveModel)
-	if err != nil {
-		return Body{}, err
-	}
+	child := agentconfig.SubagentCompiledFrom(baseCompiled, subagent, depth)
 	encoded, err := agentconfig.EncodeCompiled(child)
 	if err != nil {
 		return Body{}, err
@@ -269,7 +206,7 @@ func Compile(
 	if err != nil {
 		return Body{}, err
 	}
-	if webhook := result.Compiled.EventWebhook; webhook != nil && webhook.SigningSecretID != "" {
+	if webhook := result.Compiled.EventWebhook; webhook != nil && webhook.SigningSecretID != uuid.Nil {
 		secret, err := store.Execution().ReadEventWebhookSigningSecret(ctx, executionstore.EventWebhookTarget{
 			OrgID: orgID, ProjectID: projectID, SigningSecretID: webhook.SigningSecretID,
 		})

@@ -28,7 +28,7 @@ type Compiled struct {
 	MachineSources []MachineSourceCompiled      `json:"machine_sources,omitempty"`
 	Tools          map[string]ToolCompiled      `json:"tools,omitempty"`
 	MCP            map[string]MCPServerCompiled `json:"mcp,omitempty"`
-	EventWebhook   *EventWebhook                `json:"event_webhook,omitempty"`
+	EventWebhook   *EventWebhookCompiled        `json:"event_webhook,omitempty"`
 	Skills         []SkillCompiled              `json:"skills,omitempty"`
 	Subagents      map[string]SubagentCompiled  `json:"subagents,omitempty"`
 	MaxSubagents   *int                         `json:"max_subagents,omitempty"`
@@ -37,6 +37,12 @@ type Compiled struct {
 
 type SkillCompiled struct {
 	ID uuid.UUID `json:"id"`
+}
+
+type EventWebhookCompiled struct {
+	Events          []string  `json:"events"`
+	SigningSecretID uuid.UUID `json:"signing_secret_id,omitzero"`
+	URL             string    `json:"url"`
 }
 
 // SkillResolution is what a ResolveSkillID callback returns at compile time.
@@ -223,9 +229,10 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		if err != nil {
 			return Compiled{}, issueAt("/event_webhook/url", err)
 		}
-		secretID := strings.TrimSpace(source.EventWebhook.SigningSecretID)
-		if secretID != "" {
-			if _, err := publicid.Decode(publicid.KindSecret, secretID); err != nil {
+		var secretID uuid.UUID
+		if raw := strings.TrimSpace(source.EventWebhook.SigningSecretID); raw != "" {
+			secretID, err = publicid.Decode(publicid.KindSecret, raw)
+			if err != nil {
 				return Compiled{}, issueAt("/event_webhook/signing_secret_id", err)
 			}
 			if opts.ValidateSecretID != nil {
@@ -234,7 +241,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 				}
 			}
 		}
-		compiled.EventWebhook = &EventWebhook{URL: webhookURL, SigningSecretID: secretID, Events: source.EventWebhook.Events}
+		compiled.EventWebhook = &EventWebhookCompiled{URL: webhookURL, SigningSecretID: secretID, Events: source.EventWebhook.Events}
 	}
 	machines, err := compileMachineSources(source.MachineSources, opts)
 	if err != nil {

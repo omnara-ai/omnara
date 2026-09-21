@@ -117,8 +117,8 @@ tools: {skill: {enabled: false}}
 			maxTokens := 128
 			body, err := agentconfigcompile.DeriveSubagentConfig(base, agentconfig.SubagentCompiled{
 				Type: kind, InstructionAppend: "Child instructions.",
-				Model: &agentconfig.SubagentModelCompiled{DefaultMaxOutputTokens: &maxTokens},
-			}, agentconfig.SubagentDepth{Depth: 1}, nil)
+				Model: &agentconfig.ModelCompiled{DefaultMaxOutputTokens: &maxTokens},
+			}, agentconfig.SubagentDepth{Depth: 1})
 			require.NoError(t, err)
 			derived, err := store.Execution().CreateAgentConfig(ctx, body.CreateInput(project.ProjectUUID))
 			require.NoError(t, err)

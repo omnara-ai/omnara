@@ -109,14 +109,18 @@ export type ToolEntry = z.infer<typeof toolEntry>
 
 const optionalText = z.string().nullable().optional()
 
-const subagentModelEntry = z.strictObject({
-  provider_config: z.string().optional(),
-  name: z.string().optional(),
-  context_window_tokens: positiveCount,
-  default_max_output_tokens: positiveCount,
-  cache_retention: z.string().optional(),
-  reasoning: z.strictObject({ effort: z.string() }).optional(),
-})
+const subagentModelEntry = z
+  .strictObject({
+    provider_config: z.string().optional(),
+    name: z.string().optional(),
+    context_window_tokens: positiveCount,
+    default_max_output_tokens: positiveCount,
+    cache_retention: z.string().optional(),
+    reasoning: z.strictObject({ effort: z.string() }).optional(),
+  })
+  .refine((model) => (model.provider_config === undefined) === (model.name === undefined), {
+    message: 'Model provider_config and name must be provided together.',
+  })
 export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
 
 const subagentEntry = z.strictObject({

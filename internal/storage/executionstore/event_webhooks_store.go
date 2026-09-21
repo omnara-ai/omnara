@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -24,7 +23,7 @@ type EventWebhookTarget struct {
 	ProjectID       uuid.UUID
 	OrgID           uuid.UUID
 	URL             string
-	SigningSecretID string
+	SigningSecretID uuid.UUID
 }
 
 func (s *Store) GetAgentEventWebhookTarget(ctx context.Context, agentID uuid.UUID) (EventWebhookTarget, error) {
@@ -189,15 +188,11 @@ func (s *Store) DeleteExpiredEventWebhookDeliveries(ctx context.Context, limit i
 }
 
 func (s *Store) ReadEventWebhookSigningSecret(ctx context.Context, target EventWebhookTarget) (string, error) {
-	id, err := publicid.Decode(publicid.KindSecret, target.SigningSecretID)
-	if err != nil {
-		return "", err
-	}
 	if s.secrets == nil {
 		return "", errors.New("secret store is required")
 	}
 	record, err := s.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
-		OrgID: target.OrgID, ProjectID: target.ProjectID, SecretID: id, Kind: secrets.KindGeneric,
+		OrgID: target.OrgID, ProjectID: target.ProjectID, SecretID: target.SigningSecretID, Kind: secrets.KindGeneric,
 	})
 	if err != nil {
 		return "", err

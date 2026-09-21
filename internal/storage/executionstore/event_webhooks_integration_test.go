@@ -37,7 +37,7 @@ func enableEventWebhook(t *testing.T, fixture processDaemonFixture, events []str
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID: testProjectID, Source: source, SourceFormat: "yaml",
 			ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
-			CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID: fixture.AgentID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
 	})

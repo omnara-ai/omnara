@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
 func (r *ToolCallReader) Agent(ctx context.Context) (AgentRecord, error) {
@@ -72,8 +71,4 @@ func (r *ToolCallReader) RuntimeContract(
 		return agentconfig.RuntimeContract{}, AgentConfigRecord{}, err
 	}
 	return contract, config, nil
-}
-
-func (r *ToolCallReader) Models() *modelstore.Store {
-	return modelstore.NewWithTx(r.transaction.tx)
 }

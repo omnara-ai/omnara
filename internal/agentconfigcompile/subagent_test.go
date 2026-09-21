@@ -28,13 +28,13 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 		body, err := DeriveSubagentConfig(executionstore.AgentConfigRecord{
 			Source: source, SourceFormat: "yaml", CompiledDefinition: raw,
 		}, agentconfig.SubagentCompiled{InstructionAppend: "Investigate."},
-			agentconfig.SubagentDepth{Depth: 1, MaxDepth: &maxDepth}, nil)
+			agentconfig.SubagentDepth{Depth: 1, MaxDepth: &maxDepth})
 		require.NoError(t, err)
 		require.Empty(t, body.Source)
 		require.Empty(t, body.SourceFormat)
 		leaf, err := DeriveSubagentConfig(executionstore.AgentConfigRecord{
 			CompiledDefinition: body.CompiledDefinition,
-		}, agentconfig.SubagentCompiled{}, agentconfig.SubagentDepth{Depth: 2, MaxDepth: &maxDepth}, nil)
+		}, agentconfig.SubagentCompiled{}, agentconfig.SubagentDepth{Depth: 2, MaxDepth: &maxDepth})
 		require.NoError(t, err)
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(leaf.CompiledDefinition, &compiled))

@@ -106,7 +106,7 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	sender, store, delivery := testSender()
 	key := []byte("12345678901234567890123456789012")
 	store.secret = "whsec_" + base64.StdEncoding.EncodeToString(key)
-	store.target.SigningSecretID = "secret"
+	store.target.SigningSecretID = uuid.New()
 	var bodies [][]byte
 	sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
 		body, err := io.ReadAll(req.Body)
@@ -144,7 +144,7 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 
 func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 	sender, store, delivery := testSender()
-	store.target.SigningSecretID = "secret"
+	store.target.SigningSecretID = uuid.New()
 	store.secret = base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	var calls int
 	sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
@@ -162,7 +162,7 @@ func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, int64(1), store.retried.Load())
 	store.target.URL = "https://example.com/new"
-	store.target.SigningSecretID = ""
+	store.target.SigningSecretID = uuid.Nil
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, 2, calls)
 	require.Equal(t, int64(1), store.completed.Load())
@@ -210,10 +210,10 @@ func TestSenderSkipsRemovedWebhookAndRetriesSigningErrors(t *testing.T) {
 			case "removed":
 				store.target.URL = ""
 			case "secret unavailable":
-				store.target.SigningSecretID = "secret"
+				store.target.SigningSecretID = uuid.New()
 				store.secretErr = errors.New("access revoked")
 			case "invalid secret":
-				store.target.SigningSecretID = "secret"
+				store.target.SigningSecretID = uuid.New()
 				store.secret = "invalid"
 			}
 			sender.deliver(t.Context(), delivery)

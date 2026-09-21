@@ -273,29 +273,6 @@ model: {provider_config: openai, name: primary}
     })
   })
 
-  it('keeps subagent model overrides authored in YAML', () => {
-    const source = `instruction: Do the thing.
-model:
-  provider_config: anthropic
-  name: claude-sonnet-5
-subagents:
-  fork:
-    type: self
-    model:
-      name: claude-haiku
-`
-    const config = mustDeserialize(source)
-    expect(config.subagents[0]?.modelOverride).toEqual({ name: 'claude-haiku' })
-    expect(applyToSource(source, config)).toBe(source)
-    const renamed = {
-      ...config,
-      subagents: config.subagents.map((subagent) => ({ ...subagent, description: 'Fork.' })),
-    }
-    expect(parse(applyToSource(source, renamed))).toMatchObject({
-      subagents: { fork: { type: 'self', description: 'Fork.', model: { name: 'claude-haiku' } } },
-    })
-  })
-
   it('treats missing or empty instruction and model fields as blank drafts', () => {
     expect(mustDeserialize('instruction:\nmodel:\n  provider_config: anthropic\n')).toMatchObject({
       instruction: '',

@@ -8956,6 +8956,8 @@ components:
           x-go-type-skip-optional-pointer: true
           additionalProperties:
             $ref: '#/components/schemas/CompiledMCPServer'
+        event_webhook:
+          $ref: '#/components/schemas/CompiledEventWebhook'
         skills:
           type: array
           x-go-type-skip-optional-pointer: true
@@ -8970,6 +8972,26 @@ components:
           type: integer
         max_depth:
           type: integer
+    CompiledEventWebhook:
+      type: object
+      additionalProperties: false
+      required: [url, events]
+      properties:
+        url:
+          type: string
+        events:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [agent_input, model_output, tool_result, context_checkpoint, tool_call_update]
+        signing_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
     CompiledAgentModel:
       type: object
       additionalProperties: false
@@ -9172,11 +9194,11 @@ components:
       type: object
       additionalProperties: false
       properties:
-        provider_config:
-          $ref: '#/components/schemas/ResourceName'
-          x-go-type-skip-optional-pointer: true
-        name:
-          $ref: '#/components/schemas/ResourceName'
+        configured_model_id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
           x-go-type-skip-optional-pointer: true
         context_window_tokens:
           type: integer

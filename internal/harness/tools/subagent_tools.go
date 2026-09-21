@@ -161,6 +161,7 @@ func validateListAgentsInput(raw json.RawMessage) error {
 
 func subagentStorageErrorIsToolFailure(cause error) bool {
 	return errors.Is(cause, storeerr.ErrInvalidRequest) ||
+		errors.Is(cause, storeerr.ErrInvalidModelProviderConfig) ||
 		errors.Is(cause, storeerr.ErrNotFound) ||
 		errors.Is(cause, storeerr.ErrConflict) ||
 		errors.Is(cause, storeerr.ErrStateTransitionConflict)
@@ -352,7 +353,6 @@ func subagentLaunchConfigForSpawn(
 		baseConfig,
 		subagent,
 		depth,
-		agentconfigcompile.SubagentModelResolver(ctx, reader.Models(), parent.OrgID, parent.ProjectID),
 	)
 	if err != nil {
 		return subagentLaunchConfig{}, fmt.Errorf("derive subagent config: %w", err)

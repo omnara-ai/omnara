@@ -37,9 +37,10 @@ func TestPublicCompiledDefinition(t *testing.T) {
 			"auth":{"type":"sigv4","secret_id":"UUID","region":"us-west-2","service":"execute-api"},
 			"tools":{"read":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}},"deferred":false},"inherit":{}}},
 			"public":{"url":"https://example.org","default_enabled":true,"permission":{"mode":"always_allow","parameters":{}}}},
+		"event_webhook":{"url":"https://example.com/events","events":["model_output"],"signing_secret_id":"UUID"},
 		"skills":[{"id":"UUID"}],
 		"subagents":{"self":{"type":"self"},"profile":{"type":"profile","profile_id":"UUID","description":"worker","instruction_append":"more","max_instances":3,"archive_after_idle_minutes":0,
-			"model":{"provider_config":"openai","name":"model","context_window_tokens":64000,"default_max_output_tokens":2000,"cache_retention":"short","reasoning":{"effort":"low"}}}}
+			"model":{"configured_model_id":"UUID","context_window_tokens":64000,"default_max_output_tokens":2000,"cache_retention":"short","reasoning":{"effort":"low"}}}}
 	}`, "UUID", id.String())
 	raw := json.RawMessage(source)
 	projected, err := publicCompiledDefinition(raw)
@@ -53,6 +54,7 @@ func TestPublicCompiledDefinition(t *testing.T) {
 		`"machine_pool_id":"`+id.String()+`"`, `"machine_pool_id":"`+public(publicid.KindMachinePool)+`"`,
 		`"TOKEN":"`+id.String()+`"`, `"TOKEN":"`+public(publicid.KindSecret)+`"`,
 		`"secret_id":"`+id.String()+`"`, `"secret_id":"`+public(publicid.KindSecret)+`"`,
+		`"signing_secret_id":"`+id.String()+`"`, `"signing_secret_id":"`+public(publicid.KindSecret)+`"`,
 		`"id":"`+id.String()+`"`, `"public_id":"`+public(publicid.KindSkill)+`"`,
 		`"profile_id":"`+id.String()+`"`, `"profile_id":"`+public(publicid.KindAgentProfile)+`"`,
 	).Replace(source)

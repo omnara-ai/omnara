@@ -865,6 +865,18 @@ export const zAgentConfigModel = z.object({
     output_modalities: z.array(z.string())
 });
 
+export const zCompiledEventWebhook = z.object({
+    url: z.string(),
+    events: z.array(z.enum([
+        'agent_input',
+        'model_output',
+        'tool_result',
+        'context_checkpoint',
+        'tool_call_update'
+    ])).min(1),
+    signing_secret_id: zSecretId.optional()
+});
+
 export const zCompiledModelReasoning = z.object({
     effort: z.string()
 });
@@ -928,8 +940,7 @@ export const zCompiledSkill = z.object({
 });
 
 export const zCompiledSubagentModel = z.object({
-    provider_config: zResourceName.optional(),
-    name: zResourceName.optional(),
+    configured_model_id: zConfiguredModelId.optional(),
     context_window_tokens: z.int().optional(),
     default_max_output_tokens: z.int().optional(),
     cache_retention: z.string().optional(),
@@ -956,6 +967,7 @@ export const zCompiledAgentConfig = z.object({
     machine_sources: z.array(zCompiledMachineSource).optional(),
     tools: z.record(z.string(), zCompiledTool).optional(),
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
+    event_webhook: zCompiledEventWebhook.optional(),
     skills: z.array(zCompiledSkill).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),
     max_subagents: z.int().optional(),

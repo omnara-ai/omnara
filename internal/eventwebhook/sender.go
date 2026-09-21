@@ -183,7 +183,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Webhook-Id", delivery.ID.String())
 	req.Header.Set("Webhook-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
-	if target.SigningSecretID != "" {
+	if target.SigningSecretID != uuid.Nil {
 		secret, readErr := s.store.ReadEventWebhookSigningSecret(ctx, target)
 		if readErr != nil {
 			return fmt.Errorf("read event webhook signing secret: %w", readErr)

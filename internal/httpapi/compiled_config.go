@@ -64,6 +64,18 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		}
 		response.MachineSources = append(response.MachineSources, source)
 	}
+	if webhook := compiled.EventWebhook; webhook != nil {
+		response.EventWebhook = &openapi.CompiledEventWebhook{Url: webhook.URL}
+		for _, event := range webhook.Events {
+			response.EventWebhook.Events = append(response.EventWebhook.Events, openapi.CompiledEventWebhookEvents(event))
+		}
+		if webhook.SigningSecretID != uuid.Nil {
+			response.EventWebhook.SigningSecretId, err = publicCompiledID(publicid.KindSecret, webhook.SigningSecretID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
+			}
+		}
+	}
 	response.Tools = make(map[string]openapi.CompiledTool, len(compiled.Tools))
 	for name, tool := range compiled.Tools {
 		response.Tools[name] = openapi.CompiledTool{
@@ -117,11 +129,18 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		}
 		if subagent.Model != nil {
 			child.Model = &openapi.CompiledSubagentModel{
-				ProviderConfig: subagent.Model.ProviderConfig, Name: subagent.Model.Name,
 				ContextWindowTokens:    subagent.Model.ContextWindowTokens,
 				DefaultMaxOutputTokens: subagent.Model.DefaultMaxOutputTokens,
 				CacheRetention:         subagent.Model.CacheRetention,
 				Reasoning:              (*openapi.CompiledModelReasoning)(subagent.Model.Reasoning),
+			}
+			if subagent.Model.ConfiguredModelID != uuid.Nil {
+				child.Model.ConfiguredModelId, err = publicCompiledID(
+					publicid.KindConfiguredModel, subagent.Model.ConfiguredModelID,
+				)
+				if err != nil {
+					return openapi.CompiledAgentConfig{}, err
+				}
 			}
 		}
 		response.Subagents[name] = child
