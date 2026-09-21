@@ -1053,8 +1053,11 @@ func TestBuildIncludesAvailableMachinePoolsWhenCreateToolEnabled(t *testing.T) {
 		hasConfig: true,
 		config:    testAgentConfigRecordWithTools(t, "create_machine"),
 		machinePools: []executionstore.MachinePoolSourceRecord{{
-			MachinePoolName: "Build Pool",
-			Description:     "Build pool",
+			MachinePoolName:    "Build Pool",
+			Description:        "Build pool",
+			SupportedOverrides: []string{"cpu", "memory_mb"},
+			DefaultCPU:         new(2), DefaultMemoryMB: new(4096),
+			MinCPU: new(1), MaxCPU: new(4), MinMemoryMB: new(1024), MaxMemoryMB: new(8192),
 		}},
 	}
 	store.messages = append(
@@ -1088,6 +1091,19 @@ func TestBuildIncludesAvailableMachinePoolsWhenCreateToolEnabled(t *testing.T) {
 	if pool.MachinePoolName != "Build Pool" || pool.Description != "Build pool" {
 		t.Fatalf("unexpected machine pool context: %+v", pool)
 	}
+	encoded, err := json.Marshal(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		`"supported_overrides":["cpu","memory_mb"]`, `"default_cpu":2`, `"default_memory_mb":4096`,
+		`"min_cpu":1`, `"max_cpu":4`, `"min_memory_mb":1024`, `"max_memory_mb":8192`,
+	} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("pool context missing %s: %s", field, encoded)
+		}
+	}
+
 }
 
 func TestBuildOmitsAvailableMachinePoolsWhenCreateToolDisabled(t *testing.T) {

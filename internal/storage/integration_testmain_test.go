@@ -101,3 +101,9 @@ func randomTokenPart(size int) (string, error) {
 func artifactObjectKey(agentID, artifactID uuid.UUID) string {
 	return "artifacts/" + agentID.String() + "/" + artifactID.String()
 }
+
+func (mergingMachinePoolProviders) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}

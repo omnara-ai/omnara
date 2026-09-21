@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -19,6 +20,8 @@ type AgentMachineObservationRecord struct {
 	BindingState           AgentMachineBindingState `json:"binding_state"`
 	DisplayName            string                   `json:"display_name"`
 	MachinePoolName        string                   `json:"machine_pool_name,omitempty"`
+	CPU                    *int                     `json:"cpu,omitempty"`
+	MemoryMB               *int                     `json:"memory_mb,omitempty"`
 	LifecycleState         MachineLifecycleState    `json:"lifecycle_state"`
 	ConnectionState        MachineConnectionState   `json:"connection_state"`
 	ConnectionStateReason  string                   `json:"connection_state_reason,omitempty"`
@@ -117,6 +120,8 @@ func selectAgentMachineObservations(
 	records := make([]AgentMachineObservationRecord, 0, len(rows))
 	for _, row := range rows {
 		records = append(records, AgentMachineObservationRecord{
+			CPU:                    storeutil.IntPtr(row.Cpu),
+			MemoryMB:               storeutil.IntPtr(row.MemoryMb),
 			MachineID:              row.MachineID,
 			SourceKind:             MachineSourceKind(row.SourceKind),
 			BindingKind:            AgentMachineBindingKind(row.BindingKind),

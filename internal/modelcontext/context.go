@@ -155,8 +155,15 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		bundle.AvailableMachinePools = make([]MachinePoolRef, 0, len(sources))
 		for _, source := range sources {
 			bundle.AvailableMachinePools = append(bundle.AvailableMachinePools, MachinePoolRef{
-				MachinePoolName: source.MachinePoolName,
-				Description:     source.Description,
+				MachinePoolName:    source.MachinePoolName,
+				Description:        source.Description,
+				SupportedOverrides: source.SupportedOverrides,
+				DefaultCPU:         source.DefaultCPU,
+				DefaultMemoryMB:    source.DefaultMemoryMB,
+				MinCPU:             source.MinCPU,
+				MaxCPU:             source.MaxCPU,
+				MinMemoryMB:        source.MinMemoryMB,
+				MaxMemoryMB:        source.MaxMemoryMB,
 			})
 		}
 	}
