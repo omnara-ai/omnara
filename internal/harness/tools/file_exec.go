@@ -5,7 +5,18 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"time"
 )
+
+func CheckFileToolSupport(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if _, err := exec.LookPath("rg"); err != nil {
+		return err
+	}
+	_, err := editFileText(ctx, nil, "")
+	return err
+}
 
 func newFileExecCommand(ctx context.Context, name string, roots []*os.File, args ...string) (*exec.Cmd, error) {
 	binary, err := exec.LookPath(name)

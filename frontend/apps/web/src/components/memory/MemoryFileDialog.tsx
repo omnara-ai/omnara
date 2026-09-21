@@ -30,7 +30,8 @@ export function MemoryFileDialog({
 }) {
   const [mode, setMode] = useState('new')
   const upload = mode === 'upload'
-  const [path, setPath] = useState(folder ? `${folder}/` : '')
+  const pathPrefix = folder ? `${folder}/` : ''
+  const [path, setPath] = useState(pathPrefix)
   const [file, setFile] = useState<File>()
   const [text, setText] = useState('')
   const write = useWriteMemoryFile(scope)
@@ -128,7 +129,14 @@ export function MemoryFileDialog({
                     disabled={write.isPending}
                     onSelect={(selected) => {
                       setFile(selected)
-                      if (selected) setPath(folder ? `${folder}/${selected.name}` : selected.name)
+                      if (
+                        selected &&
+                        (path === '' ||
+                          path === pathPrefix ||
+                          (file && path === pathPrefix + file.name))
+                      ) {
+                        setPath(pathPrefix + selected.name)
+                      }
                       write.reset()
                     }}
                   />

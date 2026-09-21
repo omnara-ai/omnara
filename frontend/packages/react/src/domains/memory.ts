@@ -208,12 +208,7 @@ export function useWriteMemoryFile(scope: MemoryScope) {
       const bytes = new Uint8Array(await content.arrayBuffer())
       await queryClient.cancelQueries({ queryKey })
       queryClient.setQueryData([...queryKey, 'content'], { bytes, digest: data.digest })
-      await Promise.all([
-        invalidateParentDirectories(queryClient, client, scope, path),
-        queryClient.invalidateQueries({
-          queryKey,
-        }),
-      ])
+      await invalidateParentDirectories(queryClient, client, scope, path)
     },
   })
 }

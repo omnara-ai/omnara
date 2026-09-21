@@ -169,6 +169,49 @@ func TestSearchFilesNativeBinaryContent(t *testing.T) {
 	}
 }
 
+func TestSearchFilesMatchSnippets(t *testing.T) {
+	for _, test := range []struct {
+		name, content, pattern, want string
+		prefix, suffix               bool
+	}{
+		{"short match", "TARGET", "TARGET", "TARGET", false, false},
+		{"exact limit", strings.Repeat("x", searchLineBytes-6) + "TARGET", "TARGET", "TARGET", false, false},
+		{"early match", "TARGET" + strings.Repeat("y", 5000), "TARGET", "TARGET", false, true},
+		{"late match", strings.Repeat("x", 5000) + "TARGET", "TARGET", "TARGET", true, false},
+		{"middle match", strings.Repeat("x", 5000) + "TARGET" + strings.Repeat("y", 5000), "TARGET", "TARGET", true, true},
+		{
+			"first match", strings.Repeat("x", 5000) + "FIRST" + strings.Repeat("y", 5000) + "SECOND",
+			"FIRST|SECOND", "FIRST", true, true,
+		},
+		{"long match", strings.Repeat("x", 5000) + "TARGET" + strings.Repeat("y", 500), "TARGETy+", "TARGET", true, true},
+		{"UTF-8", strings.Repeat("😀", 5000) + "目標" + strings.Repeat("é", 5000), "目標", "目標", true, true},
+		{"byte-oriented UTF-8", strings.Repeat("x", 300) + "é" + strings.Repeat("y", 500), `(?-u:\xA9).*`, "é", true, true},
+		{"invalid UTF-8", strings.Repeat("x\xff", 5000) + "TARGET", "TARGET", "TARGET", true, false},
+		{"multiline", strings.Repeat("x", 5000) + "TARGET\nEND\n", "TARGET\\nEND\\n", "TARGET\nEND", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := searchRequestForTest(t, []string{"-U", "-e", test.pattern}, 20)
+			output := &searchOutput{input: input}
+			if err := output.search(t.Context(), searchSource{path: input.Path, content: []byte(test.content)}); err != nil {
+				t.Fatal(err)
+			}
+			if len(output.result.Lines) != 1 || output.result.MatchCount != 1 {
+				t.Fatalf("unexpected results: %+v", output.result)
+			}
+			line := output.result.Lines[0]
+			if !strings.Contains(line.Text, test.want) || len(line.Text) > searchLineBytes || !utf8.ValidString(line.Text) {
+				t.Fatalf("invalid snippet: %q", line.Text)
+			}
+			if strings.HasPrefix(line.Text, "…") != test.prefix || strings.HasSuffix(line.Text, "…") != test.suffix {
+				t.Fatalf("incorrect clipping markers: %q", line.Text)
+			}
+			if line.LineNumber != 1 || line.EndLine != 1+strings.Count(strings.TrimSuffix(test.content, "\n"), "\n") {
+				t.Fatalf("incorrect line numbers: %+v", line)
+			}
+		})
+	}
+}
+
 func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"-e", "x", "/etc/passwd"}, {"--pre", "cat", "-e", "x"}, {"-f", "/etc/passwd"},
@@ -194,13 +237,45 @@ func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
 	}
 }
 
-func TestSearchFilesResourceLimits(t *testing.T) {
+func TestSearchFilesOversizedEvents(t *testing.T) {
+	large := strings.Repeat("x", 3*1024*1024) + "TARGET"
+	for _, test := range []struct {
+		name, content string
+		lines         []int
+		truncated     bool
+	}{
+		{
+			"buffer growth", "TARGET before\n" + strings.Repeat("x", searchInitialBufferBytes+1) + "TARGET\nTARGET after\n",
+			[]int{1, 2, 3}, false,
+		},
+		{"below limit", strings.Repeat("x", searchEventBytes-2048) + "TARGET", []int{1}, false},
+		{"only oversized", large, nil, true},
+		{"later match", "TARGET before\n" + large + "\nTARGET after\n", []int{1, 3}, true},
+		{"consecutive oversized", large + "\n" + large + "\nTARGET after\n", []int{3}, true},
+		{"JSON escaping", strings.Repeat("\t", searchEventBytes/2) + "TARGET\nTARGET after\n", []int{2}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
+			output := &searchOutput{input: input}
+			if err := output.search(t.Context(), searchSource{path: input.Path, content: []byte(test.content)}); err != nil {
+				t.Fatal(err)
+			}
+			var lines []int
+			for _, line := range output.result.Lines {
+				lines = append(lines, line.LineNumber)
+			}
+			if !slices.Equal(lines, test.lines) || output.result.MatchCount != len(test.lines) ||
+				output.result.Truncated != test.truncated ||
+				test.truncated && !strings.Contains(output.result.IncompleteReason, "oversized") {
+				t.Fatalf("incorrect results: %+v", output.result)
+			}
+		})
+	}
+}
+
+func TestSearchFilesCancellation(t *testing.T) {
 	input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
 	page := &searchOutput{input: input}
-	err := page.search(t.Context(), searchSource{content: []byte(strings.Repeat("x", 3*1024*1024) + "TARGET")})
-	if !errors.Is(err, errSearchOutputLimit) {
-		t.Fatalf("oversized result was not bounded: %v", err)
-	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := page.search(ctx, searchSource{}); !errors.Is(err, context.Canceled) {
