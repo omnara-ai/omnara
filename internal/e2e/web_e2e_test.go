@@ -392,8 +392,7 @@ func TestWebE2EVerifiedAppSetupFixture(t *testing.T) {
 		}
 		if provider == "discord" {
 			setup["provider_config"] = map[string]any{
-				"public_key":  strings.Repeat("ab", 32),
-				"shard_count": 4,
+				"public_key": strings.Repeat("ab", 32),
 			}
 		}
 		request, err := http.NewRequestWithContext(
@@ -422,8 +421,8 @@ func TestWebE2EVerifiedAppSetupFixture(t *testing.T) {
 		if provider == "discord" {
 			require.Equal(
 				t,
-				float64(4),
-				testutil.RequireType[map[string]any](t, configured["provider_config"])["shard_count"],
+				strings.Repeat("ab", 32),
+				testutil.RequireType[map[string]any](t, configured["provider_config"])["public_key"],
 			)
 		}
 		stale, err := http.NewRequestWithContext(

@@ -10,7 +10,7 @@ export async function exerciseDiscordAppSchedule(
   profileName: string,
   apiProjectPath: string,
 ) {
-  expect(app.provider_config).toEqual({ public_key: 'ab'.repeat(32), shard_count: 1 })
+  expect(app.provider_config).toEqual({ public_key: 'ab'.repeat(32) })
   const mentions = page.getByRole('region', { name: 'Mentions', exact: true })
   await expect(
     mentions.getByRole('combobox', { name: 'Offered profiles', exact: true }),

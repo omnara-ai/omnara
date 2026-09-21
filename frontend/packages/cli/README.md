@@ -73,7 +73,7 @@ interaction public key with `--provider-config '{"public_key":"YOUR_64_HEX_PUBLI
 before using a launcher or interaction handler. Discord launchers include a handler by default. Set its
 Interactions Endpoint URL to
 `https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions`.
-The same provider config accepts `shard_count` from 1–4096 (default 1).
+Omnara manages one Gateway connection per Discord app.
 
 `apps update` replaces launcher settings and requires the unchanged app name and
 `app_type`. For the Slack app above, replace the example workspace and profile

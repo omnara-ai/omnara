@@ -174,7 +174,7 @@ choice; GitHub's `EverySlotAppLauncher` explicitly selects its configured slots.
 The router freezes those decisions and pinned configs, then executionstore admits
 each slot atomically. See [app_routing.md](app_routing.md) for replay and leases.
 
-A persistent transport retains its existing app/shard lease and checkpoint
+A persistent transport retains its existing app runtime lease and checkpoint
 contract independently of receipt consumption. Discord saved apps may open
 independent Gateway sessions for the same physical bot. Their IDENTIFY budget
 and concurrency buckets still coordinate by bot; unrelated launcher/settings

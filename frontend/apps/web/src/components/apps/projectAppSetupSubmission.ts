@@ -37,13 +37,6 @@ export async function submitProjectAppSetup(
   identity.parse(account)
   const providerConfig: ConfigureProjectAppRequest['provider_config'] = {}
   if (app.app_type === 'discord_thread') {
-    // Connection topology is managed outside the setup form. Preserve it on reconnect.
-    providerConfig.shard_count = z
-      .number()
-      .int()
-      .min(1)
-      .max(4096)
-      .parse(app.provider_config.shard_count ?? 1)
     // The normal Discord launcher includes an interaction handler. A public key
     // is part of the guided setup, not a separate capabilities switch.
     providerConfig.public_key = z

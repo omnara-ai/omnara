@@ -132,7 +132,7 @@ func TestProjectAppProviderIdentities(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(
 		t,
-		`{"public_key":"`+strings.Repeat("ab", 32)+`","shard_count":1}`,
+		`{"public_key":"`+strings.Repeat("ab", 32)+`"}`,
 		string(normalized.ProviderConfig),
 	)
 	for _, bad := range []string{"0", "01", "+1", "-1", "18446744073709551616"} {
@@ -146,6 +146,7 @@ func TestProjectAppProviderIdentities(t *testing.T) {
 		`{"public_key":"bad"}`,
 		`{"public_key":3}`,
 		`{"bot_token":"private"}`,
+		`{"shard_count":1}`,
 	} {
 		changed := input
 		changed.ProviderConfig = json.RawMessage(bad)
@@ -154,55 +155,20 @@ func TestProjectAppProviderIdentities(t *testing.T) {
 	}
 }
 
-func TestProjectAppDiscordShardTopology(t *testing.T) {
+func TestProjectAppDiscordOptionalConfig(t *testing.T) {
 	input := ConfigureProjectAppInput{
-		OrgID:             uuid.New(),
-		ProjectID:         uuid.New(),
-		InstalledByUserID: uuid.New(),
-		Provider:          IntegrationProviderDiscord,
-		AppID:             uuid.New(), ExpectedSetupRevision: 1, CredentialVersionID: uuid.New(),
-		ProviderTenantID:   "111",
-		ProviderAccountRef: "222",
-		CredentialSecretID: uuid.New(),
+		OrgID: uuid.New(), ProjectID: uuid.New(), InstalledByUserID: uuid.New(),
+		Provider: IntegrationProviderDiscord, AppID: uuid.New(), ExpectedSetupRevision: 1,
+		CredentialVersionID: uuid.New(), CredentialSecretID: uuid.New(),
+		ProviderTenantID: "111", ProviderAccountRef: "222",
 	}
-	for _, test := range []struct{ name, raw, want string }{
-		{"omitted config", "", `{"shard_count":1}`},
-		{"empty config", `{}`, `{"shard_count":1}`},
-		{"minimum", `{"shard_count":1}`, `{"shard_count":1}`},
-		{"maximum", `{"shard_count":4096}`, `{"shard_count":4096}`},
-		{
-			"public key and topology",
-			`{"public_key":"` + strings.Repeat("AB", 32) + `","shard_count":4}`,
-			`{"public_key":"` + strings.Repeat("ab", 32) + `","shard_count":4}`,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			input.ProviderConfig = json.RawMessage(test.raw)
-			normalized, err := normalizeConfigureProjectAppInput(input)
-			require.NoError(t, err)
-			require.JSONEq(t, test.want, string(normalized.ProviderConfig))
-			repeated, err := normalizeConfigureProjectAppInput(normalized)
-			require.NoError(t, err)
-			require.Equal(t, normalized.ProviderConfig, repeated.ProviderConfig)
-		})
-	}
-	for _, bad := range []string{
-		`0`,
-		`-1`,
-		`4097`,
-		`1.5`,
-		`1e100`,
-		`9223372036854775808`,
-		`null`,
-		`true`,
-		`"2"`,
-		`[]`,
-		`{}`,
-	} {
-		t.Run("reject "+bad, func(t *testing.T) {
-			input.ProviderConfig = json.RawMessage(`{"shard_count":` + bad + `}`)
-			_, err := normalizeConfigureProjectAppInput(input)
-			require.ErrorContains(t, err, "shard_count must be an integer between 1 and 4096")
-		})
+	for _, raw := range []string{"", "{}"} {
+		input.ProviderConfig = json.RawMessage(raw)
+		normalized, err := normalizeConfigureProjectAppInput(input)
+		require.NoError(t, err)
+		require.JSONEq(t, "{}", string(normalized.ProviderConfig))
+		repeated, err := normalizeConfigureProjectAppInput(normalized)
+		require.NoError(t, err)
+		require.Equal(t, normalized.ProviderConfig, repeated.ProviderConfig)
 	}
 }

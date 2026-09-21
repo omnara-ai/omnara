@@ -151,7 +151,7 @@ func TestDiscordDeploymentCancelDuringCommit(t *testing.T) {
 func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	t.Helper()
 	ctx := t.Context()
-	f := newDiscordRuntimeFixture(t, 1)
+	f := newDiscordRuntimeFixture(t)
 	// Each run owns a distinct Redis bot namespace, including concurrent agents'
 	// test runs. Never flush shared Redis or delete another test's permit keys.
 	_, version, err := f.store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
@@ -226,10 +226,10 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		if scenario == "crash" {
 			// Run the real connection without the process's renewal/release loop:
 			// losing this socket leaves exactly the durable state of a killed worker.
-			oldDone <- old.connect(oldCtx, f.appSetup, first, 0, 1)
+			oldDone <- old.connect(oldCtx, f.appSetup, first)
 			return
 		}
-		old.run(oldCtx, f.appSetup, first, 0, 1, time.Now(), slog.Default())
+		old.run(oldCtx, f.appSetup, first, time.Now(), slog.Default())
 		oldDone <- nil
 	}()
 	one := waitDeploymentResult(t, connections)
@@ -314,7 +314,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	defer stopNew()
 	newDone := make(chan error, 1)
 	go func() {
-		newRuntime().run(newCtx, f.appSetup, second, 0, 1, time.Now(), slog.Default())
+		newRuntime().run(newCtx, f.appSetup, second, time.Now(), slog.Default())
 		newDone <- nil
 	}()
 	two := waitDeploymentResult(t, connections)

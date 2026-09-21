@@ -134,7 +134,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 				calls++
 				return nil
 			})
-			config := map[string]any{"public_key": strings.Repeat("ab", 32), "shard_count": 4}
+			config := map[string]any{"public_key": strings.Repeat("ab", 32)}
 			f.body["provider_config"] = config
 			f.update(t, http.StatusOK)
 			before := f.current(t)
@@ -151,7 +151,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 			delete(f.body, "provider_config")
 			if tc.clear {
 				f.body["provider_config"] = map[string]any{}
-				wantConfig = `{"shard_count":1}`
+				wantConfig = `{}`
 			}
 			f.update(t, http.StatusOK)
 			after := f.current(t)
@@ -170,7 +170,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 
 			// A stale setup must not overwrite either the preserved or explicitly cleared config.
 			f.body["expected_setup_revision"] = before.SetupRevision
-			f.body["provider_config"] = map[string]any{"shard_count": 8}
+			f.body["provider_config"] = map[string]any{"public_key": strings.Repeat("cd", 32)}
 			f.update(t, http.StatusConflict)
 			require.Equal(t, after, f.current(t))
 			require.Equal(t, 2*f.steps, calls)

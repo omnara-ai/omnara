@@ -136,10 +136,7 @@ it.each([
 ] as const)(
   'retries %s setup (creating=%s) using the saved app and credential',
   async (appType, creating) => {
-    const app = projectApp({
-      app_type: appType,
-      provider_config: creating ? {} : { shard_count: 4 },
-    })
+    const app = projectApp({ app_type: appType })
     let attempts = 0
     const api = fakeApi([
       { method: 'POST', path: path + '/apps', respond: () => Response.json(app, { status: 201 }) },
@@ -219,7 +216,7 @@ it.each([
       expect(
         api.requestsTo('POST', path + '/apps/' + app.id + '/setup').at(-1)?.body,
       ).toMatchObject({
-        provider_config: { shard_count: creating ? 1 : 4, public_key: 'ab'.repeat(32) },
+        provider_config: { public_key: 'ab'.repeat(32) },
       })
   },
 )

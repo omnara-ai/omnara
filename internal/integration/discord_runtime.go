@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -22,8 +21,8 @@ import (
 
 const discordRuntimeLease = 30 * time.Second
 
-// DiscordRuntime owns provider sessions, not agents or app behavior. Each shard
-// can live on a different worker. The database checkpoint advances together with
+// DiscordRuntime owns one provider session per app, not agents or app behavior.
+// Apps can live on different workers. The database checkpoint advances together with
 // raw inbox receipt admission; AppConsumer handles routing and launches later.
 type DiscordRuntime struct {
 	Integrations *integrationstore.Store
@@ -47,8 +46,8 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 	if log == nil {
 		log = slog.Default()
 	}
-	active := map[string]bool{}
-	done := make(chan string, capacity)
+	active := map[uuid.UUID]bool{}
+	done := make(chan uuid.UUID, capacity)
 	var jobs sync.WaitGroup
 	defer jobs.Wait()
 	cursor := uuid.Nil
@@ -58,8 +57,8 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case key := <-done:
-			delete(active, key)
+		case appID := <-done:
+			delete(active, appID)
 		case <-timer.C:
 			if len(active) < capacity {
 				scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -71,6 +70,9 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 						cursor = ref.AppID
 						if len(active) >= capacity {
 							break
+						}
+						if active[ref.AppID] {
+							continue
 						}
 						appSetup, err := r.Integrations.GetProjectApp(
 							scanCtx,
@@ -90,56 +92,27 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 							log.Warn("Discord credential unavailable", "app_id", appSetup.ID, "error", err)
 							continue
 						}
-						var config struct {
-							ShardCount int `json:"shard_count"`
+						revision := integrationstore.AppRuntimeRevision{
+							ProjectID: appSetup.ProjectID, AppID: appSetup.ID,
+							Key: "discord/shard/0", SetupRevision: appSetup.SetupRevision,
+							CredentialVersionID: secret.Secret.CurrentVersionID,
 						}
-						if json.Unmarshal(appSetup.ProviderConfig, &config) != nil {
+						started := time.Now()
+						claim, found, err := r.Integrations.ClaimAppRuntime(scanCtx, revision, discordRuntimeLease)
+						if err != nil {
+							log.Warn("claim Discord connection", "app_id", appSetup.ID, "error", err)
 							continue
 						}
-						if config.ShardCount == 0 {
-							config.ShardCount = 1
+						if !found {
+							continue
 						}
-						for shard := 0; shard < config.ShardCount && len(active) < capacity; shard++ {
-							key := appSetup.ID.String() + ":" + strconv.Itoa(shard)
-							if active[key] {
-								continue
-							}
-							revision := integrationstore.AppRuntimeRevision{
-								ProjectID:           appSetup.ProjectID,
-								AppID:               appSetup.ID,
-								Key:                 "discord/shard/" + strconv.Itoa(shard),
-								SetupRevision:       appSetup.SetupRevision,
-								CredentialVersionID: secret.Secret.CurrentVersionID,
-							}
-							started := time.Now()
-							claim, found, err := r.Integrations.ClaimAppRuntime(
-								scanCtx,
-								revision,
-								discordRuntimeLease,
-							)
-							if err != nil {
-								log.Warn(
-									"claim Discord shard",
-									"app_id",
-									appSetup.ID,
-									"shard",
-									shard,
-									"error",
-									err,
-								)
-								continue
-							}
-							if !found {
-								continue
-							}
-							active[key] = true
-							jobs.Add(1)
-							go func() {
-								defer jobs.Done()
-								r.run(ctx, appSetup, claim, shard, config.ShardCount, started, log)
-								done <- key
-							}()
-						}
+						active[appSetup.ID] = true
+						jobs.Add(1)
+						go func() {
+							defer jobs.Done()
+							r.run(ctx, appSetup, claim, started, log)
+							done <- appSetup.ID
+						}()
 					}
 					if len(refs) < 100 {
 						cursor = uuid.Nil
@@ -156,7 +129,6 @@ func (r *DiscordRuntime) run(
 	parent context.Context,
 	appSetup integrationstore.ProjectAppRecord,
 	claim integrationstore.AppRuntimeClaim,
-	shard, count int,
 	claimedAt time.Time,
 	log *slog.Logger,
 ) {
@@ -175,7 +147,7 @@ func (r *DiscordRuntime) run(
 		failure := ""
 		if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			failure = runErr.Error()
-			log.Warn("Discord shard stopped", "app_id", appSetup.ID, "shard", shard, "error", runErr)
+			log.Warn("Discord connection stopped", "app_id", appSetup.ID, "error", runErr)
 		}
 		if len(failure) > 4000 {
 			failure = failure[:4000]
@@ -189,17 +161,16 @@ func (r *DiscordRuntime) run(
 			failure,
 		); err != nil &&
 			!errors.Is(err, integrationstore.ErrAppRuntimeLeaseLost) {
-			log.Warn("release Discord shard", "app_id", appSetup.ID, "error", err)
+			log.Warn("release Discord connection", "app_id", appSetup.ID, "error", err)
 		}
 	}()
-	runErr = r.connect(ctx, appSetup, claim, shard, count)
+	runErr = r.connect(ctx, appSetup, claim)
 }
 
 func (r *DiscordRuntime) connect(
 	ctx context.Context,
 	appSetup integrationstore.ProjectAppRecord,
 	claim integrationstore.AppRuntimeClaim,
-	shard, count int,
 ) error {
 	credential, err := r.Secrets.ReadProjectAvailableSecretPayload(
 		ctx,
@@ -249,13 +220,13 @@ func (r *DiscordRuntime) connect(
 		ctx,
 		discord.ShardConfig{
 			Credentials:   credentials,
-			ShardID:       shard,
-			ShardCount:    count,
+			ShardID:       0,
+			ShardCount:    1,
 			GatewayURL:    info.URL,
 			HTTPClient:    r.HTTPClient,
 			BeforeConnect: recheck,
 			BeforeIdentify: func(ctx context.Context) error {
-				return acquireDiscordIdentify(ctx, r.Redis, client, credentials.ApplicationID, shard)
+				return acquireDiscordIdentify(ctx, r.Redis, client, credentials.ApplicationID, 0)
 			},
 		},
 		checkpoint,

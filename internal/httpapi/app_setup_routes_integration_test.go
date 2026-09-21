@@ -209,7 +209,7 @@ func TestProjectAppCredentialSetupAndDisconnectAuthorization(t *testing.T) {
 	)
 }
 
-func TestProjectAppSetupValidationAndTopology(t *testing.T) {
+func TestProjectAppSetupValidationAndConfigChanges(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(
 		openIntegrationDB(t, t.Context()),
@@ -220,9 +220,7 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 	body := appSetupDiscordBody(t, handler, project, "111")
 	path := appSetupPath(t, project, app)
 	for _, config := range []map[string]any{
-		{"shard_count": 0},
-		{"shard_count": 4097},
-		{"shard_count": 1.5},
+		{"shard_count": 1},
 		{"public_key": "bad"},
 		{"credentials": "must-not-persist"},
 	} {
@@ -239,8 +237,7 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 		)
 	}
 	body["provider_config"] = map[string]any{
-		"shard_count": 2,
-		"public_key":  strings.Repeat("ab", 32),
+		"public_key": strings.Repeat("ab", 32),
 	}
 	first := requestJSONWithHeaders(
 		t,
@@ -253,7 +250,7 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	body["expected_setup_revision"] = first["setup_revision"]
-	body["provider_config"] = map[string]any{"shard_count": 4}
+	body["provider_config"] = map[string]any{"public_key": strings.Repeat("cd", 32)}
 	second := requestJSONWithHeaders(
 		t,
 		handler,

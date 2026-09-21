@@ -38,7 +38,7 @@ type discordRuntimeFixture struct {
 	version  uuid.UUID
 }
 
-func newDiscordRuntimeFixture(t *testing.T, shards int) discordRuntimeFixture {
+func newDiscordRuntimeFixture(t *testing.T) discordRuntimeFixture {
 	t.Helper()
 	ctx := t.Context()
 	_, file, _, _ := runtime.Caller(0)
@@ -87,7 +87,6 @@ func newDiscordRuntimeFixture(t *testing.T, shards int) discordRuntimeFixture {
 		InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationstore.IntegrationProviderDiscord,
 		ProviderTenantID: "123", ProviderAccountRef: "456", CredentialSecretID: secret.ID,
 		CredentialVersionID: version.ID, ExpectedSetupRevision: app.SetupRevision,
-		ProviderConfig: json.RawMessage(fmt.Sprintf(`{"shard_count":%d}`, shards)),
 	})
 	require.NoError(t, err)
 	return discordRuntimeFixture{pool: pool, store: store, appSetup: appSetup, version: version.ID}
@@ -95,7 +94,7 @@ func newDiscordRuntimeFixture(t *testing.T, shards int) discordRuntimeFixture {
 
 func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	ctx := t.Context()
-	f := newDiscordRuntimeFixture(t, 1)
+	f := newDiscordRuntimeFixture(t)
 	pool, store, appSetup := f.pool, f.store, f.appSetup
 	revision := integrationstore.AppRuntimeRevision{
 		ProjectID:           appSetup.ProjectID,
@@ -182,7 +181,7 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 		)
 		return &discord.GatewayError{RetryAfter: time.Second}
 	}
-	r.run(ctx, appSetup, claim, 0, 1, time.Now(), slog.Default())
+	r.run(ctx, appSetup, claim, time.Now(), slog.Default())
 	var count int
 	require.NoError(
 		t,
@@ -233,7 +232,7 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 		)
 		return context.Canceled
 	}
-	r.run(ctx, appSetup, claim, 0, 1, time.Now(), slog.Default())
+	r.run(ctx, appSetup, claim, time.Now(), slog.Default())
 	require.NoError(
 		t,
 		pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox WHERE app_id=$1`, appSetup.ID).Scan(&count),
@@ -274,12 +273,29 @@ func TestDiscordReconnectDelayHonorsProviderFailures(t *testing.T) {
 	}
 }
 
-// A busy shard must not hide siblings, and the local capacity is a hard limit.
-// Cancellation waits for every shard and releases only this process's leases.
-func TestDiscordRuntimeScanClaimsAvailableShardsWithinCapacity(t *testing.T) {
-	f := newDiscordRuntimeFixture(t, 4)
+// A claimed app must not hide others, and the local capacity is a hard limit.
+// Cancellation waits for every connection and releases only this process's leases.
+func TestDiscordRuntimeScanClaimsAvailableAppsWithinCapacity(t *testing.T) {
+	f := newDiscordRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
+	apps := []integrationstore.ProjectAppRecord{f.appSetup}
+	for i := range 3 {
+		app, err := f.store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+			OrgID: f.appSetup.OrgID, ProjectID: f.appSetup.ProjectID,
+			Name: fmt.Sprintf("discord-%d", i), AppType: appdefinition.DiscordThread,
+		})
+		require.NoError(t, err)
+		appSetup, err := f.store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+			OrgID: f.appSetup.OrgID, ProjectID: f.appSetup.ProjectID, AppID: app.ID,
+			InstalledByUserID: f.appSetup.InstalledByUserID, Provider: integrationstore.IntegrationProviderDiscord,
+			ProviderTenantID: fmt.Sprintf("%d", 124+i), ProviderAccountRef: f.appSetup.ProviderAccountRef,
+			CredentialSecretID: f.appSetup.CredentialSecretID, CredentialVersionID: f.version,
+			ExpectedSetupRevision: app.SetupRevision,
+		})
+		require.NoError(t, err)
+		apps = append(apps, appSetup)
+	}
 	revision := integrationstore.AppRuntimeRevision{
 		ProjectID: f.appSetup.ProjectID, AppID: f.appSetup.ID,
 		Key: "discord/shard/0", SetupRevision: f.appSetup.SetupRevision,
@@ -288,7 +304,7 @@ func TestDiscordRuntimeScanClaimsAvailableShardsWithinCapacity(t *testing.T) {
 	owner, found, err := f.store.Integrations().ClaimAppRuntime(ctx, revision, discordRuntimeLease)
 	require.NoError(t, err)
 	require.True(t, found)
-	started := make(chan int, 4)
+	started := make(chan discord.ShardConfig, len(apps))
 	r := DiscordRuntime{
 		Integrations: f.store.Integrations(),
 		Secrets:      f.store.Secrets(),
@@ -296,44 +312,44 @@ func TestDiscordRuntimeScanClaimsAvailableShardsWithinCapacity(t *testing.T) {
 		Capacity:     2,
 		HTTPClient: &http.Client{Transport: discordRuntimeTransport(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
-				Body: io.NopCloser(strings.NewReader(`{"url":"wss://gateway.discord.gg","shards":4,
+				Body: io.NopCloser(strings.NewReader(`{"url":"wss://gateway.discord.gg","shards":1,
                     "session_start_limit":{"total":1000,"remaining":1000,"reset_after":0,"max_concurrency":1}}`))}, nil
 		})},
 		runShard: func(ctx context.Context, cfg discord.ShardConfig, _ *discord.Checkpoint, _ discord.CommitDispatch) error {
-			if cfg.ShardCount != 4 {
-				return errors.New("configured shard count was not preserved")
-			}
-			started <- cfg.ShardID
+			started <- cfg
 			<-ctx.Done()
 			return ctx.Err()
 		},
 	}
 	done := make(chan error, 1)
 	go func() { done <- r.Run(ctx) }()
-	seen := make([]int, 0, 2)
+	seen := make([]string, 0, 2)
 	for range 2 {
 		select {
-		case shard := <-started:
-			seen = append(seen, shard)
+		case config := <-started:
+			require.Zero(t, config.ShardID)
+			require.Equal(t, 1, config.ShardCount)
+			seen = append(seen, config.Credentials.ApplicationID)
 		case <-ctx.Done():
-			t.Fatal("available shards did not start", ctx.Err())
+			t.Fatal("available apps did not start", ctx.Err())
 		}
 	}
 	cancel()
 	require.NoError(t, <-done)
-	require.ElementsMatch(t, []int{1, 2}, seen)
-	require.Empty(t, started, "the capacity limit must prevent starting shard 3")
+	require.ElementsMatch(t, []string{apps[1].ProviderTenantID, apps[2].ProviderTenantID}, seen)
+	require.Empty(t, started, "the capacity limit must leave the last app unstarted")
 	require.NoError(t, f.store.Integrations().RenewAppRuntime(t.Context(), owner.Lease, discordRuntimeLease))
-	var owned int
-	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM app_runtime
-        WHERE app_id=$1 AND claim_token IS NOT NULL`, f.appSetup.ID).Scan(&owned))
-	require.Equal(t, 1, owned, "shutdown must release the local shards and preserve the other owner")
+	var total, owned int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*), count(*) FILTER (WHERE claim_token IS NOT NULL)
+		FROM app_runtime WHERE project_id=$1`, f.appSetup.ProjectID).Scan(&total, &owned))
+	require.Equal(t, 3, total, "only the other owner's app and two local apps should have runtimes")
+	require.Equal(t, 1, owned, "shutdown must release the local apps and preserve the other owner")
 }
 
 func TestDiscordRuntimeCheckpointDoesNotPreventCredentialOrProjectDeletion(t *testing.T) {
 	for _, remove := range []string{"credential", "project"} {
 		t.Run(remove, func(t *testing.T) {
-			f := newDiscordRuntimeFixture(t, 1)
+			f := newDiscordRuntimeFixture(t)
 			ctx := t.Context()
 			claim, found, err := f.store.Integrations().ClaimAppRuntime(ctx, integrationstore.AppRuntimeRevision{
 				ProjectID: f.appSetup.ProjectID, AppID: f.appSetup.ID,
@@ -365,7 +381,7 @@ func TestDiscordRuntimeCheckpointDoesNotPreventCredentialOrProjectDeletion(t *te
 }
 
 func TestDiscordRuntimeScanPassesOwnedPageAndWraps(t *testing.T) {
-	f := newDiscordRuntimeFixture(t, 1)
+	f := newDiscordRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	apps := []integrationstore.ProjectAppRecord{f.appSetup}

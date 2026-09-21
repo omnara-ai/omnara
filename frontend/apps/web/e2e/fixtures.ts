@@ -247,7 +247,7 @@ export async function connectAppWithCredentialRetry(
   })
   const attempt = schemas.zConfigureProjectAppRequest.parse(failed.request().postDataJSON())
   if (appType === 'discord_thread')
-    expect(attempt.provider_config).toMatchObject({ shard_count: 1, public_key: 'ab'.repeat(32) })
+    expect(attempt.provider_config).toMatchObject({ public_key: 'ab'.repeat(32) })
   expect(attempt.credential_secret_id).toBe(app.credential_secret_id)
   expect(credentialCreates).toBe(1)
   page.off('request', trackCredential)

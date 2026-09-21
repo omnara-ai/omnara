@@ -28,15 +28,17 @@ saved app through `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
   "provider_tenant_id": "111111111111111111",
   "provider_account_ref": "222222222222222222",
   "credential_secret_id": "sec_aeaqcaibaeaqcaibaeaqcaibae",
-  "provider_config": {"shard_count": 1, "public_key": "YOUR_64_CHARACTER_HEX_PUBLIC_KEY"}
+  "provider_config": {"public_key": "YOUR_64_CHARACTER_HEX_PUBLIC_KEY"}
 }
 ```
 
 Use the app's current `setup_revision`. `provider_tenant_id` is the Application
 ID and `provider_account_ref` is the bot User ID; neither is the guild ID. Setup
-verifies those identities with Discord. Keep one shard unless the bot requires a
-larger topology. Omit `provider_config` during token rotation to keep the current
-settings. Supplying it replaces the settings, so include every field you intend to retain.
+verifies those identities with Discord. Omnara manages one Gateway connection
+per app. This supports bots in fewer than
+[2,500 servers](https://docs.discord.com/developers/events/gateway#sharding); larger bots
+require sharding, which is not currently supported. Omit `provider_config` during
+token rotation to keep the current settings. Supplying it replaces the settings, so include every field you intend to retain.
 The public key verifies callbacks; it is not the bot token.
 
 Each saved app has an independent runtime. Apps can use the same bot credentials,
@@ -129,7 +131,7 @@ A worker saves its Discord session and last committed event sequence in Postgres
 The event receipt and sequence are saved together. When another worker takes over,
 it resumes that session and Discord can replay missed events; repeated message
 receipts are deduplicated. A database lease prevents two workers from committing
-for the same saved app and shard. Normal shutdown releases that lease; after a
+for the same saved app. Normal shutdown releases that lease; after a
 crash, a replacement waits for it to expire, normally within 30 seconds.
 
 Keep replacement workers healthy during routine deployments, and allow the old

@@ -115,21 +115,10 @@ func normalizeConfigureProjectAppInput(input ConfigureProjectAppInput) (
 	}
 	if input.Provider == IntegrationProviderDiscord {
 		for key := range config {
-			if key != "public_key" && key != "shard_count" {
+			if key != "public_key" {
 				return input, fmt.Errorf("unsupported discord provider_config field %q", key)
 			}
 		}
-		// Persist the configured topology rather than deriving it at runtime;
-		// app setup_revision fences workers using the previous shard count.
-		shardCount := 1
-		if raw, ok := config["shard_count"]; ok {
-			var count int
-			if err := json.Unmarshal(raw, &count); err != nil || count < 1 || count > 4096 {
-				return input, errors.New("discord shard_count must be an integer between 1 and 4096")
-			}
-			shardCount = count
-		}
-		config["shard_count"] = json.RawMessage(strconv.Itoa(shardCount))
 		if raw, ok := config["public_key"]; ok {
 			var publicKey string
 			if err := json.Unmarshal(raw, &publicKey); err != nil {

@@ -842,7 +842,7 @@ export type AppType = 'slack_thread' | 'discord_thread' | 'github_pr';
 export type AppProviderDisplayName = string;
 
 /**
- * Non-secret provider configuration, validated for the selected provider. Slack and GitHub apps require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks) and shard_count (optional integer from 1 through 4096, default 1). Saves persist the default shard_count. Shard count is the configured Gateway topology; each shard is leased independently. Increase it explicitly if Discord requires more shards. Credentials and app behavior are not accepted here.
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub apps require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord app. Credentials and app behavior are not accepted here.
  */
 export type AppProviderConfig = {
     [key: string]: unknown;
