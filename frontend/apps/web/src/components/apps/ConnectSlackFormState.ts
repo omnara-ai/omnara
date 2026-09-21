@@ -4,6 +4,7 @@ const slackIconMaxBytes = 5 * 1024 * 1024
 /** A selected icon and a rejected selection are mutually exclusive. */
 export type AppIcon =
   | { kind: 'none' }
+  | { kind: 'checking' }
   | { kind: 'file'; file: File }
   | { kind: 'error'; message: string }
 
@@ -15,29 +16,48 @@ export interface SlackConnectionFormValues {
   appIcon: AppIcon
 }
 
-export function fileSizeLabel(bytes: number) {
+function fileSizeLabel(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function slackIconRequirements() {
+export function slackIconRequirements() {
   return `PNG or JPEG, square, 512-2000px, up to ${fileSizeLabel(slackIconMaxBytes)}.`
 }
 
-export function validateAppIcon(file: File | null): AppIcon {
+export async function validateAppIcon(file: File | null): Promise<AppIcon> {
   if (!file) return noAppIcon
   if (file.type !== 'image/png' && file.type !== 'image/jpeg') {
     return {
       kind: 'error',
-      message: `App icon must be a PNG or JPEG image. ${slackIconRequirements()}`,
+      message: 'App icon must be a PNG or JPEG image.',
     }
   }
   if (file.size > slackIconMaxBytes) {
     return {
       kind: 'error',
-      message: `App icon must be ${fileSizeLabel(slackIconMaxBytes)} or smaller. ${slackIconRequirements()}`,
+      message: `App icon must be ${fileSizeLabel(slackIconMaxBytes)} or smaller.`,
     }
   }
-  return { kind: 'file', file }
+  try {
+    const image = await createImageBitmap(file)
+    const { width, height } = image
+    image.close()
+    if (width !== height) {
+      return {
+        kind: 'error',
+        message: `App icon must be square. This image is ${width} × ${height} pixels.`,
+      }
+    }
+    if (width < 512 || width > 2000) {
+      return {
+        kind: 'error',
+        message: 'App icon must be between 512 × 512 and 2000 × 2000 pixels.',
+      }
+    }
+    return { kind: 'file', file }
+  } catch {
+    return { kind: 'error', message: 'Could not read this image. Choose a valid PNG or JPEG.' }
+  }
 }
 
 export function readFileBase64(file: File): Promise<string> {
@@ -64,11 +84,12 @@ export function readFileBase64(file: File): Promise<string> {
 }
 
 export function slackConnectionFormValid(values: SlackConnectionFormValues) {
+  // Rejected icons are not attached. Only an unfinished check blocks this optional upload.
   return (
     values.appName.trim() !== '' &&
     Array.from(values.appName.trim()).length <= slackAppNameMaxLength &&
     values.appConfigurationToken.trim() !== '' &&
-    values.appIcon.kind !== 'error'
+    values.appIcon.kind !== 'checking'
   )
 }
 

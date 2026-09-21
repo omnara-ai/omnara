@@ -19,6 +19,34 @@ export async function exerciseSlackAppSetup(
   const failures = installAppFailureTracking(page)
   await openAppSetup(page, projectID, 'slack_thread', appName)
   const browserOrigin = new URL(page.url()).origin
+  await page.getByLabel('App configuration token', { exact: true }).fill('local-config-token')
+  const connect = page.getByRole('button', { name: 'Create and connect', exact: true })
+  await expect(connect).toBeEnabled()
+  for (const height of [256, 512]) {
+    const image = await page.evaluate((height) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 512
+      canvas.height = height
+      return canvas.toDataURL('image/png').slice('data:image/png;base64,'.length)
+    }, height)
+    await page.locator('#slack-app-icon').setInputFiles({
+      name: 'icon.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(image, 'base64'),
+    })
+    if (height === 256) {
+      await expect(page.getByRole('alert')).toContainText('App icon must be square')
+      await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0)
+      await expect(page.getByText('icon.png', { exact: true })).toHaveCount(0)
+      await expect(connect).toBeEnabled()
+    } else {
+      await expect(page.getByText('icon.png', { exact: true })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await expect(connect).toBeEnabled()
+      await page.getByRole('button', { name: 'Remove', exact: true }).click()
+      await expect(page.getByText('icon.png', { exact: true })).toHaveCount(0)
+    }
+  }
   await page.getByLabel('Use an existing Slack app').check()
   await page.getByLabel('Client ID', { exact: true }).fill('local-slack-client')
   await page.getByLabel('Client secret', { exact: true }).fill('local-slack-secret')

@@ -96,8 +96,11 @@ export async function openAppSetup(page: Page, projectID: string, appType: AppTy
         : 'Slack threads'
   const appsPath = `/projects/${projectID}/apps`
   if (new URL(page.url()).pathname !== appsPath) await page.goto(appsPath)
-  await page.getByRole('link', { name: 'Add app', exact: true }).click()
-  await page.getByRole('link', { name: `Set up ${label}`, exact: false }).click()
+  const add = page.getByRole('link', { name: 'Add app', exact: true })
+  const choice = page.getByRole('link', { name: `Set up ${label}`, exact: false })
+  await expect(add.or(choice)).toBeVisible()
+  if (await add.isVisible()) await add.click()
+  await choice.click()
   await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
   await page.getByLabel('App name', { exact: true }).fill(name)
   await expect(

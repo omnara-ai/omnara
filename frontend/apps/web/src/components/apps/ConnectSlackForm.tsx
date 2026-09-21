@@ -200,6 +200,9 @@ export function ConnectSlackForm({
                     label="Use an existing Slack app"
                     checked={existingApp}
                     onChange={(event) => {
+                      if (form.state.values.appIcon.kind === 'checking') {
+                        form.setFieldValue('appIcon', noAppIcon)
+                      }
                       setExistingAppSelected(event.target.checked)
                     }}
                   />
