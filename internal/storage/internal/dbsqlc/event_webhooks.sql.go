@@ -8,19 +8,26 @@ package dbsqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const claimEventWebhookDelivery = `-- name: ClaimEventWebhookDelivery :one
-WITH candidate AS (
+WITH saturated_orgs AS MATERIALIZED (
+    SELECT org_id
+    FROM event_webhook_deliveries
+    WHERE claim_expires_at > statement_timestamp()
+    GROUP BY org_id
+    HAVING count(*) >= $1::bigint
+), candidate AS (
     SELECT delivery.id
     FROM event_webhook_deliveries delivery
     WHERE delivery.next_attempt_at <= statement_timestamp()
-      AND delivery.created_at > statement_timestamp() - interval '10 minutes'
+      AND delivery.created_at > statement_timestamp()
+          - $2::double precision * interval '1 second'
       AND (delivery.claim_expires_at IS NULL OR delivery.claim_expires_at <= statement_timestamp())
-      AND (coalesce(cardinality($1::uuid[]), 0) = 0
-           OR NOT (delivery.org_id = ANY($1::uuid[])))
+      AND delivery.org_id NOT IN (SELECT org_id FROM saturated_orgs)
     ORDER BY delivery.next_attempt_at, delivery.id
     LIMIT 1
     FOR UPDATE OF delivery SKIP LOCKED
@@ -36,7 +43,8 @@ RETURNING delivery.id, delivery.agent_id, delivery.org_id, delivery.event_sequen
 `
 
 type ClaimEventWebhookDeliveryParams struct {
-	ExcludedOrgIds []uuid.UUID
+	PerOrgLimit           int64
+	DeliveryWindowSeconds float64
 }
 
 type ClaimEventWebhookDeliveryRow struct {
@@ -51,7 +59,7 @@ type ClaimEventWebhookDeliveryRow struct {
 }
 
 func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventWebhookDeliveryParams) (ClaimEventWebhookDeliveryRow, error) {
-	row := q.db.QueryRow(ctx, claimEventWebhookDelivery, arg.ExcludedOrgIds)
+	row := q.db.QueryRow(ctx, claimEventWebhookDelivery, arg.PerOrgLimit, arg.DeliveryWindowSeconds)
 	var i ClaimEventWebhookDeliveryRow
 	err := row.Scan(
 		&i.ID,
@@ -83,9 +91,11 @@ func (q *Queries) CompleteEventWebhookDelivery(ctx context.Context, arg Complete
 const deleteExpiredEventWebhookDeliveries = `-- name: DeleteExpiredEventWebhookDeliveries :execrows
 WITH candidates AS (
     SELECT id FROM event_webhook_deliveries
-    WHERE created_at <= statement_timestamp() - interval '10 minutes'
+    WHERE created_at <= statement_timestamp()
+        - $1::double precision * interval '1 second'
+      AND (claim_expires_at IS NULL OR claim_expires_at <= statement_timestamp())
     ORDER BY created_at, id
-    LIMIT $1
+    LIMIT $2
     FOR UPDATE SKIP LOCKED
 )
 DELETE FROM event_webhook_deliveries delivery
@@ -94,11 +104,12 @@ WHERE delivery.id = candidates.id
 `
 
 type DeleteExpiredEventWebhookDeliveriesParams struct {
-	LimitCount int32
+	DeliveryWindowSeconds float64
+	LimitCount            int32
 }
 
 func (q *Queries) DeleteExpiredEventWebhookDeliveries(ctx context.Context, arg DeleteExpiredEventWebhookDeliveriesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteExpiredEventWebhookDeliveries, arg.LimitCount)
+	result, err := q.db.Exec(ctx, deleteExpiredEventWebhookDeliveries, arg.DeliveryWindowSeconds, arg.LimitCount)
 	if err != nil {
 		return 0, err
 	}
@@ -168,20 +179,35 @@ func (q *Queries) GetAgentEventWebhookTarget(ctx context.Context, arg GetAgentEv
 	return i, err
 }
 
-const retryEventWebhookDelivery = `-- name: RetryEventWebhookDelivery :exec
+const retryEventWebhookDelivery = `-- name: RetryEventWebhookDelivery :one
 UPDATE event_webhook_deliveries
 SET next_attempt_at = statement_timestamp() + $1::double precision * interval '1 second',
     claim_token = NULL, claim_expires_at = NULL
 WHERE id = $2 AND claim_token = $3
+RETURNING next_attempt_at, next_attempt_at >= created_at
+    + $4::double precision * interval '1 second' AS gave_up
 `
 
 type RetryEventWebhookDeliveryParams struct {
-	DelaySeconds float64
-	ID           uuid.UUID
-	ClaimToken   *uuid.UUID
+	DelaySeconds          float64
+	ID                    uuid.UUID
+	ClaimToken            *uuid.UUID
+	DeliveryWindowSeconds float64
 }
 
-func (q *Queries) RetryEventWebhookDelivery(ctx context.Context, arg RetryEventWebhookDeliveryParams) error {
-	_, err := q.db.Exec(ctx, retryEventWebhookDelivery, arg.DelaySeconds, arg.ID, arg.ClaimToken)
-	return err
+type RetryEventWebhookDeliveryRow struct {
+	NextAttemptAt time.Time
+	GaveUp        bool
+}
+
+func (q *Queries) RetryEventWebhookDelivery(ctx context.Context, arg RetryEventWebhookDeliveryParams) (RetryEventWebhookDeliveryRow, error) {
+	row := q.db.QueryRow(ctx, retryEventWebhookDelivery,
+		arg.DelaySeconds,
+		arg.ID,
+		arg.ClaimToken,
+		arg.DeliveryWindowSeconds,
+	)
+	var i RetryEventWebhookDeliveryRow
+	err := row.Scan(&i.NextAttemptAt, &i.GaveUp)
+	return i, err
 }

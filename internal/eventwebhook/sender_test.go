@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,14 +29,16 @@ import (
 )
 
 type testStore struct {
-	target    executionstore.EventWebhookTarget
-	record    executionstore.AgentEventReadRecord
-	secret    string
-	secretErr error
-	pending   chan executionstore.EventWebhookDelivery
-	completed atomic.Int64
-	retried   atomic.Int64
-	claims    atomic.Int64
+	retryResult executionstore.EventWebhookRetryResult
+	target      executionstore.EventWebhookTarget
+	record      executionstore.AgentEventReadRecord
+	secret      string
+	secretErr   error
+	pending     chan executionstore.EventWebhookDelivery
+	completed   atomic.Int64
+	retried     atomic.Int64
+	claims      atomic.Int64
+	perOrgLimit atomic.Int64
 }
 
 func (s *testStore) GetAgentEventWebhookTarget(context.Context, uuid.UUID) (executionstore.EventWebhookTarget, error) {
@@ -58,18 +59,16 @@ func (s *testStore) ReadEventWebhookSigningSecret(context.Context, executionstor
 }
 
 func (s *testStore) ClaimEventWebhookDelivery(
-	_ context.Context, excluded []uuid.UUID,
+	_ context.Context, perOrgLimit int,
 ) (executionstore.EventWebhookDelivery, error) {
 	s.claims.Add(1)
-	for range len(s.pending) {
-		delivery := <-s.pending
-		if slices.Contains(excluded, delivery.OrgID) {
-			s.pending <- delivery
-			continue
-		}
+	s.perOrgLimit.Store(int64(perOrgLimit))
+	select {
+	case delivery := <-s.pending:
 		return delivery, nil
+	default:
+		return executionstore.EventWebhookDelivery{}, storeerr.ErrNotFound
 	}
-	return executionstore.EventWebhookDelivery{}, storeerr.ErrNotFound
 }
 
 func (s *testStore) CompleteEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID) error {
@@ -77,9 +76,11 @@ func (s *testStore) CompleteEventWebhookDelivery(context.Context, uuid.UUID, uui
 	return nil
 }
 
-func (s *testStore) RetryEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID, time.Duration) error {
+func (s *testStore) RetryEventWebhookDelivery(
+	context.Context, uuid.UUID, uuid.UUID, time.Duration,
+) (executionstore.EventWebhookRetryResult, error) {
 	s.retried.Add(1)
-	return nil
+	return s.retryResult, nil
 }
 
 type testTransport func(*http.Request) (*http.Response, error)
@@ -98,7 +99,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 		ID: uuid.New(), AgentID: uuid.New(), OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
 		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8), store, delivery
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
@@ -295,6 +296,7 @@ func TestSenderPollsOnceWhenIdle(t *testing.T) {
 		go func() { sender.Run(ctx); close(done) }()
 		synctest.Wait()
 		require.Equal(t, int64(1), store.claims.Load())
+		require.Equal(t, int64(7), store.perOrgLimit.Load())
 		<-time.After(idleInterval)
 		synctest.Wait()
 		require.Equal(t, int64(2), store.claims.Load())
@@ -304,9 +306,48 @@ func TestSenderPollsOnceWhenIdle(t *testing.T) {
 }
 
 func TestSenderRefillsAvailableCapacity(t *testing.T) {
+	for _, capacity := range []int{1, 2, 8, 128} {
+		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				sender, store, delivery := testSender()
+				sender.maxInFlight = capacity
+				store.pending = make(chan executionstore.EventWebhookDelivery, capacity+1)
+				release := make(chan struct{})
+				sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
+					select {
+					case <-release:
+						return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+					case <-req.Context().Done():
+						return nil, req.Context().Err()
+					}
+				})}
+				for range capacity + 1 {
+					delivery.ID = uuid.New()
+					store.pending <- delivery
+				}
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan struct{})
+				start := time.Now()
+				go func() { sender.Run(ctx); close(done) }()
+				synctest.Wait()
+				require.Len(t, store.pending, 1)
+				require.Equal(t, int64(capacity), store.claims.Load())
+				release <- struct{}{}
+				synctest.Wait()
+				require.Empty(t, store.pending)
+				require.Equal(t, int64(capacity+1), store.claims.Load())
+				require.Equal(t, int64(1), store.completed.Load())
+				require.Zero(t, time.Since(start))
+				cancel()
+				<-done
+			})
+		})
+	}
+}
+
+func TestSenderCompletionWakesIdleLoop(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender, store, delivery := testSender()
-		sender.maxInFlight = 2
 		release := make(chan struct{})
 		sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
 			select {
@@ -316,74 +357,22 @@ func TestSenderRefillsAvailableCapacity(t *testing.T) {
 				return nil, req.Context().Err()
 			}
 		})}
-		for range 4 {
-			delivery.OrgID = uuid.New()
-			store.pending <- delivery
-		}
+		store.pending <- delivery
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
+		start := time.Now()
 		go func() { sender.Run(ctx); close(done) }()
 		synctest.Wait()
-		require.Len(t, store.pending, 2)
 		require.Equal(t, int64(2), store.claims.Load())
+		store.pending <- delivery
 		release <- struct{}{}
 		synctest.Wait()
-		require.Len(t, store.pending, 1)
-		require.Equal(t, int64(3), store.claims.Load())
+		require.Empty(t, store.pending)
 		require.Equal(t, int64(1), store.completed.Load())
+		require.Zero(t, time.Since(start))
 		cancel()
 		<-done
 	})
-}
-
-func TestSenderLimitsOrganizationsAndRefillsWithoutIdleDelay(t *testing.T) {
-	for _, capacity := range []int{1, 2, 8, 16, 128} {
-		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				sender, store, delivery := testSender()
-				sender.maxInFlight = capacity
-				limit := max(1, capacity/8)
-				for range limit + 3 {
-					delivery.ID, delivery.AgentID = uuid.New(), uuid.New()
-					store.pending <- delivery
-				}
-				healthy := delivery
-				healthy.ID, healthy.OrgID = uuid.New(), uuid.New()
-				store.pending <- healthy
-				var started atomic.Int64
-				release := make(chan struct{})
-				sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
-					if req.Header.Get("Webhook-Id") == healthy.ID.String() {
-						return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
-					}
-					started.Add(1)
-					select {
-					case <-release:
-						return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
-					case <-req.Context().Done():
-						return nil, req.Context().Err()
-					}
-				})}
-				ctx, cancel := context.WithCancel(t.Context())
-				done := make(chan struct{})
-				start := time.Now()
-				go func() { sender.Run(ctx); close(done) }()
-				synctest.Wait()
-				require.Equal(t, int64(limit), started.Load())
-				if capacity > 1 {
-					require.Equal(t, int64(1), store.completed.Load())
-				} else {
-					require.Zero(t, store.completed.Load())
-				}
-				release <- struct{}{}
-				synctest.Wait()
-				require.Equal(t, int64(limit+1), started.Load())
-				require.Zero(t, time.Since(start))
-				cancel()
-				<-done
-			})
-		})
-	}
 }
 
 func TestSenderDrainsResponseForConnectionReuse(t *testing.T) {

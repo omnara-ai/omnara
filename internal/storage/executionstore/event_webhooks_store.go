@@ -18,6 +18,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const eventWebhookDeliveryWindow = 10 * time.Minute
+
 type EventWebhookTarget struct {
 	ProjectID       uuid.UUID
 	OrgID           uuid.UUID
@@ -134,9 +136,12 @@ type EventWebhookDelivery struct {
 }
 
 func (s *Store) ClaimEventWebhookDelivery(
-	ctx context.Context, excludedOrgIDs []uuid.UUID,
+	ctx context.Context, perOrgLimit int,
 ) (EventWebhookDelivery, error) {
-	row, err := s.q.ClaimEventWebhookDelivery(ctx, dbsqlc.ClaimEventWebhookDeliveryParams{ExcludedOrgIds: excludedOrgIDs})
+	row, err := s.q.ClaimEventWebhookDelivery(ctx, dbsqlc.ClaimEventWebhookDeliveryParams{
+		DeliveryWindowSeconds: eventWebhookDeliveryWindow.Seconds(),
+		PerOrgLimit:           int64(perOrgLimit),
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return EventWebhookDelivery{}, storeerr.ErrNotFound
 	}
@@ -156,15 +161,30 @@ func (s *Store) CompleteEventWebhookDelivery(ctx context.Context, id, claimToken
 	})
 }
 
-func (s *Store) RetryEventWebhookDelivery(ctx context.Context, id, claimToken uuid.UUID, delay time.Duration) error {
-	return s.q.RetryEventWebhookDelivery(ctx, dbsqlc.RetryEventWebhookDeliveryParams{
+type EventWebhookRetryResult struct {
+	NextAttemptAt time.Time
+	GaveUp        bool
+}
+
+func (s *Store) RetryEventWebhookDelivery(
+	ctx context.Context, id, claimToken uuid.UUID, delay time.Duration,
+) (EventWebhookRetryResult, error) {
+	row, err := s.q.RetryEventWebhookDelivery(ctx, dbsqlc.RetryEventWebhookDeliveryParams{
 		ID: id, ClaimToken: &claimToken, DelaySeconds: delay.Seconds(),
+		DeliveryWindowSeconds: eventWebhookDeliveryWindow.Seconds(),
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return EventWebhookRetryResult{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return EventWebhookRetryResult{}, err
+	}
+	return EventWebhookRetryResult{NextAttemptAt: row.NextAttemptAt, GaveUp: row.GaveUp}, nil
 }
 
 func (s *Store) DeleteExpiredEventWebhookDeliveries(ctx context.Context, limit int32) (int64, error) {
 	return s.q.DeleteExpiredEventWebhookDeliveries(ctx, dbsqlc.DeleteExpiredEventWebhookDeliveriesParams{
-		LimitCount: limit,
+		LimitCount: limit, DeliveryWindowSeconds: eventWebhookDeliveryWindow.Seconds(),
 	})
 }
 

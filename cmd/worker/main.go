@@ -233,7 +233,9 @@ func main() {
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
 
-	eventWebhooks := eventwebhook.New(store.Execution(), log, cfg.WorkerEventWebhookConcurrency)
+	eventWebhooks := eventwebhook.New(
+		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
+	)
 	eventWebhookDone := make(chan struct{})
 	go func() {
 		defer close(eventWebhookDone)

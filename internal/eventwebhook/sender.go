@@ -21,6 +21,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -28,108 +30,106 @@ import (
 )
 
 const (
-	perOrgConcurrencyDivisor = 8
-	attemptTimeout           = 5 * time.Second
-	storeTimeout             = 5 * time.Second
-	idleInterval             = time.Second
-	responseDrainLimit       = 4096
+	attemptTimeout     = 5 * time.Second
+	storeTimeout       = 5 * time.Second
+	idleInterval       = time.Second
+	responseDrainLimit = 4096
 )
 
 type Store interface {
 	GetAgentEventWebhookTarget(context.Context, uuid.UUID) (executionstore.EventWebhookTarget, error)
 	GetAgentEventForWebhook(context.Context, uuid.UUID, uuid.UUID, int64) (executionstore.AgentEventReadRecord, error)
-	ClaimEventWebhookDelivery(context.Context, []uuid.UUID) (executionstore.EventWebhookDelivery, error)
+	ClaimEventWebhookDelivery(context.Context, int) (executionstore.EventWebhookDelivery, error)
 	CompleteEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID) error
-	RetryEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID, time.Duration) error
+	RetryEventWebhookDelivery(
+		context.Context, uuid.UUID, uuid.UUID, time.Duration,
+	) (executionstore.EventWebhookRetryResult, error)
 	ReadEventWebhookSigningSecret(context.Context, executionstore.EventWebhookTarget) (string, error)
 }
 
 type Sender struct {
 	maxInFlight int
+	perOrgLimit int
 	store       Store
 	client      *http.Client
 	log         *slog.Logger
 }
 
-func New(store Store, log *slog.Logger, maxInFlight int) *Sender {
-	return &Sender{store: store, log: log, maxInFlight: maxInFlight,
+func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int) *Sender {
+	return &Sender{store: store, log: log, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
 		client: outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: attemptTimeout})}
 }
 
 func (s *Sender) Run(ctx context.Context) {
 	defer s.client.CloseIdleConnections()
-	perOrgLimit := max(1, s.maxInFlight/perOrgConcurrencyDivisor)
-	activeByOrg := make(map[uuid.UUID]int)
-	completed := make(chan uuid.UUID, s.maxInFlight)
 	inFlight := 0
+	completed := make(chan struct{}, s.maxInFlight)
 	var deliveries sync.WaitGroup
 	defer deliveries.Wait()
 	for ctx.Err() == nil {
 		if inFlight < s.maxInFlight {
-			var excluded []uuid.UUID
-			for orgID, count := range activeByOrg {
-				if count >= perOrgLimit {
-					excluded = append(excluded, orgID)
-				}
-			}
 			claimCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-			delivery, err := s.store.ClaimEventWebhookDelivery(claimCtx, excluded)
+			delivery, err := s.store.ClaimEventWebhookDelivery(claimCtx, s.perOrgLimit)
 			cancel()
 			if err == nil {
 				inFlight++
-				activeByOrg[delivery.OrgID]++
 				deliveries.Go(func() {
-					defer func() { completed <- delivery.OrgID }()
 					s.deliver(ctx, delivery)
+					completed <- struct{}{}
 				})
 				continue
 			}
 			if !errors.Is(err, storeerr.ErrNotFound) && ctx.Err() == nil {
-				s.log.Warn("claim event webhook", "error", err)
+				logent.EventWebhookStoreFailed(logpkg.WithLogger(ctx, s.log), "claim", err)
 			}
 		}
-		var timer *time.Timer
 		var idle <-chan time.Time
 		if inFlight < s.maxInFlight {
-			timer = time.NewTimer(idleInterval)
-			idle = timer.C
+			idle = time.After(idleInterval)
 		}
 		select {
 		case <-ctx.Done():
-		case orgID := <-completed:
+		case <-completed:
 			inFlight--
-			activeByOrg[orgID]--
-			if activeByOrg[orgID] == 0 {
-				delete(activeByOrg, orgID)
-			}
 		case <-idle:
-		}
-		if timer != nil {
-			timer.Stop()
 		}
 	}
 }
 
 func (s *Sender) deliver(ctx context.Context, delivery executionstore.EventWebhookDelivery) {
+	ctx, event := logent.EventWebhookDelivery(logpkg.WithLogger(ctx, s.log), delivery)
+	defer event.Done(ctx)
 	attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	err := s.send(attemptCtx, delivery)
 	cancel()
 	if ctx.Err() != nil {
+		logent.EventWebhookDeliveryResult(ctx, "canceled", ctx.Err(), time.Time{})
 		return
 	}
 	updateCtx, updateCancel := context.WithTimeout(ctx, storeTimeout)
 	defer updateCancel()
 	if err != nil {
-		s.log.Warn("event webhook delivery failed", "delivery_id", delivery.ID, "agent_id", delivery.AgentID, "error", err)
+		retry, retryErr := s.store.RetryEventWebhookDelivery(
+			updateCtx, delivery.ID, delivery.ClaimToken, retryDelay(delivery.AttemptCount),
+		)
+		if retryErr != nil {
+			logent.EventWebhookStoreFailed(ctx, "retry", retryErr)
+			logent.EventWebhookDeliveryResult(ctx, "retry_failed", err, time.Time{})
+			return
+		}
+		outcome := "retry_scheduled"
+		if retry.GaveUp {
+			outcome = "gave_up"
+		}
+		logent.EventWebhookDeliveryResult(ctx, outcome, err, retry.NextAttemptAt)
+		return
 	}
-	if err != nil {
-		delay := retryDelay(delivery.AttemptCount)
-		err = s.store.RetryEventWebhookDelivery(updateCtx, delivery.ID, delivery.ClaimToken, delay)
+	completeErr := s.store.CompleteEventWebhookDelivery(updateCtx, delivery.ID, delivery.ClaimToken)
+	if completeErr != nil {
+		logent.EventWebhookStoreFailed(ctx, "complete", completeErr)
+		logent.EventWebhookDeliveryResult(ctx, "complete_failed", nil, time.Time{})
 	} else {
-		err = s.store.CompleteEventWebhookDelivery(updateCtx, delivery.ID, delivery.ClaimToken)
-	}
-	if err != nil {
-		s.log.Warn("update event webhook delivery", "delivery_id", delivery.ID, "error", err)
+		logent.EventWebhookDeliveryResult(ctx, "completed", nil, time.Time{})
 	}
 }
 
@@ -146,6 +146,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 	if err != nil {
 		return err
 	}
+	logent.EventWebhookTarget(ctx, target)
 	if target.URL == "" {
 		return nil
 	}
@@ -167,6 +168,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 	if err != nil {
 		return err
 	}
+	logent.EventWebhookKind(ctx, event)
 	body, err := json.Marshal(struct {
 		Event string `json:"event"`
 		Data  any    `json:"data"`
@@ -200,6 +202,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 		}
 		return fmt.Errorf("post event webhook: %w", err)
 	}
+	logent.EventWebhookResponse(ctx, response.StatusCode)
 	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, responseDrainLimit))
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {

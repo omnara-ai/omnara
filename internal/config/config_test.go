@@ -10,6 +10,7 @@ import (
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
+	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "")
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
@@ -42,6 +43,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.WorkerEventWebhookConcurrency != 128 {
 		t.Fatalf("expected default event webhook concurrency 128, got %d", cfg.WorkerEventWebhookConcurrency)
+	}
+	if cfg.EventWebhookPerOrgConcurrency != 128 {
+		t.Fatalf("expected default per-org event webhook concurrency 128, got %d", cfg.EventWebhookPerOrgConcurrency)
 	}
 	if cfg.WorkerCapacity != 4 {
 		t.Fatalf("expected default worker capacity 4, got %d", cfg.WorkerCapacity)
@@ -1268,6 +1272,7 @@ func TestValidateAPIRequiresDatabaseURLWithoutInsecureDevOptIn(t *testing.T) {
 func TestValidateWorkerLoadsExplicitEventWebhookConcurrency(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY", "16")
+	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "7")
 
 	cfg, err := Load()
 	if err != nil {
@@ -1276,7 +1281,7 @@ func TestValidateWorkerLoadsExplicitEventWebhookConcurrency(t *testing.T) {
 	if err := cfg.ValidateWorker(); err != nil {
 		t.Fatalf("validate worker: %v", err)
 	}
-	if cfg.WorkerEventWebhookConcurrency != 16 {
+	if cfg.WorkerEventWebhookConcurrency != 16 || cfg.EventWebhookPerOrgConcurrency != 7 {
 		t.Fatalf("unexpected event webhook concurrency: %+v", cfg)
 	}
 }
@@ -1291,5 +1296,21 @@ func TestValidateWorkerRejectsInvalidEventWebhookConcurrency(t *testing.T) {
 	}
 	if err := cfg.ValidateWorker(); err == nil {
 		t.Fatal("expected invalid event webhook concurrency error")
+	}
+}
+
+func TestValidateWorkerRejectsInvalidEventWebhookPerOrgConcurrency(t *testing.T) {
+	for _, value := range []string{"0", "-1", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", value)
+			cfg, err := Load()
+			if err == nil {
+				err = cfg.ValidateWorker()
+			}
+			if err == nil || !strings.Contains(err.Error(), "OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY") {
+				t.Fatalf("expected invalid per-org event webhook concurrency error, got %v", err)
+			}
+		})
 	}
 }

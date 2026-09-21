@@ -1,0 +1,19 @@
+package main
+
+import (
+	"testing"
+
+	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/stretchr/testify/require"
+)
+
+func TestRunCoreMaintenanceRecoversEachTaskPanic(t *testing.T) {
+	result := runCoreMaintenance(t.Context(), &storage.Store{})
+	for _, err := range []error{
+		result.ReapRuntimeLocksErr, result.ExpireDaemonRuntimesErr, result.ExpireProcessToolsErr,
+		result.WebhookCleanupErr, result.AuthCleanupErr,
+	} {
+		require.ErrorContains(t, err, "panicked:")
+		require.ErrorContains(t, err, "goroutine")
+	}
+}

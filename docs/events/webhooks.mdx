@@ -7,18 +7,50 @@ Configure an [event webhook](/agents/configuration#event-webhook) to receive JSO
 
 Every request includes `Webhook-Id` (stable across retries) and `Webhook-Timestamp` (Unix seconds for that attempt). Signed requests also include `Webhook-Signature`. Verify the signature against the raw request body before parsing it, using [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
 
-## Parse with the SDK
+## Receive and verify
 
-`EventWebhookPayload` and `zEventWebhookPayload` are generated from the [OpenAPI specification](/api-reference/openapi.yaml). The schema checks that `event` matches the shape of `data`.
+The SDK includes the TypeScript type `EventWebhookPayload` and the Zod schema `zEventWebhookPayload` for validating incoming webhook payloads.
+
+Install `@omnara/sdk` and `standardwebhooks`. Set `WEBHOOK_SIGNING_SECRET` to the same base64 value stored in the agent config's signing secret. This Node.js server verifies the raw body before validating the payload; missing, invalid, or expired signatures are rejected.
 
 ```typescript
+import { createServer } from 'node:http'
+import { buffer } from 'node:stream/consumers'
 import { zEventWebhookPayload } from '@omnara/sdk/zod'
+import { Webhook } from 'standardwebhooks'
 
-const payload = zEventWebhookPayload.parse(JSON.parse(rawBody))
-if (payload.event === 'tool_call_update') {
-  const { agent_id, tool_call_id, state } = payload.data
-}
+const secret = process.env.WEBHOOK_SIGNING_SECRET
+if (!secret) throw new Error('set WEBHOOK_SIGNING_SECRET')
+const verifier = new Webhook(secret)
+
+createServer(async (request, response) => {
+  if (request.method !== 'POST' || request.url !== '/webhook') {
+    response.writeHead(404).end()
+    return
+  }
+  try {
+    const rawBody = await buffer(request)
+    let payload
+    try {
+      const verified = verifier.verify(rawBody, {
+        'webhook-id': String(request.headers['webhook-id'] ?? ''),
+        'webhook-timestamp': String(request.headers['webhook-timestamp'] ?? ''),
+        'webhook-signature': String(request.headers['webhook-signature'] ?? ''),
+      })
+      payload = zEventWebhookPayload.parse(verified)
+    } catch {
+      response.writeHead(400).end('invalid webhook')
+      return
+    }
+    console.log('received', payload.event)
+    response.writeHead(204).end()
+  } catch {
+    response.writeHead(500).end()
+  }
+}).listen(3000)
 ```
+
+Expose `/webhook` over public HTTPS. This snippet only validates and acknowledges events. For custom-tool execution and duplicate handling, see the runnable [custom-tool webhook example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook).
 
 ## Payload examples
 

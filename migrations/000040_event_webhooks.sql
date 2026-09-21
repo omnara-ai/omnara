@@ -21,3 +21,6 @@ CREATE TABLE event_webhook_deliveries (
 CREATE INDEX event_webhook_deliveries_due_idx ON event_webhook_deliveries(next_attempt_at, id);
 CREATE INDEX event_webhook_deliveries_agent_idx ON event_webhook_deliveries(agent_id);
 CREATE INDEX event_webhook_deliveries_created_idx ON event_webhook_deliveries(created_at);
+
+CREATE INDEX event_webhook_deliveries_claimed_idx ON event_webhook_deliveries(claim_expires_at, org_id)
+    WHERE claim_expires_at IS NOT NULL;
