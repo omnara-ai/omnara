@@ -65,6 +65,7 @@ type Config struct {
 	MigrationTimeout                  time.Duration
 	AllowInsecureDev                  bool
 	WorkerCapacity                    int
+	WorkerInboxCapacity               int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
 	DaemonSocketFallbackDrainInterval time.Duration
@@ -205,6 +206,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workerInboxCapacity, err := getenvInt("OMNARA_WORKER_INBOX_CAPACITY", 4)
+	if err != nil {
+		return Config{}, err
+	}
 	workerAsyncToolCapacity, err := getenvInt("OMNARA_WORKER_ASYNC_TOOL_CAPACITY", 32)
 	if err != nil {
 		return Config{}, err
@@ -244,6 +249,7 @@ func Load() (Config, error) {
 		RedisURL:                          getenv("OMNARA_REDIS_URL", ""),
 		AllowInsecureDev:                  os.Getenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS") == "1",
 		WorkerCapacity:                    workerCapacity,
+		WorkerInboxCapacity:               workerInboxCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
@@ -583,6 +589,9 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")
+	}
+	if cfg.WorkerInboxCapacity < 1 || cfg.WorkerInboxCapacity > 100 {
+		return fmt.Errorf("OMNARA_WORKER_INBOX_CAPACITY must be between 1 and 100")
 	}
 	if cfg.WorkerAsyncToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_ASYNC_TOOL_CAPACITY must be positive")

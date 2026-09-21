@@ -48,37 +48,17 @@ parent does not automatically subscribe all its child threads.
 
 ## Gateway decision and worker contract
 
-Dependency: `github.com/discord-go/discord.go v0.13.1-static`, source commit
-`8f18a6fe72f2576fdffe363ed18bd197e7fa472d`, checked September 18, 2026. This is the
-`discord-go/discord.go` project, not `bwmarrin/discordgo`. It is a newer pre-v1 SDK;
-the choice is based on the concrete public controls below, backed by local tests.
-Its Gateway import also pulls `disgoorg/godave v0.3.0`,
-`thomas-vilte/dave-go v0.5.1`, and `thomas-vilte/mls-go v1.6.0`. This package uses
-none of their voice APIs. Existing `coder/websocket v1.8.15` supplies the thin
-`gateway.Connection` transport adapter. We do not implement Gateway protocol,
-fork the SDK, access private fields, or synthesize terminal dialer errors.
+The package implements the small Gateway v10 JSON protocol surface used by the
+thread bot on our existing `coder/websocket` transport. REST remains a separate
+bounded HTTP client. No Discord SDK, voice stack, SDK fork, or copied SDK source
+is included. The protocol follows [Discord's Gateway documentation](https://docs.discord.com/developers/events/gateway)
+and [close-code rules](https://docs.discord.com/developers/topics/opcodes-and-status-codes).
 
-Supported API evidence:
-
-- [`gateway.Client.Start` and `ConnFactory`](https://github.com/discord-go/discord.go/blob/8f18a6fe72f2576fdffe363ed18bd197e7fa472d/gateway/client.go):
-  the single reconnect path returns its error when the public factory is nil.
-- [`Session.SetSessionID`, `SetResumeURL`, `UpdateSequence`](https://github.com/discord-go/discord.go/blob/8f18a6fe72f2576fdffe363ed18bd197e7fa472d/gateway/session.go)
-  restore a persisted checkpoint without private state access.
-- [`Dispatcher.Dispatch`](https://github.com/discord-go/discord.go/blob/8f18a6fe72f2576fdffe363ed18bd197e7fa472d/gateway/dispatcher.go)
-  invokes handlers synchronously;
-  [`readLoop`](https://github.com/discord-go/discord.go/blob/8f18a6fe72f2576fdffe363ed18bd197e7fa472d/gateway/events.go)
-  calls it before reading another event. The SDK advances its received sequence
-  first, so that value is deliberately never exported as a durable checkpoint.
-- [SDK low-level Gateway documentation](https://discord-go.github.io/discord.go/low-level/gateway/)
-  documents the connection interface, client fields, and session configuration.
-
-Previously evaluated alternatives: disgo commit
-`b61a46a3b8aa7f21e6bff103e9f7abf597fe94dd` has `AutoReconnect=false`, but heartbeat,
-opcode 7 and opcode 9 paths bypass it. `bwmarrin/discordgo v0.29.0` has synchronous
-events and reconnect disabling, but no public persisted-sequence restore API.
-Arikawa v3.6.0 resumes publicly, but buffered delivery and reconnect controls do
-not provide the required commit boundary. These do not justify a fake-error guard
-or an SDK-internals fork.
+The worker must restore a durable checkpoint after every disconnect. Keeping the
+protocol here makes that boundary explicit: the connection never automatically
+reconnects from a sequence that was received but not saved. It supports HELLO,
+IDENTIFY, RESUME, dispatches, heartbeat/ACK, reconnect and invalid-session events.
+No general Discord cache or unused Gateway features are implemented.
 
 ```go
 type CommitDispatch func(context.Context, Dispatch, Checkpoint) error
@@ -104,8 +84,8 @@ The worker must:
    in memory and return success. Honor the callback context; do not perform slow
    provider work inside this transaction.
 5. Cancel the run on lease loss, app disconnect, setup change or credential rotation. On any exit,
-   dispose of it and reload storage before another run. A callback error is
-   returned unchanged; a callback panic becomes a sanitized error. Neither can
+   dispose of it and reload storage before another run. A callback error remains available
+   through error wrapping/joining; a callback panic becomes a sanitized error. Neither can
    advance the local checkpoint or permit another dispatch.
 6. Interpret `GatewayError`: fatal close codes need corrected credentials/intents
    or shard configuration. `ResetSession` requires recording a non-resumable gap
@@ -113,23 +93,36 @@ The worker must:
    the client. Ordinary Discord session expiry/replay-buffer gaps remain possible;
    this is not exactly-once delivery.
 
-The SDK owns heartbeat sequencing. Heartbeats report received sequence, which is
-not durable acknowledgement. Only the caller's stored checkpoint is used for a
-subsequent RESUME. Repeated HELLO is rejected so the same run cannot resume from
-an SDK-advanced sequence. Gateway frames/intake payloads are bounded at 2 MiB;
-oversized guild dispatches cause a disconnect rather than being silently skipped.
+Heartbeats start at a randomized delay after HELLO, including while waiting for
+an IDENTIFY permit. The control loop handles ACKs and heartbeat requests while a
+separate worker commits dispatches sequentially. Heartbeats report received
+sequence, not durable acknowledgement. Only the caller's stored checkpoint is
+used for a subsequent RESUME. Repeated HELLO is rejected.
 
-Known upstream limitation: the pinned SDK starts its heartbeat ticker after a
-full interval, rather than using Discord's recommended randomized first delay.
-ACK monitoring and reconnect behavior are covered locally. Track the first-delay
-fix when upgrading the SDK; do not add a second heartbeat loop in this wrapper.
-See the pinned [heartbeater](https://github.com/discord-go/discord.go/blob/8f18a6fe72f2576fdffe363ed18bd197e7fa472d/gateway/heartbeat.go)
-and [Discord's heartbeat interval contract](https://docs.discord.com/developers/events/gateway#heartbeat-interval).
+Read-ahead retains at most one dispatch each in the worker, control loop and
+reader; each frame is limited to 2 MiB. When commits fall behind, reading pauses
+and TCP backpressure absorbs the burst. Heartbeats continue. Because an ACK can
+be buffered behind dispatches, a paused interval permits one extra heartbeat
+interval without an ACK; only an ACK renews that grace. Control frames behind a
+large replay burst can be delayed by multiple commits. Sustained backlog or a
+stalled write (15-second deadline) eventually reconnects, but normal bursts drain
+without repeated queue-overflow disconnects. The retained-frame bound excludes
+JSON decoding copies and transport buffers.
+An oversized frame disconnects the socket; resuming may repeatedly replay that
+same frame. The client does not skip it or silently advance the checkpoint. This
+existing limit can require operator intervention; excluding unused Guilds events
+avoids the large guild snapshots that were the likely trigger.
 
-`gateway_test.go` exercises actual SDK runs over local WebSockets: persisted
-RESUME, READY identity, blocking intake, failed commit, panic/cancellation,
-reconnect/invalid-session opcodes, close codes, and heartbeat loss. Each run dials
-once. A fresh run after failed sequence 11 resumes from stored sequence 10.
+Failed commits and lease cancellation reconnect from storage. A commit racing
+cancellation may have succeeded, which is why a fresh run reloads its checkpoint.
+Shutdown uses a TCP close, avoiding Discord's session-invalidating codes 1000/1001.
+
+`gateway_test.go` and `gateway_protocol_test.go` exercise local WebSockets, including durable
+RESUME, READY identity, blocking intake, heartbeat/ACK behavior, failed commit,
+panic/cancellation, reconnect and invalid-session events. Runtime integration
+tests cover socket handoff with Postgres-backed receipts and lease fencing.
+Discord's finite replay window can expire after a long outage; recovery is not
+an unlimited message archive or an exactly-once guarantee.
 
 ## Mention, reply, tools and files
 
@@ -180,8 +173,10 @@ downloads at most 8 MiB without bot auth or redirects. Artifact access control,
 aggregate intake limits and storage belong to the caller. Content-type validation
 and filename-to-artifact mapping also remain caller responsibilities.
 
-Enable Guilds, Guild Messages and the privileged Message Content intent in the
-customer application. This slice requests exactly those intents. The developer
+The client requests Guild Messages and the privileged Message Content intent.
+Guild/channel metadata comes from REST, so no Guilds intent or guild cache is
+needed. Existing resumable sessions retain their original intents until their
+next IDENTIFY. Enable Message Content in the customer application. The developer
 portal must allow Message Content; otherwise Gateway may close with 4014.
 An empty message alone is not proof that an intent is missing. Guild permissions
 must allow viewing channels, reading history, sending messages, creating public
@@ -272,6 +267,5 @@ and persisted receipts. Allowed mentions default to an empty parse list.
 - [Interaction acknowledgement deadlines](https://docs.discord.com/developers/interactions/receiving-and-responding)
 - [Current application identity](https://docs.discord.com/developers/resources/application#get-current-application)
 
-Checked September 18, 2026. The source-control commits and local tests above are
-the reproducible evidence for SDK behavior; protocol limits come from these
-primary Discord references.
+Checked September 20, 2026. Local protocol and deployment tests exercise the
+owned client; provider contracts and limits come from these primary references.

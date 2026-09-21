@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/require"
@@ -30,20 +31,36 @@ func (f appWorkerConsumerFunc) Consume(
 type appWorkerTestStore struct {
 	mu sync.Mutex
 	AppInboxSchedulerStore
-	claimed    int
-	recovered  int
-	ready      bool
-	retried    []integrationstore.IntegrationInboxLease
-	apps       []integrationstore.IntegrationInboxApp
-	claimOrder []uuid.UUID
-	scans      int
-	noClaim    bool
+	claimed      int
+	recovered    int
+	ready        bool
+	retried      []integrationstore.IntegrationInboxLease
+	apps         []integrationstore.IntegrationInboxApp
+	claimOrder   []uuid.UUID
+	scans        int
+	noClaim      bool
+	recoverBatch func(context.Context, int) (int64, error)
+	sampleLag    func(context.Context) (time.Duration, error)
+	sampled      int
 }
 
-func (s *appWorkerTestStore) RecoverIntegrationInbox(context.Context, int) (int64, error) {
+func (s *appWorkerTestStore) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.recovered++
+	s.mu.Unlock()
+	if s.recoverBatch != nil {
+		return s.recoverBatch(ctx, limit)
+	}
+	return 0, nil
+}
+
+func (s *appWorkerTestStore) OldestReadyIntegrationInboxLag(ctx context.Context) (time.Duration, error) {
+	s.mu.Lock()
+	s.sampled++
+	s.mu.Unlock()
+	if s.sampleLag != nil {
+		return s.sampleLag(ctx)
+	}
 	return 0, nil
 }
 
@@ -154,7 +171,9 @@ func TestAppInboxWorkerRecoveryContinuesWhileAllConsumersAreBusy(t *testing.T) {
 				return nil, ctx.Err()
 			},
 		)
-		worker := NewAppInboxWorker(store, consumer, AppInboxWorkerOptions{Capacity: 1})
+		worker := NewAppInboxWorker(store, consumer, AppInboxWorkerOptions{
+			Capacity: 1, Metrics: metrics.NewAppInboxRecorder(metrics.New()),
+		})
 		done := make(chan error, 1)
 		go func() { done <- worker.Run(ctx) }()
 		<-started
@@ -166,6 +185,7 @@ func TestAppInboxWorkerRecoveryContinuesWhileAllConsumersAreBusy(t *testing.T) {
 		synctest.Wait()
 		store.mu.Lock()
 		require.Equal(t, 2, store.recovered)
+		require.Equal(t, 2, store.sampled, "lag sampling continues while consumers are busy")
 		require.Equal(t, 1, store.claimed)
 		store.mu.Unlock()
 		cancel()
@@ -337,4 +357,87 @@ func TestAppInboxWorkerLogsReceiptAndRecoveryOutcome(t *testing.T) {
 	require.Equal(t, float64(1), entry["attempt"])
 	require.GreaterOrEqual(t, entry["receipt_age"], float64(2*time.Minute))
 	require.Equal(t, "retry_scheduled", entry["outcome"])
+}
+
+func TestAppInboxWorkerContinuesFullRecoveryBatches(t *testing.T) {
+	store := &appWorkerTestStore{}
+	store.recoverBatch = func(_ context.Context, limit int) (int64, error) {
+		if store.recovered <= 3 {
+			return int64(limit), nil
+		}
+		return 1, nil
+	}
+	// A failed observation must not make recovery or otherwise healthy intake fail.
+	store.sampleLag = func(context.Context) (time.Duration, error) {
+		return 0, errors.New("sample unavailable")
+	}
+	worker := NewAppInboxWorker(store, nil, AppInboxWorkerOptions{
+		Metrics: metrics.NewAppInboxRecorder(metrics.New()),
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	require.NoError(t, worker.recoverDue(t.Context()))
+	require.Equal(t, 4, store.recovered, "full batches drain without a 30-second pause")
+	require.Equal(t, 1, store.sampled)
+	require.NoError(t, worker.recoverDue(t.Context()))
+	require.Equal(t, 4, store.recovered, "a drained queue returns to the normal polling interval")
+}
+
+func TestAppInboxWorkerRecoveryBudgetAndLagSampleDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &appWorkerTestStore{}
+		store.sampleLag = func(ctx context.Context) (time.Duration, error) {
+			<-ctx.Done()
+			return 0, ctx.Err()
+		}
+		store.recoverBatch = func(ctx context.Context, limit int) (int64, error) {
+			if store.recovered == 1 {
+				return int64(limit), nil
+			}
+			if store.recovered == 2 {
+				time.Sleep(2 * appInboxRecoveryBudget) //nolint:omnaralint // Advance synctest's virtual clock.
+				require.NoError(t, ctx.Err(), "soft budget must not cancel healthy recovery SQL")
+				return int64(limit), nil
+			}
+			return 0, nil
+		}
+		worker := NewAppInboxWorker(store, nil, AppInboxWorkerOptions{
+			Metrics: metrics.NewAppInboxRecorder(metrics.New()),
+			Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+		start := time.Now()
+		require.NoError(t, worker.recoverDue(t.Context()))
+		require.Equal(t, 2*appInboxRecoveryBudget+appInboxLagSampleTimeout, time.Since(start))
+		require.Equal(t, 2, store.recovered)
+		require.NoError(t, worker.recoverDue(t.Context()))
+		require.Equal(t, 2, store.recovered, "budget exhaustion must not spin")
+		time.Sleep(appInboxRecoveryRetry) //nolint:omnaralint // Advance synctest's virtual clock.
+		require.NoError(t, worker.recoverDue(t.Context()))
+		require.Equal(t, 3, store.recovered, "resume backlog recovery promptly")
+		require.Equal(t, 1, store.sampled, "recovery continuation must not multiply lag samples")
+	})
+}
+
+func TestAppInboxWorkerRecoveryHardDeadlineAndParentCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &appWorkerTestStore{}
+		store.recoverBatch = func(ctx context.Context, _ int) (int64, error) {
+			<-ctx.Done()
+			return 0, ctx.Err()
+		}
+		var logs bytes.Buffer
+		worker := NewAppInboxWorker(store, nil, AppInboxWorkerOptions{
+			Log: slog.New(slog.NewJSONHandler(&logs, nil)),
+		})
+		start := time.Now()
+		require.ErrorIs(t, worker.recoverDue(t.Context()), context.DeadlineExceeded)
+		require.Contains(t, logs.String(), "recover app inbox")
+		require.Contains(t, logs.String(), context.DeadlineExceeded.Error())
+		require.Equal(t, appInboxRecoveryTimeout, time.Since(start))
+		require.Equal(t, 1, store.recovered)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		worker = NewAppInboxWorker(store, nil, AppInboxWorkerOptions{})
+		require.ErrorIs(t, worker.recoverDue(ctx), context.Canceled)
+		require.Equal(t, 1, store.recovered, "parent cancellation must prevent another batch")
+	})
 }

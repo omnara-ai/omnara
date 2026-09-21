@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.RedisURL != "redis://127.0.0.1:6379/0" {
 		t.Fatalf("expected insecure dev default redis url, got %q", cfg.RedisURL)
+	}
+	if cfg.WorkerInboxCapacity != 4 {
+		t.Fatalf("expected default worker inbox capacity 4, got %d", cfg.WorkerInboxCapacity)
 	}
 	if cfg.WorkerCapacity != 4 {
 		t.Fatalf("expected default worker capacity 4, got %d", cfg.WorkerCapacity)
@@ -1259,5 +1263,35 @@ func TestValidateAPIRequiresDatabaseURLWithoutInsecureDevOptIn(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil {
 		t.Fatal("expected missing database url error")
+	}
+}
+
+func TestWorkerInboxCapacity(t *testing.T) {
+	for _, value := range []string{"1", "4", "100", "0", "-1", "101", "not-an-int"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_WORKER_INBOX_CAPACITY", value)
+			cfg, err := Load()
+			if value == "not-an-int" {
+				if err == nil {
+					t.Fatal("expected invalid integer error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = cfg.ValidateWorker()
+			valid := value == "1" || value == "4" || value == "100"
+			if valid && err != nil {
+				t.Fatal(err)
+			}
+			if !valid && err == nil {
+				t.Fatal("expected capacity bounds error")
+			}
+			if valid && fmt.Sprint(cfg.WorkerInboxCapacity) != value {
+				t.Fatalf("capacity = %d, want %s", cfg.WorkerInboxCapacity, value)
+			}
+		})
 	}
 }

@@ -29,6 +29,17 @@ WHERE project_id = sqlc.arg(project_id)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
+-- name: OldestReadyIntegrationInboxLag :one
+-- One probe of the pending-ready index, including inactive scopes that recovery
+-- must drain. No scope joins, counts, payload reads, or created_at history scan.
+-- Valid transitions never leave pending attempts at 8: retry/expiry fails them
+-- and operator retry resets to 0. Avoid a residual filter beyond the index.
+SELECT EXTRACT(EPOCH FROM statement_timestamp() - available_at)::double precision AS lag_seconds
+FROM integration_inbox
+WHERE state = 'pending' AND available_at <= statement_timestamp()
+ORDER BY available_at, id
+LIMIT 1;
+
 -- name: ListReadyIntegrationInboxApps :many
 -- Bound pending receipt inspection before checking scope. Recovery drains an
 -- inactive app that occupies this frontier; history is never inspected.

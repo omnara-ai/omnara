@@ -94,16 +94,29 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 	require.Positive(t, originalEvents)
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	for _, remaining := range []int{2, 0, 0} {
+	// A busy host may consume the soft budget in one batch. Check eventual
+	// draining independently of how many batches fit within one tick.
+	until := time.Now().Add(10 * time.Second)
+	for {
+		runCoreMaintenanceTick(ctx, logger, store)
+		var obsolete int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox
+ WHERE (app_id=$1 AND receipt_key LIKE 'old:%') OR app_id=$2`, live, deleted).Scan(&obsolete))
+		if obsolete == 0 {
+			break
+		}
+		require.True(t, time.Now().Before(until), "retention must make progress across ticks")
+	}
+	for range 2 {
 		runCoreMaintenanceTick(ctx, logger, store)
 		var completedCount, deletedCount int
 		require.NoError(t, pool.QueryRow(ctx,
 			`SELECT count(*) FROM integration_inbox WHERE app_id=$1 AND receipt_key LIKE 'old:%'`,
 			live).Scan(&completedCount))
-		require.Equal(t, remaining, completedCount, "one completed batch per real maintenance tick")
+		require.Zero(t, completedCount, "completed receipts stay deleted")
 		require.NoError(t, pool.QueryRow(ctx,
 			`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, deleted).Scan(&deletedCount))
-		require.Equal(t, remaining, deletedCount, "one deleted-scope batch per real maintenance tick")
+		require.Zero(t, deletedCount, "deleted-scope receipts stay deleted")
 		require.Equal(t, retained, readRetained())
 		var inputID, agentID uuid.UUID
 		var eventCount int
@@ -117,5 +130,57 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 	}
 	require.Contains(t, logs.String(), "cleaned completed integration inbox")
 	require.Contains(t, logs.String(), "cleaned deleted integration inbox")
+	require.NotContains(t, logs.String(), `"level":"ERROR"`)
+}
+
+func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := integrationdb.OpenMigratedPool(t, ctx, "../../migrations")
+	ids := storagefixture.ProjectIDs{
+		OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
+		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
+	}
+	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
+	store := newMaintenanceInboxStore(t, pool, ids)
+	app := createMaintenanceInboxApp(t, store, ids, "retention-timeout", appdefinition.GitHub).ID
+	_, err := pool.Exec(ctx, `INSERT INTO integration_inbox
+ (project_id,app_id,receipt_key,payload,state,completed_at)
+ SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'
+ FROM generate_series(1,202) n`, ids.ProjectID, app)
+	require.NoError(t, err)
+	// Establish a prior committed batch independently of the soft time budget.
+	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, integrationInboxRetention, 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 100, count)
+	// Sequence increments survive rollback. Stall the first batch attempted by
+	// maintenance so the timeout does not depend on fitting two batches in a tick.
+	_, err = pool.Exec(ctx, `CREATE SEQUENCE inbox_cleanup_deletes;
+ CREATE FUNCTION slow_inbox_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+   IF nextval('inbox_cleanup_deletes') = 50 THEN PERFORM pg_sleep(10); END IF;
+   RETURN OLD;
+ END $$;
+ CREATE TRIGGER slow_inbox_cleanup BEFORE DELETE ON integration_inbox
+ FOR EACH ROW EXECUTE FUNCTION slow_inbox_cleanup()`)
+	require.NoError(t, err)
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	runCoreMaintenanceTick(ctx, logger, store)
+	var remaining int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&remaining))
+	require.Equal(t, 102, remaining, "timed-out batch rolls back every delete; the first batch stays committed")
+	require.Contains(t, logs.String(), `"level":"ERROR"`, "hard deadline failure must be logged")
+	require.Contains(t, logs.String(), "cleanup completed integration inbox")
+	logs.Reset()
+	until := time.Now().Add(10 * time.Second)
+	for {
+		runCoreMaintenanceTick(ctx, logger, store)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&remaining))
+		if remaining == 0 {
+			break
+		}
+		require.True(t, time.Now().Before(until), "later ticks must retry and drain the timed-out batch")
+	}
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
 }

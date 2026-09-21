@@ -400,19 +400,26 @@ func runCoreMaintenanceTick(
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
-	completedInbox, completedInboxErr := store.Integrations().CleanupTerminalIntegrationInbox(
-		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
-	)
-	completedInboxOutcome := completedMaintenanceOutcome(ctx, completedInboxErr)
-	deletedInbox, deletedInboxErr := store.Integrations().CleanupDeletedIntegrationInbox(
-		ctx,
-		integrationInboxCleanupBatch,
-	)
-	deletedInboxOutcome := completedMaintenanceOutcome(ctx, deletedInboxErr)
 	choices, choicesErr := store.Integrations().CleanupAppProfileChoices(
 		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
 	)
 	choicesOutcome := completedMaintenanceOutcome(ctx, choicesErr)
+	// Retention runs last, with independent soft budgets and hard deadlines
+	// so a stalled cleanup remains bounded.
+	completedInbox, completedInboxBudgetExhausted, completedInboxErr := drainIntegrationInboxCleanup(
+		ctx, func(cleanupCtx context.Context) (int64, error) {
+			return store.Integrations().CleanupTerminalIntegrationInbox(
+				cleanupCtx, integrationInboxRetention, integrationInboxCleanupBatch,
+			)
+		},
+	)
+	completedInboxOutcome := completedMaintenanceOutcome(ctx, completedInboxErr)
+	deletedInbox, deletedInboxBudgetExhausted, deletedInboxErr := drainIntegrationInboxCleanup(
+		ctx, func(cleanupCtx context.Context) (int64, error) {
+			return store.Integrations().CleanupDeletedIntegrationInbox(cleanupCtx, integrationInboxCleanupBatch)
+		},
+	)
+	deletedInboxOutcome := completedMaintenanceOutcome(ctx, deletedInboxErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
@@ -444,14 +451,16 @@ func runCoreMaintenanceTick(
 		log.Info("cleaned app profile choices", "count", choices)
 	}
 	if completedInboxOutcome.err != nil {
-		log.Error("cleanup completed integration inbox", "error", completedInboxOutcome.err)
-	} else if !completedInboxOutcome.interrupted && completedInbox > 0 {
-		log.Info("cleaned completed integration inbox", "count", completedInbox, "retention", integrationInboxRetention)
+		log.Error("cleanup completed integration inbox", "count", completedInbox, "error", completedInboxOutcome.err)
+	} else if !completedInboxOutcome.interrupted && (completedInbox > 0 || completedInboxBudgetExhausted) {
+		log.Info("cleaned completed integration inbox", "count", completedInbox,
+			"retention", integrationInboxRetention, "budget_exhausted", completedInboxBudgetExhausted)
 	}
 	if deletedInboxOutcome.err != nil {
-		log.Error("cleanup deleted integration inbox", "error", deletedInboxOutcome.err)
-	} else if !deletedInboxOutcome.interrupted && deletedInbox > 0 {
-		log.Info("cleaned deleted integration inbox", "count", deletedInbox)
+		log.Error("cleanup deleted integration inbox", "count", deletedInbox, "error", deletedInboxOutcome.err)
+	} else if !deletedInboxOutcome.interrupted && (deletedInbox > 0 || deletedInboxBudgetExhausted) {
+		log.Info("cleaned deleted integration inbox", "count", deletedInbox,
+			"budget_exhausted", deletedInboxBudgetExhausted)
 	}
 	if expireDaemonRuntimesOutcome.err != nil {
 		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)

@@ -673,3 +673,64 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	require.Equal(t, credential.ID, after.CredentialSecretID)
 	require.Equal(t, integrationstore.IntegrationInboxCompleted, f.read(t, receipt.ID).State)
 }
+
+func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
+	t.Parallel()
+	f := newInboxFixture(t)
+	disabled := f.addApp(t, "inactive-backlog", integrationstore.ProjectAppSettings{}).ID
+	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, disabled)
+	f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,available_at)
+ SELECT $1,$2,'inactive:'||n,'x'::bytea,statement_timestamp()-interval '2 hours'
+ FROM generate_series(1,250) n`, f.project, disabled)
+	f.exec(t, `INSERT INTO integration_inbox
+ (project_id,app_id,receipt_key,payload,state,attempt_count,claim_token,claim_expires_at)
+ SELECT $1,$2,'expired:'||n,'x'::bytea,'processing',1,uuidv7(),statement_timestamp()-interval '1 hour'
+ FROM generate_series(1,150) n`, f.project, f.appID)
+	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
+	require.NoError(t, err)
+	require.Empty(t, ready, "inactive receipts occupy the bounded discovery frontier")
+	count, err := f.store.RecoverIntegrationInbox(f.ctx, 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 200, count, "both backlogs get an independent allowance")
+	var expiredLeft, inactiveLeft int
+	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FILTER (WHERE state='processing'),
+ count(*) FILTER (WHERE app_id=$1 AND state='pending') FROM integration_inbox`, disabled).
+		Scan(&expiredLeft, &inactiveLeft))
+	require.Equal(t, 50, expiredLeft, "inactive backlog cannot starve expired leases")
+	require.Equal(t, 150, inactiveLeft, "expired backlog cannot starve the inactive frontier")
+	count, err = f.store.RecoverIntegrationInbox(f.ctx, 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 150, count)
+	count, err = f.store.RecoverIntegrationInbox(f.ctx, 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 50, count)
+	ready, err = f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
+	require.NoError(t, err)
+	require.Equal(t, []integrationstore.IntegrationInboxApp{{ProjectID: f.project, AppID: f.appID}}, ready)
+	claimed := f.claim(t)
+	require.Equal(t, 2, claimed.AttemptCount, "recovered work resumes its original attempt budget")
+}
+
+func TestInboxOldestReadyLagUsesAvailabilityAndDistinguishesFailure(t *testing.T) {
+	t.Parallel()
+	f := newInboxFixture(t)
+	f.exec(t, `INSERT INTO integration_inbox
+ (project_id,app_id,receipt_key,payload,created_at,available_at,state,completed_at)
+ VALUES ($1,$2,'future','x'::bytea,now()-interval '3 days',now()+interval '1 hour','pending',NULL),
+        ($1,$2,'history','x'::bytea,now()-interval '4 days',now()-interval '4 days','completed',now())`,
+		f.project, f.appID)
+	lag, err := f.store.OldestReadyIntegrationInboxLag(f.ctx)
+	require.NoError(t, err)
+	require.Zero(t, lag, "future retries and terminal history are not ready work")
+	f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,created_at,available_at)
+ VALUES ($1,$2,'ready','x'::bytea,now()-interval '2 days',now()-interval '90 seconds')`, f.project, f.appID)
+	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, f.appID)
+	lag, err = f.store.OldestReadyIntegrationInboxLag(f.ctx)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, lag, 90*time.Second, "inactive ready receipts remain visible until recovery")
+	require.Less(t, lag, 2*time.Minute, "lag measures available_at, not original receipt age")
+	ctx, cancel := context.WithCancel(f.ctx)
+	cancel()
+	_, err = f.store.OldestReadyIntegrationInboxLag(ctx)
+	require.Error(t, err, "database failure must not look like an empty queue")
+}

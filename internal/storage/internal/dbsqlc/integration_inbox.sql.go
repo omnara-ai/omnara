@@ -597,6 +597,25 @@ func (q *Queries) LockIntegrationInboxReceipt(ctx context.Context, arg LockInteg
 	return id, err
 }
 
+const oldestReadyIntegrationInboxLag = `-- name: OldestReadyIntegrationInboxLag :one
+SELECT EXTRACT(EPOCH FROM statement_timestamp() - available_at)::double precision AS lag_seconds
+FROM integration_inbox
+WHERE state = 'pending' AND available_at <= statement_timestamp()
+ORDER BY available_at, id
+LIMIT 1
+`
+
+// One probe of the pending-ready index, including inactive scopes that recovery
+// must drain. No scope joins, counts, payload reads, or created_at history scan.
+// Valid transitions never leave pending attempts at 8: retry/expiry fails them
+// and operator retry resets to 0. Avoid a residual filter beyond the index.
+func (q *Queries) OldestReadyIntegrationInboxLag(ctx context.Context) (float64, error) {
+	row := q.db.QueryRow(ctx, oldestReadyIntegrationInboxLag)
+	var lag_seconds float64
+	err := row.Scan(&lag_seconds)
+	return lag_seconds, err
+}
+
 const readIntegrationInboxLease = `-- name: ReadIntegrationInboxLease :one
 SELECT id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
 WHERE project_id = $1 AND id = $2

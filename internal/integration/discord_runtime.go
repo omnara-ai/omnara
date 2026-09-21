@@ -343,20 +343,21 @@ func discordReconnectDelay(err error) time.Duration {
 	var gatewayError *discord.GatewayError
 	var apiError *discord.APIError
 	var permitWait discordIdentifyWaitError
-	switch {
-	case errors.As(err, &gatewayError):
+	if errors.As(err, &gatewayError) {
 		if gatewayError.Fatal {
 			return time.Hour
 		}
 		delay = max(delay, gatewayError.RetryAfter)
-	case errors.As(err, &apiError):
+	}
+	if errors.As(err, &apiError) {
 		if apiError.Code == discord.PermanentFailure {
 			// A bad credential or setup must not hammer shared provider egress.
 			// Updating the app or credential bypasses this delay.
 			return time.Hour
 		}
 		delay = max(delay, apiError.RetryAfter)
-	case errors.As(err, &permitWait):
+	}
+	if errors.As(err, &permitWait) {
 		delay = max(delay, permitWait.After)
 	}
 	return min(24*time.Hour, delay)

@@ -197,34 +197,41 @@ func (s *Store) ListIntegrationInbox(
 	return result, nil
 }
 
-// RecoverIntegrationInbox also terminates pending/claimed work belonging to an
-// inactive scope. Each call locks at most limit rows and never waits on a worker.
+// OldestReadyIntegrationInboxLag samples the oldest due pending receipt, including
+// inactive scopes awaiting recovery. Empty is zero; a failed sample is an error.
+// The database clock and available_at exclude scheduled retry backoff from lag.
+func (s *Store) OldestReadyIntegrationInboxLag(ctx context.Context) (time.Duration, error) {
+	seconds, err := s.q.OldestReadyIntegrationInboxLag(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sample oldest ready inbox lag: %w", err)
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
+}
+
+// RecoverIntegrationInbox gives expired claims and inactive pending receipts
+// independent allowances of limit rows, at most 2*limit total per call. Each
+// statement commits separately and skips busy rows. Neither backlog can spend
+// the other's allowance; a full allowance warrants another bounded pass.
 func (s *Store) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, error) {
 	if err := validateInboxBatch(limit); err != nil {
 		return 0, err
 	}
-	// Revoke inactive scopes first. Once disabled, a scope admits no new receipts,
-	// so its finite backlog drains without scanning healthy pending work. The two
-	// statements together settle at most limit rows; each independently commits.
-	count, err := s.q.FailInactiveIntegrationInboxReceipts(ctx, dbsqlc.FailInactiveIntegrationInboxReceiptsParams{
-		RowLimit: int32(limit),
-	})
-	if err != nil {
-		return 0, fmt.Errorf("fail inactive inbox: %w", err)
-	}
-	if count == int64(limit) {
-		return count, nil
-	}
 	recovered, err := s.q.RecoverExpiredIntegrationInboxReceipts(
-		ctx,
-		dbsqlc.RecoverExpiredIntegrationInboxReceiptsParams{
-			RowLimit: int32(int64(limit) - count),
-		},
+		ctx, dbsqlc.RecoverExpiredIntegrationInboxReceiptsParams{RowLimit: int32(limit)},
 	)
 	if err != nil {
-		return count, fmt.Errorf("recover expired inbox: %w", err)
+		return 0, fmt.Errorf("recover expired inbox: %w", err)
 	}
-	return count + recovered, nil
+	inactive, err := s.q.FailInactiveIntegrationInboxReceipts(
+		ctx, dbsqlc.FailInactiveIntegrationInboxReceiptsParams{RowLimit: int32(limit)},
+	)
+	if err != nil {
+		return recovered, fmt.Errorf("fail inactive inbox: %w", err)
+	}
+	return recovered + inactive, nil
 }
 
 // CleanupTerminalIntegrationInbox bounds the replay-deduplication window as well

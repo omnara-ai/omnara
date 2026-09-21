@@ -237,6 +237,7 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 			assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 100}), 0)
 		})
 	}
+	assertInboxRowsInspected(t, explainInboxQuery(t, f, "OldestReadyIntegrationInboxLag", nil), 1)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxApps", map[string]any{
 		"row_limit": 100,
 	}), 100)
@@ -263,6 +264,11 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupDeletedIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
+	// Empty lag sampling also seeks the ready index rather than scanning future
+	// retries or terminal history. All other access-path checks above are done.
+	f.exec(t, `UPDATE integration_inbox SET available_at=now()+interval '1 day' WHERE state='pending'`)
+	f.exec(t, "VACUUM ANALYZE integration_inbox")
+	assertInboxRowsInspected(t, explainInboxQuery(t, f, "OldestReadyIntegrationInboxLag", nil), 0)
 }
 
 func TestInboxInactiveRecoveryBatchesAppsAcrossProjects(t *testing.T) {

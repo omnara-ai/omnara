@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 type AppInboxSchedulerStore interface {
 	RecoverIntegrationInbox(context.Context, int) (int64, error)
+	OldestReadyIntegrationInboxLag(context.Context) (time.Duration, error)
 	ListReadyIntegrationInboxApps(context.Context, int) ([]integrationstore.IntegrationInboxApp, error)
 	ClaimIntegrationInbox(
 		context.Context,
@@ -40,6 +42,7 @@ type AppInboxWorkerOptions struct {
 	Log          *slog.Logger
 	Capacity     int
 	MachinePools AppLaunchProvisioner
+	Metrics      *metrics.AppInboxRecorder
 }
 
 type AppInboxWorker struct {
@@ -55,9 +58,16 @@ type AppInboxWorker struct {
 	recoveryMu      sync.Mutex
 	recoveryRunning bool
 	nextRecovery    time.Time
+	nextLagSample   time.Time
 }
 
-const appInboxRecoveryInterval = 30 * time.Second
+const (
+	appInboxRecoveryInterval = 30 * time.Second
+	appInboxRecoveryRetry    = time.Second
+	appInboxRecoveryBudget   = time.Second
+	appInboxRecoveryTimeout  = 5 * time.Second
+	appInboxLagSampleTimeout = time.Second
+)
 
 func NewAppInboxWorker(
 	inbox AppInboxSchedulerStore,
@@ -85,12 +95,10 @@ func (w *AppInboxWorker) Run(ctx context.Context) error {
 	// Recovery is independent of traffic and consumer occupancy, including when
 	// every slot is waiting on provider I/O. RunOnce shares this same throttle.
 	workers.Go(func() {
-		ticker := time.NewTicker(appInboxRecoveryInterval)
+		ticker := time.NewTicker(appInboxRecoveryRetry)
 		defer ticker.Stop()
 		for {
-			if err := w.recoverDue(ctx); err != nil && ctx.Err() == nil {
-				w.options.Log.Warn("recover app inbox", "error", err)
-			}
+			_ = w.recoverDue(ctx) // Recovery logs its errors, including when initiated by RunOnce.
 			select {
 			case <-ctx.Done():
 				return
@@ -175,20 +183,60 @@ func (w *AppInboxWorker) RunOnce(ctx context.Context) (bool, error) {
 	return false, errors.Join(failures...)
 }
 
-func (w *AppInboxWorker) recoverDue(ctx context.Context) error {
+func (w *AppInboxWorker) recoverDue(ctx context.Context) (err error) {
 	w.recoveryMu.Lock()
 	if w.recoveryRunning || time.Now().Before(w.nextRecovery) {
 		w.recoveryMu.Unlock()
 		return nil
 	}
 	w.recoveryRunning = true
-	w.nextRecovery = time.Now().Add(appInboxRecoveryInterval)
 	w.recoveryMu.Unlock()
-	_, err := w.inbox.RecoverIntegrationInbox(ctx, integrationstore.IntegrationInboxMaxBatch)
-	w.recoveryMu.Lock()
-	w.recoveryRunning = false
-	w.recoveryMu.Unlock()
-	return err
+	interval := appInboxRecoveryInterval
+	defer func() {
+		w.recoveryMu.Lock()
+		w.nextRecovery = time.Now().Add(interval)
+		w.recoveryRunning = false
+		w.recoveryMu.Unlock()
+		if err != nil && ctx.Err() == nil {
+			w.options.Log.Warn("recover app inbox", "error", err)
+		}
+	}()
+
+	// Sample once per normal recovery interval, even while a backlog requires
+	// faster recovery passes. Failure remains distinct from a successful empty
+	// result and does not prevent recovery or receipt processing.
+	if w.options.Metrics != nil && !time.Now().Before(w.nextLagSample) {
+		sampleCtx, cancel := context.WithTimeout(ctx, appInboxLagSampleTimeout)
+		lag, err := w.inbox.OldestReadyIntegrationInboxLag(sampleCtx)
+		cancel()
+		w.options.Metrics.RecordOldestReadyLag(lag, err)
+		w.nextLagSample = time.Now().Add(appInboxRecoveryInterval)
+		if err != nil && ctx.Err() == nil {
+			w.options.Log.Warn("sample app inbox lag", "error", err)
+		}
+	}
+
+	// Finish the current recovery call (two bounded SQL statements) when the
+	// soft budget runs out. Only a stalled pass reaches the hard deadline.
+	stopAt := time.Now().Add(appInboxRecoveryBudget)
+	recoveryCtx, cancel := context.WithTimeout(ctx, appInboxRecoveryTimeout)
+	defer cancel()
+	for {
+		if err := recoveryCtx.Err(); err != nil {
+			return err
+		}
+		if !time.Now().Before(stopAt) {
+			interval = appInboxRecoveryRetry
+			return nil
+		}
+		count, err := w.inbox.RecoverIntegrationInbox(recoveryCtx, integrationstore.IntegrationInboxMaxBatch)
+		if err != nil {
+			return err
+		}
+		if count < integrationstore.IntegrationInboxMaxBatch {
+			return nil
+		}
+	}
 }
 
 func (w *AppInboxWorker) nextApp(

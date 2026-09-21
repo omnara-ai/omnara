@@ -258,6 +258,13 @@ func TestDiscordReconnectDelayHonorsProviderFailures(t *testing.T) {
 		{"rate limit", &discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour}, 2 * time.Hour},
 		{"disabled intent", &discord.GatewayError{Fatal: true}, time.Hour},
 		{"session budget", discordIdentifyWaitError{After: 20 * time.Hour}, 20 * time.Hour},
+		{"reconnect with permit wait", errors.Join(
+			&discord.GatewayError{RetryAfter: time.Second}, discordIdentifyWaitError{After: 20 * time.Hour},
+		), 20 * time.Hour},
+		{"reconnect with API rate limit", errors.Join(
+			&discord.GatewayError{RetryAfter: time.Second},
+			&discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour},
+		), 2 * time.Hour},
 		{"network", errors.New("network unavailable"), time.Second},
 	} {
 		t.Run(

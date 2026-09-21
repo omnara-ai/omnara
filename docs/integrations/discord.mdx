@@ -129,3 +129,29 @@ full origin address, including on launch. Questions remain answerable in the das
 presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration. A bot used only for messages with one
 profile can omit the public key.
+
+## Restarts and deployments
+
+A worker saves its Discord session and last committed event sequence in Postgres.
+The event receipt and sequence are saved together. When another worker takes over,
+it resumes that session and Discord can replay missed events; repeated message
+receipts are deduplicated. A database lease prevents two workers from committing
+for the same saved app and shard. Normal shutdown releases that lease; after a
+crash, a replacement waits for it to expire, normally within 30 seconds.
+
+Keep replacement workers healthy during routine deployments, and allow the old
+workers to shut down gracefully. Postgres and Redis must remain available. Discord
+retains replay history for a limited time: a long outage or an invalidated session
+can still leave a gap. The worker records that it must start a fresh session;
+restarting is not a guarantee that Discord retains every missed message.
+
+HTTP interactions use the API service separately. Keep a healthy API instance
+receiving requests while another drains. Routine rolling restarts differ from
+this release's [one-time migration maintenance window](/self-hosting/composable-apps-cutover).
+
+Before a production rollout, use a dedicated test guild to check a mention,
+a plain reply in the resulting thread, and another reply after restarting the
+test worker. Confirm that they reach the same agent without duplicate inputs.
+Also verify a signed interaction callback if using approvals or profile menus.
+The automated suite uses local provider fixtures; it does not replace this live
+check of the bot's intents and guild permissions.

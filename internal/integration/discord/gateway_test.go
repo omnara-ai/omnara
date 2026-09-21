@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,7 +45,10 @@ func readPacket(t *testing.T, ctx context.Context, conn *websocket.Conn) gateway
 func gatewayFixture(t *testing.T, handler func(context.Context, *websocket.Conn)) (ShardConfig, *atomic.Int32) {
 	t.Helper()
 	var connections atomic.Int32
+	var handlers sync.WaitGroup
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.Add(1)
+		defer handlers.Done()
 		connections.Add(1)
 		if r.Header.Get("Authorization") != "" || r.URL.Query().Get("v") != "10" ||
 			r.URL.Query().Get("encoding") != "json" {
@@ -60,10 +64,27 @@ func gatewayFixture(t *testing.T, handler func(context.Context, *websocket.Conn)
 		defer cancel()
 		handler(ctx, conn)
 	}))
-	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		server.Close()
+		handlers.Wait()
+	})
 	return ShardConfig{Credentials: credentials(), ShardCount: 1,
 		GatewayURL: strings.Replace(server.URL, "http://", "ws://", 1), HTTPClient: server.Client(),
-		BeforeIdentify: func(context.Context) error { return nil }}, &connections
+		BeforeIdentify:  func(context.Context) error { return nil },
+		heartbeatJitter: func() float64 { return 1 }}, &connections
+}
+
+func waitGatewayBarrier(t *testing.T, ctx context.Context, barrier <-chan struct{}) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	select {
+	case <-barrier:
+		return true
+	case <-ctx.Done():
+		t.Errorf("gateway barrier: %v", ctx.Err())
+		return false
+	}
 }
 
 func resumeCheckpoint(config ShardConfig) *Checkpoint {
@@ -84,6 +105,7 @@ func waitRun(t *testing.T, done <-chan error) error {
 
 func TestGatewayDurableFailureStopsAndRestoresPersistedSequence(t *testing.T) {
 	var phase atomic.Int32
+	secondSent, replayCommitted := make(chan struct{}), make(chan struct{})
 	config, connections := gatewayFixture(t, func(ctx context.Context, conn *websocket.Conn) {
 		writePacket(t, ctx, conn, `{"op":10,"d":{"heartbeat_interval":600000}}`)
 		auth := readPacket(t, ctx, conn)
@@ -99,13 +121,19 @@ func TestGatewayDurableFailureStopsAndRestoresPersistedSequence(t *testing.T) {
 		writePacket(t, ctx, conn, `{"op":0,"s":11,"t":"MESSAGE_CREATE","d":{"id":"666"}}`)
 		if phase.Add(1) == 1 {
 			writePacket(t, ctx, conn, `{"op":0,"s":12,"t":"MESSAGE_CREATE","d":{"id":"777"}}`)
+			close(secondSent)
 		} else {
+			if !waitGatewayBarrier(t, ctx, replayCommitted) {
+				return
+			}
 			writePacket(t, ctx, conn, `{"op":7,"d":null}`)
 		}
 		_, _, _ = conn.Read(ctx) // Wait for the run to close its socket.
 	})
 	persisted := resumeCheckpoint(config)
 	entered, release := make(chan struct{}), make(chan struct{})
+	releaseCommit := sync.OnceFunc(func() { close(release) })
+	defer releaseCommit()
 	var calls atomic.Int32
 	done := make(chan error, 1)
 	failure := errors.New("durable inbox unavailable")
@@ -125,19 +153,25 @@ func TestGatewayDurableFailureStopsAndRestoresPersistedSequence(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("no intake callback")
 	}
+	select {
+	case <-secondSent:
+	case <-time.After(time.Second):
+		t.Fatal("second dispatch was not sent")
+	}
 	if persisted.Sequence != 10 || calls.Load() != 1 {
 		t.Fatal("advanced durable checkpoint before commit")
 	}
-	close(release)
+	releaseCommit()
 	if err := waitRun(t, done); !errors.Is(err, failure) {
 		t.Fatalf("lost intake error: %v", err)
 	}
 	if calls.Load() != 1 || connections.Load() != 1 || persisted.Sequence != 10 {
-		t.Fatal("read past failed write or automatically reconnected")
+		t.Fatal("committed past failed write or automatically reconnected")
 	}
 	var saved Checkpoint
 	err := RunShard(t.Context(), config, persisted, func(ctx context.Context, dispatch Dispatch, next Checkpoint) error {
 		saved = next
+		close(replayCommitted)
 		return nil
 	})
 	var stopped *GatewayError
@@ -149,6 +183,7 @@ func TestGatewayDurableFailureStopsAndRestoresPersistedSequence(t *testing.T) {
 func TestGatewayReadyChecksIdentityAndCommitsCheckpoint(t *testing.T) {
 	var resumeURL atomic.Value
 	var permits atomic.Int32
+	committed := make(chan struct{})
 	config, connections := gatewayFixture(t, func(ctx context.Context, conn *websocket.Conn) {
 		writePacket(t, ctx, conn, `{"op":10,"d":{"heartbeat_interval":600000}}`)
 		auth := readPacket(t, ctx, conn)
@@ -157,13 +192,17 @@ func TestGatewayReadyChecksIdentityAndCommitsCheckpoint(t *testing.T) {
 			Shard   []int  `json:"shard"`
 			Token   string `json:"token"`
 		}
-		if json.Unmarshal(auth.Data, &identify) != nil || auth.Op != 2 || identify.Intents != ThreadBotIntents ||
+		// Only GUILD_MESSAGES (512) and MESSAGE_CONTENT (32768) are needed.
+		if json.Unmarshal(auth.Data, &identify) != nil || auth.Op != 2 || identify.Intents != 512+32768 ||
 			len(identify.Shard) != 2 || identify.Shard[0] != 0 || identify.Shard[1] != 1 || permits.Load() != 1 {
 			t.Error("identify was not correctly gated")
 		}
 		ready := `{"op":0,"s":1,"t":"READY","d":{"session_id":"new-session","resume_gateway_url":%q,"user":{"id":"222","bot":true},"application":{"id":"111"}}}`
 		writePacket(t, ctx, conn, fmt.Sprintf(ready, resumeURL.Load()))
 		writePacket(t, ctx, conn, `{"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"666"}}`)
+		if !waitGatewayBarrier(t, ctx, committed) {
+			return
+		}
 		writePacket(t, ctx, conn, `{"op":7,"d":null}`)
 		_, _, _ = conn.Read(ctx)
 	})
@@ -172,6 +211,9 @@ func TestGatewayReadyChecksIdentityAndCommitsCheckpoint(t *testing.T) {
 	var checkpoints []Checkpoint
 	err := RunShard(t.Context(), config, nil, func(ctx context.Context, dispatch Dispatch, next Checkpoint) error {
 		checkpoints = append(checkpoints, next)
+		if dispatch.Sequence == 2 {
+			close(committed)
+		}
 		return nil
 	})
 	var stopped *GatewayError
@@ -352,17 +394,22 @@ func TestGatewayBotMetadata(t *testing.T) {
 }
 
 func TestReadyDoesNotCarrySequenceAcrossSessions(t *testing.T) {
+	committed := make(chan struct{})
 	config, _ := gatewayFixture(t, func(ctx context.Context, conn *websocket.Conn) {
 		writePacket(t, ctx, conn, `{"op":10,"d":{"heartbeat_interval":600000}}`)
 		_ = readPacket(t, ctx, conn)
 		writePacket(t, ctx, conn,
 			`{"op":0,"s":1,"t":"READY","d":{"session_id":"new-session","resume_gateway_url":"wss://gateway.discord.gg","user":{"id":"222","bot":true},"application":{"id":"111"}}}`)
+		if !waitGatewayBarrier(t, ctx, committed) {
+			return
+		}
 		writePacket(t, ctx, conn, `{"op":7,"d":null}`)
 		_, _, _ = conn.Read(ctx)
 	})
 	var saved Checkpoint
 	commit := func(ctx context.Context, event Dispatch, next Checkpoint) error {
 		saved = next
+		close(committed)
 		return nil
 	}
 	_ = RunShard(t.Context(), config, resumeCheckpoint(config), commit)

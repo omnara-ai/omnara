@@ -288,7 +288,8 @@ func main() {
 		appLaunchers,
 	)
 	appWorker := integration.NewAppInboxWorker(store.Integrations(), appConsumer, integration.AppInboxWorkerOptions{
-		Log: log, MachinePools: machinePoolManager,
+		Log: log, MachinePools: machinePoolManager, Capacity: cfg.WorkerInboxCapacity,
+		Metrics: metrics.NewAppInboxRecorder(metricSet),
 	})
 	appsDone := make(chan struct{})
 	var appsRunErr error

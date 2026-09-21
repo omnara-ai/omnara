@@ -26,9 +26,46 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` | `info` | No |
 | `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS` | `1` enables local-development fallbacks | unset | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
+| `OMNARA_WORKER_INBOX_CAPACITY` | Maximum app inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
+
+Inbox concurrency is independent of agent-turn concurrency. All worker activity
+shares the database pool; raising inbox capacity does not raise its connection
+limit. Start with the default pool of 10 maximum connections and measure queue
+lag and database contention before increasing concurrency or replica counts.
+
+Workers sample `omnara_app_inbox_oldest_ready_lag_seconds` about every 30 seconds,
+including while every consumer is busy. This measures time since `available_at`
+for the oldest due pending receipt, including inactive apps awaiting recovery;
+future retry delays and processing leases are excluded. Scrapes read cached
+values and never query the inbox. The metric has no app or project labels and
+reports zero for an empty ready queue, or `NaN` before sampling or after a failed
+sample. Check `omnara_app_inbox_lag_sample_last_success_timestamp_seconds` for
+freshness; it remains unchanged on failure. Each worker observes the same global
+queue, so compare the maximum lag across workers rather than summing it.
+
+Expired claims and inactive pending work each receive their own 100-row recovery
+allowance. Full batches continue for a one-second soft budget, checked between
+recovery calls. The current call (two SQL statements) may finish beyond that
+budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget
+exhaustion retries after one second; drained queues return to 30-second polling.
+The lag query has its own one-second deadline and runs at most once per 30 seconds.
+
+Inbox retention runs last in each core maintenance tick. Completed/discarded
+receipts remain for seven days after completion, measured by the database clock.
+Terminal and deleted-scope cleanup each drain 100-row transactions with a 250 ms
+soft budget checked between batches. The current batch may finish beyond that
+budget without cancellation. Each cleanup pass has a five-second hard deadline,
+so two stalled passes can delay the next core tick by about ten seconds. Hard
+timeouts are logged as errors. Each batch is atomic, but cancellation can race
+commit, so a failed call may have an uncertain result. Logged counts include only
+confirmed deletions; the next tick safely continues from remaining rows.
+Normal soft-budget exhaustion is logged as
+`budget_exhausted=true`. Failed receipts in live or disconnected scopes
+remain available for operator recovery. See the
+[inbox operations contract](https://github.com/omnara-ai/omnara/blob/main/internal/storage/integrationstore/inbox_retention.md).
 
 ## Database and Redis
 
