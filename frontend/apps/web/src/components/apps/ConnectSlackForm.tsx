@@ -304,7 +304,7 @@ export function ConnectSlackForm({
                           }}
                         />
                         <FieldDescription>
-                          Generate one in{' '}
+                          Open{' '}
                           <a
                             href="https://api.slack.com/apps"
                             target="_blank"
@@ -313,7 +313,8 @@ export function ConnectSlackForm({
                           >
                             Slack app settings
                           </a>
-                          .
+                          , click Generate Token under Your App Configuration Tokens, and select a
+                          workspace. Copy only the Access Token and paste it here.
                         </FieldDescription>
                       </Field>
                     )}
