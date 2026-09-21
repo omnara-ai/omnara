@@ -490,8 +490,7 @@ func TestAppToolContextDestinationsBeforeProviderIO(t *testing.T) {
 	}
 }
 
-// All app tool fixtures have no receive capability in agent config. A failed
-// publication must not turn explicit follow_replies into an active subscription.
+// A failed publication must not turn explicit follow_replies into an active subscription.
 func TestAppFollowFailedPostCreatesNoSubscription(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
 		t.Run(provider, func(t *testing.T) {

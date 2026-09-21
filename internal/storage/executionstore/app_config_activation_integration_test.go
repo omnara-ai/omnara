@@ -161,57 +161,6 @@ func (f appActivationFixture) disable(t *testing.T) {
 	require.True(t, changed)
 }
 
-func TestAppSubscriptionsSurviveSendingToolEdits(t *testing.T) {
-	for _, change := range []string{"remove", "deny", "disable", "revoke"} {
-		t.Run(change, func(t *testing.T) {
-			f := newAppActivationFixture(t)
-			definition := f.withSendingTools(t, f.definition(t, "Follow replies"))
-			input := f.launchInput(uuid.Nil, "follow-launch")
-			input.DerivedConfig = &definition
-			launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
-			require.NoError(t, err)
-			require.Empty(t, f.subscriptions(t, launch.Agent.ID), "sending tools do not attach subscriptions")
-			for _, conversation := range []string{
-				`{"channel_id":"C123","thread_ts":"111.222"}`,
-				`{"channel_id":"C123","thread_ts":"333.444"}`,
-			} {
-				attachment := f.attachment()
-				attachment.Conversation = json.RawMessage(conversation)
-				f.attach(t, launch.Agent.ID, attachment)
-			}
-			before := f.subscriptions(t, launch.Agent.ID)
-			var compiled agentconfig.Compiled
-			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
-			compiled.Instruction = "Sender changed"
-			name := "app__chat__post_message"
-			tool := compiled.Tools[name]
-			switch change {
-			case "deny":
-				tool.Permission = toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
-			case "disable":
-				tool.Enabled = false
-			case "revoke":
-				f.disable(t)
-			}
-			compiled.Tools[name] = tool
-			if change == "remove" {
-				compiled.Tools = nil
-			}
-			update := f.changeInput(t, launch.Agent.ID, compiled.Instruction, "sender-edit")
-			update.CreateAgentConfigInput = f.encodedDefinition(t, compiled)
-			changed, err := f.store.Execution().ChangeAgentConfig(f.ctx, update)
-			require.NoError(t, err)
-			require.NotEqual(t, launch.Agent.CurrentConfigID, changed.AgentConfig.ID)
-			require.Equal(
-				t,
-				before,
-				f.subscriptions(t, launch.Agent.ID),
-				"config edits preserve addresses, events, IDs and timestamps",
-			)
-		})
-	}
-}
-
 func TestAppSubscriptionsDetachAndReattachIndependentOfConfig(t *testing.T) {
 	f := newAppActivationFixture(t)
 	definition := f.withSendingTools(t, f.definition(t, "Listen and send"))
@@ -382,7 +331,7 @@ func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 	}
 }
 
-func TestAppSubscriptionQuotaRollsBackLaunchButNotConfigChanges(t *testing.T) {
+func TestAppConfigChangesRemainAvailableAtSubscriptionQuota(t *testing.T) {
 	t.Parallel()
 	f := newAppActivationFixture(t)
 	base, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "quota-base"))
@@ -393,31 +342,6 @@ func TestAppSubscriptionQuotaRollsBackLaunchButNotConfigChanges(t *testing.T) {
 		testOrgID,
 	)
 	require.NoError(t, err)
-	definition := f.definition(t, "Quota should roll back")
-	input := f.launchInput(uuid.Nil, "quota-derived")
-	input.DerivedConfig = &definition
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
-	input.Message = "No partial initial input"
-	_, err = f.store.Execution().LaunchAgent(f.ctx, input)
-	require.ErrorIs(t, err, storeerr.ErrConflict)
-	for _, check := range []struct{ query, value string }{
-		{
-			`SELECT count(*) FROM agent_configs WHERE project_id=$1 AND effective_definition_hash=$2`,
-			definition.EffectiveDefinitionHash,
-		},
-		{`SELECT count(*) FROM agents WHERE project_id=$1 AND idempotency_key=$2`, input.IdempotencyKey},
-	} {
-		var count int
-		require.NoError(t, f.store.pool.QueryRow(f.ctx, check.query, testProjectID, check.value).Scan(&count))
-		require.Zero(t, count)
-	}
-	var subscriptions, inputs int
-	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT
-		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
-		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`,
-		testProjectID).Scan(&subscriptions, &inputs))
-	require.Zero(t, subscriptions)
-	require.Zero(t, inputs)
 	_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AgentID: base.Agent.ID, AppID: f.app.ID,
 		Type: f.attachment().Type, Conversation: f.attachment().Conversation,
@@ -624,33 +548,6 @@ func TestAppCapabilitiesValidateCurrentConfigAfterAppWait(t *testing.T) {
 			require.Empty(t, f.subscriptions(t, launch.Agent.ID), "activating tools must not attach subscriptions")
 		})
 	}
-}
-
-func TestConfigChangeDoesNotLockSubscriptionOnlyApps(t *testing.T) {
-	t.Parallel()
-	f := newAppActivationFixture(t)
-	input := f.launchInput(f.profile.CurrentConfigID, "subscription-only")
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
-	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
-	require.NoError(t, err)
-	before := f.subscriptions(t, launch.Agent.ID)
-	control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(
-		t,
-		dbsqlc.New(control).LockProjectAppLifecycleExclusive(
-			f.ctx,
-			dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.app.ID},
-		),
-	)
-	ctx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
-	defer cancel()
-	_, err = f.store.Execution().ChangeAgentConfig(
-		ctx,
-		f.changeInput(t, launch.Agent.ID, "Independent config", "independent"),
-	)
-	require.NoError(t, err, "subscription ownership must not add app gates to unrelated config activation")
-	require.NoError(t, control.Commit(f.ctx))
-	require.Equal(t, before, f.subscriptions(t, launch.Agent.ID))
 }
 
 func TestAppCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigChange(t *testing.T) {

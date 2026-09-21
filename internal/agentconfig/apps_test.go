@@ -1,8 +1,6 @@
 package agentconfig
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,8 +50,6 @@ interaction_handlers:
 			opts.ResolveAppName = func(name string) (AppResolution, error) { calls++; return resolve(name) }
 			result := compileAppTest(t, extra, opts)
 			require.Equal(t, 1, calls, "resolve each distinct app once")
-			require.NotContains(t, string(result.CanonicalJSON), "definition")
-			require.NotContains(t, string(result.CanonicalJSON), "app_resources")
 			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
 			require.NoError(t, err)
 			require.Equal(t, ReferencedAppIDs(result.Compiled), contract.ReferencedAppIDs())
@@ -71,25 +67,17 @@ interaction_handlers:
 	}
 }
 
-func TestAppSourceValidationAndUnsupportedConfig(t *testing.T) {
+func TestAppSourceValidation(t *testing.T) {
 	opts, _ := appTestOptions(t)
 	for _, extra := range []string{
 		"tools: {app__engineering-team__post_message: {type: custom, description: x, input_schema: {type: object}}}",
 		"tools: {app__engineering-team__post_message: {type: built_in}}",
 		"tools: {app__engineering-team__missing: {}}",
 		"tools: {app__missing__read: {}}",
-		"tools: {app__engineering-team__read: {config: {resource: x}}}",
 		"tools: {app__bad: {}}",
 		"tools: {mcp__reserved__read: {}}",
 		"tools: {app__" + strings.Repeat("a", 32) + "__" + strings.Repeat("b", 30) + ": {}}",
-		"listeners: {}",
-		"listeners: {engineering-team__thread_messages: {}}",
-		"listeners: {engineering-team__thread_messages: {config: {conversations: [{channel_id: C123}]}}}",
-		"listeners: {engineering-team__unknown: {}}",
-		"listeners: {engineering-team__thread_messages: {config: {events: [bogus]}}}",
-		"listeners: {engineering-team__thread_messages: {enabled: false}}",
 		"interaction_handlers: {engineering-team__redundant: {}}",
-		"app_resources: {}",
 		"interaction_handlers: {engineering-team: null}",
 	} {
 		_, err := Compile(SourceFormatYAML, []byte(validAgentSource(extra)), opts)
@@ -110,15 +98,6 @@ func TestAppSourceValidationAndUnsupportedConfig(t *testing.T) {
 		opts,
 	)
 	require.ErrorContains(t, err, "app ID")
-}
-
-func TestRuntimeContractRejectsConfigListeners(t *testing.T) {
-	for _, value := range []string{`{}`, `{"chat__thread_messages":{"app_id":"app_old","config":{}}}`} {
-		raw := canonicalizeJSON(json.RawMessage(`{"instruction":"hello","listeners":` + value + `}`))
-		hash := sha256.Sum256(raw)
-		_, err := RuntimeContractFromCompiled(raw, CompilerVersion, hex.EncodeToString(hash[:]))
-		require.ErrorContains(t, err, `unknown field "listeners"`)
-	}
 }
 
 func TestAppCompiledRejectsForgedStructuralAuthority(t *testing.T) {

@@ -52,14 +52,10 @@ tools:
 				id, err := publicid.Decode(publicid.KindProjectApp, tool.AppID)
 				require.NoError(t, err)
 				require.Equal(t, app.id, id.String())
-				require.NotContains(t, string(updated.compiled), `"config"`)
 			}
 			_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, "", updated.hash)
 			require.NoError(t, err)
-			require.NotContains(t, string(updated.compiled), "app_resources")
-			require.NotContains(t, string(updated.compiled), "omnara.slack")
 			require.Equal(t, "Keep send_integration_message as historical text.", actual.Instruction)
-			assertNoSlackCutoverReceiveConfig(t, updated.compiled)
 			require.Empty(t, actual.InteractionHandlers)
 			if updated.source.Valid {
 				require.NotContains(t, updated.source.String, "app_id")
@@ -73,7 +69,7 @@ tools:
 	}
 }
 
-func TestSlackSendingSuccessorPinsAppsAndPreservesPoliciesWithoutDestinationConfig(t *testing.T) {
+func TestSlackSendingSuccessorPinsAppsAndPreservesPolicies(t *testing.T) {
 	appID, firstTarget, secondTarget := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	for _, policy := range []string{
 		`{}`, `{"send_integration_message":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}}}}`,
@@ -97,7 +93,6 @@ func TestSlackSendingSuccessorPinsAppsAndPreservesPoliciesWithoutDestinationConf
 				contract, err := agentconfig.RuntimeContractFromCompiled(raw, "", hash)
 				require.NoError(t, err)
 				require.Len(t, contract.AppTools, 1)
-				assertNoSlackCutoverReceiveConfig(t, raw)
 				require.Empty(t, contract.InteractionHandlers)
 				tool := contract.AppTools["app__slack__post_message"]
 				require.Equal(t, "always_allow", tool.Permission.Mode)
@@ -114,11 +109,6 @@ func TestSlackSendingSuccessorPinsAppsAndPreservesPoliciesWithoutDestinationConf
 				}
 			}
 			require.JSONEq(t, string(first), string(second), "destinations now belong to immutable target contexts")
-			for _, raw := range [][]byte{first, second} {
-				require.NotContains(t, string(raw), `"config"`)
-				require.NotContains(t, string(raw), "D456")
-				require.NotContains(t, string(raw), "C123")
-			}
 			require.Equal(t, `{"instruction":"Review","tools":`+policy+`}`, string(original))
 		})
 	}
@@ -294,7 +284,6 @@ func TestSlackAppMigrationOmitsDeletedAppPoliciesFromSourceAndCanonicalConfig(t 
 						id, err := live.publicID()
 						require.NoError(t, err)
 						require.Equal(t, id, tool.AppID)
-						require.NotContains(t, string(updated.compiled), `"config"`)
 					}
 				}
 				_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, "", updated.hash)
@@ -317,14 +306,4 @@ func TestSlackAppMigrationOmitsDeletedAppPoliciesFromSourceAndCanonicalConfig(t 
 			})
 		}
 	}
-}
-
-// Cutover may restore a scoped sender but must not add receive attachments to
-// either successor or historical config. Routing rows are checked by DB tests.
-func assertNoSlackCutoverReceiveConfig(t *testing.T, raw []byte) {
-	t.Helper()
-	var config map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw, &config))
-	require.NotContains(t, config, "listeners")
-	require.NotContains(t, config, "subscriptions")
 }

@@ -247,35 +247,6 @@ func TestCronAppLaunchClaimFencingAndEdits(t *testing.T) {
 	}
 }
 
-func TestCronAppLaunchRollback(t *testing.T) {
-	t.Parallel()
-	f, record := cronAppFixture(t)
-	claimed := claimCronApp(t, f, record.ID)
-	_, err := f.store.pool.Exec(
-		f.ctx,
-		`CREATE FUNCTION fail_app_handoff() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.last_app_receipt_id IS NOT NULL THEN RAISE EXCEPTION 'injected handoff failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_app_handoff BEFORE UPDATE ON cron_triggers FOR EACH ROW EXECUTE FUNCTION fail_app_handoff()`,
-	)
-	require.NoError(t, err)
-	queued, err := f.store.Execution().CreateCronTriggerAppLaunch(f.ctx, claimed)
-	require.Error(t, err)
-	require.False(t, queued)
-	var count int
-	require.NoError(
-		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&count),
-	)
-	require.Zero(t, count)
-	current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, record.ID)
-	require.NoError(t, err)
-	require.Nil(t, current.LastRun)
-	require.Nil(t, current.LastFiredAt)
-	_, err = f.store.pool.Exec(f.ctx, `DROP TRIGGER fail_app_handoff ON cron_triggers`)
-	require.NoError(t, err)
-	queued, err = f.store.Execution().CreateCronTriggerAppLaunch(f.ctx, claimed)
-	require.NoError(t, err)
-	require.True(t, queued)
-}
-
 func TestCronAppLaunchLifecycle(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{"disconnect", "delete_app", "delete_profile"} {

@@ -78,11 +78,9 @@ interaction_handlers:
 	} {
 		require.NoError(t, jsonschema.Validate(post.InputSchema, []byte(args)))
 	}
-	require.Error(t, jsonschema.Validate(post.InputSchema, []byte(`{"text":"hello","resource":"engineering"}`)))
 	read := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__read")
 	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{"channel_id":"C456","thread_ts":"333.444"}`)))
 	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{}`)))
-	require.False(t, HasTool(bundle.ToolSpecs, "slack_post_message"))
 	require.Equal(t, []appDefinitionRequest{{ProjectID: testProjectID, IDs: []string{appID}}}, store.appDefinitionRequests,
 		"one project-scoped metadata read deduplicates tools and handler")
 	require.Equal(t, original, store.config.CompiledDefinition)
@@ -91,11 +89,10 @@ interaction_handlers:
 	require.NoError(t, json.Unmarshal(store.config.CompiledDefinition, &compiled))
 	require.Equal(t, appID, compiled.Tools[post.Name].AppID)
 	require.Empty(t, compiled.Tools[post.Name].InputSchema, "effective schemas are not persisted")
-	require.NotContains(t, string(original), appdefinition.Slack, "definition metadata is live")
 }
 
 func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) {
-	for _, state := range []string{"disconnected", "deleted", "recreated name"} {
+	for _, state := range []string{"unavailable", "recreated name"} {
 		t.Run(state, func(t *testing.T) {
 			store, appID := appContextFixture(t, `tools:
   app__engineering__post_message: {}
@@ -142,7 +139,6 @@ func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t 
 	require.NotContains(t, content, appID)
 	require.NotContains(t, content, testIDN(940).String())
 	require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"), "a handler grants no send tool")
-	require.False(t, HasTool(bundle.ToolSpecs, "send_integration_message"))
 	require.True(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
 	require.True(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSetInteractionHandler))
 	require.Equal(

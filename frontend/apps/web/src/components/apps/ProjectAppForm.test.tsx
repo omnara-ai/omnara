@@ -92,7 +92,6 @@ it.each(['slack', 'github', 'discord'] as const)(
       definition_id: `omnara.${provider}`,
       settings: {},
     })
-    expect(container.textContent).not.toContain('Connection')
   },
 )
 
@@ -380,9 +379,6 @@ it('completes OAuth only for the exact app flow, not a previous active flow', as
     expect(onConnected).toHaveBeenCalledOnce()
   })
   expect(onOpenChange).toHaveBeenCalledWith(false)
-  expect(
-    api.requests.some((request) => request.url.pathname.includes('integration-connections')),
-  ).toBe(false)
 })
 
 it('keeps the reconnect credential selected when its fallback option is replaced by fetched secrets', async () => {

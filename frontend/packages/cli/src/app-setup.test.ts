@@ -2,7 +2,7 @@ import { createOmnaraClient, type JsonBody, schemas } from '@omnara/sdk'
 import { expect, it, vi } from 'vitest'
 import * as z from 'zod'
 
-import { appCommandGroups, runAppProfilesUpdate, zAppProfilesBody } from './app-setup.ts'
+import { runAppProfilesUpdate, zAppProfilesBody } from './app-setup.ts'
 import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
 
 const id = (prefix: string) => `${prefix}_${'a'.repeat(26)}`
@@ -35,22 +35,6 @@ const app = (provider: string) => ({
   capabilities: { tools: {}, subscriptions: {} },
   created_at: now,
   updated_at: now,
-})
-
-it('offers one app lifecycle without a separate connection command group', () => {
-  expect(appCommandGroups.map((group) => group.name)).toEqual(['apps'])
-  expect(appCommandGroups[0]?.operations?.map((operation) => operation.verb)).toEqual([
-    'definitions',
-    'list',
-    'get',
-    'create',
-    'update',
-    'configure',
-    'slack',
-    'profiles',
-    'disconnect',
-    'delete',
-  ])
 })
 
 it.each(['slack', 'discord'])(

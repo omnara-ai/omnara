@@ -431,7 +431,7 @@ func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *test
 	require.NoError(t, err)
 	require.Equal(t, "other", selected.HandlerKey)
 	require.Equal(t, f.b.ID, selected.IntegrationTargetID)
-	require.JSONEq(t, `{"thread_ts":"333.444"}`, string(selected.Args))
+	require.JSONEq(t, `{"channel_id":"C456","thread_ts":"333.444"}`, string(selected.Args))
 	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: mustOmnaraActorParams(t, f.user.ID),
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Dashboard note"}]`), IdempotencyKey: "originless",

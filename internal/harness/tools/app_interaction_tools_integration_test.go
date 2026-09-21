@@ -279,12 +279,15 @@ func TestInteractionToolAlwaysAskUsesOriginalAuthorizationInput(t *testing.T) {
 	require.NoError(t, err)
 	changed := call
 	changed.Input = json.RawMessage(`{"handler":null,"args":{}}`)
+	implementation, found, err := toolImplementationFor(call.Name)
+	require.NoError(t, err)
+	require.True(t, found)
 	_, err = (Executor{Store: f.Store}).dispatchToolHandler(
 		ctx,
 		turn,
 		changed,
 		f.toolCallID(t, ctx, call.ID),
-		interactionImplementationForTest(t, call.Name).handler,
+		implementation.handler,
 	)
 	require.ErrorIs(
 		t,

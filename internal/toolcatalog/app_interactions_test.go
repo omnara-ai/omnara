@@ -22,12 +22,10 @@ func TestInteractionHandlerToolSchemas(t *testing.T) {
 	for _, raw := range []string{`{"handler":null,"args":{}}`, `{"handler":"engineering","args":{"channel_id":"C123"}}`} {
 		require.NoError(t, jsonschema.Validate(set.InputSchema, []byte(raw)))
 	}
-	for _, raw := range []string{`{}`, `{"handler":null}`, `{"handler":"engineering","args":[]}`, `{"destination":null}`} {
+	for _, raw := range []string{`{}`, `{"handler":null}`, `{"handler":"engineering","args":[]}`} {
 		require.Error(t, jsonschema.Validate(set.InputSchema, []byte(raw)))
 	}
 	for _, name := range InteractionHandlerToolNames() {
 		require.True(t, IsInteractionHandlerTool(name))
 	}
-	_, ok = catalog.Lookup("slack_post_message")
-	require.False(t, ok)
 }

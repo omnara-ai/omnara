@@ -198,58 +198,36 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	}
 }
 
-func TestAppMessageEffectiveValidatorBinding(t *testing.T) {
+func TestAppMessageArtifactArguments(t *testing.T) {
 	definition, ok := toolcatalog.LookupAppTool(appdefinition.Slack, toolcatalog.AppOperationPostMessage)
 	require.True(t, ok)
-	validate := func(_ string, input json.RawMessage) error {
-		_, err := definition.ResolveArgs(input, &appdefinition.Scope{
-			Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"},
-		})
-		return err
+	conversation := &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"}}
+	artifactIDs := make([]string, 21)
+	for index := range artifactIDs {
+		id, err := publicid.Encode(publicid.KindArtifact, integrationToolTestID(fmt.Sprintf("artifact-%d", index)))
+		require.NoError(t, err)
+		artifactIDs[index] = id
 	}
-	implementation, ok := appToolImplementation("app__chat__post_message")
-	require.True(t, ok)
-	require.NotNil(t, implementation.handler.Async)
-	artifactID, err := publicid.Encode(
-		publicid.KindArtifact,
-		integrationToolTestID("integration-message-validator"),
-	)
-	require.NoError(t, err)
-	if err := validate(
-		"app__chat__post_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":["`+artifactID+`"]}`),
-	); err != nil {
-		t.Fatalf("valid integration message rejected: %v", err)
+	for _, input := range []string{
+		`{"text":"hello","artifact_ids":["` + artifactIDs[0] + `"]}`,
+		`{"text":"hello","artifact_ids":[]}`,
+	} {
+		_, err := definition.ResolveArgs(json.RawMessage(input), conversation)
+		require.NoError(t, err)
 	}
-	if err := validate(
-		"app__chat__post_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[]}`),
-	); err != nil {
-		t.Fatalf("empty artifact_ids rejected: %v", err)
+	for _, input := range []string{`{"text":"hello","artifact_ids":null}`, `{"text":"hello","artifact_ids":[""]}`} {
+		_, err := definition.ResolveArgs(json.RawMessage(input), conversation)
+		require.Error(t, err)
 	}
-	if err := validate(
-		"app__chat__post_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":null}`),
-	); err == nil {
-		t.Fatal("null artifact_ids accepted")
-	}
-	if err := validate(
-		"app__chat__post_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[""]}`),
-	); err == nil {
-		t.Fatal("empty artifact ID accepted")
-	}
-	tooManyArtifactIDs := make([]string, 21)
-	for index := range tooManyArtifactIDs {
-		tooManyArtifactIDs[index] = artifactID
-	}
-	tooManyInput, err := json.Marshal(map[string]any{
-		"text":         "hello",
-		"artifact_ids": tooManyArtifactIDs,
-	})
-	require.NoError(t, err)
-	if err := validate("app__chat__post_message", tooManyInput); err == nil {
-		t.Fatal("more than 20 artifact IDs accepted")
+	for _, count := range []int{20, 21} {
+		input, err := json.Marshal(map[string]any{"text": "hello", "artifact_ids": artifactIDs[:count]})
+		require.NoError(t, err)
+		_, err = definition.ResolveArgs(input, conversation)
+		if count == 20 {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err, "more than 20 distinct artifact IDs must fail")
+		}
 	}
 }
 

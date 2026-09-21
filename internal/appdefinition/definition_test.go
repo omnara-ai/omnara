@@ -32,8 +32,6 @@ func TestRegistryAndTypedDestinations(t *testing.T) {
 			}
 		})
 	}
-	_, ok := Lookup("external")
-	require.False(t, ok)
 }
 
 func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
@@ -179,12 +177,17 @@ func TestInvalidProviderAddresses(t *testing.T) {
 		_, _, err := scope.Conversation()
 		require.Error(t, err)
 	}
-	for _, config := range []string{`{"channel_id":"bad"}`, `{"channel_id":null}`, `{"thread_ts":"bad"}`} {
+	for _, config := range []string{
+		`{"channel_id":"bad"}`,
+		`{"channel_id":null}`,
+		`{"channel_id":"C123","thread_ts":"bad"}`,
+	} {
 		_, err := ResolveDestination(ProviderSlack, []byte(config))
 		require.Error(t, err)
 	}
 	for _, config := range []string{
-		`{"repository_id":0}`, `{"pull_request":1.1}`, `{"repository_id":9223372036854775808}`,
+		`{"repository_id":0,"pull_request":1}`, `{"repository_id":1,"pull_request":1.1}`,
+		`{"repository_id":9223372036854775808,"pull_request":1}`,
 	} {
 		_, err := ResolveDestination(ProviderGitHub, []byte(config))
 		require.Error(t, err)

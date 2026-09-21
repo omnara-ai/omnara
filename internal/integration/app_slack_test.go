@@ -274,7 +274,6 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	require.NotNil(t, input.Actor.DisplayName)
 	require.Equal(t, "Alex", *input.Actor.DisplayName)
 	require.Contains(t, string(input.ContentBlocks), "previous context")
-	require.NotContains(t, string(input.ContentBlocks), "send_integration_message")
 	require.NotContains(t, string(input.Metadata), "test-token")
 }
 

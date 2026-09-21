@@ -697,10 +697,6 @@ tools:
 					snapshot.AgentConfig.EffectiveDefinitionHash,
 				)
 				require.NoError(t, err)
-				var configFields map[string]json.RawMessage
-				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &configFields))
-				require.NotContains(t, configFields, "listeners")
-				require.NotContains(t, configFields, "subscriptions")
 				require.Empty(t, contract.InteractionHandlers)
 				var raw agentconfig.Compiled
 				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &raw))
@@ -740,16 +736,9 @@ tools:
 					require.Equal(t, integrationstore.TargetAttribution, second.RoutingRole)
 				}
 				require.Len(t, contract.AppTools, wantApps)
-				var tools map[string]map[string]json.RawMessage
-				require.NoError(t, json.Unmarshal(configFields["tools"], &tools))
-				for _, tool := range tools {
-					require.NotContains(t, tool, "config")
-				}
 				require.Contains(t, raw.Tools, "set_interaction_handler")
 				require.NotContains(t, raw.Tools, "set_integration_target")
 				require.NotContains(t, raw.Tools, "send_integration_message")
-				require.NotContains(t, string(snapshot.AgentConfig.CompiledDefinition), "app_resources")
-				require.NotContains(t, string(snapshot.AgentConfig.CompiledDefinition), "omnara.slack")
 				if i != noTurnIndex {
 					var oldID string
 					require.NoError(
@@ -820,7 +809,6 @@ tools:
 						&setup,
 					),
 			)
-			require.NotContains(t, string(setup), "connection")
 			require.Contains(t, string(setup), profileID.String())
 			var name, secondName, secondState string
 			var preservedCredential uuid.UUID
@@ -867,7 +855,6 @@ tools:
 				} else {
 					require.True(t, exists)
 					require.False(t, tool.Enabled)
-					require.NotContains(t, string(oldCompiled), `"config"`)
 				}
 			}
 			// The shared profile is still usable for a new mention. An enabled

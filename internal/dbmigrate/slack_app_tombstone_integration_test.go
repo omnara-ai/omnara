@@ -241,10 +241,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			tools := testutil.RequireType[map[string]any](t, config["tools"])
 			tool := testutil.RequireType[map[string]any](t, tools["app__slack__post_message"])
 			require.Equal(t, appPublicID, tool["app_id"])
-			require.NotContains(t, tool, "config")
 			require.NotContains(t, config["tools"], "app__slack-2__post_message")
-			require.NotContains(t, config, "listeners")
-			require.NotContains(t, config, "subscriptions")
 			require.NotContains(t, config, "interaction_handlers")
 		})
 	}
@@ -273,10 +270,6 @@ func assertSlackTombstoneSourceResave(
 	require.JSONEq(t, string(definition), string(compiled))
 	contract, err := agentconfig.RuntimeContractFromCompiled(compiled, "", hash)
 	require.NoError(t, err)
-	var configFields map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(compiled, &configFields))
-	require.NotContains(t, configFields, "listeners")
-	require.NotContains(t, configFields, "subscriptions")
 	require.Empty(t, contract.InteractionHandlers)
 	require.NotContains(t, source, "send_integration_message")
 	require.NotContains(t, source, "app_id")

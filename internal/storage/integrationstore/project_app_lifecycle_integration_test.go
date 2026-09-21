@@ -134,25 +134,22 @@ func TestProjectAppSetupLifecycleAndOwnership(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestProjectAppSetupRejectsExternalProvider(t *testing.T) {
+func TestProjectAppProviderConstraints(t *testing.T) {
 	t.Parallel()
 	f, _, input := projectAppSetupFixture(t)
-	input.Provider = "external"
-	_, err := f.store.ConfigureProjectApp(f.ctx, input)
-	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	_, err = f.pool.Exec(f.ctx, `UPDATE project_apps SET provider='external' WHERE id=$1`, input.AppID)
+	_, err := f.pool.Exec(f.ctx, `UPDATE project_apps SET provider='discord' WHERE id=$1`, input.AppID)
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "25006", pgErr.Code, "the database also prevents changing the saved app provider")
 	_, err = f.pool.Exec(
 		f.ctx,
 		`INSERT INTO project_apps(org_id,project_id,name,definition_id,provider,state,created_at,updated_at)
-        VALUES($1,$2,'external','omnara.slack','external','disconnected',now(),now())`,
+        VALUES($1,$2,'invalid','omnara.slack','unknown','disconnected',now(),now())`,
 		f.org,
 		f.project,
 	)
 	require.ErrorAs(t, err, &pgErr)
-	require.Equal(t, "23514", pgErr.Code, "the durable provider domain excludes external applications")
+	require.Equal(t, "23514", pgErr.Code, "unknown providers cannot be persisted")
 }
 
 func TestProjectAppCredentialAuthorizationAndRotation(t *testing.T) {

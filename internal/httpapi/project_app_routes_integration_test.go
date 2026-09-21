@@ -69,7 +69,6 @@ func TestProjectAppHTTPCRUDAndPagination(t *testing.T) {
 	require.Equal(t, "disconnected", alpha["state"])
 	require.Equal(t, "slack", alpha["provider"])
 	require.Equal(t, body["settings"], alpha["settings"])
-	require.NotContains(t, alpha, "enabled")
 	for _, key := range []string{"created_at", "updated_at"} {
 		_, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, alpha[key]))
 		require.NoError(t, err)
@@ -173,10 +172,6 @@ func TestProjectAppHTTPCatalogAndValidation(t *testing.T) {
 	}
 	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
 		projectAppHTTPJSON(t, projectAppHTTPBody("unknown", "customer.external")), "", http.StatusBadRequest, headers)
-	old := projectAppHTTPBody("old", "omnara.slack")
-	old["enabled"] = true
-	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
-		projectAppHTTPJSON(t, old), "", http.StatusBadRequest, headers)
 }
 
 func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {

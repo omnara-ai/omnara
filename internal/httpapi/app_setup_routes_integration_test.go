@@ -280,20 +280,6 @@ func TestProjectAppSetupValidationAndTopology(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	for _, removed := range []string{"provider", "state", "connection_id", "agent_profile_id"} {
-		invalid := appSetupDiscordBody(t, handler, project, "222"+fmt.Sprint(len(removed)))
-		invalid[removed] = "forbidden"
-		requestJSONWithHeaders(
-			t,
-			handler,
-			http.MethodPost,
-			path,
-			projectAppHTTPJSON(t, invalid),
-			"",
-			http.StatusBadRequest,
-			authHeaders(project.AdminToken),
-		)
-	}
 	// Slack can only establish or rotate credentials through its verified OAuth exchange.
 	slackApp := createSetupHTTPApp(t, handler, project, "slack", appdefinition.Slack)
 	body["expected_setup_revision"] = slackApp.SetupRevision

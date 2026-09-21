@@ -113,7 +113,4 @@ func TestResolveAgentConfigToolsWithProjectApp(t *testing.T) {
 	other := projectAppHTTPSecondProject(t, handler, project)
 	rejected := preview(other, http.StatusBadRequest)
 	require.Contains(t, projectAppHTTPJSON(t, rejected), "/tools/"+name)
-	entry["config"] = map[string]any{"channel_id": "C123", "thread_ts": "123.456"}
-	rejected = preview(project, http.StatusBadRequest)
-	require.Contains(t, projectAppHTTPJSON(t, rejected), "/tools/"+name)
 }

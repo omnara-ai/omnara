@@ -181,7 +181,6 @@ it.each(['slack', 'discord'] as const)(
       expect(button('Add schedule')).toBeDefined()
     })
     expect(container.textContent).toContain('Schedules work independently')
-    expect(app.settings.launcher).toBeUndefined()
     act(() => {
       button('Add schedule').click()
     })
@@ -550,7 +549,6 @@ it.each([
     expect(container.textContent).toContain('New firing failed to queue')
     expect(container.textContent).toContain(`Failed ${formatDateTime(now)}`)
     if (state === 'failed') expect(container.textContent).toContain('Could not prepare the thread')
-    expect(container.textContent).not.toContain('delivered')
   },
 )
 

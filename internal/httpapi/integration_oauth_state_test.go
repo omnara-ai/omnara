@@ -54,7 +54,7 @@ func TestIntegrationOAuthStateScopeAndBounds(t *testing.T) {
 		wrapper,
 		integrationOAuthStatePurpose,
 		[]byte(
-			`{"connection_only":true,"agent_profile_id":"00000000-0000-0000-0000-000000000000"}`,
+			`{"agent_profile_id":"00000000-0000-0000-0000-000000000000"}`,
 		),
 	)
 	require.NoError(t, err)

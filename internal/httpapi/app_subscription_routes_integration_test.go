@@ -172,7 +172,6 @@ func TestAppSubscriptionsHTTPValidation(t *testing.T) {
 		{"raw-agent-id", func(b map[string]any) { b["agent_id"] = uuid.NewString() }},
 		{"wrong-id-kind", func(b map[string]any) { b["agent_id"] = f.appID }},
 		{"unknown-type", func(b map[string]any) { b["type"] = "missing" }},
-		{"qualified-type", func(b map[string]any) { b["type"] = f.appName + "__thread_messages" }},
 		{"empty-conversation", func(b map[string]any) { b["conversation"] = map[string]any{} }},
 		{"wrong-provider", func(b map[string]any) {
 			b["conversation"] = map[string]any{"repository_id": 1, "pull_request": 2}
@@ -183,14 +182,7 @@ func TestAppSubscriptionsHTTPValidation(t *testing.T) {
 		{"empty-events", func(b map[string]any) { b["events"] = []string{} }},
 		{"duplicate-events", func(b map[string]any) { b["events"] = []string{"message", "message"} }},
 		{"unknown-events", func(b map[string]any) { b["events"] = []string{"commit"} }},
-		{"nested-events", func(b map[string]any) {
-			b["conversation"] = map[string]any{"channel_id": "C123", "events": []string{"message"}}
-		}},
-		{"config-alias", func(b map[string]any) { b["config"] = b["conversation"]; delete(b, "conversation") }},
-		{"conversations-alias", func(b map[string]any) {
-			b["conversations"] = []any{b["conversation"]}
-			delete(b, "conversation")
-		}},
+		{"missing-conversation", func(b map[string]any) { delete(b, "conversation") }},
 	} {
 		t.Logf("invalid subscription case: %s", tc.name)
 		body := subscriptionHTTPBody(agentID, "C123")

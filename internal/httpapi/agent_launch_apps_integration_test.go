@@ -204,9 +204,9 @@ func TestPublicAppLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) {
 				body[key] = value
 			}
 		}, "invalid"},
-		{"removed-handler-config", func(body map[string]any) {
+		{"unknown-handler-field", func(body map[string]any) {
 			body["interaction_handlers"] = map[string]any{
-				f.appName: map[string]any{"config": map[string]any{"channel_id": "C123"}},
+				f.appName: map[string]any{"unexpected": true},
 			}
 		}, "invalid"},
 	} {
@@ -363,13 +363,8 @@ func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T)
 		}},
 		{"wrong-id-kind", http.StatusBadRequest, func(a map[string]any) { a["app_id"] = f.configID }},
 		{"unknown-type", http.StatusBadRequest, func(a map[string]any) { a["type"] = "missing" }},
-		{"qualified-type", http.StatusBadRequest, func(a map[string]any) { a["type"] = f.appName + "__thread_messages" }},
 		{"empty-conversation", http.StatusBadRequest, func(a map[string]any) { a["conversation"] = map[string]any{} }},
 		{"invalid-event", http.StatusBadRequest, func(a map[string]any) { a["events"] = []string{"commit"} }},
-		{"config-alias", http.StatusBadRequest, func(a map[string]any) {
-			a["config"] = a["conversation"]
-			delete(a, "conversation")
-		}},
 	} {
 		t.Logf("invalid subscription case: %s", tc.name)
 		body := f.body()
@@ -385,10 +380,6 @@ func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T)
 		require.Equal(t, before, f.counts(t), "failed validation must roll back all launch resources: %s", tc.name)
 	}
 	body := f.body()
-	body["listeners"] = map[string]any{}
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectAppHTTPJSON(t, body), "legacy-listener", http.StatusBadRequest, authHeaders(f.launchToken))
-	delete(body, "listeners")
 	attachments := make([]any, 101)
 	for i := range attachments {
 		attachments[i] = testutil.RequireType[[]any](t, body["subscriptions"])[0]

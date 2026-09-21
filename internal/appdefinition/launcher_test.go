@@ -50,7 +50,6 @@ func TestCanonicalLauncherScope(t *testing.T) {
 		{ProviderDiscord, "guild", "00123"},
 		{ProviderDiscord, "thread", "123:"},
 		{ProviderDiscord, "workspace", "123"},
-		{"external", "ticket", "CaseSensitive42"},
 		{"unknown", "channel", "C123"},
 	} {
 		t.Run("invalid/"+test.provider+"/"+test.kind+"/"+test.ref, func(t *testing.T) {

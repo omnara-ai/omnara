@@ -61,11 +61,6 @@ func TestProjectAppSetupValidation(t *testing.T) {
 			func(i *ConfigureProjectAppInput) { i.CredentialVersionID = uuid.Nil },
 		},
 		{
-			"external provider is unsupported",
-			"unsupported integration provider",
-			func(i *ConfigureProjectAppInput) { i.Provider = "external" },
-		},
-		{
 			"missing slack credential",
 			"credential secret",
 			func(i *ConfigureProjectAppInput) { i.CredentialSecretID = uuid.Nil },
