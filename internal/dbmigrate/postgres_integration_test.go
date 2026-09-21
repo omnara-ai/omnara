@@ -25,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 )
 
