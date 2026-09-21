@@ -91,6 +91,7 @@ function ProjectAppSettings({
   const [connecting, setConnecting] = useState(false)
   const navigate = useNavigate()
   const provider = appProvider(app.definition_id)
+  const viewing = !editing && !connecting
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <ProjectAppHeader
@@ -98,7 +99,7 @@ function ProjectAppSettings({
         projectId={projectId}
         app={app}
         canManage={canManage}
-        viewing={!editing && !connecting}
+        viewing={viewing}
         onConnect={() => {
           setConnecting(true)
         }}
@@ -165,7 +166,7 @@ function ProjectAppSettings({
       ) : (
         !connecting && <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />
       )}
-      {!editing && !connecting && (
+      {viewing && (
         <ProjectAppConversations
           orgId={orgId}
           projectId={projectId}
@@ -173,7 +174,7 @@ function ProjectAppSettings({
           canManage={canManage}
         />
       )}
-      {!editing && !connecting && (provider === 'slack' || provider === 'discord') && (
+      {viewing && (provider === 'slack' || provider === 'discord') && (
         <ProjectAppSchedules orgId={orgId} projectId={projectId} app={app} canManage={canManage} />
       )}
       <SlackOAuthOutcomeDialog />
