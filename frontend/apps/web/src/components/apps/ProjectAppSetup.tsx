@@ -228,18 +228,16 @@ export function ProjectAppSetup({
             {error}
           </p>
         )}
-        <fieldset disabled={busy} className="flex items-center justify-between gap-4">
+        <fieldset disabled={busy} className="flex flex-wrap items-start justify-end gap-2">
           {footerAction}
-          <div className="ml-auto flex shrink-0 gap-2">
-            {onCancel && (
-              <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-                Cancel
-              </Button>
-            )}
-            <Button type="submit" loading={busy} disabled={busy}>
-              {!existing ? 'Create and connect' : reconnect ? 'Reconnect app' : 'Connect app'}
+          {onCancel && (
+            <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+              Cancel
             </Button>
-          </div>
+          )}
+          <Button type="submit" loading={busy} disabled={busy}>
+            {!existing ? 'Create and connect' : reconnect ? 'Reconnect app' : 'Connect app'}
+          </Button>
         </fieldset>
       </FieldGroup>
     </form>

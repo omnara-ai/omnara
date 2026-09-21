@@ -357,28 +357,22 @@ export function ConnectSlackForm({
               {([valid, isSubmitting]) => (
                 <fieldset
                   disabled={isSubmitting}
-                  className="flex items-center justify-between gap-4"
+                  className="flex flex-wrap items-start justify-end gap-2"
                 >
                   {footerAction}
-                  <div className="ml-auto flex shrink-0 gap-2">
-                    {onCancel && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={isSubmitting}
-                        onClick={onCancel}
-                      >
-                        Cancel
-                      </Button>
-                    )}
-                    <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
-                      {!existing
-                        ? 'Create and connect'
-                        : reconnect
-                          ? 'Reconnect app'
-                          : 'Connect app'}
+                  {onCancel && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isSubmitting}
+                      onClick={onCancel}
+                    >
+                      Cancel
                     </Button>
-                  </div>
+                  )}
+                  <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
+                    {!existing ? 'Create and connect' : reconnect ? 'Reconnect app' : 'Connect app'}
+                  </Button>
                 </fieldset>
               )}
             </form.Subscribe>
@@ -438,18 +432,16 @@ function SlackAuthorizationPending({
       <p className="text-muted-foreground">
         Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
       </p>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-end gap-2">
         {footerAction}
-        <div className="ml-auto flex shrink-0 gap-2">
-          {onCancel && (
-            <Button variant="outline" onClick={onCancel}>
-              Cancel
-            </Button>
-          )}
-          <Button variant="outline" onClick={onRestart}>
-            Start again
+        {onCancel && (
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
           </Button>
-        </div>
+        )}
+        <Button variant="outline" onClick={onRestart}>
+          Start again
+        </Button>
       </div>
     </div>
   )
