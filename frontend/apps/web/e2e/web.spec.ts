@@ -488,11 +488,16 @@ test('deletes a profile from its detail page', async ({ page }) => {
   await createProfile(page, profileName, 'Delete this profile from its detail page.')
 
   page.once('dialog', (dialog) => void dialog.accept())
+  const agentsListed = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname.endsWith(`/projects/${projectID}/agents`) && response.ok(),
+  )
   await page.getByRole('button', { name: 'Delete profile' }).click()
 
   await expect(page).toHaveURL(`/projects/${projectID}/agents`)
   await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()
   await expect(page.getByText(profileName)).toHaveCount(0)
+  await agentsListed
 
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible()

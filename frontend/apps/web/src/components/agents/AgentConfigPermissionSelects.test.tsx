@@ -345,7 +345,7 @@ it.each(['run_command', 'skill', 'send_integration_message'])(
       <AgentConfigToolsField tools={[{ name, permission: null }]} onToolsChange={onToolsChange} />,
     )
     expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
-    expect(container.querySelector('[data-slot="select-trigger"]')).toBeNull()
+    expect(container.querySelector('[role="radiogroup"]')).toBeNull()
     await renderAndFlush(
       <AgentConfigToolsField
         catalog={includedCatalog}
@@ -356,9 +356,7 @@ it.each(['run_command', 'skill', 'send_integration_message'])(
     click('[data-slot="collapsible-trigger"]')
     expect(container.textContent).toContain(name)
     expect(container.textContent).toContain('Always allow')
-    expect(container.querySelector('[data-slot="select-trigger"]')?.hasAttribute('disabled')).toBe(
-      false,
-    )
+    expect(container.querySelector('[role="radio"]')?.hasAttribute('disabled')).toBe(false)
     expect(onToolsChange).not.toHaveBeenCalled()
   },
 )
@@ -393,18 +391,13 @@ function IncludedToolsHarness({ source = defaultIncludedSource }: { source?: str
 }
 
 async function selectIncludedPermission(name: string, label: string) {
-  await act(async () => {
-    container
-      .querySelector(`[aria-label="${name} permission"]`)
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (item) => item.textContent === label,
+  const option = container.querySelector<HTMLButtonElement>(
+    `[aria-label="${name} permission"] [role="radio"][aria-label="${label}"]`,
   )
   if (!option) throw new Error(`Missing ${label} option`)
-  act(() => {
+  await act(async () => {
     option.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
@@ -587,7 +580,7 @@ it.each(['cluster', 'tenant', 'error'])(
           ? jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500)
           : Response.json({
               data: laterPage === 'cluster' ? [later] : [],
-              next_cursor: laterPage === 'cluster' ? 'unused' : null,
+              next_cursor: null,
             }),
       )
       await nextPage
@@ -619,7 +612,7 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
   )
   expect(container.querySelectorAll('[data-slot="collapsible-trigger"]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="collapsible-trigger"]')?.textContent).toBe(
-    'Other tools',
+    'Built-in tools',
   )
   expect(container.textContent).toContain('web_search')
   for (const name of ['run_command', 'skill', 'send_integration_message']) {

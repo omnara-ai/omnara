@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
+export const terminalHint = 'Copy and run in your terminal'
+export const nodeHint = 'Copy and run in Node'
+
 export type CodeSegment = { text: string } | { json: string }
 
 export interface CodeContent {
@@ -20,6 +23,7 @@ export interface CodeTab {
   content: CodeContent
   emphasis?: boolean
   footer?: boolean
+  hint?: string
 }
 
 function prettyJson(json: string) {
@@ -239,9 +243,9 @@ export function CodeTabsBlock({
             ))}
           </TabsList>
           <div className="flex items-center gap-1.5 self-end sm:self-auto">
-            {active?.value === 'cli' && (
+            {active?.hint && (
               <span className="text-primary hidden items-center gap-1 text-[12px] sm:flex dark:text-[color-mix(in_oklab,var(--primary)_60%,white)]">
-                Copy and run in your terminal
+                {active.hint}
                 <ArrowRight className="size-3.5" aria-hidden="true" />
               </span>
             )}

@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { ArrowUpRight, PlayIcon } from '@/components/icons'
-import { CodeTabsBlock } from '@/components/overview/CodeBlock'
+import { CodeTabsBlock, nodeHint, terminalHint } from '@/components/overview/CodeBlock'
 import { chatCommands } from '@/components/overview/onboardingCli'
 import { type ChatRun, useCreateChat } from '@/components/overview/useCreateChat'
 import { Button } from '@/components/ui/button'
@@ -99,9 +99,9 @@ export function ChatOptions({
     <CodeTabsBlock
       label="How to start a chat"
       tabs={[
-        { value: 'cli', label: 'CLI', content: commands.cli },
-        { value: 'sdk', label: 'TypeScript SDK', content: commands.sdk },
-        { value: 'curl', label: 'cURL', content: commands.curl },
+        { value: 'cli', label: 'CLI', content: commands.cli, hint: terminalHint },
+        { value: 'sdk', label: 'TypeScript SDK', content: commands.sdk, hint: nodeHint },
+        { value: 'curl', label: 'cURL', content: commands.curl, hint: terminalHint },
       ]}
       footer={run && <RunFooter pending={run.pending} error={run.error} onRun={run.onRun} />}
     />

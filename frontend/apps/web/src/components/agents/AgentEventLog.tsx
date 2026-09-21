@@ -5,7 +5,7 @@ import { Suspense } from 'react'
 
 import { DataTable, type DataTableColumn } from '@/components/data-table/DataTable'
 import { ArrowUpRight } from '@/components/icons'
-import { CodeTabsBlock, CopyButton } from '@/components/overview/CodeBlock'
+import { CodeTabsBlock, CopyButton, nodeHint, terminalHint } from '@/components/overview/CodeBlock'
 import { Highlighted } from '@/components/overview/highlight'
 import { inputCommands } from '@/components/overview/onboardingCli'
 import { Button } from '@/components/ui/button'
@@ -112,19 +112,19 @@ function SendInputGuide({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <p className="text-muted-foreground text-center text-[15px] font-medium">
-        Send a message to interact with your agent
+        Interact with your agent programmatically
       </p>
       <CodeTabsBlock
         label="How to send input to this agent"
         tabs={[
-          { value: 'cli', label: 'CLI', content: commands.cli },
-          { value: 'sdk', label: 'TypeScript SDK', content: commands.sdk },
-          { value: 'curl', label: 'cURL', content: commands.curl },
+          { value: 'sdk', label: 'TypeScript SDK', content: commands.sdk, hint: nodeHint },
+          { value: 'curl', label: 'cURL', content: commands.curl, hint: terminalHint },
+          { value: 'cli', label: 'CLI', content: commands.cli, hint: terminalHint },
         ]}
       />
       <div className="flex items-center justify-between gap-4">
-        <p className="text-muted-foreground flex items-center gap-2 text-sm">
-          or send a message via the
+        <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
+          Build your own application or send a message via the
           <Button asChild variant="outline" size="sm">
             <Link to="/projects/$projectId/agents/$agentId/chat" params={{ projectId, agentId }}>
               Chat
