@@ -167,34 +167,6 @@ func TestProjectAppHTTPCatalogAndValidation(t *testing.T) {
 		"", "", http.StatusOK, headers)
 	definitions := testutil.RequireType[[]any](t, catalog["data"])
 	require.Len(t, definitions, 3)
-	toolCount := 0
-	for _, item := range definitions {
-		definition := testutil.RequireType[map[string]any](t, item)
-		capabilities := testutil.RequireType[map[string]any](t, definition["capabilities"])
-		tools := testutil.RequireType[map[string]any](t, capabilities["tools"])
-		toolCount += len(tools)
-		for _, entry := range tools {
-			tool := testutil.RequireType[map[string]any](t, entry)
-			require.NotEmpty(t, tool["description"])
-			require.NotEmpty(t, tool["config_schema"])
-			require.NotEmpty(t, tool["input_schema"])
-		}
-		require.NotContains(t, capabilities, "listeners")
-		subscriptions := testutil.RequireType[map[string]any](t, capabilities["subscriptions"])
-		require.NotEmpty(t, subscriptions)
-		for _, value := range subscriptions {
-			subscription := testutil.RequireType[map[string]any](t, value)
-			require.NotEmpty(t, subscription["conversation_schema"])
-			require.NotEmpty(t, subscription["events"])
-			require.NotContains(t, subscription, "config_schema")
-		}
-		if definition["provider"] == "github" {
-			require.Nil(t, capabilities["interaction_handler"])
-		} else {
-			require.NotEmpty(t, capabilities["interaction_handler"])
-		}
-	}
-	require.Equal(t, 8, toolCount)
 	for _, name := range []string{"", "space name", "a__b", "1bot", "abcdefghijklmnopqrstuvwxyz1234567"} {
 		requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
 			projectAppHTTPJSON(t, projectAppHTTPBody(name, "omnara.slack")), "", http.StatusBadRequest, headers)
@@ -215,8 +187,8 @@ func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
 	app := createSlackHTTPApp(t, ctx, project, "A123", "T123", "Support")
 	name := "app__" + app.Name + "__read"
 	source := projectAppHTTPJSON(t, projectAppHTTPSource(map[string]any{
-		"tools":                map[string]any{name: map[string]any{"config": map[string]any{"channel_id": "C123"}}},
-		"interaction_handlers": map[string]any{app.Name: map[string]any{"config": map[string]any{}}},
+		"tools":                map[string]any{name: map[string]any{}},
+		"interaction_handlers": map[string]any{app.Name: map[string]any{}},
 	}))
 	config := createPublicHTTPAgentConfig(t, handler, project, "pinned", "json", source,
 		project.AdminToken, http.StatusCreated)

@@ -1384,7 +1384,7 @@ export type CreateAgentRequest = {
      */
     subscriptions?: Array<AppSubscriptionAttachment>;
     /**
-     * Additional app interaction handlers, keyed by immutable app name. Existing entries win unchanged. Requires project management permission.
+     * Additional app interaction handlers, keyed by immutable app name with empty object values. Handler destination arguments are supplied at runtime. Existing entries win unchanged. Requires project management permission.
      */
     interaction_handlers?: {
         [key: string]: ConfigAppCapabilitySource;
@@ -2199,9 +2199,9 @@ export type AgentInteractionDestination = {
     handler_definition: string;
     handler_key: string;
     app_id: ProjectAppId;
-    config: {
-        [key: string]: unknown;
-    };
+    /**
+     * Complete provider destination arguments captured at selection, independent of app-agent sending context.
+     */
     args: {
         [key: string]: unknown;
     };
@@ -3461,9 +3461,7 @@ export type ConfigAgentToolInputSchema = {
 };
 
 export type ConfigAppCapabilitySource = {
-    config?: {
-        [key: string]: unknown;
-    };
+    [key: string]: never;
 };
 
 export type ConfigToolPermissionSelection = {
@@ -3474,9 +3472,6 @@ export type ConfigToolPermissionSelection = {
 };
 
 export type ConfigToolSource = {
-    config?: {
-        [key: string]: unknown;
-    };
     deferred?: boolean;
     description?: string;
     enabled?: boolean | null;
@@ -3509,13 +3504,10 @@ export type ConfigureProjectAppRequest = {
 
 export type AppCapabilityDefinition = {
     description?: string;
-    config_schema: {
-        [key: string]: unknown;
-    };
     /**
-     * Argument schema with empty fixed config. Configured tools and handlers expose their effective schema at runtime.
+     * Static argument schema for this operation or interaction handler. Tools accept optional destination fields; execution requires a complete destination when no app-agent context exists, and rejects fields that differ from that context. Handler selection always requires a complete destination, independently of sending context.
      */
-    input_schema?: {
+    input_schema: {
         [key: string]: unknown;
     };
 };

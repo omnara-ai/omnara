@@ -23,7 +23,7 @@ func (p *DiscordAppInboxProvider) PublishScheduledRoot(
 	if err != nil {
 		return appdefinition.Scope{}, err
 	}
-	destination, err := appdefinition.ResolveDestination(app.Provider, launch.Destination, nil)
+	destination, err := appdefinition.ResolveDestination(app.Provider, launch.Destination)
 	if err != nil {
 		return appdefinition.Scope{}, err
 	}

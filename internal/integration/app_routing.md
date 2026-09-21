@@ -33,17 +33,19 @@ app ID. Same-bot apps in one or different projects can independently launch and
 receive in the same physical conversation.
 
 Agent config has independent `tools` and `interaction_handlers` maps.
-Compilation pins public project-app IDs and immutable per-entry config. Qualified
+Compilation pins public project-app IDs. Qualified
 tools use `app__<name>__<operation>`; handler keys use the app name. Whole authored
 entries win during hosted derivation, including enabled state, permissions,
-deferred loading and config. Derivation only adds missing entries.
+and deferred loading. Derivation only adds missing entries.
 
-Tool/handler config fixes hidden arguments. Unspecified destination fields remain
-runtime arguments subject to provider validation and credentials. There is no
-shared resource object or generic scope-containment ACL. Tools confer no receive
-authority, and attribution/selection targets confer neither tool nor subscription
-authority. Incoming model context carries the immutable app name and actual
-provider address IDs so flexible tools can reply without guessing.
+Tool schemas are static. An initial hosted target supplies immutable sending
+context for its agent/app. Calls may omit the address; supplied fields must stay
+inside that context. Channel contexts permit child threads; thread contexts do
+not permit switching threads. Without context, tools require explicit addresses.
+Credentials and provider validation remain the access boundary. Handlers take
+complete destination arguments independently of sending context. Tools confer no
+receive authority, and ordinary attribution never becomes a sending context.
+Incoming model context carries the app name and actual provider address IDs.
 
 An app-owned subscription connects one agent, a local definition type such as
 `thread_messages` or `pull_request`, one concrete conversation and resolved events.
@@ -117,7 +119,7 @@ Changes return `ErrAppRoutingChanged`; reserved membership returns
 `ErrAppSelectionReserved` with the owner receipt. Retained selections prevent
 replacement launches after their agent/subscription retires.
 
-Each profile slot freezes a UUIDv7 agent, selection provenance, base config ID/hash,
+Each profile slot freezes a UUIDv7 agent, selection provenance, base config ID,
 complete `Launch.DerivedConfig`, and concrete `Launch.Subscriptions`. Source text is
 absent because it would describe the unmodified profile. Retries do not compile
 source, resolve current profile names, or substitute edited launcher slots. They
@@ -127,8 +129,9 @@ does not rewrite frozen membership; live project/app/credential, profile and
 ordinary launch limits still govern unfinished work. Disconnect revokes new
 provider work while keeping the frozen plan available for recovery after reconnect.
 
-Hosted launchers supply tools and an optional handler with fixed launch-address
-config. Each launch separately freezes one attachment containing the app ID,
+Hosted launchers supply tools and an optional handler. Admission designates the
+selected target as immutable sending context. Each launch separately freezes one
+attachment containing the app ID,
 local subscription type, concrete conversation and resolved default events from
 the app definition. Atomic admission writes this subscription before the initial
 input and first step. It has no tool-call ID. Later messages and media in the same
@@ -221,7 +224,7 @@ permission scheduling uses the same claim. `presentation_attempted_at` is record
 before I/O and never resets. A crash after claiming can lose a notification, and
 uncertain sends are not automatically repeated; the dashboard/API remains usable.
 Confirmed receipts are persisted separately, including late success after
-cancellation. Dismissal uses the captured app, handler config/arguments and provider
+cancellation. Dismissal uses the captured app, handler arguments and provider
 receipt. A signed answer checks that exact owner and current setup revision and
 commits core resolution before acknowledging. Sibling app credentials cannot
 authorize it. Human steering cancels open interactions independently of delivery

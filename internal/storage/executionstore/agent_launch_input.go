@@ -129,6 +129,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		}
 		if admission != nil {
 			targetInput.Role = integrationstore.TargetSelected
+			targetInput.IsToolContext = true
 			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
 		}
 		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)

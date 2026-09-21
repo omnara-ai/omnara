@@ -7,37 +7,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandlerAuthorityPinsCurrentAppAndConfig(t *testing.T) {
+func TestHandlerAuthorityPinsCurrentApp(t *testing.T) {
 	opts, apps := appTestOptions(t)
-	for _, fixed := range []bool{false, true} {
-		config := "{}"
-		if fixed {
-			config = "{config: {channel_id: C123, thread_ts: '1.2'}}"
-		}
-		compiled := compileAppTest(t, "interaction_handlers: {engineering-team: "+config+"}", opts).Compiled
-		contract := runtimeAppTest(t, compiled)
-		appID := compiled.InteractionHandlers["engineering-team"].AppID
-		authority, err := ResolveInteractionHandlerAuthority(contract, contract, "engineering-team", apps)
-		require.NoError(t, err)
-		require.Equal(t, appID, authority.AppID)
-		_, err = ResolveInteractionHandlerAuthority(contract, RuntimeContract{}, "engineering-team", apps)
-		require.Error(t, err)
-		_, err = ResolveInteractionHandlerAuthority(contract, contract, "engineering-team", nil)
-		require.Error(t, err)
-		changed := RuntimeContract{
-			InteractionHandlers: map[string]AppCapabilityCompiled{
-				"engineering-team": {AppID: "recreated", Config: []byte(`{}`)},
-			},
-		}
-		_, err = ResolveInteractionHandlerAuthority(contract, changed, "engineering-team", apps)
-		require.Error(t, err)
-		changed.InteractionHandlers["engineering-team"] = AppCapabilityCompiled{
-			AppID:  appID,
-			Config: []byte(`{"channel_id":"C456"}`),
-		}
-		_, err = ResolveInteractionHandlerAuthority(contract, changed, "engineering-team", apps)
-		require.Error(t, err)
+	compiled := compileAppTest(t, "interaction_handlers: {engineering-team: {}}", opts).Compiled
+	contract := runtimeAppTest(t, compiled)
+	appID := compiled.InteractionHandlers["engineering-team"].AppID
+	authority, err := ResolveInteractionHandlerAuthority(contract, contract, "engineering-team", apps)
+	require.NoError(t, err)
+	require.Equal(t, appID, authority.AppID)
+	_, err = ResolveInteractionHandlerAuthority(contract, RuntimeContract{}, "engineering-team", apps)
+	require.Error(t, err)
+	_, err = ResolveInteractionHandlerAuthority(contract, contract, "engineering-team", nil)
+	require.Error(t, err)
+	changed := RuntimeContract{
+		InteractionHandlers: map[string]AppCapabilityCompiled{
+			"engineering-team": {AppID: "recreated"},
+		},
 	}
+	_, err = ResolveInteractionHandlerAuthority(contract, changed, "engineering-team", apps)
+	require.Error(t, err)
 }
 
 func TestHandlerPaginationKeepsCurrentSelectionOutsidePage(t *testing.T) {

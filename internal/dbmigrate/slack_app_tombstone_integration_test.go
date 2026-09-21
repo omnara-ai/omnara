@@ -166,6 +166,15 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted app history grants receive routes at cutover")
+			var isContext bool
+			var role string
+			var slot sql.NullString
+			require.NoError(t, db.QueryRowContext(ctx,
+				`SELECT is_tool_context,routing_role,selection_slot FROM integration_targets WHERE id=$1`, targetID).
+				Scan(&isContext, &role, &slot))
+			require.Equal(t, !scenario.onlyDeleted, isContext, "only targets formerly producing successors become tool contexts")
+			require.Equal(t, "attribution", role)
+			require.False(t, slot.Valid)
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(
 					t,
@@ -232,7 +241,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			tools := testutil.RequireType[map[string]any](t, config["tools"])
 			tool := testutil.RequireType[map[string]any](t, tools["app__slack__post_message"])
 			require.Equal(t, appPublicID, tool["app_id"])
-			require.Equal(t, map[string]any{"channel_id": "C123", "thread_ts": "111.222"}, tool["config"])
+			require.NotContains(t, tool, "config")
 			require.NotContains(t, config["tools"], "app__slack-2__post_message")
 			require.NotContains(t, config, "listeners")
 			require.NotContains(t, config, "subscriptions")

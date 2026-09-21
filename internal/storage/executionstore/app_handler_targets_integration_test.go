@@ -52,17 +52,14 @@ func (f appInteractionFixture) selectionCall(t *testing.T) executionstore.Execut
 func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
 	t.Parallel()
 	f := newAppInteractionFixture(t)
-	handler := f.handlers["chat"]
-	handler.Config = json.RawMessage(`{"channel_id":"C777","thread_ts":"111.222"}`)
-	f.handlers["chat"] = handler
 	config, err := f.store.Execution().
-		CreateAgentConfig(f.ctx, f.definition(t, "fixed handler without catalog", f.handlers))
+		CreateAgentConfig(f.ctx, f.definition(t, "handler without catalog", f.handlers))
 	require.NoError(t, err)
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		AgentConfigID:  config.ID,
 		LaunchedBy:     userPrincipal(f.user.ID),
-		IdempotencyKey: "fixed-handler",
+		IdempotencyKey: "handler",
 	})
 	require.NoError(t, err)
 	var count int
@@ -90,7 +87,8 @@ func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
 	}
 	for range 2 {
 		_, err = f.store.Execution().
-			ExecuteToolCall(f.ctx, f.selectionCall(t), handlerSelectionPlan("chat", `{}`))
+			ExecuteToolCall(f.ctx, f.selectionCall(t),
+				handlerSelectionPlan("chat", `{"channel_id":"C777","thread_ts":"111.222"}`))
 		require.NoError(t, err)
 	}
 	require.NoError(
@@ -109,14 +107,14 @@ func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
 		next.Selection.Handler,
 		"current selection is independent of pagination",
 	)
-	require.JSONEq(t, `{}`, string(next.Selection.Args))
+	require.JSONEq(t, `{"channel_id":"C777","thread_ts":"111.222"}`, string(next.Selection.Args))
 	require.Equal(t, "111.222", next.Selection.Destination.Slack.ThreadTS)
 	f.disable(t)
 	replay, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		AgentConfigID:  config.ID,
 		LaunchedBy:     userPrincipal(f.user.ID),
-		IdempotencyKey: "fixed-handler",
+		IdempotencyKey: "handler",
 	})
 	require.NoError(t, err)
 	require.False(t, replay.Created)
@@ -153,7 +151,7 @@ func TestAppHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {
 		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:555.666"}))
 	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 		return f.store.Execution().
-			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"thread_ts":"555.666"}`))
+			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"555.666"}`))
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAppConversation", 1)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
@@ -171,7 +169,7 @@ func TestAppHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {
 
 func TestAppHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {
 	t.Parallel()
-	for _, change := range []string{"removed", "config", "same-address-different-config", "replacement-app", "unrelated"} {
+	for _, change := range []string{"removed", "replacement-app", "unrelated"} {
 		t.Run(change, func(t *testing.T) {
 			t.Parallel()
 			f := newAppInteractionFixture(t)
@@ -183,14 +181,6 @@ func TestAppHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {
 			switch change {
 			case "removed":
 				delete(next, "chat")
-			case "config":
-				handler := next["chat"]
-				handler.Config = json.RawMessage(`{"channel_id":"C999"}`)
-				next["chat"] = handler
-			case "same-address-different-config":
-				handler := next["chat"]
-				handler.Config = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
-				next["chat"] = handler
 			case "replacement-app":
 				replacement := f.createApp(t, "replacement")
 				handler := next["chat"]
@@ -206,7 +196,7 @@ func TestAppHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {
 			require.NoError(t, err)
 			done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 				return f.store.Execution().
-					ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"thread_ts":"111.222"}`))
+					ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"111.222"}`))
 			})
 			integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
 			_, err = activation.Exec(
@@ -255,7 +245,7 @@ func TestAppHandlerSelectionAppGatePrecedesAgentLock(t *testing.T) {
 	)
 	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 		return f.store.Execution().
-			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"thread_ts":"555.666"}`))
+			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"555.666"}`))
 	})
 	integrationdb.WaitForNamedLockWaiters(
 		t,
@@ -293,7 +283,7 @@ func TestAppHandlerSelectionValidatesArgsWithoutMutation(t *testing.T) {
 	initial := f.selectOrigin(t, f.a.ID)
 	input := f.selectionCall(t)
 	for _, args := range []string{
-		`{"channel_id":"C456"}`, `{"thread_ts":"invalid"}`, `{"app_id":"replacement"}`, `{"extra":true}`, `null`, `[]`,
+		`{}`, `{"channel_id":"C123","thread_ts":"invalid"}`, `{"app_id":"replacement"}`, `{"extra":true}`, `null`, `[]`,
 	} {
 		_, err := f.store.Execution().
 			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", args))
@@ -304,7 +294,7 @@ func TestAppHandlerSelectionValidatesArgsWithoutMutation(t *testing.T) {
 		require.Equal(t, initial, selected)
 	}
 	_, err := f.store.Execution().
-		ExecuteToolCall(f.ctx, input, handlerSelectionPlan("", `{"thread_ts":"111.222"}`))
+		ExecuteToolCall(f.ctx, input, handlerSelectionPlan("", `{"channel_id":"C123","thread_ts":"111.222"}`))
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	_, err = f.store.Execution().ExecuteToolCall(f.ctx, input, handlerSelectionPlan("", `{}`))
 	require.NoError(t, err)

@@ -533,61 +533,6 @@ func TestProjectAppDeletionFreezesTargetAgents(t *testing.T) {
 	}
 }
 
-func TestIntegrationTargetRetriesGeneratedReferenceCollisionInTransaction(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin, agent, credentialID := createFixedIntegrationFixture(
-		t,
-		ctx,
-		store,
-		"target-ref-collision",
-	)
-	installInput := slackProjectAppSetupInput(
-		uuid.Nil,
-		agent.ID,
-		admin.ID,
-		credentialID,
-		"A_TARGET_REF_COLLISION",
-		"T_TARGET_REF_COLLISION",
-	)
-
-	install := mustCreateProjectApp(t, ctx, store, installInput)
-	integrationStore := store.Integrations()
-	integrationStore.IntegrationSetTargetRefGenerator(func(string) (string, error) {
-		return "slack-fixed", nil
-	})
-	if _, err := admitIntegrationOrigin(t, ctx, store, agent.ID, install.ID,
-		integrationstore.ConversationAddress{Kind: "thread", Ref: "C_COLLISION:first"}); err != nil {
-		t.Fatalf("create collision fixture target: %v", err)
-	}
-
-	references := []string{"slack-fixed", "slack-free"}
-	generated := 0
-	integrationStore.IntegrationSetTargetRefGenerator(func(string) (string, error) {
-		ref := references[generated]
-		generated++
-		return ref, nil
-	})
-	createdOrigin, err := admitIntegrationOrigin(
-		t,
-		ctx,
-		store,
-		agent.ID,
-		install.ID,
-		integrationstore.ConversationAddress{Kind: "thread", Ref: "C_COLLISION:second"},
-	)
-	created := createdOrigin.IntegrationTarget
-	if err != nil {
-		t.Fatalf("create target after generated reference collision: %v", err)
-	}
-	if !created.Created || created.TargetRef != "slack-free" || generated != 2 {
-		t.Fatalf("target after reference collision = %+v, generated=%d", created, generated)
-	}
-}
-
 func TestProjectAppDeletionSerializesWithScopeDeletion(t *testing.T) {
 	t.Parallel()
 	for _, scope := range []string{"project", "organization"} {

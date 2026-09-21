@@ -164,7 +164,6 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.False(t, agents[slot.AgentID])
 		agents[slot.AgentID] = true
 		require.Equal(t, execution.profile.CurrentConfig.ID, slot.BaseConfigID)
-		require.Equal(t, execution.profile.CurrentConfig.EffectiveDefinitionHash, slot.BaseConfigHash)
 		require.Empty(t, slot.Launch.DerivedConfig.Source)
 		require.Nil(t, slot.Input)
 		require.Len(t, slot.Files, 1)
@@ -181,8 +180,7 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.Equal(t, "thread_messages", subscription.Type)
 		require.Equal(t, []string{"message"}, subscription.Events)
 		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`, string(subscription.Conversation))
-		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`,
-			string(compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].Config))
+		require.NotEmpty(t, compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].AppID)
 		require.NotEmpty(t, compiled.InteractionHandlers[app.Name].AppID)
 		raw, err := json.Marshal(slot)
 		require.NoError(t, err)
@@ -499,22 +497,28 @@ func TestAppLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 	appID := compiled.Tools[toolcatalog.AppToolName(app.Name, "post_message")].AppID
 	toolKey := toolcatalog.AppToolName(app.Name, "post_message")
 	tool := compiled.Tools[toolKey]
-	tool.Config = json.RawMessage(`{"channel_id":"C999","thread_ts":"9.9"}`)
 	tool.Deferred = true
 	compiled.Tools[toolKey] = tool
-	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: appID, Config: json.RawMessage(`{"channel_id":"C999"}`)}}
+	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: appID}}
 	encoded, err := agentconfig.EncodeCompiled(compiled)
 	require.NoError(t, err)
 	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
 	derived, subscription, err := deriveAppLaunch(base, app, event.Event.Scope)
 	require.NoError(t, err)
 	require.Equal(t, "thread_messages", subscription.Type)
+	other, otherSubscription, err := deriveAppLaunch(base, app, appdefinition.Scope{
+		Slack: &appdefinition.SlackScope{ChannelID: "C456", ThreadTS: "7.8"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, derived.EffectiveDefinitionHash, other.EffectiveDefinitionHash,
+		"different conversations reuse the same app capability config")
+	require.NotEqual(t, subscription.Conversation, otherSubscription.Conversation)
+
 	var actual agentconfig.Compiled
-	require.NoError(t, json.Unmarshal(derived.Config.CompiledDefinition, &actual))
+	require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
 	require.Equal(t, tool, actual.Tools[toolKey])
 	require.Equal(t, compiled.InteractionHandlers, actual.InteractionHandlers)
-	require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`,
-		string(actual.Tools[toolcatalog.AppToolName(app.Name, "read")].Config))
+	require.Equal(t, appID, actual.Tools[toolcatalog.AppToolName(app.Name, "read")].AppID)
 }
 
 func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
@@ -547,16 +551,18 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, test.subscriptionType, subscription.Type)
 			var compiled agentconfig.Compiled
-			require.NoError(t, json.Unmarshal(derived.Config.CompiledDefinition, &compiled))
+			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
 			definition, _ := appdefinition.Lookup(app.DefinitionID)
 			for _, operation := range definition.Tools {
-				require.JSONEq(t, test.address, string(compiled.Tools[toolcatalog.AppToolName(app.Name, operation)].Config))
+				ref, err := publicid.Encode(publicid.KindProjectApp, app.ID)
+				require.NoError(t, err)
+				require.Equal(t, ref, compiled.Tools[toolcatalog.AppToolName(app.Name, operation)].AppID)
 			}
 			require.Equal(t, app.ID, subscription.AppID)
 			require.JSONEq(t, test.address, string(subscription.Conversation))
 			require.ElementsMatch(t, definition.Subscriptions[subscription.Type].Events, subscription.Events)
 			if definition.InteractionHandler != nil {
-				require.JSONEq(t, test.address, string(compiled.InteractionHandlers[app.Name].Config))
+				require.NotEmpty(t, compiled.InteractionHandlers[app.Name].AppID)
 			} else {
 				require.Empty(t, compiled.InteractionHandlers)
 			}

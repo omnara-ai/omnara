@@ -32,23 +32,19 @@ func githubToolTestCalls() []model.ToolCall {
 
 func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 	for _, call := range githubToolTestCalls() {
-		for _, scenario := range []string{"removed-before-dispatch", "removed-after-token", "reconfigured", "disconnected"} {
+		for _, scenario := range []string{"removed-before-dispatch", "removed-after-token", "disconnected"} {
 			t.Run(call.ID+"/"+scenario, func(t *testing.T) {
 				ctx := t.Context()
-				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-authority", toolFixtureOptions{withGitHubApp: true})
+				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-authority", toolFixtureOptions{
+					withGitHubApp: true, withToolContext: true,
+				})
 				f.recordToolCalls(t, ctx, []model.ToolCall{call}, f.Now)
 				source, err := agentconfig.ParseSource(
 					agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
 					[]byte(f.AgentConfig.Source),
 				)
 				require.NoError(t, err)
-				if scenario == "reconfigured" {
-					entry := source.Tools[call.Name]
-					entry.Config["pull_request"] = 8
-					source.Tools[call.Name] = entry
-				} else {
-					delete(source.Tools, call.Name)
-				}
+				delete(source.Tools, call.Name)
 				changeInput := appToolConfigChangeInput(t, f, source)
 				revoke := func() error {
 					if scenario == "disconnected" {
@@ -97,12 +93,14 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 	}
 }
 
-func TestGitHubAppRejectsFixedOverridesAndUnsupportedFollow(t *testing.T) {
+func TestGitHubAppRejectsContextMismatchAndUnsupportedFollow(t *testing.T) {
 	for _, call := range githubToolTestCalls() {
-		for _, extra := range []string{`{"repository_id":123}`, `{"pull_request":8}`, `{"follow_replies":true}`} {
+		for _, extra := range []string{`{"repository_id":124}`, `{"pull_request":8}`, `{"follow_replies":true}`} {
 			t.Run(call.ID+"/"+extra, func(t *testing.T) {
 				ctx := t.Context()
-				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-arguments", toolFixtureOptions{withGitHubApp: true})
+				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-arguments", toolFixtureOptions{
+					withGitHubApp: true, withToolContext: true,
+				})
 				var args map[string]any
 				require.NoError(t, json.Unmarshal(call.Input, &args))
 				require.NoError(t, json.Unmarshal([]byte(extra), &args))
@@ -129,7 +127,9 @@ func TestGitHubAppRejectsFixedOverridesAndUnsupportedFollow(t *testing.T) {
 
 func TestGitHubAppReplyRejectsForeignPullRequest(t *testing.T) {
 	ctx := t.Context()
-	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-foreign-reply", toolFixtureOptions{withGitHubApp: true})
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-foreign-reply", toolFixtureOptions{
+		withGitHubApp: true, withToolContext: true,
+	})
 	var reads, posts atomic.Int32
 	server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {

@@ -68,7 +68,6 @@ type AgentConfigMachineSource struct {
 }
 
 type AgentConfigToolSource struct {
-	Config      map[string]any            `json:"config,omitempty"`
 	Type        string                    `json:"type,omitempty"`
 	Enabled     *bool                     `json:"enabled,omitempty"`
 	Permission  *toolpermission.Selection `json:"permission,omitempty"`
@@ -496,7 +495,6 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 					kjsonschema.Prop("deferred", kjsonschema.Boolean()),
 					kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MinLength(1))),
 					kjsonschema.Prop("input_schema", kjsonschema.Ref("#/$defs/AgentToolInputSchema")),
-					kjsonschema.Prop("config", kjsonschema.Object()),
 					kjsonschema.AdditionalProps(false),
 				)
 				def.If = kjsonschema.Object(

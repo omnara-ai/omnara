@@ -14,8 +14,8 @@ import { waitForUI } from '@/test/secret-editor'
 
 import { createBasicConfigSession, useAgentBuilderForm } from './useAgentBuilderForm'
 
-it('sends scoped app selection to preview and exposes the resolver issue to the builder', async () => {
-  const tool = { config: { channel_id: 'C123', thread_ts: '123.456' } }
+it('sends app selection to preview and exposes the resolver issue to the builder', async () => {
+  const tool = { permission: { mode: 'always_ask' }, deferred: true }
   const scope = { orgId: fakeId('org'), projectId: fakeId('proj') }
   const source = JSON.stringify({ instruction: 'Review', tools: { app__chat__post_message: tool } })
   const api = fakeApi([

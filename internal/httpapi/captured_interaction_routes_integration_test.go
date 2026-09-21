@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -28,6 +29,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,7 +49,7 @@ type capturedHTTPFixture struct {
 }
 
 type capturedHTTPFixtureOptions struct {
-	handlerConfig    map[string]any
+	handlerArgs      map[string]any
 	prepareOnly      bool
 	providerOverride func(http.ResponseWriter, *http.Request) bool
 }
@@ -173,14 +175,10 @@ func newCapturedHTTPFixtureWithDismiss(
 		ProviderConfig: config, ProviderIdentity: identity,
 	})
 	require.NoError(t, err)
-	handlerConfig := map[string]any{"channel_id": ref}
-	for key, value := range opts.handlerConfig {
-		handlerConfig[key] = value
-	}
 	source := map[string]any{
 		"instruction":          "Help with the request.",
 		"model":                map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
-		"interaction_handlers": map[string]any{"support": map[string]any{"config": handlerConfig}},
+		"interaction_handlers": map[string]any{"support": map[string]any{}},
 	}
 	agentConfig := createPublicHTTPAgentConfig(
 		t,
@@ -220,7 +218,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	agentUUID := mustPublicHTTPID(t, publicid.KindAgent, agentID)
 	choices, err := project.Store.Execution().ListInteractionHandlers(ctx, project.ProjectUUID, agentUUID, "", 100)
 	require.NoError(t, err)
-	require.Len(t, choices.Handlers, 1, "fixed handler must be discoverable without prior input")
+	require.Len(t, choices.Handlers, 1, "handler must be discoverable without prior input")
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -252,6 +250,17 @@ func newCapturedHTTPFixtureWithDismiss(
 		201,
 		authHeaders(project.AdminToken),
 	)
+	var selectionCalls []model.ToolCall
+	if opts.handlerArgs != nil {
+		args := map[string]any{"channel_id": ref}
+		for key, value := range opts.handlerArgs {
+			args[key] = value
+		}
+		selectionCalls = append(selectionCalls, model.ToolCall{
+			ID: "call_select_handler", Name: toolcatalog.ToolNameSetInteractionHandler,
+			Input: json.RawMessage(projectAppHTTPJSON(t, map[string]any{"handler": "support", "args": args})),
+		})
+	}
 	record := createInteractionForAgent(
 		t,
 		ctx,
@@ -260,6 +269,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		mustPublicHTTPID(t, publicid.KindAgent, agentID),
 		"captured",
 		kind,
+		selectionCalls...,
 	)
 	presenter := integration.InteractionPresenter{Store: project.Store, HTTPClient: client}
 	if !opts.prepareOnly {
@@ -663,8 +673,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				require.Equal(t, map[string]any{
 					"handler_definition":    "omnara." + provider,
-					"config":                map[string]any{"channel_id": destination.Address.Ref},
-					"args":                  map[string]any{},
+					"args":                  map[string]any{"channel_id": destination.Address.Ref},
 					"handler_key":           "support",
 					"app_id":                testPublicID(t, publicid.KindProjectApp, f.app.ID),
 					"integration_target_id": testPublicID(t, publicid.KindIntegrationTarget, destination.IntegrationTargetID),
@@ -795,7 +804,7 @@ func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			var sends atomic.Int32
 			f := newCapturedHTTPFixtureWithDismiss(t, "discord", "question", nil, capturedHTTPFixtureOptions{
-				handlerConfig: map[string]any{"guild_id": "500"}, prepareOnly: true,
+				handlerArgs: map[string]any{"guild_id": "500"}, prepareOnly: true,
 				providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
 					if r.URL.Path == "/api/v10/channels/300" {
 						writeJSON(w, http.StatusOK, map[string]any{"id": "300", "guild_id": "999", "type": 0})
@@ -817,7 +826,7 @@ func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
 			var providerErr *discord.APIError
 			require.ErrorAs(t, err, &providerErr)
 			require.Equal(t, discord.ScopeMismatch, providerErr.Code)
-			require.Zero(t, sends.Load(), "fixed guild must be checked before any provider send")
+			require.Zero(t, sends.Load(), "explicit guild must be checked before any provider send")
 			current, found, err := f.project.Store.Execution().
 				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
 			require.NoError(t, err)
@@ -830,7 +839,7 @@ func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
 
 func TestCapturedDiscordCallbackRequiresCapturedGuild(t *testing.T) {
 	f := newCapturedHTTPFixtureWithDismiss(t, "discord", "permission", nil,
-		capturedHTTPFixtureOptions{handlerConfig: map[string]any{"guild_id": "500"}})
+		capturedHTTPFixtureOptions{handlerArgs: map[string]any{"guild_id": "500"}})
 	for _, guild := range []string{"999", ""} {
 		for _, action := range []string{"c0", "t1"} {
 			response := f.discordRequest(t, action, false, false, func(body map[string]any) { body["guild_id"] = guild })

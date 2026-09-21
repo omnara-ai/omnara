@@ -2735,7 +2735,6 @@ export const zAgentInteractionDestination = z.object({
     handler_definition: z.string(),
     handler_key: z.string(),
     app_id: zProjectAppId,
-    config: z.record(z.string(), z.unknown()),
     args: z.record(z.string(), z.unknown()),
     integration_target_id: zIntegrationTargetId,
     address: zIntegrationConversationAddress
@@ -2789,9 +2788,7 @@ export const zConfigAgentToolInputSchema = z.object({
     type: z.literal('object')
 });
 
-export const zConfigAppCapabilitySource = z.object({
-    config: z.record(z.string(), z.unknown()).optional()
-});
+export const zConfigAppCapabilitySource = z.record(z.string(), z.never());
 
 export const zConfigToolPermissionSelection = z.object({
     mode: z.string().min(1).regex(/\S/),
@@ -2799,7 +2796,6 @@ export const zConfigToolPermissionSelection = z.object({
 });
 
 export const zConfigToolSource = z.object({
-    config: z.record(z.string(), z.unknown()).optional(),
     deferred: z.boolean().optional(),
     description: z.string().min(1).optional(),
     enabled: z.boolean().nullish(),
@@ -2838,8 +2834,7 @@ export const zConfigureProjectAppRequest = z.object({
 
 export const zAppCapabilityDefinition = z.object({
     description: z.string().optional(),
-    config_schema: z.record(z.string(), z.unknown()),
-    input_schema: z.record(z.string(), z.unknown()).optional()
+    input_schema: z.record(z.string(), z.unknown())
 });
 
 export const zAppSubscriptionId = z.string().regex(/^asub_[a-z2-7]{26}$/);

@@ -132,11 +132,14 @@ Existing machine configs gain missing machine-tool defaults only when saved agai
 ### App capabilities
 
 Create a project app first, then reference its tools as
-`tools.app__<app-name>__<operation>`. Optional tool `config` fixes implementation
-settings independently of model arguments. `interaction_handlers` is a separate
-config block. Incoming subscriptions belong to the app and are attached through
-launch requests or the app subscriptions API, not config. Removing a tool or
-changing config does not remove subscriptions.
+`tools.app__<app-name>__<operation>`. Tool entries contain enabled state, deferred
+loading and permissions; handler entries use `interaction_handlers: {app-name: {}}`.
+Tools use immutable app-agent context established by a provider or scheduled
+launch, or explicit complete destination arguments when unbound. Handler selection
+always takes complete destination arguments and is independent of sending context.
+Incoming subscriptions belong to the app and are attached through launch requests
+or the app subscriptions API, not config. Removing a tool or changing config does
+not remove subscriptions.
 
 App names resolve to immutable IDs when compiled, while credentials remain live
 on the app. See [Apps](/integrations/apps) for examples and provider launchers.

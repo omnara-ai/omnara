@@ -55,18 +55,17 @@ type AppPlannedFile struct {
 // config and concrete subscriptions, including resolved events. Recovery admits
 // those snapshots without rebuilding either from current source.
 type AppInboxSlot struct {
-	Sibling        *executionstore.InboxMessageSibling          `json:"sibling,omitempty"`
-	Scope          appdefinition.Scope                          `json:"scope"`
-	EventOrder     int                                          `json:"event_order"`
-	Selection      *integrationstore.InboxAppSelection          `json:"selection,omitempty"`
-	AgentID        uuid.UUID                                    `json:"agent_id"`
-	Launch         *executionstore.LaunchAgentInput             `json:"launch,omitempty"`
-	Input          *executionstore.CreateAgentContentInputInput `json:"input,omitempty"`
-	ArtifactIDs    []uuid.UUID                                  `json:"artifact_ids,omitempty"`
-	Files          []AppPlannedFile                             `json:"files,omitempty"`
-	BaseConfigID   uuid.UUID                                    `json:"base_config_id,omitempty"`
-	BaseConfigHash string                                       `json:"base_config_hash,omitempty"`
-	Subscription   *executionstore.InboxSubscriptionAuthority   `json:"subscription,omitempty"`
+	Sibling      *executionstore.InboxMessageSibling          `json:"sibling,omitempty"`
+	Scope        appdefinition.Scope                          `json:"scope"`
+	EventOrder   int                                          `json:"event_order"`
+	Selection    *integrationstore.InboxAppSelection          `json:"selection,omitempty"`
+	AgentID      uuid.UUID                                    `json:"agent_id"`
+	Launch       *executionstore.LaunchAgentInput             `json:"launch,omitempty"`
+	Input        *executionstore.CreateAgentContentInputInput `json:"input,omitempty"`
+	ArtifactIDs  []uuid.UUID                                  `json:"artifact_ids,omitempty"`
+	Files        []AppPlannedFile                             `json:"files,omitempty"`
+	BaseConfigID uuid.UUID                                    `json:"base_config_id,omitempty"`
+	Subscription *executionstore.InboxSubscriptionAuthority   `json:"subscription,omitempty"`
 }
 
 type AppInboxPlan map[string]AppInboxSlot

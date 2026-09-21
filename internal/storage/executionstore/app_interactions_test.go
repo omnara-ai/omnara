@@ -17,31 +17,21 @@ import (
 func TestAppInteractionOriginArguments(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name, provider, config, kind, ref, args string
+		name, provider, kind, ref, args string
 	}{
-		{"flexible Slack", "slack", `{}`, "thread", "C123:111.222", `{"channel_id":"C123","thread_ts":"111.222"}`},
-		{"fixed channel", "slack", `{"channel_id":"C123"}`, "thread", "C123:111.222", `{"thread_ts":"111.222"}`},
-		{"fixed thread", "slack", `{"channel_id":"C123","thread_ts":"111.222"}`, "thread", "C123:111.222", `{}`},
-		{"other channel", "slack", `{"channel_id":"C456"}`, "thread", "C123:111.222", ""},
-		{"other thread", "slack", `{"channel_id":"C123","thread_ts":"999.000"}`, "thread", "C123:111.222", ""},
-		{"fixed thread rejects parent", "slack", `{"channel_id":"C123","thread_ts":"111.222"}`, "channel", "C123", ""},
-		{"DM", "slack", `{}`, "dm", "D123", `{"channel_id":"D123"}`},
-		{"DM kind matters", "slack", `{}`, "channel", "D123", ""},
-		{"prefix is not identity", "slack", `{"channel_id":"C123"}`, "thread", "C1234:111.222", ""},
-		{"malformed thread", "slack", `{}`, "thread", "C123:not-a-timestamp", ""},
-		{"malformed address", "slack", `{}`, "thread", "C123", ""},
-		{"flexible Discord", "discord", `{}`, "thread", "20:30", `{"channel_id":"20","thread_id":"30"}`},
-		{"fixed guild channel", "discord", `{"guild_id":"10","channel_id":"20"}`, "thread", "20:30", `{"thread_id":"30"}`},
-		{"other Discord thread", "discord", `{"channel_id":"20","thread_id":"40"}`, "thread", "20:30", ""},
-		{"Discord has no DM kind", "discord", `{}`, "dm", "20", ""},
-		{"unsupported provider", "github", `{}`, "pull_request", "123#4", ""},
+		{"Slack thread", "slack", "thread", "C123:111.222", `{"channel_id":"C123","thread_ts":"111.222"}`},
+		{"Slack channel", "slack", "channel", "C123", `{"channel_id":"C123"}`},
+		{"DM", "slack", "dm", "D123", `{"channel_id":"D123"}`},
+		{"DM kind matters", "slack", "channel", "D123", ""},
+		{"malformed thread", "slack", "thread", "C123:not-a-timestamp", ""},
+		{"malformed address", "slack", "thread", "C123", ""},
+		{"Discord thread", "discord", "thread", "20:30", `{"channel_id":"20","thread_id":"30"}`},
+		{"Discord has no DM kind", "discord", "dm", "20", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			handler := appdefinition.InteractionHandlerDefinition{Provider: test.provider}
 			args, ok := interactionArgsForOrigin(
-				handler,
-				json.RawMessage(test.config),
+				test.provider,
 				integrationstore.ConversationAddress{Kind: test.kind, Ref: test.ref},
 			)
 			require.Equal(t, test.args != "", ok)
@@ -59,11 +49,8 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 		HandlerKey:          "chat",
 		AppID:               uuid.New(),
 		IntegrationTargetID: uuid.New(),
-		Config: json.RawMessage(
-			`{"channel_id":"C123"}`,
-		),
-		Args:    json.RawMessage(`{"thread_ts":"111.222"}`),
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
+		Args:                json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
+		Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 	}
 	raw, err := json.Marshal(destination)
 	require.NoError(t, err)
@@ -85,9 +72,11 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 		func(d *InteractionDestination) { d.HandlerKey = "chat__alias" },
 		func(d *InteractionDestination) { d.HandlerDefinition = appdefinition.GitHub },
 		func(d *InteractionDestination) { d.Address.Ref = "C456:111.222" },
-		func(d *InteractionDestination) { d.Config = json.RawMessage(`{"channel_id":"C456"}`) },
 		func(d *InteractionDestination) {
-			d.Args = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
+			d.Args = json.RawMessage(`{"channel_id":"C456","thread_ts":"111.222"}`)
+		},
+		func(d *InteractionDestination) {
+			d.Args = json.RawMessage(`{"thread_ts":"111.222"}`)
 		},
 	} {
 		changed := destination
@@ -119,21 +108,17 @@ func TestAppInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
 		HandlerKey:          "chat",
 		AppID:               uuid.New(),
 		IntegrationTargetID: uuid.New(),
-		Config: json.RawMessage(
-			`{"channel_id":"C123"}`,
-		),
-		Args:    json.RawMessage(`{"thread_ts":"111.222"}`),
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
+		Args:                json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
+		Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 	}
 	equal := original
-	equal.Config = json.RawMessage(`{ "channel_id" : "C123" }`)
+	equal.Args = json.RawMessage(`{ "channel_id" : "C123", "thread_ts":"111.222" }`)
 	require.True(t, sameInteractionDestination(original, equal))
 	for _, change := range []func(*InteractionDestination){
 		func(d *InteractionDestination) { d.HandlerKey = "replacement" },
 		func(d *InteractionDestination) { d.AppID = uuid.New() },
 		func(d *InteractionDestination) { d.IntegrationTargetID = uuid.New() },
 		func(d *InteractionDestination) { d.HandlerDefinition = appdefinition.Discord },
-		func(d *InteractionDestination) { d.Config = json.RawMessage(`{}`) },
 		func(d *InteractionDestination) { d.Args = json.RawMessage(`{}`) },
 		func(d *InteractionDestination) { d.Address.Ref = "C123:333.444" },
 	} {

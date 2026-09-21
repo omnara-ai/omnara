@@ -592,7 +592,7 @@ test('walks a new organization through onboarding to its first chat', async ({ p
 })
 
 for (const provider of ['github', 'discord'] as const) {
-  test(`saves ${provider} app-owned setup, launcher, scoped tools and independent lifecycle`, async ({
+  test(`saves ${provider} app-owned setup, launcher, tool selections and independent lifecycle`, async ({
     page,
   }) => {
     test.setTimeout(60_000)
@@ -708,14 +708,14 @@ for (const provider of ['github', 'discord'] as const) {
     await page.goto(profilePath)
     await page.getByRole('button', { name: 'YAML', exact: true }).click()
     const selectedTool = `app__${app.name}__read`
-    const fixedConfig =
-      provider === 'github' ? { repository_id: 333, pull_request: 1 } : { channel_id: '333' }
+    const selectedHandlers = provider === 'discord' ? { [app.name]: {} } : {}
     await replaceConfigEditor(
       page,
       JSON.stringify({
         instruction: 'Read this conversation.',
         model: { provider_config: providerConfig, name: modelName },
-        tools: { [selectedTool]: { config: fixedConfig } },
+        tools: { [selectedTool]: {} },
+        interaction_handlers: selectedHandlers,
       }),
     )
     const preview = page.waitForResponse(
@@ -726,15 +726,17 @@ for (const provider of ['github', 'discord'] as const) {
     await page.getByRole('button', { name: 'Builder', exact: true }).click()
     const previewResponse = await preview
     expect(previewResponse.status()).toBe(200)
+    const previewRequest = schemas.zResolveAgentConfigToolsRequest.parse(
+      previewResponse.request().postDataJSON(),
+    )
+    expect(JSON.parse(previewRequest.source)).toMatchObject({
+      tools: { [selectedTool]: {} },
+      interaction_handlers: selectedHandlers,
+    })
     const tools = schemas.zResolvedAgentConfigTools.parse(await previewResponse.json()).tools
     expect(tools).toContainEqual(expect.objectContaining({ name: selectedTool, enabled: true }))
-    expect(
-      tools.some(
-        (tool) =>
-          tool.name ===
-          `app__${app.name}__${provider === 'github' ? 'discussion_comment' : 'post_message'}`,
-      ),
-    ).toBe(false)
+    const excludedTool = provider === 'github' ? 'discussion_comment' : 'post_message'
+    expect(tools.map((tool) => tool.name)).not.toContain(`app__${app.name}__${excludedTool}`)
     await page.getByRole('button', { name: 'Other tools', exact: true }).click()
     await expect(page.getByText(selectedTool, { exact: true }).first()).toBeVisible()
     const savedRevision = page.waitForResponse(

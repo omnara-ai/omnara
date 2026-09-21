@@ -141,7 +141,7 @@ func validateScheduledRoot(provider string, destination json.RawMessage, root ap
 	if err := root.Validate(provider); err != nil {
 		return storeerr.InvalidRequest(err)
 	}
-	parent, err := appdefinition.ResolveDestination(provider, destination, nil)
+	parent, err := appdefinition.ResolveDestination(provider, destination)
 	if err != nil {
 		return storeerr.InvalidRequest(err)
 	}

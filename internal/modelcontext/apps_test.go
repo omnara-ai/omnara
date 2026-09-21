@@ -58,44 +58,39 @@ func requireToolSpec(t *testing.T, specs []ToolSpec, name string) ToolSpec {
 	return ToolSpec{}
 }
 
-func TestBuildPreparesNamespacedToolWithFixedConfig(t *testing.T) {
+func TestBuildPreparesNamespacedToolsWithStaticSchemas(t *testing.T) {
 	store, appID := appContextFixture(t, `tools:
   app__engineering__post_message:
     permission: {mode: always_ask}
-    config: {channel_id: C123, thread_ts: "111.222"}
   app__engineering__read: {}
 interaction_handlers:
-  engineering: {config: {channel_id: C789}}
+  engineering: {}
 `)
 	original := append(json.RawMessage(nil), store.config.CompiledDefinition...)
 	hash := store.config.EffectiveDefinitionHash
 	bundle := buildAppContext(t, NewStore(store, store, store))
-	fixed := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__post_message")
-	require.Equal(t, toolcatalog.ToolTypeBuiltIn, fixed.Type)
-	require.Equal(t, toolpermission.ModeAlwaysAsk, fixed.Permission.Mode)
-	require.Contains(t, fixed.Description, "C123")
-	require.Contains(t, fixed.Description, "111.222")
-	require.NotContains(t, fixed.Description, "C456")
-	require.NotContains(t, fixed.Description, "C789")
-	require.NoError(t, jsonschema.Validate(fixed.InputSchema, []byte(`{"text":"hello"}`)))
-	for _, invalid := range []string{
-		`{"text":"hello","channel_id":"C456"}`, `{"text":"hello","thread_ts":"333.444"}`,
-		`{"text":"hello","resource":"engineering"}`,
+	post := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__post_message")
+	require.Equal(t, toolcatalog.ToolTypeBuiltIn, post.Type)
+	require.Equal(t, toolpermission.ModeAlwaysAsk, post.Permission.Mode)
+	for _, args := range []string{
+		`{"text":"hello"}`, `{"text":"hello","channel_id":"C456"}`,
+		`{"text":"hello","thread_ts":"333.444"}`,
 	} {
-		require.Error(t, jsonschema.Validate(fixed.InputSchema, []byte(invalid)))
+		require.NoError(t, jsonschema.Validate(post.InputSchema, []byte(args)))
 	}
-	flexible := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__read")
-	require.NoError(t, jsonschema.Validate(flexible.InputSchema, []byte(`{"channel_id":"C456","thread_ts":"333.444"}`)))
-	require.Error(t, jsonschema.Validate(flexible.InputSchema, []byte(`{}`)))
+	require.Error(t, jsonschema.Validate(post.InputSchema, []byte(`{"text":"hello","resource":"engineering"}`)))
+	read := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__read")
+	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{"channel_id":"C456","thread_ts":"333.444"}`)))
+	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{}`)))
 	require.False(t, HasTool(bundle.ToolSpecs, "slack_post_message"))
 	require.Equal(t, []appDefinitionRequest{{ProjectID: testProjectID, IDs: []string{appID}}}, store.appDefinitionRequests,
-		"one project-scoped metadata read deduplicates tools, listener and handler")
+		"one project-scoped metadata read deduplicates tools and handler")
 	require.Equal(t, original, store.config.CompiledDefinition)
 	require.Equal(t, hash, store.config.EffectiveDefinitionHash)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(store.config.CompiledDefinition, &compiled))
-	require.Equal(t, appID, compiled.Tools[fixed.Name].AppID)
-	require.Empty(t, compiled.Tools[fixed.Name].InputSchema, "effective schemas are not persisted")
+	require.Equal(t, appID, compiled.Tools[post.Name].AppID)
+	require.Empty(t, compiled.Tools[post.Name].InputSchema, "effective schemas are not persisted")
 	require.NotContains(t, string(original), appdefinition.Slack, "definition metadata is live")
 }
 
@@ -103,7 +98,7 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 	for _, state := range []string{"disconnected", "deleted", "recreated name"} {
 		t.Run(state, func(t *testing.T) {
 			store, appID := appContextFixture(t, `tools:
-  app__engineering__post_message: {config: {channel_id: C123}}
+  app__engineering__post_message: {}
   web_search: {}
 `)
 			original := append(json.RawMessage(nil), store.config.CompiledDefinition...)

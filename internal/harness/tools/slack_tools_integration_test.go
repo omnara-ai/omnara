@@ -64,12 +64,12 @@ func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
 		{
 			ID:    "first",
 			Name:  toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-			Input: json.RawMessage(`{"text":"hello","follow_replies":true}`),
+			Input: json.RawMessage(`{"channel_id":"C123","text":"hello","follow_replies":true}`),
 		},
 		{
 			ID:    "second",
 			Name:  toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-			Input: json.RawMessage(`{"text":"hello","thread_ts":"222.1","follow_replies":true}`),
+			Input: json.RawMessage(`{"channel_id":"C123","text":"hello","thread_ts":"222.1","follow_replies":true}`),
 		},
 	}
 	f.recordToolCalls(t, ctx, calls, f.Now)
@@ -190,7 +190,7 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 				ctx,
 				"send",
 				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"text":"reply","thread_ts":"111.222"}`,
+				`{"channel_id":"C123","text":"reply","thread_ts":"111.222"}`,
 				f.Now,
 			)
 			result, err := dispatchAsyncToolToTerminal(
@@ -249,7 +249,7 @@ func TestSlackAppTargetAloneDoesNotGrantSend(t *testing.T) {
 		ctx,
 		"no-app",
 		toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-		`{"text":"hello"}`,
+		`{"channel_id":"C123","text":"hello"}`,
 		f.Now,
 	)
 	_, err := dispatchAsyncToolToTerminal(
@@ -297,7 +297,7 @@ func TestSlackAppReadPagination(t *testing.T) {
 		ctx,
 		"read",
 		toolcatalog.AppToolName("chat", toolcatalog.AppOperationRead),
-		`{"thread_ts":"111.222","cursor":"page-two","limit":10}`,
+		`{"channel_id":"C123","thread_ts":"111.222","cursor":"page-two","limit":10}`,
 		f.Now,
 	)
 	result, err := dispatchAsyncToolToTerminal(
@@ -321,7 +321,7 @@ func TestSlackAppDMPostFollowsIncomingReply(t *testing.T) {
 				t,
 				ctx,
 				"dm-follow",
-				toolFixtureOptions{withSlackApp: true, slackChannel: "D123"},
+				toolFixtureOptions{withSlackApp: true},
 			)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if serveSlackToolIdentity(w, r) {
@@ -331,9 +331,9 @@ func TestSlackAppDMPostFollowsIncomingReply(t *testing.T) {
 				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "D123", "ts": "222.1"})
 			}))
 			defer server.Close()
-			input := `{"text":"question","follow_replies":true}`
+			input := `{"channel_id":"D123","text":"question","follow_replies":true}`
 			if threaded {
-				input = `{"text":"question","thread_ts":"111.2","follow_replies":true}`
+				input = `{"channel_id":"D123","text":"question","thread_ts":"111.2","follow_replies":true}`
 			}
 			call := f.recordToolCall(
 				t,
@@ -413,7 +413,7 @@ func TestSlackAppDMPostFollowsIncomingReply(t *testing.T) {
 
 func TestSlackFollowSubscriptionsSurviveConfigChanges(t *testing.T) {
 	for _, scenario := range []string{
-		"tool-removed", "tool-denied", "tool-disabled", "tool-reconfigured", "all-app-capabilities-removed",
+		"tool-removed", "tool-denied", "tool-disabled", "all-app-capabilities-removed",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -428,7 +428,7 @@ func TestSlackFollowSubscriptionsSurviveConfigChanges(t *testing.T) {
 			}))
 			defer server.Close()
 			call := f.recordToolCall(t, ctx, "follow", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"text":"hello","follow_replies":true}`, f.Now)
+				`{"channel_id":"C123","text":"hello","follow_replies":true}`, f.Now)
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 			require.NoError(t, err)
@@ -450,9 +450,6 @@ func TestSlackFollowSubscriptionsSurviveConfigChanges(t *testing.T) {
 			case "tool-disabled":
 				disabled := false
 				entry.Enabled = &disabled
-				source.Tools[call.Name] = entry
-			case "tool-reconfigured":
-				entry.Config["channel_id"] = "C999"
 				source.Tools[call.Name] = entry
 			case "all-app-capabilities-removed":
 				source.Tools = nil
@@ -482,8 +479,8 @@ func TestSlackCompletedFollowReplayCannotRestoreDetachedSubscription(t *testing.
 	}))
 	defer server.Close()
 	calls := []model.ToolCall{
-		{ID: "first", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"text":"hello","follow_replies":true}`)},
-		{ID: "fresh", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"text":"hello again","thread_ts":"222.1","follow_replies":true}`)},
+		{ID: "first", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"channel_id":"C123","text":"hello","follow_replies":true}`)},
+		{ID: "fresh", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"channel_id":"C123","text":"hello again","thread_ts":"222.1","follow_replies":true}`)},
 	}
 	f.recordToolCalls(t, ctx, calls, f.Now)
 	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
@@ -517,7 +514,7 @@ func TestSlackCompletedFollowReplayCannotRestoreDetachedSubscription(t *testing.
 func TestSlackConfirmedSendDoesNotRepeatForFollowPersistence(t *testing.T) {
 	for _, scenario := range []string{
 		"transient-write-failure", "subscription-detached-during-send", "app-disconnected-during-send",
-		"sender-removed", "sender-denied", "sender-disabled", "sender-reconfigured",
+		"sender-removed", "sender-denied", "sender-disabled",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -553,9 +550,6 @@ FOR EACH ROW WHEN (NEW.tool_call_id IS NOT NULL) EXECUTE FUNCTION fail_first_fol
 				disabled := false
 				entry.Enabled = &disabled
 				source.Tools[name] = entry
-			case "sender-reconfigured":
-				entry.Config["channel_id"] = "C999"
-				source.Tools[name] = entry
 			}
 			change := appToolConfigChangeInput(t, f, source)
 			var prior integrationstore.AppSubscriptionRecord
@@ -589,7 +583,7 @@ FOR EACH ROW WHEN (NEW.tool_call_id IS NOT NULL) EXECUTE FUNCTION fail_first_fol
 				ctx,
 				"follow",
 				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"text":"hello","follow_replies":true}`,
+				`{"channel_id":"C123","text":"hello","follow_replies":true}`,
 				f.Now,
 			)
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
@@ -674,12 +668,12 @@ func TestSlackAppRotatedTokenKeepsVerifiedIdentity(t *testing.T) {
 					writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1", "messages": []any{}})
 				}))
 				defer server.Close()
-				name, input := operation, `{}`
+				name, input := operation, `{"channel_id":"C123"}`
 				if operation != "read" {
-					name, input = "post_message", `{"text":"hello"}`
+					name, input = "post_message", `{"channel_id":"C123","text":"hello"}`
 				}
 				if operation == "upload" {
-					input = `{"text":"report","artifact_ids":["art_aeaqcaibaeaqcaibaeaqcaibae"]}`
+					input = `{"channel_id":"C123","text":"report","artifact_ids":["art_aeaqcaibaeaqcaibaeaqcaibae"]}`
 				}
 				call := f.recordToolCall(t, ctx, "rotated", toolcatalog.AppToolName("chat", name), input, f.Now)
 				_, err = dispatchAsyncToolToTerminal(t, ctx,

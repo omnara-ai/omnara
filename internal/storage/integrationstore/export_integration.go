@@ -8,10 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Store) IntegrationSetTargetRefGenerator(generator func(string) (string, error)) {
-	s.targetRefGenerator = generator
-}
-
 func (s *Store) DeleteProjectAppOnceForIntegration(
 	ctx context.Context,
 	projectID, appID uuid.UUID,

@@ -76,8 +76,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	observedConfigID, err := lockConfigChangeAppsTx(ctx, tx, qtx, input)
-	if err != nil {
+	if err := lockConfigChangeAppsTx(ctx, tx, qtx, input); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	if err := qtx.LockAgentMachineSources(
@@ -99,12 +98,6 @@ func (s *Store) changeAgentConfigOnce(
 	idempotentReplay, err := configChangeReplayExistsTx(ctx, qtx, input)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
-	}
-	if !idempotentReplay && observedConfigID != agent.CurrentConfigID {
-		return ChangeAgentConfigResult{}, fmt.Errorf(
-			"agent config changed while acquiring app gates: %w",
-			storeutil.ErrRetryTransaction,
-		)
 	}
 	if !idempotentReplay && AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict

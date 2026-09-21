@@ -3,36 +3,25 @@
 App capabilities reference a saved project app by immutable name in source and
 by public `app_…` ID in compiled configs. A project-scoped `ResolveAppName` returns
 `AppResolution{AppID, Definition}`. The compiler resolves each distinct name once;
-it persists only `AppID` and canonical validated config, never definition metadata
-or credentials. Public IDs use `publicid.KindProjectApp`.
+it persists pinned `AppID` values and tool policy, never definition metadata or
+credentials. Public IDs use `publicid.KindProjectApp`.
 
 ```yaml
 tools:
   app__engineering__post_message:
     permission: {mode: always_ask}
-    config: {channel_id: C123}
 interaction_handlers:
-  engineering:
-    config: {channel_id: C456}
+  engineering: {}
 ```
 
-Qualified tools need no `type` or operation field. Config is a hidden object,
-separate from model arguments. All eight shipped operations accept `{}` and
-expose their required destination arguments in that case. Fixed destination
-fields are absent from the effective argument schema and cannot be overridden.
-Fixed Slack/Discord thread fields require their channel; a fixed GitHub pull
-request requires its repository. Discord channels and threads need no fixed guild.
-Policy-only entries select that same flexible operation. Ordinary built-in and
-custom tools accept empty config and reject unsupported nonempty config. Custom
-and MCP schemas are not transformed; only `app__` and `mcp__` are reserved
-prefixes. Ordinary custom names may contain `__`.
+Qualified tools need no `type` or operation field. Custom and MCP input schemas
+remain independent; only `app__` and `mcp__` are reserved prefixes. Ordinary
+custom names may contain `__`.
 
 `AgentConfigSource.InteractionHandlers` is a
-`map[string]AgentConfigAppCapabilitySource`, whose only field is
-`Config map[string]any`. The compiled map contains
-`AppCapabilityCompiled{AppID string, Config json.RawMessage}`, keyed by app name.
-Tools use `ToolCompiled.AppID` and `.Config` alongside their existing enabled,
-permission and deferred settings.
+`map[string]AgentConfigAppCapabilitySource` with empty `{}` entries. The compiled
+map contains `AppCapabilityCompiled{AppID string}`, keyed by app name. Tools use
+`ToolCompiled.AppID` alongside enabled, permission and deferred settings.
 
 Subscriptions are app-owned records attached at launch or through subscription
 management. They are absent from source, compiled and runtime configs; source
@@ -67,25 +56,30 @@ Callers load that read set once with project ownership and live status checks,
 then call:
 
 ```go
-PrepareAppCapabilities(compiled Compiled, apps map[string]AppResolution) (PreparedAppCapabilities, error)
+PrepareAppTools(compiled Compiled, apps map[string]AppResolution) ([]RuntimeTool, error)
 ```
 
 `apps` is keyed by pinned public app ID; each value contains the same `AppID` and
-its immutable `Definition`. The result contains effective `.Tools []RuntimeTool`,
-prepared `.InteractionHandlers`, plus `.Unavailable` errors keyed
-by capability JSON pointer. A missing/inactive app affects its own capabilities;
-ordinary config and dashboard decoding still work. Merge prepared tools with the
-ordinary runtime tools before model exposure. Credentials are resolved separately,
-live, immediately before provider execution.
+its immutable `Definition`. The result contains only prepared tools; unavailable
+app capabilities are omitted. Structural errors still fail preparation. Merge
+these tools with the ordinary runtime tools before model exposure. `RuntimeTool`
+contains model-facing schema and policy, without app IDs.
+Handlers are prepared independently during listing and selection. Credentials
+are resolved separately, live, immediately before provider execution.
 
-`toolcatalog.LookupAppTool(definition, operation)` returns provider metadata with
-`ConfigSchema`, `CanonicalConfig`, `Prepare`, `Describe`, and `ResolveArgs`
-methods. `Prepare(qualifiedName, config)` creates an effective catalog entry.
-`ResolveArgs(config, args)` validates that same schema and returns
+`toolcatalog.LookupAppTool(definition, operation)` returns provider metadata.
+`Prepare(qualifiedName)` creates a static catalog entry: destination fields are
+optional, and operation-specific action requirements always apply.
+`ResolveArgs(raw, context *appdefinition.Scope)` validates the schema and returns
 `AppToolArguments{Destination Scope, Arguments json.RawMessage, FollowReplies bool}`.
-`Arguments` contains operation arguments; `Destination` contains the concrete,
-validated address. `Describe` safely formats fixed IDs for model descriptions,
-approval summaries and config UI.
+`Arguments` contains operation arguments; `Destination` contains the concrete
+validated address. With context, omitted fields inherit that address and supplied
+fields must stay within it: a Slack channel/DM or Discord server channel context permits child
+threads in that channel, while a thread context remains exact. GitHub context
+remains exact to its repository and pull request. Without context, a complete
+destination is required at execution. Discord guild metadata is optional and
+provider-verified; indexed contexts may lack it. Approval summaries can use `Destination.ConversationJSON()`
+to describe the resolved address without changing the model schema.
 
 Pending calls must pass:
 
@@ -94,11 +88,10 @@ ResolveAppToolAuthority(original, current RuntimeContract, name string, apps map
 ResolveInteractionHandlerAuthority(original, current RuntimeContract, key string, apps map[string]AppResolution) (PreparedAppInteractionHandler, error)
 ```
 
-Tool authority requires unchanged pinned app ID, canonical effective config and
-permission, with the tool enabled and not denied in both configs. The result
-contains the original canonical `.Tool` and its `.Definition`. Handler authority
-requires the same app ID and effective config. Unrelated edits do not invalidate
-a call. Reusing an app name cannot redirect a captured call or interaction.
+Tool authority requires unchanged pinned app ID and permission, with the tool
+enabled and not denied in both configs. The result contains the original `.Tool`
+and its `.Definition`. Handler authority requires the same app ID. Unrelated
+edits do not invalidate a call. Reusing an app name cannot redirect a captured call or interaction.
 
 ## Composition and subagents
 
@@ -112,8 +105,8 @@ DeriveWithAppCapabilities(base Compiled, additions AppCapabilitiesSource, opts C
 
 The first compiles capabilities alone, without defaults or model/machine/skill
 resolution. Derivation removes all existing keys before validating/resolving
-additions. Existing disabled tools, permissions, handlers and destinations
-win completely; even malformed or unavailable redundant additions are ignored.
+additions. Existing disabled tools, permissions and handlers win completely; even
+malformed or unavailable redundant additions are ignored.
 Base model/machine/skill identities remain pinned. Launcher admission separately
 registers concrete subscription attachments independently of config derivation.
 
@@ -140,9 +133,11 @@ by handler key and returns a bounded page (default 20, maximum 100). Current
 selection, including args, is independent of the returned page. The cursor marks
 the last returned key and remains usable if that handler is removed.
 
-A definition has at most one `InteractionHandler`. Its `Prepare(config)` exposes
-safe description and effective argument schema; `ResolveArgs(config,args)`
-validates a concrete destination. `ArgsForDestination(config, verifiedScope)`
-derives arguments from verified input origin while checking every fixed field.
-Runtime applies origin selection: an unambiguous match selects that handler; no
-match or ambiguity selects dashboard only; originless inputs preserve selection.
+A definition has at most one `InteractionHandler`. Its `Prepare()` exposes a
+static complete-address schema; `ResolveArgs(args)` validates a concrete
+destination independently of any sending context. Explicit handler selection
+always supplies complete args. Verified input origins supply full arguments via
+`Scope.ConversationJSON()`. Runtime applies origin selection: an unambiguous app
+match selects that handler; no match or ambiguity selects dashboard only;
+originless inputs preserve selection. Each prompt captures its full destination,
+and dashboard responses remain available.

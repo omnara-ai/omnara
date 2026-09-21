@@ -30,7 +30,7 @@ type AppToolDefinition struct {
 }
 
 // Definitions and their private property maps are read-only after construction.
-// Prepare copies properties into a fresh destination schema before specializing it.
+// Prepare copies operation properties into a fresh static destination schema.
 var appToolDefinitions = buildAppToolDefinitions()
 
 func LookupAppTool(definition, operation string) (AppToolDefinition, bool) {
@@ -46,36 +46,19 @@ func LookupAppTool(definition, operation string) (AppToolDefinition, bool) {
 	return AppToolDefinition{}, false
 }
 
-func (d AppToolDefinition) ConfigSchema() (json.RawMessage, error) {
-	return appdefinition.DestinationConfigSchema(d.Provider)
-}
-func (d AppToolDefinition) CanonicalConfig(raw json.RawMessage) (json.RawMessage, error) {
-	return appdefinition.CanonicalDestinationConfig(d.Provider, raw)
-}
-func (d AppToolDefinition) Describe(config json.RawMessage) (string, error) {
-	destination, err := appdefinition.DestinationDescription(d.Provider, config)
-	if err != nil {
-		return "", err
-	}
-	return d.Description + " Destination: " + destination + ".", nil
-}
-
-func (d AppToolDefinition) Prepare(name string, config json.RawMessage) (Entry, error) {
+func (d AppToolDefinition) Prepare(name string) (Entry, error) {
 	_, operation, ok := SplitAppToolName(name)
 	if !ok || operation != d.Operation {
 		return Entry{}, fmt.Errorf("invalid qualified app operation %q", name)
 	}
-	properties, required, err := appdefinition.DestinationArguments(d.Provider, config)
+	properties, _, err := appdefinition.DestinationProperties(d.Provider)
 	if err != nil {
 		return Entry{}, err
 	}
 	maps.Copy(properties, d.properties)
-	required = append(required, d.required...)
-	description, err := d.Describe(config)
-	if err != nil {
-		return Entry{}, err
-	}
-	entry, err := toolEntry(name, description, required, properties)
+	description := d.Description + " Destination fields may be omitted when this app has a conversation context; " +
+		"supplied destinations must stay within that context. Without a context, supply a complete destination."
+	entry, err := toolEntry(name, description, d.required, properties)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -89,15 +72,15 @@ func (d AppToolDefinition) Prepare(name string, config json.RawMessage) (Entry, 
 }
 
 // AppToolArguments carries the concrete typed destination and validated action
-// arguments separately. Hidden destination settings never become model defaults.
+// arguments separately. Conversation context never changes the model schema.
 type AppToolArguments struct {
 	Destination   appdefinition.Scope
 	Arguments     json.RawMessage
 	FollowReplies bool
 }
 
-func (d AppToolDefinition) ResolveArgs(config, raw json.RawMessage) (AppToolArguments, error) {
-	entry, err := d.Prepare(AppToolName("app", d.Operation), config)
+func (d AppToolDefinition) ResolveArgs(raw json.RawMessage, context *appdefinition.Scope) (AppToolArguments, error) {
+	entry, err := d.Prepare(AppToolName("app", d.Operation))
 	if err != nil {
 		return AppToolArguments{}, err
 	}
@@ -108,8 +91,20 @@ func (d AppToolDefinition) ResolveArgs(config, raw json.RawMessage) (AppToolArgu
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return AppToolArguments{}, err
 	}
-	destinations, _, _ := appdefinition.DestinationArguments(d.Provider, config)
+	destinations, _, _ := appdefinition.DestinationProperties(d.Provider)
 	address := map[string]json.RawMessage{}
+	if context != nil {
+		if err := context.Validate(d.Provider); err != nil {
+			return AppToolArguments{}, err
+		}
+		contextJSON, err := context.ConversationJSON()
+		if err != nil {
+			return AppToolArguments{}, err
+		}
+		if err := json.Unmarshal(contextJSON, &address); err != nil {
+			return AppToolArguments{}, err
+		}
+	}
 	for key := range destinations {
 		if value, ok := args[key]; ok {
 			address[key] = value
@@ -120,9 +115,30 @@ func (d AppToolDefinition) ResolveArgs(config, raw json.RawMessage) (AppToolArgu
 	if err != nil {
 		return AppToolArguments{}, err
 	}
-	destination, err := appdefinition.ResolveDestination(d.Provider, config, addressJSON)
+	destination, err := appdefinition.ResolveDestination(d.Provider, addressJSON)
 	if err != nil {
 		return AppToolArguments{}, err
+	}
+	if context != nil {
+		matches := false
+		switch d.Provider {
+		case appdefinition.ProviderSlack:
+			// A legacy channel/DM context includes its child threads. A
+			// thread context remains confined to that exact thread.
+			matches = destination.Slack.ChannelID == context.Slack.ChannelID &&
+				(context.Slack.ThreadTS == "" || destination.Slack.ThreadTS == context.Slack.ThreadTS)
+		case appdefinition.ProviderGitHub:
+			matches = *destination.GitHub == *context.GitHub
+		case appdefinition.ProviderDiscord:
+			// Indexed context lacks guild metadata. A supplied guild is verified
+			// live by the provider. Channel context includes child threads.
+			matches = destination.Discord.ChannelID == context.Discord.ChannelID &&
+				(context.Discord.ThreadID == "" || destination.Discord.ThreadID == context.Discord.ThreadID) &&
+				(context.Discord.GuildID == "" || destination.Discord.GuildID == context.Discord.GuildID)
+		}
+		if !matches {
+			return AppToolArguments{}, fmt.Errorf("destination does not match tool context")
+		}
 	}
 	var follow bool
 	if value, ok := args["follow_replies"]; ok {

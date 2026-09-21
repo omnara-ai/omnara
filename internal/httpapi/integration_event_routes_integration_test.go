@@ -4193,6 +4193,24 @@ func createInteractionForAgent(
 		}); err != nil {
 			t.Fatalf("allow additional tool call %s: %v", call.ID, err)
 		}
+		if call.Name == toolcatalog.ToolNameSetInteractionHandler {
+			var selection struct {
+				Handler string          `json:"handler"`
+				Args    json.RawMessage `json:"args"`
+			}
+			require.NoError(t, json.Unmarshal(call.Input, &selection))
+			_, err := store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+				ProjectID: project.ProjectUUID, AgentID: agentID, ToolCallID: record.ID, RuntimeLockID: runtime.ID,
+			}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				return executionstore.SetInteractionHandlerForToolCall(executionstore.InteractionSelection{
+					HandlerKey: selection.Handler, Args: selection.Args,
+				}, executionstore.ToolCallCompletionInput{
+					Outcome:            executionstore.ToolResultOutcomeSucceeded,
+					ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+				}), nil
+			})
+			require.NoError(t, err, "select explicit handler destination before creating the interaction")
+		}
 	}
 	if kind == "permission" {
 		interaction, err := store.Execution().CreatePermissionInteraction(

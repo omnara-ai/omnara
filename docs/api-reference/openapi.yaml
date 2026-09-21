@@ -9613,7 +9613,7 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/ConfigAppCapabilitySource'
-          description: Additional app interaction handlers, keyed by immutable app name. Existing entries win unchanged. Requires project management permission.
+          description: Additional app interaction handlers, keyed by immutable app name with empty object values. Handler destination arguments are supplied at runtime. Existing entries win unchanged. Requires project management permission.
         initial_input:
           $ref: '#/components/schemas/AgentLaunchInitialInput'
     AgentLaunchInitialInput:
@@ -11013,7 +11013,7 @@ components:
     AgentInteractionDestination:
       type: object
       additionalProperties: false
-      required: [handler_definition, handler_key, app_id, config, args, integration_target_id, address]
+      required: [handler_definition, handler_key, app_id, args, integration_target_id, address]
       description: Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
       properties:
         handler_definition:
@@ -11022,10 +11022,8 @@ components:
           type: string
         app_id:
           $ref: '#/components/schemas/ProjectAppID'
-        config:
-          type: object
-          additionalProperties: true
         args:
+          description: Complete provider destination arguments captured at selection, independent of app-agent sending context.
           type: object
           additionalProperties: true
         integration_target_id:
@@ -13450,9 +13448,6 @@ components:
       type: object
     ConfigAppCapabilitySource:
       additionalProperties: false
-      properties:
-        config:
-          type: object
       type: object
       x-go-type: agentconfig.AgentConfigAppCapabilitySource
       x-go-type-import:
@@ -13488,8 +13483,6 @@ components:
           - type
         type: object
       properties:
-        config:
-          type: object
         deferred:
           type: boolean
         description:
@@ -13556,17 +13549,14 @@ components:
     AppCapabilityDefinition:
       type: object
       additionalProperties: false
-      required: [config_schema]
+      required: [input_schema]
       properties:
         description:
           type: string
-        config_schema:
-          type: object
-          additionalProperties: true
         input_schema:
           type: object
           additionalProperties: true
-          description: Argument schema with empty fixed config. Configured tools and handlers expose their effective schema at runtime.
+          description: Static argument schema for this operation or interaction handler. Tools accept optional destination fields; execution requires a complete destination when no app-agent context exists, and rejects fields that differ from that context. Handler selection always requires a complete destination, independently of sending context.
     AppSubscriptionID:
       type: string
       pattern: '^asub_[a-z2-7]{26}$'

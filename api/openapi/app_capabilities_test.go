@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -86,4 +87,39 @@ func TestGeneratedAppCapabilitySchemasAreCurrent(t *testing.T) {
 		current,
 		"run OMNARA_REGEN_APP_OPENAPI=1 go test ./api/openapi -run TestGeneratedAppCapabilitySchemasAreCurrent",
 	)
+}
+
+func TestAppCapabilityContracts(t *testing.T) {
+	var decoded any
+	require.NoError(t, yaml.Unmarshal(YAML, &decoded))
+	raw, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	require.NoError(t, err)
+	compiler := jsonschema.NewCompiler()
+	compiler.DefaultDraft(jsonschema.Draft2020)
+	const resource = "urn:omnara:app-capability-contract"
+	require.NoError(t, compiler.AddResource(resource, document))
+	for _, test := range []struct {
+		name, schema, value string
+		valid               bool
+	}{
+		{"handler selection", "ConfigAppCapabilitySource", `{}`, true},
+		{"tool policy", "ConfigToolSource", `{"enabled":false,"deferred":true,"permission":{"mode":"always_ask"}}`, true},
+		{"static catalog schema", "AppCapabilityDefinition", `{"input_schema":{"type":"object"}}`, true},
+		{"catalog requires input schema", "AppCapabilityDefinition", `{}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := compiler.Compile(resource + "#/components/schemas/" + test.schema)
+			require.NoError(t, err)
+			value, err := jsonschema.UnmarshalJSON(strings.NewReader(test.value))
+			require.NoError(t, err)
+			err = schema.Validate(value)
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

@@ -7,11 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -41,7 +43,7 @@ func (e Executor) resolveAppToolScope(
 		return appToolAccess{}, err
 	}
 	if !found {
-		return appToolAccess{}, errors.New("app tool model context is unavailable")
+		return appToolAccess{}, appToolPreparationFailure(errors.New("app tool model context is unavailable"))
 	}
 	original, err := e.appRuntimeContract(ctx, turn.ProjectID, model.AgentConfigID)
 	if err != nil {
@@ -52,7 +54,7 @@ func (e Executor) resolveAppToolScope(
 		return appToolAccess{}, err
 	}
 	if agent.State != executionstore.AgentStateActive {
-		return appToolAccess{}, errors.New("agent is inactive")
+		return appToolAccess{}, appToolPreparationFailure(errors.New("agent is inactive"))
 	}
 	current, err := e.appRuntimeContract(ctx, turn.ProjectID, agent.CurrentConfigID)
 	if err != nil {
@@ -60,28 +62,43 @@ func (e Executor) resolveAppToolScope(
 	}
 	pinned, ok := original.AppTools[tool.Name]
 	if !ok {
-		return appToolAccess{}, errors.New("app tool was not configured for this call")
+		return appToolAccess{}, appToolPreparationFailure(errors.New("app tool was not configured for this call"))
 	}
 	id, err := publicid.Decode(publicid.KindProjectApp, pinned.AppID)
 	if err != nil {
 		return appToolAccess{}, err
 	}
 	app, err := e.Store.Integrations().GetProjectApp(ctx, turn.ProjectID, id)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
+	}
 	if err != nil {
 		return appToolAccess{}, err
 	}
 	name, _, valid := toolcatalog.SplitAppToolName(tool.Name)
 	if !valid || app.Name != name || app.State != integrationstore.ProjectAppStateActive || app.OrgID != turn.OrgID {
-		return appToolAccess{}, errors.New("app is unavailable")
+		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
 	}
 	metadata := map[string]agentconfig.AppResolution{pinned.AppID: {AppID: pinned.AppID, Definition: app.DefinitionID}}
 	authority, err := agentconfig.ResolveAppToolAuthority(original, current, tool.Name, metadata)
 	if err != nil {
-		return appToolAccess{}, fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
+		return appToolAccess{}, appToolPreparationFailure(fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err))
 	}
-	args, err := authority.Definition.ResolveArgs(authority.Tool.Config, tool.Input)
+	target, found, err := e.Store.Integrations().GetAgentAppToolContext(ctx, turn.ProjectID, turn.AgentID, app.ID)
 	if err != nil {
 		return appToolAccess{}, err
+	}
+	var conversation *appdefinition.Scope
+	if found {
+		scope, err := appdefinition.ParseConversation(app.Provider, target.ProviderRefKind, target.ProviderRef)
+		if err != nil {
+			return appToolAccess{}, appToolPreparationFailure(err)
+		}
+		conversation = &scope
+	}
+	args, err := authority.Definition.ResolveArgs(tool.Input, conversation)
+	if err != nil {
+		return appToolAccess{}, appToolPreparationFailure(err)
 	}
 	access := appToolAccess{
 		Authority:        authority,

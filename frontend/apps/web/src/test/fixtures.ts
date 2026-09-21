@@ -123,7 +123,6 @@ export function orgInvitation(overrides: Partial<OrgInvitation> = {}): OrgInvita
 
 export function appDefinition(provider: AppDefinition['provider'] = 'slack'): AppDefinition {
   const capability = {
-    config_schema: { type: 'object', properties: {} },
     input_schema: { type: 'object', properties: {} },
   }
   const definition: AppDefinition = {

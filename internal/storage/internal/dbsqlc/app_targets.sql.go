@@ -14,8 +14,8 @@ import (
 )
 
 const getAgentConversationTarget = `-- name: GetAgentConversationTarget :one
-SELECT id, project_id, agent_id, app_id, target_ref, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot,
+SELECT id, project_id, agent_id, app_id, provider_ref,
+       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = $1 AND agent_id = $2
@@ -37,13 +37,13 @@ type GetAgentConversationTargetRow struct {
 	ProjectID        uuid.UUID
 	AgentID          uuid.UUID
 	AppID            uuid.UUID
-	TargetRef        string
 	ProviderRef      string
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	RoutingRole      string
 	SelectionSlot    *string
+	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -63,13 +63,13 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 		&i.ProjectID,
 		&i.AgentID,
 		&i.AppID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.RoutingRole,
 		&i.SelectionSlot,
+		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -78,8 +78,8 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 }
 
 const getAppSelectionTarget = `-- name: GetAppSelectionTarget :one
-SELECT id, project_id, agent_id, app_id, target_ref, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot,
+SELECT id, project_id, agent_id, app_id, provider_ref,
+       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = $1 AND app_id = $2
@@ -100,13 +100,13 @@ type GetAppSelectionTargetRow struct {
 	ProjectID        uuid.UUID
 	AgentID          uuid.UUID
 	AppID            uuid.UUID
-	TargetRef        string
 	ProviderRef      string
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	RoutingRole      string
 	SelectionSlot    *string
+	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -126,13 +126,13 @@ func (q *Queries) GetAppSelectionTarget(ctx context.Context, arg GetAppSelection
 		&i.ProjectID,
 		&i.AgentID,
 		&i.AppID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.RoutingRole,
 		&i.SelectionSlot,
+		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -172,27 +172,27 @@ func (q *Queries) GetConversationDisplayName(ctx context.Context, arg GetConvers
 }
 
 const insertAppConversationTarget = `-- name: InsertAppConversationTarget :one
-INSERT INTO integration_targets(project_id, agent_id, app_id, target_ref,
-    provider_ref_kind, provider_ref, display_name, routing_role, selection_slot, created_at, updated_at)
-VALUES ($1, $2, $3, $4,
-    $5, $6, $7, $8, $9,
+INSERT INTO integration_targets(project_id, agent_id, app_id,
+    provider_ref_kind, provider_ref, display_name, routing_role, selection_slot, is_tool_context, created_at, updated_at)
+VALUES ($1, $2, $3,
+    $4, $5, $6, $7, $8, $9,
     transaction_timestamp(), transaction_timestamp())
 ON CONFLICT DO NOTHING
-RETURNING id, project_id, agent_id, app_id, target_ref, provider_ref,
-          provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot,
+RETURNING id, project_id, agent_id, app_id, provider_ref,
+          provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
           deleted_at, created_at, updated_at
 `
 
 type InsertAppConversationTargetParams struct {
-	ProjectID   uuid.UUID
-	AgentID     uuid.UUID
-	AppID       uuid.UUID
-	TargetRef   string
-	Kind        string
-	Ref         string
-	DisplayName string
-	RoutingRole string
-	Slot        *string
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	AppID         uuid.UUID
+	Kind          string
+	Ref           string
+	DisplayName   string
+	RoutingRole   string
+	Slot          *string
+	IsToolContext bool
 }
 
 type InsertAppConversationTargetRow struct {
@@ -200,13 +200,13 @@ type InsertAppConversationTargetRow struct {
 	ProjectID        uuid.UUID
 	AgentID          uuid.UUID
 	AppID            uuid.UUID
-	TargetRef        string
 	ProviderRef      string
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	RoutingRole      string
 	SelectionSlot    *string
+	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -217,12 +217,12 @@ func (q *Queries) InsertAppConversationTarget(ctx context.Context, arg InsertApp
 		arg.ProjectID,
 		arg.AgentID,
 		arg.AppID,
-		arg.TargetRef,
 		arg.Kind,
 		arg.Ref,
 		arg.DisplayName,
 		arg.RoutingRole,
 		arg.Slot,
+		arg.IsToolContext,
 	)
 	var i InsertAppConversationTargetRow
 	err := row.Scan(
@@ -230,13 +230,13 @@ func (q *Queries) InsertAppConversationTarget(ctx context.Context, arg InsertApp
 		&i.ProjectID,
 		&i.AgentID,
 		&i.AppID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.RoutingRole,
 		&i.SelectionSlot,
+		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -245,8 +245,8 @@ func (q *Queries) InsertAppConversationTarget(ctx context.Context, arg InsertApp
 }
 
 const listConversationSelections = `-- name: ListConversationSelections :many
-SELECT id, project_id, agent_id, app_id, target_ref, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot,
+SELECT id, project_id, agent_id, app_id, provider_ref,
+       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
        deleted_at, created_at, updated_at
 FROM integration_targets target
 WHERE target.project_id = $1 AND target.app_id = $2
@@ -274,13 +274,13 @@ type ListConversationSelectionsRow struct {
 	ProjectID        uuid.UUID
 	AgentID          uuid.UUID
 	AppID            uuid.UUID
-	TargetRef        string
 	ProviderRef      string
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	RoutingRole      string
 	SelectionSlot    *string
+	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -307,13 +307,13 @@ func (q *Queries) ListConversationSelections(ctx context.Context, arg ListConver
 			&i.ProjectID,
 			&i.AgentID,
 			&i.AppID,
-			&i.TargetRef,
 			&i.ProviderRef,
 			&i.ProviderRefKind,
 			&i.DisplayName,
 			&i.ProviderMetadata,
 			&i.RoutingRole,
 			&i.SelectionSlot,
+			&i.IsToolContext,
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,

@@ -43,37 +43,51 @@ conversations independently of config.
 The launcher is separate: it decides whether and how to start agents.
 
 For example, after creating a GitHub app named `reviews` and a Slack app named
-`engineering`, this config reads one PR and permits approvals in a Slack channel:
+`engineering`, this config exposes PR reads and a Slack interaction handler:
 
 ```yaml
-instruction: Review the PR. Select engineering as your interaction handler before requesting approval.
+instruction: |
+  Review repository 123456, PR 42. Select engineering as your interaction
+  handler with channel_id C123 before requesting approval.
 model:
   provider_config: my-provider
   name: my-model
 tools:
   ask_question: {}
-  app__reviews__read:
-    config: {repository_id: 123456, pull_request: 42}
+  app__reviews__read: {}
 interaction_handlers:
-  engineering:
-    config: {channel_id: C123}
+  engineering: {}
 ```
 
 Tools use `app__<app-name>__<operation>`, with one entry per app and operation.
-Their optional `config` contains fixed
-implementation settings; it is separate from model arguments. With empty config,
-the model supplies the destination. Fixed destination fields disappear from its
-argument schema and cannot be overridden. The tool description explains the
-fixed destination. The app's credential permissions remain the provider access
-boundary; Omnara also checks project ownership, current app status and ordinary
-[tool permission](/tools/permissions).
+Tool entries select enabled state, deferred loading and permissions. Handler entries
+are empty objects. Destinations are runtime arguments.
+The catalog exposes the static argument schema in
+`capabilities.tools[operation].input_schema` and
+`capabilities.interaction_handler.input_schema`.
+
+A provider or scheduled launch records one immutable conversation context for
+that app and agent. Tools may omit destination fields in that context; supplied
+fields must stay within it. A Slack channel/DM or Discord server channel context permits child
+threads in that channel; a thread context stays confined to that thread. GitHub
+context stays confined to its repository and pull request. An agent without
+context must supply a complete provider destination on every call. For example,
+the config above calls `app__reviews__read` with `{"repository_id":123456,"pull_request":42}`.
+Instructions guide the model but do not restrict its destination. Adding a
+subscription, following replies, or selecting a handler does not establish or
+change sending context. Retiring a context does not grant unrestricted sending.
+
+The app's credential permissions remain the provider access boundary; Omnara also
+checks project ownership, current app status and ordinary
+[tool permission](/tools/permissions). The
+[OpenAPI contract](/api-reference/openapi.yaml) defines the catalog and launch API.
 
 Names are resolved to immutable app IDs when the config is compiled. Deleting an
 app and reusing its name does not redirect old agents. Re-save profiles that should
 use the replacement app before their launchers run; old pinned references are not
 automatically rebound. Credentials are loaded
 live, so rotation does not require rewriting configs. A pending tool call cannot
-silently acquire a different app, fixed config or permission after a config change.
+silently acquire a different app, sending context or permission after a config change.
 
 ## Subscribe a conversation
 
@@ -149,10 +163,12 @@ or PR creation; its launcher runs each configured slot.
 
 A profile launch derives a config with the app's tools and supported interaction
 handler, and separately attaches a subscription for that conversation. The profile
-stays unchanged. Existing
-explicit entries win as complete entries, including disabled tools and different
-fixed destinations. The launcher adds missing entries only. An existing-agent
-launcher slot forwards input without adding capabilities.
+stays unchanged. Existing explicit entries win as complete entries, including
+disabled tools and permissions. The launcher adds missing entries only; the
+capability additions are the same for every conversation using that profile and
+app. The destination belongs to the app-agent context, not the derived config.
+An existing-agent launcher slot forwards input without adding capabilities or
+sending context.
 
 The create-agent API accepts `tools` and `interaction_handlers` when deriving a
 config from a pinned config or profile, plus independent `subscriptions`
@@ -223,24 +239,32 @@ dashboard if provider delivery fails.
 
 Tool-capable configs include `list_interaction_handlers` and
 `set_interaction_handler` by default, unless explicitly disabled. The list is
-paginated and returns each handler's description and effective argument schema,
+paginated and returns each handler's description and static argument schema,
 plus the current selection independently of the page. The model selects a handler
 and destination arguments, or uses `{"handler": null, "args": {}}` for dashboard only.
 
-An empty handler config lets the model choose a destination accessible to the app.
-Fixed config, such as a channel or thread, restricts that choice. Anyone able to
-respond in the selected provider conversation can answer its questions and
-approvals; they do not need an Omnara account. Choose a destination whose audience
-you trust to make those decisions.
+Selecting a handler requires complete destination arguments, independently of the
+app's sending context. For example:
 
-A newly accepted provider input selects a unique matching handler for future
-interactions. No matching handler means dashboard only; an input without a
-provider origin preserves the selection. Each interaction captures its destination
+```json
+{"handler":"engineering","args":{"channel_id":"C123","thread_ts":"111.222333"}}
+```
+
+A handler may use another conversation accessible to the app; it is not restricted
+to the sending context. Anyone able to respond in that provider conversation can
+answer its questions and approvals; they do not need an Omnara account. Choose a
+destination whose audience you trust to make those decisions.
+
+A newly accepted provider input selects a unique matching handler with the complete
+origin address for future interactions, including the initial launch input. No
+matching handler means dashboard only; an input without a provider origin preserves
+the selection. Each interaction captures its destination
 when created, so changing the selection does not move an existing prompt.
 
 The dashboard remains available if provider presentation fails. Removing a handler,
-disconnecting its app, or changing its fixed config invalidates old external
-callbacks. See [interactions](/events/interactions) for answering through the API.
+disconnecting its app, or replacing the pinned app invalidates old external
+callbacks. Captured interaction responses contain complete destination `args`.
+See [interactions](/events/interactions) for answering through the API.
 
 For an existing Slack deployment, use the coordinated
 [maintenance cutover](/self-hosting/composable-apps-cutover). Self-hosted operators

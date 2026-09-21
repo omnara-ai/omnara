@@ -64,7 +64,6 @@ model:
   name: service-e2e-local
 tools:
   app__chat__post_message:
-    config: {channel_id: C123}
     permission: {mode: always_allow}
 `
 	config := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/agent-configs",
@@ -129,7 +128,7 @@ tools:
 			assert.Contains(t, mustJSONString(body["input"]), cronText)
 			assert.True(t, requestContainsTool(body, "app__chat__post_message"))
 			writeOpenAIFunctionCall(w, fail, "resp_scheduled_post", callID, "app__chat__post_message",
-				map[string]any{"text": postText, "follow_replies": true})
+				map[string]any{"channel_id": "C123", "text": postText, "follow_replies": true})
 		case 2:
 			assert.True(t, requestContainsToolResult(body, callID, "111.222"), "post receipt must reach the model")
 			writeOpenAIMessage(w, fail, "resp_posted", postedText)

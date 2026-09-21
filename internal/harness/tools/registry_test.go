@@ -202,7 +202,9 @@ func TestAppMessageEffectiveValidatorBinding(t *testing.T) {
 	definition, ok := toolcatalog.LookupAppTool(appdefinition.Slack, toolcatalog.AppOperationPostMessage)
 	require.True(t, ok)
 	validate := func(_ string, input json.RawMessage) error {
-		_, err := definition.ResolveArgs(json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`), input)
+		_, err := definition.ResolveArgs(input, &appdefinition.Scope{
+			Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"},
+		})
 		return err
 	}
 	implementation, ok := appToolImplementation("app__chat__post_message")

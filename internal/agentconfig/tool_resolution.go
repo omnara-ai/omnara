@@ -51,8 +51,6 @@ func compileTools(
 		switch {
 		case toolcatalog.UsesAppToolNamespace(name):
 			entry, err = compileAppTool(name, tool, opts)
-		case len(tool.Config) > 0:
-			err = issuef(jsonPointer("tools", name, "config"), "tool does not support nonempty config")
 		case tool.Type == toolcatalog.ToolTypeCustom:
 			entry, err = compileCustomTool(name, tool, enabled, catalog)
 		default:

@@ -25,18 +25,16 @@ type Access interface {
 }
 
 type Store struct {
-	pool               *pgxpool.Pool
-	q                  *dbsqlc.Queries
-	access             Access
-	targetRefGenerator func(string) (string, error)
+	pool   *pgxpool.Pool
+	q      *dbsqlc.Queries
+	access Access
 }
 
 func New(pool *pgxpool.Pool, access Access) *Store {
 	return &Store{
-		pool:               pool,
-		q:                  dbsqlc.New(pool),
-		access:             access,
-		targetRefGenerator: newIntegrationTargetRef,
+		pool:   pool,
+		q:      dbsqlc.New(pool),
+		access: access,
 	}
 }
 

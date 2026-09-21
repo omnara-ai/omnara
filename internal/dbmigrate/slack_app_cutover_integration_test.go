@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -339,6 +340,11 @@ tools:
 				}
 				require.NoError(t, tx.Commit())
 			}
+			retiredTargetID := uuid.New()
+			exec(`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
+                provider_ref,provider_ref_kind,provider_metadata,deleted_at,created_at,updated_at)
+                VALUES($1,$2,$3,$4,'retired','C999:1.2','thread','{"legacy":"retained"}',now(),now(),now())`,
+				retiredTargetID, ids.ProjectID, agents[0], appID)
 			// Snapshot durable history and agent data before the migration writes
 			// config activations. Exact JSON comparison catches unintended edits.
 			history := func() string {
@@ -348,7 +354,8 @@ tools:
 				 'agents',(SELECT jsonb_agg(to_jsonb(a)-'current_config_id'-'next_event_sequence'
                  -'integration_target_id'-'updated_at'
                  -'interaction_handler_key'-'interaction_handler_args' ORDER BY a.id) FROM agents a),
-				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'app_id'-'routing_role'-'selection_slot')
+				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'app_id'
+                  -'routing_role'-'selection_slot'-'is_tool_context'-'target_ref')
                   || jsonb_build_object('app_id',coalesce(to_jsonb(t)->'app_id',to_jsonb(t)->'integration_install_id'))
                   ORDER BY t.id) FROM integration_targets t),
 				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
@@ -459,7 +466,7 @@ tools:
 							&count,
 						),
 					)
-					require.Equal(t, 2*len(agents), count)
+					require.Equal(t, 2*len(agents)+1, count)
 					identified := false
 					for _, agentID := range agents {
 						if !strings.Contains(err.Error(), agentID.String()) {
@@ -487,6 +494,17 @@ tools:
 					require.True(t, identified, "guard must identify the agent and every conflicting target")
 				}
 				return
+			}
+			assertContextRollback := func() {
+				t.Helper()
+				var contexts int
+				require.NoError(t, db.QueryRowContext(ctx,
+					`SELECT count(*) FROM integration_targets WHERE is_tool_context`).Scan(&contexts))
+				require.Zero(t, contexts)
+				var enabled string
+				require.NoError(t, db.QueryRowContext(ctx,
+					`SELECT tgenabled::text FROM pg_trigger WHERE tgname='integration_targets_tool_context_immutable'`).Scan(&enabled))
+				require.Equal(t, "O", enabled, "migration failure restores the write-once guard")
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
@@ -546,6 +564,7 @@ tools:
 				}
 				require.ErrorContains(t, err, want)
 				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
@@ -572,6 +591,7 @@ tools:
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected rewrite failure")
 				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var active, configs int
 				require.NoError(
@@ -604,7 +624,8 @@ tools:
 			if scenario == "injected_failure" {
 				exec(`CREATE FUNCTION reject_cutover_config_event() RETURNS trigger LANGUAGE plpgsql AS $$
 				 BEGIN
-                 IF NEW.input_idempotency_key='slack_app_cutover' THEN
+                 IF NEW.input_idempotency_key='slack_app_cutover'
+                    AND EXISTS (SELECT 1 FROM integration_targets WHERE is_tool_context) THEN
                      RAISE EXCEPTION 'injected cutover failure';
                  END IF;
                  RETURN NEW;
@@ -614,6 +635,7 @@ tools:
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected cutover failure")
 				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				assertContextRollback()
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
 				require.Equal(t, 1, count)
@@ -642,11 +664,25 @@ tools:
 			before := history()
 			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 			require.JSONEq(t, before, history())
+			var retiredContext bool
+			var retiredRole string
+			var retiredMetadata []byte
+			require.NoError(t, db.QueryRowContext(ctx,
+				`SELECT is_tool_context,routing_role,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
+				Scan(&retiredContext, &retiredRole, &retiredMetadata))
+			require.False(t, retiredContext, "a target excluded from the old fixed config must not become context")
+			require.Equal(t, "attribution", retiredRole)
+			require.JSONEq(t, `{"legacy":"retained"}`, string(retiredMetadata))
 			execution := executionstore.New(pool, executionstore.Config{})
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
-				require.NotEqual(t, configID, snapshot.AgentConfig.ID)
+				if scenario == "multiple_apps" {
+					require.Equal(t, configID, snapshot.AgentConfig.ID,
+						"reuse identical rewritten config without a hidden destination")
+				} else {
+					require.NotEqual(t, configID, snapshot.AgentConfig.ID)
+				}
 				expectedSequence := int64(2)
 				if i == 0 || i == 1 {
 					expectedSequence = 3
@@ -674,25 +710,41 @@ tools:
 				require.Equal(t, sendingEnabled, tool.Enabled)
 				require.Equal(t, "always_allow", tool.Permission.Mode)
 				require.Equal(t, encodedAppID, tool.AppID)
-				address := fmt.Sprintf(`{"channel_id":"C123","thread_ts":"111.%d"}`, i+1)
+				contexts := integrationstore.New(pool, executionstore.AppAccess{})
+				context, found, err := contexts.GetAgentAppToolContext(ctx, ids.ProjectID, agentID, appID)
+				require.NoError(t, err)
+				require.True(t, found)
+				require.True(t, context.IsToolContext)
+				require.Equal(t, integrationstore.TargetAttribution, context.RoutingRole)
+				require.Empty(t, context.SelectionSlot, "legacy contexts must not suppress new mention launches")
+				if scenario != "channel" && scenario != "dm" {
+					require.Equal(t, "thread", context.ProviderRefKind)
+					require.Equal(t, fmt.Sprintf("C123:111.%d", i+1), context.ProviderRef)
+				}
 				if scenario == "channel" {
-					address = fmt.Sprintf(`{"channel_id":"C%d"}`, i+1)
+					require.Equal(t, "channel", context.ProviderRefKind)
+					require.Equal(t, fmt.Sprintf("C%d", i+1), context.ProviderRef)
 				}
 				if scenario == "dm" {
-					address = fmt.Sprintf(`{"channel_id":"D%d"}`, i+1)
+					require.Equal(t, "dm", context.ProviderRefKind)
+					require.Equal(t, fmt.Sprintf("D%d", i+1), context.ProviderRef)
 				}
-				require.JSONEq(t, address, string(tool.Config))
 				wantApps := 1
 				if scenario == "multiple_apps" {
 					wantApps = 2
-					require.JSONEq(t, fmt.Sprintf(`{"channel_id":"D%d"}`, i+1), string(raw.Tools["app__slack-2__post_message"].Config))
+					second, found, err := contexts.GetAgentAppToolContext(ctx, ids.ProjectID, agentID, secondAppID)
+					require.NoError(t, err)
+					require.True(t, found)
+					require.Equal(t, "dm", second.ProviderRefKind)
+					require.Equal(t, fmt.Sprintf("D%d", i+1), second.ProviderRef)
+					require.Equal(t, integrationstore.TargetAttribution, second.RoutingRole)
 				}
 				require.Len(t, contract.AppTools, wantApps)
-				prepared, err := agentconfig.PrepareAppCapabilities(raw, map[string]agentconfig.AppResolution{
-					encodedAppID: {AppID: encodedAppID, Definition: appdefinition.Slack},
-				})
-				require.NoError(t, err)
-				require.Empty(t, prepared.Unavailable)
+				var tools map[string]map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(configFields["tools"], &tools))
+				for _, tool := range tools {
+					require.NotContains(t, tool, "config")
+				}
 				require.Contains(t, raw.Tools, "set_interaction_handler")
 				require.NotContains(t, raw.Tools, "set_integration_target")
 				require.NotContains(t, raw.Tools, "send_integration_message")
@@ -815,17 +867,17 @@ tools:
 				} else {
 					require.True(t, exists)
 					require.False(t, tool.Enabled)
-					require.JSONEq(t, `{}`, string(tool.Config))
+					require.NotContains(t, string(oldCompiled), `"config"`)
 				}
 			}
 			// The shared profile is still usable for a new mention. An enabled
-			// legacy entry must not mask the launcher's ordinary fixed tool;
+			// legacy entry must not mask the launcher's ordinary app tool;
 			// an explicit disable still wins unchanged.
 			encodedAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
 			require.NoError(t, err)
 			launched, err := agentconfig.DeriveWithAppCapabilities(historical, agentconfig.AppCapabilitiesSource{
 				Tools: map[string]agentconfig.AgentConfigToolSource{
-					"app__slack__post_message": {Config: map[string]any{"channel_id": "C999", "thread_ts": "999.1"}},
+					"app__slack__post_message": {},
 				},
 			}, agentconfig.CompileOptions{ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
 				require.Equal(t, "slack", name)
@@ -834,13 +886,7 @@ tools:
 			require.NoError(t, err)
 			if sendingEnabled {
 				require.True(t, launched.Tools["app__slack__post_message"].Enabled)
-				require.JSONEq(
-					t,
-					`{"channel_id":"C999","thread_ts":"999.1"}`,
-					string(
-						launched.Tools["app__slack__post_message"].Config,
-					),
-				)
+				require.Equal(t, encodedAppID, launched.Tools["app__slack__post_message"].AppID)
 			} else {
 				require.Equal(t, historical.Tools["app__slack__post_message"], launched.Tools["app__slack__post_message"])
 			}
@@ -915,7 +961,12 @@ tools:
 				require.True(t, created)
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
-				require.NotEqual(t, configID, snapshot.AgentConfig.ID)
+				if scenario == "multiple_apps" {
+					require.Equal(t, configID, snapshot.AgentConfig.ID,
+						"reuse identical rewritten config without a hidden destination")
+				} else {
+					require.NotEqual(t, configID, snapshot.AgentConfig.ID)
+				}
 			}
 		})
 	}

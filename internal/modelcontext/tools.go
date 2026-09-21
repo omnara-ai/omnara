@@ -30,7 +30,7 @@ func RuntimeContractToolSpecs(
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := agentconfig.PrepareAppCapabilities(
+	prepared, err := agentconfig.PrepareAppTools(
 		agentconfig.Compiled{
 			Tools:               contract.AppTools,
 			InteractionHandlers: contract.InteractionHandlers,
@@ -40,7 +40,7 @@ func RuntimeContractToolSpecs(
 	if err != nil {
 		return nil, err
 	}
-	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared.Tools...)
+	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared...)
 	for _, tool := range runtimeTools {
 		if tool.Name == "" {
 			return nil, fmt.Errorf(

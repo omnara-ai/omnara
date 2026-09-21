@@ -54,9 +54,9 @@ describe('agentBuilderToolsSource', () => {
     })
   })
 
-  it('preserves independent capabilities and fixed tool settings through builder edits', () => {
-    const tool = { config: { channel_id: 'C123', thread_ts: '123.456' } }
-    const handler = { config: { channel_id: 'C456' } }
+  it('preserves independent capabilities and tool permissions through builder edits', () => {
+    const tool = { permission: { mode: 'always_ask' }, deferred: true }
+    const handler = {}
     const source = {
       instruction: 'Review',
       tools: { app__chat__post_message: tool },
@@ -72,6 +72,10 @@ describe('agentBuilderToolsSource', () => {
     })
     const updated = createBasicConfigSession(session.apply(changed)).initialDraft
     expect(updated?.interactionHandlers).toEqual(source.interaction_handlers)
-    expect(updated?.tools[0]?.config).toEqual(tool.config)
+    expect(updated?.tools[0]).toEqual({
+      name: 'app__chat__post_message',
+      permission: { mode: 'always_ask', parameters: {} },
+      deferred: true,
+    })
   })
 })

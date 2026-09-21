@@ -48,6 +48,7 @@ type EnsureConversationTargetInput struct {
 	DisplayName               string
 	Role                      TargetRoutingRole
 	SelectionSlot             string
+	IsToolContext             bool
 }
 
 // LockConversationTx must precede agent locks, after the project and all
@@ -69,7 +70,8 @@ func LockConversationTx(
 	})
 }
 
-// EnsureConversationTargetTx records attribution/selection, never authority or a
+// EnsureConversationTargetTx records attribution/selection and may bind the
+// initial target as an immutable tool context, never a credential grant or
 // subscription. Caller holds project, app, conversation and agent gates;
 // the agent may have been inserted earlier in this same launch transaction.
 func (s *Store) EnsureConversationTargetTx(
@@ -114,105 +116,90 @@ func (s *Store) EnsureConversationTargetTx(
 	if agent.State != "active" {
 		return IntegrationTargetRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	for range 5 {
-		var existing dbsqlc.GetAgentConversationTargetRow
-		if input.Role == TargetSelected {
-			row, findErr := q.GetAppSelectionTarget(ctx, dbsqlc.GetAppSelectionTargetParams{
-				ProjectID: input.ProjectID,
-				AppID:     input.AppID,
-				Kind:      input.Address.Kind,
-				Ref:       input.Address.Ref,
-				Slot:      &input.SelectionSlot,
-			})
-			existing, err = dbsqlc.GetAgentConversationTargetRow(row), findErr
-		} else {
-			existing, err = q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
-				ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: input.AppID,
-				Kind: input.Address.Kind, Ref: input.Address.Ref,
-			})
+	var existing dbsqlc.GetAgentConversationTargetRow
+	if input.Role == TargetSelected {
+		row, findErr := q.GetAppSelectionTarget(ctx, dbsqlc.GetAppSelectionTargetParams{
+			ProjectID: input.ProjectID,
+			AppID:     input.AppID,
+			Kind:      input.Address.Kind,
+			Ref:       input.Address.Ref,
+			Slot:      &input.SelectionSlot,
+		})
+		existing, err = dbsqlc.GetAgentConversationTargetRow(row), findErr
+	} else {
+		existing, err = q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
+			ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: input.AppID,
+			Kind: input.Address.Kind, Ref: input.Address.Ref,
+		})
+	}
+	if err == nil {
+		if existing.AgentID != input.AgentID || existing.DeletedAt != nil ||
+			(input.IsToolContext && !existing.IsToolContext) {
+			return IntegrationTargetRecord{}, storeerr.ErrConflict
 		}
+		if input.Role == TargetFollowed && existing.RoutingRole == string(TargetAttribution) {
+			if err := q.MarkConversationTargetFollowed(
+				ctx,
+				dbsqlc.MarkConversationTargetFollowedParams{
+					ProjectID: input.ProjectID,
+					AgentID:   input.AgentID,
+					ID:        existing.ID,
+				},
+			); err != nil {
+				return IntegrationTargetRecord{}, err
+			}
+			existing.RoutingRole = string(TargetFollowed)
+		}
+		return appTargetRecord(existing, app.OrgID), nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, err
+	}
+	if input.Role == TargetSelected {
+		// Profile launches create a fresh agent for each selected slot.
+		// Existing-agent launch slots are ordinary triggers and use an
+		// attribution target, never a second selection on the same agent.
+		_, err := q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
+			ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: input.AppID,
+			Kind: input.Address.Kind, Ref: input.Address.Ref,
+		})
 		if err == nil {
-			if existing.AgentID != input.AgentID || existing.DeletedAt != nil {
-				return IntegrationTargetRecord{}, storeerr.ErrConflict
-			}
-			if input.Role == TargetFollowed && existing.RoutingRole == string(TargetAttribution) {
-				if err := q.MarkConversationTargetFollowed(
-					ctx,
-					dbsqlc.MarkConversationTargetFollowedParams{
-						ProjectID: input.ProjectID,
-						AgentID:   input.AgentID,
-						ID:        existing.ID,
-					},
-				); err != nil {
-					return IntegrationTargetRecord{}, err
-				}
-				existing.RoutingRole = string(TargetFollowed)
-			}
-			return appTargetRecord(existing, app.OrgID), nil
+			return IntegrationTargetRecord{}, storeerr.ErrConflict
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return IntegrationTargetRecord{}, err
 		}
-		if input.Role == TargetSelected {
-			// Profile launches create a fresh agent for each selected slot.
-			// Existing-agent launch slots are ordinary triggers and use an
-			// attribution target, never a second selection on the same agent.
-			_, err := q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
-				ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: input.AppID,
-				Kind: input.Address.Kind, Ref: input.Address.Ref,
-			})
-			if err == nil {
-				return IntegrationTargetRecord{}, storeerr.ErrConflict
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return IntegrationTargetRecord{}, err
-			}
-		}
-		ref, err := s.targetRefGenerator(app.Provider)
-		if err != nil {
-			return IntegrationTargetRecord{}, err
-		}
-		row, err := q.InsertAppConversationTarget(ctx, dbsqlc.InsertAppConversationTargetParams{
-			ProjectID:   input.ProjectID,
-			AgentID:     input.AgentID,
-			AppID:       input.AppID,
-			Kind:        input.Address.Kind,
-			Ref:         input.Address.Ref,
-			DisplayName: strings.TrimSpace(input.DisplayName),
-			TargetRef:   ref,
-			RoutingRole: string(input.Role),
-			Slot:        storeutil.TextFromEmpty(input.SelectionSlot),
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue // A concurrent selection or the short display reference collided.
-		}
-		if err != nil {
-			return IntegrationTargetRecord{}, fmt.Errorf("create conversation target: %w", err)
-		}
-		result := appTargetRecord(dbsqlc.GetAgentConversationTargetRow(row), app.OrgID)
-		result.Created = true
-		return result, nil
 	}
-	return IntegrationTargetRecord{}, storeerr.ErrConflict
+	row, err := q.InsertAppConversationTarget(ctx, dbsqlc.InsertAppConversationTargetParams{
+		ProjectID:     input.ProjectID,
+		AgentID:       input.AgentID,
+		AppID:         input.AppID,
+		Kind:          input.Address.Kind,
+		Ref:           input.Address.Ref,
+		DisplayName:   strings.TrimSpace(input.DisplayName),
+		IsToolContext: input.IsToolContext,
+		RoutingRole:   string(input.Role),
+		Slot:          storeutil.TextFromEmpty(input.SelectionSlot),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, storeerr.ErrConflict
+	}
+	if err != nil {
+		return IntegrationTargetRecord{}, fmt.Errorf("create conversation target: %w", err)
+	}
+	result := appTargetRecord(dbsqlc.GetAgentConversationTargetRow(row), app.OrgID)
+	result.Created = true
+	return result, nil
 }
 
 func appTargetRecord(row dbsqlc.GetAgentConversationTargetRow, orgID uuid.UUID) IntegrationTargetRecord {
-	record := integrationTargetRecordFromFields(
-		row.ID,
-		orgID,
-		row.ProjectID,
-		row.AgentID,
-		row.AppID,
-		row.TargetRef,
-		row.ProviderRef,
-		row.ProviderRefKind,
-		row.DisplayName,
-		row.ProviderMetadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-	record.RoutingRole, record.DeletedAt = TargetRoutingRole(row.RoutingRole), row.DeletedAt
-	record.AppID = row.AppID
+	record := IntegrationTargetRecord{
+		ID: row.ID, OrgID: orgID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
+		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
+		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
+		RoutingRole: TargetRoutingRole(row.RoutingRole), IsToolContext: row.IsToolContext,
+		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
 	if row.SelectionSlot != nil {
 		record.SelectionSlot = *row.SelectionSlot
 	}

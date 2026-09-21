@@ -47,7 +47,19 @@ func runAppTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	}
 }
 
-// Hidden config must not hide the action's destination from an approver.
+// Deterministic scope errors must finish the call so the model can correct it.
+// Storage and runtime-ownership failures still propagate unchanged.
+func appToolPreparationFailure(err error) error {
+	content, marshalErr := structuredToolResultContent(map[string]string{
+		"code": "app_tool_failed", "message": err.Error(),
+	})
+	if marshalErr != nil {
+		return marshalErr
+	}
+	return newToolCallPreparationError(content, err)
+}
+
+// An implicit conversation must still be visible to the approver.
 func appPermissionChallenge(
 	ctx context.Context,
 	e Executor,
@@ -63,14 +75,14 @@ func appPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	description, err := access.Authority.Definition.Describe(access.Authority.Tool.Config)
+	destination, err := access.Arguments.Destination.ConversationJSON()
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
 	summary, err := json.Marshal(struct {
-		Description string          `json:"description"`
+		Destination json.RawMessage `json:"destination"`
 		Arguments   json.RawMessage `json:"arguments"`
-	}{description, call.Input})
+	}{destination, call.Input})
 	if err != nil {
 		return toolpermission.Request{}, err
 	}

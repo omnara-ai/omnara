@@ -100,7 +100,6 @@ const mcpEntry = z.strictObject({
 export type McpEntry = z.infer<typeof mcpEntry>
 
 const toolEntry = z.strictObject({
-  config: z.record(z.string(), z.json()).optional(),
   type: z.literal('built_in').optional(),
   enabled: z.boolean().nullable().optional(),
   permission: permission.optional(),
@@ -216,7 +215,6 @@ function toolDraft(name: string, entry: z.infer<typeof toolEntry>): BasicTool {
     permission: permissionDraft(entry.permission),
   }
   if (entry.deferred) draft.deferred = true
-  if (entry.config !== undefined) draft.config = entry.config
   return draft
 }
 

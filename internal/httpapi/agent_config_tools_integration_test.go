@@ -85,7 +85,7 @@ func TestResolveAgentConfigToolsWithProjectApp(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "preview-app")
 	app := createSlackHTTPApp(t, t.Context(), project, "A123", "T123", "Support")
 	name := "app__" + app.Name + "__read"
-	entry := map[string]any{"config": map[string]any{"channel_id": "C123", "thread_ts": "123.456"}}
+	entry := map[string]any{}
 	source := map[string]any{"tools": map[string]any{name: entry}}
 	preview := func(scope publicHTTPProject, status int) map[string]any {
 		t.Helper()
@@ -113,7 +113,7 @@ func TestResolveAgentConfigToolsWithProjectApp(t *testing.T) {
 	other := projectAppHTTPSecondProject(t, handler, project)
 	rejected := preview(other, http.StatusBadRequest)
 	require.Contains(t, projectAppHTTPJSON(t, rejected), "/tools/"+name)
-	entry["config"] = map[string]any{"unknown": true}
+	entry["config"] = map[string]any{"channel_id": "C123", "thread_ts": "123.456"}
 	rejected = preview(project, http.StatusBadRequest)
 	require.Contains(t, projectAppHTTPJSON(t, rejected), "/tools/"+name)
 }

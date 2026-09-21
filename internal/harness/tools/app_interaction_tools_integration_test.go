@@ -9,10 +9,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -35,13 +35,7 @@ func activateInteractionToolHandlers(
 		if key != f.Install.Name {
 			createSlackToolApp(t, ctx, f.Store, f.User.ID, key, key)
 		}
-		channel := "C123"
-		if f.Install.Provider == appdefinition.ProviderDiscord {
-			channel = "444"
-		}
-		source.InteractionHandlers[key] = agentconfig.AgentConfigAppCapabilitySource{
-			Config: map[string]any{"channel_id": channel},
-		}
+		source.InteractionHandlers[key] = agentconfig.AgentConfigAppCapabilitySource{}
 	}
 	changed, err := f.Store.Execution().ChangeAgentConfig(ctx, appToolConfigChangeInput(t, f, source))
 	require.NoError(t, err)
@@ -135,6 +129,12 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-selection", "chat", "overlap")
+	// The selected handler's app has a sending context in a different channel.
+	// Listing, explicit selection, clearing and replay remain independent of it.
+	overlap, err := f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "overlap")
+	require.NoError(t, err)
+	seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, overlap,
+		integrationstore.ConversationAddress{Kind: "thread", Ref: "C999:999.1"})
 	calls := []model.ToolCall{
 		{
 			ID:    "list-before",
@@ -142,7 +142,7 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 			Input: json.RawMessage(`{}`),
 		},
 		{ID: "set", Name: toolcatalog.ToolNameSetInteractionHandler,
-			Input: json.RawMessage(`{"handler":"overlap","args":{"thread_ts":"111.222"}}`)},
+			Input: json.RawMessage(`{"handler":"overlap","args":{"channel_id":"C123","thread_ts":"111.222"}}`)},
 		{
 			ID:    "list-after",
 			Name:  toolcatalog.ToolNameListInteractionHandlers,
@@ -169,14 +169,14 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 		require.NotNil(t, choice["input_schema"])
 	}
 	dispatchInteractionHandler(t, ctx, f, turn, calls[1])
-	selected := map[string]any{"handler": "overlap", "args": map[string]any{"thread_ts": "111.222"}}
+	selected := map[string]any{"handler": "overlap", "args": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}}
 	require.Equal(t, selected, interactionToolResult(t, ctx, f, calls[1])["selection"])
 	selection, err := f.Store.Execution().
 		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
 	require.Equal(t, "overlap", selection.HandlerKey)
 	require.NotEqual(t, uuid.Nil, selection.IntegrationTargetID)
-	require.JSONEq(t, `{"thread_ts":"111.222"}`, string(selection.Args))
+	require.JSONEq(t, `{"channel_id":"C123","thread_ts":"111.222"}`, string(selection.Args))
 	dispatchInteractionHandler(t, ctx, f, turn, calls[2])
 	page := interactionToolResult(t, ctx, f, calls[2])
 	pageHandlers, ok := page["handlers"].([]any)
@@ -207,7 +207,7 @@ func TestInteractionToolRejectsUnavailableChoiceWithoutMutation(t *testing.T) {
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-revoked", "chat")
 	call := f.recordToolCall(t, ctx, "set-revoked", toolcatalog.ToolNameSetInteractionHandler,
-		`{"handler":"chat","args":{"thread_ts":"111.222"}}`, f.Now)
+		`{"handler":"chat","args":{"channel_id":"C123","thread_ts":"111.222"}}`, f.Now)
 	// A choice discovered before config replacement cannot restore removed authority.
 	activateInteractionToolHandlers(t, ctx, f)
 	result, err := (Executor{Store: f.Store}).Dispatch(
@@ -240,7 +240,7 @@ func TestInteractionToolAlwaysAskUsesOriginalAuthorizationInput(t *testing.T) {
 		ctx,
 		"set-approved",
 		toolcatalog.ToolNameSetInteractionHandler,
-		`{"handler":"chat","args":{"thread_ts":"111.222"}}`,
+		`{"handler":"chat","args":{"channel_id":"C123","thread_ts":"111.222"}}`,
 		f.Now,
 	)
 	turn := interactionToolTurn(f, toolpermission.ModeAlwaysAsk)
@@ -295,7 +295,7 @@ func TestInteractionToolAlwaysAskUsesOriginalAuthorizationInput(t *testing.T) {
 	dispatchInteractionHandler(t, ctx, f, turn, call)
 	require.Equal(
 		t,
-		map[string]any{"handler": "chat", "args": map[string]any{"thread_ts": "111.222"}},
+		map[string]any{"handler": "chat", "args": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}},
 		interactionToolResult(t, ctx, f, call)["selection"],
 	)
 }

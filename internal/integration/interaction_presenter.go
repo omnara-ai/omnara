@@ -162,7 +162,7 @@ func DiscordInteractionScope(destination executionstore.InteractionDestination) 
 	if destination.HandlerDefinition != appdefinition.Discord {
 		return discord.Scope{}, storeerr.ErrUnauthorized
 	}
-	scope, err := appdefinition.ResolveDestination(appdefinition.ProviderDiscord, destination.Config, destination.Args)
+	scope, err := appdefinition.ResolveDestination(appdefinition.ProviderDiscord, destination.Args)
 	if err != nil {
 		return discord.Scope{}, err
 	}

@@ -79,8 +79,7 @@ func (s *Store) SelectInteractionDestinationForOriginTx(
 			continue
 		}
 		args, ok := interactionArgsForOrigin(
-			*handler.definition.InteractionHandler,
-			handler.prepared.Config,
+			handler.definition.Provider,
 			integrationstore.ConversationAddress{
 				Kind: target.ProviderRefKind,
 				Ref:  target.ProviderRef,
@@ -217,7 +216,6 @@ func listInteractionHandlers(
 	if destination != nil {
 		handler := handlers[destination.HandlerKey]
 		scope, err := handler.definition.InteractionHandler.ResolveArgs(
-			destination.Config,
 			destination.Args,
 		)
 		if err != nil {
@@ -235,8 +233,8 @@ func listInteractionHandlers(
 
 // SetInteractionHandlerForToolCall resolves the saved model-call config before
 // locking. Project/app/conversation gates precede the agent lock. Current config
-// is then compared under that lock, so a pending call cannot gain changed hidden
-// settings or a replacement app through a reused handler name.
+// is then compared under that lock, so a pending call cannot gain access to a
+// replacement app through a reused handler name.
 func SetInteractionHandlerForToolCall(
 	selection InteractionSelection,
 	completion ToolCallCompletionInput,
@@ -305,7 +303,6 @@ func SetInteractionHandlerForToolCall(
 				return nil, storeerr.InvalidRequest(err)
 			}
 			scope, err := handler.definition.InteractionHandler.ResolveArgs(
-				handler.prepared.Config,
 				selected.Args,
 			)
 			if err != nil {
@@ -497,7 +494,7 @@ func prepareInteractionHandlers(
 		if !ok || definition.Provider != app.Provider || definition.InteractionHandler == nil {
 			continue
 		}
-		prepared, err := definition.InteractionHandler.Prepare(capability.Config)
+		prepared, err := definition.InteractionHandler.Prepare()
 		if err != nil {
 			continue
 		}
@@ -573,7 +570,6 @@ func selectedInteractionDestination(
 		HandlerKey:          selection.HandlerKey,
 		AppID:               handler.appID,
 		HandlerDefinition:   handler.definition.ID,
-		Config:              handler.prepared.Config,
 		Args:                selection.Args,
 		IntegrationTargetID: target.ID,
 		Address: integrationstore.ConversationAddress{

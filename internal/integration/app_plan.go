@@ -378,8 +378,8 @@ func (r *AppRouter) buildAppPlan(
 				ProjectID:           receipt.ProjectID,
 				ProfileID:           profileID,
 				LaunchedBy:          identitystore.NewUserPrincipal(appSetup.InstalledByUserID),
-				DerivedConfig:       &derived.Config,
-				DerivedBaseConfigID: derived.BaseConfigID,
+				DerivedConfig:       &derived,
+				DerivedBaseConfigID: profile.CurrentConfig.ID,
 				Subscriptions:       []integrationstore.AppSubscriptionAttachment{subscription},
 				IdempotencyKey:      "app:" + receipt.ID.String() + ":" + key,
 				InitialInput: &executionstore.LaunchInitialInput{
@@ -397,16 +397,15 @@ func (r *AppRouter) buildAppPlan(
 				},
 			}
 			plan[key] = AppInboxSlot{
-				Sibling:        event.Sibling,
-				Scope:          event.Event.Scope,
-				EventOrder:     request.order,
-				Selection:      selection,
-				AgentID:        agentID,
-				Launch:         launch,
-				Files:          files,
-				ArtifactIDs:    appArtifactIDs(files),
-				BaseConfigID:   derived.BaseConfigID,
-				BaseConfigHash: derived.BaseConfigHash,
+				Sibling:      event.Sibling,
+				Scope:        event.Event.Scope,
+				EventOrder:   request.order,
+				Selection:    selection,
+				AgentID:      agentID,
+				Launch:       launch,
+				Files:        files,
+				ArtifactIDs:  appArtifactIDs(files),
+				BaseConfigID: profile.CurrentConfig.ID,
 			}
 			// This launch attaches exactly its source conversation. Keep a concrete
 			// route for later events in this expansion, before admission persists it.
@@ -507,9 +506,9 @@ func deriveAppLaunch(
 	base executionstore.AgentConfigRecord,
 	app integrationstore.ProjectAppRecord,
 	scope appdefinition.Scope,
-) (AppProfileDerivation, integrationstore.AppSubscriptionAttachment, error) {
-	fail := func(err error) (AppProfileDerivation, integrationstore.AppSubscriptionAttachment, error) {
-		return AppProfileDerivation{}, integrationstore.AppSubscriptionAttachment{}, err
+) (executionstore.CreateAgentConfigInput, integrationstore.AppSubscriptionAttachment, error) {
+	fail := func(err error) (executionstore.CreateAgentConfigInput, integrationstore.AppSubscriptionAttachment, error) {
+		return executionstore.CreateAgentConfigInput{}, integrationstore.AppSubscriptionAttachment{}, err
 	}
 	if base.ProjectID != app.ProjectID || app.State != integrationstore.ProjectAppStateActive {
 		return fail(storeerr.ErrUnauthorized)
@@ -534,31 +533,12 @@ func deriveAppLaunch(
 		return fail(fmt.Errorf("app has no launch subscription"))
 	}
 
-	var destination any
-	switch app.Provider {
-	case appdefinition.ProviderSlack:
-		destination = scope.Slack
-	case appdefinition.ProviderDiscord:
-		destination = scope.Discord
-	case appdefinition.ProviderGitHub:
-		destination = scope.GitHub
-	}
-	raw, err := json.Marshal(destination)
-	if err != nil {
-		return fail(err)
-	}
-	var config map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&config); err != nil {
-		return fail(err)
-	}
 	additions := agentconfig.AppCapabilitiesSource{Tools: map[string]agentconfig.AgentConfigToolSource{}}
 	for _, operation := range definition.Tools {
-		additions.Tools[toolcatalog.AppToolName(app.Name, operation)] = agentconfig.AgentConfigToolSource{Config: config}
+		additions.Tools[toolcatalog.AppToolName(app.Name, operation)] = agentconfig.AgentConfigToolSource{}
 	}
 	if definition.InteractionHandler != nil {
-		additions.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{app.Name: {Config: config}}
+		additions.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{app.Name: {}}
 	}
 	derived, err := DeriveAppProfileConfig(base, additions, agentconfig.CompileOptions{
 		ResolveAppName: func(name string) (agentconfig.AppResolution, error) {

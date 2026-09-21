@@ -23,7 +23,7 @@ func (p *SlackAppInboxProvider) PublishScheduledRoot(
 		return appdefinition.Scope{}, err
 	}
 	config.HTTPClient = slack.WithRequestCheck(config.HTTPClient, authority)
-	scope, err := appdefinition.ResolveDestination(app.Provider, launch.Destination, nil)
+	scope, err := appdefinition.ResolveDestination(app.Provider, launch.Destination)
 	if err != nil {
 		return appdefinition.Scope{}, err
 	}

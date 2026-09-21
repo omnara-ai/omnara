@@ -23,10 +23,10 @@ func TestProjectionNormalizerValidatesInteractionRouting(t *testing.T) {
 		valid       bool
 	}{
 		{name: "dashboard only", valid: true},
-		{name: "flexible handler", destination: &InteractionDestinationRef{
+		{name: "handler with destination", destination: &InteractionDestinationRef{
 			Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`),
 		}, valid: true},
-		{name: "fixed handler", destination: &InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{}`)}, valid: true},
+		{name: "opaque empty arguments", destination: &InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{}`)}, valid: true},
 		{name: "missing arguments", destination: &InteractionDestinationRef{Handler: "slack"}},
 		{name: "missing handler", destination: &InteractionDestinationRef{Args: json.RawMessage(`{}`)}},
 		{name: "malformed arguments", destination: &InteractionDestinationRef{

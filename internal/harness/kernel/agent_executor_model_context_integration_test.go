@@ -504,10 +504,8 @@ func attachKernelSlackHandler(
 	if source.InteractionHandlers == nil {
 		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigAppCapabilitySource)
 	}
-	// Runtime notices need a handler, independently of model send tools or listeners.
-	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigAppCapabilitySource{
-		Config: map[string]any{"channel_id": channel, "thread_ts": thread},
-	}
+	// Runtime notices need a handler, independently of model send tools or subscriptions.
+	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigAppCapabilitySource{}
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
 	configuredModel := currentConfiguredModelForKernelConfig(t, ctx, fixture.Store, config)
@@ -572,7 +570,9 @@ func attachKernelSlackHandler(
 	require.NoError(t, err)
 	require.Equal(t, target.ID, selection.IntegrationTargetID)
 	require.Equal(t, handlerKey, selection.HandlerKey)
-	require.JSONEq(t, `{}`, string(selection.Args))
+	expected, err := json.Marshal(map[string]string{"channel_id": channel, "thread_ts": thread})
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(selection.Args))
 	require.NoError(t, tx.Commit(ctx))
 	return botToken
 }

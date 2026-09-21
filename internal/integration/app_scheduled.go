@@ -177,10 +177,10 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	plan := AppInboxPlan{key: {
 		Scope: root, AgentID: agentID,
 		Selection:    &integrationstore.InboxAppSelection{AppID: app.ID, Address: address, Slot: key},
-		BaseConfigID: derived.BaseConfigID, BaseConfigHash: derived.BaseConfigHash,
+		BaseConfigID: base.ID,
 		Launch: &executionstore.LaunchAgentInput{
 			ProjectID: receipt.ProjectID, ProfileID: launch.ProfileID,
-			DerivedConfig: &derived.Config, DerivedBaseConfigID: derived.BaseConfigID,
+			DerivedConfig: &derived, DerivedBaseConfigID: base.ID,
 			Subscriptions:  []integrationstore.AppSubscriptionAttachment{subscription},
 			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
 			IdempotencyKey: "app:" + receipt.ID.String() + ":" + key,

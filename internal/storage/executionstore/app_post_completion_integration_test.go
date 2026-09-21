@@ -25,7 +25,7 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			f := newAppActivationFixture(t)
 			toolName := "app__chat__post_message"
-			arguments := json.RawMessage(`{"text":"Start here","follow_replies":true}`)
+			arguments := json.RawMessage(`{"channel_id":"C123","text":"Start here","follow_replies":true}`)
 			if scenario == "unsupported_tool" {
 				toolName = "app__chat__read"
 				arguments = json.RawMessage(`{}`)
@@ -57,7 +57,7 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 					ToolName: "app__chat__post_message",
 					ToolType: toolcatalog.ToolTypeBuiltIn,
 					Allowed:  true,
-					Input:    json.RawMessage(`{"text":"Another update","follow_replies":true}`),
+					Input:    json.RawMessage(`{"channel_id":"C123","text":"Another update","follow_replies":true}`),
 				},
 			})
 			claimToolCallForTest(t, f.ctx, f.store, launch.Agent.ID, ids[0], lock.ID, true)
@@ -189,7 +189,6 @@ func TestAppPostCompletionUsesOriginalSenderAndLiveApp(t *testing.T) {
 		{name: "sender_removed", allowed: true},
 		{name: "sender_denied", allowed: true},
 		{name: "sender_disabled", allowed: true},
-		{name: "sender_reconfigured", allowed: true},
 		{name: "app_disconnected"},
 		{name: "original_sender_missing"},
 		{name: "original_sender_denied"},
@@ -204,7 +203,7 @@ func TestAppPostCompletionUsesOriginalSenderAndLiveApp(t *testing.T) {
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &current))
 			name := toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage)
 			sender := original.Tools[name]
-			arguments := json.RawMessage(`{"text":"Confirmed post","follow_replies":true}`)
+			arguments := json.RawMessage(`{"channel_id":"C123","text":"Confirmed post","follow_replies":true}`)
 			switch scenario.name {
 			case "original_sender_missing":
 				delete(original.Tools, name)
@@ -215,7 +214,7 @@ func TestAppPostCompletionUsesOriginalSenderAndLiveApp(t *testing.T) {
 				sender.Enabled = false
 				original.Tools[name] = sender
 			case "follow_not_requested":
-				arguments = json.RawMessage(`{"text":"Confirmed post"}`)
+				arguments = json.RawMessage(`{"channel_id":"C123","text":"Confirmed post"}`)
 			}
 			originalDefinition := f.encodedDefinition(t, original)
 			launchInput := f.launchInput(uuid.Nil, "confirmed-before-config-edit")
@@ -256,9 +255,6 @@ func TestAppPostCompletionUsesOriginalSenderAndLiveApp(t *testing.T) {
 				current.Tools[name] = sender
 			case "sender_disabled":
 				sender.Enabled = false
-				current.Tools[name] = sender
-			case "sender_reconfigured":
-				sender.Config = json.RawMessage(`{"channel_id":"C999"}`)
 				current.Tools[name] = sender
 			}
 			current.Instruction = "Config edited after confirmation"

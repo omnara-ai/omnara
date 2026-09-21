@@ -4,7 +4,7 @@ description: Use built-in tools for web search, commands, machines, integrations
 icon: "toolbox"
 ---
 
-Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. App tools use names such as `app__engineering__post_message` and the credentials of that project [app](/integrations/apps). Their optional fixed config narrows the destination; otherwise the model can choose destinations accessible to those credentials. Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
+Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. App tools use names such as `app__engineering__post_message` and the credentials of that project [app](/integrations/apps). Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
 
 This page explains what each tool does and the inputs it accepts. To retrieve the current catalog programmatically, use [`GET /tool-catalog`](/tools/permissions#check-available-tools).
 
@@ -230,9 +230,12 @@ Existing media references remain inline so their attachments remain available to
 ## App tools
 
 Select [app tools](/integrations/apps) by qualified name, such as
-`app__engineering__post_message`. An app owns its credentials; each tool's optional
-`config` fixes settings separately from its model arguments. The credential's
-provider access, live app state and ordinary tool permission govern execution.
+`app__engineering__post_message`. An app owns its credentials. Hosted launches save
+an immutable sending conversation for each agent/app. Tools may omit destination
+arguments to use that context; supplied values must stay within it. A channel
+context permits its child threads, while a thread context stays in that thread.
+Without context, supply a complete address. Tool declarations have no hidden
+`config`. Credential access, live app state and ordinary permission govern execution.
 
 Slack and Discord offer `read` and `post_message`. GitHub offers `read`,
 `discussion_comment`, `inline_comment` and `reply`. See the provider guides for
@@ -253,8 +256,9 @@ descriptions and effective argument schemas. Its current selection is included
 independently of pagination. No configured handlers means an empty list.
 
 `set_interaction_handler` takes `{"handler":"engineering","args":{"channel_id":"C123"}}`
-when that handler permits a dynamic channel, or `{"handler":null,"args":{}}` for
-dashboard only. Fixed destination fields are omitted from `args`. The choice
+for a Slack channel, or `{"handler":null,"args":{}}` for dashboard only. Always
+supply the complete destination described by the handler's schema in `args`;
+this selection is independent of the app's sending context. The choice
 persists for future questions and approvals; existing prompts keep their captured
 destination. A new provider input can select its matching handler automatically.
 

@@ -48,8 +48,6 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 type RuntimeTool struct {
-	AppID       string
-	Config      json.RawMessage
 	Name        string
 	Type        string
 	Permission  toolpermission.Selection
@@ -229,9 +227,6 @@ func validateRuntimeTool(
 	entry toolcatalog.Entry,
 	builtInName bool,
 ) error {
-	if err := validateUnsupportedConfig(tool.Config); err != nil {
-		return fmt.Errorf("compiled tool %q: %w", name, err)
-	}
 	if tool.Type != "" && tool.Type != toolcatalog.ToolTypeBuiltIn && tool.Type != toolcatalog.ToolTypeCustom {
 		return fmt.Errorf("compiled tool %q has unsupported type", name)
 	}

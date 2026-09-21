@@ -71,19 +71,19 @@ for setup, template variables and recovery behavior.
 
 ```yaml
 tools:
-  app__support__read:
-    config:
-      guild_id: "333333333333333333"
-      channel_id: "444444444444444444"
-  app__support__post_message:
-    config:
-      guild_id: "333333333333333333"
-      channel_id: "444444444444444444"
+  app__support__read: {}
+  app__support__post_message: {}
 ```
 
 `read` supports `before` and `limit`. `post_message` takes `content` and up to 10
-`artifact_ids`. Add a fixed `thread_id` to keep a tool in one thread. Fields not
-fixed in config become model arguments; fixed fields cannot be overridden.
+`artifact_ids`. Without app-agent context, supply `channel_id` and optional
+`thread_id` on every call. A provider or scheduled launch binds the tools to the
+launch conversation: omitted destination fields use that context. A server channel
+context permits child threads in that channel; a thread context stays confined to
+that thread. Destinations outside the context are rejected. The static schema
+always includes destination arguments.
+Optional `guild_id` is verified against Discord before sending; the indexed
+conversation context does not store guild metadata.
 
 A confirmed post with `follow_replies: true` adds an app-owned subscription to its
 conversation. For an immediate subscription, send this body to the
@@ -121,9 +121,11 @@ agent interaction captures its owning app, so its answer is routed only there.
 Require successful [signed PING verification](https://docs.discord.com/developers/interactions/receiving-and-responding)
 before offering profile menus or external approvals.
 
-Select `interaction_handlers.support.config` in an agent config to expose the
-handler, optionally fixing its destination. The model can choose it with
-`set_interaction_handler`. Questions remain answerable in the dashboard if Discord
+Select `interaction_handlers: {support: {}}` in an agent config to expose the
+handler. The model chooses it with `set_interaction_handler`, supplying a complete
+`channel_id` and optional `thread_id` and `guild_id` in `args`. Sending context does
+not restrict this selection. Incoming provider input automatically selects the
+full origin address, including on launch. Questions remain answerable in the dashboard if Discord
 presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration. A bot used only for messages with one
 profile can omit the public key.

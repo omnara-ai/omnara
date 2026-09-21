@@ -1,7 +1,6 @@
 package agentconfig
 
 import (
-	"bytes"
 	"fmt"
 	"reflect"
 
@@ -14,8 +13,8 @@ type AppToolAuthority struct {
 	Definition toolcatalog.AppToolDefinition
 }
 
-// ResolveAppToolAuthority protects a pending call's immutable identity, effective
-// config and permission. Live app state/credentials still gate provider I/O.
+// ResolveAppToolAuthority protects a pending call's immutable identity and
+// permission. Live app state/credentials still gate provider I/O.
 func ResolveAppToolAuthority(
 	original, current RuntimeContract,
 	name string,
@@ -41,22 +40,10 @@ func ResolveAppToolAuthority(
 	if !ok {
 		return AppToolAuthority{}, fmt.Errorf("app does not export operation %q", operation)
 	}
-	first, err := metadata.CanonicalConfig(before.Config)
-	if err != nil {
-		return AppToolAuthority{}, err
-	}
-	second, err := metadata.CanonicalConfig(after.Config)
-	if err != nil {
-		return AppToolAuthority{}, err
-	}
-	if !bytes.Equal(first, second) {
-		return AppToolAuthority{}, fmt.Errorf("app tool config changed; submit a new call")
-	}
-	before.Config = first
 	return AppToolAuthority{Tool: before, Definition: metadata}, nil
 }
 
-// ResolveInteractionHandlerAuthority applies the same immutable-config rule to
+// ResolveInteractionHandlerAuthority applies the same immutable-identity rule to
 // pending handler-selection calls and captured prompts. It never resolves a name
 // to a replacement app. ResolveArgs performs selected-handler validation next.
 func ResolveInteractionHandlerAuthority(
@@ -76,16 +63,9 @@ func ResolveInteractionHandlerAuthority(
 	if definition.InteractionHandler == nil {
 		return PreparedAppInteractionHandler{}, fmt.Errorf("app has no interaction handler")
 	}
-	first, err := definition.InteractionHandler.Prepare(before.Config)
+	prepared, err := definition.InteractionHandler.Prepare()
 	if err != nil {
 		return PreparedAppInteractionHandler{}, err
 	}
-	second, err := definition.InteractionHandler.Prepare(after.Config)
-	if err != nil {
-		return PreparedAppInteractionHandler{}, err
-	}
-	if !bytes.Equal(first.Config, second.Config) {
-		return PreparedAppInteractionHandler{}, fmt.Errorf("interaction handler config changed")
-	}
-	return PreparedAppInteractionHandler{AppID: before.AppID, PreparedInteractionHandler: first}, nil
+	return PreparedAppInteractionHandler{AppID: before.AppID, PreparedInteractionHandler: prepared}, nil
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -90,7 +89,6 @@ func (f appActivationFixture) withSendingTools(
 	for _, operation := range []string{"post_message", "read"} {
 		compiled.Tools[toolcatalog.AppToolName(f.app.Name, operation)] = agentconfig.ToolCompiled{
 			Enabled: true, AppID: publicResourceID(publicid.KindProjectApp, f.app.ID),
-			Config:     json.RawMessage(`{"channel_id":"C123"}`),
 			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		}
 	}
@@ -164,7 +162,7 @@ func (f appActivationFixture) disable(t *testing.T) {
 }
 
 func TestAppSubscriptionsSurviveSendingToolEdits(t *testing.T) {
-	for _, change := range []string{"remove", "deny", "disable", "destination"} {
+	for _, change := range []string{"remove", "deny", "disable", "revoke"} {
 		t.Run(change, func(t *testing.T) {
 			f := newAppActivationFixture(t)
 			definition := f.withSendingTools(t, f.definition(t, "Follow replies"))
@@ -192,8 +190,8 @@ func TestAppSubscriptionsSurviveSendingToolEdits(t *testing.T) {
 				tool.Permission = toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
 			case "disable":
 				tool.Enabled = false
-			case "destination":
-				tool.Config = json.RawMessage(`{"channel_id":"C456"}`)
+			case "revoke":
+				f.disable(t)
 			}
 			compiled.Tools[name] = tool
 			if change == "remove" {
@@ -572,41 +570,60 @@ func TestAppCapabilitiesLockAppsBeforeAgentSourcesAndAgent(t *testing.T) {
 	require.Empty(t, f.subscriptions(t, launch.Agent.ID), "activating tools must not attach subscriptions")
 }
 
-func TestAppCapabilitiesRetryWhenCurrentConfigChangesDuringAppWait(t *testing.T) {
+func TestAppCapabilitiesValidateCurrentConfigAfterAppWait(t *testing.T) {
 	t.Parallel()
-	f := newAppActivationFixture(t)
-	launch, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "retry-base"))
-	require.NoError(t, err)
-	input := f.changeInput(
-		t,
-		launch.Agent.ID,
-		"Waiting change",
-		"waiting-change",
-	)
-	input.CreateAgentConfigInput = f.withSendingTools(t, input.CreateAgentConfigInput)
-	control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(
-		t,
-		dbsqlc.New(control).
-			LockProjectAppLifecycleExclusive(
-				f.ctx,
-				dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.app.ID},
-			),
-	)
-	done := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
-		return f.store.Execution().IntegrationChangeAgentConfigOnce(f.ctx, input)
-	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectAppLifecycleShared", 1)
-	_, err = f.store.Execution().
-		ChangeAgentConfig(f.ctx, f.changeInput(t, launch.Agent.ID, "Concurrent edit", "concurrent-edit"))
-	require.NoError(t, err)
-	require.NoError(t, control.Commit(f.ctx))
-	outcome := integrationdb.Await(t, done, "stale app discovery")
-	require.ErrorIs(t, outcome.Err, storeutil.ErrRetryTransaction)
-	changed, err := f.store.Execution().ChangeAgentConfig(f.ctx, input)
-	require.NoError(t, err)
-	require.NotEqual(t, launch.Agent.CurrentConfigID, changed.AgentConfig.ID)
-	require.Empty(t, f.subscriptions(t, launch.Agent.ID), "activating tools must not attach subscriptions")
+	for _, mode := range []string{"unconditional", "expected-current"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			f := newAppActivationFixture(t)
+			launch, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "concurrent-base"))
+			require.NoError(t, err)
+			input := f.changeInput(t, launch.Agent.ID, "Waiting change", "waiting-change")
+			input.CreateAgentConfigInput = f.withSendingTools(t, input.CreateAgentConfigInput)
+			if mode == "expected-current" {
+				input.ExpectedCurrentConfigID = launch.Agent.CurrentConfigID
+			}
+			control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+			require.NoError(t, dbsqlc.New(control).LockProjectAppLifecycleExclusive(
+				f.ctx, dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.app.ID},
+			))
+			done := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
+				return f.store.Execution().IntegrationChangeAgentConfigOnce(f.ctx, input)
+			})
+			integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectAppLifecycleShared", 1)
+			concurrent, err := f.store.Execution().ChangeAgentConfig(
+				f.ctx, f.changeInput(t, launch.Agent.ID, "Concurrent edit", "concurrent-edit"),
+			)
+			require.NoError(t, err)
+			require.NoError(t, control.Commit(f.ctx))
+			outcome := integrationdb.Await(t, done, "config change after concurrent edit")
+			wantConfigID, wantInputs := concurrent.AgentConfig.ID, 0
+			if mode == "expected-current" {
+				require.ErrorIs(t, outcome.Err, storeerr.ErrStateTransitionConflict)
+				var configs int
+				require.NoError(t, f.store.pool.QueryRow(f.ctx,
+					`SELECT count(*) FROM agent_configs WHERE project_id=$1 AND effective_definition_hash=$2`,
+					testProjectID, input.EffectiveDefinitionHash).Scan(&configs))
+				require.Zero(t, configs, "stale editor must roll back its config")
+			} else {
+				require.NoError(t, outcome.Err, "immutable next references need no transaction restart")
+				wantConfigID, wantInputs = outcome.Value.AgentConfig.ID, 1
+				require.Greater(t, outcome.Value.ConfigChange.Event.Sequence, concurrent.ConfigChange.Event.Sequence)
+			}
+			current, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, launch.Agent.ID)
+			require.NoError(t, err)
+			require.Equal(t, wantConfigID, current.CurrentConfigID)
+			var inputs, events int
+			require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*), count(event.id)
+				FROM agent_inputs input
+				LEFT JOIN agent_events event ON event.agent_id=input.agent_id AND event.agent_input_id=input.id
+				WHERE input.project_id=$1 AND input.agent_id=$2 AND input.input_idempotency_key=$3`,
+				testProjectID, launch.Agent.ID, input.IdempotencyKey).Scan(&inputs, &events))
+			require.Equal(t, wantInputs, inputs)
+			require.Equal(t, wantInputs, events)
+			require.Empty(t, f.subscriptions(t, launch.Agent.ID), "activating tools must not attach subscriptions")
+		})
+	}
 }
 
 func TestConfigChangeDoesNotLockSubscriptionOnlyApps(t *testing.T) {
@@ -649,7 +666,6 @@ func TestAppCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigChange(t *
 			compiled.Tools = map[string]agentconfig.ToolCompiled{
 				"app__secondary__post_message": {
 					Enabled: false, AppID: publicResourceID(publicid.KindProjectApp, secondary.ID),
-					Config:     json.RawMessage(`{"channel_id":"C123"}`),
 					Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 				},
 			}
@@ -744,7 +760,7 @@ func TestAppCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *testing.T) {
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
 			compiled.Tools = map[string]agentconfig.ToolCompiled{"app__secondary__read": {
 				Enabled: false, AppID: publicResourceID(publicid.KindProjectApp, secondary.ID),
-				Config: json.RawMessage(`{}`), Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			}}
 			definition = f.encodedDefinition(t, compiled)
 			slot := f.slots["a"]

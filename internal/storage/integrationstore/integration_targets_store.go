@@ -2,32 +2,14 @@ package integrationstore
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
-
-func newIntegrationTargetRef(provider string) (string, error) {
-	var buf [4]byte
-	if _, err := io.ReadFull(rand.Reader, buf[:]); err != nil {
-		return "", fmt.Errorf("generate integration target ref: %w", err)
-	}
-	return fmt.Sprintf("%s-%c%c%c%c", provider,
-		integrationTargetRefAlphabet[int(buf[0])%len(integrationTargetRefAlphabet)],
-		integrationTargetRefAlphabet[int(buf[1])%len(integrationTargetRefAlphabet)],
-		integrationTargetRefAlphabet[int(buf[2])%len(integrationTargetRefAlphabet)],
-		integrationTargetRefAlphabet[int(buf[3])%len(integrationTargetRefAlphabet)]), nil
-}
-
-const integrationTargetRefAlphabet = "abcdefghijklmnpqrstvwxyz23456789"
 
 func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 	ctx context.Context,
@@ -88,31 +70,45 @@ func getIntegrationTarget(
 func integrationTargetRecordFromGetSQLC(
 	row dbsqlc.GetIntegrationTargetRow,
 ) IntegrationTargetRecord {
-	return integrationTargetRecordFromFields(
-		row.ID, row.OrgID, row.ProjectID, row.AgentID, row.AppID,
-		row.TargetRef, row.ProviderRef, row.ProviderRefKind, row.DisplayName,
-		row.ProviderMetadata, row.CreatedAt, row.UpdatedAt,
-	)
+	return appTargetRecord(dbsqlc.GetAgentConversationTargetRow{
+		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
+		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
+		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
+		RoutingRole: row.RoutingRole, SelectionSlot: row.SelectionSlot, IsToolContext: row.IsToolContext,
+		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}, row.OrgID)
 }
 
-func integrationTargetRecordFromFields(
-	id, orgID, projectID, agentID, appID uuid.UUID,
-	targetRef, providerRef, providerRefKind, displayName string,
-	providerMetadata json.RawMessage,
-	createdAt, updatedAt time.Time,
-) IntegrationTargetRecord {
-	return IntegrationTargetRecord{
-		ID:               id,
-		OrgID:            orgID,
-		ProjectID:        projectID,
-		AgentID:          agentID,
-		AppID:            appID,
-		TargetRef:        targetRef,
-		ProviderRef:      providerRef,
-		ProviderRefKind:  providerRefKind,
-		DisplayName:      displayName,
-		ProviderMetadata: providerMetadata,
-		CreatedAt:        createdAt,
-		UpdatedAt:        updatedAt,
+// GetAgentAppToolContext includes retired targets: retirement cannot remove the
+// immutable destination restriction. Callers must still authorize the app/agent.
+func (s *Store) GetAgentAppToolContext(
+	ctx context.Context,
+	projectID, agentID, appID uuid.UUID,
+) (IntegrationTargetRecord, bool, error) {
+	return getAgentAppToolContext(ctx, s.q, projectID, agentID, appID)
+}
+
+func (s *Store) GetAgentAppToolContextTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID, appID uuid.UUID,
+) (IntegrationTargetRecord, bool, error) {
+	return getAgentAppToolContext(ctx, dbsqlc.New(tx), projectID, agentID, appID)
+}
+
+func getAgentAppToolContext(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID, appID uuid.UUID,
+) (IntegrationTargetRecord, bool, error) {
+	row, err := q.GetAgentAppToolContext(ctx, dbsqlc.GetAgentAppToolContextParams{
+		ProjectID: projectID, AgentID: agentID, AppID: appID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationTargetRecord{}, false, nil
 	}
+	if err != nil {
+		return IntegrationTargetRecord{}, false, fmt.Errorf("get agent app tool context: %w", err)
+	}
+	return integrationTargetRecordFromGetSQLC(dbsqlc.GetIntegrationTargetRow(row)), true, nil
 }

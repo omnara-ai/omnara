@@ -53,29 +53,28 @@ GitHub App ID. The signed installation identity routes ordinary events to each
 matching active Omnara app. Independent apps may use the same installation;
 they are not automatically merged. Configure an active app before testing ping.
 
-## Select tools for one PR
+## Select PR tools
 
 After saving the `reviews` app, select operations by qualified tool name:
 
 ```yaml
 tools:
-  app__reviews__read:
-    config: {repository_id: 123456, pull_request: 42}
+  app__reviews__read: {}
   app__reviews__discussion_comment:
     permission: {mode: always_ask}
-    config: {repository_id: 123456, pull_request: 42}
   app__reviews__inline_comment:
     permission: {mode: always_ask}
-    config: {repository_id: 123456, pull_request: 42}
   app__reviews__reply:
     permission: {mode: always_ask}
-    config: {repository_id: 123456, pull_request: 42}
 ```
 
-Use the numeric repository ID, not its owner/name. Fixed destination fields are
-not model arguments and cannot be overridden. Empty config instead lets the model
-choose a PR within the credentials' access. Access to repository contents or a
-checkout is separate machine/profile configuration.
+Use the numeric repository ID, not its owner/name. Without app-agent context,
+each tool call supplies `repository_id` and `pull_request`, for example
+`{"repository_id":123456,"pull_request":42}` for a read. A provider launch binds
+this app's tools to its PR: destination fields may be omitted or must match that
+context when supplied. Selecting a subscription does not bind the sending tools.
+The static schemas include destination and operation arguments. Access to
+repository contents or a checkout is separate machine/profile configuration.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
 `discussion_comments` or `review_comments`; lists support `page` and `limit`.

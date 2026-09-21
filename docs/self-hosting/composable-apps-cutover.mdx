@@ -25,10 +25,11 @@ fixture tests establish neither production readiness nor a fixed completion time
 - History, attribution targets and provider messages survive. Go41 replaces the
   old global send policy with qualified app tools and replaces
   `set_integration_target` with `set_interaction_handler`. Message text is unchanged.
-- Eligible old agents receive compiled-only successor configs with fixed sending
-  destinations and preserved explicit policy. Shared profiles do not acquire
-  those destinations. Archived agents, subagents and agents with no prior turn
-  are included when they have a live project, app and target.
+- Eligible old agents receive compiled-only successor configs with pinned app tools
+  and preserved explicit policy. Their exact prior sending destinations become
+  immutable app-agent tool contexts. Shared profiles do not acquire destinations.
+  Archived agents, subagents and agents with no prior turn are included when they
+  have a live project, app and target.
 - Old conversations get no subscriptions or interaction handlers. Old automatic
   prompt destinations are cleared. Plain replies in old threads do not resume
   the previous agent; a fresh mention can launch a new one. Resume old agents
@@ -48,9 +49,21 @@ four signal-agent examples’ minimum `@omnara/sdk` version to that release and
 verify them against the published package; do not substitute a raw source checkout
 for the package in their Node runtime.
 
-New configs select `app__<name>__<operation>` under `tools`, with optional fixed
-`config`. `interaction_handlers` remains a separate config block. Source configs
-have no `listeners` block. Receive subscriptions belong to apps: use launch
+New configs select `app__<name>__<operation>` under `tools`, retaining enabled state,
+deferred loading and permissions. `interaction_handlers` maps app names to `{}`.
+Catalog tools and handlers expose static `input_schema`. Captured interaction
+destinations contain complete `args`. See the [OpenAPI contract](/api-reference/openapi.yaml).
+
+Hosted and scheduled launches establish one immutable sending context per app and
+agent. Tools may omit destination fields in that context. Slack channel/DM and
+Discord server channel contexts permit child threads in that channel; thread contexts stay
+confined to that thread. GitHub context stays confined to its repository and pull
+request. Tools without context require explicit complete destinations. Handler
+selection always takes complete arguments, independently of sending context,
+while accepted provider input selects the complete origin automatically.
+Subscriptions and followed replies never establish sending context. Schedules
+keep `target.destination` in app setup.
+Source configs have no `listeners` block. Receive subscriptions belong to apps: use launch
 `subscriptions` attachments or `/apps/{appID}/subscriptions` to attach existing
 agents. Their IDs use `asub_`; catalog entries expose
 `capabilities.subscriptions[type].conversation_schema` and `.events`.

@@ -58,7 +58,7 @@ func createGitHubToolApp(
 	return app
 }
 
-// Resolve the repository by its fixed ID to a current name, then verify the PR.
+// Resolve the repository by its immutable ID to a current name, then verify the PR.
 // Each operation must reach the remaining provider endpoint with the restricted token.
 func githubToolTestServer(t *testing.T, permission string, operation http.HandlerFunc) *httptest.Server {
 	t.Helper()
@@ -112,7 +112,8 @@ func TestGitHubAppReadSections(t *testing.T) {
 		want                                    map[string]any
 	}{
 		{"default", `{}`, "", "", "", map[string]any{"number": float64(7), "title": "Review this change"}},
-		{"pull_request", `{"section":"pull_request"}`, "", "", "", map[string]any{"body": "PR context"}},
+		{"pull_request", `{"repository_id":123,"pull_request":7,"section":"pull_request"}`, "", "", "",
+			map[string]any{"body": "PR context"}},
 		{
 			"discussion_comments", `{"section":"discussion_comments","page":2,"limit":1}`,
 			"/repos/octo/renamed/issues/7/comments", `[{"id":31,"body":"discussion"}]`, "comments",
@@ -135,7 +136,9 @@ func TestGitHubAppReadSections(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
-			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-read", toolFixtureOptions{withGitHubApp: true})
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-read", toolFixtureOptions{
+				withGitHubApp: true, withToolContext: true,
+			})
 			var operationRequests atomic.Int32
 			server := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
 				operationRequests.Add(1)
@@ -180,7 +183,8 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 	for _, tt := range []struct {
 		operation, input, path, payload string
 	}{
-		{"discussion_comment", `{"body":"Review ready"}`, "/repos/octo/renamed/issues/7/comments", `{"body":"Review ready"}`},
+		{"discussion_comment", `{"repository_id":123,"pull_request":7,"body":"Review ready"}`,
+			"/repos/octo/renamed/issues/7/comments", `{"body":"Review ready"}`},
 		{
 			"inline_comment",
 			`{"body":"Fix this range","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT","start_line":7,"start_side":"RIGHT"}`,
@@ -197,7 +201,7 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 			t.Run(scenario, func(t *testing.T) {
 				ctx := t.Context()
 				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-comment", toolFixtureOptions{
-					withGitHubApp: true,
+					withGitHubApp: true, withToolContext: true,
 				})
 				if withSubscription {
 					attachToolSubscription(t, f, "pull_request", `{"repository_id":123,"pull_request":7}`, []string{"commit"})
@@ -278,7 +282,9 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
-			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-failure", toolFixtureOptions{withGitHubApp: true})
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-failure", toolFixtureOptions{
+				withGitHubApp: true, withToolContext: true,
+			})
 			var posts atomic.Int32
 			server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)

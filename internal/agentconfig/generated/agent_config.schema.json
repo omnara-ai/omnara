@@ -2,11 +2,6 @@
   "$defs": {
     "AgentConfigAppCapabilitySource": {
       "additionalProperties": false,
-      "properties": {
-        "config": {
-          "type": "object"
-        }
-      },
       "type": "object"
     },
     "AgentConfigMCPAuthSource": {
@@ -444,9 +439,6 @@
         "type": "object"
       },
       "properties": {
-        "config": {
-          "type": "object"
-        },
         "deferred": {
           "type": "boolean"
         },

@@ -78,9 +78,6 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			opts := toolFixtureOptions{withDiscordApp: true}
-			if scenario == "foreign-guild" {
-				opts.discordGuild = "333"
-			}
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "discord-scope", opts)
 			posts, threadPosts, reads := 0, 0, 0
 			thread := map[string]any{"id": "555", "parent_id": "444", "guild_id": "333", "type": 11}
@@ -160,9 +157,12 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			input := `{"content":"hello","thread_id":"555","follow_replies":true}`
+			input := `{"channel_id":"444","content":"hello","thread_id":"555","follow_replies":true}`
+			if scenario == "foreign-guild" {
+				input = `{"channel_id":"444","guild_id":"333","content":"hello","thread_id":"555","follow_replies":true}`
+			}
 			if scenario == "dm" || scenario == "new-thread-without-guild" {
-				input = `{"content":"hello","follow_replies":true}`
+				input = `{"channel_id":"444","content":"hello","follow_replies":true}`
 			}
 			call := f.recordToolCall(
 				t,
@@ -205,6 +205,63 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 				if scenario != "dm" {
 					require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
 				}
+			}
+		})
+	}
+}
+
+func TestDiscordAppReadContextAndGuildVerification(t *testing.T) {
+	for _, test := range []struct {
+		name, args string
+		allowed    bool
+	}{
+		{"omitted", `{"before":"777","limit":1}`, true},
+		{"matching", `{"channel_id":"444","guild_id":"333","before":"777","limit":1}`, true},
+		{"foreign-guild", `{"guild_id":"999","before":"777","limit":1}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "discord-read", toolFixtureOptions{
+				withDiscordApp: true, withToolContext: true,
+			})
+			reads := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v10/users/@me":
+					writeToolTestJSON(w, map[string]any{"id": "222", "bot": true})
+				case "/v10/applications/@me":
+					writeToolTestJSON(w, map[string]any{"id": "111"})
+				case "/v10/channels/444":
+					writeToolTestJSON(w, map[string]any{"id": "444", "guild_id": "333", "type": 0})
+				case "/v10/channels/444/messages":
+					reads++
+					assert.Equal(t, http.MethodGet, r.Method)
+					assert.Equal(t, "777", r.URL.Query().Get("before"))
+					assert.Equal(t, "1", r.URL.Query().Get("limit"))
+					writeToolTestJSON(w, []any{map[string]any{
+						"id": "666", "channel_id": "444", "content": "hello",
+						"author": map[string]any{"id": "888"},
+					}})
+				default:
+					t.Errorf("unexpected provider request %s", r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}))
+			defer server.Close()
+			call := f.recordToolCall(t, ctx, "read", "app__chat__read", test.args, f.Now)
+			result, err := dispatchAsyncToolToTerminal(t, ctx,
+				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+			require.NoError(t, err)
+			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+			require.NoError(t, err)
+			if test.allowed {
+				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome, string(result.ContentParts))
+				require.Equal(t, 1, reads)
+				require.Contains(t, string(result.ContentParts), "hello")
+			} else {
+				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+				require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
+				require.Zero(t, reads, "a supplied guild must be verified before reading messages")
 			}
 		})
 	}

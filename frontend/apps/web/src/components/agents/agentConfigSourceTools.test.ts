@@ -84,20 +84,20 @@ machine_sources:
     },
   )
 
-  it('retains an app tool’s fixed destination when re-enabling it and editing other fields', () => {
+  it('retains an app tool’s permission and deferral when re-enabling it and editing other fields', () => {
     const source = `${minimalYaml}tools:
   app__engineering__post_message:
     enabled: false
-    config: {channel_id: C123, thread_ts: '123.456'}
+    deferred: true
     permission: {mode: always_ask}
 `
     const config = mustDeserialize(source)
     expect(applyToSource(source, config)).toBe(source)
-    config.instruction = 'Re-enable posting to the same thread.'
+    config.instruction = 'Re-enable posting.'
     config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
     expect(parse(applyToSource(source, config))).toHaveProperty('tools', {
       app__engineering__post_message: {
-        config: { channel_id: 'C123', thread_ts: '123.456' },
+        deferred: true,
         permission: { mode: 'always_ask' },
       },
     })

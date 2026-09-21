@@ -152,7 +152,7 @@ func (f *scheduledJourney) claim() integrationstore.IntegrationInboxRecord {
 	return receipt
 }
 
-func TestScheduledLaunchHasFixedCapabilitiesWithoutMentionLauncher(t *testing.T) {
+func TestScheduledLaunchHasConversationContextWithoutMentionLauncher(t *testing.T) {
 	f := newScheduledJourney(t)
 	receipt := f.fire()
 	require.Equal(t, integrationstore.IntegrationInboxSourceScheduledLaunch, receipt.Source)
@@ -175,7 +175,14 @@ func TestScheduledLaunchHasFixedCapabilitiesWithoutMentionLauncher(t *testing.T)
 	var compiled map[string]any
 	require.NoError(t, json.Unmarshal(config.CompiledDefinition, &compiled))
 	raw := string(config.CompiledDefinition)
-	require.Contains(t, raw, "100.1")
+	require.NotContains(t, raw, "100.1", "the conversation belongs to app state, not the config")
+	context, found, err := f.store.Integrations().GetAgentAppToolContext(
+		t.Context(), f.ids.ProjectID, launched.Agent.ID, f.appID,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "C123:100.1", context.ProviderRef)
+	require.True(t, context.IsToolContext)
 	require.Contains(t, raw, "app__chat__post_message")
 	require.NotContains(t, compiled, "subscriptions")
 	subscriptions, err := f.store.Integrations().ListAppSubscriptions(

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -30,13 +29,12 @@ type InteractionSelection struct {
 	Args                json.RawMessage `json:"args"`
 }
 
-// InteractionDestination is immutable per prompt. Current handler config and
+// InteractionDestination is immutable per prompt. Current handler availability and
 // live app state must still authorize presentation and provider responses.
 type InteractionDestination struct {
 	HandlerDefinition   string                               `json:"handler_definition"`
 	HandlerKey          string                               `json:"handler_key"`
 	AppID               uuid.UUID                            `json:"app_id"`
-	Config              json.RawMessage                      `json:"config"`
 	Args                json.RawMessage                      `json:"args"`
 	IntegrationTargetID uuid.UUID                            `json:"integration_target_id"`
 	Address             integrationstore.ConversationAddress `json:"address"`
@@ -74,13 +72,10 @@ func (d InteractionDestination) validate() error {
 	if !ok || definition.InteractionHandler == nil {
 		return errors.New("interaction destination requires an app handler definition")
 	}
-	if err := validateInteractionObject(d.Config, InteractionDestinationMaxBytes); err != nil {
-		return err
-	}
 	if err := validateInteractionObject(d.Args, InteractionDestinationMaxBytes); err != nil {
 		return err
 	}
-	scope, err := definition.InteractionHandler.ResolveArgs(d.Config, d.Args)
+	scope, err := definition.InteractionHandler.ResolveArgs(d.Args)
 	if err != nil {
 		return err
 	}
@@ -89,7 +84,7 @@ func (d InteractionDestination) validate() error {
 		return err
 	}
 	if d.Address != (integrationstore.ConversationAddress{Kind: kind, Ref: ref}) {
-		return errors.New("interaction destination does not match handler config and args")
+		return errors.New("interaction destination does not match handler args")
 	}
 	return d.Address.Validate()
 }
@@ -97,7 +92,7 @@ func (d InteractionDestination) validate() error {
 func sameInteractionDestination(a, b InteractionDestination) bool {
 	return a.HandlerDefinition == b.HandlerDefinition && a.HandlerKey == b.HandlerKey &&
 		a.AppID == b.AppID && a.IntegrationTargetID == b.IntegrationTargetID && a.Address == b.Address &&
-		jsoncanonical.Equal(a.Config, b.Config) && jsoncanonical.Equal(a.Args, b.Args)
+		jsoncanonical.Equal(a.Args, b.Args)
 }
 
 func validateInteractionObject(raw json.RawMessage, limit int) error {
@@ -108,44 +103,16 @@ func validateInteractionObject(raw json.RawMessage, limit int) error {
 	return dbsafe.JSONStrings(raw)
 }
 
-// Adapt the verified storage address to the registry's typed destination. The
-// handler owns fixed-field matching and derives its remaining arguments.
+// Convert the verified origin into complete handler arguments. Sending context
+// does not constrain where the model may route an interaction.
 func interactionArgsForOrigin(
-	handler appdefinition.InteractionHandlerDefinition,
-	config json.RawMessage,
+	provider string,
 	address integrationstore.ConversationAddress,
 ) (json.RawMessage, bool) {
-	channel, thread := address.Ref, ""
-	switch address.Kind {
-	case "thread":
-		var found bool
-		channel, thread, found = strings.Cut(address.Ref, ":")
-		if !found {
-			return nil, false
-		}
-	case "channel", "dm":
-	default:
-		return nil, false
-	}
-	var scope appdefinition.Scope
-	switch handler.Provider {
-	case appdefinition.ProviderSlack:
-		scope.Slack = &appdefinition.SlackScope{ChannelID: channel, ThreadTS: thread}
-	case appdefinition.ProviderDiscord:
-		// Guild is configured context, absent from the canonical channel/thread
-		// address. Preserve it when adapting to the handler's typed destination.
-		var fixed appdefinition.DiscordConfig
-		if err := json.Unmarshal(config, &fixed); err != nil {
-			return nil, false
-		}
-		scope.Discord = &appdefinition.DiscordScope{GuildID: fixed.GuildID, ChannelID: channel, ThreadID: thread}
-	default:
-		return nil, false
-	}
-	args, err := handler.ArgsForDestination(config, scope)
+	scope, err := appdefinition.ParseConversation(provider, address.Kind, address.Ref)
 	if err != nil {
 		return nil, false
 	}
-	kind, ref, err := scope.Conversation()
-	return args, err == nil && kind == address.Kind && ref == address.Ref
+	args, err := scope.ConversationJSON()
+	return args, err == nil
 }

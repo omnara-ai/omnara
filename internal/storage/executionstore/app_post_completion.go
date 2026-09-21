@@ -164,7 +164,19 @@ func (s *Store) registerAppFollowTx(
 		follow.SubscriptionType != authority.Definition.FollowSubscription {
 		return storeerr.ErrUnauthorized
 	}
-	arguments, err := authority.Definition.ResolveArgs(authority.Tool.Config, tool.Input)
+	target, found, err := s.integrations.GetAgentAppToolContextTx(ctx, tx, tool.ProjectID, tool.AgentID, app.ID)
+	if err != nil {
+		return err
+	}
+	var conversation *appdefinition.Scope
+	if found {
+		scope, err := appdefinition.ParseConversation(app.Provider, target.ProviderRefKind, target.ProviderRef)
+		if err != nil {
+			return err
+		}
+		conversation = &scope
+	}
+	arguments, err := authority.Definition.ResolveArgs(tool.Input, conversation)
 	if err != nil || !arguments.FollowReplies {
 		return storeerr.ErrUnauthorized
 	}

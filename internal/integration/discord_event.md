@@ -54,14 +54,14 @@ without receive grants in agent config. A verified root mention can reach a
 channel subscription before its thread exists, including when the app has no
 launcher. Deleting that subscription before preparation prevents thread creation
 and input. Replies, including mentions inside threads, still require an exact
-thread subscription. A tool with a fixed parent channel does not subscribe the
+thread subscription. A sending context for a parent channel does not subscribe the
 agent to child threads. Parent/guild addresses also support explicit mention
 launcher matching.
 
-Tools and handlers have independent fixed config, with omitted destination fields
-left as runtime arguments; provider credentials remain the access boundary.
-Prompt presentation, runtime messages and signed callbacks resolve the complete
-captured handler destination, retaining any fixed guild alongside channel/thread.
+Tools use saved sending context when available, otherwise explicit arguments.
+Handlers independently take complete destinations; provider credentials remain
+the access boundary. Prompt presentation, runtime messages and signed callbacks
+resolve the captured destination, including a supplied guild alongside channel/thread.
 
 ## Media and credentials
 

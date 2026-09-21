@@ -87,13 +87,12 @@ for setup, template variables and recovery behavior.
 
 ```yaml
 tools:
-  app__engineering__read:
-    config: {channel_id: C123}
-  app__engineering__post_message:
-    config: {channel_id: C123}
+  app__engineering__read: {}
+  app__engineering__post_message: {}
 ```
 
-This agent can read and post in `C123`, but receives no messages initially. A
+This agent supplies `channel_id` and optional `thread_ts` on tool calls, and
+receives no messages initially. A
 post with `follow_replies: true` subscribes it to the confirmed conversation.
 To subscribe immediately, use the app subscriptions API with this body:
 
@@ -110,12 +109,16 @@ changing the config leaves subscriptions intact. Use **Stop forwarding** on the
 app page or the [subscriptions API](/integrations/apps#stop-forwarding) to remove one.
 
 `read` accepts `cursor` and `limit`. `post_message` accepts `text` and up to 20
-`artifact_ids`. Destination fields not fixed in config are supplied as model
-arguments; fixed fields cannot be overridden. Fix `thread_ts` alongside
-`channel_id` to keep a tool in one thread. For files in a new followed thread,
-post text first, then attach files in that thread.
+`artifact_ids`. For example, an unbound post uses
+`{"channel_id":"C123","thread_ts":"111.222333","text":"Update"}`.
+A provider or scheduled launch binds this app's tools to the launch conversation:
+omitted destination fields use that context. A channel/DM context permits child
+threads in that channel; a thread context stays confined to that thread.
+Destinations outside the context are rejected. Tool schemas stay static. For files
+in a new followed thread, post text first, then attach files in that thread.
 
-Add `interaction_handlers.engineering.config` with an optional fixed channel and
-thread to offer Slack questions and approvals. The model can choose the handler
-with `set_interaction_handler`; incoming messages from a matching conversation
-also select it automatically. The dashboard always remains available.
+Add `interaction_handlers: {engineering: {}}` to offer Slack questions and approvals.
+The model selects it with `set_interaction_handler` and complete `channel_id` plus
+optional `thread_ts` arguments, independently of sending context. Incoming provider
+messages select the handler with their full origin address automatically, including
+the first launch input. The dashboard always remains available.

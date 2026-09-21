@@ -54,8 +54,8 @@ func CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOpti
 }
 
 // DeriveWithAppCapabilities compiles only missing app capabilities into a pinned
-// base. Existing entries win completely, including disabled tools and different
-// destinations. Existing keys are removed before validation or resolution.
+// base. Existing entries win completely, including disabled tools and permissions.
+// Existing keys are removed before validation or resolution.
 // Launcher subscriptions are admitted separately by storage.
 func DeriveWithAppCapabilities(base Compiled, source AppCapabilitiesSource, opts CompileOptions) (Compiled, error) {
 	source.Tools = maps.Clone(source.Tools)

@@ -34,8 +34,9 @@ an app by its credential. Token, public-key and transport changes advance setup
 authority; unrelated metadata edits do not restart sessions.
 
 The interaction public key is the application's Ed25519 key, not the bot token or
-an HMAC secret. Pass it to `NewInteractionHandler`. Tool config fixes destination
-arguments; omitted arguments stay caller-supplied and provider-validated. The bot
+an HMAC secret. Pass it to `NewInteractionHandler`. Tools resolve destinations
+from saved sending context or explicit arguments, then validate them with the
+provider. Interaction destinations are independently selected. The bot
 credentials and provider permissions are the access boundary, not a shared
 resource-scope ACL.
 
@@ -242,7 +243,7 @@ Answer callbacks validate the signed message/channel against the captured
 interaction, then call `executionstore.ResolveAgentInteractionFromHandler`.
 That method fences the app and authenticated `SourceSetupRevision` before
 locking the agent, then checks the live handler against the captured app,
-config/arguments and destination. Profile-choice callbacks similarly verify their
+arguments and destination. Profile-choice callbacks similarly verify their
 captured owner and live setup revision before queuing one app-local inbox receipt. Commit the atomic core
 resolution before acknowledging; do not defer resolution to the Gateway inbox.
 The two-second context leaves room for Discord's three-second response deadline.

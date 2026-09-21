@@ -42,10 +42,10 @@ func TestConversationDisplayNameReusesLatestLiveLabelAcrossAgents(t *testing.T) 
 			deleted = &updated
 		}
 		f.exec(t, `INSERT INTO integration_targets
- (id,project_id,agent_id,app_id,target_ref,provider_ref_kind,provider_ref,
+ (id,project_id,agent_id,app_id,provider_ref_kind,provider_ref,
   display_name,created_at,updated_at,deleted_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10)`,
-			targetID, f.project, launch.Agent.ID, f.appID, targetID.String(), address.Kind, address.Ref,
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9)`,
+			targetID, f.project, launch.Agent.ID, f.appID, address.Kind, address.Ref,
 			name, updated, deleted)
 	}
 	// Empty and retired targets are newer but cannot hide the last useful label.

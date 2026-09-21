@@ -204,8 +204,10 @@ func TestPublicAppLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) {
 				body[key] = value
 			}
 		}, "invalid"},
-		{"bad-destination", func(body map[string]any) {
-			body["interaction_handlers"] = map[string]any{f.appName: map[string]any{"config": map[string]any{"channel_id": ""}}}
+		{"removed-handler-config", func(body map[string]any) {
+			body["interaction_handlers"] = map[string]any{
+				f.appName: map[string]any{"config": map[string]any{"channel_id": "C123"}},
+			}
 		}, "invalid"},
 	} {
 		body := f.body()
@@ -286,13 +288,13 @@ func TestPublicAppLaunchInitialInputReplay(t *testing.T) {
 }
 
 func hostedLaunchHTTPCapabilities(appName, appID string) map[string]any {
-	fixed := map[string]any{"channel_id": "C123", "thread_ts": "123.456"}
+	conversation := map[string]any{"channel_id": "C123", "thread_ts": "123.456"}
 	return map[string]any{
-		"tools": map[string]any{toolcatalog.AppToolName(appName, toolcatalog.AppOperationRead): map[string]any{"config": fixed}},
+		"tools": map[string]any{toolcatalog.AppToolName(appName, toolcatalog.AppOperationRead): map[string]any{}},
 		"subscriptions": []any{map[string]any{
-			"app_id": appID, "type": "thread_messages", "conversation": fixed, "events": []string{"message"},
+			"app_id": appID, "type": "thread_messages", "conversation": conversation, "events": []string{"message"},
 		}},
-		"interaction_handlers": map[string]any{appName: map[string]any{"config": fixed}},
+		"interaction_handlers": map[string]any{appName: map[string]any{}},
 	}
 }
 

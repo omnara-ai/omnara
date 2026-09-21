@@ -279,6 +279,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 			} else {
 				input, err := json.Marshal(map[string]any{
 					"text":         "here is the report",
+					"channel_id":   "C123",
 					"artifact_ids": artifactIDs,
 					"thread_ts":    "111.222",
 				})

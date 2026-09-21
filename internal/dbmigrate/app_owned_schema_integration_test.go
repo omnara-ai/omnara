@@ -19,6 +19,15 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
+	var obsolete bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT
+        EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+            AND table_name='integration_targets' AND column_name='target_ref')
+        OR EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public'
+            AND indexname='integration_targets_agent_target_ref_idx')
+        OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='integration_targets'::regclass
+            AND pg_get_constraintdef(oid) LIKE '%target_ref%')`).Scan(&obsolete))
+	require.False(t, obsolete, "database-only aliases and their constraints are removed")
 	ids := storagefixture.ProjectIDs{
 		OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),

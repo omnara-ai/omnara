@@ -52,7 +52,7 @@ tools:
 				id, err := publicid.Decode(publicid.KindProjectApp, tool.AppID)
 				require.NoError(t, err)
 				require.Equal(t, app.id, id.String())
-				require.JSONEq(t, `{}`, string(tool.Config))
+				require.NotContains(t, string(updated.compiled), `"config"`)
 			}
 			_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, "", updated.hash)
 			require.NoError(t, err)
@@ -73,7 +73,7 @@ tools:
 	}
 }
 
-func TestSlackSendingSuccessorScopesOnlyThatAgentsTargets(t *testing.T) {
+func TestSlackSendingSuccessorPinsAppsAndPreservesPoliciesWithoutDestinationConfig(t *testing.T) {
 	appID, firstTarget, secondTarget := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	for _, policy := range []string{
 		`{}`, `{"send_integration_message":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}}}}`,
@@ -113,8 +113,12 @@ func TestSlackSendingSuccessorScopesOnlyThatAgentsTargets(t *testing.T) {
 					require.Equal(t, original["send_integration_message"].Deferred, tool.Deferred)
 				}
 			}
-			require.NotContains(t, string(first), "D456")
-			require.NotContains(t, string(second), "C123")
+			require.JSONEq(t, string(first), string(second), "destinations now belong to immutable target contexts")
+			for _, raw := range [][]byte{first, second} {
+				require.NotContains(t, string(raw), `"config"`)
+				require.NotContains(t, string(raw), "D456")
+				require.NotContains(t, string(raw), "C123")
+			}
 			require.Equal(t, `{"instruction":"Review","tools":`+policy+`}`, string(original))
 		})
 	}
@@ -290,7 +294,7 @@ func TestSlackAppMigrationOmitsDeletedAppPoliciesFromSourceAndCanonicalConfig(t 
 						id, err := live.publicID()
 						require.NoError(t, err)
 						require.Equal(t, id, tool.AppID)
-						require.JSONEq(t, `{}`, string(tool.Config))
+						require.NotContains(t, string(updated.compiled), `"config"`)
 					}
 				}
 				_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, "", updated.hash)

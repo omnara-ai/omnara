@@ -382,17 +382,16 @@ it.each([
   ['Always ask', 'always_ask'],
   ['Always deny', 'always_deny'],
 ])(
-  'preserves a fixed app destination and %s permission through disable and re-enable',
+  'preserves app tool deferral and %s permission through disable and re-enable',
   async (label, mode) => {
     const name = 'app__engineering__post_message'
-    const config = { channel_id: 'C123', thread_ts: '123.456' }
     const appCatalog = {
       ...includedCatalog,
       built_in_tools: [
         ...includedCatalog.built_in_tools,
         {
           name,
-          description: 'Post to the selected Slack thread.',
+          description: 'Post a Slack message.',
           implicit: true,
           ...alwaysAllowProfile,
         },
@@ -402,7 +401,7 @@ it.each([
       <IncludedToolsHarness
         catalog={appCatalog}
         source={`${includedSource}  ${name}:
-    config: {channel_id: C123, thread_ts: '123.456'}
+    deferred: true
 `}
       />,
     )
@@ -411,12 +410,12 @@ it.each([
     await selectIncludedPermission(name, 'Disabled')
     expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
       ['tools', name],
-      { config, enabled: false, permission: { mode } },
+      { deferred: true, enabled: false, permission: { mode } },
     )
     await selectIncludedPermission(name, label)
     expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
       web_search: { permission: { mode: 'always_ask' } },
-      [name]: { config, permission: { mode } },
+      [name]: { deferred: true, permission: { mode } },
     })
   },
 )

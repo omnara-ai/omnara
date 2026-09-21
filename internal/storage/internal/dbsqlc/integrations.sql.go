@@ -51,9 +51,69 @@ func (q *Queries) DeleteIntegrationTargets(ctx context.Context, arg DeleteIntegr
 	return err
 }
 
+const getAgentAppToolContext = `-- name: GetAgentAppToolContext :one
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
+FROM integration_targets target
+JOIN projects project ON project.id = target.project_id
+WHERE target.project_id = $1
+  AND target.agent_id = $2
+  AND target.app_id = $3
+  AND target.is_tool_context
+`
+
+type GetAgentAppToolContextParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	AppID     uuid.UUID
+}
+
+type GetAgentAppToolContextRow struct {
+	ID               uuid.UUID
+	OrgID            uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	AppID            uuid.UUID
+	ProviderRef      string
+	ProviderRefKind  string
+	DisplayName      string
+	ProviderMetadata json.RawMessage
+	RoutingRole      string
+	SelectionSlot    *string
+	IsToolContext    bool
+	DeletedAt        *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// A retired context remains binding. Live app/agent authorization belongs to
+// the caller; never treat retirement or disconnection as unrestricted sending.
+func (q *Queries) GetAgentAppToolContext(ctx context.Context, arg GetAgentAppToolContextParams) (GetAgentAppToolContextRow, error) {
+	row := q.db.QueryRow(ctx, getAgentAppToolContext, arg.ProjectID, arg.AgentID, arg.AppID)
+	var i GetAgentAppToolContextRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.AppID,
+		&i.ProviderRef,
+		&i.ProviderRefKind,
+		&i.DisplayName,
+		&i.ProviderMetadata,
+		&i.RoutingRole,
+		&i.SelectionSlot,
+		&i.IsToolContext,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getIntegrationTarget = `-- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.target_ref, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = $1
@@ -72,11 +132,13 @@ type GetIntegrationTargetRow struct {
 	ProjectID        uuid.UUID
 	AgentID          uuid.UUID
 	AppID            uuid.UUID
-	TargetRef        string
 	ProviderRef      string
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
+	RoutingRole      string
+	SelectionSlot    *string
+	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -91,11 +153,13 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 		&i.ProjectID,
 		&i.AgentID,
 		&i.AppID,
-		&i.TargetRef,
 		&i.ProviderRef,
 		&i.ProviderRefKind,
 		&i.DisplayName,
 		&i.ProviderMetadata,
+		&i.RoutingRole,
+		&i.SelectionSlot,
+		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

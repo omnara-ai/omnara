@@ -103,11 +103,16 @@ agent slots. One profile launches immediately; several offer a selection menu.
 
 Select tools and interaction handlers independently in agent configurations:
 tools use keys such as `app__engineering__post_message`, and interaction handlers
-use `engineering`. Incoming subscriptions belong to the app and are attached via
+use `engineering: {}`. Tool entries accept permissions, enabled state and deferral.
+Runtime destinations come from app-agent context for provider/scheduled launches
+or explicit tool arguments when unbound. Handler selection always supplies a
+complete destination independently.
+Incoming subscriptions belong to the app and are attached via
 launch requests or the app subscriptions API; configs have no `listeners` block.
 `apps get` and `apps definitions` show `capabilities.subscriptions`, whose local
-type names map to `conversation_schema` and supported `events`. A launcher adds its provider's fixed capability bundle to
-future agents; editing settings does not rewrite existing agents.
+type names map to `conversation_schema` and supported `events`. Tools and handlers
+expose static `input_schema`. A launcher adds its provider's missing tools and
+handler to future agents; editing settings does not rewrite existing agents.
 
 ```sh
 omnara apps disconnect "$APP_ID"

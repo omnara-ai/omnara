@@ -194,9 +194,9 @@ func TestInboxRecoveryDiscardRejectsRetainedTargets(t *testing.T) {
 			)
 			require.NoError(t, err)
 			f.exec(t, `INSERT INTO integration_targets
- (project_id,agent_id,app_id,target_ref,provider_ref_kind,provider_ref,
+ (project_id,agent_id,app_id,provider_ref_kind,provider_ref,
   routing_role,selection_slot,deleted_at,created_at,updated_at)
- VALUES($1,$2,$3,'retained','thread','C123:1.2','selected','a',
+ VALUES($1,$2,$3,'thread','C123:1.2','selected','a',
   CASE WHEN $4 THEN now() ELSE NULL END,now(),now())`,
 				f.project, launch.Agent.ID, selection.AppID, retired)
 			require.ErrorIs(

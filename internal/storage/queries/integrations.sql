@@ -25,13 +25,25 @@ WHERE agent.project_id = sqlc.arg(project_id)
   );
 
 -- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.target_ref, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.deleted_at, target.created_at, target.updated_at
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = sqlc.arg(project_id)
   AND target.id = sqlc.arg(id)
   AND target.deleted_at IS NULL;
+
+-- A retired context remains binding. Live app/agent authorization belongs to
+-- the caller; never treat retirement or disconnection as unrestricted sending.
+-- name: GetAgentAppToolContext :one
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
+FROM integration_targets target
+JOIN projects project ON project.id = target.project_id
+WHERE target.project_id = sqlc.arg(project_id)
+  AND target.agent_id = sqlc.arg(agent_id)
+  AND target.app_id = sqlc.arg(app_id)
+  AND target.is_tool_context;
 
 -- name: UpdateIntegrationTargetDisplayNamesByProviderRefPrefix :execrows
 UPDATE integration_targets

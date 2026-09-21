@@ -76,3 +76,8 @@ and retry — don't skip ahead.
    browser for me to approve before expires_at. Once approved, tell me to
    invite the bot to a channel in that workspace and @-mention it to start a
    conversation, or DM it for a persistent one-on-one agent.
+
+For an existing native Slack deployment, use the coordinated maintenance cutover
+at https://docs.omnara.com/self-hosting/composable-apps-cutover before this setup.
+It preserves prior sending scopes as app-agent context and does not create
+subscriptions or interaction handlers for old conversations.

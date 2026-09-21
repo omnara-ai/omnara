@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestScheduledLaunchPreservesFlexibleToolsAndSuppliesReplyContext(t *testing.T) {
+func TestScheduledLaunchPreservesToolsAndSavesReplyContext(t *testing.T) {
 	for _, provider := range []string{appdefinition.ProviderSlack, appdefinition.ProviderDiscord} {
 		t.Run(provider, func(t *testing.T) {
 			f := newScheduledProviderJourney(t, provider)
@@ -24,10 +24,8 @@ func TestScheduledLaunchPreservesFlexibleToolsAndSuppliesReplyContext(t *testing
 			require.NoError(t, err)
 			source := base.Source + `
 tools:
-  app__chat__read:
-    config: {}
-  app__chat__post_message:
-    config: {}
+  app__chat__read: {}
+  app__chat__post_message: {}
 `
 			compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
 				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
@@ -62,8 +60,17 @@ tools:
 			var actual agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(actualConfig.CompiledDefinition, &actual))
 			for _, name := range []string{"app__chat__read", "app__chat__post_message"} {
-				require.Equal(t, compiled.Compiled.Tools[name], actual.Tools[name], "explicit flexible tool stays intact")
+				require.Equal(t, compiled.Compiled.Tools[name], actual.Tools[name], "explicit tool policy stays intact")
 			}
+			target, found, err := f.store.Integrations().GetAgentAppToolContext(
+				t.Context(), f.ids.ProjectID, launched.Agent.ID, f.appID,
+			)
+			require.NoError(t, err)
+			require.True(t, found)
+			kind, ref, err := f.provider.root.Conversation()
+			require.NoError(t, err)
+			require.Equal(t, kind, target.ProviderRefKind)
+			require.Equal(t, ref, target.ProviderRef)
 			var blocks []struct {
 				Text     string            `json:"text"`
 				Metadata map[string]string `json:"metadata"`

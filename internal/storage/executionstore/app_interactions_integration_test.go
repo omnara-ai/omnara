@@ -60,12 +60,10 @@ func newAppInteractionFixture(t *testing.T) appInteractionFixture {
 	)
 	f.handlers = map[string]agentconfig.AppCapabilityCompiled{
 		"chat": {
-			AppID:  publicResourceID(publicid.KindProjectApp, f.app.ID),
-			Config: json.RawMessage(`{"channel_id":"C123"}`),
+			AppID: publicResourceID(publicid.KindProjectApp, f.app.ID),
 		},
 		"other": {
-			AppID:  publicResourceID(publicid.KindProjectApp, f.otherApp.ID),
-			Config: json.RawMessage(`{"channel_id":"C456"}`),
+			AppID: publicResourceID(publicid.KindProjectApp, f.otherApp.ID),
 		},
 	}
 	f.change(t, f.handlers)
@@ -364,7 +362,7 @@ func TestAppInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 			return executionstore.SetInteractionHandlerForToolCall(
 				executionstore.InteractionSelection{
 					HandlerKey: key,
-					Args:       json.RawMessage(`{"thread_ts":"111.222"}`),
+					Args:       json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
 				},
 				executionstore.ToolCallCompletionInput{
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
@@ -393,7 +391,7 @@ func TestAppInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 
 func TestAppInteractionsRevocationPreservesDashboardAndSnapshot(t *testing.T) {
 	t.Parallel()
-	for _, revoke := range []string{"handler removed", "scope removed", "app disconnected"} {
+	for _, revoke := range []string{"handler removed", "app disconnected"} {
 		t.Run(revoke, func(t *testing.T) {
 			t.Parallel()
 			f := newAppInteractionFixture(t)
@@ -402,11 +400,6 @@ func TestAppInteractionsRevocationPreservesDashboardAndSnapshot(t *testing.T) {
 			switch revoke {
 			case "handler removed":
 				delete(f.handlers, "chat")
-				f.change(t, f.handlers)
-			case "scope removed":
-				handler := f.handlers["chat"]
-				handler.Config = json.RawMessage(`{"channel_id":"C789"}`)
-				f.handlers["chat"] = handler
 				f.change(t, f.handlers)
 			case "app disconnected":
 				f.disable(t)

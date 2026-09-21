@@ -36,12 +36,7 @@ func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	// Successors must read the original send policy before shared/historical
-	// configs drop enabled legacy entries. Both writes commit atomically.
-	if err := migrateSlackAgentTools(ctx, tx); err != nil {
-		return err
-	}
-	return rewriteSlackAppConfigs(ctx, tx, apps)
+	return migrateSlackAgentTools(ctx, tx, apps)
 }
 
 type appCutoverConfig struct {
@@ -267,7 +262,6 @@ func rewriteSlackToolKeys(root map[string]any, apps []slackCutoverApp, compiled 
 					if err != nil {
 						return false, err
 					}
-					tool["config"] = map[string]any{}
 				}
 				tools[app.toolName()] = tool
 			}
@@ -418,24 +412,21 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 		if err != nil {
 			return nil, err
 		}
-		config := map[string]any{}
 		switch target.kind {
 		case "dm", "channel":
 			if !slackCutoverChannel.MatchString(target.ref) {
 				return nil, fmt.Errorf("invalid Slack target %s address %q", target.id, target.ref)
 			}
-			config["channel_id"] = target.ref
 		case "thread":
 			channel, timestamp, found := strings.Cut(target.ref, ":")
 			if !found || !slackCutoverChannel.MatchString(channel) || !slackCutoverTimestamp.MatchString(timestamp) {
 				return nil, fmt.Errorf("invalid Slack target %s", target.id)
 			}
-			config["channel_id"], config["thread_ts"] = channel, timestamp
 		default:
 			return nil, fmt.Errorf("unsupported Slack target %s kind %q", target.id, target.kind)
 		}
 		sending := maps.Clone(tool)
-		sending["app_id"], sending["config"] = appID, config
+		sending["app_id"] = appID
 		tools[app.toolName()] = sending
 	}
 	return json.Marshal(root)
@@ -495,7 +486,7 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx) error {
+func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]slackCutoverApp) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT agent.id::text, agent.current_config_id::text, config.compiled_definition::text,
 		       target.id::text, app.id::text, app.name, target.provider_ref_kind, target.provider_ref
@@ -546,6 +537,23 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	// Capture original send policies above before historical configs drop enabled
+	// legacy entries. Rewrite those configs before inserting successors: without
+	// hidden destinations a successor can equal a rewritten historical config,
+	// and the existing hash-based insertion must reuse that row. All changes,
+	// context designation and activation events still commit atomically.
+	if err := rewriteSlackAppConfigs(ctx, tx, apps); err != nil {
+		return err
+	}
+	// These exact targets formerly supplied each successor's fixed tool config.
+	// Designation is migration-only; routing roles remain attribution so a new
+	// mention can still launch through the app. Restore the guard before commit.
+	if _, err := tx.ExecContext(
+		ctx,
+		`ALTER TABLE integration_targets DISABLE TRIGGER integration_targets_tool_context_immutable`,
+	); err != nil {
+		return err
+	}
 	for _, agent := range agents {
 		compiled, err := slackSendingSuccessor(agent.compiled, agent.targets)
 		if err != nil {
@@ -590,6 +598,19 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx) error {
 		if err := activateSlackSuccessor(ctx, tx, agent.agentID, configID); err != nil {
 			return err
 		}
+		for _, target := range agent.targets {
+			if _, err := tx.ExecContext(
+				ctx, `UPDATE integration_targets SET is_tool_context=true WHERE id=$1::uuid`, target.id,
+			); err != nil {
+				return fmt.Errorf("designate Slack tool context %s: %w", target.id, err)
+			}
+		}
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`ALTER TABLE integration_targets ENABLE TRIGGER integration_targets_tool_context_immutable`,
+	); err != nil {
+		return err
 	}
 	// Previous target pointers were also automatic prompt destinations. Keep the
 	// targets as history, without inferring handlers or app subscriptions from them.

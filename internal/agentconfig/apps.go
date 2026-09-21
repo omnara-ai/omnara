@@ -1,7 +1,6 @@
 package agentconfig
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,12 +11,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-type AgentConfigAppCapabilitySource struct {
-	Config map[string]any `json:"config,omitempty"`
-}
+type AgentConfigAppCapabilitySource struct{}
 type AppCapabilityCompiled struct {
-	AppID  string          `json:"app_id"`
-	Config json.RawMessage `json:"config,omitempty"`
+	AppID string `json:"app_id"`
 }
 
 // AppResolution supplies compile/preparation metadata. Definition is never persisted in a
@@ -50,12 +46,6 @@ func cacheAppResolver(opts CompileOptions) CompileOptions {
 	return opts
 }
 
-func sourceConfig(config map[string]any) (json.RawMessage, error) {
-	if config == nil {
-		return json.RawMessage(`{}`), nil
-	}
-	return json.Marshal(config)
-}
 func compileAppTool(name string, source AgentConfigToolSource, opts CompileOptions) (ToolCompiled, error) {
 	appName, operation, ok := toolcatalog.SplitAppToolName(name)
 	if !ok {
@@ -75,15 +65,7 @@ func compileAppTool(name string, source AgentConfigToolSource, opts CompileOptio
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "app does not export operation %q", operation)
 	}
-	raw, err := sourceConfig(source.Config)
-	if err != nil {
-		return ToolCompiled{}, issueOr(jsonPointer("tools", name, "config"), err)
-	}
-	config, err := definition.CanonicalConfig(raw)
-	if err != nil {
-		return ToolCompiled{}, issueOr(jsonPointer("tools", name, "config"), err)
-	}
-	entry, err := definition.Prepare(name, config)
+	entry, err := definition.Prepare(name)
 	if err != nil {
 		return ToolCompiled{}, issueOr(jsonPointer("tools", name), err)
 	}
@@ -96,7 +78,6 @@ func compileAppTool(name string, source AgentConfigToolSource, opts CompileOptio
 	}
 	return ToolCompiled{
 		AppID:      app.AppID,
-		Config:     config,
 		Enabled:    source.Enabled == nil || *source.Enabled,
 		Permission: permission,
 		Deferred:   source.Deferred,
@@ -120,15 +101,7 @@ func compileAppCapabilities(source AgentConfigSource, opts CompileOptions, compi
 		if definition.InteractionHandler == nil {
 			return issuef(jsonPointer(field, name), "app does not export an interaction handler")
 		}
-		raw, err := sourceConfig(source.InteractionHandlers[name].Config)
-		if err != nil {
-			return issueOr(jsonPointer(field, name, "config"), err)
-		}
-		prepared, err := definition.InteractionHandler.Prepare(raw)
-		if err != nil {
-			return issueOr(jsonPointer(field, name, "config"), err)
-		}
-		compiled.InteractionHandlers[name] = AppCapabilityCompiled{AppID: app.AppID, Config: prepared.Config}
+		compiled.InteractionHandlers[name] = AppCapabilityCompiled{AppID: app.AppID}
 	}
 	return nil
 }

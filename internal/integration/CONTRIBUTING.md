@@ -26,21 +26,19 @@ Agent source attaches capabilities independently. For an app named `support`:
 ```yaml
 tools:
   app__support__read: {}
-  app__support__post_message:
-    config:
-      channel_id: C123
+  app__support__post_message: {}
 interaction_handlers:
   support: {}
 ```
 
-Compilation resolves the immutable name to a public project-app ID and freezes
-that ID plus each capability's config. Runtime lookup uses the pinned app's
-registered definition. Name reuse cannot retarget existing compiled configs.
-Tool config fixes hidden destination arguments and removes them from the model's
-argument schema; omitted destinations stay explicit model arguments. Fixed
-arguments cannot be overridden. Config is not a generic destination ACL:
-provider credentials are the access boundary, with ordinary tool permissions,
-project grants and provider checks still enforced at execution.
+Compilation resolves the immutable name to a public project-app ID. Runtime lookup
+uses that pinned app's registered definition; name reuse cannot retarget it.
+Tool schemas are static. Hosted launch admission saves one immutable sending
+conversation per agent/app on its target. Calls can omit that destination or
+supply matching fields; a channel context permits threads inside that channel,
+while a thread context remains confined to that thread. Without context, callers
+supply a complete address. Provider credentials remain the access boundary,
+with ordinary tool permissions, project grants and provider checks at execution.
 
 A tool grants no receive authority. App-owned subscriptions connect agents to a
 named subscription type, one concrete `conversation` and resolved `events`.
@@ -49,7 +47,8 @@ launchers attach their conversation atomically. An explicitly requested
 `follow_replies` attaches a subscription only after an authorized, confirmed post.
 No receive grant belongs in config. Removing tools or changing config preserves
 subscriptions; deleting a subscription stops its forwarding. Interaction handlers
-remain separate optional capabilities with fixed config and runtime arguments.
+remain separate optional capabilities with complete runtime destination arguments,
+independent of the sending context.
 
 ## Reuse an existing provider
 
@@ -67,7 +66,7 @@ For a new operation, extend the definition's exported tool list in
 Reuse `resolveAppToolAccess` and `recheckAppToolAccess` so the original proposed
 config, current config, active app, setup revision and credential version all
 remain part of execution authority. Approval descriptions must show the effective
-destination even when its arguments are hidden by config.
+destination even when the call relies on saved conversation context.
 
 For new incoming events, extend normalization in `<provider>_event.go` (Slack uses
 `app_slack.go`) and the definition's event/subscription contracts. Launcher trigger
@@ -79,7 +78,7 @@ the public catalog and config schemas; do not create per-capability catalog rows
 
 | Responsibility | Location |
 | --- | --- |
-| Exported tools, named subscription types, optional handler, typed config and concrete addresses | `internal/appdefinition` |
+| Exported tools, named subscription types, optional handler and concrete addresses | `internal/appdefinition` |
 | HTTP/socket clients, signatures, protocol validation and bounded retries | `internal/integration/<provider>/` |
 | Verified receipt expansion into ordinary agent input | `internal/integration/<provider>_event.go` |
 | Tool schemas and qualified execution | `internal/toolcatalog`, `internal/harness/tools` |
@@ -131,7 +130,7 @@ edits must not bounce those sessions.
 
 Implement `InteractionPresenter` support only when the provider can present and
 answer existing forms. Extend delivery discovery and provider presentation,
-dismissal and callback handling. Capture handler key, app ID, config, arguments
+dismissal and callback handling. Capture handler key, app ID, arguments
 and the concrete destination. Handler discovery alone creates no target;
 selection/presentation uses current authority. Failed presentation leaves the
 core interaction answerable through dashboard/API. GitHub intentionally has no
@@ -149,13 +148,14 @@ preparation; see [discord_event.md](discord_event.md) and
 [discord/README.md](discord/README.md).
 
 A GitHub mention or PR-open event selects the configured launcher. The derived
-config supplies fixed repository/PR tool arguments; its separate `pull_request`
-subscription freezes the conversation and definition default events.
+config supplies its tools, while admission saves the repository/PR as sending
+context. Its separate `pull_request` subscription freezes the conversation and
+definition default events.
 Human comments steer/cancel open interactions; commits queue. Inline comment IDs
 and diff coordinates stay in tools. Repository checkout remains machine/profile
 setup. See [github_event.md](github_event.md).
 
-Test the changed boundary: protocol/normalization, fixed and flexible tools,
+Test the changed boundary: protocol/normalization, context-bound and explicit-destination tools,
 subscription attachment, deletion and event filtering, captured callbacks, and
 inbox-to-agent replay. Include independent apps sharing a physical identity,
 cross-project isolation, revoked

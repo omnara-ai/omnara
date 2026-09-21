@@ -3,7 +3,7 @@
 Apps are reviewed code contributions shipped with Omnara. `Lookup` in
 [`definition.go`](definition.go) describes Slack, GitHub and Discord. Saved project
 apps own setup and credentials and reference one immutable definition. This
-package contains pure metadata, typed config validation and provider addresses;
+package contains pure metadata, concrete address validation and provider addresses;
 it performs no storage reads or provider I/O.
 
 A definition exports operation names, named `SubscriptionDefinition` entries and at
@@ -11,16 +11,22 @@ most one `InteractionHandlerDefinition`. GitHub has no interaction handler.
 Tools and handlers remain independent; explicit `follow_replies` on an authorized
 post can establish an app-owned subscription after confirmed publication. Launchers are configured separately in project setup.
 
-Provider destination fields use `SlackConfig`, `GitHubConfig` and `DiscordConfig`.
-All are optional hidden settings: omitted required destination fields remain
-model arguments. `CanonicalDestinationConfig`, `DestinationArguments` and
-`ResolveDestination` enforce the provider's closed typed contract. Fixed values
-cannot be supplied again as model arguments. `DestinationDescription` formats
-only validated provider IDs for model/UI/approval use. A fixed Slack `thread_ts`
-or Discord `thread_id` requires a fixed `channel_id`; a fixed GitHub
-`pull_request` requires `repository_id`. Parent-only configs remain valid.
-Discord `guild_id` is optional even for a fixed channel/thread, and a guild-only
-config leaves the channel and thread as arguments.
+Provider addresses use `SlackScope`, `GitHubScope` and `DiscordScope` inside a
+`Scope`. `DestinationProperties(provider)` returns static address fields and the
+required fields for a complete destination. `ResolveDestination(provider, args)`
+validates that complete, closed address. Slack and Discord require `channel_id`;
+GitHub requires `repository_id` and `pull_request`. Discord `guild_id` is optional
+metadata; provider execution verifies it when supplied. Scheduled launches keep
+concrete destination setup in app/trigger config and accept only parent channels.
+
+Tools have static schemas with optional destination arguments. At execution,
+`toolcatalog.AppToolDefinition.ResolveArgs(raw, context)` uses an immutable
+conversation context when present: omitted fields inherit the context and
+supplied fields must stay within it. A Slack channel/DM or Discord server channel context permits
+threads inside that channel; a thread context remains confined to that thread.
+GitHub context remains exact to its repository and pull request. Without context,
+arguments must supply a complete destination. Indexed Discord context lacks guild
+metadata, so a supplied guild remains available for live provider verification.
 
 Subscriptions take one flat provider `conversation` object and optional top-level
 `events`. `SubscriptionDefinition.ConversationSchema()` describes the address;
@@ -45,10 +51,11 @@ Completed tool replay cannot restore a detached route. A confirmed in-flight
 post may establish a subscription after detach while preserving its original
 sender provenance. App disconnection suspends delivery without deleting routes.
 
-Interaction handlers prepare a safe description and effective destination schema.
-`ResolveArgs` validates selection; `ArgsForDestination` derives arguments from
-verified input origin, rejecting mismatches with fixed config. Storage/runtime
-own persistent selection, prompt capture and authenticated callbacks.
+Interaction handlers are independent of sending context. `Prepare()` exposes a
+static complete-address schema; `ResolveArgs(args)` validates the selected
+address. Verified input origins provide full arguments through
+`Scope.ConversationJSON()`. Storage/runtime own persistent selection, prompt
+capture and authenticated callbacks; the dashboard remains available.
 
 Operation schemas and implementations of the pure tool preparation contract live
 in `internal/toolcatalog`. Transports belong to `internal/integration`; provider

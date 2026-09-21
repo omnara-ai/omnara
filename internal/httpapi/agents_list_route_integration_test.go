@@ -502,7 +502,7 @@ func seedListAgentsSlackTarget(
 	derived, err := agentconfigcompile.DeriveAppConfig(ctx, store, project.OrgUUID, project.ProjectUUID,
 		agentconfig.CompileOptions{}, base, agentconfig.AppCapabilitiesSource{
 			InteractionHandlers: map[string]agentconfig.AgentConfigAppCapabilitySource{
-				install.Name: {Config: map[string]any{"channel_id": "C0BAK8REEGY"}},
+				install.Name: {},
 			},
 		})
 	require.NoError(t, err)

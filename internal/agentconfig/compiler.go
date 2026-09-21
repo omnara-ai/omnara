@@ -109,7 +109,6 @@ type MachineSourceCompiled struct {
 
 type ToolCompiled struct {
 	AppID       string                   `json:"app_id,omitempty"`
-	Config      json.RawMessage          `json:"config,omitempty"`
 	Enabled     bool                     `json:"enabled"`
 	Type        string                   `json:"type,omitempty"`
 	Permission  toolpermission.Selection `json:"permission"`

@@ -41,15 +41,11 @@ func appCapabilitiesResponse(id string) (openapi.AppCapabilities, error) {
 		if !ok {
 			return result, fmt.Errorf("unknown app tool %s/%s", id, operation)
 		}
-		config, err := tool.ConfigSchema()
+		prepared, err := tool.Prepare(toolcatalog.AppToolName("app", operation))
 		if err != nil {
 			return result, err
 		}
-		prepared, err := tool.Prepare(toolcatalog.AppToolName("app", operation), nil)
-		if err != nil {
-			return result, err
-		}
-		entry, err := appCapabilityResponse(config, prepared.InputSchema, tool.Description)
+		entry, err := appCapabilityResponse(prepared.InputSchema, prepared.Description)
 		if err != nil {
 			return result, err
 		}
@@ -67,15 +63,11 @@ func appCapabilitiesResponse(id string) (openapi.AppCapabilities, error) {
 		result.Subscriptions[name] = entry
 	}
 	if handler := definition.InteractionHandler; handler != nil {
-		config, err := handler.ConfigSchema()
+		prepared, err := handler.Prepare()
 		if err != nil {
 			return result, err
 		}
-		prepared, err := handler.Prepare(nil)
-		if err != nil {
-			return result, err
-		}
-		entry, err := appCapabilityResponse(config, prepared.InputSchema, prepared.Description)
+		entry, err := appCapabilityResponse(prepared.InputSchema, prepared.Description)
 		if err != nil {
 			return result, err
 		}
@@ -84,15 +76,10 @@ func appCapabilitiesResponse(id string) (openapi.AppCapabilities, error) {
 	return result, nil
 }
 
-func appCapabilityResponse(config, input json.RawMessage, description string) (openapi.AppCapabilityDefinition, error) {
+func appCapabilityResponse(input json.RawMessage, description string) (openapi.AppCapabilityDefinition, error) {
 	var result openapi.AppCapabilityDefinition
-	if err := json.Unmarshal(config, &result.ConfigSchema); err != nil {
+	if err := json.Unmarshal(input, &result.InputSchema); err != nil {
 		return result, err
-	}
-	if len(input) > 0 {
-		if err := json.Unmarshal(input, &result.InputSchema); err != nil {
-			return result, err
-		}
 	}
 	if description != "" {
 		result.Description = &description

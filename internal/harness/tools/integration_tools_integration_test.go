@@ -863,8 +863,7 @@ type toolFixtureOptions struct {
 	withDiscordApp   bool
 	withGitHubApp    bool
 	githubPermission string
-	discordGuild     string
-	slackChannel     string
+	withToolContext  bool
 	slackPermission  string
 }
 
@@ -938,6 +937,17 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	} else if fixtureOptions.withGitHubApp {
 		address = integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#7"}
 	}
+	origin := &executionstore.LaunchInputOrigin{AppID: install.ID, Address: address}
+	actor := &executionstore.ActorParams{
+		Provider: install.Provider, ProviderTenantID: install.ProviderTenantID, ProviderUserID: "U_FIXTURE",
+	}
+	if fixtureOptions.withToolContext {
+		// Context is inserted once below. Ordinary attribution must never be
+		// promoted to context or implicitly restrict a model's destinations.
+		origin = nil
+		actor, err = executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(user.ID))
+		require.NoError(t, err)
+	}
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -949,13 +959,8 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 			InitialInput: &executionstore.LaunchInitialInput{
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
 				SemanticEventKey: "tools-integration-input-" + label,
-				Actor: &executionstore.ActorParams{
-					Provider: install.Provider, ProviderTenantID: install.ProviderTenantID, ProviderUserID: "U_FIXTURE",
-				},
-				Origin: &executionstore.LaunchInputOrigin{
-					AppID:   install.ID,
-					Address: address,
-				},
+				Actor:            actor,
+				Origin:           origin,
 			},
 		},
 	)
@@ -964,6 +969,9 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	agent := launch.Agent
 	target := launch.IntegrationTarget
+	if fixtureOptions.withToolContext {
+		target = seedToolContext(t, ctx, pool, store, agent, install, address)
+	}
 	input := launch.AgentInput
 	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, toolsTestClaimInput())
 	if err != nil {
@@ -997,13 +1005,12 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	require.NoError(t, json.Unmarshal(launch.AgentConfig.CompiledDefinition, &compiled))
 	appID, err := publicid.Encode(publicid.KindProjectApp, install.ID)
 	require.NoError(t, err)
-	prepared, err := agentconfig.PrepareAppCapabilities(compiled, map[string]agentconfig.AppResolution{
+	prepared, err := agentconfig.PrepareAppTools(compiled, map[string]agentconfig.AppResolution{
 		appID: {AppID: appID, Definition: install.DefinitionID},
 	})
 	require.NoError(t, err)
-	require.Empty(t, prepared.Unavailable)
 	appTools := map[string]ToolSpec{}
-	for _, tool := range prepared.Tools {
+	for _, tool := range prepared {
 		appTools[tool.Name] = ToolSpec{
 			Type: tool.Type, Permission: tool.Permission, InputSchema: tool.InputSchema,
 			Description: tool.Description, Deferred: tool.Deferred,
@@ -1024,6 +1031,26 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		WithMCP:            withMCP,
 		AppTools:           appTools,
 	}
+}
+
+// seedToolContext inserts a new immutable binding before fixture workers start.
+// It never promotes attribution or rewrites recorded model arguments.
+func seedToolContext(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, store *storage.Store,
+	agent executionstore.AgentRecord, app integrationstore.ProjectAppRecord,
+	address integrationstore.ConversationAddress,
+) integrationstore.IntegrationTargetRecord {
+	t.Helper()
+	_, err := pool.Exec(ctx, `INSERT INTO integration_targets
+(project_id, agent_id, app_id, provider_ref_kind, provider_ref, is_tool_context, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, true, now(), now())`,
+		agent.ProjectID, agent.ID, app.ID, address.Kind, address.Ref)
+	require.NoError(t, err)
+	target, found, err := store.Integrations().GetAgentAppToolContext(ctx, agent.ProjectID, agent.ID, app.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.True(t, target.IsToolContext)
+	return target
 }
 
 func (f *integrationToolFixture) turn() Turn {
@@ -1201,25 +1228,12 @@ tools:
       parameters: {}
 `
 	if fixtureOptions.withSlackApp || fixtureOptions.withDiscordApp {
-		channel := fixtureOptions.slackChannel
-		if channel == "" {
-			channel = "C123"
-		}
-		if fixtureOptions.withDiscordApp {
-			channel = "444"
-		}
-		config := map[string]any{"channel_id": channel}
-		if fixtureOptions.discordGuild != "" {
-			config["guild_id"] = fixtureOptions.discordGuild
-		}
-		raw, err := json.Marshal(config)
-		require.NoError(t, err)
 		permission := fixtureOptions.slackPermission
 		if permission == "" {
 			permission = toolpermission.ModeAlwaysAllow
 		}
-		sourceYAML += "  app__chat__read:\n    config: " + string(raw) + "\n" +
-			"  app__chat__post_message:\n    permission: {mode: " + permission + "}\n    config: " + string(raw) + "\n"
+		sourceYAML += "  app__chat__read: {}\n" +
+			"  app__chat__post_message:\n    permission: {mode: " + permission + "}\n"
 	}
 	if fixtureOptions.withGitHubApp {
 		permission := fixtureOptions.githubPermission
@@ -1227,8 +1241,7 @@ tools:
 			permission = toolpermission.ModeAlwaysAllow
 		}
 		for _, operation := range []string{"read", "discussion_comment", "inline_comment", "reply"} {
-			sourceYAML += "  app__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n" +
-				"    config: {repository_id: 123, pull_request: 7}\n"
+			sourceYAML += "  app__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
 	}
 	if withMCP {

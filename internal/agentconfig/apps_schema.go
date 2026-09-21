@@ -7,7 +7,7 @@ import (
 
 func addAppSourceSchema(schema *kjsonschema.Schema) {
 	schema.Defs["AgentConfigAppCapabilitySource"] = kjsonschema.Object(
-		kjsonschema.Prop("config", kjsonschema.Object()), kjsonschema.AdditionalProps(false),
+		kjsonschema.AdditionalProps(false),
 	)
 	(*schema.Properties)["interaction_handlers"] = kjsonschema.Object(
 		kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.AppNamePattern))),

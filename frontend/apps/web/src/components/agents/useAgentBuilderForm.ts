@@ -480,6 +480,5 @@ export function toolWire(tool: BasicTool): ToolEntry {
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   if (tool.deferred) wire.deferred = true
-  if (tool.config !== undefined) wire.config = tool.config
   return wire
 }
